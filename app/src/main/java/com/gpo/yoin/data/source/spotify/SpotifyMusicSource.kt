@@ -21,9 +21,15 @@ import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 
 class SpotifyMusicSource(
@@ -42,6 +48,8 @@ class SpotifyMusicSource(
     authService: SpotifyAuthService = SpotifyAuthService(httpClient),
     val profileId: String? = null,
     rateLimitGate: SpotifyRateLimitGate? = null,
+    apiBaseUrl: HttpUrl = "https://${SpotifyAuthConfig.API_HOST}/".toHttpUrl(),
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : MusicSource {
 
     private val apiClient = SpotifyApiClient(
@@ -51,6 +59,7 @@ class SpotifyMusicSource(
         clientIdProvider = clientIdProvider,
         onCredentialsRefreshed = onCredentialsPersisted,
         onCredentialsRevoked = onCredentialsRevoked,
+        apiBaseUrl = apiBaseUrl,
         rateLimitGate = rateLimitGate,
         rateLimitProfileId = profileId,
     )
@@ -59,11 +68,16 @@ class SpotifyMusicSource(
 
     override val capabilities: Set<Capability> = ServiceFeatureCatalog.spotify.capabilities
 
-    private var savedTracksCache: List<SpotifySavedTrackObject>? = null
-    private var savedAlbumsCache: List<SpotifySavedAlbumObject>? = null
-    private var playlistsCache: List<SpotifyPlaylistObject>? = null
-    private var followedArtistsCache: List<SpotifyArtistObject>? = null
-    private val playlistTrackOffsetsById = mutableMapOf<String, List<Int>>()
+    // Library lists, each read by one request at a time and kept until
+    // invalidateLibraryCaches (the library sync) or a write that changes it.
+    private val savedTracksCache = SingleFlightValue<List<SpotifySavedTrackObject>>()
+    private val savedAlbumsCache = SingleFlightValue<List<SpotifySavedAlbumObject>>()
+    private val playlistsCache = SingleFlightValue<List<SpotifyPlaylistObject>>()
+    private val followedArtistsCache = SingleFlightValue<List<SpotifyArtistObject>>()
+    private val savedTrackDelta = SavedTrackDelta(clock)
+    private val recentlyPlayedCache =
+        SingleFlightValue<List<SpotifyPlayHistoryObject>>(RECENTLY_PLAYED_MAX_AGE_MS, clock)
+    private val playlistTrackOffsetsById = ConcurrentHashMap<String, List<Int>>()
 
     /** The signed-in account's Spotify profile picture, if it has one. */
     suspend fun profilePictureUrl(): String? = apiClient.getMe().avatarUrl
@@ -74,14 +88,13 @@ class SpotifyMusicSource(
             return true
         }
 
-        // recently-played tracks' albums, newest first, once each.
-        override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> {
-            val savedAlbumIds = savedAlbumIds()
-            return apiClient.getRecentlyPlayed(limit = 50)
-                .mapNotNull { play -> play.track?.album?.toAlbum(savedAlbumIds = savedAlbumIds) }
-                .distinctBy { it.id }
-                .take(size.coerceAtLeast(0))
-        }
+        // recently-played tracks' albums, newest first, once each. Shares its
+        // one request with Home's Activities (getRecentlyPlayed). The shelf
+        // shows no saved state, so the saved-albums list isn't read for it.
+        override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> = recentlyPlayed()
+            .mapNotNull { play -> play.track?.album?.toAlbum() }
+            .distinctBy { it.id }
+            .take(size.coerceAtLeast(0))
 
         override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
             val albums = savedAlbums()
@@ -98,41 +111,43 @@ class SpotifyMusicSource(
             return mapped.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
         }
 
+        // No savedAlbumIds(): neither the album page nor anything else reads
+        // an album's own saved state from here — it cost up to 4 pages cold.
         override suspend fun getAlbum(id: MediaId): Album? = withSpotifyId(id) { rawId ->
-            val savedAlbumIds = savedAlbumIds()
-            val savedTrackIds = savedTrackIds()
-            val album = runCatching { apiClient.getAlbum(rawId) }
-                .getOrElse { error ->
-                    if (error.isSpotifyNotFound()) return@withSpotifyId null
-                    throw error
-                }
-            val tracks = apiClient.getAlbumTracks(rawId)
-            album.toAlbum(
-                savedAlbumIds = savedAlbumIds,
-                savedTrackIds = savedTrackIds,
-                tracksOverride = tracks,
-            )
+            supervisorScope {
+                val savedTrackIds = async { savedTrackIds() }
+                val album = orNullIfNotFound { apiClient.getAlbum(rawId) }
+                    ?: return@supervisorScope cancelAndReturnNull()
+                // The album object embeds its first page of tracks: usually all of them.
+                val tracks = apiClient.getAlbumTracks(rawId, firstPage = album.tracks)
+                album.toAlbum(
+                    savedTrackIds = savedTrackIds.await(),
+                    tracksOverride = tracks,
+                )
+            }
         }
 
         override suspend fun getArtists(): List<ArtistIndex> =
             libraryArtists().toArtistIndices()
 
+        // Releases carry no saved state (the artist page never shows one), so
+        // no savedAlbumIds(); the artist, its releases and the follow list
+        // are read side by side.
         override suspend fun getArtist(id: MediaId): ArtistDetail? = withSpotifyId(id) { rawId ->
-            val savedAlbumIds = savedAlbumIds()
-            val followedArtistIds = followedArtistIds()
-            val artist = runCatching { apiClient.getArtist(rawId) }
-                .getOrElse { error ->
-                    if (error.isSpotifyNotFound()) return@withSpotifyId null
-                    throw error
-                }
-            val albums = apiClient.getArtistAlbums(rawId)
-                .distinctBy(SpotifySimplifiedAlbumObject::id)
-                .map { it.toAlbum(savedAlbumIds = savedAlbumIds) }
-                .sortedWith(compareByDescending<Album> { it.year ?: Int.MIN_VALUE }.thenBy { it.name.lowercase() })
-            artist.toArtistDetail(
-                albums = albums,
-                isStarred = rawId in followedArtistIds,
-            )
+            supervisorScope {
+                val followedArtistIds = async { followedArtistIds() }
+                val releases = async { apiClient.getArtistAlbums(rawId) }
+                val artist = orNullIfNotFound { apiClient.getArtist(rawId) }
+                    ?: return@supervisorScope cancelAndReturnNull()
+                val albums = releases.await()
+                    .distinctBy(SpotifySimplifiedAlbumObject::id)
+                    .map { it.toAlbum() }
+                    .sortedWith(compareByDescending<Album> { it.year ?: Int.MIN_VALUE }.thenBy { it.name.lowercase() })
+                artist.toArtistDetail(
+                    albums = albums,
+                    isStarred = rawId in followedArtistIds.await(),
+                )
+            }
         }
 
         override suspend fun getPlaylists(): List<Playlist> {
@@ -143,23 +158,23 @@ class SpotifyMusicSource(
         }
 
         override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
-            val savedTrackIds = savedTrackIds()
-            val meId = apiClient.getCurrentUserId()
-            val playlist = runCatching { apiClient.getPlaylist(rawId) }
-                .getOrElse { error ->
-                    if (error.isSpotifyNotFound()) {
-                        playlistTrackOffsetsById.remove(rawId)
-                        return@withSpotifyId null
-                    }
-                    throw error
+            supervisorScope {
+                val savedTrackIds = async { savedTrackIds() }
+                val meId = async { apiClient.getCurrentUserId() }
+                val playlist = orNullIfNotFound { apiClient.getPlaylist(rawId) }
+                if (playlist == null) {
+                    playlistTrackOffsetsById.remove(rawId)
+                    return@supervisorScope cancelAndReturnNull()
                 }
-            val indexedTracks = apiClient.getPlaylistItems(rawId)
-                .toTracksWithPlaylistOffsets(savedTrackIds = savedTrackIds)
-            playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
-            playlist.toPlaylist(
-                tracks = indexedTracks.map { it.second },
-                canWrite = playlist.owner?.id == meId,
-            )
+                // Starts from the first page the playlist object embeds, when it does.
+                val indexedTracks = apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
+                    .toTracksWithPlaylistOffsets(savedTrackIds = savedTrackIds.await())
+                playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
+                playlist.toPlaylist(
+                    tracks = indexedTracks.map { it.second },
+                    canWrite = playlist.owner?.id == meId.await(),
+                )
+            }
         }
 
         override suspend fun getStarred(): Starred {
@@ -217,7 +232,8 @@ class SpotifyMusicSource(
             } else {
                 apiClient.removeFromLibrary(uri)
             }
-            savedTracksCache = null
+            // Laid over the cached saved-tracks list rather than dropping it.
+            savedTrackDelta.record(rawId, favorite)
         }
 
         override suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> =
@@ -225,7 +241,7 @@ class SpotifyMusicSource(
                 val rawId = requireSpotify(id).rawId
                 apiClient.setArtistFollowed(rawId, followed)
                 // Re-derive follow state on the next artist read.
-                followedArtistsCache = null
+                followedArtistsCache.invalidate()
             }
 
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> =
@@ -236,7 +252,7 @@ class SpotifyMusicSource(
             description: String?,
         ): Result<Playlist> = runCatching {
             val created = apiClient.createPlaylist(name = name, description = description)
-            playlistsCache = null
+            playlistsCache.invalidate()
             // Freshly-created playlists are owned by the caller → canWrite = true.
             created.toPlaylist(canWrite = true)
         }
@@ -248,7 +264,7 @@ class SpotifyMusicSource(
         ): Result<Unit> = runCatching {
             val rawId = requireSpotify(id).rawId
             apiClient.renamePlaylist(id = rawId, name = name, description = description)
-            playlistsCache = null
+            playlistsCache.invalidate()
         }
 
         override suspend fun deletePlaylist(id: MediaId): Result<Unit> = runCatching {
@@ -257,7 +273,7 @@ class SpotifyMusicSource(
             // it from /me/playlists, which is the product-level "delete".
             apiClient.unfollowPlaylist(rawId)
             playlistTrackOffsetsById.remove(rawId)
-            playlistsCache = null
+            playlistsCache.invalidate()
         }
 
         override suspend fun addTracksToPlaylist(
@@ -269,7 +285,7 @@ class SpotifyMusicSource(
             val uris = tracks.map { "spotify:track:${requireSpotify(it).rawId}" }
             val snapshot = apiClient.addTracksToPlaylist(id = rawId, uris = uris)
             playlistTrackOffsetsById.remove(rawId)
-            playlistsCache = null
+            playlistsCache.invalidate()
             snapshot
         }
 
@@ -296,7 +312,7 @@ class SpotifyMusicSource(
                 snapshotId = snapshotId,
             )
             playlistTrackOffsetsById.remove(rawId)
-            playlistsCache = null
+            playlistsCache.invalidate()
             newSnapshot
         }
     }
@@ -369,9 +385,13 @@ class SpotifyMusicSource(
         apiClient.transferPlayback(deviceId = deviceId, play = play)
     }
 
-    /** Recently played tracks (newest first) for the Spotify activity feed. */
+    /**
+     * Recently played tracks (newest first) for the Spotify activity feed.
+     * Home loads this and its Recently Played shelf together; both are served
+     * by one request, kept [RECENTLY_PLAYED_MAX_AGE_MS].
+     */
     suspend fun getRecentlyPlayed(limit: Int): List<SpotifyPlayHistoryObject> =
-        apiClient.getRecentlyPlayed(limit = limit)
+        recentlyPlayed().take(limit.coerceAtLeast(0))
 
     /**
      * Translate the visible row index in Yoin's filtered playlist view back
@@ -394,24 +414,42 @@ class SpotifyMusicSource(
         is CoverRef.SourceRelative -> null
     }
 
-    private suspend fun savedTracks(): List<SpotifySavedTrackObject> =
-        savedTracksCache ?: apiClient.getSavedTracks().also { savedTracksCache = it }
+    private suspend fun savedTracks(): List<SpotifySavedTrackObject> = savedTracksCache.get {
+        val readCheckpoint = savedTrackDelta.checkpoint()
+        apiClient.getSavedTracks().also { saved ->
+            savedTrackDelta.reconcile(saved.mapNotNullTo(HashSet()) { it.track?.id }, readCheckpoint)
+        }
+    }
 
     private suspend fun savedAlbums(): List<SpotifySavedAlbumObject> =
-        savedAlbumsCache ?: apiClient.getSavedAlbums().also { savedAlbumsCache = it }
+        savedAlbumsCache.get { apiClient.getSavedAlbums() }
 
     private suspend fun currentUserPlaylists(): List<SpotifyPlaylistObject> =
-        playlistsCache ?: apiClient.getCurrentUserPlaylists().also { playlistsCache = it }
+        playlistsCache.get { apiClient.getCurrentUserPlaylists() }
 
     private suspend fun followedArtists(): List<SpotifyArtistObject> =
-        followedArtistsCache ?: apiClient.getFollowedArtists().also { followedArtistsCache = it }
+        followedArtistsCache.get { apiClient.getFollowedArtists() }
 
-    /** Drops in-memory library caches so the next read pulls fresh network data. */
+    private suspend fun recentlyPlayed(): List<SpotifyPlayHistoryObject> =
+        recentlyPlayedCache.get { apiClient.getRecentlyPlayed(limit = RECENTLY_PLAYED_LIMIT) }
+
+    /**
+     * Whether a like or unlike written through this source still waits for a
+     * saved-tracks read made after it; until then only the saved ids carry
+     * it, not the cached list's tracks.
+     */
+    fun hasUnsettledFavoriteWrites(): Boolean = savedTrackDelta.isUnsettled()
+
+    /**
+     * Drops in-memory library caches so the next read pulls fresh network
+     * data. Likes written since stay laid over the re-read saved tracks until
+     * that read reflects them (see [SavedTrackDelta]).
+     */
     fun invalidateLibraryCaches() {
-        savedTracksCache = null
-        savedAlbumsCache = null
-        playlistsCache = null
-        followedArtistsCache = null
+        savedTracksCache.invalidate()
+        savedAlbumsCache.invalidate()
+        playlistsCache.invalidate()
+        followedArtistsCache.invalidate()
         playlistTrackOffsetsById.clear()
     }
 
@@ -433,8 +471,10 @@ class SpotifyMusicSource(
         artists.await()
     }
 
-    private suspend fun savedTrackIds(): Set<String> =
-        savedTracks().mapNotNullTo(linkedSetOf()) { savedTrack -> savedTrack.track?.id }
+    private suspend fun savedTrackIds(): Set<String> {
+        val listed = savedTracks().mapNotNullTo(linkedSetOf()) { savedTrack -> savedTrack.track?.id }
+        return savedTrackDelta.applyTo(listed)
+    }
 
     private suspend fun savedAlbumIds(): Set<String> =
         savedAlbums().mapNotNullTo(linkedSetOf()) { savedAlbum -> savedAlbum.album?.id }
@@ -512,8 +552,25 @@ class SpotifyMusicSource(
     private fun Throwable.isSpotifyNotFound(): Boolean =
         this is SpotifyAuthException && code == HTTP_NOT_FOUND
 
+    private suspend fun <T> orNullIfNotFound(fetch: suspend () -> T): T? = runCatching { fetch() }.getOrElse { error ->
+        if (error.isSpotifyNotFound()) null else throw error
+    }
+
+    /**
+     * Stops the reads started beside a lookup that found nothing. Detail
+     * reads run them in a supervisorScope, so one that fails anyway (a
+     * missing artist's releases 404 too) doesn't turn the null into its
+     * error: a side read's failure only surfaces where it is awaited.
+     */
+    private fun CoroutineScope.cancelAndReturnNull(): Nothing? {
+        coroutineContext.cancelChildren()
+        return null
+    }
+
     companion object {
         private const val HTTP_NOT_FOUND = 404
+        private const val RECENTLY_PLAYED_LIMIT = 50
+        private const val RECENTLY_PLAYED_MAX_AGE_MS = 30_000L
 
         private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)

@@ -26,6 +26,7 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -48,13 +49,7 @@ class AppleMusicSource(
     private val api: AppleMusicApiClient = AppleMusicApiClient(tokenProvider::token, { credentials.musicUserToken })
 ) : MusicSource, MusicLibrary, MusicMetadata, MusicWriteActions, MusicPlayback {
     override val id = MediaId.PROVIDER_APPLE_MUSIC
-    override val capabilities = setOf(
-        Capability.SEARCH,
-        Capability.CATALOG_SEARCH,
-        Capability.LIBRARY_ADD,
-        Capability.LIBRARY_SONGS,
-        Capability.PLAYLISTS_READ
-    )
+    override val capabilities: Set<Capability> = ServiceFeatureCatalog.appleMusic.capabilities
 
     @Volatile var playbackDeveloperToken: String = ""
         private set
@@ -241,7 +236,7 @@ class AppleMusicSource(
         durationSec = tracks.sumOf { it.durationSec ?: 0 }
     )
 
-    override suspend fun getArtists(): List<ArtistIndex> = all(path("artists")).map(::artist)
+    override suspend fun getArtists(): List<ArtistIndex> = all(path("artists"), PageLimitQuery).map(::artist)
         .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
         .map { (letter, artists) -> ArtistIndex(letter, artists) }
 
@@ -249,7 +244,8 @@ class AppleMusicSource(
         val path = path("artists", id)
         val resource = page(path).resources().firstOrNull() ?: return null
         val artist = artist(resource)
-        val albums = all(path + "albums").map(::album)
+        // The albums relationship pages 25 by default, 100 at most.
+        val albums = all(path + "albums", PageLimitQuery).map(::album)
         return ArtistDetail(artist.id, artist.name, albums.size, artist.coverArt, albums = albums)
     }
 
@@ -482,3 +478,6 @@ class AppleMusicSource(
 
 /** recent/played pages (10 each) read at most: Apple keeps only a short history anyway. */
 private const val RecentPlayedMaxPages = 5
+
+/** Apple's largest page for library collections and the artist albums relationship (default 25). */
+private val PageLimitQuery = mapOf("limit" to "100")

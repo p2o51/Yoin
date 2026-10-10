@@ -491,7 +491,16 @@ class YoinRepository(
                 genre = null,
                 userRating = null,
                 isStarred = favorite,
-            )).copy(isStarred = favorite, addedAt = existing?.addedAt)
+            )).copy(
+                isStarred = favorite,
+                // A new like goes to the top of the saved-tracks list (it sorts
+                // by addedAt, newest first), where Spotify files it too.
+                addedAt = if (favorite && existing?.isSaved != true) {
+                    spotifyAddedAt(now)
+                } else {
+                    existing?.addedAt
+                }
+            )
 
             dao.upsertTrack(
                 optimistic.toSpotifyLibraryTrackCache(
@@ -2519,6 +2528,9 @@ class YoinRepository(
 
     private fun parseSpotifyPlayedAt(raw: String?): Long =
         raw?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: clock()
+
+    /** [epochMs] in Spotify's `added_at` form ("2026-10-10T03:12:45Z"), which sorts as text. */
+    private fun spotifyAddedAt(epochMs: Long): String = Instant.ofEpochSecond(epochMs.floorDiv(1_000L)).toString()
 
     suspend fun getRecentMemoryActivities(limit: Int = 48): List<ActivityEvent> {
         val provider = activeSource.value?.id ?: return emptyList()

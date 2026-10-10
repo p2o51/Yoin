@@ -129,7 +129,12 @@ class AppleMusicApiClient(
         return libraryId
     }
 
-    /** All request paths are constructed by this provider, never by a cover or external URL. */
+    /**
+     * All request paths are constructed by this provider, never by a cover or external URL.
+     * A [next] link keeps [query]'s parameters it leaves out: Apple's links carry the offset
+     * but not always `limit` or `include`, and without them later pages shrink to the default
+     * size or lose their relationships.
+     */
     suspend fun resourcePage(
         segments: List<String>,
         personal: Boolean,
@@ -142,7 +147,7 @@ class AppleMusicApiClient(
         val target = if (next == null) {
             initial
         } else {
-            requireNotNull(baseUrl.resolve(next)).also {
+            val link = requireNotNull(baseUrl.resolve(next)).also {
                 require(
                     it.scheme == baseUrl.scheme && it.host == baseUrl.host && it.port == baseUrl.port &&
                         it.username.isEmpty() && it.password.isEmpty() && it.encodedPath == initial.encodedPath
@@ -150,6 +155,11 @@ class AppleMusicApiClient(
                     "Invalid Apple Music pagination link"
                 }
             }
+            link.newBuilder().apply {
+                query.forEach { (key, value) ->
+                    if (link.queryParameter(key) == null) addQueryParameter(key, value)
+                }
+            }.build()
         }
         return get(target, personal)
     }

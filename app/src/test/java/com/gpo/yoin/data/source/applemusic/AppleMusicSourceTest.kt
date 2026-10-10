@@ -427,6 +427,42 @@ class AppleMusicSourceTest {
         assertEquals(4, server.requestCount)
     }
 
+    @Test fun should_keepPageLimit_when_followingArtistAlbumsNextLink() = runTest {
+        reply("""{"data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Artist"}}]}""")
+        reply(
+            """{
+              "data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}],
+              "next":"/v1/me/library/artists/r.1/albums?offset=100"
+            }"""
+        )
+        reply("""{"data":[{"id":"l.2","type":"library-albums","attributes":{"name":"Two"}}]}""")
+        val artist = source.getArtist(MediaId("applemusic", "library:r.1"))!!
+        assertEquals(listOf("library:l.1", "library:l.2"), artist.albums.map { it.id.rawId })
+        assertEquals("/v1/me/library/artists/r.1", server.takeRequest().requestUrl!!.encodedPath)
+        val first = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/artists/r.1/albums", first.encodedPath)
+        assertEquals("100", first.queryParameter("limit"))
+        val second = server.takeRequest().requestUrl!!
+        assertEquals("100", second.queryParameter("offset"))
+        // Apple's link carries only the offset; the page size must not fall back to 25.
+        assertEquals(listOf("100"), second.queryParameterValues("limit"))
+    }
+
+    @Test fun should_keepPageLimit_when_followingLibraryArtistsNextLink() = runTest {
+        reply(
+            """{
+              "data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}],
+              "next":"/v1/me/library/artists?offset=100&limit=100"
+            }"""
+        )
+        reply("""{"data":[{"id":"r.2","type":"library-artists","attributes":{"name":"Beta"}}]}""")
+        val indices = source.getArtists()
+        assertEquals(listOf("Alpha", "Beta"), indices.flatMap { index -> index.artists.map { it.name } })
+        assertEquals("100", server.takeRequest().requestUrl!!.queryParameter("limit"))
+        // A link that already names the limit is sent as it is, not with a second one.
+        assertEquals(listOf("100"), server.takeRequest().requestUrl!!.queryParameterValues("limit"))
+    }
+
     @Test fun should_roundTripAppleCredentials_withProviderDiscriminator() {
         val credentials = ProfileCredentials.AppleMusic("https://token.test/token", "user")
         val codec = PlaintextProfileCredentialsCodec()
