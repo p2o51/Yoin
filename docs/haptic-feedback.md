@@ -121,7 +121,7 @@ Activities 和 Jump Back In 在编辑态底板右下角的 ⌟ 把手（规则�
 
 ### H. 资料库快速滚动条（2026-10-10，U2）
 
-Artists / Albums 右缘的把手（`ui/component/YoinFastScroller.kt`，直接用 `rememberYoinHaptics()`，没有新常量）。平板没有马达：每一行都有视觉孪生，触感只能在手机上验。
+All / Artists / Albums 贴边的把手（`ui/component/YoinFastScroller.kt`，直接用 `rememberYoinHaptics()`，没有新常量）。平板没有马达：每一行都有视觉孪生，触感只能在手机上验。
 
 | 时机 | 方法 | 常量（API） | 低版本回退 | 视觉孪生 |
 | --- | --- | --- | --- | --- |

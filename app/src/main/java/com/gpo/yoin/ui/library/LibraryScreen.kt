@@ -114,6 +114,7 @@ import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
+import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.SongListItem
@@ -197,22 +198,25 @@ private fun libraryGridCells(): GridCells {
  * a row on every narrow ↔ wide trip. This remembers the item the user scrolled
  * to (index changes seen while a scroll is in progress — relayouts happen
  * outside one) and brings its row back to the top after each width change.
+ * A fast-scroller jump is no scroll: it moves the returned anchor itself
+ * ([LibraryGridFastScroller]).
  */
 @Composable
-private fun KeepGridAnchorAcrossWidthChanges(state: LazyGridState) {
-    val anchor = remember(state) { intArrayOf(state.firstVisibleItemIndex) }
+private fun KeepGridAnchorAcrossWidthChanges(state: LazyGridState): LibraryGridAnchor {
+    val anchor = remember(state) { LibraryGridAnchor(state.firstVisibleItemIndex) }
     LaunchedEffect(state) {
         launch {
             snapshotFlow { state.firstVisibleItemIndex }
-                .collect { index -> if (state.isScrollInProgress) anchor[0] = index }
+                .collect { index -> if (state.isScrollInProgress) anchor.index = index }
         }
         var lastWidth = 0
         snapshotFlow { state.layoutInfo.viewportSize.width }
             .collect { width ->
-                if (lastWidth > 0 && width > 0 && width != lastWidth) state.scrollToItem(anchor[0])
+                if (lastWidth > 0 && width > 0 && width != lastWidth) state.scrollToItem(anchor.index)
                 lastWidth = width
             }
     }
+    return anchor
 }
 
 // Landscape handset cell (LibLandscape: ~100–108dp → 6 columns at 844).
@@ -225,10 +229,14 @@ private val LibraryGridLandscapeMinSize = 100.dp
 // 加列,见 LibraryGridMinSize)。LayoutMode 读的是本页所在的列(适配原则 1)。
 private fun Modifier.libraryPageWidth(fillCanvas: Boolean): Modifier =
     if (fillCanvas) {
-        padding(horizontal = 16.dp)
+        padding(horizontal = LibraryCanvasGutter)
     } else {
         yoinPageContentWidth()
     }
+
+// What libraryPageWidth adds outside the content past Compact; the fast
+// scroller reaches across it to hug the page's edge.
+private val LibraryCanvasGutter = 16.dp
 
 @Composable
 private fun rememberLibraryItemEntrance(
@@ -521,6 +529,7 @@ private fun LibraryContentBody(
     val isDesktopWide = !isLandscapePhone && LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
     // Past Compact the page fills its column (libraryPageWidth).
     val fillCanvas = !isLandscapePhone && LocalYoinWindowInfo.current.layoutMode != LayoutMode.Compact
+    val scrollerEndOverhang = if (fillCanvas) LibraryCanvasGutter else 0.dp
     // Medium (tablet portrait, a 600–839 column): a left-anchored header —
     // the page title, then the pill — instead of the phone's centred pill
     // floating in a band far wider than itself.
@@ -781,6 +790,8 @@ private fun LibraryContentBody(
                             items = state.allItems,
                             gridState = allGridState,
                             sortRow = sortRow,
+                            scrollSections = state.scrollSections[tab].orEmpty(),
+                            scrollerEndOverhang = scrollerEndOverhang,
                             onArtistClick = onArtistClick,
                             onAlbumClick = onAlbumClick,
                             onPlaylistClick = onPlaylistClick,
@@ -790,6 +801,8 @@ private fun LibraryContentBody(
                             artists = state.artists,
                             gridState = artistsGridState,
                             sortRow = sortRow,
+                            scrollSections = state.scrollSections[tab].orEmpty(),
+                            scrollerEndOverhang = scrollerEndOverhang,
                             onArtistClick = onArtistClick,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
@@ -797,6 +810,8 @@ private fun LibraryContentBody(
                             albums = state.albums,
                             gridState = albumsGridState,
                             sortRow = sortRow,
+                            scrollSections = state.scrollSections[tab].orEmpty(),
+                            scrollerEndOverhang = scrollerEndOverhang,
                             onAlbumClick = onAlbumClick,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
@@ -1068,6 +1083,8 @@ private fun ArtistsTabContent(
     artists: List<Artist>?,
     gridState: LazyGridState,
     sortRow: LibrarySortRowSpec,
+    scrollSections: List<FastScrollSection>,
+    scrollerEndOverhang: Dp,
     onArtistClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -1080,53 +1097,64 @@ private fun ArtistsTabContent(
         EmptyState(message = stringResource(R.string.library_empty_artists), modifier = modifier)
         return
     }
-    KeepGridAnchorAcrossWidthChanges(gridState)
-    // 3-column portrait grid on phones (one artist per row wasted most of
-    // the width); adaptive at Medium+ — see libraryGridCells.
-    LazyVerticalGrid(
-        columns = libraryGridCells(),
-        state = gridState,
-        // Items dissolve (artwork) and fade (text) into the chips above
-        // instead of being cut at the grid's top edge.
-        modifier = modifier
-            .fillMaxSize()
-            .seamDissolveViewport(
-                background = expressivePageSeamBackground(),
-                remainingPx = { gridState.seamRemainingPx() },
-            ) { gridState.seamScrolledPx() },
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            top = 8.dp,
-            end = 16.dp,
-            bottom = floatingBottomGroupContentPadding(),
-        ),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        librarySortRow(sortRow)
-        itemsIndexed(artists, key = { _, artist -> artist.id.toString() }) { index, artist ->
-            val entranceProgress = rememberLibraryItemEntrance(
-                key = artist.id,
-                index = index,
-                delayStepMillis = 24L,
-            )
-            ArtistGridItem(
-                artist = artist,
-                coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
-                onClick = { onArtistClick(artist.id.toString()) },
-                modifier = Modifier
-                    .animateItem(
-                        fadeInSpec = YoinMotion.effectsSpring(),
-                        placementSpec = YoinMotion.spatialSpring(),
-                        fadeOutSpec = YoinMotion.effectsSpring(),
-                    )
-                    .expressiveEntrance(
-                        progress = entranceProgress,
-                        initialOffsetY = 22.dp,
-                        initialScale = 0.92f,
-                    ),
-            )
+    val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
+    Box(modifier = modifier.fillMaxSize()) {
+        // 3-column portrait grid on phones (one artist per row wasted most of
+        // the width); adaptive at Medium+ — see libraryGridCells.
+        LazyVerticalGrid(
+            columns = libraryGridCells(),
+            state = gridState,
+            // Items dissolve (artwork) and fade (text) into the chips above
+            // instead of being cut at the grid's top edge.
+            modifier = Modifier
+                .fillMaxSize()
+                .seamDissolveViewport(
+                    background = expressivePageSeamBackground(),
+                    remainingPx = { gridState.seamRemainingPx() },
+                ) { gridState.seamScrolledPx() },
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 8.dp,
+                end = 16.dp,
+                bottom = floatingBottomGroupContentPadding(),
+            ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            librarySortRow(sortRow)
+            itemsIndexed(artists, key = { _, artist -> artist.id.toString() }) { index, artist ->
+                val entranceProgress = rememberLibraryItemEntrance(
+                    key = artist.id,
+                    index = index,
+                    delayStepMillis = 24L,
+                )
+                ArtistGridItem(
+                    artist = artist,
+                    coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
+                    onClick = { onArtistClick(artist.id.toString()) },
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(
+                            progress = entranceProgress,
+                            initialOffsetY = 22.dp,
+                            initialScale = 0.92f,
+                        ),
+                )
+            }
         }
+        LibraryGridFastScroller(
+            state = gridState,
+            sections = scrollSections,
+            leadingItems = sortRow.leadingItems,
+            anchor = anchor,
+            endOverhang = scrollerEndOverhang,
+            bottomInset = floatingBottomGroupContentPadding(),
+            modifier = Modifier.matchParentSize()
+        )
     }
 }
 
@@ -1241,6 +1269,8 @@ private fun AlbumsTabContent(
     albums: List<Album>?,
     gridState: LazyGridState,
     sortRow: LibrarySortRowSpec,
+    scrollSections: List<FastScrollSection>,
+    scrollerEndOverhang: Dp,
     onAlbumClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -1253,56 +1283,67 @@ private fun AlbumsTabContent(
         EmptyState(message = stringResource(R.string.library_empty_albums), modifier = modifier)
         return
     }
-    KeepGridAnchorAcrossWidthChanges(gridState)
-    LazyVerticalGrid(
-        columns = libraryGridCells(),
-        state = gridState,
-        // Items dissolve (artwork) and fade (text) into the chips above
-        // instead of being cut at the grid's top edge.
-        modifier = modifier
-            .fillMaxSize()
-            .seamDissolveViewport(
-                background = expressivePageSeamBackground(),
-                remainingPx = { gridState.seamRemainingPx() },
-            ) { gridState.seamScrolledPx() },
-        // 16dp page margins to match the home feed; 12dp gutters, and a
-        // tighter row gap now that the cards no longer reserve dead space.
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            top = 8.dp,
-            end = 16.dp,
-            bottom = floatingBottomGroupContentPadding(),
-        ),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        librarySortRow(sortRow)
-        itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
-            val entranceProgress = rememberLibraryItemEntrance(
-                key = album.id,
-                index = index,
-                delayStepMillis = 24L,
-            )
-            AlbumGridItem(
-                album = album,
-                onClick = { onAlbumClick(album.id.toString()) },
-                coverArtUrl =
-                    libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
-                        ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+    val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = libraryGridCells(),
+            state = gridState,
+            // Items dissolve (artwork) and fade (text) into the chips above
+            // instead of being cut at the grid's top edge.
+            modifier = Modifier
+                .fillMaxSize()
+                .seamDissolveViewport(
+                    background = expressivePageSeamBackground(),
+                    remainingPx = { gridState.seamRemainingPx() },
+                ) { gridState.seamScrolledPx() },
+            // 16dp page margins to match the home feed; 12dp gutters, and a
+            // tighter row gap now that the cards no longer reserve dead space.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 8.dp,
+                end = 16.dp,
+                bottom = floatingBottomGroupContentPadding(),
+            ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            librarySortRow(sortRow)
+            itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
+                val entranceProgress = rememberLibraryItemEntrance(
+                    key = album.id,
+                    index = index,
+                    delayStepMillis = 24L,
+                )
+                AlbumGridItem(
+                    album = album,
+                    onClick = { onAlbumClick(album.id.toString()) },
+                    coverArtUrl =
+                        libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
+                            ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                             ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
-                modifier = Modifier
-                    .animateItem(
-                        fadeInSpec = YoinMotion.effectsSpring(),
-                        placementSpec = YoinMotion.spatialSpring(),
-                        fadeOutSpec = YoinMotion.effectsSpring(),
-                    )
-                    .expressiveEntrance(
-                        progress = entranceProgress,
-                        initialOffsetY = 22.dp,
-                        initialScale = 0.92f,
-                    ),
-            )
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(
+                            progress = entranceProgress,
+                            initialOffsetY = 22.dp,
+                            initialScale = 0.92f,
+                        ),
+                )
+            }
         }
+        LibraryGridFastScroller(
+            state = gridState,
+            sections = scrollSections,
+            leadingItems = sortRow.leadingItems,
+            anchor = anchor,
+            endOverhang = scrollerEndOverhang,
+            bottomInset = floatingBottomGroupContentPadding(),
+            modifier = Modifier.matchParentSize()
+        )
     }
 }
 
@@ -1364,6 +1405,8 @@ private fun AllTabContent(
     items: List<LibraryItem>?,
     gridState: LazyGridState,
     sortRow: LibrarySortRowSpec,
+    scrollSections: List<FastScrollSection>,
+    scrollerEndOverhang: Dp,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
@@ -1378,71 +1421,82 @@ private fun AllTabContent(
         EmptyState(message = stringResource(R.string.library_empty_all), modifier = modifier)
         return
     }
-    KeepGridAnchorAcrossWidthChanges(gridState)
-    LazyVerticalGrid(
-        columns = libraryGridCells(),
-        state = gridState,
-        modifier = modifier
-            .fillMaxSize()
-            .seamDissolveViewport(
-                background = expressivePageSeamBackground(),
-                remainingPx = { gridState.seamRemainingPx() }
-            ) { gridState.seamScrolledPx() },
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            top = 8.dp,
-            end = 16.dp,
-            bottom = floatingBottomGroupContentPadding()
-        ),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        librarySortRow(sortRow)
-        itemsIndexed(
-            items = items,
-            key = { _, item -> item.key },
-            contentType = { _, item -> item::class }
-        ) { index, item ->
-            val entranceProgress = rememberLibraryItemEntrance(
-                key = item.key,
-                index = index,
-                delayStepMillis = 24L
-            )
-            // A new sort moves each cell to its new place on the spatial spring.
-            val itemModifier = Modifier
-                .animateItem(
-                    fadeInSpec = YoinMotion.effectsSpring(),
-                    placementSpec = YoinMotion.spatialSpring(),
-                    fadeOutSpec = YoinMotion.effectsSpring()
+    val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = libraryGridCells(),
+            state = gridState,
+            modifier = Modifier
+                .fillMaxSize()
+                .seamDissolveViewport(
+                    background = expressivePageSeamBackground(),
+                    remainingPx = { gridState.seamRemainingPx() }
+                ) { gridState.seamScrolledPx() },
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 8.dp,
+                end = 16.dp,
+                bottom = floatingBottomGroupContentPadding()
+            ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            librarySortRow(sortRow)
+            itemsIndexed(
+                items = items,
+                key = { _, item -> item.key },
+                contentType = { _, item -> item::class }
+            ) { index, item ->
+                val entranceProgress = rememberLibraryItemEntrance(
+                    key = item.key,
+                    index = index,
+                    delayStepMillis = 24L
                 )
-                .expressiveEntrance(
-                    progress = entranceProgress,
-                    initialOffsetY = 22.dp,
-                    initialScale = 0.92f
-                )
-            when (item) {
-                is LibraryItem.ArtistItem -> ArtistGridItem(
-                    artist = item.artist,
-                    coverArtUrl = libraryCoverArtUrl(item.artist.coverArt, coverArtUrlBuilder),
-                    onClick = { onArtistClick(item.artist.id.toString()) },
-                    modifier = itemModifier
-                )
-                is LibraryItem.AlbumItem -> AlbumGridItem(
-                    album = item.album,
-                    onClick = { onAlbumClick(item.album.id.toString()) },
-                    coverArtUrl = libraryCoverArtUrl(item.album.coverArt, coverArtUrlBuilder)
-                        ?: item.album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                            ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
-                    modifier = itemModifier
-                )
-                is LibraryItem.PlaylistItem -> PlaylistGridItem(
-                    playlist = item.playlist,
-                    onClick = { onPlaylistClick(item.playlist.id.toString()) },
-                    coverArtUrl = playlistBackdropArtUrl(item.playlist, coverArtUrlBuilder),
-                    modifier = itemModifier
-                )
+                // A new sort moves each cell to its new place on the spatial spring.
+                val itemModifier = Modifier
+                    .animateItem(
+                        fadeInSpec = YoinMotion.effectsSpring(),
+                        placementSpec = YoinMotion.spatialSpring(),
+                        fadeOutSpec = YoinMotion.effectsSpring()
+                    )
+                    .expressiveEntrance(
+                        progress = entranceProgress,
+                        initialOffsetY = 22.dp,
+                        initialScale = 0.92f
+                    )
+                when (item) {
+                    is LibraryItem.ArtistItem -> ArtistGridItem(
+                        artist = item.artist,
+                        coverArtUrl = libraryCoverArtUrl(item.artist.coverArt, coverArtUrlBuilder),
+                        onClick = { onArtistClick(item.artist.id.toString()) },
+                        modifier = itemModifier
+                    )
+                    is LibraryItem.AlbumItem -> AlbumGridItem(
+                        album = item.album,
+                        onClick = { onAlbumClick(item.album.id.toString()) },
+                        coverArtUrl = libraryCoverArtUrl(item.album.coverArt, coverArtUrlBuilder)
+                            ?: item.album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                                ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                        modifier = itemModifier
+                    )
+                    is LibraryItem.PlaylistItem -> PlaylistGridItem(
+                        playlist = item.playlist,
+                        onClick = { onPlaylistClick(item.playlist.id.toString()) },
+                        coverArtUrl = playlistBackdropArtUrl(item.playlist, coverArtUrlBuilder),
+                        modifier = itemModifier
+                    )
+                }
             }
         }
+        LibraryGridFastScroller(
+            state = gridState,
+            sections = scrollSections,
+            leadingItems = sortRow.leadingItems,
+            anchor = anchor,
+            endOverhang = scrollerEndOverhang,
+            bottomInset = floatingBottomGroupContentPadding(),
+            modifier = Modifier.matchParentSize()
+        )
     }
 }
 
@@ -1453,6 +1507,9 @@ private class LibrarySortRowSpec(
     val onSortSelected: (LibrarySort) -> Unit
 ) {
     val shown: Boolean get() = sort != null && options.size > 1
+
+    /** The rows it adds before a grid's first item: the fast scroller counts past them. */
+    val leadingItems: Int get() = if (shown) 1 else 0
 }
 
 private const val LIBRARY_SORT_ROW_KEY = "library-sort-row"
