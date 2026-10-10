@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.FilledTonalButton
@@ -51,6 +52,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -408,6 +413,30 @@ internal fun <T> ExpressiveSegmentedTabs(
     // edges (soft scroll-aware fade) instead of being chopped at them.
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
+    ExpressiveSegmentRow(modifier = modifier.selectableGroup(), contentPadding = contentPadding) {
+        items.forEach { item ->
+            ExpressiveSegmentChip(
+                label = label(item),
+                selected = item == selectedItem,
+                onClick = { onSelectedChange(item) }
+            )
+        }
+    }
+}
+
+/**
+ * The scrolling row [ExpressiveSegmentedTabs] lays its chips in, for rows that
+ * hold more than one group of [ExpressiveSegmentChip]s (search: scope, a
+ * divider, then the result types). [contentPadding] sits inside the scrolling
+ * viewport, so chips scroll under the row's edges, behind the scroll-aware
+ * fade, instead of being chopped at them.
+ */
+@Composable
+internal fun ExpressiveSegmentRow(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    content: @Composable RowScope.() -> Unit
+) {
     val scrollState = rememberScrollState()
     Row(
         modifier = modifier
@@ -416,52 +445,67 @@ internal fun <T> ExpressiveSegmentedTabs(
             .horizontalScroll(scrollState)
             .padding(contentPadding),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items.forEach { item ->
-            val interactionSource = remember { MutableInteractionSource() }
-            val selected = item == selectedItem
-            val containerColor by animateColorAsState(
-                targetValue = if (selected) {
-                    MaterialTheme.colorScheme.secondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-                animationSpec = YoinMotion.effectsSpring(),
-                label = "segmentContainer",
-            )
-            val contentColor by animateColorAsState(
-                targetValue = if (selected) {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                animationSpec = YoinMotion.effectsSpring(),
-                label = "segmentContent",
-            )
-            FilledTonalButton(
-                onClick = { onSelectedChange(item) },
-                modifier = Modifier
-                    .heightIn(min = 44.dp)
-                    .elasticPress(interactionSource),
-                interactionSource = interactionSource,
-                shape = RoundedCornerShape(18.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 16.dp,
-                    vertical = 10.dp,
-                ),
-                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
-                    containerColor = containerColor,
-                    contentColor = contentColor,
-                ),
-            ) {
-                Text(
-                    text = label(item),
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        content = content
+    )
+}
+
+/**
+ * One single-choice segment chip. It reads as a selected or unselected tab to
+ * accessibility services; wrap a group of them in a `selectableGroup()`.
+ */
+@Composable
+internal fun ExpressiveSegmentChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "segmentContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "segmentContent",
+    )
+    FilledTonalButton(
+        onClick = onClick,
+        // Outermost, so it overrides the button's own Button role.
+        modifier = modifier
+            .semantics {
+                role = Role.Tab
+                this.selected = selected
             }
-        }
+            .heightIn(min = 44.dp)
+            .elasticPress(interactionSource),
+        interactionSource = interactionSource,
+        shape = RoundedCornerShape(18.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 16.dp,
+            vertical = 10.dp,
+        ),
+        colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
