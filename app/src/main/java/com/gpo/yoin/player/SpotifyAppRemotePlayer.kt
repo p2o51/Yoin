@@ -109,12 +109,30 @@ sealed interface SpotifyConnectFailure {
     }
 }
 
+/**
+ * How [SpotifyAppRemotePlayer] reaches App Remote: the SDK (through
+ * [SpotifyAppRemoteCompat]'s package lookup) in the app, a fake in tests.
+ */
+internal interface AppRemoteConnector {
+    fun connect(context: Context, params: ConnectionParams, listener: Connector.ConnectionListener)
+
+    fun disconnect(remote: SpotifyAppRemote)
+
+    object Sdk : AppRemoteConnector {
+        override fun connect(context: Context, params: ConnectionParams, listener: Connector.ConnectionListener) =
+            SpotifyAppRemoteCompat.connect(context, params, listener)
+
+        override fun disconnect(remote: SpotifyAppRemote) = SpotifyAppRemote.disconnect(remote)
+    }
+}
+
 internal class SpotifyAppRemotePlayer(
     private val applicationContext: Context,
     private val clientIdProvider: () -> String,
     private val onSnapshot: (SpotifyRemoteSnapshot) -> Unit,
     private val onActionRequired: (SpotifyConnectFailure, String) -> Unit = { _, _ -> },
     private val onContext: (SpotifyPlaybackContext?) -> Unit = {},
+    private val appRemote: AppRemoteConnector = AppRemoteConnector.Sdk,
 ) {
     private val tag = "SpotifyAppRemotePlayer"
 
@@ -630,7 +648,7 @@ internal class SpotifyAppRemotePlayer(
             .setRedirectUri(SpotifyAuthConfig.REDIRECT_URI)
             .showAuthView(true)
             .build()
-        SpotifyAppRemoteCompat.connect(
+        appRemote.connect(
             context,
             params,
             object : Connector.ConnectionListener {
@@ -641,7 +659,7 @@ internal class SpotifyAppRemotePlayer(
                         // a live remote and leak its IPC connection — disconnect it.
                         continuation.resume(spotifyAppRemote) { _ ->
                             Log.d(tag, "connect: cancelled before delivery, disconnecting remote")
-                            SpotifyAppRemote.disconnect(spotifyAppRemote)
+                            appRemote.disconnect(spotifyAppRemote)
                         }
                     } else {
                         Log.d(tag, "connect: ignoring duplicate onConnected callback")
@@ -732,7 +750,7 @@ internal class SpotifyAppRemotePlayer(
         playerStateSubscription = null
         playerContextSubscription?.cancel()
         playerContextSubscription = null
-        remote?.let(SpotifyAppRemote::disconnect)
+        remote?.let(appRemote::disconnect)
         remote = null
         if (preserveSnapshot) {
             publish(
