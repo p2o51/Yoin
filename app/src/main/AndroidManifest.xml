@@ -128,10 +128,10 @@
              (no overlay permission), in its own task so the pinned window never drags
              the main task along. -->
         <activity
-            android:name=".ui.landing.guide.SpotifyGuideActivity"
+            android:name=".ui.landing.guide.ConnectGuideActivity"
             android:exported="false"
             android:launchMode="singleTask"
-            android:taskAffinity="${applicationId}.spotifyguide"
+            android:taskAffinity="${applicationId}.connectguide"
             android:excludeFromRecents="true"
             android:autoRemoveFromRecents="true"
             android:resizeableActivity="true"

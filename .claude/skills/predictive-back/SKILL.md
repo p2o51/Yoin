@@ -514,8 +514,9 @@ after the shell's); NP and Memories cannot be open under it on a first run.
   flow (3-button) commits at once.
 - The pill's back button calls the same `vm.back()`; the step transition is
   the one owner of the stage (`LandingMotion.t`).
-- The Spotify guide (`SpotifyGuideActivity`) is a picture-in-picture window
-  over the browser in its own task: back there belongs to the browser.
+- The floating guides (`ConnectGuideActivity`: Spotify over the browser,
+  Apple Music over Apple's sign-in) are picture-in-picture windows in their
+  own task: back there belongs to whatever is beneath.
 
 ## AOSP replica tokens — the source of truth
 
