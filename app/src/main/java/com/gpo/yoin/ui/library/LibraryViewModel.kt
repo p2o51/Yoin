@@ -1706,20 +1706,24 @@ class LibraryViewModel(
      * from the saved-albums mirror the write already updated — no freshness
      * check, so no sync — and All and Albums take the change on their item
      * springs. A library search on screen runs again against the same mirror.
+     *
+     * Each profile's count is watched on its own. Paired with the profile's
+     * flow, a switch could hand over the old profile's count with the new
+     * profile before the new count arrives, and a new count higher than the
+     * old would read as a save. Collected afresh as each profile becomes
+     * active, the count's first value is that profile's own, the baseline,
+     * and only a rise past it counts.
      */
     private fun observeLibraryAlbumsRevision() {
         viewModelScope.launch {
-            var previous: Pair<String?, Long>? = null
-            combine(repository.currentProfileIdFlow, repository.libraryAlbumsRevision) { profileId, revision ->
-                profileId to revision
-            }.distinctUntilChanged().collectLatest { currentRevision ->
-                val (profileId, revision) = currentRevision
-                val changed = previous?.let { (previousProfileId, previousRevision) ->
-                    previousProfileId == profileId && revision > previousRevision
-                } == true
-                previous = currentRevision
-                if (!changed || profileId != repository.currentProfileId()) return@collectLatest
-                rereadSavedAlbums()
+            repository.currentProfileIdFlow.distinctUntilChanged().collectLatest { profileId ->
+                var seen: Long? = null
+                repository.libraryAlbumsRevision.collectLatest { revision ->
+                    val rose = seen?.let { revision > it } == true
+                    if (seen == null || rose) seen = revision
+                    if (!rose || profileId != repository.currentProfileId()) return@collectLatest
+                    rereadSavedAlbums()
+                }
             }
         }
     }

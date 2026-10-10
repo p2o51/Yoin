@@ -1476,6 +1476,38 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_notReadSavedAlbumsAgain_when_theProfileSwitchesToOneWithMoreSaves() = runTest {
+        val repository = spotifyRepository()
+        val profiles = MutableStateFlow("first")
+        every { repository.currentProfileId() } answers { profiles.value }
+        every { repository.currentProfileIdFlow } returns profiles
+        // As the repository builds it: the active profile's own count of saves and removals.
+        val counts = MutableStateFlow(mapOf("first" to 0L, "second" to 3L))
+        every { repository.libraryAlbumsRevision } returns
+            combine(profiles, counts) { profileId, byProfile -> byProfile[profileId] ?: 0L }.distinctUntilChanged()
+        var mirrorReads = 0
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers {
+            mirrorReads++
+            spotifySnapshot()
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        val readsBefore = mirrorReads
+
+        // The other account saved albums earlier: its count is higher, but nothing changed on it now.
+        profiles.value = "second"
+        advanceUntilIdle()
+        assertEquals(readsBefore, mirrorReads)
+
+        // A save on the new account still reaches Library.
+        counts.value = counts.value + ("second" to 4L)
+        advanceUntilIdle()
+        assertEquals(readsBefore + 1, mirrorReads)
+    }
+
+    @Test
     fun should_leaveRemovedAlbumOutOfLibrarySearch_when_albumRemovedOnItsPage() = runTest {
         val repository = spotifyRepository()
         val albumsRevision = MutableStateFlow(0L)
