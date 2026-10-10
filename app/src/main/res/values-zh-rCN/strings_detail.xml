@@ -89,10 +89,6 @@
     <plurals name="detail_artist_releases">
         <item quantity="other">%1$d 张作品</item>
     </plurals>
-    <string name="detail_artist_last_play">上次播放</string>
-    <string name="detail_artist_never">从未</string>
-    <string name="detail_artist_no_albums_rated">还没有专辑评分</string>
-    <string name="detail_artist_album_average">专辑均分 %1$s，%3$d 张中已评分 %2$d 张</string>
     <string name="detail_artist_follow">关注</string>
     <string name="detail_artist_following">已关注</string>
     <string name="detail_artist_favorite">喜欢</string>

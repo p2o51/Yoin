@@ -2547,8 +2547,8 @@ class YoinRepository(
 
     /**
      * This profile's own listening for an artist (local play history, so it
-     * works for every provider): total plays, last play, and the most-played
-     * songs. Plays match by the artist's release ids or their exact name.
+     * works for every provider): total plays and the most-played songs.
+     * Plays match by the artist's release ids or their exact name.
      */
     suspend fun getArtistListening(
         artistId: MediaId,
@@ -2565,7 +2565,7 @@ class YoinRepository(
         } else {
             emptyList()
         }
-        return ArtistListening(stats.playCount, stats.lastPlayedAt, top)
+        return ArtistListening(stats.playCount, top)
     }
 
     /** The user's own album ratings (album_ratings) for [albumIds], keyed by raw album id. */
