@@ -479,7 +479,7 @@ class AppContainer(private val context: Context) {
     val lyricsProviderRegistry: LyricsProviderRegistry by lazy { LyricsProviderRegistry() }
 
     private val detailCacheStore: DetailCacheStore by lazy {
-        DetailCacheStore(database.detailCacheDao())
+        DetailCacheStore(database.detailCacheDao(), scope = applicationScope)
     }
 
     val albumScrapbookSource: AlbumScrapbookSource by lazy { AlbumScrapbookSource.from(database, profileManager.activeProfileId) }

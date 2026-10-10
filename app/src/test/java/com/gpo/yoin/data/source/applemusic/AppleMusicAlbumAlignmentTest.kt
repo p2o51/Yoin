@@ -6,9 +6,13 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.test.runTest
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -32,11 +36,13 @@ class AppleMusicAlbumAlignmentTest {
     @After fun cleanup() = server.shutdown()
 
     @Test fun should_openLibraryAlbumAsFullCatalogAlbum_andMarkAddedTracks() = runTest {
-        reply(libraryAlbum("l.1", catalogId = "900"))
-        reply(storefront())
-        reply(catalogAlbum("900"))
-        reply(librarySongs("i.1" to "10", "i.2" to "10", "i.3" to "11"))
-        reply(catalogSongs("10", "11", "12"))
+        route(
+            "/v1/me/library/albums/l.1" to body(libraryAlbum("l.1", catalogId = "900")),
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900")),
+            "/v1/me/library/albums/l.1/tracks" to body(librarySongs("i.1" to "10", "i.2" to "10", "i.3" to "11")),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10", "11", "12"))
+        )
 
         val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
 
@@ -56,10 +62,57 @@ class AppleMusicAlbumAlignmentTest {
         assertEquals("/v1/catalog/jp/albums/900", catalog.requestUrl!!.encodedPath)
         assertEquals("artists,library", catalog.requestUrl!!.queryParameter("include"))
         assertEquals("user", catalog.getHeader("Music-User-Token"))
-        val libraryTracks = server.takeRequest()
-        assertEquals("/v1/me/library/albums/l.1/tracks", libraryTracks.requestUrl!!.encodedPath)
+        // The two tracklists are read at once: either may reach the server first.
+        val tracklists = List(2) { server.takeRequest() }.associateBy { it.requestUrl!!.encodedPath }
+        val libraryTracks = tracklists.getValue("/v1/me/library/albums/l.1/tracks")
         assertEquals("catalog", libraryTracks.requestUrl!!.queryParameter("include"))
-        assertEquals("/v1/catalog/jp/albums/900/tracks", server.takeRequest().requestUrl!!.encodedPath)
+        assertTrue("/v1/catalog/jp/albums/900/tracks" in tracklists)
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test fun should_readBothTracklistsAtOnce_when_albumHasLibraryCopy() = runTest {
+        // Each tracklist is answered only once the other one has been asked for: a one-after-the-other read
+        // would wait out the latch and get a 500 for its first tracklist.
+        val bothAsked = CountDownLatch(2)
+        val tracklists = mapOf(
+            "/v1/me/library/albums/l.9/tracks" to librarySongs("i.5" to "11"),
+            "/v1/catalog/jp/albums/900/tracks" to catalogSongs("10", "11")
+        )
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.requestUrl!!.encodedPath
+                tracklists[path]?.let { tracks ->
+                    bothAsked.countDown()
+                    val answered = bothAsked.await(5, TimeUnit.SECONDS)
+                    return if (answered) body(tracks) else MockResponse().setResponseCode(500)
+                }
+                return when (path) {
+                    "/v1/me/storefront" -> body(storefront())
+                    "/v1/catalog/jp/albums/900" -> body(catalogAlbum("900", libraryId = "l.9"))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertEquals("i.5", album.tracks.single { it.id.rawId == "11" }.extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+    }
+
+    @Test fun should_failAlbum_when_libraryCopyTracksAreRateLimited() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900", libraryId = "l.9")),
+            "/v1/me/library/albums/l.9/tracks" to MockResponse().setResponseCode(429),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10", "11"))
+        )
+
+        val failure = runCatching { source.getAlbum(MediaId("applemusic", "900")) }.exceptionOrNull()
+
+        // Read in parallel or not, the user's copy failing like this fails the album (as it did read first).
+        assertEquals(AppleMusicApiFailure.RateLimited, (failure as AppleMusicApiException).failure)
     }
 
     @Test fun should_markEveryTrackNotAdded_when_catalogAlbumHasNoLibraryCopy() = runTest {
@@ -76,10 +129,12 @@ class AppleMusicAlbumAlignmentTest {
     }
 
     @Test fun should_fetchLibraryCopy_when_catalogAlbumIsInLibrary() = runTest {
-        reply(storefront())
-        reply(catalogAlbum("900", libraryId = "l.9"))
-        reply(librarySongs("i.5" to "11"))
-        reply(catalogSongs("10", "11"))
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900", libraryId = "l.9")),
+            "/v1/me/library/albums/l.9/tracks" to body(librarySongs("i.5" to "11")),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10", "11"))
+        )
 
         val album = source.getAlbum(MediaId("applemusic", "900"))!!
 
@@ -88,7 +143,8 @@ class AppleMusicAlbumAlignmentTest {
         assertEquals("i.5", byId.getValue("11").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
         server.takeRequest()
         server.takeRequest()
-        assertEquals("/v1/me/library/albums/l.9/tracks", server.takeRequest().requestUrl!!.encodedPath)
+        val tracklists = List(2) { server.takeRequest().requestUrl!!.encodedPath }
+        assertTrue("/v1/me/library/albums/l.9/tracks" in tracklists)
     }
 
     @Test fun should_openCatalogAlbumUnmarked_when_libraryLookupFails() = runTest {
@@ -122,10 +178,12 @@ class AppleMusicAlbumAlignmentTest {
     }
 
     @Test fun should_openCatalogAlbumUnmarked_when_libraryCopyTracksFail() = runTest {
-        reply(storefront())
-        reply(catalogAlbum("900", libraryId = "l.9"))
-        server.enqueue(MockResponse().setResponseCode(404))
-        reply(catalogSongs("10", "11"))
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900", libraryId = "l.9")),
+            "/v1/me/library/albums/l.9/tracks" to MockResponse().setResponseCode(404),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10", "11"))
+        )
 
         val album = source.getAlbum(MediaId("applemusic", "900"))!!
 
@@ -199,6 +257,21 @@ class AppleMusicAlbumAlignmentTest {
     }
 
     private fun reply(body: String) = server.enqueue(MockResponse().setBody(body))
+
+    private fun body(body: String) = MockResponse().setBody(body)
+
+    /**
+     * Serves by path instead of in arrival order (each path's responses once, in order; anything else 404s):
+     * an album's two tracklists are read in parallel, so which reaches the server first is not fixed.
+     */
+    private fun route(vararg responses: Pair<String, MockResponse>) {
+        val byPath = responses.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> ArrayDeque(list) }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = synchronized(byPath) {
+                byPath[request.requestUrl!!.encodedPath]?.removeFirstOrNull()
+            } ?: MockResponse().setResponseCode(404)
+        }
+    }
 
     private fun storefront() = """{"data":[{"id":"jp"}]}"""
 

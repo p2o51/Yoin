@@ -84,6 +84,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackEvent
@@ -101,6 +102,9 @@ import com.gpo.yoin.ui.detail.PlaylistDetailActivity
 import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.detail.hasOverlayHidingBottomBar
 import com.gpo.yoin.ui.detail.launchDetailFromShell
+import com.gpo.yoin.ui.detail.prefetchAlbumDetail
+import com.gpo.yoin.ui.detail.prefetchArtistDetail
+import com.gpo.yoin.ui.detail.prefetchPlaylistDetail
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.EdgeSplitSide
 import com.gpo.yoin.ui.experience.HomeSurface
@@ -538,6 +542,7 @@ private fun YoinShell(
     }
     val pushPane: (DetailPaneRoute) -> Unit = { route ->
         markDetailClick(route, via = "pane-push")
+        app.container.repository.prefetchPaneDetail(route)
         paneStack.add(route)
     }
     // Opening or closing the column re-tiers the shell — never mid-edit: edit
@@ -664,7 +669,9 @@ private fun YoinShell(
             experienceSessionStore.setDetailChromeActive(true)
         }
     }
+    // Each entry starts the page's load before any gate (ui/detail/DetailPrefetch.kt).
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
+        app.container.repository.prefetchAlbumDetail(albumId)
         if (hasDetailPane) {
             YoinPerf.detailClick("album", albumId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Album(albumId))
@@ -683,6 +690,7 @@ private fun YoinShell(
         }
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
+        app.container.repository.prefetchArtistDetail(artistId)
         if (hasDetailPane) {
             YoinPerf.detailClick("artist", artistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Artist(artistId))
@@ -701,6 +709,7 @@ private fun YoinShell(
         }
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
+        app.container.repository.prefetchPlaylistDetail(playlistId)
         if (hasDetailPane) {
             YoinPerf.detailClick("playlist", playlistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Playlist(playlistId))
@@ -1024,7 +1033,7 @@ private fun YoinShell(
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back
                                         // 从专辑页回来时它还在。
-                                        onOpenAlbum = { memory ->
+                                        onOpenAlbum = rememberMemoryAlbumOpen(app.container.repository) { memory ->
                                             // MemoryEntry.entityId is the RAW id
                                             // (the coordinator strips the provider
                                             // prefix); AlbumDetailViewModel parses a
@@ -1565,6 +1574,13 @@ internal fun canLaunchDetailFromShell(
 
 private const val DETAIL_LAUNCH_PAUSE_GRACE_MS = 500L
 
+/** Tap-time prefetch for a page opened into the shell's detail column (ui/detail/DetailPrefetch.kt). */
+private fun YoinRepository.prefetchPaneDetail(route: DetailPaneRoute) = when (route) {
+    is DetailPaneRoute.Album -> prefetchAlbumDetail(route.albumId)
+    is DetailPaneRoute.Artist -> prefetchArtistDetail(route.artistId)
+    is DetailPaneRoute.Playlist -> prefetchPlaylistDetail(route.playlistId)
+}
+
 /** Debug-only `detail.click` for a page opened into the shell's detail column. */
 private fun markDetailClick(route: DetailPaneRoute, via: String) {
     val kind = when (route) {
@@ -1574,6 +1590,20 @@ private fun markDetailClick(route: DetailPaneRoute, via: String) {
     }
     YoinPerf.detailClick(kind, route.entityId, via)
 }
+
+/**
+ * [open] for a Memories stamp's album, starting the album's tap-time prefetch first (ui/detail/DetailPrefetch.kt).
+ * Remembered per [open] — a lambda the compiler already memoizes on what it captures — so the deck keeps getting
+ * the same callback instance across recompositions and can still skip them.
+ */
+@Composable
+private fun rememberMemoryAlbumOpen(repository: YoinRepository, open: (MemoryEntry) -> Unit): (MemoryEntry) -> Unit =
+    remember(repository, open) {
+        { memory ->
+            repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
+            open(memory)
+        }
+    }
 
 /** Debug-only `detail.click` for a Memories stamp's album (its full MediaId, as the page is opened with). */
 private fun markMemoryAlbumClick(memory: MemoryEntry, via: String) {

@@ -74,7 +74,9 @@ class ArtistDetailViewModel(
                     return@launch
                 }
                 loadedArtist = artist
-                repository.recordArtistVisit(artist)
+                // The visit row feeds Home's activity and the widgets, not this page:
+                // Content doesn't wait on the Room insert.
+                launch { repository.recordArtistVisit(artist) }
                 // Preload the newest releases so tapping a row opens instantly.
                 artist.albums.take(6).forEach { album -> repository.prefetchAlbum(album.id) }
                 _uiState.value = ArtistDetailUiState.Content(
