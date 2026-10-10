@@ -20,9 +20,13 @@ class YoinRepositoryActiveSourceTest {
     // What ProfileManager builds asynchronously at launch: null until then.
     private val activeSource = MutableStateFlow<MusicSource?>(null)
 
+    // ProfileManager.activeSourceSettled: false while that build is in flight.
+    private val settled = MutableStateFlow(false)
+
     private val repository = YoinRepository(
         activeSource = activeSource,
         activeProfileId = MutableStateFlow("profile-a"),
+        activeSourceSettled = settled,
         database = mockk(relaxed = true),
         geminiService = mockk(relaxed = true),
         songAboutEntryDao = mockk(relaxed = true),
@@ -61,6 +65,22 @@ class YoinRepositoryActiveSourceTest {
 
         assertTrue(waiting.isCompleted)
         assertSame(source, waiting.await())
+    }
+
+    @Test
+    fun should_returnNull_when_profileManagerSettlesWithoutSource() = runTest {
+        // Unreadable credentials: the build finishes without a source, and the
+        // wait ends there rather than at the timeout.
+        val waiting = async { repository.awaitActiveSource(timeoutMs = 4_000L) }
+
+        advanceTimeBy(1_000L)
+        assertFalse(waiting.isCompleted)
+
+        settled.value = true
+        runCurrent()
+
+        assertTrue(waiting.isCompleted)
+        assertNull(waiting.await())
     }
 
     @Test

@@ -492,6 +492,7 @@ class AppContainer(private val context: Context) {
         YoinRepository(
             activeSource = profileManager.activeSource,
             activeProfileId = profileManager.activeProfileId,
+            activeSourceSettled = profileManager.activeSourceSettled,
             database = database,
             spotifyLibrarySyncCoordinator = SpotifyLibrarySyncCoordinator(
                 database = database,
