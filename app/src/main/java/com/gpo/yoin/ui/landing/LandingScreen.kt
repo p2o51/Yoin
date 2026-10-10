@@ -59,7 +59,7 @@ import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.ShellChromeForm
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.voteHighFrameRate
-import com.gpo.yoin.ui.landing.guide.SpotifyGuideActivity
+import com.gpo.yoin.ui.landing.guide.ConnectGuide
 import com.gpo.yoin.ui.navigation.back.LandingPredictiveBack
 import com.gpo.yoin.ui.settings.assignAvatarShapes
 import com.gpo.yoin.ui.settings.service.SetupService
@@ -121,7 +121,9 @@ fun LandingHost(gate: LandingGate) {
     val profiles by container.profileManager.profiles.collectAsState(initial = null)
     val rerun by gate.rerunRequests.collectAsState()
     var mode by rememberSaveable { mutableStateOf<LandingMode?>(null) }
-    var handledRerun by rememberSaveable { mutableIntStateOf(0) }
+    // Lives exactly as long as the gate's counter (a field of this activity instance): saved across a process
+    // death it would sit ahead of a fresh counter and swallow the next Welcome guide request.
+    var handledRerun by remember { mutableIntStateOf(0) }
     var session by rememberSaveable { mutableIntStateOf(0) }
 
     var checked by rememberSaveable { mutableStateOf(false) }
@@ -176,7 +178,7 @@ fun LandingHost(gate: LandingGate) {
                     gate.holdShell = false
                     mode = null
                     scope.reset()
-                    SpotifyGuideActivity.finishIfOpen()
+                    ConnectGuide.finishIfOpen()
                 },
             )
         }
@@ -286,7 +288,7 @@ internal fun LandingScreen(
 
     fun finish() {
         haptics.performConfirm()
-        SpotifyGuideActivity.finishIfOpen()
+        ConnectGuide.finishIfOpen()
         vm.finish {
             scope.launch {
                 mascot.wave(times = 1, ticks = false)
