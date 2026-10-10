@@ -11,6 +11,7 @@ import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.YoinDevice
+import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.Capability
@@ -24,6 +25,7 @@ import com.gpo.yoin.data.model.Track
 import androidx.media3.common.Player
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.AddToPlaylistRow
+import com.gpo.yoin.ui.component.FavoriteGlyph
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -42,8 +44,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -303,28 +307,39 @@ class NowPlayingViewModel(
         }
     }
 
-    // Authoritative saved-state from the library cache (Spotify), reactive so a
-    // background sync or a confirmed favorite write keeps the heart correct.
-    // null = not a cached Spotify track → fall back to [_isStarred] which is
-    // updated by [toggleFavorite] on success, so the heart never reverts to a
-    // stale playback-track flag (Spotify App Remote’s PlayerState does not
-    // reflect live favorite changes).
-    private val cachedFavoriteFlow: Flow<Boolean?> = currentSongId.flatMapLatest { songId ->
-        if (songId != null) repository.observeSpotifyFavorite(songId) else flowOf(null)
-    }
+    // The heart: the repository's one favorite read for the playing track (the
+    // user's write, Spotify's answer, the saved-tracks mirror, the track's own
+    // flag — see YoinRepository.observeFavoriteStates), folded into a glyph.
+    // A change the user didn't tap (Spotify confirming a like late, the next
+    // track) is a quiet flip: it crossfades instead of beating. What caused
+    // the change decides, not where the value came from: the next track is
+    // quiet even when its state is the user's own earlier write (Subsonic
+    // keeps that override for the session, Spotify for the write's grace).
+    // The checks themselves are PlaybackManager's, once per track for every host.
+    private val favoriteFlow: Flow<FavoriteGlyph> = playbackManager.playbackState
+        .map { it.currentTrack }
+        .distinctUntilChanged { old, new -> old?.id == new?.id && old?.isStarred == new?.isStarred }
+        .flatMapLatest { track ->
+            val states = if (track == null) {
+                flowOf(FavoriteState(isStarred = false))
+            } else {
+                repository.observeFavoriteState(track)
+            }
+            states.map { state -> track?.id to state }
+        }
+        .runningFold(null as TrackHeart?) { shown, (trackId, state) ->
+            val glyph = if (shown == null) {
+                FavoriteGlyph(state.isStarred)
+            } else {
+                shown.glyph.next(state.isStarred, fromUser = state.fromUser && trackId == shown.trackId)
+            }
+            TrackHeart(trackId, glyph)
+        }
+        .filterNotNull()
+        .map { it.glyph }
 
-    private val favoriteFlow = combine(
-        currentSongId,
-        cachedFavoriteFlow,
-        _isStarred,
-        repository.favoriteOverrides,
-    ) { songId, cachedFavorite, vmStarred, overrides ->
-        // Override (the user's just-tapped intent) wins; then the cache (real
-        // library state); then the ViewModel's own last-known state. The
-        // override is cleared on success only AFTER the cache reflects it,
-        // so no revert.
-        songId?.let(overrides::get) ?: cachedFavorite ?: vmStarred
-    }
+    /** The heart as last shown, and the track it was shown for. */
+    private class TrackHeart(val trackId: MediaId?, val glyph: FavoriteGlyph)
 
     private val libraryMembershipFlow = currentSongId.flatMapLatest { songId ->
         if (songId == null) flowOf(null to LibraryMembership.Unknown)
@@ -332,7 +347,7 @@ class NowPlayingViewModel(
     }
 
     private data class TrackActionsState(
-        val isStarred: Boolean,
+        val favorite: FavoriteGlyph,
         val membershipTrackId: MediaId?,
         val membership: LibraryMembership,
         val workingTrackIds: Set<MediaId>,
@@ -459,7 +474,8 @@ class NowPlayingViewModel(
                 durationMs = state.duration,
                 songId = song.id.toString(),
                 rating = rating,
-                isStarred = trackActions.isStarred,
+                isStarred = trackActions.favorite.favorite,
+                favoriteQuietFlips = trackActions.favorite.quietFlips,
                 libraryMembership = if (trackActions.membershipTrackId == song.id) trackActions.membership
                     else LibraryMembership.Unknown,
                 libraryActionInFlight = song.id in trackActions.workingTrackIds,

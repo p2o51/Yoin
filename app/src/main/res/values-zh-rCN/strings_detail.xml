@@ -5,6 +5,8 @@
     <string name="detail_menu_play_next">下一首播放</string>
     <string name="detail_menu_add_to_queue">加入播放队列</string>
     <string name="detail_menu_add_to_playlist">加入播放列表</string>
+    <string name="detail_menu_save_to_library">保存到资料库</string>
+    <string name="detail_menu_remove_from_library">移出资料库</string>
     <string name="detail_menu_open_spotify">在 Spotify 中打开</string>
     <string name="detail_menu_open_apple_music">在 Apple Music 中打开</string>
     <plurals name="detail_menu_queued">
@@ -22,6 +24,8 @@
     <string name="detail_album_error_not_found">找不到专辑</string>
     <string name="detail_album_error_load">无法加载这张专辑。</string>
     <string name="detail_album_neodb_failed">无法同步到 NeoDB</string>
+    <string name="detail_album_save_failed">无法保存到资料库</string>
+    <string name="detail_album_remove_failed">无法移出资料库</string>
     <string name="detail_artist_error_not_found">找不到歌手</string>
     <string name="detail_artist_error_load">无法加载这位歌手。</string>
     <string name="detail_playlist_error_not_found">找不到播放列表</string>

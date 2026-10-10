@@ -114,12 +114,17 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 | 符号 | 用在哪 |
 | --- | --- |
 | 翻译 `rememberTranslateSymbolPainter` | 歌词工具条的翻译键：翻译进行中「文」「A」绕圈换位，结束回到「文A」；进行中按键保持亮着 |
-| 收藏 `rememberFavoriteSymbolPainter` | Now Playing 的收藏键、专辑页曲目行的收藏键 |
+| 收藏 `rememberFavoriteSymbolPainter`（经 `FavoriteGlyphIcon`） | Now Playing 的收藏键、专辑页曲目行的收藏键；只有用户自己点的变化才跳，规则见下 |
 | 均衡器 `rememberEqualizerSymbolPainter` | 专辑页当前曲目：播放时跳，暂停后从两边往中间沉成点 |
 | 展开箭头 `rememberExpandSymbolPainter` | 设置的可展开项、Play ▾（横版和竖版）：铰链式先压平再翻过去，不转圈 |
 | 播放模式 `rememberPlayModeSymbolPainter` | Now Playing 的播放模式键 |
 
 - 动效档位跟随 `MotionProfile`：`AdaptiveReduced` 对应 `SymbolMotion.Reduced`，其余 `SymbolMotion.Default`（库的默认弹簧就是 M3 Expressive motion scheme），在 `YoinActivityRoot` 统一提供。系统「移除动画」时符号静止。
+- **收藏心形的两种变化（D4，2026-10-10 owner）**：Now Playing 的收藏键和专辑页曲目行都一样。
+  - **用户点的**（写入还在进行，或刚落地、仍在 60 秒宽限内）：照常由同一个 `rememberFavoriteSymbolPainter` 变化——点亮时填充长满、轮廓跳一下（beat），取消时只缩回填充。按钮自己的按压回弹也照旧。
+  - **其余一切变化**都是静默翻转：Spotify 晚到的确认（App Remote `getLibraryState` 或 Web API contains）、资料库同步、写入失败回退、换到下一首。`FavoriteGlyphIcon` 按 key 换一个新的 painter，它一出现就处在终态；新旧两层按 effects spring 交叉淡入，只有填充和颜色在变，不跳。专辑行的底色、描边、心形颜色也都走 effects spring。
+  - 实现：状态层是 `FavoriteGlyph(favorite, quietFlips)`，`quietFlips` 只在不是用户点的变化时 +1。仓库的 `FavoriteState.fromUser` 标出用户自己的写入，过了 60 秒宽限就不再算（`YoinRepository.observeFavoriteStates` 是这两处心形的读取入口）。看的是「什么引起了变化」而不只是「值从哪来」：Now Playing 按曲目 id 判断，换了一首，第一个值一律静默，哪怕它是用户先前点出来的状态（Subsonic 的覆盖整个会话都在，Spotify 的在宽限内）。没有改 yoin-symbols。
+  - 先出页面再确认：Spotify 的已保存镜像只有最新 200 首，所以页面先按已知状态显示，确认结果晚到时静默翻转。不加载中样式，不加文字。
 
 **播放模式**（一个按钮三个状态，点一下按顺序切换，默认列表循环）
 
@@ -390,6 +395,13 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - **专辑笔记最多一条**（`album_notes` 是 v11 的旧表，现在 app 里没有任何地方再写它）：只取 `updatedAt` 最大的那条非空行（同时间取先建的），和 Memories 日记显示的是同一行。做成便签：secondaryContainer 底、16dp 圆角、右下角 17dp 折角（折角色 = 便签底色混入 32% 的 secondary）、GSF（用户的字），**不带标签也不带竖线**（TalkBack 读 "Album note: …"），只读。位置在开篇簇里、封面和乐评下面，和乐评反向倾斜：手机上单独一行靠右，宽 = 可用宽度的 72%、最多 280dp，紧跟封面时离徽记留 6dp（盖章时徽记会放大），乐评太长落到封面下面时压住乐评底边 6dp；宽屏压在乐评那一列下面、缩进 24dp。收据的 "Notes" 计数把它算进去。
 - **其余各件**：单曲分数不用小印章，直接把数字用专辑色印在票根上；全专最高分（≥ 9.0）的那张票根整张用 primary，写 "Best on the record"，每张专辑最多一张。只有分数的曲目两张一行做小票根；票根上时长和播放次数是两组（数字重、单位轻，不用分隔符），放得下就排一行；放不下时播放次数换到时长下面一行，票根跟着变高，两样都不丢（2026-10-08 owner；取代 10-05「去掉播放次数只留时长」）；什么都没留的曲目进 "Not yet" 空模子，点了播放。Ask / About 是 tertiary 索引卡（GSF、"Q" 角标，问答卡不再写 "Asked"），"About" 和 "Not yet" 两个标签保留。收据（在 Yoin 里的播放）只在专辑在 Yoin 里播放过时出现。第 1 页的「上次播放 / 均分 / 哪些曲目评过分」和第 2 页读同一条数据，跟数据库实时更新。
 - **读失败**：第 2 页的数据读失败时不会一直停在 Loading——还没读到过数据就先显示空状态，读到过就保留上次的内容（第 1 页的分数和播放信息也不变）；随后按 1 / 2 / 4 / 8 / 16 秒自动重试 5 次，成功后下一次数据到达就替换，5 次都失败就停在当前内容，错误被拦下、不崩溃。第 2 页没有手动「重试」按钮；专辑本身加载失败时仍是带 Retry 的错误页。
+- **保存到资料库（Q11，2026-10-10，只有 Spotify）**：▾ 菜单在「Add to playlist」后面多一行开关：「Save to library / 保存到资料库」⇄「Remove from library / 移出资料库」（图标 LibraryAdd / LibraryAdded，走 `PlayMenuItem`，详情列的合体栏菜单也有）。写操作是 `PUT` / `DELETE /v1/me/library?uris=spotify:album:{id}`，复用 `mutateLibrary`，经过 `SpotifyRateLimitGate`。门控是 `Capability.ALBUM_SAVE`，只有 Spotify 声明；Subsonic（专辑收藏走星标）和 Apple Music（只能逐首加入资料库）没有这一行，也不发请求。
+  - **初始状态**：先看已保存专辑镜像（`spotify_library_album_cache`，最新 200 张）：在里面就是已保存，不问。不在里面时，专辑 URI 排在这页曲目 contains 查询的第一个，和曲目一起问。
+  - **状态未知时没有这一行**（2026-10-10 评审）：镜像里没有、Spotify 还没答到（没问、在途、失败，或限流门关着没问）、也没有 Yoin 自己的写入时，状态是「未知」，▾ 菜单里不出这一行，既不会对已保存的专辑再存一次（可能把它在 Spotify 里的加入时间顶到最前），也不会在限流时给出注定失败的按钮。答复到了这一行才出现；菜单开着时它用 spatial spring 展开、effects spring 淡入，不硬切（菜单宽度若因这一行变宽会直接变，菜单是共享组件，没动它）。状态已知但限流门关着时照常显示，点了失败回滚，提示「Spotify 正忙」，和心形一样。
+  - **请求数**：专辑不额外占请求的前提是曲目给它留了位置。两种情况会多一个只为专辑的请求，属于有意保留：① 这次要问的曲目数正好是 40 的倍数（40、80…），专辑挤到下一批；② 这张专辑的曲目 30 秒内都已问过（比如 Now Playing 刚问过正在放的单曲），专辑只能单独问。不问的话这一行就一直出不来。Yoin 自己的保存或移出还在途、或落地不满 60 秒宽限时不问：这时 Spotify 的答复反正赢不了本地写（移出会删掉镜像行，以前回到前台会为它单独发一个没用的请求）。
+  - **点了之后**：立刻翻转（仓库里的写入中状态），失败回滚，并通过窗口现有的 snackbar 说原因（限流是「Spotify 正忙」，其余是「无法保存到资料库 / 无法移出资料库」或连接类提示）。连点时按顺序写，最后一次为准。成功后镜像当场更新：保存插到 Recently added 顶部，移出删掉那一行，不把整个库标记过期（重同步要翻四个列表）。数据源的已保存专辑列表另叠一层增量（和 `SavedTrackDelta` 同一机制），等 Spotify 的列表跟上再撤掉。
+  - **状态优先级**和心形一样（`YoinRepository.observeAlbumSaved`，返回 `AlbumSavedState`：不支持 / 未知 / 已保存 / 未保存）：写入中 > 60 秒宽限内刚落地的本地写 > 远端答复和镜像行（比时间戳）> 未知。只在内存里，切账号清空（回到未知，等这页再问）。
+  - **Library 不会当场刷新**：保存或移出后镜像已经更新，但 Library › Albums 和 Home 的 Recently added 要等它们下次读取才看到（和 Spotify 心形一样）。没有借 `libraryRevision` 让 Library 立刻重读：Library 读 Spotify 前会检查镜像是否超过 1 小时，超过就整库重同步（最多 16 页），在专辑页还开着时这就成了后台批量请求，限流期间不允许。
 
 ### ⚙️ 设置（从主页或 Library 进入）
 
@@ -552,3 +564,18 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 ### Apple Music profiles (2026-10-01)
 
 Apple Music connection creates a regular encrypted Profile; the previous validation authorization migrates once without automatically switching the active account. Its MusicSource supports library songs, albums, artists and read-only playlists, with distinct catalog and personal-library search scopes. MusicKit supplies DRM audio through a Media3 session shared by Now Playing and system controls. The separate library-add control uses the exact authenticated catalog-song → library relationship; it displays a stable checkmark only after membership is confirmed and preserves an unconfirmed HTTP 202 as pending. Membership never becomes a favorite heart. Unsupported favorite mutation, library removal, playlist editing, Cast and offline caching remain hidden. Imported tracks without a catalog playback ID are dimmed with a "?" badge on the cover whose tap expands the reason inline; they never enter the MusicKit queue. Since 2026-10-02 a library album opens as its full catalog album (Spotify parity): every catalog track is listed and the ones already in the user's library carry the check from `TrackLibraryButton`, which replaces the heart slot for Apple Music; tapping an unchecked row control adds that song. Library albums Apple cannot match to the catalog keep their library tracklist. Subscribed playback was verified on Pixel Tablet on 2026-09-29; these new search/library writes require their own current device verification, and reauthorization, deletion and Bluetooth hardware remain open.
+
+### Spotify 心形状态（2026-10-10，P4）
+
+Spotify 的「已喜欢」= Liked Songs（Yoin 的爱心就是它）。已保存镜像（`/me/tracks` 读最新 200 首，6-21 的决定不变）装不下主人约 3000 首的库，所以心形另有一层按账号隔离的状态：
+
+- **读取入口**：`YoinRepository.observeFavoriteStates`（Now Playing 和专辑行的心形都读它）。通知栏快捷按钮（`SessionQuickActions`）和 Library 仍直接读 `favoriteOverrides` 加曲目自带标记：下面这层状态只有 Spotify 会写入，而快捷按钮只挂在 Subsonic 和 Apple Music 的媒体会话上，Library 的行也不画心形，所以两者看到的一致。优先级：正在进行的写入 > 刚落地的本地写（60 秒宽限内） > 远端确认和镜像行（比时间戳，新的胜出；本地写在宽限之后也按「写入时间 + 60 秒」参加比较） > 曲目自带的 `isStarred`。取消喜欢记成明确的 false，队列里的旧副本翻不回来。只存在内存里，切账号清空，晚到的结果丢弃。
+- **Now Playing**：由 app 级单例 `PlaybackManager` 在当前曲目变化时查一次（warm-connect 接管也算），不放进各 Activity 的 Now Playing VM。先走 App Remote `UserApi.getLibraryState`（本机 IPC，不占 Web API 配额）；只有它在换歌时出错，且这首歌停留超过 0.8 秒，才回退到 Web API contains。之后的 PlayerState 事件（暂停、拖动、回到前台后的重连）至多每 30 秒重查一次，只走 App Remote，不发后台 Web API 请求。只查 `spotify:track:`，播客单集和本地文件跳过。
+- **专辑页**：页面先出，加载后批量查一次 `GET /v1/me/library/contains`（每批最多 40 个 URI，一批接一批，不并发）。页面回到前台时再查，同一首歌 30 秒内只问一次（专辑页和 Now Playing 共用这个节流）。
+- **限流**：contains 必须经过 `SpotifyRateLimitGate`，gate 关着就不查；失败和 429 都不重试。多批查询中途某一批失败时，前面几批的答案照样记下（`FavoriteStatesIncompleteException` 带回），没答到的曲目照常在 30 秒内算「问过」。写操作仍走已验证的 `PUT/DELETE /v1/me/library`。
+- **三家**：Subsonic 的星标本来就在每个响应里，`favoriteStates` 用默认的「不支持」，行为不变；Apple Music 没有收藏能力，资料库成员状态照旧不显示成心形；只有 Spotify 实现了这次的查询。`favoriteStates` 不是新的界面能力，所以没有另设 `Capability`：门控沿用 `FAVORITES`，Subsonic 由默认的「不支持」挡住，不发请求。
+- **已知局限**（待 Q17 真机探针确认 `getLibraryState` 的语义之后再定）：
+  - App Remote 答的是 Spotify 应用当前登录的账号。Yoin 里配了两个 Spotify 账号、而当前账号不是 Spotify 应用登录的那个时，答案会记到当前账号下。
+  - 镜像行的时间戳是同步写库的时间，不是读 `/me/tracks` 的时间：同步前几秒内的 App Remote 答复可能被它盖过，下一次检查时纠正。
+  - 在通知栏或别的设备上点的喜欢，要等下一次 PlayerState 事件（距上次检查至少 30 秒）才会反映；没有窗口聚焦或定时触发。
+- 歌单页、搜索、Library 的行不画心形，这次不加查询。艺人页关注星的同类问题另行排期（App Remote 只支持 track 和 album，那里只能用 Web API）。

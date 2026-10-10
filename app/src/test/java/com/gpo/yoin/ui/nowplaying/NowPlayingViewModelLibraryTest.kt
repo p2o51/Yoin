@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.CastManager
@@ -52,7 +53,7 @@ class NowPlayingViewModelLibraryTest {
         every { repository.currentCapabilities() } returns setOf(Capability.LIBRARY_ADD)
         every { repository.favoriteOverrides } returns MutableStateFlow(emptyMap())
         every { repository.getRating(track.id) } returns flowOf(null)
-        every { repository.observeSpotifyFavorite(track.id) } returns flowOf(null)
+        every { repository.observeFavoriteState(any()) } answers { flowOf(FavoriteState(firstArg<Track>().isStarred)) }
         every { repository.observeLibraryMembership(track.id) } returns flowOf(LibraryMembership.NotAdded)
         coEvery { repository.refreshLibraryMembership(track) } returns Result.success(LibraryMembership.NotAdded)
         coEvery { repository.getLoadedLyrics(track.id, track.title, track.artist) } returns null

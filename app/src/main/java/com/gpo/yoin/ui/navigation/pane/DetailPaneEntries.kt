@@ -153,6 +153,8 @@ internal fun AlbumPaneEntry(
         tracks = { viewModel.getAlbumSongs() },
         onMessage = onMessage,
         onAddToPlaylist = onAddToPlaylist,
+        inLibrary = content?.librarySaved,
+        onToggleLibrary = viewModel::toggleLibrarySaved,
     )
     val share = {
         val title = content?.let {
@@ -198,6 +200,7 @@ internal fun AlbumPaneEntry(
         },
         onToggleStar = viewModel::toggleStar,
         onRetry = viewModel::retry,
+        onResumed = viewModel::onResumed,
         onRenameMemoryTitle = viewModel::renameMemoryTitle,
         onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
         notedSongIds = notedSongIds,

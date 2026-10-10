@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -22,6 +23,7 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.perf.YoinPerf
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
@@ -110,6 +112,28 @@ class PlaybackManager(
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
         onContext = ::onSpotifyPlayerContext,
+    )
+
+    /**
+     * The Spotify heart check, made here — once per track change, however
+     * many Now Playing hosts are open — and pushed into the repository's
+     * favorite state (this depends on the repository, never the reverse).
+     */
+    private val savedStateRefresher = SpotifySavedStateRefresher(
+        scope = scope,
+        clock = System::currentTimeMillis,
+        appRemoteState = ::appRemoteLibraryState,
+        sink = object : SpotifySavedStateSink {
+            override fun currentProfileId(): String? = repository.currentProfileId()
+
+            override fun recordAppRemoteState(profileId: String, trackId: MediaId, saved: Boolean) {
+                repository.recordFavoriteState(profileId, trackId, saved)
+            }
+
+            override suspend fun checkWithWebApi(track: Track) {
+                repository.refreshFavoriteStates(listOf(track))
+            }
+        }
     )
 
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -216,6 +240,7 @@ class PlaybackManager(
     fun disconnect() {
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
+        savedStateRefresher.reset()
         activeBackend = ActiveBackend.NONE
         requestedMedia3Source = null
         pendingSpotifyHandoff = false
@@ -818,6 +843,11 @@ class PlaybackManager(
                 }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
+                // Spotify's own state, adopted or Yoin-started alike: checks the
+                // heart on a track change, rechecks now and then on later events.
+                if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
+                    savedStateRefresher.onPlayerState(snapshot.currentTrack)
+                }
             }
 
             ConnectionPhase.Error -> {
@@ -1057,6 +1087,48 @@ class PlaybackManager(
         android.os.Build.MODEL,
     )
 
+    /** App Remote's answer whether [uri] is in Liked Songs; null when it can't give one. */
+    private suspend fun appRemoteLibraryState(uri: String): Boolean? {
+        val perf = YoinPerf.begin("favorite.check")
+        val state = spotifyRemotePlayer.libraryState(uri)
+        YoinPerf.end(
+            perf,
+            "src" to "appRemote",
+            "ok" to state.isSuccess,
+            "err" to state.exceptionOrNull()?.javaClass?.simpleName
+        )
+        return state.getOrNull()?.isAdded
+    }
+
+    /**
+     * The debug library-state probe (`app/src/debug` LibraryStateProbeReceiver,
+     * docs/perf/yoinperf-logging.md): connects App Remote when it isn't — the
+     * warm connection, which plays nothing and leaves the queue alone — and
+     * reads Spotify's library state for each of [uris], one after another.
+     */
+    internal suspend fun probeSpotifyLibraryStates(
+        uris: List<String>,
+        connectTimeoutMs: Long
+    ): SpotifyLibraryStateProbe {
+        val hadHost = spotifyRemotePlayer.hasHost()
+        val connectStart = SystemClock.elapsedRealtime()
+        val connected = spotifyRemotePlayer.awaitConnection(connectTimeoutMs)
+        val connectMs = SystemClock.elapsedRealtime() - connectStart
+        if (!connected) return SpotifyLibraryStateProbe(false, hadHost, connectMs, emptyList())
+        val readings = uris.map { uri ->
+            val start = SystemClock.elapsedRealtime()
+            val state = spotifyRemotePlayer.libraryState(uri)
+            SpotifyLibraryStateReading(
+                uri = uri,
+                isAdded = state.getOrNull()?.isAdded,
+                canAdd = state.getOrNull()?.canAdd,
+                elapsedMs = SystemClock.elapsedRealtime() - start,
+                error = state.exceptionOrNull()
+            )
+        }
+        return SpotifyLibraryStateProbe(true, hadHost, connectMs, readings)
+    }
+
     /**
      * Spotify reported a new "playing from" context (album / playlist / …). When we're
      * playing externally-started Spotify content, derive an [ActivityContext] so Now
@@ -1171,6 +1243,24 @@ class PlaybackManager(
         private const val EXTRA_USER_QUEUED = "yoin_user_queued"
     }
 }
+
+/** What the debug library-state probe found: whether App Remote connected, then one reading per URI. */
+internal data class SpotifyLibraryStateProbe(
+    val connected: Boolean,
+    /** Whether a started Yoin Activity was there to connect from when the probe began. */
+    val hadHost: Boolean,
+    val connectMs: Long,
+    val readings: List<SpotifyLibraryStateReading>
+)
+
+/** One App Remote `getLibraryState` read: its answer, or the [error] it failed with. */
+internal data class SpotifyLibraryStateReading(
+    val uri: String,
+    val isAdded: Boolean?,
+    val canAdd: Boolean?,
+    val elapsedMs: Long,
+    val error: Throwable?
+)
 
 /**
  * The window indices of [timeline] that play after [current], in play order

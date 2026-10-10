@@ -59,3 +59,20 @@ adb shell content query --uri content://com.gpo.yoin.debug.spotifytoken/access_t
 ```
 
 This is debug-build research plumbing, not release behaviour.
+
+## App Remote library-state probe
+
+`LibraryStateProbeReceiver` asks the Spotify app, over App Remote, whether each given
+URI (track or album) is in the user's library (`UserApi.getLibraryState`) and logs
+`isAdded` / `canAdd` / time / error under the `YoinProbe` tag. Read-only: it reuses
+Yoin's warm connection, starts no playback, touches no queue and logs no token.
+Guarded by `android.permission.DUMP` like the token bridge. Open Yoin first (App Remote
+connects only while a Yoin Activity is started).
+
+```bash
+adb shell am broadcast -n com.gpo.yoin/.debug.LibraryStateProbeReceiver \
+  -a com.gpo.yoin.debug.LIBRARY_STATE --esa uris spotify:track:<id>,spotify:album:<id>
+adb logcat -d -s YoinProbe:*
+```
+
+Details and the output format: `docs/perf/yoinperf-logging.md`.

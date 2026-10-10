@@ -57,6 +57,15 @@
 - 应用拦截器：重定向、重试在它里面完成，一行代表一次调用。
 - 歌词、NeoDB、Gemini、Drive 同步、播放流（Media3）的 client 没挂。
 
+### 心形（Spotify 已喜欢状态，P4）
+
+| 事件 | 字段 | 打在哪 | 含义 |
+| --- | --- | --- | --- |
+| `favorite.check` | `src=appRemote` `ok` [`err`] `ms` | `PlaybackManager.appRemoteLibraryState` | Now Playing 换歌（或节流后的重查）时问 App Remote `getLibraryState`。本机 IPC，没有对应的 `http` 行。`ok=false err=IllegalStateException` 多半是 App Remote 没连上。 |
+| `favorite.check` | `src=contains` `n` `ok` [`err`] [`answered`] [`album`] `ms` | `YoinRepository.refreshFavoriteStates` | 一次 Web API contains 查询：专辑页加载或回到前台，或者 Now Playing 的 App Remote 出错后的回退。`n` 是这次问的曲目数（每 40 个一个请求，`http` 行里能看到 `/v1/me/library/contains`）。中途某一批失败（比如 429）时 `answered` 是前面几批已经答到、照样记下的曲目数。`album=true`：专辑本身（▾ 菜单的「保存到资料库」那一行，Q11）也排在这次的第一个一起问了，只在已保存专辑镜像里没有它、而且 Yoin 自己对它的保存或移出既不在途也不在 60 秒宽限内时才问；这时 `n` 可以是 0（曲目 30 秒内都问过，专辑单独占一个请求），`n` 是 40 的倍数时专辑也会多占一个请求（design.md「保存到资料库」的「请求数」）。限流门关着或 30 秒内问过的曲目不发请求，也不打这一行；Subsonic 不打。 |
+
+- 验收时看：连续听歌一小时，`src=contains` 的次数应当接近 0（App Remote 正常时 Now Playing 不走 Web API）；打开一张专辑最多一行 `src=contains`。
+
 ### 图片（Coil）
 
 | 事件 | 字段 | 打在哪 |
@@ -88,7 +97,38 @@ $ADB shell am start -W -n com.gpo.yoin/.MainActivity
 $ADB logcat -d -v raw -s YoinPerf:D | grep '^home\.'
 ```
 
-只看某类：`grep '^detail\.'`、`grep '^http '`、`grep '^image\.error'`。
+只看某类：`grep '^detail\.'`、`grep '^http '`、`grep '^image\.error'`、`grep '^favorite\.'`。
+
+## App Remote 收藏状态探针（只读，Q17）
+
+debug 包里有一个广播入口 `LibraryStateProbeReceiver`（`app/src/debug`，manifest 要求发送方持有 DUMP，只有 adb shell 有）。它连上 App Remote，对每个 URI 调 `UserApi.getLibraryState`，把结果打到 logcat 的 `YoinProbe`。
+
+- **不起播、不改队列**：复用 Yoin 自己的 warm connection（Spotify 账号在用时 Yoin 本来就会这样连），只读状态。
+- **不打 token**：日志里只有 URI、结果、耗时和错误类名，没有 access token，也没有 Client ID。
+- App Remote 只有在某个 Yoin Activity 处于 started 状态时才能连，所以**先把 Yoin 打开到前台**，用 Spotify 账号。
+- URI 只能是 track 或 album（UserApi 文档的限制）。
+
+```sh
+$ADB logcat -c
+$ADB shell am broadcast -n com.gpo.yoin/.debug.LibraryStateProbeReceiver \
+    -a com.gpo.yoin.debug.LIBRARY_STATE \
+    --esa uris spotify:track:<id1>,spotify:track:<id2>,spotify:album:<id3>
+$ADB logcat -d -v raw -s YoinProbe:*
+```
+
+清单 receiver 收不到隐式广播，所以必须带 `-n`。`--esa` 用逗号分隔多个 URI；只有一个时也可以用 `--es uris spotify:track:<id>`。
+
+输出示例：
+
+```
+connect ok=true host=true ms=412
+libraryState uri=spotify:track:<id1> isAdded=true canAdd=true ms=18
+libraryState uri=spotify:track:<id2> ms=3004 error=TimeoutCancellationException: Timed out waiting for 3000 ms
+```
+
+- `connect ok=false`：App Remote 没连上。`host=false` 表示探针开始时没有 started 的 Yoin Activity。
+- 每个 URI 最多等 3 秒。
+- 要确认的四件事：scope 是否够用；耗时；在 Spotify app 和通知栏里点赞后，结果是否立刻变化；只在某个歌单里、显示绿勾但不在 Liked Songs 的歌，返回什么。
 
 ## 按 id 配对算时长
 

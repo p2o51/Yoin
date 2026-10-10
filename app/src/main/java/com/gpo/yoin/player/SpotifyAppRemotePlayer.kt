@@ -8,8 +8,10 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.spotify.EXTRA_SPOTIFY_URI_TYPE
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
+import com.gpo.yoin.data.source.spotify.spotifyUriType
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
@@ -25,6 +27,7 @@ import com.spotify.protocol.client.CallResult
 import com.spotify.protocol.client.PendingResult
 import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.Empty
+import com.spotify.protocol.types.LibraryState
 import com.spotify.protocol.types.PlayerContext
 import com.spotify.protocol.types.PlayerState
 import kotlinx.coroutines.CancellationException
@@ -32,8 +35,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -391,6 +399,45 @@ internal class SpotifyAppRemotePlayer(
         playQueue(mirroredQueue, index)
     }
 
+    /**
+     * Spotify's own library state for [uri] — a track or an album, all
+     * UserApi accepts — read over App Remote's local IPC: no Web API request,
+     * so none of the rate-limit budget. Fails when App Remote isn't
+     * connected, the call errors, or no answer comes within
+     * [LIBRARY_STATE_TIMEOUT_MS]. Never connects, plays or touches the queue.
+     */
+    suspend fun libraryState(uri: String): Result<LibraryState> = withContext(Dispatchers.Main.immediate) {
+        val connected = remote?.takeIf { it.isConnected }
+            ?: return@withContext Result.failure(IllegalStateException("App Remote is not connected"))
+        try {
+            val state = withTimeout(LIBRARY_STATE_TIMEOUT_MS) { connected.userApi.getLibraryState(uri).awaitData() }
+            state?.let { Result.success(it) } ?: Result.failure(IllegalStateException("No library state for $uri"))
+        } catch (timeout: TimeoutCancellationException) {
+            Result.failure(timeout)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    /**
+     * For the debug library-state probe: starts the warm connection when
+     * there is none and waits up to [timeoutMs] for it. App Remote connects
+     * only while a Yoin Activity is started. Plays nothing.
+     */
+    suspend fun awaitConnection(timeoutMs: Long): Boolean = withContext(Dispatchers.Main.immediate) {
+        if (remote?.isConnected == true) return@withContext true
+        warmConnection()
+        withTimeoutOrNull(timeoutMs) {
+            while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
+            true
+        } ?: false
+    }
+
+    /** Whether a started Yoin Activity is there to connect App Remote from (debug probe). */
+    fun hasHost(): Boolean = hostContext != null
+
     private fun enqueueOperation(
         replacePending: Boolean = false,
         operation: suspend (SpotifyAppRemote) -> Unit,
@@ -728,6 +775,9 @@ internal class SpotifyAppRemotePlayer(
             genre = null,
             userRating = null,
             isStarred = false,
+            // An episode or a local file keeps its kind, so nothing asks
+            // Spotify whether its id is a liked track.
+            extras = spotifyUriType(uri)?.let { type -> mapOf(EXTRA_SPOTIFY_URI_TYPE to type) }.orEmpty(),
         )
     }
 
@@ -844,6 +894,16 @@ internal class SpotifyAppRemotePlayer(
     private companion object {
         /** Tracks the App Remote fallback queues after the started one. */
         const val FALLBACK_QUEUE_LIMIT = 10
+
+        /**
+         * How long a library-state read waits for Spotify's answer. It is
+         * local IPC and normally answers in milliseconds; a CallResult a
+         * dropped connection stranded must not hold the heart check open.
+         */
+        const val LIBRARY_STATE_TIMEOUT_MS = 3_000L
+
+        /** How often [awaitConnection] looks whether the connect landed. */
+        const val CONNECTION_POLL_MS = 100L
 
         /**
          * Gap between the failing connect and the silent retry. Long enough
@@ -984,6 +1044,13 @@ internal fun String?.normalizedSpotifyErrorMessage(): String? {
         .replace("\\\"", "\"")
         .trim()
         .ifBlank { null }
+}
+
+/** The call's data; null when Spotify answered without any. */
+private suspend fun <T> CallResult<T>.awaitData(): T? = suspendCancellableCoroutine { continuation ->
+    setResultCallback { data -> continuation.resume(data) }
+    setErrorCallback { throwable -> continuation.resumeWithException(throwable) }
+    continuation.invokeOnCancellation { cancel() }
 }
 
 private suspend fun CallResult<Empty>.awaitUnit() {
