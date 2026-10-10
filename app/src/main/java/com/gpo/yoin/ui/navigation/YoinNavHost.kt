@@ -1127,6 +1127,12 @@ private fun YoinShell(
                                     )
                                 }
                             },
+                            // From the tapped row on. None: Songs isn't Spotify's Liked order.
+                            onSongsListClick = { _, queue, startIndex ->
+                                app.container.profileManager.activeSource.value?.let { source ->
+                                    app.container.playbackManager.play(queue, startIndex, source, ActivityContext.None)
+                                }
+                            },
                             onAddSongToPlaylist = { song ->
                                 nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                             },
