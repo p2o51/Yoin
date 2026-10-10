@@ -55,6 +55,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 
 private const val HomeLoadingIndicatorDelayMillis = 180L
+
+// Loading reports motion pressure (design.md: AdaptiveReduced while Home
+// loads; the intro waits up to 0.4 s for it to clear). A load that hangs past
+// this lifts it anyway, so the whole app doesn't stay reduced behind it.
+private const val HOME_LOADING_PRESSURE_MAX_MS = 3_000L
 private val HomeInitialEntranceOffset = 16.dp
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -205,6 +210,7 @@ fun HomeContent(
     ReportMotionPressure(
         tag = "home",
         isHighPressure = uiState is HomeUiState.Loading,
+        maxDurationMs = HOME_LOADING_PRESSURE_MAX_MS,
     )
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
