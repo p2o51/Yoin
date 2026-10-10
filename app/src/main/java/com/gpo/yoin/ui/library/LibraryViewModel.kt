@@ -772,9 +772,14 @@ class LibraryViewModel(
      * [id] was opened from Library: Recents moves it up by the id Library
      * lists it under, whatever the page it opens resolves it to (an Apple
      * Music library album opens as its catalog album, and records its visit
-     * by that id), and for playlists, whose pages record no visit.
+     * by that id), and for playlists, whose pages record no visit. A search
+     * result counts only from the library's own scope ([fromSearch]): a
+     * catalog result isn't in the library, and would only crowd out the
+     * records that are.
      */
-    fun recordOpened(kind: LibraryOpenKind, id: String) {
+    fun recordOpened(kind: LibraryOpenKind, id: String, fromSearch: Boolean = false) {
+        val searchScope = (_uiState.value as? LibraryUiState.Content)?.searchScope
+        if (fromSearch && searchScope != LibrarySearchScope.CurrentLibrary) return
         val mediaId = MediaId.parseOrNull(id) ?: return
         val profileId = repository.currentProfileId() ?: return
         val at = clock()

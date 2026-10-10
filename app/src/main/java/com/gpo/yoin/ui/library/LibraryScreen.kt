@@ -320,6 +320,25 @@ fun LibraryScreen(
             onPlaylistClick(id)
         }
     }
+    // A search result counts only in the library's own scope (recordOpened).
+    val openSearchArtist = remember(viewModel, onArtistClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Artist, id, fromSearch = true)
+            onArtistClick(id)
+        }
+    }
+    val openSearchAlbum = remember(viewModel, onAlbumClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Album, id, fromSearch = true)
+            onAlbumClick(id)
+        }
+    }
+    val openSearchPlaylist = remember(viewModel, onPlaylistClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Playlist, id, fromSearch = true)
+            onPlaylistClick(id)
+        }
+    }
 
     LibraryContent(
         uiState = uiState,
@@ -343,6 +362,9 @@ fun LibraryScreen(
         onArtistClick = openArtist,
         onAlbumClick = openAlbum,
         onPlaylistClick = openPlaylist,
+        onSearchArtistClick = openSearchArtist,
+        onSearchAlbumClick = openSearchAlbum,
+        onSearchPlaylistClick = openSearchPlaylist,
         onSongClick = onSongClick,
         onFavoriteSongClick = onFavoriteSongClick,
         onSongsListClick = onSongsListClick,
@@ -380,6 +402,10 @@ fun LibraryContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
+    // Search results' own opens (LibraryScreen records them only in the library's scope).
+    onSearchArtistClick: (String) -> Unit = onArtistClick,
+    onSearchAlbumClick: (String) -> Unit = onAlbumClick,
+    onSearchPlaylistClick: (String) -> Unit = onPlaylistClick,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
@@ -481,6 +507,9 @@ fun LibraryContent(
                             onArtistClick = onArtistClick,
                             onAlbumClick = onAlbumClick,
                             onPlaylistClick = onPlaylistClick,
+                            onSearchArtistClick = onSearchArtistClick,
+                            onSearchAlbumClick = onSearchAlbumClick,
+                            onSearchPlaylistClick = onSearchPlaylistClick,
                             onSongClick = onSongClick,
                             onFavoriteSongClick = onFavoriteSongClick,
                             onSongsListClick = onSongsListClick,
@@ -521,6 +550,9 @@ private fun LibraryContentBody(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
+    onSearchArtistClick: (String) -> Unit,
+    onSearchAlbumClick: (String) -> Unit,
+    onSearchPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
@@ -934,9 +966,9 @@ private fun LibraryContentBody(
             trackLibraryStates = trackLibraryStates,
             workingLibraryTrackIds = workingLibraryTrackIds,
             libraryActionFeedback = state.libraryActionFeedback,
-            onArtistClick = fromSearch(onArtistClick),
-            onAlbumClick = fromSearch(onAlbumClick),
-            onPlaylistClick = fromSearch(onPlaylistClick),
+            onArtistClick = fromSearch(onSearchArtistClick),
+            onAlbumClick = fromSearch(onSearchAlbumClick),
+            onPlaylistClick = fromSearch(onSearchPlaylistClick),
             onSongClick = onSongClick,
             onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
             onAddSongToLibrary = onAddSongToLibrary,

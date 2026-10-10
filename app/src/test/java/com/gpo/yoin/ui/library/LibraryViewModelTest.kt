@@ -1473,6 +1473,28 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_recordASearchOpenOnlyInTheLibraryScope_when_openedFromSearch() = runTest {
+        val repository = spotifyRepository()
+        val openStore = LibraryOpenStore.InMemory()
+        val viewModel = libraryViewModel(repository, openStore = openStore, clock = { 7L })
+        advanceUntilIdle()
+        suspend fun opened() = openStore.observe("test-profile", MediaId.PROVIDER_SPOTIFY).first().albums
+
+        // A catalog result: not in the library, so it takes no place among its records.
+        viewModel.openSearchShortcut(LibrarySearchScope.SpotifyGlobal)
+        viewModel.recordOpened(LibraryOpenKind.Album, "spotify:catalog", fromSearch = true)
+        advanceUntilIdle()
+        assertEquals(emptyMap<String, Long>(), opened())
+
+        // A result of the library's own search counts like any open from Library.
+        viewModel.selectSearchScope(LibrarySearchScope.CurrentLibrary)
+        viewModel.recordOpened(LibraryOpenKind.Album, "spotify:saved", fromSearch = true)
+        viewModel.recordOpened(LibraryOpenKind.Album, "spotify:grid")
+        advanceUntilIdle()
+        assertEquals(mapOf("saved" to 7L, "grid" to 7L), opened())
+    }
+
+    @Test
     fun should_moveAPlaylistUp_when_openedFromLibrary() = runTest {
         val repository = subsonicLibrary()
         coEvery { repository.getPlaylists() } returns listOf(
