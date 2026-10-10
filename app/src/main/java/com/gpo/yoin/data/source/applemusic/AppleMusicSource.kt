@@ -308,13 +308,15 @@ class AppleMusicSource(
         durationSec = tracks.sumOf { it.durationSec ?: 0 }
     )
 
-    override suspend fun getArtists(): List<ArtistIndex> = all(path("artists"), PageLimitQuery).map(::artist)
+    override suspend fun getArtists(): List<ArtistIndex> = all(path("artists"), LibraryArtistsQuery).map(::artist)
         .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
         .map { (letter, artists) -> ArtistIndex(letter, artists) }
 
     override suspend fun getArtist(id: MediaId): ArtistDetail? {
         val path = path("artists", id)
-        val resource = page(path).resources().firstOrNull() ?: return null
+        // A library artist's portrait is its catalog artist's; a catalog artist carries its own.
+        val query = if (id.rawId.startsWith("library:")) LibraryArtistQuery else emptyMap()
+        val resource = page(path, query).resources().firstOrNull() ?: return null
         val artist = artist(resource)
         // The albums relationship pages 25 by default, 100 at most.
         val albums = all(path + "albums", PageLimitQuery).map(::album)
@@ -549,9 +551,18 @@ class AppleMusicSource(
                 a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded")
             )
         }
+
+        /**
+         * A library artist keeps its library id (it opens its library artist page), but has no artwork of its
+         * own: its portrait is the catalog artist's, when the request included the `catalog` relationship.
+         */
         internal fun artist(resource: JsonObject): Artist {
             val a = resource.attributes()
-            return Artist(resource.mediaId(), a.text("name").orEmpty(), null, a.cover())
+            val portrait = a.cover() ?: resource.related("catalog")
+                .firstOrNull { it.text("type") == "artists" }
+                ?.attributes()
+                ?.cover()
+            return Artist(resource.mediaId(), a.text("name").orEmpty(), null, portrait)
         }
         internal fun playlist(resource: JsonObject): Playlist {
             val a = resource.attributes()
@@ -577,6 +588,12 @@ private const val RecentPlayedMaxPages = 5
 
 /** Apple's largest page for library collections and the artist albums relationship (default 25). */
 private val PageLimitQuery = mapOf("limit" to "100")
+
+/** A library artist with its catalog artist, the only one of the two that has a portrait. */
+private val LibraryArtistQuery = mapOf("include" to "catalog")
+
+/** Library › Artists: full pages, each artist with its catalog artist ([LibraryArtistQuery]). */
+private val LibraryArtistsQuery = PageLimitQuery + LibraryArtistQuery
 
 /** A library album's tracks, each with its catalog song: what marks the catalog album's rows. */
 private val LibraryTracksQuery = mapOf("include" to "catalog")
