@@ -1640,26 +1640,30 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun should_rebuildSignals_when_reloadFailsAfterReadingNewStamp() = runTest {
-        // A reload builds its signals on a new stamp, then fails elsewhere: the
-        // feed it started from stays up, built on the old stamp. That stamp's
-        // tick must still rebuild the pill — the reload never published.
+    fun should_rebuildSignals_when_reloadFailsBeforePublishingThem() = runTest {
+        // A reload reads a new stamp for its signals, then fails elsewhere
+        // while they are still being built: the feed it started from stays up,
+        // built on the old stamp. That stamp's tick must still rebuild the
+        // pill — the reload never published its signals.
         val profile = "subsonic-unpublished-stamp"
         val stamp = MutableStateFlow(5L)
         val repository = memorySignalRepository(profile = profile, stamp = stamp)
         var notes = 1
-        var activitiesFail = false
+        var reloading = false
         every { repository.getRecentActivities(limit = any()) } answers {
             flow {
-                if (activitiesFail) {
-                    // After the signal build, which reads no activities.
+                if (reloading) {
                     delay(10)
                     throw IOException("offline")
                 }
                 emit(emptyList<ActivityEvent>())
             }
         }
-        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } coAnswers {
+            // The reload's build outlasts its failure.
+            if (reloading) delay(50)
+            emptyList()
+        }
         coEvery { repository.countNotes() } answers { notes }
         val viewModel = homeViewModel(repository, profile)
         advanceUntilIdle()
@@ -1667,7 +1671,7 @@ class HomeViewModelTest {
 
         notes = 2
         stamp.value = 6L
-        activitiesFail = true
+        reloading = true
         viewModel.refresh()
         advanceTimeBy(100)
         assertEquals(1, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
@@ -1720,11 +1724,11 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun should_applySignalWrite_when_itLandsDuringLoad() = runTest {
-        // Cold start: Home shows Loading while a slow network read runs. A note
-        // written after the load read its stamp ticks while still Loading —
-        // nothing to splice into — and the load then publishes the older
-        // signals. Room never ticks the same stamp again: the load replays it.
+    fun should_applySignalWrite_when_itLandsWhileASlowShelfLoads() = runTest {
+        // Cold start with a slow network shelf: the local tier and the signals
+        // are up at once while the shelf is still out. A note written then
+        // ticks onto the feed up — it doesn't wait for the shelf — and the
+        // shelf splices in later without taking the write back.
         val profile = "subsonic-write-during-load"
         val stamp = MutableStateFlow(5L)
         val repository = memorySignalRepository(profile = profile, stamp = stamp)
@@ -1733,21 +1737,53 @@ class HomeViewModelTest {
         coEvery { repository.countNotes() } answers { notes }
         coEvery { repository.getRecentlyPlayedAlbums(any()) } coAnswers {
             delay(5_000)
-            emptyList()
+            listOf(recentAlbum("late-played"))
         }
 
         val viewModel = homeViewModel(repository, profile)
         advanceTimeBy(500)
-        assertEquals(HomeUiState.Loading, viewModel.uiState.value)
+        assertEquals(1, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
 
         notes = 2
         stamp.value = 6L
-        // The write's (debounced) tick comes and goes while Home is Loading.
         advanceTimeBy(2_000)
-        assertEquals(HomeUiState.Loading, viewModel.uiState.value)
+        val beforeShelf = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(2, beforeShelf.memoryPill?.noteCount)
+        assertTrue(beforeShelf.recentlyPlayed.isEmpty())
 
         advanceUntilIdle()
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(2, content.memoryPill?.noteCount)
+        assertEquals(listOf("late-played"), content.recentlyPlayed.map { it.id.rawId })
+    }
+
+    @Test
+    fun should_buildSignalsOnce_when_aWriteTicksWhileTheLoadBuildsThem() = runTest {
+        // The local tier is up and the load's candidate build still out when a
+        // note is written. Its tick leaves the build to the load, which
+        // publishes signals read on the older stamp and then replays the tick:
+        // two builds, not a third racing the load's.
+        val profile = "subsonic-tick-during-signals"
+        val stamp = MutableStateFlow(5L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var notes = 1
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } coAnswers {
+            delay(3_000)
+            emptyList()
+        }
+        coEvery { repository.countNotes() } answers { notes }
+
+        val viewModel = homeViewModel(repository, profile)
+        runCurrent()
+        assertNull((viewModel.uiState.value as HomeUiState.Content).memoryPill)
+
+        advanceTimeBy(500)
+        notes = 2
+        stamp.value = 6L
+        advanceUntilIdle()
+
         assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
+        coVerify(exactly = 2) { repository.getAlbumMemoryCandidates(48, true) }
     }
 
     @Test
@@ -1783,6 +1819,203 @@ class HomeViewModelTest {
         assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
     }
 
+    @Test
+    fun should_publishLocalTierFirst_when_networkShelvesAreSlow() = runTest {
+        // A slow server: the activity log and the persisted pools go up at
+        // once; each network shelf then splices into that same feed as it
+        // lands, the blocks already up staying as they are.
+        val profile = "subsonic-tiers"
+        val repository = memorySignalRepository(profile = profile)
+        val visit = artistVisit("tier-artist")
+        val pooled = album("pooled-album", "Pooled")
+        val pools = YoinRepository.HomeGridPoolSnapshot(
+            albums = listOf(pooled),
+            tracks = emptyList(),
+            playlists = emptyList(),
+            cachedAt = 1L
+        )
+        val starred = CompletableDeferred<Starred>()
+        val played = CompletableDeferred<List<Album>>()
+        val playlists = CompletableDeferred<List<Playlist>>()
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(visit))
+        coEvery { repository.getCachedHomeGridPools(any()) } returns pools
+        coEvery { repository.getCachedHomeGridPools(isNull()) } returns pools
+        coEvery { repository.getStarred() } coAnswers { starred.await() }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } coAnswers { played.await() }
+        coEvery { repository.getPlaylists() } coAnswers { playlists.await() }
+        val viewModel = homeViewModel(repository, profile)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            val local = awaitItem() as HomeUiState.Content
+            assertEquals(listOf(visit), local.activities)
+            assertTrue(local.widgetGrid.any { it.target == HomeWidgetTarget.AlbumDetail(pooled.id.toString()) })
+            assertTrue(local.recentlyAddedAlbums.isEmpty())
+            assertTrue(local.recentlyPlayed.isEmpty())
+            assertTrue(local.playlists.isEmpty())
+
+            played.complete(listOf(recentAlbum("played-1")))
+            val withPlayed = awaitItem() as HomeUiState.Content
+            assertEquals(listOf("played-1"), withPlayed.recentlyPlayed.map { it.id.rawId })
+            assertEquals(local.activities, withPlayed.activities)
+            assertEquals(local.widgetGrid, withPlayed.widgetGrid)
+
+            starred.complete(Starred(albums = listOf(recentAlbum("added-1"))))
+            assertEquals(
+                listOf("added-1"),
+                (awaitItem() as HomeUiState.Content).recentlyAddedAlbums.map { it.id.rawId }
+            )
+
+            playlists.complete(listOf(playlist("pl-1")))
+            val full = awaitItem() as HomeUiState.Content
+            assertEquals(listOf("pl-1"), full.playlists.map { it.id.rawId })
+            assertEquals(listOf("played-1"), full.recentlyPlayed.map { it.id.rawId })
+            assertEquals(listOf("added-1"), full.recentlyAddedAlbums.map { it.id.rawId })
+        }
+    }
+
+    @Test
+    fun should_keepShelves_when_reloadReadsFail() = runTest {
+        // A same-scope reload (Retry, a credentials edit) whose network reads
+        // fail keeps the shelves up instead of clearing them.
+        val profile = "subsonic-keep-on-failure"
+        val repository = memorySignalRepository(profile = profile)
+        var offline = false
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } answers {
+            if (offline) throw IOException("offline") else listOf(recentAlbum("played-1"))
+        }
+        coEvery { repository.getPlaylists() } answers {
+            if (offline) throw IOException("offline") else listOf(playlist("pl-1"))
+        }
+        coEvery { repository.getStarred() } answers {
+            if (offline) throw IOException("offline") else Starred(albums = listOf(recentAlbum("added-1")))
+        }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+
+        offline = true
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(listOf("played-1"), content.recentlyPlayed.map { it.id.rawId })
+        assertEquals(listOf("pl-1"), content.playlists.map { it.id.rawId })
+        assertEquals(listOf("added-1"), content.recentlyAddedAlbums.map { it.id.rawId })
+        coVerify(exactly = 2) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_emptyShelves_when_reloadReadsComeBackEmpty() = runTest {
+        // An empty answer is the library's truth, not a failure: it clears.
+        val profile = "subsonic-empty-on-reload"
+        val repository = memorySignalRepository(profile = profile)
+        var emptied = false
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } answers {
+            if (emptied) emptyList() else listOf(recentAlbum("played-1"))
+        }
+        coEvery { repository.getPlaylists() } answers { if (emptied) emptyList() else listOf(playlist("pl-1")) }
+        coEvery { repository.getStarred() } answers {
+            if (emptied) Starred() else Starred(albums = listOf(recentAlbum("added-1")))
+        }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+
+        emptied = true
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertTrue(content.recentlyPlayed.isEmpty())
+        assertTrue(content.playlists.isEmpty())
+        assertTrue(content.recentlyAddedAlbums.isEmpty())
+    }
+
+    @Test
+    fun should_spliceHeroFootnote_when_itResolvesAfterLocalTier() = runTest {
+        // The hero's footnote reads the album through the detail cache — on a
+        // cold one, the network. The local tier doesn't wait for it.
+        val profile = "subsonic-hero-footnote"
+        val repository = memorySignalRepository(profile = profile)
+        val hero = ActivityEvent(
+            entityType = "ALBUM",
+            actionType = "PLAYED",
+            entityId = "hero-album",
+            profileId = profile,
+            title = "Hero",
+            subtitle = "Artist"
+        )
+        val heroAlbum = CompletableDeferred<Album?>()
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(hero))
+        coEvery { repository.getAlbum(MediaId.subsonic("hero-album")) } coAnswers { heroAlbum.await() }
+        val viewModel = homeViewModel(repository, profile)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            val local = awaitItem() as HomeUiState.Content
+            assertEquals(listOf(hero), local.activities)
+            assertNull(local.activityHeroYear)
+
+            heroAlbum.complete(album("hero-album", "Hero").copy(id = MediaId.subsonic("hero-album"), year = 2019))
+            val withFootnote = awaitItem() as HomeUiState.Content
+            assertEquals(2019, withFootnote.activityHeroYear)
+            assertEquals(10, withFootnote.activityHeroSongCount)
+        }
+    }
+
+    @Test
+    fun should_waitForEndpoint_when_spotifyLocalTierIsEmpty() = runTest {
+        // Spotify's Activities are its recently-played endpoint's. With no
+        // activity log and no pools on this device there is nothing local to
+        // put up, and an empty feed would be wrong: Loading holds until the
+        // endpoint answers.
+        val profile = "spotify-empty-local"
+        val repository = memorySignalRepository(profile = profile)
+        every { repository.currentProviderId() } returns MediaId.PROVIDER_SPOTIFY
+        every { repository.activeProviderId } returns flowOf(MediaId.PROVIDER_SPOTIFY)
+        val endpoint = CompletableDeferred<List<ActivityEvent>>()
+        val remote = listOf(artistVisit("remote-artist").copy(provider = MediaId.PROVIDER_SPOTIFY))
+        coEvery { repository.getSpotifyRecentActivities(any()) } coAnswers { endpoint.await() }
+        val viewModel = homeViewModel(repository, profile)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            advanceTimeBy(1_000)
+            expectNoEvents()
+
+            endpoint.complete(remote)
+            val content = awaitItem() as HomeUiState.Content
+            assertEquals(remote, content.activities)
+            assertTrue(content.activitiesFromRemote)
+        }
+    }
+
+    @Test
+    fun should_keepEndpointFeed_when_reloadEndpointFails() = runTest {
+        // The endpoint's feed is up; a reload whose endpoint read fails keeps
+        // it rather than falling back to the local log.
+        val profile = "spotify-endpoint-fails"
+        val repository = memorySignalRepository(profile = profile)
+        every { repository.currentProviderId() } returns MediaId.PROVIDER_SPOTIFY
+        every { repository.activeProviderId } returns flowOf(MediaId.PROVIDER_SPOTIFY)
+        val remote = listOf(artistVisit("remote-artist").copy(provider = MediaId.PROVIDER_SPOTIFY))
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("local-artist")))
+        var offline = false
+        coEvery { repository.getSpotifyRecentActivities(any()) } answers {
+            if (offline) throw IOException("offline") else remote
+        }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        assertEquals(remote, (viewModel.uiState.value as HomeUiState.Content).activities)
+
+        offline = true
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(remote, content.activities)
+        assertTrue(content.activitiesFromRemote)
+    }
+
     /**
      * [memorySignalRepository] whose active provider follows [provider], as the
      * active source's id does. The source's identity follows it too (a rebuild
@@ -1811,6 +2044,15 @@ class HomeViewModelTest {
             every { store.layoutFlow(any()) } returns flowOf(null)
         },
         configurationRevision = revision
+    )
+
+    private fun playlist(rawId: String): Playlist = Playlist(
+        id = MediaId.subsonic(rawId),
+        name = "Playlist $rawId",
+        owner = "owner",
+        coverArt = null,
+        songCount = 5,
+        durationSec = 600
     )
 
     /** A library album saved an hour ago: inside Recently Added's window. */

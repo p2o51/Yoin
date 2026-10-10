@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.home
 import android.content.res.Resources
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterExitState
@@ -11,6 +12,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -2004,9 +2007,25 @@ private fun ActivityHeroCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (footnoteExtra.isNotEmpty()) {
+                // The footnote can land after the card (Home's local tier goes up
+                // first; on a cold detail cache it is a network read): it eases
+                // in rather than shoving the lines above it up. A change of hero
+                // takes it out the same way, showing the last one as it goes.
+                val lastFootnote = remember { mutableStateOf(footnoteExtra) }
+                SideEffect { if (footnoteExtra.isNotEmpty()) lastFootnote.value = footnoteExtra }
+                AnimatedVisibility(
+                    visible = footnoteExtra.isNotEmpty(),
+                    enter = expandVertically(
+                        animationSpec = YoinMotion.spatialSpring(),
+                        expandFrom = Alignment.Top
+                    ) + YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                    exit = shrinkVertically(
+                        animationSpec = YoinMotion.spatialSpring(),
+                        shrinkTowards = Alignment.Top
+                    ) + YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                ) {
                     MetaLine(
-                        groups = footnoteExtra,
+                        groups = footnoteExtra.ifEmpty { lastFootnote.value },
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.contentMuted,
                     )
