@@ -263,6 +263,16 @@ class YoinRepository(
      */
     private val favoriteStateOverlay = FavoriteStateOverlay(clock)
 
+    /**
+     * The same overlay for albums saved to the library ([Capability.ALBUM_SAVE]),
+     * keyed by album id: the service's answers and Yoin's own landed saves and
+     * removals. Read only through [observeAlbumSaved]; declared before init.
+     */
+    private val albumSavedOverlay = FavoriteStateOverlay(clock)
+
+    /** Album saves and removals whose write is still out: the page shows them at once ([setAlbumSaved]). */
+    private val albumSavesInFlight = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
+
     init {
         repositoryScope.launch {
             var lastProfileId: String? = activeProfileId.value
@@ -270,6 +280,8 @@ class YoinRepository(
                 if (profileId != lastProfileId) {
                     _favoriteOverrides.value = emptyMap()
                     favoriteStateOverlay.clear()
+                    albumSavedOverlay.clear()
+                    albumSavesInFlight.value = emptyMap()
                     albumDetailCache.clear()
                     artistDetailCache.clear()
                     playlistDetailCache.clear()
@@ -364,6 +376,7 @@ class YoinRepository(
 
     /** Striped per-track lock so rapid favorite taps on the same track serialize. */
     private val favoriteMutexes = Array(64) { Mutex() }
+    private val albumSaveMutex = Mutex()
 
     private data class LibraryStateKey(val profileId: String, val trackId: MediaId)
     private val libraryStates = MutableStateFlow<Map<LibraryStateKey, LibraryMembership>>(emptyMap())
@@ -1351,22 +1364,32 @@ class YoinRepository(
      * unanswered stay asked for the interval — but the answers of the
      * requests before it are kept. An answer landing after an account switch
      * is dropped.
+     *
+     * [album]: the page's album, whose saved state ([observeAlbumSaved]) rides
+     * the same requests, first in line — asked only where the service saves
+     * albums and its saved-albums mirror (the newest 200) doesn't already
+     * hold it, at most once per [minIntervalMs] too.
      */
-    suspend fun refreshFavoriteStates(tracks: List<Track>, minIntervalMs: Long = FAVORITE_RECHECK_INTERVAL_MS) {
+    suspend fun refreshFavoriteStates(
+        tracks: List<Track>,
+        minIntervalMs: Long = FAVORITE_RECHECK_INTERVAL_MS,
+        album: Album? = null
+    ) {
         val source = activeSource.value ?: return
         val profileId = activeProfileId.value ?: return
         if (Capability.FAVORITES !in source.capabilities) return
         if (source.id == MediaId.PROVIDER_SPOTIFY && spotifyRateLimitGate?.isBlocked(profileId) == true) return
         val candidates = tracks.filter { it.id.provider == source.id }.distinctBy(Track::id)
-        if (candidates.isEmpty()) return
+        val askedAlbum = album?.id?.takeIf { id -> albumSaveAskDue(source, profileId, id, minIntervalMs) }
+        if (candidates.isEmpty() && askedAlbum == null) return
         val claimed = favoriteStateOverlay
             .claimAsks(candidates.map { FavoriteStateOverlay.Key(profileId, it.id) }, minIntervalMs)
             .mapTo(HashSet()) { it.trackId }
         val asked = candidates.filter { it.id in claimed }
-        if (asked.isEmpty()) return
+        if (asked.isEmpty() && askedAlbum == null) return
         val startedAtMs = clock()
         val answer = try {
-            source.writeActions().favoriteStates(asked)
+            source.writeActions().favoriteStates(asked, albums = listOfNotNull(askedAlbum))
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Exception) {
@@ -1385,11 +1408,112 @@ class YoinRepository(
             "ok" to answer.isSuccess,
             "err" to (incomplete?.cause ?: failure)?.javaClass?.simpleName,
             "answered" to incomplete?.answered?.size,
+            "album" to askedAlbum?.let { true },
             "ms" to clock() - startedAtMs
         )
         if (activeSource.value !== source || activeProfileId.value != profileId) return
         answered.forEach { (id, saved) ->
-            favoriteStateOverlay.recordRemote(FavoriteStateOverlay.Key(profileId, id), saved)
+            val overlay = if (id == askedAlbum) albumSavedOverlay else favoriteStateOverlay
+            overlay.recordRemote(FavoriteStateOverlay.Key(profileId, id), saved)
+        }
+    }
+
+    /**
+     * Whether [albumId]'s saved state should ride this check: the service
+     * saves albums, its mirror doesn't already say saved (a 200-album mirror
+     * says nothing about the albums beyond it), and it wasn't asked within
+     * [minIntervalMs] — claimed as asked when it is due.
+     */
+    private suspend fun albumSaveAskDue(
+        source: MusicSource,
+        profileId: String,
+        albumId: MediaId,
+        minIntervalMs: Long
+    ): Boolean {
+        if (Capability.ALBUM_SAVE !in source.capabilities || albumId.provider != source.id) return false
+        val mirrored = source.id == MediaId.PROVIDER_SPOTIFY &&
+            spotifyLibrarySyncCoordinator?.isAlbumCachedAsSaved(profileId, albumId.rawId) == true
+        if (mirrored) return false
+        val key = FavoriteStateOverlay.Key(profileId, albumId)
+        return albumSavedOverlay.claimAsks(listOf(key), minIntervalMs).isNotEmpty()
+    }
+
+    // ── Album saved to the library (Spotify) ──────────────────────────
+
+    /**
+     * Whether [albumId] is in the active account's library, for the album
+     * page's Save / Remove row; null where the active service can't save an
+     * album ([Capability.ALBUM_SAVE] — Subsonic, Apple Music), so the row is
+     * left out. The same resolution as a track's heart: a save or removal in
+     * flight wins; else the newest of Yoin's landed write (held for
+     * [FAVORITE_WRITE_GRACE_MS]), the service's answer
+     * ([refreshFavoriteStates] with the album) and the saved-albums mirror
+     * row; with none of those, not saved.
+     */
+    fun observeAlbumSaved(albumId: MediaId): Flow<Boolean?> =
+        combine(activeSource, activeProfileId) { source, profileId -> source to profileId }
+            .flatMapLatest { (source, profileId) ->
+                val savesAlbums = source != null && Capability.ALBUM_SAVE in source.capabilities &&
+                    source.id == albumId.provider
+                if (!savesAlbums || profileId.isNullOrBlank()) return@flatMapLatest flowOf(null)
+                val mirror = spotifyLibrarySyncCoordinator
+                    ?.takeIf { albumId.provider == MediaId.PROVIDER_SPOTIFY }
+                    ?.observeAlbum(profileId, albumId.rawId)
+                    ?: flowOf(null)
+                combine(albumSavesInFlight, albumSavedOverlay.entries, mirror) { inFlight, learned, row ->
+                    resolveFavoriteState(
+                        baseline = false,
+                        inFlight = inFlight[albumId],
+                        entry = learned[FavoriteStateOverlay.Key(profileId, albumId)],
+                        mirrorSaved = row?.isSaved,
+                        mirrorAtMs = row?.cachedAt ?: 0L,
+                        nowMs = clock()
+                    ).isStarred
+                }
+            }
+            .distinctUntilChanged()
+
+    /**
+     * Saves [album] to the active account's library or removes it. Shown at
+     * once ([observeAlbumSaved]); a failure rolls the row back and is
+     * returned for the page's snackbar. On success the write holds for the
+     * grace and the saved-albums mirror takes it at once (a save files the
+     * album at the top of Recently added), so nothing marks the library
+     * stale. Writes run one at a time, so the last tap wins.
+     */
+    suspend fun setAlbumSaved(album: Album, saved: Boolean): Result<Unit> {
+        // Bound once: a profile switch mid-write must not land it on another account.
+        val source = activeSource.value
+            ?: return Result.failure(IllegalStateException("No active source"))
+        val profileId = activeProfileId.value
+            ?: return Result.failure(IllegalStateException("No active profile"))
+        if (Capability.ALBUM_SAVE !in source.capabilities || album.id.provider != source.id) {
+            return Result.failure(UnsupportedOperationException("Saving albums is unavailable"))
+        }
+        return albumSaveMutex.withLock {
+            albumSavesInFlight.update { it + (album.id to saved) }
+            try {
+                val result = try {
+                    source.writeActions().setAlbumSaved(album, saved)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (error: Exception) {
+                    Result.failure(error)
+                }
+                if (result.isSuccess && activeProfileId.value == profileId) {
+                    // The written state before the in-flight one goes, so the row never flickers back.
+                    albumSavedOverlay.recordWrite(FavoriteStateOverlay.Key(profileId, album.id), saved)
+                    if (source.id == MediaId.PROVIDER_SPOTIFY) {
+                        runCatching {
+                            spotifyLibrarySyncCoordinator
+                                ?.recordAlbumSaved(profileId, album, saved, addedAt = spotifyAddedAt(clock()))
+                        }.onFailure { error -> if (error is CancellationException) throw error }
+                    }
+                }
+                result
+            } finally {
+                albumSavesInFlight.update { it - album.id }
+            }
         }
     }
 

@@ -43,6 +43,12 @@ sealed interface AlbumDetailUiState {
         val userReviewAt: Long? = null,
         /** review 脏位：编辑后 vs Room 持久化的内容不一致。 */
         val reviewHasUnsavedEdits: Boolean = false,
+        /**
+         * Whether the album is in the account's library: the ▾ menu's
+         * Save to library / Remove from library row. Null where the service
+         * can't save an album (Capability.ALBUM_SAVE — only Spotify): no row.
+         */
+        val librarySaved: Boolean? = null,
     ) : AlbumDetailUiState {
         /**
          * 「Based on X/N」的分母 N。用实际加载到的 songs.size，而不是 provider

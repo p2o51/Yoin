@@ -75,6 +75,25 @@ interface SpotifyLibraryCacheDao {
     fun observeTracks(profileId: String, trackIds: List<String>): Flow<List<SpotifyLibraryTrackCache>>
 
     @Query(
+        "SELECT * FROM spotify_library_album_cache " +
+            "WHERE profileId = :profileId AND albumId = :albumId LIMIT 1"
+    )
+    suspend fun getAlbum(profileId: String, albumId: String): SpotifyLibraryAlbumCache?
+
+    /** The saved-albums mirror row for [albumId], live — the album page's library row reads it. */
+    @Query(
+        "SELECT * FROM spotify_library_album_cache " +
+            "WHERE profileId = :profileId AND albumId = :albumId LIMIT 1"
+    )
+    fun observeAlbum(profileId: String, albumId: String): Flow<SpotifyLibraryAlbumCache?>
+
+    @Upsert
+    suspend fun upsertAlbum(album: SpotifyLibraryAlbumCache)
+
+    @Query("DELETE FROM spotify_library_album_cache WHERE profileId = :profileId AND albumId = :albumId")
+    suspend fun deleteAlbum(profileId: String, albumId: String)
+
+    @Query(
         "SELECT * FROM spotify_library_track_cache " +
             "WHERE profileId = :profileId AND pendingFavoriteAction = 1",
     )

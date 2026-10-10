@@ -165,7 +165,8 @@ class AlbumDetailActivity : ComponentActivity() {
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
 
-                // ▾: Play next, Add to queue, Add to playlist, Open in …; Share carries the link.
+                // ▾: Play next, Add to queue, Add to playlist, Save to / Remove from
+                // library (Spotify), Open in …; Share carries the link.
                 val webLink = rememberDetailWebLink(app.container, WebLinkKind.Album, albumId)
                 val menu = rememberDetailMenu(
                     container = app.container,
@@ -174,6 +175,8 @@ class AlbumDetailActivity : ComponentActivity() {
                     tracks = { viewModel.getAlbumSongs() },
                     onMessage = nowPlayingViewModel::postMessage,
                     onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
+                    inLibrary = (uiState as? AlbumDetailUiState.Content)?.librarySaved,
+                    onToggleLibrary = viewModel::toggleLibrarySaved,
                 )
 
                 Box(modifier = Modifier.fillMaxSize()) {

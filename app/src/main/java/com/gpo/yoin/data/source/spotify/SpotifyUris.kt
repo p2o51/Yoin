@@ -34,3 +34,10 @@ fun spotifyTrackUriOrNull(track: Track): String? {
     val rawId = track.id.rawId.takeIf(SPOTIFY_ID::matches) ?: return null
     return "spotify:$URI_TYPE_TRACK:$rawId"
 }
+
+/** The `spotify:album:` URI for [id], or null when [id] isn't a Spotify album id. */
+fun spotifyAlbumUriOrNull(id: MediaId): String? {
+    if (id.provider != MediaId.PROVIDER_SPOTIFY) return null
+    val rawId = id.rawId.takeIf(SPOTIFY_ID::matches) ?: return null
+    return "spotify:album:$rawId"
+}

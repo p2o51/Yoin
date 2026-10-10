@@ -99,6 +99,7 @@ object ServiceFeatureCatalog {
             Capability.FAVORITES,
             Capability.SEARCH,
             Capability.CATALOG_SEARCH,
+            Capability.ALBUM_SAVE,
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE,

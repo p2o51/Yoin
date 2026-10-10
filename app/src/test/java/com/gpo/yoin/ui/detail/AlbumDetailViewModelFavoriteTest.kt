@@ -66,13 +66,14 @@ class AlbumDetailViewModelFavoriteTest {
         every { repository.observeTracksWithNotes(any()) } returns flowOf(emptySet())
         every { repository.resolveCoverUrl(any(), any()) } returns null
         every { repository.observeFavoriteStates(any()) } returns states
+        every { repository.observeAlbumSaved(any()) } returns flowOf(null)
     }
 
     @Test
     fun should_askSpotifyOnceAndFlipQuietly_when_theAnswerComesAfterThePage() = runTest {
         val viewModel = viewModel()
         runCurrent()
-        coVerify(exactly = 1) { repository.refreshFavoriteStates(listOf(first, second), any()) }
+        coVerify(exactly = 1) { repository.refreshFavoriteStates(listOf(first, second), any(), album) }
         assertEquals(false to 0, row(viewModel, first))
 
         states.value = states.value + (first.id to FavoriteState(isStarred = true, fromUser = false))
@@ -108,7 +109,7 @@ class AlbumDetailViewModelFavoriteTest {
         viewModel.onResumed()
         runCurrent()
 
-        coVerify(exactly = 2) { repository.refreshFavoriteStates(listOf(first, second), any()) }
+        coVerify(exactly = 2) { repository.refreshFavoriteStates(listOf(first, second), any(), album) }
     }
 
     private fun viewModel() = AlbumDetailViewModel(

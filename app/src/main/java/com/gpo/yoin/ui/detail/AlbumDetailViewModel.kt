@@ -23,6 +23,7 @@ import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.common.UiText
@@ -236,8 +237,11 @@ class AlbumDetailViewModel(
                 // The rows follow the favorite state from here on, and Spotify is
                 // asked about likes its 200-track mirror can't show: one batched
                 // check after the page is out, whose answer flips hearts quietly.
+                // The album's own saved state (the ▾ menu's library row) rides
+                // the same check when its saved-albums mirror doesn't have it.
                 favoriteBase.value = album.tracks
-                launch { repository.refreshFavoriteStates(album.tracks) }
+                observeAlbumSaved(album.id)
+                launch { repository.refreshFavoriteStates(album.tracks, album = album) }
 
                 // 观察 album_ratings，把持久化状态 merge 回 Content —— 用户在
                 // 别处（Memory / 以后的 NeoDB 拉取）改了评分 / 评论时，打开
@@ -342,7 +346,41 @@ class AlbumDetailViewModel(
      */
     fun onResumed() {
         val tracks = favoriteBase.value.takeIf { it.isNotEmpty() } ?: return
-        viewModelScope.launch { repository.refreshFavoriteStates(tracks) }
+        viewModelScope.launch { repository.refreshFavoriteStates(tracks, album = loadedAlbum) }
+    }
+
+    private var albumSavedJob: Job? = null
+
+    /** The ▾ menu's library row follows the album's saved state; none where the service can't save albums. */
+    private fun observeAlbumSaved(albumId: MediaId) {
+        albumSavedJob?.cancel()
+        albumSavedJob = viewModelScope.launch {
+            repository.observeAlbumSaved(albumId).collect { saved ->
+                val current = _uiState.value as? AlbumDetailUiState.Content ?: return@collect
+                if (current.librarySaved != saved) _uiState.value = current.copy(librarySaved = saved)
+            }
+        }
+    }
+
+    /**
+     * The ▾ menu's Save to library / Remove from library. The row flips at
+     * once (the repository's write in flight); a failed write flips it back
+     * and says why on the window's snackbar.
+     */
+    fun toggleLibrarySaved() {
+        val album = loadedAlbum ?: return
+        val saved = (_uiState.value as? AlbumDetailUiState.Content)?.librarySaved ?: return
+        val target = !saved
+        viewModelScope.launch {
+            repository.setAlbumSaved(album, target).onFailure { error ->
+                Log.w(TAG, "Album ${if (target) "save" else "removal"} failed for ${album.id}", error)
+                _messages.tryEmit(
+                    error.toLibrarySaveMessage(
+                        if (target) R.string.detail_album_save_failed else R.string.detail_album_remove_failed
+                    )
+                )
+            }
+        }
     }
 
     /** Folds the repository's favorite state, the taps still out on top, into the rows. */
@@ -699,6 +737,14 @@ private fun String.toProviderLabel(): UiText = when (this) {
  * load goes ahead as before (the disk cache still answers; no source = error).
  */
 internal const val DETAIL_SOURCE_WAIT_MS = 4_000L
+
+/**
+ * A failed album save's snackbar line. Spotify's rate limit (the likeliest
+ * reason while the account is throttled) is said in the app's language; the
+ * rest as [toDetailMessage] says it.
+ */
+internal fun Throwable.toLibrarySaveMessage(@StringRes fallback: Int): UiText =
+    if (this is SpotifyRateLimitException) UiText.Res(R.string.cmp_error_spotify_busy) else toDetailMessage(fallback)
 
 /**
  * [toUserMessage] owns the connectivity lines. A sentinel fallback means this

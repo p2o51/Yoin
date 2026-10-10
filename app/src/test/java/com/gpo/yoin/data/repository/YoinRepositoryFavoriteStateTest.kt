@@ -273,7 +273,7 @@ class YoinRepositoryFavoriteStateTest {
         var pending: CompletableDeferred<Map<MediaId, Boolean>>? = null
         val lookups = mutableListOf<List<MediaId>>()
 
-        override suspend fun favoriteStates(tracks: List<Track>): Result<Map<MediaId, Boolean>> {
+        override suspend fun favoriteStates(tracks: List<Track>, albums: List<MediaId>): Result<Map<MediaId, Boolean>> {
             lookups += tracks.map(Track::id)
             failure?.let { return Result.failure(it) }
             val states = pending?.await() ?: answer

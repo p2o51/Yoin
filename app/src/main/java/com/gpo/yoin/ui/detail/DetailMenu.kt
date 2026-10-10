@@ -38,6 +38,13 @@ class DetailMenu internal constructor(
     /** "Open in Spotify" / "Open in Apple Music" ([openInLabel]). */
     val openInLabel: String? = null,
     val onOpenIn: (() -> Unit)? = null,
+    /**
+     * Whether the page's album is in the library: "Save to library" or
+     * "Remove from library", which [onToggleLibrary] does. Null leaves the
+     * row out (only a Spotify album page has one).
+     */
+    val inLibrary: Boolean? = null,
+    val onToggleLibrary: (() -> Unit)? = null,
 )
 
 /** [menu]'s rows, in the Play menu's own look. */
@@ -51,6 +58,13 @@ internal fun ColumnScope.DetailMenuRows(menu: DetailMenu, dismissMenu: () -> Uni
     }
     menu.onAddToPlaylist?.let {
         PlayMenuItem(stringResource(R.string.detail_menu_add_to_playlist), YoinSymbols.Playlist, dismissMenu, it)
+    }
+    val inLibrary = menu.inLibrary
+    val toggleLibrary = menu.onToggleLibrary
+    if (inLibrary != null && toggleLibrary != null) {
+        val label = if (inLibrary) R.string.detail_menu_remove_from_library else R.string.detail_menu_save_to_library
+        val icon = if (inLibrary) YoinSymbols.LibraryAdded else YoinSymbols.LibraryAdd
+        PlayMenuItem(stringResource(label), icon, dismissMenu, toggleLibrary)
     }
     val openIn = menu.onOpenIn
     if (menu.openInLabel != null && openIn != null) {
@@ -107,7 +121,9 @@ internal fun queuedMessage(count: Int, next: Boolean, resources: Resources? = nu
  * left out on Spotify, whose one queue already plays before the context
  * resumes — hand their ids to [onAddToPlaylist] (the window's add-to-playlist
  * sheet; only where the provider writes playlists), and open [link] in the
- * provider's app. [onMessage] confirms on the window's snackbar.
+ * provider's app. [onMessage] confirms on the window's snackbar. An album
+ * page whose service saves albums passes [inLibrary] (null: no row) and
+ * [onToggleLibrary].
  */
 @Composable
 internal fun rememberDetailMenu(
@@ -117,6 +133,8 @@ internal fun rememberDetailMenu(
     tracks: suspend () -> List<Track>,
     onMessage: (String) -> Unit,
     onAddToPlaylist: ((List<MediaId>) -> Unit)?,
+    inLibrary: Boolean? = null,
+    onToggleLibrary: () -> Unit = {},
 ): DetailMenu {
     val context = LocalContext.current
     val resources = context.resources
@@ -124,9 +142,10 @@ internal fun rememberDetailMenu(
     val latestTracks by rememberUpdatedState(tracks)
     val latestOnMessage by rememberUpdatedState(onMessage)
     val latestOnAddToPlaylist by rememberUpdatedState(onAddToPlaylist)
+    val latestOnToggleLibrary by rememberUpdatedState(onToggleLibrary)
     val canAddToPlaylist = onAddToPlaylist != null &&
         Capability.PLAYLISTS_WRITE in container.repository.currentCapabilities()
-    return remember(container, link, provider, canAddToPlaylist) {
+    return remember(container, link, provider, canAddToPlaylist, inLibrary) {
         fun queue(next: Boolean) {
             scope.launch {
                 // addToQueue leaves Apple Music imports out: so does the count.
@@ -154,6 +173,8 @@ internal fun rememberDetailMenu(
             onOpenIn = link?.let { url ->
                 { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
             },
+            inLibrary = inLibrary,
+            onToggleLibrary = inLibrary?.let { { latestOnToggleLibrary() } },
         )
     }
 }

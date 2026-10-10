@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.source.spotify
 
 import androidx.room.withTransaction
+import com.gpo.yoin.data.local.SpotifyLibraryAlbumCache
 import com.gpo.yoin.data.local.SpotifyLibraryCacheDao
 import com.gpo.yoin.data.local.SpotifyLibrarySyncMeta
 import com.gpo.yoin.data.local.YoinDatabase
@@ -14,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -160,6 +162,34 @@ class SpotifyLibrarySyncCoordinator(
                 albums = dao.getFreshAlbums(profileId, minCachedAt),
                 artists = dao.getFreshArtists(profileId, minCachedAt),
             ),
+        )
+    }
+
+    /** Whether the saved-albums mirror (the newest 200 saved albums) holds [albumId] as saved. */
+    suspend fun isAlbumCachedAsSaved(profileId: String, albumId: String): Boolean =
+        dao.getAlbum(profileId, albumId)?.isSaved == true
+
+    /** [albumId]'s saved-albums mirror row, live; null while the mirror doesn't hold it. */
+    fun observeAlbum(profileId: String, albumId: String): Flow<SpotifyLibraryAlbumCache?> =
+        dao.observeAlbum(profileId, albumId)
+
+    /**
+     * An album save or removal written through Yoin, laid into the mirror at
+     * once rather than marking the whole library stale (a re-sync pages all
+     * four lists): a save files [album] at the top of Recently added
+     * ([addedAt], Spotify's own format) unless the mirror already had it; a
+     * removal drops its row. The next sync re-reads the list as usual.
+     */
+    suspend fun recordAlbumSaved(profileId: String, album: Album, saved: Boolean, addedAt: String) {
+        val albumId = album.id.rawId
+        if (!saved) {
+            dao.deleteAlbum(profileId, albumId)
+            return
+        }
+        val existing = dao.getAlbum(profileId, albumId)
+        dao.upsertAlbum(
+            existing?.copy(isSaved = true, cachedAt = clock())
+                ?: album.copy(isStarred = true).toSpotifyLibraryAlbumCache(profileId, clock(), addedAt)
         )
     }
 
