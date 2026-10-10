@@ -402,6 +402,55 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_keepAllOnScreenWhileRereading_when_appleAdditionConfirmed() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val revision = MutableStateFlow(0L)
+        every { repository.libraryRevision } returns revision
+        val first = Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.1"), "First", null, null)
+        val added = Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.2"), "Added", null, null)
+        var artists = listOf(first)
+        coEvery { repository.getArtists() } coAnswers { listOf(ArtistIndex("*", artists)) }
+        val oldAlbum = appleAlbum("library:l.old", "Old", added = "2020-01-01T00:00:00Z")
+        val newAlbum = appleAlbum("library:l.new", "New", added = "2026-10-10T00:00:00Z")
+        val reread = CompletableDeferred<List<Album>>()
+        var albumReads = 0
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } coAnswers {
+            if (albumReads++ == 0) listOf(oldAlbum) else reread.await()
+        }
+        coEvery { repository.getPlaylists() } returns listOf(
+            Playlist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "p.1"), "Mine", null, null, null, null)
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        val shown = mutableListOf<List<LibraryItem>?>()
+        backgroundScope.launch { viewModel.uiState.collect { shown += (it as LibraryUiState.Content).allItems } }
+        runCurrent()
+
+        // A song added elsewhere brought its album and artist into the library.
+        artists = listOf(first, added)
+        revision.value = 1L
+        advanceUntilIdle()
+        assertTrue("album:${oldAlbum.id}" in content(viewModel).allItems.orEmpty().map(LibraryItem::key))
+        reread.complete(listOf(newAlbum, oldAlbum))
+        advanceUntilIdle()
+
+        val keys = content(viewModel).allItems.orEmpty().map(LibraryItem::key).toSet()
+        val expected = setOf(
+            "artist:${first.id}",
+            "artist:${added.id}",
+            "album:${newAlbum.id}",
+            "album:${oldAlbum.id}",
+            "playlist:applemusic:p.1"
+        )
+        assertEquals(expected, keys)
+        // All never fell back to its loading indicator, and the playlists weren't read again.
+        assertTrue(shown.none { it == null })
+        coVerify(exactly = 1) { repository.getPlaylists() }
+    }
+
+    @Test
     fun should_reloadNewAccountsSongs_when_profilesShareRevisionAndNewAdditionIsConfirmed() = runTest {
         val repository = repositoryFor(
             MediaId.PROVIDER_APPLE_MUSIC,

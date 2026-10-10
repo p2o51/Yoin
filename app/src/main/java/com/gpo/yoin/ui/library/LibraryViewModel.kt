@@ -108,6 +108,9 @@ class LibraryViewModel(
      */
     private var albumsNextOffset: Int? = null
     private var albumsReadJob: Job? = null
+
+    /** Artists and Songs read again after the library changed ([rereadAfterLibraryChange]). */
+    private var libraryRefreshJob: Job? = null
     private var cachedSongs: List<Track>? = null
 
     /**
@@ -614,29 +617,73 @@ class LibraryViewModel(
     private fun readRemainingAlbums() {
         if (albumsReadJob?.isActive == true) return
         val from = albumsNextOffset ?: return
-        val query = libraryAlbumsQuery() ?: return
         val generation = libraryDataGeneration
         val profileId = repository.currentProfileId()
         albumsReadJob = viewModelScope.launch {
-            var offset = from
-            while (true) {
-                val batch = attempt {
-                    repository.getAlbumList(query.type, size = query.batch, offset = offset)
-                }.getOrElse { error ->
-                    Log.w(TAG, "Library albums stopped at $offset; the next look reads on", error)
-                    return@launch
-                }
-                if (!isDataLoadCurrent(generation, profileId)) return@launch
-                offset += batch.size
-                val more = batch.size >= query.batch
-                albumsNextOffset = offset.takeIf { more }
-                if (batch.isNotEmpty()) {
-                    cachedAlbums = (cachedAlbums.orEmpty() + batch).distinctBy(Album::id)
-                    publishLists()
-                }
-                if (!more) return@launch
-            }
+            readAlbumBatches(from) { isDataLoadCurrent(generation, profileId) }
         }
+    }
+
+    /**
+     * Library's albums read again from the first batch, the list on screen
+     * kept meanwhile: each batch joins it as it lands, and nothing leaves
+     * until the whole collection is in and replaces it (an album gone from
+     * the library leaves then). A batch that fails leaves the list as it is.
+     */
+    private fun rereadAlbums() {
+        albumsReadJob?.cancel()
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId)
+        albumsReadJob = viewModelScope.launch {
+            val first = attempt { loadLibraryAlbums() }.getOrElse { error ->
+                Log.w(TAG, "Library albums couldn't be read again; the list stays", error)
+                return@launch
+            }
+            if (!isCurrent()) return@launch
+            val fresh = first.albums.toMutableList()
+            mergeAlbums(first.albums, first.nextOffset)
+            val complete = first.nextOffset?.let { from -> readAlbumBatches(from, fresh, ::isCurrent) } ?: true
+            if (!complete || !isCurrent()) return@launch
+            cachedAlbums = fresh.distinctBy(Album::id)
+            publishLists()
+        }
+    }
+
+    /**
+     * Batches from [from] to the end of the collection, each merged into the
+     * list as it lands (and added to [fresh], when given). False when a batch
+     * failed, or the data moved on, and the read stopped there.
+     */
+    private suspend fun readAlbumBatches(
+        from: Int,
+        fresh: MutableList<Album>? = null,
+        isCurrent: () -> Boolean
+    ): Boolean {
+        val query = libraryAlbumsQuery() ?: return true
+        var offset = from
+        while (true) {
+            val batch = attempt {
+                repository.getAlbumList(query.type, size = query.batch, offset = offset)
+            }.getOrElse { error ->
+                Log.w(TAG, "Library albums stopped at $offset; the next look reads on", error)
+                return false
+            }
+            if (!isCurrent()) return false
+            offset += batch.size
+            val more = batch.size >= query.batch
+            fresh?.addAll(batch)
+            mergeAlbums(batch, nextOffset = offset.takeIf { more })
+            if (!more) return true
+        }
+    }
+
+    /** [batch] joins Library's albums (nothing shown leaves); [nextOffset] is where reading goes on. */
+    private fun mergeAlbums(batch: List<Album>, nextOffset: Int?) {
+        albumsNextOffset = nextOffset
+        if (batch.isEmpty()) return
+        cachedAlbums = (cachedAlbums.orEmpty() + batch).distinctBy(Album::id)
+        publishLists()
     }
 
     private suspend fun loadPlaylists(): List<Playlist> = repository.getPlaylists().also { playlistsStale = false }
@@ -1396,30 +1443,72 @@ class LibraryViewModel(
                 val current = _uiState.value as? LibraryUiState.Content
                 cancelDataLoads()
                 libraryDataGeneration += 1
-                cachedArtists = null
-                cachedAlbums = null
-                albumsNextOffset = null
-                forgetSongs()
-                allSettled = false
-                publishLists()
                 if (current == null) {
+                    cachedArtists = null
+                    cachedAlbums = null
+                    albumsNextOffset = null
+                    forgetSongs()
+                    allSettled = false
+                    publishLists()
                     loadInitialData()
                 } else {
-                    _uiState.value = current.copy(
-                        artists = null,
-                        albums = null,
-                        songs = null,
-                        songsMore = LibrarySongsMore.None,
-                        allItems = null
-                    )
-                    selectTab(current.selectedTab)
-                    if (current.searchQuery.isNotBlank() &&
-                        (current.searchScope == LibrarySearchScope.CurrentLibrary || current.isSearching)
-                    ) {
-                        retrySearch()
+                    rereadAfterLibraryChange(current)
+                }
+            }
+        }
+    }
+
+    /**
+     * The library gained something (an Apple Music song added: with it maybe
+     * its album and artist), with Library on screen. The lists stay as they
+     * are — no view goes back to its loading indicator, no grid loses its
+     * place — while the ones it can touch are read again, each replacing its
+     * list when it arrives: Songs where it is the library's songs, Artists,
+     * and Albums ([rereadAlbums]). Playlists are left alone, and so are Songs
+     * that are the albums' songs or a random sample. A view not loaded yet
+     * loads as usual.
+     */
+    private fun rereadAfterLibraryChange(current: LibraryUiState.Content) {
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId)
+        publishLists()
+        // A read cancelled on its way in (a reshuffle, the Songs foot) leaves its view loading again.
+        if (songsMoreState == LibrarySongsMore.Loading) publishSongsMore(LibrarySongsMore.Available)
+        if (cachedAlbums != null) rereadAlbums()
+        val rereadsSongs = cachedSongs != null && songsPager == null &&
+            Capability.LIBRARY_SONGS in repository.currentCapabilities()
+        val rereadsArtists = cachedArtists != null
+        libraryRefreshJob = viewModelScope.launch {
+            coroutineScope {
+                if (rereadsArtists) {
+                    launch {
+                        attempt { loadArtistsFlat() }.onSuccess { artists ->
+                            if (!isCurrent()) return@onSuccess
+                            cachedArtists = artists
+                            publishLists()
+                        }
+                    }
+                }
+                if (rereadsSongs) {
+                    launch {
+                        attempt {
+                            repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+                                .applySongsOverrides(repository.favoriteOverrides.value)
+                        }.onSuccess { songs ->
+                            if (!isCurrent()) return@onSuccess
+                            cachedSongs = songs
+                            updateContent { copy(songs = songs) }
+                        }
                     }
                 }
             }
+        }
+        ensureSelectedTabLoaded()
+        if (current.searchQuery.isNotBlank() &&
+            (current.searchScope == LibrarySearchScope.CurrentLibrary || current.isSearching)
+        ) {
+            retrySearch()
         }
     }
 
@@ -1471,6 +1560,7 @@ class LibraryViewModel(
         reshuffleJob?.cancel()
         songsMoreJob?.cancel()
         albumsReadJob?.cancel()
+        libraryRefreshJob?.cancel()
         tabLoadGeneration += 1
     }
 
