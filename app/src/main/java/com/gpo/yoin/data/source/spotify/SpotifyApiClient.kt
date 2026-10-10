@@ -55,17 +55,20 @@ class SpotifyApiClient(
     private val rateLimitGate: SpotifyRateLimitGate? = null,
     private val rateLimitProfileId: String? = null,
     /**
-     * How many HTTP calls this client runs at once. Calls go out through the
-     * blocking `execute()`, which OkHttp's Dispatcher (5 per host) does not
-     * limit, and pages are now fetched concurrently — this is the only cap.
+     * Slots for reads (library lists, detail pages, search). Calls go out
+     * through the blocking `execute()`, which OkHttp's Dispatcher (5 per
+     * host) does not limit, and pages are now fetched concurrently — this is
+     * the only cap. One set serves the whole process: Spotify counts requests
+     * per app, and a profile edit rebuilds the source while the old client's
+     * reads may still be out. Playback and library writes take no slot
+     * ([Lane.Control]).
      */
-    maxConcurrentRequests: Int = MAX_CONCURRENT_REQUESTS,
+    private val readPermits: Semaphore = SHARED_READ_PERMITS,
 ) {
 
     @Volatile
     private var credentials: ProfileCredentials.Spotify = initialCredentials
     private val refreshMutex = Mutex()
-    private val requestPermits = Semaphore(maxConcurrentRequests)
 
     @Volatile
     private var cachedUserId: String? = null
@@ -253,10 +256,12 @@ class SpotifyApiClient(
         )
     }
 
+    // The first step of starting playback, so it doesn't queue behind reads.
     suspend fun listDevices(): List<SpotifyDevice> = withContext(Dispatchers.IO) {
         getDecoded(
             url = apiUrl("v1", "me", "player", "devices"),
             deserializer = SpotifyDevicesResponse.serializer(),
+            lane = Lane.Control,
         ).devices
     }
 
@@ -442,7 +447,7 @@ class SpotifyApiClient(
             .addQueryParameter("uris", uri)
             .build()
         ensureNotRateLimited(url.toString())
-        executeWithAuthRetry(url.toString()) { accessToken ->
+        executeWithAuthRetry(url.toString(), Lane.Control) { accessToken ->
             Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $accessToken")
@@ -485,6 +490,7 @@ class SpotifyApiClient(
         }
     }
 
+    // Playback control and playlist edits: all answer a tap (Lane.Control).
     private suspend fun executeJsonRequest(
         method: String,
         url: HttpUrl,
@@ -492,7 +498,7 @@ class SpotifyApiClient(
     ): Response {
         ensureNotRateLimited(url.toString())
         val body: RequestBody = jsonBody?.toRequestBody(JSON_MEDIA_TYPE) ?: EMPTY_BODY
-        return executeWithAuthRetry(url.toString()) { accessToken ->
+        return executeWithAuthRetry(url.toString(), Lane.Control) { accessToken ->
             Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $accessToken")
@@ -528,7 +534,7 @@ class SpotifyApiClient(
      * carries) is not a page and is fetched too. The first page's `total`
      * names every remaining page, so those are requested together by offset
      * instead of one `next` link at a time; each request still waits for a
-     * [requestPermits] slot. Without a `total` the `next` links are followed
+     * [readPermits] slot. Without a `total` the `next` links are followed
      * in turn.
      */
     private suspend fun <T> collectOffsetPagesConcurrently(
@@ -581,12 +587,9 @@ class SpotifyApiClient(
         results.take(maxItems)
     }
 
-    private suspend fun <T> getDecoded(
-        url: HttpUrl,
-        deserializer: KSerializer<T>,
-    ): T {
+    private suspend fun <T> getDecoded(url: HttpUrl, deserializer: KSerializer<T>, lane: Lane = Lane.Read): T {
         ensureNotRateLimited(url.toString())
-        val response = executeWithAuthRetry(url.toString()) { accessToken ->
+        val response = executeWithAuthRetry(url.toString(), lane) { accessToken ->
             val req = Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $accessToken")
@@ -604,15 +607,9 @@ class SpotifyApiClient(
 
     private fun Response.toSpotifyFailure(endpoint: String): Throwable {
         if (code == HTTP_TOO_MANY_REQUESTS) {
-            val retryAfterSeconds = header(HEADER_RETRY_AFTER)
-                ?.toLongOrNull()
-                ?.coerceIn(1L, MAX_RETRY_AFTER_SECONDS)
-                ?: DEFAULT_RETRY_AFTER_SECONDS
-            rateLimitProfileId?.let { profileId ->
-                rateLimitGate?.recordBackoff(profileId, retryAfterSeconds)
-            }
+            // The gate was already closed when the 429 came back (executeGated).
             return SpotifyRateLimitException(
-                retryAfterSeconds = retryAfterSeconds,
+                retryAfterSeconds = retryAfterSeconds(),
                 endpoint = endpoint,
             )
         }
@@ -621,6 +618,11 @@ class SpotifyApiClient(
             message = "Spotify request failed: $code",
         )
     }
+
+    private fun Response.retryAfterSeconds(): Long = header(HEADER_RETRY_AFTER)
+        ?.toLongOrNull()
+        ?.coerceIn(1L, MAX_RETRY_AFTER_SECONDS)
+        ?: DEFAULT_RETRY_AFTER_SECONDS
 
     private fun ensureNotRateLimited(endpoint: String) {
         val profileId = rateLimitProfileId ?: return
@@ -643,28 +645,43 @@ class SpotifyApiClient(
      * 401 response, force-refreshes the credentials and retries once. The
      * second response is returned verbatim whether it's another 401 or not.
      *
-     * Each HTTP call holds one [requestPermits] slot while it executes — the
-     * call alone, never a token refresh or a multi-page read, so nothing
+     * Each [Lane.Read] call holds one [readPermits] slot while it executes —
+     * the call alone, never a token refresh or a multi-page read, so nothing
      * waits for a slot while holding one.
      */
-    private suspend fun executeWithAuthRetry(endpoint: String, block: (accessToken: String) -> Response): Response {
+    private suspend fun executeWithAuthRetry(
+        endpoint: String,
+        lane: Lane,
+        block: (accessToken: String) -> Response
+    ): Response {
         ensureFreshCredentials()
-        val first = executeWithPermit(endpoint) { block(credentials.accessToken) }
+        val first = executeWithPermit(endpoint, lane) { block(credentials.accessToken) }
         if (first.code != HTTP_UNAUTHORIZED) return first
         first.close()
         forceRefresh()
-        return executeWithPermit(endpoint) { block(credentials.accessToken) }
+        return executeWithPermit(endpoint, lane) { block(credentials.accessToken) }
+    }
+
+    private suspend fun executeWithPermit(endpoint: String, lane: Lane, call: () -> Response): Response = when (lane) {
+        Lane.Read -> readPermits.withPermit { executeGated(endpoint, call) }
+        Lane.Control -> executeGated(endpoint, call)
     }
 
     /**
-     * Checks the rate-limit gate again once the slot is held: a call queued
-     * behind one that drew a 429 must not go out after the gate closed.
+     * Checks the rate-limit gate right before the call, and closes it as soon
+     * as a 429's headers are in — before a read slot is given back, so no
+     * call queued behind this one goes out after Spotify said stop.
      */
-    private suspend fun executeWithPermit(endpoint: String, call: () -> Response): Response =
-        requestPermits.withPermit {
-            ensureNotRateLimited(endpoint)
-            call()
+    private fun executeGated(endpoint: String, call: () -> Response): Response {
+        ensureNotRateLimited(endpoint)
+        return call().also { response ->
+            if (response.code == HTTP_TOO_MANY_REQUESTS) {
+                rateLimitProfileId?.let { profileId ->
+                    rateLimitGate?.recordBackoff(profileId, response.retryAfterSeconds())
+                }
+            }
         }
+    }
 
     private suspend fun ensureFreshCredentials() = coalescedRefresh(force = false)
 
@@ -713,6 +730,15 @@ class SpotifyApiClient(
         }
     }
 
+    /**
+     * Whether a call waits for a [readPermits] slot. [Control] calls answer a
+     * tap — finding this phone's device, starting playback, a like, a follow,
+     * a playlist edit. They went out at once before reads were capped, and
+     * queued behind a detail prefetch or a library sync they would start
+     * playback late; they still respect the rate-limit gate.
+     */
+    private enum class Lane { Read, Control }
+
     companion object {
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_TOO_MANY_REQUESTS = 429
@@ -720,7 +746,7 @@ class SpotifyApiClient(
         private const val DEFAULT_RETRY_AFTER_SECONDS = 5L
         private const val MAX_RETRY_AFTER_SECONDS = 24L * 60L * 60L
         private const val REFRESH_BUFFER_MS = 60_000L
-        private const val MAX_CONCURRENT_REQUESTS = 4
+        private const val MAX_CONCURRENT_READS = 4
         private const val PAGE_LIMIT = 50
         private const val ARTIST_ALBUMS_PAGE_LIMIT = 10
         private const val ARTIST_ALBUMS_LIMIT = 60
@@ -731,6 +757,9 @@ class SpotifyApiClient(
         private const val DEFAULT_SEARCH_LIMIT = MAX_SEARCH_LIMIT
         private val EMPTY_BODY = ByteArray(0).toRequestBody()
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /** The read slots every client shares (see the `readPermits` parameter). */
+        private val SHARED_READ_PERMITS = Semaphore(MAX_CONCURRENT_READS)
 
         // Default `encodeDefaults = false` drops fields whose value equals the
         // declared Kotlin default — this is deliberate for request bodies,

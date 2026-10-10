@@ -2,8 +2,16 @@ package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.profile.ProfileCredentials
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -494,6 +502,71 @@ class SpotifyApiClientTest {
         assertEquals(listOf(0, 10, 20, 30), offsets.sorted())
     }
 
+    @Test
+    fun should_notSendQueuedRead_when_readAheadOfItDrew429() = runTest {
+        val gate = SpotifyRateLimitGate()
+        val served = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = if (served.getAndIncrement() == 0) {
+                // Headers late enough for the other read to queue on the slot,
+                // the body later still: the gate closes on the headers.
+                MockResponse()
+                    .setResponseCode(429)
+                    .addHeader("Retry-After", "30")
+                    .setBody("""{"error":{"status":429}}""")
+                    .setHeadersDelay(200, TimeUnit.MILLISECONDS)
+                    .setBodyDelay(500, TimeUnit.MILLISECONDS)
+            } else {
+                meResponse(id = "alice")
+            }
+        }
+        val client = newClient(
+            initialCredentials = credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            rateLimitGate = gate,
+            profileId = "profile-a",
+            readPermits = Semaphore(1)
+        )
+
+        val results = List(2) { async { runCatching { client.getMe() } } }.awaitAll()
+
+        assertEquals(1, server.requestCount)
+        assertTrue(results.all { it.exceptionOrNull() is SpotifyRateLimitException })
+        assertTrue(gate.isBlocked("profile-a"))
+    }
+
+    @Test
+    fun should_notWaitForReadSlot_when_startingPlayback() = runTest {
+        val readArrived = CountDownLatch(1)
+        val playArrived = CountDownLatch(1)
+        val playArrivedDuringRead = AtomicBoolean(false)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl?.encodedPath) {
+                "/v1/me" -> {
+                    readArrived.countDown()
+                    // Holds the only read slot until playback starts, or gives up.
+                    playArrivedDuringRead.set(playArrived.await(2, TimeUnit.SECONDS))
+                    meResponse(id = "alice")
+                }
+                "/v1/me/player/play" -> {
+                    playArrived.countDown()
+                    MockResponse().setResponseCode(204)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val client = newClient(
+            initialCredentials = credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            readPermits = Semaphore(1)
+        )
+
+        val read = async { client.getMe() }
+        withContext(Dispatchers.IO) { readArrived.await(2, TimeUnit.SECONDS) }
+        client.startPlayback(contextUri = "spotify:album:a1")
+        read.await()
+
+        assertTrue(playArrivedDuringRead.get())
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun playlistItemsPage(offset: Int, size: Int, total: Int): String {
@@ -507,6 +580,7 @@ class SpotifyApiClientTest {
         initialCredentials: ProfileCredentials.Spotify,
         rateLimitGate: SpotifyRateLimitGate? = null,
         profileId: String? = null,
+        readPermits: Semaphore = Semaphore(4),
     ): SpotifyApiClient {
         val httpClient = OkHttpClient.Builder().build()
         val baseUrl = server.url("/")
@@ -526,6 +600,7 @@ class SpotifyApiClientTest {
             apiBaseUrl = baseUrl,
             rateLimitGate = rateLimitGate,
             rateLimitProfileId = profileId,
+            readPermits = readPermits,
         )
     }
 
