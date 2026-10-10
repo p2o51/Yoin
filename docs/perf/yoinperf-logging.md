@@ -25,8 +25,8 @@
 
 | 事件 | 字段 | 打在哪 | 含义 |
 | --- | --- | --- | --- |
-| `detail.click` | `kind=album\|artist\|playlist` `id=<provider:rawId>` `via=` | `YoinNavHost.kt` 的 `navigateTo{Album,Artist,Playlist}FromShell`、Memories 印章的 `onOpenAlbum`、`pushPane`；`AlbumDetailActivity` 的 `onOpenArtist`、`ArtistDetailActivity` 的 `onAlbumClick` | 用户请求打开详情。`via=activity`（推独立 Activity）/ `pane`（同窗分列，替换右列根页）/ `pane-push`（右列里再推一页）/ `push`（详情 Activity 里点到另一个详情）。被 launch gate 挡掉的点击不打。shell 里的 Now Playing 点专辑/艺人也走 `navigateTo*FromShell`，同样会打；没覆盖桌面小组件、详情 Activity 里 Now Playing 的入口（`launchChildDetail(…, fromNowPlaying = true)`）、以及横竖屏切换时把右列页面转成 Activity 的自动重开。 |
-| `detail.load` | `kind` `id` `src=` `ms=` [`provider`] [`joined=true`] [`err`] | `YoinRepository.loadCachedDetail` | 一次 `getAlbum/getArtist/getPlaylist` 调用从进门到拿到结果的耗时。`src=mem`（内存新鲜命中）/ `disk`（Room 磁盘新鲜命中）/ `net`（走网络，带 `provider`）/ `stale`（网络失败，退回磁盘或过期内存，`err=` 是网络异常类名）/ `err`（整体失败或调用方被取消，`err=` 是异常类名）。`joined=true`：这次调用搭了别人已在飞的同一请求（预取、并发读者）。 |
+| `detail.click` | `kind=album\|artist\|playlist` `id=<provider:rawId>` `via=` | `YoinNavHost.kt` 的 `navigateTo{Album,Artist,Playlist}FromShell`、Memories 印章的 `onOpenAlbum`、`pushPane`；`AlbumDetailActivity` 的 `onOpenArtist`、`ArtistDetailActivity` 的 `onAlbumClick` | 用户请求打开详情。`via=activity`（推独立 Activity）/ `pane`（同窗分列，替换右列根页）/ `pane-push`（右列里再推一页）/ `push`（详情 Activity 里点到另一个详情）。被 launch gate 挡掉的点击不打。shell 里的 Now Playing 点专辑/艺人也走 `navigateTo*FromShell`，同样会打；没覆盖桌面小组件、详情 Activity 里 Now Playing 的入口（`launchChildDetail(…, fromNowPlaying = true)`）、以及横竖屏切换时把右列页面转成 Activity 的自动重开。点击即预取（`ui/detail/DetailPrefetch.kt`）挂在这些入口最前面、launch gate 之前，上面没打点的小组件和详情页里 Now Playing 的入口也有：被挡掉的点击不打 `detail.click`，但照样预取。 |
+| `detail.load` | `kind` `id` `src=` `ms=` [`provider`] [`joined=true`] [`err`] | `YoinRepository.loadCachedDetail` | 一次 `getAlbum/getArtist/getPlaylist` 调用从进门到拿到结果的耗时。`src=mem`（内存新鲜命中）/ `disk`（Room 磁盘新鲜命中）/ `net`（走网络，带 `provider`）/ `stale`（网络失败，退回磁盘或过期内存，`err=` 是网络异常类名）/ `err`（整体失败或调用方被取消，`err=` 是异常类名）。`joined=true`：这次调用搭了别人已在飞的同一请求（预取、并发读者）。有了点击即预取，一次打开通常先出预取那条（从点击起计时），VM 自己那条随后出现：预取还在飞就是 `joined=true`，已经落地就是 `src=mem`（歌单只认落地 5 秒内的内存副本，过了照样联网）。 |
 | `detail.diskWrite` | `kind=ALBUM\|ARTIST\|PLAYLIST` `chars=` `ok=` `ms=` | `DetailCacheStore.write` | JSON 编码 + 等锁 + upsert（+ 可能的 trim）。网络路径的磁盘写在数据交给调用方之后、在后台做，不算在 `net` 那次 `detail.load` 的 `ms` 里。`skipped=true`：拿到锁时这条已经作废（点赞、关注、歌单编辑）或已经切了账号，没写。 |
 | `detail.diskTrim` | `rows=` `ms=` | `DetailCacheStore.trimToBudget` | 超 24MB 预算时的 SUM + 扫描 + 逐行删除，删到 20MB 为止（回滞，免得之后每次写都再 trim；刚写的那行不删）；`rows` 是删掉的行数（SUM 发现没超就是 0）。 |
 | `detail.content` | `kind` `id` [`resolved`] | `Album/Artist/PlaylistDetailViewModel` 第一次把 `_uiState` 设成 Content 之后 | VM 级别的「数据就绪」。每个 VM 只打一次（retry / 歌单刷新不重复打）。`id` 是打开时请求的 id；`resolved` 只在内容实体 id 不同时出现（Apple Music 会把 library 专辑折叠成目录专辑）。 |
@@ -103,15 +103,16 @@ detail.click  →  detail.load  →  detail.content  →  detail.visible
 
 1. 以 `detail.click` 为起点，键是 `(kind, id)`。
 2. 同键、`t` ≥ 点击时间的第一条 `detail.load` / `detail.content` 归这次点击。
-   预取（艺人页会预取前 6 张专辑）也会打 `detail.load`，但它们前面没有对应的点击，自然配不上；
-   预取之后再点进去，点击后的那条 `detail.load` 一般是 `src=mem`。
+   点击即预取之后，这第一条 `detail.load` 通常就是点击发出的预取：它从点击起计时，`ms` 就是加载本身。
+   艺人页预取前 6 张专辑的那些 `detail.load` 前面没有对应的点击，自然配不上；预取之后再点进去，
+   点击后的那条 `detail.load` 一般是 `src=mem`。
 3. `detail.visible` 用内容 id：先从同次的 `detail.content` 取 `resolved`（没有就用 `id`），
    再找同 kind、该 id、`t` ≥ content 时间的第一条 `detail.visible`。
 4. 时长都是 `t` 相减：
-   - 点击 → 数据：`load.t - click.t`（≈ Activity 启动 / 分列展开 + VM 创建 + 加载本身；
-     加载本身是 `load.ms`）
-   - 数据 → VM：`content.t - load.t`（VM 里拿到数据后、发 Content 前的工作；visit 记录写库
-     不再挡在这里）
+   - 点击 → 数据：`load.t - click.t`（有点击即预取时 ≈ 加载本身，和 Activity 启动 / 分列展开并行；
+     没有预取的入口 ≈ Activity 启动 / 分列展开 + VM 创建 + 加载本身。加载本身是 `load.ms`）
+   - 数据 → VM：`content.t - load.t`（数据先到时，是 Activity 启动 / 分列展开 + VM 创建还剩下的部分；
+     VM 拿到数据后到发 Content 之间不再等 visit 记录写库）
    - VM → 上屏：`visible.t - content.t`（Activity 模式含 200ms 底栏交接等待和入场门控）
    - 总计：`visible.t - click.t`
 

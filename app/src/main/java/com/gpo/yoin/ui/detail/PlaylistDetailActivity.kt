@@ -57,6 +57,8 @@ class PlaylistDetailActivity : ComponentActivity() {
     }
 
     private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
+        // The page's load starts at the tap, ahead of this gate (DetailPrefetch.kt).
+        (application as YoinApplication).container.repository.prefetchDetail(intent)
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
             launchDetailFromDetail(this, intent, fromNowPlaying)
@@ -250,7 +252,7 @@ class PlaylistDetailActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val EXTRA_PLAYLIST_ID = "playlistId"
+        internal const val EXTRA_PLAYLIST_ID = "playlistId"
 
         fun intent(context: Context, playlistId: String): Intent =
             Intent(context, PlaylistDetailActivity::class.java)

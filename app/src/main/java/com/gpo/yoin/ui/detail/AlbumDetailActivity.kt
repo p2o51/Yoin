@@ -57,6 +57,8 @@ class AlbumDetailActivity : ComponentActivity() {
     }
 
     private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
+        // The page's load starts at the tap, ahead of this gate (DetailPrefetch.kt).
+        (application as YoinApplication).container.repository.prefetchDetail(intent)
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
             launchDetailFromDetail(this, intent, fromNowPlaying)
@@ -300,7 +302,7 @@ class AlbumDetailActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val EXTRA_ALBUM_ID = "albumId"
+        internal const val EXTRA_ALBUM_ID = "albumId"
 
         fun intent(context: Context, albumId: String): Intent =
             Intent(context, AlbumDetailActivity::class.java)

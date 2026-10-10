@@ -14,23 +14,28 @@ import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.ui.detail.prefetchAlbumDetail
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The detail read path: the disk copy stays off the caller's path. */
+/** The detail read path: tap-time prefetch joins, and the disk copy stays off the caller's path. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class YoinRepositoryDetailCacheTest {
     private val library = mockk<MusicLibrary>()
@@ -53,6 +58,46 @@ class YoinRepositoryDetailCacheTest {
         dao.upsertGate!!.complete(Unit)
         dao.upsertStored.await()
         assertEquals(setOf(ALBUM_ID.toString()), dao.entityIds)
+    }
+
+    @Test
+    fun should_joinInFlightPrefetch_when_viewModelLoadsSameAlbum() = runTest {
+        val repository = repository()
+        val response = CompletableDeferred<Album>()
+        coEvery { library.getAlbum(ALBUM_ID) } coAnswers { response.await() }
+
+        // The tap prefetches by the id string the page is opened with …
+        repository.prefetchAlbumDetail(ALBUM_ID.toString())
+        runCurrent()
+        coVerify(exactly = 1) { library.getAlbum(ALBUM_ID) }
+        // … and the page's ViewModel parses that string and loads while the fetch is still out.
+        val page = async { repository.getAlbum(MediaId.parse(ALBUM_ID.toString())) }
+        runCurrent()
+        response.complete(album())
+
+        assertEquals(album(), page.await())
+        coVerify(exactly = 1) { library.getAlbum(ALBUM_ID) }
+    }
+
+    @Test
+    fun should_servePrefetchedPlaylist_when_pageLoadsRightAfterTheTap() = runTest {
+        val repository = repository()
+        coEvery { library.getPlaylist(PLAYLIST_ID) } returnsMany listOf(playlist(), playlist().copy(name = "Renamed"))
+
+        repository.prefetchPlaylist(PLAYLIST_ID)
+        runCurrent()
+        // The prefetch's fetch has landed …
+        coVerify(exactly = 1) { library.getPlaylist(PLAYLIST_ID) }
+
+        // … and the page opening a moment later takes it: that fetch was this open's revalidation.
+        currentTime += 1_000L
+        assertEquals("Road Trip", repository.getPlaylist(PLAYLIST_ID)?.name)
+        coVerify(exactly = 1) { library.getPlaylist(PLAYLIST_ID) }
+
+        // A later open still goes back online (playlists revalidate on every open).
+        currentTime += 60_000L
+        assertEquals("Renamed", repository.getPlaylist(PLAYLIST_ID)?.name)
+        coVerify(exactly = 2) { library.getPlaylist(PLAYLIST_ID) }
     }
 
     private fun TestScope.repository(store: DetailCacheStore? = null) = YoinRepository(
@@ -86,7 +131,17 @@ class YoinRepositoryDetailCacheTest {
         genre = null
     )
 
+    private fun playlist() = Playlist(
+        id = PLAYLIST_ID,
+        name = "Road Trip",
+        owner = "alice",
+        coverArt = null,
+        songCount = 0,
+        durationSec = null
+    )
+
     private companion object {
         val ALBUM_ID = MediaId(MediaId.PROVIDER_SUBSONIC, "al-1")
+        val PLAYLIST_ID = MediaId(MediaId.PROVIDER_SUBSONIC, "pl-1")
     }
 }

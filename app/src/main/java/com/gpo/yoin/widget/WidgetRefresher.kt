@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
+import com.gpo.yoin.ui.detail.prefetchDetail
 import com.gpo.yoin.ui.experience.HomeSurface
 import com.gpo.yoin.ui.navigation.YoinSection
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -99,6 +100,10 @@ internal object WidgetLaunch {
                     WidgetEntity.PLAYLIST -> PlaylistDetailActivity.intent(activity, id.toString())
                     WidgetEntity.ARTIST -> ArtistDetailActivity.intent(activity, id.toString())
                 }
+                // The page's load starts now, not once its Activity is up (ui/detail/DetailPrefetch.kt) — if the
+                // source is built. On a cold start it may not be yet: a load that has to reach the network would
+                // fail at once, and a page that joined it would show that error, so the page loads on its own.
+                if (container.profileManager.activeSource.value != null) container.repository.prefetchDetail(target)
                 activity.startActivity(target)
             }
             else -> return false

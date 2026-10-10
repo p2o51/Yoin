@@ -74,6 +74,7 @@ import com.gpo.yoin.perf.YoinPerf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -161,6 +162,13 @@ class YoinRepository(
     // to refetch something just opened (respects the Spotify rate-limit gate).
     private val detailRevalidateAfterMs = 2L * 60 * 60 * 1000
 
+    // Playlists revalidate on every open, but the copy a tap's own prefetch
+    // fetched a moment ago IS that open's revalidation: for this long after a
+    // fetch the page takes it from mem instead of fetching the playlist twice
+    // (prefetchPlaylist). Long enough to cover an Activity start or a column's
+    // open spring, short enough that a later open always goes back online.
+    private val detailHandoffMs = 5_000L
+
     /** Size-bounded, TTL'd in-memory cache for one detail type. Thread-safe. */
     private class DetailMemoryCache<V : Any>(
         maxSize: Int,
@@ -204,9 +212,10 @@ class YoinRepository(
             lru.remove(key)
         }
 
-        fun getFresh(key: String): V? {
+        /** The entry when at most [maxAgeMs] old (null: the cache's own TTL). */
+        fun getFresh(key: String, maxAgeMs: Long? = null): V? {
             val entry = lru[key] ?: return null
-            return entry.value.takeIf { clock() - entry.cachedAt <= ttlMs }
+            return entry.value.takeIf { clock() - entry.cachedAt <= (maxAgeMs ?: ttlMs) }
         }
 
         fun getStale(key: String): V? = lru[key]?.value
@@ -927,7 +936,8 @@ class YoinRepository(
      *
      * `diskFreshMs == 0` (playlists) means "always revalidate online": neither
      * the mem nor the disk fresh fast-path is trusted, so external edits aren't
-     * masked; the caches then serve only as an offline fallback. For trusted
+     * masked; the caches then serve only as an offline fallback — save for a
+     * copy fetched within [detailHandoffMs] (a tap's own prefetch). For trusted
      * (album/artist) entries a disk hit older than [detailRevalidateAfterMs]
      * kicks off a background refresh (stale-while-revalidate).
      *
@@ -946,16 +956,14 @@ class YoinRepository(
         val perf = YoinPerf.begin("detail.load")
         val profileId = activeProfileId.value
         val key = memKey(baseKey, profileId)
-        if (diskFreshMs > 0L) {
-            mem.getFresh(key)?.let {
-                if (perf != null) YoinPerf.end(perf, "kind" to kind, "id" to baseKey, "src" to "mem")
-                return it
-            }
+        mem.getFresh(key, memServeMs(diskFreshMs))?.let {
+            if (perf != null) YoinPerf.end(perf, "kind" to kind, "id" to baseKey, "src" to "mem")
+            return it
         }
         var startedFlight = false
-        // Single-flight: racing loads of one key (a prefetch burst + a user tap
-        // + a queue build) share one Deferred instead of each paying the fetch.
-        // It runs on [repositoryScope] so a cancelled waiter
+        // Single-flight: racing loads of one key (a tap's prefetch + the page it
+        // opens, a prefetch burst, a queue build) share one Deferred instead of
+        // each paying the fetch. It runs on [repositoryScope] so a cancelled waiter
         // (e.g. an abandoned prefetch) can't abort the load for the rest, and a
         // failure propagates to every waiter. The entry is removed as the load
         // completes, so a failure never poisons its key.
@@ -989,6 +997,9 @@ class YoinRepository(
         )
         return loaded.value
     }
+
+    /** How old a mem entry [loadCachedDetail] answers with: the cache's TTL, or the hand-off for playlists. */
+    private fun memServeMs(diskFreshMs: Long): Long? = if (diskFreshMs > 0L) null else detailHandoffMs
 
     /**
      * The shared (single-flight) part of [loadCachedDetail]: disk-fresh →
@@ -1108,23 +1119,35 @@ class YoinRepository(
 
     /**
      * Warm the cache for something the user is likely to open next
-     * (fire-and-forget on [repositoryScope]; no-op if already fresh). e.g. the
-     * artist page preloads its album carousel so each tap opens instantly.
+     * (fire-and-forget on [repositoryScope]; no-op when the load would be
+     * answered from mem anyway). e.g. the artist page preloads its album
+     * carousel so each tap opens instantly, and every detail entry calls it the
+     * moment the tap lands (ui/detail/DetailPrefetch.kt).
+     *
+     * The load's single flight is registered before this returns: a page
+     * created right after (a column that is already open builds its ViewModel
+     * in the next frame) joins it instead of racing it with a second request.
      */
-    fun prefetchAlbum(id: MediaId) = prefetchDetail(albumDetailCache, id.toString()) { getAlbum(id) }
+    fun prefetchAlbum(id: MediaId) =
+        prefetchDetail(albumDetailCache, id.toString(), detailDiskFreshMs) { getAlbum(id) }
 
-    fun prefetchArtist(id: MediaId) = prefetchDetail(artistDetailCache, id.toString()) { getArtist(id) }
+    fun prefetchArtist(id: MediaId) =
+        prefetchDetail(artistDetailCache, id.toString(), detailDiskFreshMs) { getArtist(id) }
 
     fun prefetchPlaylist(id: MediaId) =
-        prefetchDetail(playlistDetailCache, id.toString()) { getPlaylist(id) }
+        prefetchDetail(playlistDetailCache, id.toString(), diskFreshMs = 0L) { getPlaylist(id) }
 
     private fun <V : Any> prefetchDetail(
         cache: DetailMemoryCache<V>,
         baseKey: String,
+        diskFreshMs: Long,
         load: suspend () -> V?,
     ) {
-        if (cache.getFresh(memKey(baseKey)) != null) return
-        repositoryScope.launch { runCatching { load() } }
+        if (cache.getFresh(memKey(baseKey), memServeMs(diskFreshMs)) != null) return
+        // UNDISPATCHED: runs on the caller's thread up to the load's first
+        // suspension — its single-flight registration (no I/O: the flight itself
+        // runs on repositoryScope) — so the flight exists when this returns.
+        repositoryScope.launch(start = CoroutineStart.UNDISPATCHED) { runCatching { load() } }
     }
 
     suspend fun createPlaylist(name: String, description: String? = null): Result<Playlist> =
