@@ -355,9 +355,10 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 分类浏览：歌手 / 专辑 / 歌曲 / 收藏。收藏标签只在「收藏」和「资料库」是两回事的服务上出现（Subsonic）。Spotify 的资料库本身就是收藏：喜欢一首歌就是把它加进 Liked Songs，专辑是保存的，歌手是关注的。所以 Spotify 下不显示收藏标签（2026-10-10 拍板），由 `ServiceFeatures.favoritesAreLibrary` 显式标记，不从能力组合推断。Apple Music 没有收藏能力，也不显示
 - 播放列表浏览在第二期加入（依赖播放列表 CRUD）
 - 普通点击底部 Library：进入当前 profile 的 Library，展示 saved artists / albums / playlists / songs。Spotify 下：
-  - 歌曲 = Liked Songs，按加入时间倒序，新喜欢的在最上面；在别处取消喜欢，这一行淡出
+  - 歌曲 = Liked Songs，按加入时间倒序，新喜欢的在最上面；同一秒加入的几首按 Spotify 自己列出的顺序，不按标题；在别处取消喜欢，这一行淡出
   - 点一行以 Liked Songs 起播（`spotify:collection:tracks` + `offset.uri`）：Spotify 从这首往下播它自己的收藏，不动用户的队列
-  - 歌手只放关注的歌手；资料库搜索仍然搜得到已存专辑和喜欢歌曲的歌手
+  - 歌手只放关注的歌手；在歌手页关注或取消关注，列表随即增减；资料库搜索仍然搜得到已存专辑和喜欢歌曲的歌手
+  - 心形和关注改动列表时只重读本地同步缓存，不触发同步请求
   - 每类和以前一样最多同步最近 200 条
 - Library 内普通搜索：默认 scope 为 Current Library，只搜索当前 profile 已保存内容
 - 长按底部 Library：支持目录搜索的 profile 打开搜索框并默认 scope 为该服务目录（Spotify：`Search Spotify`、Spotify / Library；Apple Music：`Search Apple Music`、Apple Music / Library）；Subsonic 打开 Current Library 搜索。Apple Music 的 Library scope 调用个人资料库搜索接口，歌曲标签读取已加入资料库的歌曲，不用随机歌曲代替

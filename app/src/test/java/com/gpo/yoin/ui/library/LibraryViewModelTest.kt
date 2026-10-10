@@ -460,8 +460,15 @@ class LibraryViewModelTest {
         assertTrue(state.canReshuffleSongs)
     }
 
+    /**
+     * The provider and capability flow on its own, with the profile id held
+     * still. A real profile switch reloads the library first and lands on
+     * Artists ([LibraryViewModel] observeProfileChanges); this pins the
+     * normalisation behind it, so a provider or capability change that
+     * arrives without a reload can't leave the selection on a hidden tab.
+     */
     @Test
-    fun should_leaveFavoritesTab_when_profileSwitchesToServiceWhoseFavoritesAreItsLibrary() = runTest {
+    fun should_leaveFavoritesTab_when_providerFlowTurnsToServiceWhoseFavoritesAreItsLibrary() = runTest {
         val providerIds = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
         val subsonicCapabilities = setOf(Capability.FAVORITES, Capability.RANDOM_SONGS)
         val spotifyCapabilities = setOf(Capability.FAVORITES, Capability.LIBRARY_SONGS, Capability.RANDOM_SONGS)
@@ -502,7 +509,7 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun should_rereadLikedSongs_when_likeChangesOnSpotifySongsTab() = runTest {
+    fun should_rereadLikedSongsFromCache_when_likeChangesOnSpotifySongsTab() = runTest {
         val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
         val repository = spotifyRepository()
         every { repository.favoriteOverrides } returns overrides
@@ -512,16 +519,16 @@ class LibraryViewModelTest {
         var cache = listOf(unliked, old)
         coEvery { repository.getLibrarySongs(size = 500) } coAnswers { cache }
         val read = CompletableDeferred<Unit>()
+        coEvery { repository.readCachedLikedSongs(size = 500) } coAnswers {
+            read.await()
+            cache
+        }
         val viewModel = LibraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
         advanceUntilIdle()
 
         // An unlike leaves at once, before the re-read lands.
-        coEvery { repository.getLibrarySongs(size = 500) } coAnswers {
-            read.await()
-            cache
-        }
         overrides.value = mapOf(unliked.id to false)
         runCurrent()
         assertEquals(listOf(old), (viewModel.uiState.value as LibraryUiState.Content).songs)
@@ -532,10 +539,12 @@ class LibraryViewModelTest {
         overrides.value = mapOf(liked.id to true)
         advanceUntilIdle()
         assertEquals(listOf(liked, old), (viewModel.uiState.value as LibraryUiState.Content).songs)
+        // The tab's first load alone checked freshness; the hearts read the cache.
+        coVerify(exactly = 1) { repository.getLibrarySongs(any(), any()) }
     }
 
     @Test
-    fun should_readLikedSongsAgainOnNextVisit_when_likeChangesOnAnotherTab() = runTest {
+    fun should_refreshLikedSongsFromCache_when_likeChangesOnAnotherTab() = runTest {
         val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
         val repository = spotifyRepository()
         every { repository.favoriteOverrides } returns overrides
@@ -543,6 +552,7 @@ class LibraryViewModelTest {
         val liked = spotifyTrack("liked")
         var cache = listOf(old)
         coEvery { repository.getLibrarySongs(size = 500) } coAnswers { cache }
+        coEvery { repository.readCachedLikedSongs(size = 500) } coAnswers { cache }
         val viewModel = LibraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
@@ -550,15 +560,46 @@ class LibraryViewModelTest {
         viewModel.selectTab(LibraryTab.Artists)
         advanceUntilIdle()
 
+        // A like from Now Playing while Artists shows.
         cache = listOf(liked, old)
         overrides.value = mapOf(liked.id to true)
         advanceUntilIdle()
-        coVerify(exactly = 1) { repository.getLibrarySongs(size = 500) }
         viewModel.selectTab(LibraryTab.Songs)
         advanceUntilIdle()
 
         assertEquals(listOf(liked, old), (viewModel.uiState.value as LibraryUiState.Content).songs)
-        coVerify(exactly = 2) { repository.getLibrarySongs(size = 500) }
+        coVerify(exactly = 1) { repository.getLibrarySongs(any(), any()) }
+    }
+
+    @Test
+    fun should_rereadFollowedArtistsFromCache_when_followChangesOnSpotify() = runTest {
+        val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
+        val repository = spotifyRepository()
+        every { repository.favoriteOverrides } returns overrides
+        val arca = Artist(MediaId.spotify("arca"), "Arca", null, null, isStarred = true)
+        val bruit = Artist(MediaId.spotify("bruit"), "Bruit", null, null, isStarred = true)
+        val caroline = Artist(MediaId.spotify("caroline"), "Caroline", null, null, isStarred = true)
+        coEvery { repository.getArtists() } returns
+            listOf(ArtistIndex("A", listOf(arca)), ArtistIndex("B", listOf(bruit)))
+        var cache = listOf(ArtistIndex("A", listOf(arca)), ArtistIndex("C", listOf(caroline)))
+        coEvery { repository.readCachedFollowedArtists() } coAnswers { cache }
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+
+        // Unfollow Bruit, follow Caroline on their artist pages.
+        overrides.value = mapOf(bruit.id to false, caroline.id to true)
+        advanceUntilIdle()
+        assertEquals(listOf(arca, caroline), (viewModel.uiState.value as LibraryUiState.Content).artists)
+
+        // The writes settle; the list is what the cache holds.
+        cache = listOf(ArtistIndex("C", listOf(caroline)))
+        overrides.value = emptyMap()
+        advanceUntilIdle()
+        assertEquals(listOf(caroline), (viewModel.uiState.value as LibraryUiState.Content).artists)
+        // Neither a freshness check nor a sync: the first load's alone.
+        coVerify(exactly = 1) { repository.getArtists() }
+        coVerify(exactly = 1) { repository.refreshSpotifyLibrary(any()) }
+        coVerify(exactly = 0) { repository.getStarred() }
     }
 
     @Test
@@ -582,6 +623,8 @@ class LibraryViewModelTest {
         assertTrue(songs.first().isStarred)
         coVerify(exactly = 1) { repository.getRandomSongs(size = 50) }
         coVerify(exactly = 0) { repository.getLibrarySongs(any(), any()) }
+        coVerify(exactly = 0) { repository.readCachedLikedSongs(any(), any()) }
+        coVerify(exactly = 0) { repository.readCachedFollowedArtists() }
     }
 
     @Test

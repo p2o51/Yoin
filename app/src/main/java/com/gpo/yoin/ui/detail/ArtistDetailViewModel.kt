@@ -182,7 +182,8 @@ class ArtistDetailViewModel(
         val target = !current.isStarred
         _uiState.value = current.copy(isStarred = target)
         viewModelScope.launch {
-            repository.setArtistFollowed(id, followed = target).onFailure {
+            // The loaded artist files a new follow into Spotify's Library Artists.
+            repository.setArtistFollowed(id, followed = target, artist = loadedArtist).onFailure {
                 (_uiState.value as? ArtistDetailUiState.Content)?.let { c ->
                     _uiState.value = c.copy(isStarred = !target)
                 }

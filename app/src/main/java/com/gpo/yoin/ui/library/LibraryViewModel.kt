@@ -577,24 +577,25 @@ class LibraryViewModel(
 
     private fun observeFavoriteOverrides() {
         viewModelScope.launch {
+            var previous: Map<MediaId, Boolean>? = null
             repository.favoriteOverrides.collectLatest { overrides ->
+                // The value already there on subscribe changed nothing the
+                // first loads didn't read.
+                val changed = previous != null && previous != overrides
+                previous = overrides
                 applyFavoriteOverrides(overrides)
                 val current = _uiState.value as? LibraryUiState.Content ?: return@collectLatest
                 // The Favorites tab re-reads live: getStarred() returns a
                 // stable ordered set, so a newly-favorited track inserts cleanly
-                // and an un-favorited one drops. So does Songs where it is the
-                // liked list (Spotify), newest like first: a like lands on top,
-                // an unlike fades out. A random sample (getRandomSongs does
+                // and an un-favorited one drops. So do Songs and Artists where
+                // they are the liked and followed lists (Spotify): a like lands
+                // on top, an unlike fades out, a follow or unfollow comes and
+                // goes. A random sample (getRandomSongs does
                 // .shuffled().take(50)) is NOT re-read — that would reshuffle
                 // the whole visible list on every toggle; its heart icons are
                 // already updated in-place by applyFavoriteOverrides above.
-                if (songsAreLikedSongs()) {
-                    if (current.selectedTab == LibraryTab.Songs) {
-                        reloadLikedSongs(overrides)
-                    } else {
-                        // Read again on the next visit; the old list shows until then.
-                        cachedSongs = null
-                    }
+                if (changed && favoritesAreLibrary()) {
+                    rereadCachedLibrary(overrides)
                 }
                 if (current.selectedTab == LibraryTab.Favorites) {
                     val generation = libraryDataGeneration
@@ -616,25 +617,49 @@ class LibraryViewModel(
     }
 
     /**
-     * Songs is the service's liked list ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary]):
-     * a like adds a row and an unlike takes one away, unlike a random sample.
+     * The service's favorites are its library
+     * ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary], Spotify).
+     */
+    private fun favoritesAreLibrary(): Boolean =
+        ServiceFeatureCatalog.forProvider(repository.currentProviderId()).favoritesAreLibrary
+
+    /**
+     * Songs is the service's liked list ([favoritesAreLibrary]): a like adds a
+     * row and an unlike takes one away, unlike a random sample.
      */
     private fun songsAreLikedSongs(): Boolean =
-        ServiceFeatureCatalog.forProvider(repository.currentProviderId()).favoritesAreLibrary &&
-            Capability.LIBRARY_SONGS in repository.currentCapabilities()
+        favoritesAreLibrary() && Capability.LIBRARY_SONGS in repository.currentCapabilities()
 
-    private suspend fun reloadLikedSongs(overrides: Map<MediaId, Boolean>) {
+    /**
+     * Re-reads the liked Songs and followed Artists a heart or follow just
+     * changed, on any tab, from the synced cache only — the write filed its
+     * row there before it published the override. No freshness check, so a
+     * heart never sets off a library sync, wherever it was tapped (Now
+     * Playing, an album, the notification). Only lists already loaded: a
+     * first visit loads through [selectTab].
+     */
+    private suspend fun rereadCachedLibrary(overrides: Map<MediaId, Boolean>) {
         val generation = libraryDataGeneration
         val profileId = repository.currentProfileId()
         try {
-            val songs = repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
-                .applySongsOverrides(overrides)
+            val songs = cachedSongs?.takeIf { songsAreLikedSongs() }?.let {
+                repository.readCachedLikedSongs(size = LIBRARY_SONGS_SIZE)?.applySongsOverrides(overrides)
+            }
+            val artists = cachedArtists?.let {
+                repository.readCachedFollowedArtists()?.flatMap(ArtistIndex::artists)
+            }
             if (!isDataLoadCurrent(generation, profileId)) return
-            cachedSongs = songs
-            updateContent { copy(songs = cachedSongs) }
+            if (songs != null) {
+                cachedSongs = songs
+                updateContent { copy(songs = songs) }
+            }
+            if (artists != null) {
+                cachedArtists = artists
+                updateContent { copy(artists = artists) }
+            }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            // The list stays; the override pass already took an unlike out.
+            // The lists stay; the override pass already took an unlike out.
         }
     }
 

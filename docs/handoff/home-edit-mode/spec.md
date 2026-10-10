@@ -83,10 +83,10 @@ Composable（只读 UiState，不碰 AppContainer）
 
 | 能力 / 方法 | Subsonic | Spotify | Apple Music |
 |---|---|---|---|
-| `FAVORITES` / `getStarred` | 实做（getStarred2） | 实做（Room：已存曲目、专辑 + 关注艺人） | **桩**，恒为空（`AppleMusicSource.kt:343`） |
+| `FAVORITES` / `getStarred` | 实做（getStarred2） | 实做（Room：已存曲目、专辑 + 关注艺人）；Library 不显示 Favorites 标签（`ServiceFeatures.favoritesAreLibrary`） | **桩**，恒为空（`AppleMusicSource.kt:343`） |
 | `RANDOM_SONGS` / `getRandomSongs` | 实做 | 部分：把已存曲目打乱 | **桩**（`:344`） |
 | `getAlbumList(type)` | type 透传，random/newest/highest/frequent 都可用 | Repository 读 Room：newest、recent 按 addedAt，random 为打乱 | 只认 `newest`，**其他 type 被忽略**，「随机」其实永远是前 18 张（`:105-127`） |
-| `LIBRARY_SONGS` / `getLibrarySongs` | 不支持 | 不支持 | 实做 |
+| `LIBRARY_SONGS` / `getLibrarySongs` | 不支持 | 实做（2026-10-10 起 = Liked Songs：Repository 读同步缓存，按加入时间倒序；`SpotifyMusicSource` 本身不提供） | 实做 |
 | `PLAYLISTS_WRITE` | 有 | 有（删除 = 取消关注） | 无（只读） |
 | 播放 `handleFor` | `DirectStream` | `ExternalController`（App Remote，需要 Premium） | `ExternalController`（MusicKit）；导入曲目会抛错（`:361-366`） |
 | 远端「历史」 | `recent`/`frequent` 依赖 scrobble，**Yoin 从不 scrobble** | 只有 `/me/player/recently-played`（≤50） | 未接线 |

@@ -109,7 +109,8 @@ object ServiceFeatureCatalog {
             Capability.FAVORITES,
             Capability.SEARCH,
             Capability.CATALOG_SEARCH,
-            // Library Songs is Liked Songs; RANDOM_SONGS stays for Home's grid.
+            // Library Songs is Liked Songs, read from the synced cache by
+            // YoinRepository; RANDOM_SONGS stays for Home's grid.
             Capability.LIBRARY_SONGS,
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
