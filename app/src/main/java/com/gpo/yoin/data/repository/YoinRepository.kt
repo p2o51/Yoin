@@ -657,13 +657,16 @@ class YoinRepository(
                     // The optimistic row was created by this call — drop it.
                     dao.deleteTrack(profileId, rawId)
                 } else {
+                    // Back as it was, its read time too: restamped now, the
+                    // old state would outrank a newer answer from Spotify
+                    // (App Remote, a contains check) in the favorite overlay.
                     dao.updateTrackFavoriteState(
                         profileId = profileId,
                         trackId = rawId,
                         isSaved = existing.isSaved,
                         pending = false,
                         lastSyncError = error.message,
-                        cachedAt = clock(),
+                        cachedAt = existing.cachedAt,
                     )
                 }
                 _favoriteOverrides.value = _favoriteOverrides.value - id

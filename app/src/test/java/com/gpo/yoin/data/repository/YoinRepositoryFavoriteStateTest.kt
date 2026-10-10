@@ -19,6 +19,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.every
 import io.mockk.mockk
+import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -162,6 +164,27 @@ class YoinRepositoryFavoriteStateTest {
     }
 
     @Test
+    fun should_keepSpotifysNewerAnswer_when_aLikeWriteFailsAndRollsBack() = runTest {
+        // The mirror (synced a while ago) still has the track liked; App
+        // Remote has since said it was unliked in Spotify.
+        val syncedAt = now - 10 * 60_000L
+        database.spotifyLibraryCacheDao().upsertTrack(mirrorRow("t1", cachedAt = syncedAt))
+        val track = track("t1", isStarred = true)
+        repository.recordFavoriteState(PROFILE, track.id, saved = false)
+        assertEquals(FavoriteState(isStarred = false), heart(track))
+
+        // A like from Yoin, refused: the mirror row goes back as it was, read time and all.
+        now += 1_000L
+        writeActions.writeFailure = IOException("429")
+        assertTrue(repository.setFavorite(track, favorite = true).isFailure)
+
+        assertEquals(FavoriteState(isStarred = false), heart(track))
+        val row = database.spotifyLibraryCacheDao().getTrack(PROFILE, "t1")
+        assertEquals(true, row?.isSaved)
+        assertEquals(syncedAt, row?.cachedAt)
+    }
+
+    @Test
     fun should_askOnce_when_refreshedTwiceWithinTheInterval() = runTest {
         writeActions.answer = mapOf(oldLike.id to true)
 
@@ -280,7 +303,10 @@ class YoinRepositoryFavoriteStateTest {
             return Result.success(states.filterKeys { id -> tracks.any { it.id == id } })
         }
 
-        override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> = Result.success(Unit)
+        var writeFailure: Exception? = null
+
+        override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
+            writeFailure?.let { Result.failure(it) } ?: Result.success(Unit)
 
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> =
             Result.failure(UnsupportedOperationException())
