@@ -27,8 +27,8 @@
 | --- | --- | --- | --- |
 | `detail.click` | `kind=album\|artist\|playlist` `id=<provider:rawId>` `via=` | `YoinNavHost.kt` 的 `navigateTo{Album,Artist,Playlist}FromShell`、Memories 印章的 `onOpenAlbum`、`pushPane`；`AlbumDetailActivity` 的 `onOpenArtist`、`ArtistDetailActivity` 的 `onAlbumClick` | 用户请求打开详情。`via=activity`（推独立 Activity）/ `pane`（同窗分列，替换右列根页）/ `pane-push`（右列里再推一页）/ `push`（详情 Activity 里点到另一个详情）。被 launch gate 挡掉的点击不打。shell 里的 Now Playing 点专辑/艺人也走 `navigateTo*FromShell`，同样会打；没覆盖桌面小组件、详情 Activity 里 Now Playing 的入口（`launchChildDetail(…, fromNowPlaying = true)`）、以及横竖屏切换时把右列页面转成 Activity 的自动重开。 |
 | `detail.load` | `kind` `id` `src=` `ms=` [`provider`] [`joined=true`] [`err`] | `YoinRepository.loadCachedDetail` | 一次 `getAlbum/getArtist/getPlaylist` 调用从进门到拿到结果的耗时。`src=mem`（内存新鲜命中）/ `disk`（Room 磁盘新鲜命中）/ `net`（走网络，带 `provider`）/ `stale`（网络失败，退回磁盘或过期内存，`err=` 是网络异常类名）/ `err`（整体失败或调用方被取消，`err=` 是异常类名）。`joined=true`：这次调用搭了别人已在飞的同一请求（预取、并发读者）。 |
-| `detail.diskWrite` | `kind=ALBUM\|ARTIST\|PLAYLIST` `chars=` `ok=` `ms=` | `DetailCacheStore.write` | JSON 编码 + 等锁 + upsert（+ 可能的 trim）。注意：网络路径的磁盘写在单飞请求返回之前完成，所以它算在 `net` 那次 `detail.load` 的 `ms` 里。 |
-| `detail.diskTrim` | `rows=` `ms=` | `DetailCacheStore.trimToBudget` | 超 24MB 预算时的 SUM + 扫描 + 逐行删除；`rows` 是删掉的行数（SUM 发现没超就是 0）。 |
+| `detail.diskWrite` | `kind=ALBUM\|ARTIST\|PLAYLIST` `chars=` `ok=` `ms=` | `DetailCacheStore.write` | JSON 编码 + 等锁 + upsert（+ 可能的 trim）。网络路径的磁盘写在数据交给调用方之后、在后台做，不算在 `net` 那次 `detail.load` 的 `ms` 里。`skipped=true`：拿到锁时这条已经作废（点赞、关注、歌单编辑）或已经切了账号，没写。 |
+| `detail.diskTrim` | `rows=` `ms=` | `DetailCacheStore.trimToBudget` | 超 24MB 预算时的 SUM + 扫描 + 逐行删除，删到 20MB 为止（回滞，免得之后每次写都再 trim；刚写的那行不删）；`rows` 是删掉的行数（SUM 发现没超就是 0）。 |
 | `detail.content` | `kind` `id` [`resolved`] | `Album/Artist/PlaylistDetailViewModel` 第一次把 `_uiState` 设成 Content 之后 | VM 级别的「数据就绪」。每个 VM 只打一次（retry / 歌单刷新不重复打）。`id` 是打开时请求的 id；`resolved` 只在内容实体 id 不同时出现（Apple Music 会把 library 专辑折叠成目录专辑）。 |
 | `detail.visible` | `kind` `id` `host=window\|pane` `commit=` | `DetailEnterIntro.kt` 的 `DetailPerfVisibleEffect`，挂在三个 Screen 的 `AnimatedContent` Content 分支里 | Content 第一次组合后，下一次帧提交（`registerFrameCommitCallback`，API 29+）完成的时间。`id` 是内容实体 id（= `detail.content` 的 `resolved`，没有 `resolved` 时 = `id`）。`commit=false`：帧提交握手失败（1.5s 超时或视图已脱离），这一行的时间不可信。**近似值**：若 Loading 先上了屏（700ms 超时、或分列模式），这一帧是 Content 交叉淡入的开始，不是完全不透明的时刻；Activity 模式下页面还在 96dp 滑入途中（不透明）。同一页面组合里只打一次。 |
 
@@ -110,8 +110,8 @@ detail.click  →  detail.load  →  detail.content  →  detail.visible
 4. 时长都是 `t` 相减：
    - 点击 → 数据：`load.t - click.t`（≈ Activity 启动 / 分列展开 + VM 创建 + 加载本身；
      加载本身是 `load.ms`）
-   - 数据 → VM：`content.t - load.t`（VM 里拿到数据后、发 Content 前的工作，比如专辑页的
-     `recordAlbumVisit`）
+   - 数据 → VM：`content.t - load.t`（VM 里拿到数据后、发 Content 前的工作；visit 记录写库
+     不再挡在这里）
    - VM → 上屏：`visible.t - content.t`（Activity 模式含 200ms 底栏交接等待和入场门控）
    - 总计：`visible.t - click.t`
 

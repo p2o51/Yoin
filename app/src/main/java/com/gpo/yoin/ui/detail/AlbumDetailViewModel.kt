@@ -196,7 +196,9 @@ class AlbumDetailViewModel(
                 loadedAlbum = album
                 albumSongs = album.tracks.applyFavoriteOverrides(repository.favoriteOverrides.value)
                 albumTrackIds.value = albumSongs.map(Track::id)
-                repository.recordAlbumVisit(album)
+                // The visit row feeds Home's activity and the widgets, not this page:
+                // Content doesn't wait on the Room insert.
+                launch { repository.recordAlbumVisit(album) }
                 _uiState.value = AlbumDetailUiState.Content(
                     albumId = album.id.toString(),
                     albumName = album.name,

@@ -100,6 +100,12 @@ import java.time.Instant
 import kotlin.math.roundToInt
 
 /**
+ * Writes one detail's disk copy; the last argument is the write's guard, which
+ * the store asks under its write lock (see `DetailCacheStore.write`).
+ */
+private typealias DetailDiskWrite<V> = suspend (profileId: String, value: V, stillCurrent: () -> Boolean) -> Unit
+
+/**
  * Provider-agnostic orchestrator over local Room + the currently active
  * [MusicSource]. Remote calls are dispatched through `activeSource`; local
  * persistence (ratings, history, activity, song info) stays in Room.
@@ -581,7 +587,9 @@ class YoinRepository(
                 }
             }
         },
-        diskWrite = { profileId, value -> detailCacheStore?.writeAlbum(profileId, id.toString(), value) },
+        diskWrite = { profileId, value, stillCurrent ->
+            detailCacheStore?.writeAlbum(profileId, id.toString(), value, stillCurrent)
+        },
         fetch = { requireSource().library().getAlbum(id) },
     )?.also(::seedLibraryMembership)
 
@@ -639,7 +647,9 @@ class YoinRepository(
         baseKey = id.toString(),
         diskFreshMs = detailDiskFreshMs,
         diskRead = { profileId -> detailCacheStore?.readArtist(profileId, id.toString()) },
-        diskWrite = { profileId, value -> detailCacheStore?.writeArtist(profileId, id.toString(), value) },
+        diskWrite = { profileId, value, stillCurrent ->
+            detailCacheStore?.writeArtist(profileId, id.toString(), value, stillCurrent)
+        },
         fetch = { requireSource().library().getArtist(id) },
     )
 
@@ -892,7 +902,9 @@ class YoinRepository(
         // offline fallback (and is overwritten by the next successful fetch).
         diskFreshMs = 0L,
         diskRead = { profileId -> detailCacheStore?.readPlaylist(profileId, id.toString()) },
-        diskWrite = { profileId, value -> detailCacheStore?.writePlaylist(profileId, id.toString(), value) },
+        diskWrite = { profileId, value, stillCurrent ->
+            detailCacheStore?.writePlaylist(profileId, id.toString(), value, stillCurrent)
+        },
         fetch = { requireSource().library().getPlaylist(id) },
     )
 
@@ -928,7 +940,7 @@ class YoinRepository(
         baseKey: String,
         diskFreshMs: Long,
         diskRead: suspend (profileId: String) -> Cached<V>?,
-        diskWrite: suspend (profileId: String, value: V) -> Unit,
+        diskWrite: DetailDiskWrite<V>,
         fetch: suspend () -> V?,
     ): V? {
         val perf = YoinPerf.begin("detail.load")
@@ -942,8 +954,8 @@ class YoinRepository(
         }
         var startedFlight = false
         // Single-flight: racing loads of one key (a prefetch burst + a user tap
-        // + a queue build) share one Deferred instead of each paying the fetch
-        // and disk write. It runs on [repositoryScope] so a cancelled waiter
+        // + a queue build) share one Deferred instead of each paying the fetch.
+        // It runs on [repositoryScope] so a cancelled waiter
         // (e.g. an abandoned prefetch) can't abort the load for the rest, and a
         // failure propagates to every waiter. The entry is removed as the load
         // completes, so a failure never poisons its key.
@@ -984,7 +996,9 @@ class YoinRepository(
      * up front only when its freshness can be trusted (album/artist);
      * playlists (`diskFreshMs == 0`) go straight to the network and consult
      * disk purely as an offline fallback. The JSON decode is deferred to
-     * [Cached.value], so a row that is never served is never decoded.
+     * [Cached.value], so a row that is never served is never decoded. A fetched
+     * value is returned as soon as it is in mem; its disk copy is written in
+     * the background ([persistDetail]).
      */
     private suspend fun <V : Any> loadDetailFromDiskOrNetwork(
         mem: DetailMemoryCache<V>,
@@ -992,7 +1006,7 @@ class YoinRepository(
         profileId: String?,
         diskFreshMs: Long,
         diskRead: suspend (profileId: String) -> Cached<V>?,
-        diskWrite: suspend (profileId: String, value: V) -> Unit,
+        diskWrite: DetailDiskWrite<V>,
         fetch: suspend () -> V?,
     ): DetailLoad<V> {
         suspend fun diskRow(): Cached<V>? =
@@ -1022,7 +1036,7 @@ class YoinRepository(
                 // must not poison another account or overwrite a fresher edit.
                 if (canWriteBack()) {
                     mem.put(key, value)
-                    if (profileId != null) runCatching { diskWrite(profileId, value) }
+                    persistDetail(profileId, value, diskWrite, ::canWriteBack)
                 }
             }
             DetailLoad(fetched, src = "net")
@@ -1033,20 +1047,39 @@ class YoinRepository(
         }
     }
 
+    /**
+     * Write a fetched detail's disk copy on [repositoryScope], off the load's
+     * path: the page has its value from mem already, so it must not wait on the
+     * JSON encode, the upsert or a budget trim. [stillCurrent] is the load's
+     * profile + generation guard; the store re-asks it under its write lock
+     * right before the upsert, so an invalidation that lands while the write
+     * waits still wins (see [DetailCacheStore]).
+     */
+    private fun <V : Any> persistDetail(
+        profileId: String?,
+        value: V,
+        diskWrite: DetailDiskWrite<V>,
+        stillCurrent: () -> Boolean
+    ) {
+        if (profileId == null) return
+        repositoryScope.launch { runCatching { diskWrite(profileId, value, stillCurrent) } }
+    }
+
     /** Background refresh of an already-served (slightly stale) disk entry. */
     private fun <V : Any> revalidateDetail(
         mem: DetailMemoryCache<V>,
         key: String,
         profileId: String?,
-        diskWrite: suspend (profileId: String, value: V) -> Unit,
+        diskWrite: DetailDiskWrite<V>,
         fetch: suspend () -> V?,
     ) {
         val generation = mem.generationOf(key)
+        fun stillCurrent() = activeProfileId.value == profileId && mem.generationOf(key) == generation
         repositoryScope.launch {
             runCatching { fetch() }.getOrNull()?.let { value ->
-                if (activeProfileId.value == profileId && mem.generationOf(key) == generation) {
+                if (stillCurrent()) {
                     mem.put(key, value)
-                    if (profileId != null) runCatching { diskWrite(profileId, value) }
+                    if (profileId != null) runCatching { diskWrite(profileId, value, ::stillCurrent) }
                 }
             }
         }
