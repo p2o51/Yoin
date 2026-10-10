@@ -23,6 +23,7 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
@@ -222,6 +223,24 @@ class SpotifyMusicSource(
     }
 
     private val writeActions = object : MusicWriteActions {
+        // Asked of Spotify, since the saved-tracks list stops at 200. One
+        // contains read per 40 tracks, one after another. Episodes and local
+        // files App Remote reported have no track id to ask about.
+        override suspend fun favoriteStates(tracks: List<Track>): Result<Map<MediaId, Boolean>> {
+            val asked = tracks
+                .mapNotNull { track -> spotifyTrackUriOrNull(track)?.let { uri -> track.id to uri } }
+                .distinctBy { (id, _) -> id }
+            if (asked.isEmpty()) return Result.success(emptyMap())
+            return try {
+                val saved = apiClient.libraryContains(asked.map { (_, uri) -> uri })
+                Result.success(asked.mapIndexed { index, (id, _) -> id to saved[index] }.toMap())
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+        }
+
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> = runCatching {
             val rawId = requireSpotify(id).rawId
             // setFavorite is the TRACK like (saved-tracks library). Artist follow

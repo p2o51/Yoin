@@ -8,8 +8,10 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.spotify.EXTRA_SPOTIFY_URI_TYPE
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
+import com.gpo.yoin.data.source.spotify.spotifyUriType
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
@@ -728,6 +730,9 @@ internal class SpotifyAppRemotePlayer(
             genre = null,
             userRating = null,
             isStarred = false,
+            // An episode or a local file keeps its kind, so nothing asks
+            // Spotify whether its id is a liked track.
+            extras = spotifyUriType(uri)?.let { type -> mapOf(EXTRA_SPOTIFY_URI_TYPE to type) }.orEmpty(),
         )
     }
 

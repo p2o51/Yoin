@@ -132,6 +132,17 @@ interface MusicWriteActions {
     suspend fun addToLibrary(trackId: MediaId): Result<LibraryMembership> =
         Result.failure(UnsupportedOperationException("Adding to the library is unavailable"))
 
+    /**
+     * Whether each of [tracks] is a favorite right now, asked of the service —
+     * for one whose own lists can't tell (Spotify's saved-tracks mirror stops
+     * at 200 of a library that can hold thousands). Tracks the service can't
+     * be asked about are left out of the map. Gated by
+     * [Capability.FAVORITES] like [setFavorite]; services whose tracks already
+     * carry their exact state (Subsonic) keep this default.
+     */
+    suspend fun favoriteStates(tracks: List<Track>): Result<Map<MediaId, Boolean>> =
+        Result.failure(UnsupportedOperationException("Favorite lookup is unavailable"))
+
     /** Favourite / like / star — semantics vary, but the UI concept is boolean. */
     suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit>
 
