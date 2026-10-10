@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -130,6 +131,22 @@ class MemoriesViewModel(
                     refreshNeoDbConfigured()
                 }
         }
+        // Cold start: a deck build waits for the source, bounded (see
+        // ensureLoaded). A source that lands after that still retries an Empty
+        // / Error deck; a painted deck or a load in flight is left alone.
+        viewModelScope.launch {
+            repository.activeProviderId
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect {
+                    when (_uiState.value) {
+                        MemoriesUiState.Empty,
+                        is MemoriesUiState.Error,
+                        -> ensureLoaded(force = true)
+                        else -> Unit
+                    }
+                }
+        }
         observeMemorySignals()
         observeMemoryTitles()
         // The home teaser parks a focus request in the session store; consume it
@@ -177,7 +194,7 @@ class MemoriesViewModel(
                 }
                 // Cold start: the profile id is restored synchronously but its
                 // source is built asynchronously; a build against no source lands
-                // on Empty. Bounded — after it, Empty / Error stay retryable.
+                // on Empty. Bounded — a later source retries it (see init).
                 repository.awaitActiveSource(ACTIVE_SOURCE_WAIT_MS)
 
                 val memories = withPendingTitles(deckCoordinator.ensureDeck())

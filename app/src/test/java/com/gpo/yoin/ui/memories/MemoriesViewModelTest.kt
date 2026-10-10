@@ -24,11 +24,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -155,6 +157,26 @@ class MemoriesViewModelTest {
         assertEquals(MemoriesUiState.Loading, viewModel.uiState.value)
         coVerify(exactly = 0) { repository.getAlbumMemoryCandidates(limit = 48) }
 
+        activeSource.value = mockk<MusicSource>()
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as MemoriesUiState.Content
+        assertEquals(4, content.memories.size)
+    }
+
+    @Test
+    fun should_retryDeck_when_activeSourceArrivesAfterWaitRunsOut() = runTest {
+        // The source takes longer than the bounded wait: the deck builds without
+        // it and lands on Empty. Once the source does arrive, the deck rebuilds.
+        activeSource.value = null
+        stubCandidates(emptyList())
+        val viewModel = buildViewModel(
+            awaitSource = { timeoutMs -> withTimeoutOrNull(timeoutMs) { activeSource.filterNotNull().first() } }
+        )
+        advanceUntilIdle()
+        assertEquals(MemoriesUiState.Empty, viewModel.uiState.value)
+
+        stubCandidates(buildAlbumCandidates(count = 4))
         activeSource.value = mockk<MusicSource>()
         advanceUntilIdle()
 
@@ -416,9 +438,16 @@ class MemoriesViewModelTest {
         )
     }
 
-    private fun buildViewModel(playback: MemoriesPlayback? = null): MemoriesViewModel {
+    private fun buildViewModel(
+        playback: MemoriesPlayback? = null,
+        // YoinRepository.awaitActiveSource over [activeSource]; unbounded unless a test bounds it.
+        awaitSource: suspend (timeoutMs: Long) -> MusicSource? = { activeSource.filterNotNull().first() }
+    ): MemoriesViewModel {
         every { repository.observeMemorySignalStamp() } returns memorySignal
-        coEvery { repository.awaitActiveSource(any()) } coAnswers { activeSource.filterNotNull().first() }
+        coEvery { repository.awaitActiveSource(any()) } coAnswers { awaitSource(firstArg()) }
+        every { repository.activeProviderId } returns activeSource.map { source ->
+            source?.let { MediaId.PROVIDER_SUBSONIC }
+        }
         return MemoriesViewModel(
             deckCoordinator = MemoriesDeckCoordinator(
                 repository = repository,
