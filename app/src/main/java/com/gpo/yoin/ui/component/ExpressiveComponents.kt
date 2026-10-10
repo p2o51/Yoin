@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -204,6 +205,9 @@ internal fun ExpressiveSectionPanel(
 /** The type icon [ExpressiveMediaArtwork] shows with no artwork, or under a failed one. */
 internal const val ARTWORK_FALLBACK_TAG = "artworkFallback"
 
+/** What an [ExpressiveMediaArtwork] last showed: the icon for no url ([hadNoModel]), or a url's artwork. */
+private class ArtworkModelHistory(var hadNoModel: Boolean)
+
 @Composable
 internal fun ExpressiveMediaArtwork(
     model: String?,
@@ -233,15 +237,26 @@ internal fun ExpressiveMediaArtwork(
 
     // A blank url is no artwork, like null — not a request that can only fail.
     val artworkModel = model?.takeIf { it.isNotBlank() }
+    // Whether the icon stood in for a missing url as of the last composition.
+    val modelHistory = remember { ArtworkModelHistory(hadNoModel = artworkModel == null) }
     // A failed load must render the same icon-in-box as a null url — an
     // `error =` painter of the launcher mark reads as fake artwork. A failed
     // artwork retries when the network comes back, when the app returns to
     // the foreground, and on a backoff for transient errors (ArtworkRetry.kt);
     // the icon stays under the retries until a recovered cover has revealed
     // over it. Artwork that has not failed never waits on the retry signal.
+    // A url that arrives after the icon was shown (a cover resolved late:
+    // Home's snapshot paints before the account's source can resolve its
+    // covers) reveals over the icon the same way, instead of cutting from it.
     var retry by remember(artworkModel) {
-        mutableStateOf(ArtworkRetryState(requestSignal = ArtworkRetrySignal.generation.value))
+        mutableStateOf(
+            ArtworkRetryState(
+                requestSignal = ArtworkRetrySignal.generation.value,
+                fallbackUnder = artworkModel != null && modelHistory.hadNoModel
+            )
+        )
     }
+    SideEffect { modelHistory.hadNoModel = artworkModel == null }
 
     Surface(
         modifier = artworkModifier,

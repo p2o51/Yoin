@@ -66,6 +66,7 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.WebLinkKind
+import com.gpo.yoin.data.source.spotify.SpotifyActivityArtistArtwork
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
@@ -187,6 +188,18 @@ class YoinRepository(
     // a column's open spring, short enough that a later open always goes back
     // online.
     private val detailHandoffMs = 5_000L
+
+    // Portraits for Spotify's Activities artists (owner Q16).
+    private val spotifyActivityArtwork by lazy {
+        SpotifyActivityArtistArtwork(
+            homeCache = database.spotifyHomeCacheDao(),
+            libraryCache = database.spotifyLibraryCacheDao(),
+            activityEvents = database.activityEventDao(),
+            detailCache = detailCacheStore,
+            rateLimitGate = spotifyRateLimitGate,
+            clock = clock
+        )
+    }
 
     /** Size-bounded, TTL'd in-memory cache for one detail type. Thread-safe. */
     private class DetailMemoryCache<V : Any>(
@@ -2949,7 +2962,33 @@ class YoinRepository(
         // Pull the full page (50, the endpoint max); one play fans out to
         // album/artist/song so the deduped feed still has plenty after take().
         val history = source.getRecentlyPlayed(limit = 50)
-        return mapSpotifyRecentlyPlayedToActivities(history, profileId).take(limit)
+        val feed = mapSpotifyRecentlyPlayedToActivities(history, profileId).take(limit)
+        // recently-played names artists without images: the portraits the
+        // device has go in before the feed goes up (owner Q16).
+        return spotifyActivityArtwork.withPortraits(profileId, feed)
+    }
+
+    /**
+     * Ask Spotify for the portraits of the Activities artists [artistIds]
+     * (raw ids, the ones Home shows) that the device has none for — one
+     * GET /artists/{id} at a time, each after [awaitTurn], stopping at a
+     * closed rate-limit gate or the first 429 (see
+     * [SpotifyActivityArtistArtwork]). Each portrait goes to [onPortrait] as
+     * it lands. Nothing to do off Spotify.
+     */
+    suspend fun fillSpotifyActivityArtistPortraits(
+        artistIds: List<String>,
+        awaitTurn: suspend () -> Unit,
+        onPortrait: (artistId: String, url: String) -> Unit
+    ) {
+        val source = activeSource.value as? SpotifyMusicSource ?: return
+        spotifyActivityArtwork.fetchMissing(
+            profileId = spotifyProfileId(source),
+            artistIds = artistIds,
+            fetch = source::getArtistPortrait,
+            awaitTurn = awaitTurn,
+            onPortrait = onPortrait
+        )
     }
 
     private fun mapSpotifyRecentlyPlayedToActivities(
@@ -2998,6 +3037,9 @@ class YoinRepository(
                         provider = MediaId.PROVIDER_SPOTIFY,
                         title = artist.name,
                         subtitle = "Artist",
+                        // No portrait in recently-played: this play's album
+                        // cover stands in, as on the artist page (Q16).
+                        coverArtId = album?.images?.firstOrNull()?.url,
                         artistId = artist.id,
                         timestamp = playedAt,
                     ),

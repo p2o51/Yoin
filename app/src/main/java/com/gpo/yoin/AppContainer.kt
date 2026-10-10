@@ -8,6 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.cache.DetailCacheStore
 import com.gpo.yoin.data.home.HomeLayoutStore
+import com.gpo.yoin.data.home.HomeSnapshotStore
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
@@ -335,8 +336,11 @@ class AppContainer(private val context: Context) {
                 // shows new-profile content.
                 notifyMusicConfigurationChanged()
             },
-            // A deleted profile's home layout row would otherwise be orphaned.
-            onProfileDeleted = { profileId -> homeLayoutStore.clearLayout(profileId) },
+            // A deleted profile's home layout row and feed snapshot would otherwise be orphaned.
+            onProfileDeleted = { profileId ->
+                homeLayoutStore.clearLayout(profileId)
+                homeSnapshotStore.delete(profileId)
+            },
         ).also { manager ->
             applicationScope.launch {
                 try {
@@ -509,6 +513,19 @@ class AppContainer(private val context: Context) {
     /** Library's Recents: the visits and plays already in Room, nothing new stored. */
     val libraryRecentsSource: LibraryRecentsSource by lazy {
         RoomLibraryRecentsSource(database.activityEventDao(), database.playHistoryDao())
+    }
+
+    /**
+     * Home's last feed per account (P2 PR3): JSON under `noBackupFilesDir`,
+     * so it stays out of cloud backup and device transfer, and the system
+     * doesn't clear it as it may cacheDir. Constructing it touches no disk;
+     * Home reads it, off the main thread, when it has nothing up.
+     */
+    val homeSnapshotStore: HomeSnapshotStore by lazy {
+        HomeSnapshotStore(
+            directory = { java.io.File(context.noBackupFilesDir, HomeSnapshotStore.DIRECTORY_NAME) },
+            scope = applicationScope
+        )
     }
 
     val repository: YoinRepository by lazy {

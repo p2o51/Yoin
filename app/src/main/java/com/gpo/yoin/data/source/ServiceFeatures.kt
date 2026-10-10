@@ -62,6 +62,10 @@ data class ServiceFeatures(
      * `ignoredArticles`).
      */
     val sortIgnoresArticles: Boolean = false,
+    // Home's Activities come from the service's own history, which names
+    // artists without portraits: Home looks them up (owner Q16). Off where
+    // the Activities are Yoin's local records, which carry their covers.
+    val activityArtistPortraits: Boolean = false,
     @param:StringRes @get:StringRes val saveLabel: Int = R.string.settings_feature_save_favorites,
     @param:StringRes @get:StringRes val removeLabel: Int = R.string.settings_feature_remove_favorites,
 ) {
@@ -136,6 +140,8 @@ object ServiceFeatureCatalog {
         // A saved album's added_at; /me/playlists carries no date.
         albumsHaveLibraryDates = true,
         integrated = true,
+        // recently-played names each play's artists without images.
+        activityArtistPortraits = true,
         capabilities = setOf(
             Capability.FAVORITES,
             Capability.SEARCH,

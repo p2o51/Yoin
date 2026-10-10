@@ -123,6 +123,7 @@ import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeScreen
+import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
@@ -440,6 +441,14 @@ private fun YoinShell(
     val memoriesVisible by remember(memoriesReveal) { derivedStateOf { memoriesReveal.isVisible } }
     val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesVisible
     val shellScope = rememberCoroutineScope()
+    val homeSongTap = remember(shellScope) {
+        HomeSongTap(
+            scope = shellScope,
+            currentSource = { app.container.profileManager.activeSource.value },
+            awaitSource = { timeoutMs -> app.container.repository.awaitActiveSource(timeoutMs) },
+            play = { track, source -> app.container.playbackManager.playSingle(track = track, source = source) }
+        )
+    }
     // Home edit mode: the only writer of the Edit surface and its progress P.
     // Hoisted here so back, the bar and every exit trigger below reach it.
     val homeEdit = rememberHomeEditController(experienceSessionStore, homeViewModel)
@@ -816,6 +825,17 @@ private fun YoinShell(
             }
         }
     }
+    // Home's account switcher. A switch begun there that fails puts Home's
+    // feed back on its own (HomeViewModel) and says so here, once.
+    val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
+    LaunchedEffect(accountSwitcher) {
+        accountSwitcher.switchFailures.collect {
+            snackbarHostState.showSnackbar(
+                message = shellContext.getString(R.string.settings_switch_failed),
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
     // Library-side playlist mutations (currently: create from the "+" FAB).
     // PlaylistDetail ViewModel has its own messages flow wired at its
     // composable scope since it's a short-lived push page.
@@ -946,9 +966,6 @@ private fun YoinShell(
                         // the wash is a vertical gradient with Home's own
                         // parameters, so the two meet without a seam.
                         ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
-                            val accountSwitcher: AccountSwitcherViewModel = viewModel(
-                                factory = AccountSwitcherViewModel.Factory(app.container),
-                            )
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,
@@ -987,14 +1004,8 @@ private fun YoinShell(
                                 onAlbumClick = navigateToAlbumFromShell,
                                 onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
                                 onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
-                                onSongClick = { song ->
-                                    app.container.profileManager.activeSource.value?.let { source ->
-                                        app.container.playbackManager.playSingle(
-                                            track = song,
-                                            source = source,
-                                        )
-                                    }
-                                },
+                                // Its snapshot can be up before the source: a tap then waits for it.
+                                onSongClick = homeSongTap::tap,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = shellAnimatedVisibilityScope,
                                 // Edge-split: the feed starts past the capsules (84dp)

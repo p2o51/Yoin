@@ -88,6 +88,7 @@ internal fun rememberExpressiveBackdropColors(
     fallbackBaseColor: Color,
     fallbackAccentColor: Color,
     enabled: Boolean = true,
+    holdUntilResolved: Boolean = false,
 ): ExpressiveBackdropColors {
     val context = LocalContext.current
     return rememberBackdropColorsLoadedBy(
@@ -95,6 +96,7 @@ internal fun rememberExpressiveBackdropColors(
         fallbackBaseColor = fallbackBaseColor,
         fallbackAccentColor = fallbackAccentColor,
         enabled = enabled,
+        holdUntilResolved = holdUntilResolved,
         load = { coverModel -> loadBackdropColors(context, coverModel) },
     )
 }
@@ -109,6 +111,12 @@ internal fun rememberExpressiveBackdropColors(
  * card decodes and quantises its cover during a fling (each read is a 200px
  * Coil decode plus a 16-colour Palette pass). It defers the read, never drops
  * it — it is an effect key, so the gate reopening reads the cover once.
+ *
+ * [holdUntilResolved]: a new [model] keeps the colours already up until its
+ * own read lands, and springs straight to them — for a card whose cover is
+ * replaced in place (an Activities artist whose portrait arrives: album →
+ * portrait, not album → theme → portrait). Off, a new model starts again from
+ * the fallback. Either way a model gone null returns to the fallback.
  */
 @Composable
 internal fun rememberBackdropColorsLoadedBy(
@@ -116,6 +124,7 @@ internal fun rememberBackdropColorsLoadedBy(
     fallbackBaseColor: Color,
     fallbackAccentColor: Color,
     enabled: Boolean,
+    holdUntilResolved: Boolean = false,
     load: suspend (model: String) -> ExpressiveBackdropColors?,
 ): ExpressiveBackdropColors {
     val fallbackColors = remember(fallbackBaseColor, fallbackAccentColor) {
@@ -131,10 +140,11 @@ internal fun rememberBackdropColorsLoadedBy(
     // cachedColors (null at first frame) instead of the colors that a sibling
     // composition already produced and wrote to the LruCache.
     val cacheHit = model?.let(ExpressiveBackdropPaletteCache::get)
-    // Monotonic "last resolved" state keyed on model. Persists across
-    // `enabled` flips so already-colored cards keep their colors when
+    // Monotonic "last resolved" state keyed on model (on nothing when held:
+    // the last model's colours stay until the new one's resolve). Persists
+    // across `enabled` flips so already-colored cards keep their colors when
     // scrolling pauses palette extraction.
-    var resolvedColors by remember(model) {
+    var resolvedColors by remember(if (holdUntilResolved) Unit else model) {
         mutableStateOf(cacheHit ?: fallbackColors)
     }
     if (cacheHit != null && resolvedColors !== cacheHit) {
@@ -148,8 +158,12 @@ internal fun rememberBackdropColorsLoadedBy(
     // colours. Only the caller's scroll gate ([enabled]) still defers it; the
     // hand-off below is a colour spring, which reduced motion keeps.
     LaunchedEffect(model, enabled) {
+        if (model.isNullOrBlank()) {
+            // No cover: a held colour has nothing left to stand for.
+            if (holdUntilResolved) resolvedColors = fallbackColors
+            return@LaunchedEffect
+        }
         if (!enabled) return@LaunchedEffect
-        if (model.isNullOrBlank()) return@LaunchedEffect
         if (ExpressiveBackdropPaletteCache.get(model) != null) return@LaunchedEffect
         resolvedColors = load(model)
             ?.also { colors -> ExpressiveBackdropPaletteCache.put(model, colors) }
