@@ -257,6 +257,7 @@ fun AlbumDetailScreen(
                         label = "albumDetailState",
                         modifier = Modifier.fillMaxSize(),
                     ) { state ->
+                        if (state is AlbumDetailUiState.Content) DetailPerfVisibleEffect("album", state.albumId)
                         // Landscape: header + body clear the capsule band; the
                         // background above (and the album's spectrum bar) stays
                         // full-bleed — Content applies the band inside itself.

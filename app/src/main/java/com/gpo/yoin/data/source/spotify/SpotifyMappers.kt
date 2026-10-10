@@ -134,7 +134,7 @@ internal fun SpotifyPlaylistObject.toPlaylist(
     name = name,
     owner = owner?.displayName ?: owner?.id,
     coverArt = bestImageUrl()?.let(CoverRef::Url),
-    songCount = tracks.size.takeIf { it > 0 } ?: this.tracks?.total,
+    songCount = tracks.size.takeIf { it > 0 } ?: entries?.total,
     durationSec = tracks.sumOf { track -> track.durationSec ?: 0 }
         .takeIf { it > 0 },
     tracks = tracks,
@@ -191,7 +191,7 @@ private val HTML_NAMED_ENTITIES = mapOf(
 internal fun List<SpotifyPlaylistItemObject>.toTracksWithPlaylistOffsets(
     savedTrackIds: Set<String> = emptySet(),
 ): List<Pair<Int, Track>> = mapIndexedNotNull { rawOffset, item ->
-    val track = item.track ?: return@mapIndexedNotNull null
+    val track = item.playable ?: return@mapIndexedNotNull null
     runCatching { track.toTrack(savedTrackIds = savedTrackIds) }
         .getOrNull()
         ?.let { rawOffset to it }

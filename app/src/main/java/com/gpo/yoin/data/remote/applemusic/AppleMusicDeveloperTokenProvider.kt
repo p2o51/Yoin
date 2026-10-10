@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.remote.applemusic
 
+import com.gpo.yoin.perf.YoinPerfHttp
 import java.io.IOException
 import java.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +23,9 @@ class AppleMusicDeveloperTokenProvider(
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1000 }
 ) {
     private val http = transport.newBuilder().followRedirects(false).followSslRedirects(false)
-        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).build()
+        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .apply { YoinPerfHttp.interceptor()?.let(::addInterceptor) } // debug-only timing; never the query
+        .build()
     private val mutex = Mutex()
     private var cached: String? = null
     private var expiresAt: Long = 0

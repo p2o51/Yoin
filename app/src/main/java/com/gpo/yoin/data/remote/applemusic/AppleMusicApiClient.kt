@@ -2,8 +2,10 @@ package com.gpo.yoin.data.remote.applemusic
 
 import android.util.Log
 import com.gpo.yoin.BuildConfig
+import com.gpo.yoin.perf.YoinPerfHttp
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -13,11 +15,15 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 /** Tokens are supplied per profile. This client neither signs JWTs nor logs credentials. */
 class AppleMusicApiClient(
@@ -28,7 +34,12 @@ class AppleMusicApiClient(
     private val baseUrl: HttpUrl = "https://api.music.apple.com/".toHttpUrl()
 ) {
     private val http = transport.newBuilder().followRedirects(false).followSslRedirects(false)
-        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).build()
+        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        // Reads are enqueued (cancellable): keep the parallelism blocking calls on Dispatchers.IO had, not the
+        // dispatcher's 5 per host. An artist start keeps three album opens of two parallel reads in flight.
+        .dispatcher(Dispatcher().apply { maxRequestsPerHost = maxRequests })
+        .apply { YoinPerfHttp.interceptor()?.let(::addInterceptor) } // debug-only timing; never the query
+        .build()
 
     init {
         require(baseUrl.isHttps || baseUrl.host in setOf("localhost", "127.0.0.1", "::1"))
@@ -126,7 +137,12 @@ class AppleMusicApiClient(
         return libraryId
     }
 
-    /** All request paths are constructed by this provider, never by a cover or external URL. */
+    /**
+     * All request paths are constructed by this provider, never by a cover or external URL.
+     * A [next] link keeps [query]'s parameters it leaves out: Apple's links carry the offset
+     * but not always `limit` or `include`, and without them later pages shrink to the default
+     * size or lose their relationships.
+     */
     suspend fun resourcePage(
         segments: List<String>,
         personal: Boolean,
@@ -139,7 +155,7 @@ class AppleMusicApiClient(
         val target = if (next == null) {
             initial
         } else {
-            requireNotNull(baseUrl.resolve(next)).also {
+            val link = requireNotNull(baseUrl.resolve(next)).also {
                 require(
                     it.scheme == baseUrl.scheme && it.host == baseUrl.host && it.port == baseUrl.port &&
                         it.username.isEmpty() && it.password.isEmpty() && it.encodedPath == initial.encodedPath
@@ -147,6 +163,11 @@ class AppleMusicApiClient(
                     "Invalid Apple Music pagination link"
                 }
             }
+            link.newBuilder().apply {
+                query.forEach { (key, value) ->
+                    if (link.queryParameter(key) == null) addQueryParameter(key, value)
+                }
+            }.build()
         }
         return get(target, personal)
     }
@@ -182,29 +203,59 @@ class AppleMusicApiClient(
             .header("Authorization", "Bearer $token").header("Accept", "application/json")
         userToken?.let { builder.header("Music-User-Token", it) }
         if (post) builder.post(ByteArray(0).toRequestBody(null))
-        http.newCall(builder.build()).execute().use { response ->
-            if (response.code != expectedStatus) {
-                // Do not include response bodies or request URLs/tokens in user-visible errors.
-                val failure = when (response.code) {
-                    401 -> AppleMusicApiFailure.DeveloperTokenRejected
-                    403 -> AppleMusicApiFailure.AccessDenied
-                    429 -> AppleMusicApiFailure.RateLimited
-                    else -> AppleMusicApiFailure.Http(response.code)
-                }
-                // Path and include only: catalog ids, never tokens or bodies. Which request failed is otherwise lost.
-                if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "${response.code} ${target.encodedPath} include=${target.queryParameter("include")}")
-                }
-                throw AppleMusicApiException(failure)
+        val call = http.newCall(builder.build())
+        val read = { response: Response -> response.use { body(it, target, expectedStatus) } }
+        // A read is cancelled with its caller, so a scope that has already failed (or returned) doesn't wait
+        // out a parallel read, up to the call timeout. The library add runs to its end: leaving the screen
+        // right after tapping Add must not lose the write.
+        if (post) read(call.execute()) else call.executeCancellable(read)
+    }
+
+    private fun body(response: Response, target: HttpUrl, expectedStatus: Int): String {
+        if (response.code != expectedStatus) {
+            // Do not include response bodies or request URLs/tokens in user-visible errors.
+            val failure = when (response.code) {
+                401 -> AppleMusicApiFailure.DeveloperTokenRejected
+                403 -> AppleMusicApiFailure.AccessDenied
+                429 -> AppleMusicApiFailure.RateLimited
+                else -> AppleMusicApiFailure.Http(response.code)
             }
-            response.body.string()
+            // Path and includes only: catalog ids, never tokens or bodies. Which request failed is otherwise lost.
+            if (BuildConfig.DEBUG) {
+                val includes = target.queryParameterNames.filter { it.startsWith("include") }
+                    .joinToString(" ") { "$it=${target.queryParameter(it)}" }
+                Log.w(TAG, "${response.code} ${target.encodedPath} $includes")
+            }
+            throw AppleMusicApiException(failure)
         }
+        return response.body.string()
     }
 
     private fun url(vararg segments: String): HttpUrl = baseUrl.newBuilder().apply {
         segments.forEach(::addPathSegment)
     }.build()
 }
+
+/**
+ * This call's response, through [read] before it is closed, cancelled with the caller: cancelling the caller
+ * cancels the call, which also aborts a body still streaming. A blocking `execute()` would hold a cancelled
+ * caller until the response arrived.
+ */
+private suspend fun <T> Call.executeCancellable(read: (Response) -> T): T =
+    suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { runCatching { cancel() } }
+        enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resumeWith(Result.failure(e))
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    continuation.resumeWith(runCatching { read(response) })
+                }
+            }
+        )
+    }
 
 data class AppleMusicSongPage(val songs: List<AppleMusicSong>, val next: String?)
 

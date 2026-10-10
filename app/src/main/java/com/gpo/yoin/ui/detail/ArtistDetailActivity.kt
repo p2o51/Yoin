@@ -26,6 +26,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
@@ -51,6 +52,8 @@ class ArtistDetailActivity : ComponentActivity() {
     }
 
     private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
+        // The page's load starts at the tap, ahead of this gate (DetailPrefetch.kt).
+        (application as YoinApplication).container.repository.prefetchDetail(intent)
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
             launchDetailFromDetail(this, intent, fromNowPlaying)
@@ -85,15 +88,18 @@ class ArtistDetailActivity : ComponentActivity() {
 
                 fun playArtist(shuffle: Boolean) {
                     scope.launch {
-                        val tracks = viewModel.getAllTracks()
-                        if (tracks.isEmpty()) return@launch
-                        val ordered = if (shuffle) tracks.shuffled() else tracks
+                        // Already in play order: Shuffle's order is drawn before its albums load.
+                        val ordered = viewModel.getPlayTracks(shuffle)
+                        if (ordered.isEmpty()) return@launch
                         app.container.profileManager.activeSource.value?.let { source ->
                             app.container.playbackManager.play(
                                 tracks = ordered,
                                 startIndex = 0,
                                 source = source,
                                 activityContext = ActivityContext.None,
+                                // Play / Shuffle pick no song: an Apple Music import
+                                // first in line gives way to the next that plays.
+                                explicitStart = false,
                             )
                         }
                     }
@@ -170,6 +176,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                     barExitsOnBack = intent.detailBarExitsOnBack(),
                     onAlbumClick = { albumId ->
+                        YoinPerf.detailClick("album", albumId, via = "push")
                         launchChildDetail(
                             AlbumDetailActivity.intent(this@ArtistDetailActivity, albumId),
                         )
@@ -241,7 +248,7 @@ class ArtistDetailActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val EXTRA_ARTIST_ID = "artistId"
+        internal const val EXTRA_ARTIST_ID = "artistId"
 
         fun intent(context: Context, artistId: String): Intent =
             Intent(context, ArtistDetailActivity::class.java)

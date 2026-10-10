@@ -22,6 +22,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.toUserMessage
@@ -71,6 +72,10 @@ class AlbumDetailViewModel(
 
     private val _uiState = MutableStateFlow<AlbumDetailUiState>(AlbumDetailUiState.Loading)
     val uiState: StateFlow<AlbumDetailUiState> = _uiState.asStateFlow()
+
+    // Debug-only: `detail.content` marks the first Content only. Declared before
+    // init, whose load can publish a mem-cached Content synchronously.
+    private var perfContentMarked = false
 
     private var albumSongs: List<Track> = emptyList()
     private var loadedAlbum: Album? = null
@@ -161,6 +166,19 @@ class AlbumDetailViewModel(
 
     fun getAlbumSongs(): List<Track> = albumSongs
 
+    /** Debug-only `detail.content`: the first Content this VM publishes (docs/perf/yoinperf-logging.md). */
+    private fun markPerfContent(resolvedId: String) {
+        if (!YoinPerf.enabled || perfContentMarked) return
+        perfContentMarked = true
+        YoinPerf.mark(
+            "detail.content",
+            "kind" to "album",
+            "id" to albumId,
+            // Apple Music folds a library id onto its catalog album: detail.visible carries this one.
+            "resolved" to resolvedId.takeIf { it != albumId }
+        )
+    }
+
     fun retry() {
         _uiState.value = AlbumDetailUiState.Loading
         loadAlbum()
@@ -170,6 +188,7 @@ class AlbumDetailViewModel(
         viewModelScope.launch {
             try {
                 val parsedAlbumId = MediaId.parse(albumId)
+                repository.awaitActiveSource(DETAIL_SOURCE_WAIT_MS)
                 val album = repository.getAlbum(parsedAlbumId)
                 if (album == null) {
                     _uiState.value = AlbumDetailUiState.Error(UiText.Res(R.string.detail_album_error_not_found))
@@ -178,7 +197,9 @@ class AlbumDetailViewModel(
                 loadedAlbum = album
                 albumSongs = album.tracks.applyFavoriteOverrides(repository.favoriteOverrides.value)
                 albumTrackIds.value = albumSongs.map(Track::id)
-                repository.recordAlbumVisit(album)
+                // The visit row feeds Home's activity and the widgets, not this page:
+                // Content doesn't wait on the Room insert.
+                launch { repository.recordAlbumVisit(album) }
                 _uiState.value = AlbumDetailUiState.Content(
                     albumId = album.id.toString(),
                     albumName = album.name,
@@ -194,6 +215,7 @@ class AlbumDetailViewModel(
                     songs = albumSongs.map { song -> song.toAlbumSong(album.artist) }
                         .withLibraryMembership(repository.trackLibraryStates.first(), workingLibraryTrackIds.value),
                 )
+                markPerfContent(album.id.toString())
 
                 // 观察 album_ratings，把持久化状态 merge 回 Content —— 用户在
                 // 别处（Memory / 以后的 NeoDB 拉取）改了评分 / 评论时，打开
@@ -636,6 +658,14 @@ private fun String.toProviderLabel(): UiText = when (this) {
     MediaId.PROVIDER_LOCAL -> UiText.Res(R.string.detail_provider_local)
     else -> UiText.Raw(replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() })
 }
+
+/**
+ * How long a detail page's first load waits for the active source. A widget tap
+ * on a cold process opens the page before ProfileManager has built the source,
+ * and a fetch without one fails with "No profile configured". Past this the
+ * load goes ahead as before (the disk cache still answers; no source = error).
+ */
+internal const val DETAIL_SOURCE_WAIT_MS = 4_000L
 
 /**
  * [toUserMessage] owns the connectivity lines. A sentinel fallback means this

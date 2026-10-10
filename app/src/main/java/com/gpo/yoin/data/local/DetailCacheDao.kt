@@ -15,6 +15,16 @@ interface DetailCacheDao {
     )
     suspend fun get(profileId: String, kind: String, entityId: String): DetailCacheEntry?
 
+    /**
+     * One row's JSON length in code points (the unit [totalBytes] sums) without reading
+     * the JSON out; null when the row is absent.
+     */
+    @Query(
+        "SELECT LENGTH(json) FROM detail_cache " +
+            "WHERE profileId = :profileId AND kind = :kind AND entityId = :entityId LIMIT 1"
+    )
+    suspend fun jsonLength(profileId: String, kind: String, entityId: String): Long?
+
     @Query(
         "UPDATE detail_cache SET accessedAt = :now " +
             "WHERE profileId = :profileId AND kind = :kind AND entityId = :entityId",

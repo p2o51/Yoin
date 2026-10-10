@@ -377,6 +377,75 @@ class SpotifyLibrarySyncCoordinatorTest {
         verify(exactly = 2) { spotifySource.invalidateLibraryCaches() }
     }
 
+    @Test
+    fun should_rereadWarmCaches_when_firstSyncFollowsUnsettledLike() = runTest {
+        val spotifySource = emptySpotifySource(unsettledFavoriteWrites = true)
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        verify(exactly = 1) { spotifySource.invalidateLibraryCaches() }
+    }
+
+    @Test
+    fun should_keepWarmCaches_when_firstSyncHasNoUnsettledWrites() = runTest {
+        val spotifySource = emptySpotifySource(unsettledFavoriteWrites = false)
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        verify(exactly = 0) { spotifySource.invalidateLibraryCaches(any()) }
+    }
+
+    @Test
+    fun should_joinRecentLibraryReads_when_ttlResyncHasNoUnsettledLikes() = runTest {
+        val spotifySource = emptySpotifySource(unsettledFavoriteWrites = false)
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+        now += SpotifyLibrarySyncCoordinator.DEFAULT_TTL_MS + 1L
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        // A read an album open started moments ago serves the re-sync too.
+        verify(exactly = 1) { spotifySource.invalidateLibraryCaches(keepRecentLoads = true) }
+        verify(exactly = 0) { spotifySource.invalidateLibraryCaches(keepRecentLoads = false) }
+    }
+
+    @Test
+    fun should_rereadLibraryLists_when_ttlResyncFollowsUnsettledLike() = runTest {
+        val spotifySource = emptySpotifySource(unsettledFavoriteWrites = false)
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+        now += SpotifyLibrarySyncCoordinator.DEFAULT_TTL_MS + 1L
+        every { spotifySource.hasUnsettledFavoriteWrites() } returns true
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        // A saved-tracks read already out may predate the like: read again.
+        verify(exactly = 1) { spotifySource.invalidateLibraryCaches(keepRecentLoads = false) }
+        verify(exactly = 0) { spotifySource.invalidateLibraryCaches(keepRecentLoads = true) }
+    }
+
+    @Test
+    fun should_rereadLibraryLists_when_refreshIsForced() = runTest {
+        val spotifySource = emptySpotifySource(unsettledFavoriteWrites = false)
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource, force = true)
+
+        verify(exactly = 1) { spotifySource.invalidateLibraryCaches(keepRecentLoads = false) }
+        verify(exactly = 0) { spotifySource.invalidateLibraryCaches(keepRecentLoads = true) }
+    }
+
+    private fun emptySpotifySource(unsettledFavoriteWrites: Boolean): SpotifyMusicSource {
+        val spotifySource = mockk<SpotifyMusicSource>(relaxed = true)
+        every { spotifySource.id } returns MediaId.PROVIDER_SPOTIFY
+        every { spotifySource.library() } returns library
+        every { spotifySource.profileId } returns "profile-a"
+        every { spotifySource.hasUnsettledFavoriteWrites() } returns unsettledFavoriteWrites
+        coEvery { library.getArtists() } returns emptyList()
+        coEvery { library.getAlbumList("alphabeticalByName", Int.MAX_VALUE) } returns emptyList()
+        coEvery { library.getPlaylists() } returns emptyList()
+        coEvery { library.getStarred() } returns Starred(emptyList(), emptyList(), emptyList())
+        return spotifySource
+    }
+
     private fun seedRemoteLibrary() {
         val artist = Artist(
             id = MediaId.spotify("artist-1"),

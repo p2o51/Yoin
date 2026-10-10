@@ -26,6 +26,7 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
@@ -43,6 +44,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -50,14 +52,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class HomeViewModel(
     private val repository: YoinRepository,
@@ -75,6 +82,11 @@ class HomeViewModel(
     // The memory card's title: the shared resolver Memories and the album page
     // use too (user > AI > album name). Null = the album name.
     private val memoryTitle: suspend (AlbumMemoryCandidate) -> ResolvedMemoryTitle? = { null },
+    // AppContainer.musicConfigurationRevision: ticks on a switch, on deleting
+    // the active profile, on editing any account's credentials. Home reloads
+    // on its scope (see [observeScope]); only an edit that rebuilt the active
+    // account's source is left to this.
+    private val configurationRevision: StateFlow<Long> = MutableStateFlow(0L),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -87,11 +99,39 @@ class HomeViewModel(
     private var editing = false
     private var frozenState: HomeUiState? = null
 
+    // Debug-only: `home.content` marks the first Content only. Declared before
+    // init, which can publish a cached Content synchronously.
+    private var perfContentMarked = false
+
     // Which provider|profile the Content in [_uiState] belongs to. The live
     // observers only splice into content of the CURRENT scope: right after a
     // profile switch the screen may still hold the old profile's feed (until
     // refresh repaints), and a tick must never graft one profile onto another.
     private var contentScopeKey: String? = null
+
+    // Bumped by [refresh]: a reload of the current scope goes through the same
+    // single loader as a scope change, so the two can't race each other.
+    private val refreshRequests = MutableStateFlow(0)
+
+    // Per provider|profile, the memory-signal stamp the published content's
+    // signals were read at (recorded on publish, not on build: a build whose
+    // load then fails never reached the screen). A stamp tick equal to it
+    // brings nothing new (the first tick replays the load's own stamp).
+    private val signalStamps = mutableMapOf<String, Long>()
+
+    // The memory-signal ticks seen so far, the last one's provider|profile
+    // and stamp, and a nudge that replays it: a load that publishes signals
+    // older than a tick which came in while it was out replays that tick
+    // (see [replaySignalTickMissedByLoad]).
+    private var signalTickCount = 0
+    private var lastSignalTick: Pair<String, Long>? = null
+    private val signalTickReplays = MutableStateFlow(0)
+
+    // The scope the latest load ran for, and the active source it started
+    // with: a revision tick that finds the same scope on a rebuilt source is
+    // an edit of the active account's credentials (see [observeConfigurationRevision]).
+    private var loadedScope: HomeScope? = null
+    private var loadedSource: Any? = null
 
     // Albums and songs played since this VM started, per provider|profile:
     // Rediscover drops them (and the songs of those albums), so a build that
@@ -131,7 +171,10 @@ class HomeViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     init {
-        refresh()
+        // The constructor's Loading is what a cold start shows until the first Content.
+        if (YoinPerf.enabled) YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
+        observeScope()
+        observeConfigurationRevision()
         observeRecentHistory()
         observeMemorySignals()
         observeRediscoverRemovals()
@@ -184,63 +227,213 @@ class HomeViewModel(
         return hints
     }
 
-    private fun emit(state: HomeUiState) {
+    /** [perfSrc] labels a Content for the debug-only `home.content` mark: mem | disk | fresh. */
+    private fun emit(state: HomeUiState, perfSrc: String? = null) {
+        markPerf(state, perfSrc)
         if (editing) frozenState = state else _uiState.value = state
     }
 
     /** The newest content, queued or published. */
     private fun currentContent(): HomeUiState.Content? = (frozenState ?: _uiState.value) as? HomeUiState.Content
 
+    /** Reload the current scope (Retry, an edit of the active account's credentials). */
     fun refresh() {
-        val providerId = repository.currentProviderId()
-        val profileId = activeProfileId.value
+        refreshRequests.update { it + 1 }
+    }
+
+    /**
+     * The ONE trigger for loading Home: the active profile and its provider,
+     * plus [refresh] requests. The two halves settle in either order — on a
+     * cold start the profile id is restored synchronously while ProfileManager
+     * builds the source asynchronously; a switch swaps the source before
+     * setActive; deleting the active profile nulls the source, moves the id,
+     * then builds the next source. collectLatest cancels a load whose scope
+     * has moved on, so none of these orders publishes the wrong account, and
+     * each settled scope publishes one load.
+     */
+    private fun observeScope() {
+        val scopes = combine(activeProfileId, repository.activeProviderId) { profileId, providerId ->
+            HomeScope(providerId = providerId, profileId = profileId)
+        }.distinctUntilChanged()
         viewModelScope.launch {
-            val scopeKey = homeScopeKey(providerId, profileId)
-            val cachedHomeContent = homeContentCache[scopeKey]
-            val cachedSpotifyContent = if (
-                providerId == MediaId.PROVIDER_SPOTIFY &&
-                !profileId.isNullOrBlank()
-            ) {
-                loadCachedSpotifyHomeContent()
-            } else {
-                null
-            }
-
-            emit(
-                cachedHomeContent
-                    ?: cachedSpotifyContent
-                    ?: HomeUiState.Loading,
-            )
-            contentScopeKey = scopeKey
-
-            try {
-                val freshContent = when {
-                    providerId == MediaId.PROVIDER_SPOTIFY && !profileId.isNullOrBlank() ->
-                        loadSpotifyHomeContent()
-
-                    else -> loadHomeContent()
+            var previous: HomeScope? = null
+            combine(scopes, refreshRequests) { scope, _ -> scope }
+                .collectLatest { scope ->
+                    val handOver = previous?.handsOverTo(scope) == true
+                    previous = scope
+                    if (handOver) {
+                        // A switch between providers: the new account's source
+                        // is in, setActive is next, and for that beat the new
+                        // provider sits on the outgoing profile — no account's
+                        // scope. Keep what's up (no Loading, no pre-paint read)
+                        // until the profile follows and cancels this; bounded.
+                        delay(ACTIVE_SOURCE_WAIT_MS)
+                    }
+                    loadScope(scope)
                 }
-                if (!matchesCurrentScope(providerId, profileId)) return@launch
-                homeContentCache[scopeKey] = freshContent
-                emit(freshContent)
-                contentScopeKey = scopeKey
-            } catch (e: Exception) {
-                if (!matchesCurrentScope(providerId, profileId)) return@launch
-                if (cachedSpotifyContent == null) {
-                    val detail = e.message
-                    emit(
-                        HomeUiState.Error(
-                            message = detail ?: "Failed to load home content",
-                            messageText = if (detail != null) {
-                                UiText.Raw(detail)
-                            } else {
-                                UiText.Res(R.string.home_error_load_failed)
-                            },
-                        ),
-                    )
-                }
+        }
+    }
+
+    /**
+     * A switch or a delete moves the scope too, and [observeScope] reloads
+     * for it; editing another account's credentials leaves the active source
+     * alone. Only a tick that finds the scope Home last loaded on a rebuilt
+     * source — the active account's credentials were edited — reloads here.
+     * The revision this VM starts at is already reflected by its first load.
+     */
+    private fun observeConfigurationRevision() {
+        viewModelScope.launch {
+            configurationRevision.drop(1).collect {
+                val scope = HomeScope(providerId = repository.currentProviderId(), profileId = activeProfileId.value)
+                if (scope == loadedScope && repository.activeSourceIdentity() !== loadedSource) refresh()
             }
         }
+    }
+
+    /**
+     * Load [scope] and publish it. Loading shows only when there is nothing
+     * of this scope to show: its content stays up through a same-scope reload,
+     * and the in-memory cache paints at once (Spotify's disk pre-paint runs
+     * only without it). The fresh result replaces either.
+     */
+    private suspend fun loadScope(scope: HomeScope) {
+        val providerId = scope.providerId
+        val profileId = scope.profileId
+        val scopeKey = homeScopeKey(providerId, profileId)
+        loadedScope = scope
+        loadedSource = repository.activeSourceIdentity()
+        val signalTicksBeforeLoad = signalTickCount
+        val perf = YoinPerf.begin("home.refresh")
+        try {
+            val shown = contentOf(scopeKey)
+            val cachedHomeContent = if (shown == null) homeContentCache[scopeKey] else null
+            if (shown == null) {
+                if (cachedHomeContent != null) emit(cachedHomeContent, perfSrc = "mem") else emit(HomeUiState.Loading)
+                contentScopeKey = scopeKey
+            }
+            if (providerId == null && !profileId.isNullOrBlank()) {
+                // A profile whose source isn't built yet (cold start, the next
+                // profile after a delete): hold what's up rather than publish a
+                // feed read from no source. The source's arrival moves the
+                // scope and cancels this hold — so the wait isn't for the
+                // source (a second waiter would race that into a second load)
+                // but for ProfileManager settling without one (unreadable
+                // credentials): then, or at the bound, the load below runs
+                // without a source, as before.
+                withTimeoutOrNull(ACTIVE_SOURCE_WAIT_MS) {
+                    combine(repository.activeProviderId, repository.activeSourceSettled) { provider, settled ->
+                        provider == null && settled
+                    }.first { sourceless -> sourceless }
+                }
+            }
+            if (shown == null && cachedHomeContent == null &&
+                providerId == MediaId.PROVIDER_SPOTIFY && !profileId.isNullOrBlank()
+            ) {
+                val prePaint = loadCachedSpotifyHomeContent()
+                if (prePaint != null && matchesCurrentScope(providerId, profileId) && contentOf(scopeKey) == null) {
+                    emit(prePaint.content, perfSrc = "disk")
+                    contentScopeKey = scopeKey
+                    recordSignalStamp(scopeKey, prePaint.signalStamp)
+                }
+            }
+
+            val fresh = when {
+                providerId == MediaId.PROVIDER_SPOTIFY && !profileId.isNullOrBlank() ->
+                    loadSpotifyHomeContent()
+
+                else -> loadHomeContent()
+            }
+            if (!matchesCurrentScope(providerId, profileId)) {
+                if (perf != null) YoinPerf.end(perf, "provider" to providerId, "result" to "superseded")
+                return
+            }
+            homeContentCache[scopeKey] = fresh.content
+            emit(fresh.content, perfSrc = "fresh")
+            if (perf != null) YoinPerf.end(perf, "provider" to providerId, "result" to "ok")
+            contentScopeKey = scopeKey
+            recordSignalStamp(scopeKey, fresh.signalStamp)
+            replaySignalTickMissedByLoad(scopeKey, fresh.signalStamp, signalTicksBeforeLoad)
+        } catch (cancellation: CancellationException) {
+            // The scope moved on (or a refresh restarted it) mid-load.
+            if (perf != null) YoinPerf.end(perf, "provider" to providerId, "result" to "superseded")
+            throw cancellation
+        } catch (e: Exception) {
+            if (perf != null) {
+                YoinPerf.end(perf, "provider" to providerId, "result" to "error", "err" to e.javaClass.simpleName)
+            }
+            if (!matchesCurrentScope(providerId, profileId)) return
+            // Content of this scope already up (cached, pre-painted, or the
+            // feed a same-scope reload started from) stays rather than an error.
+            if (contentOf(scopeKey) == null) {
+                val detail = e.message
+                emit(
+                    HomeUiState.Error(
+                        message = detail ?: "Failed to load home content",
+                        messageText = if (detail != null) {
+                            UiText.Raw(detail)
+                        } else {
+                            UiText.Res(R.string.home_error_load_failed)
+                        },
+                    ),
+                )
+            }
+        }
+    }
+
+    /** The content up (or queued while editing) when it belongs to [scopeKey]. */
+    private fun contentOf(scopeKey: String): HomeUiState.Content? =
+        currentContent()?.takeIf { contentScopeKey == scopeKey }
+
+    /** [scopeKey]'s content was just published on signals read at [stamp] (null: built without them). */
+    private fun recordSignalStamp(scopeKey: String, stamp: Long?) {
+        if (stamp != null) signalStamps[scopeKey] = stamp else signalStamps.remove(scopeKey)
+    }
+
+    /**
+     * A load just published [scopeKey]'s content on signals read at
+     * [publishedStamp], as it began. A memory-signal tick that came in while
+     * its network reads ran was dropped (Loading had nothing to splice into)
+     * or spliced into content this publish just replaced, and Room won't
+     * tick the same stamp again — so a tick of this scope since
+     * [ticksBeforeLoad] with another stamp is replayed.
+     */
+    private fun replaySignalTickMissedByLoad(scopeKey: String, publishedStamp: Long?, ticksBeforeLoad: Int) {
+        if (signalTickCount == ticksBeforeLoad) return
+        val (tickScopeKey, tickStamp) = lastSignalTick ?: return
+        if (tickScopeKey == scopeKey && tickStamp != publishedStamp) signalTickReplays.update { it + 1 }
+    }
+
+    /**
+     * Debug-only Home marks (docs/perf/yoinperf-logging.md), on publish:
+     * `home.loading` when the feed falls back to Loading (a refresh with
+     * nothing cached to paint), and `home.content` once, for the first
+     * Content this VM publishes.
+     */
+    private fun markPerf(next: HomeUiState, src: String?) {
+        if (!YoinPerf.enabled) return
+        if (next is HomeUiState.Loading) {
+            if ((frozenState ?: _uiState.value) !is HomeUiState.Loading) {
+                YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
+            }
+            return
+        }
+        val content = next as? HomeUiState.Content ?: return
+        if (perfContentMarked) return
+        perfContentMarked = true
+        val sections = listOf(
+            content.activities.isNotEmpty(),
+            content.widgetGrid.isNotEmpty(),
+            content.recentlyAddedTracks.isNotEmpty() || content.recentlyAddedAlbums.isNotEmpty(),
+            content.rediscover.isNotEmpty(),
+            content.recentlyPlayed.isNotEmpty(),
+            content.playlists.isNotEmpty()
+        ).count { it }
+        YoinPerf.mark(
+            "home.content",
+            "ms_since_process_start" to YoinPerf.sinceProcessStart(),
+            "sections" to sections,
+            "src" to src
+        )
     }
 
     /** The pill last shown for the current scope — kept when a fresh read can't resolve one. */
@@ -254,7 +447,7 @@ class HomeViewModel(
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 320).orEmpty()
 
-    private suspend fun loadHomeContent(): HomeUiState.Content =
+    private suspend fun loadHomeContent(): HomeBuild =
         coroutineScope {
             val activitiesDeferred = async {
                 repository.getRecentActivities(limit = HOME_ACTIVITY_LIMIT).first()
@@ -279,7 +472,7 @@ class HomeViewModel(
             val widgetGrid = widgetGridDeferred.await()
             val pill = signals?.pill ?: cachedMemoryPill()
             val hero = heroFootnoteDeferred.await()
-            HomeUiState.Content(
+            val content = HomeUiState.Content(
                 activities = activitiesDeferred.await(),
                 activityHeroFootnote = hero.text,
                 activityHeroYear = hero.year,
@@ -293,6 +486,7 @@ class HomeViewModel(
                 playlists = playlistsDeferred.await(),
                 recentlyPlayed = recentlyPlayedDeferred.await().notShownIn(activitiesDeferred.await()),
             )
+            HomeBuild(content = content, signalStamp = signals?.stamp)
         }
 
     /** Recently Played: the provider's own list; unsupported or failing hides the shelf. */
@@ -348,7 +542,7 @@ class HomeViewModel(
      * ViewModel watches; the Spotify library reads key off the active source's
      * own profile id, which is that same profile's.
      */
-    private suspend fun loadCachedSpotifyHomeContent(): HomeUiState.Content? = coroutineScope {
+    private suspend fun loadCachedSpotifyHomeContent(): HomeBuild? = coroutineScope {
         val activitiesDeferred = async {
             repository.getRecentActivities(limit = HOME_ACTIVITY_LIMIT).first()
         }
@@ -366,17 +560,18 @@ class HomeViewModel(
         } else {
             val signals = signalsDeferred.await()
             val pill = signals?.pill ?: cachedMemoryPill()
-            HomeUiState.Content(
+            val content = HomeUiState.Content(
                 activities = activities,
                 widgetGrid = widgetGrid,
                 memoryPill = pill,
                 // Pre-paint: no Recently Added yet, so nothing of it to dedupe against.
                 rediscover = rediscoverFor(signals, widgetGrid, pill, RecentlyAdded(), cachedRediscover()),
             )
+            HomeBuild(content = content, signalStamp = signals?.stamp)
         }
     }
 
-    private suspend fun loadSpotifyHomeContent(): HomeUiState.Content = coroutineScope {
+    private suspend fun loadSpotifyHomeContent(): HomeBuild = coroutineScope {
         val activitiesDeferred = async { resolveSpotifyActivities() }
         val signalsDeferred = async { loadMemorySignals() }
         val widgetGridDeferred = async {
@@ -393,7 +588,7 @@ class HomeViewModel(
         val widgetGrid = widgetGridDeferred.await()
         val pill = signals?.pill ?: cachedMemoryPill()
         val hero = heroFootnoteDeferred.await()
-        HomeUiState.Content(
+        val content = HomeUiState.Content(
             activities = activities,
             activitiesFromRemote = activitiesFromRemote,
             activityHeroFootnote = hero.text,
@@ -408,6 +603,7 @@ class HomeViewModel(
             playlists = playlistsDeferred.await(),
             recentlyPlayed = recentlyPlayedDeferred.await().notShownIn(activities),
         )
+        HomeBuild(content = content, signalStamp = signals?.stamp)
     }
 
     /**
@@ -509,16 +705,24 @@ class HomeViewModel(
     @OptIn(FlowPreview::class)
     private fun observeMemorySignals() {
         viewModelScope.launch {
-            repository.observeMemorySignalStamp()
-                .debounce(RECENT_HISTORY_DEBOUNCE_MS)
-                .collectLatest {
+            // A replay re-sends the latest tick ([replaySignalTickMissedByLoad]).
+            combine(
+                repository.observeMemorySignalStamp().debounce(RECENT_HISTORY_DEBOUNCE_MS),
+                signalTickReplays
+            ) { stamp, _ -> stamp }
+                .collectLatest { stamp ->
                     // The tick belongs to the scope it started in; if that
                     // moves while it builds, it is dropped, never "kept".
                     val providerId = repository.currentProviderId()
                     val profileId = activeProfileId.value
                     val scopeKey = homeScopeKey(providerId, profileId)
+                    signalTickCount++
+                    lastSignalTick = scopeKey to stamp
                     if (contentScopeKey != scopeKey) return@collectLatest
                     val currentContent = currentContent() ?: return@collectLatest
+                    // Nothing moved since the last build read this stamp — the
+                    // first tick replays the one the load itself just built on.
+                    if (signalStamps[scopeKey] == stamp) return@collectLatest
                     // Live splices keep the grid's memory album while it still
                     // qualifies — writing on it shouldn't reshuffle the grid.
                     val shownMemoryAlbum = currentContent.widgetGrid
@@ -545,6 +749,8 @@ class HomeViewModel(
                         recentlyAdded = RecentlyAdded(latest.recentlyAddedTracks, latest.recentlyAddedAlbums),
                         fallback = latest.rediscover,
                     )
+                    // What's up now reflects this build's stamp, spliced in or already equal.
+                    signals?.stamp?.let { built -> signalStamps[scopeKey] = built }
                     if (
                         nextGrid == latest.widgetGrid &&
                         refreshedPill == latest.memoryPill &&
@@ -743,27 +949,44 @@ class HomeViewModel(
     /**
      * One network fan-out builds the next batch of recommendation pools,
      * pre-shuffled into their final order and persisted — so every open until
-     * the TTL expires reads the same shelf straight from disk.
+     * the TTL expires reads the same shelf straight from disk. When a read
+     * fails and none brings anything (offline, server down, no source yet —
+     * Apple Music's starred tracks "succeed" empty without a request) there is
+     * no new batch: the persisted pools stay as they are and the shelf shows
+     * them, whatever their age, instead of an empty batch wiping them.
      */
     private suspend fun fetchAndPersistGridPools(): YoinRepository.HomeGridPoolSnapshot =
         coroutineScope {
             val albumsDeferred = async {
-                guardedList { repository.getAlbumList("random", size = GRID_ALBUM_REQUEST_SIZE) }
+                guardedListResult { repository.getAlbumList("random", size = GRID_ALBUM_REQUEST_SIZE) }
             }
-            val tracksDeferred = async { guardedList { loadGridTracks() } }
-            val playlistsDeferred = async { guardedList { repository.getPlaylists() } }
+            val tracksDeferred = async { guardedListResult { loadGridTracks() } }
+            val playlistsDeferred = async { guardedListResult { repository.getPlaylists() } }
+            val albums = albumsDeferred.await()
+            val tracks = tracksDeferred.await()
+            val playlists = playlistsDeferred.await()
+            val reads = listOf(albums, tracks, playlists)
+            if (reads.any { it.isFailure } && reads.none { it.getOrNull().orEmpty().isNotEmpty() }) {
+                return@coroutineScope guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = null) }
+                    ?: YoinRepository.HomeGridPoolSnapshot(
+                        albums = emptyList(),
+                        tracks = emptyList(),
+                        playlists = emptyList(),
+                        cachedAt = 0L
+                    )
+            }
             val snapshot = YoinRepository.HomeGridPoolSnapshot(
-                albums = albumsDeferred.await()
+                albums = albums.getOrDefault(emptyList())
                     .distinctBy { album -> album.id }
                     .shuffled()
                     .take(GRID_POOL_ALBUMS),
                 // loadGridTracks is already random/shuffled at the source.
-                tracks = tracksDeferred.await()
+                tracks = tracks.getOrDefault(emptyList())
                     .distinctBy { track -> track.id }
                     .take(GRID_POOL_TRACKS),
                 // Artless playlists only make the cut when there aren't
                 // enough with artwork (see buildWidgetGrid).
-                playlists = playlistsDeferred.await()
+                playlists = playlists.getOrDefault(emptyList())
                     .distinctBy { playlist -> playlist.id }
                     .shuffled()
                     .sortedBy { playlist -> playlist.coverArt == null }
@@ -846,6 +1069,12 @@ class HomeViewModel(
     private suspend fun loadMemorySignals(preferJbiRawAlbumId: String? = null): MemorySignals? {
         val providerId = repository.currentProviderId() ?: return null
         val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return null
+        // Read BEFORE the build: a write landing mid-build moves the stamp past
+        // this one, so [observeMemorySignals] still rebuilds for it — on its
+        // tick, or on the load's replay of a tick that came in before the
+        // publish ([replaySignalTickMissedByLoad]). Recorded only once content
+        // built on it is published ([recordSignalStamp]).
+        val stamp = guardedOrNull { repository.observeMemorySignalStamp().firstOrNull() }
         val pool = try {
             repository.getAlbumMemoryCandidates(limit = MEMORY_CANDIDATE_LIMIT, includeIneligible = true)
         } catch (cancellation: CancellationException) {
@@ -872,7 +1101,7 @@ class HomeViewModel(
             avoidRawAlbumId = pill.latest?.albumId?.rawId,
             preferRawAlbumId = preferJbiRawAlbumId,
         )?.let { candidate -> toMemoryCard(candidate) }
-        return MemorySignals(pill = pill, memoryCard = memoryCard, pool = pool, songs = songs)
+        return MemorySignals(pill = pill, memoryCard = memoryCard, pool = pool, songs = songs, stamp = stamp)
     }
 
     /** The album a memory 1×2 points at, recovered from its stable id. */
@@ -1140,6 +1369,15 @@ class HomeViewModel(
         emptyList()
     }
 
+    /** [guardedList] that tells a failure apart from an empty result (the grid pools' rotation). */
+    private suspend fun <T> guardedListResult(block: suspend () -> List<T>): Result<List<T>> = try {
+        Result.success(block())
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
     private suspend fun <T> guardedOrNull(block: suspend () -> T?): T? = try {
         block()
     } catch (cancellation: CancellationException) {
@@ -1176,6 +1414,7 @@ class HomeViewModel(
                 homeEditHintStore = container.homeEditHintStore,
                 rediscoverSongs = RediscoverSongSource.of(container.database.playHistoryDao()),
                 memoryTitle = { candidate -> container.albumMemoryTitleResolver.resolve(candidate) },
+                configurationRevision = container.musicConfigurationRevision,
             ) as T
     }
 
@@ -1230,6 +1469,10 @@ class HomeViewModel(
         // Coalesces activity-event bursts (track skips, detail visits) before
         // rebuilding the live activities feed.
         private const val RECENT_HISTORY_DEBOUNCE_MS = 1_000L
+
+        // How long a profile without its source yet holds the feed (Library
+        // waits as long) before loading without one.
+        private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
         private val MemoryDateFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("MMM d", Locale.US)
         private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
@@ -1259,6 +1502,20 @@ private fun parseAddedAtMillis(addedAt: String?): Long? {
         .getOrNull()
 }
 
+/** What Home's content belongs to: the active profile and its source's provider (null until built). */
+private data class HomeScope(val providerId: String?, val profileId: String?) {
+    /**
+     * [next] is the first half of a switch between providers: the incoming
+     * source on the outgoing profile (ProfileManager.switchTo sets the source,
+     * then setActive).
+     */
+    fun handsOverTo(next: HomeScope): Boolean = profileId != null && next.profileId == profileId &&
+        providerId != null && next.providerId != null && next.providerId != providerId
+}
+
+/** A built feed, with the memory-signal stamp its signals were read at (null: built without them). */
+private class HomeBuild(val content: HomeUiState.Content, val signalStamp: Long?)
+
 /**
  * The shared memory read: header pill + the grid's memory 1×2 (card, album
  * id), plus the whole candidate build (ineligible albums included) and the
@@ -1269,6 +1526,8 @@ private data class MemorySignals(
     val memoryCard: Pair<HomeWidgetCard, MediaId?>?,
     val pool: List<AlbumMemoryCandidate> = emptyList(),
     val songs: List<SongMemoryAggregate> = emptyList(),
+    // The memory-signal stamp read before the build (null: unread).
+    val stamp: Long? = null,
 )
 
 /** Whether [this] card played: an album card's album, a song card's song or its album. Raw ids. */

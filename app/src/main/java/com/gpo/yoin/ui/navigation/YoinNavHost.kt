@@ -77,15 +77,19 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
+import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
+import com.gpo.yoin.player.startWindowQueue
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
@@ -99,6 +103,9 @@ import com.gpo.yoin.ui.detail.PlaylistDetailActivity
 import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.detail.hasOverlayHidingBottomBar
 import com.gpo.yoin.ui.detail.launchDetailFromShell
+import com.gpo.yoin.ui.detail.prefetchAlbumDetail
+import com.gpo.yoin.ui.detail.prefetchArtistDetail
+import com.gpo.yoin.ui.detail.prefetchPlaylistDetail
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.EdgeSplitSide
 import com.gpo.yoin.ui.experience.HomeSurface
@@ -462,7 +469,9 @@ private fun YoinShell(
             paneStack.clear()
             paneState.snapClosed()
         }
-        homeViewModel.refresh()
+        // Not Home: it reloads on its own profile|provider scope and takes an
+        // edit of the active account's credentials from this revision itself,
+        // so a switch (or a delete of the active profile) loads it once, not twice.
         libraryViewModel.refresh()
         memoriesViewModel.refresh()
     }
@@ -532,7 +541,11 @@ private fun YoinShell(
             }
         }
     }
-    val pushPane: (DetailPaneRoute) -> Unit = { route -> paneStack.add(route) }
+    val pushPane: (DetailPaneRoute) -> Unit = { route ->
+        markDetailClick(route, via = "pane-push")
+        app.container.repository.prefetchPaneDetail(route)
+        paneStack.add(route)
+    }
     // Opening or closing the column re-tiers the shell — never mid-edit: edit
     // mode animates out first (P settles at 0), then the column moves.
     val currentOpenPane by rememberUpdatedState(openPane)
@@ -657,10 +670,14 @@ private fun YoinShell(
             experienceSessionStore.setDetailChromeActive(true)
         }
     }
+    // Each entry starts the page's load before any gate (ui/detail/DetailPrefetch.kt).
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
+        app.container.repository.prefetchAlbumDetail(albumId)
         if (hasDetailPane) {
+            YoinPerf.detailClick("album", albumId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Album(albumId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("album", albumId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -674,9 +691,12 @@ private fun YoinShell(
         }
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
+        app.container.repository.prefetchArtistDetail(artistId)
         if (hasDetailPane) {
+            YoinPerf.detailClick("artist", artistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Artist(artistId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("artist", artistId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -690,9 +710,12 @@ private fun YoinShell(
         }
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
+        app.container.repository.prefetchPlaylistDetail(playlistId)
         if (hasDetailPane) {
+            YoinPerf.detailClick("playlist", playlistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Playlist(playlistId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("playlist", playlistId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -1011,7 +1034,7 @@ private fun YoinShell(
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back
                                         // 从专辑页回来时它还在。
-                                        onOpenAlbum = { memory ->
+                                        onOpenAlbum = rememberMemoryAlbumOpen(app.container.repository) { memory ->
                                             // MemoryEntry.entityId is the RAW id
                                             // (the coordinator strips the provider
                                             // prefix); AlbumDetailViewModel parses a
@@ -1019,10 +1042,12 @@ private fun YoinShell(
                                             // and the page lands on "Couldn't load
                                             // this album." (memory → goto album).
                                             if (hasDetailPane) {
+                                                markMemoryAlbumClick(memory, via = "pane")
                                                 openPane(
                                                     DetailPaneRoute.Album("${memory.entityProvider}:${memory.entityId}"),
                                                 )
                                             } else if (canLaunchDetail()) {
+                                                markMemoryAlbumClick(memory, via = "activity")
                                                 detailLaunchPending = true
                                                 try {
                                                     // Keep the deck mounted. Its hidden bottom bar must
@@ -1115,6 +1140,7 @@ private fun YoinShell(
                                     )
                                 }
                             },
+                            onSongsListClick = { _, queue, index -> app.container.playSongsList(queue, index) },
                             onAddSongToPlaylist = { song ->
                                 nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                             },
@@ -1530,6 +1556,22 @@ internal fun trackCoverArtId(track: Track): String? =
     CoverRef.toStorageKey(track.coverArt)
         ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
 
+/**
+ * A Library Songs row: the list plays on from the tapped song. Context None,
+ * not LikedSongs: Songs isn't Spotify's Liked order.
+ *
+ * Only the window around the tapped row is handed over ([startWindowQueue]),
+ * on every provider. Apple's Songs list runs to 500 songs, and MusicKit
+ * prepares a queue with ONE catalog request for all its ids, which Apple
+ * caps at 300 — a large library would fail the start a single song used to
+ * play. Spotify cuts its `uris` start to the same window anyway.
+ */
+internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
+    val source = profileManager.activeSource.value ?: return
+    val window = startWindowQueue(queue, startIndex)
+    playbackManager.play(window.tracks, window.startIndex, source, ActivityContext.None)
+}
+
 internal fun canLaunchDetailFromShell(
     lifecycleState: Lifecycle.State,
     backPhase: DetailBackPhase,
@@ -1539,6 +1581,42 @@ internal fun canLaunchDetailFromShell(
     !launchPending
 
 private const val DETAIL_LAUNCH_PAUSE_GRACE_MS = 500L
+
+/** Tap-time prefetch for a page opened into the shell's detail column (ui/detail/DetailPrefetch.kt). */
+private fun YoinRepository.prefetchPaneDetail(route: DetailPaneRoute) = when (route) {
+    is DetailPaneRoute.Album -> prefetchAlbumDetail(route.albumId)
+    is DetailPaneRoute.Artist -> prefetchArtistDetail(route.artistId)
+    is DetailPaneRoute.Playlist -> prefetchPlaylistDetail(route.playlistId)
+}
+
+/** Debug-only `detail.click` for a page opened into the shell's detail column. */
+private fun markDetailClick(route: DetailPaneRoute, via: String) {
+    val kind = when (route) {
+        is DetailPaneRoute.Album -> "album"
+        is DetailPaneRoute.Artist -> "artist"
+        is DetailPaneRoute.Playlist -> "playlist"
+    }
+    YoinPerf.detailClick(kind, route.entityId, via)
+}
+
+/**
+ * [open] for a Memories stamp's album, starting the album's tap-time prefetch first (ui/detail/DetailPrefetch.kt).
+ * Remembered per [open] — a lambda the compiler already memoizes on what it captures — so the deck keeps getting
+ * the same callback instance across recompositions and can still skip them.
+ */
+@Composable
+private fun rememberMemoryAlbumOpen(repository: YoinRepository, open: (MemoryEntry) -> Unit): (MemoryEntry) -> Unit =
+    remember(repository, open) {
+        { memory ->
+            repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
+            open(memory)
+        }
+    }
+
+/** Debug-only `detail.click` for a Memories stamp's album (its full MediaId, as the page is opened with). */
+private fun markMemoryAlbumClick(memory: MemoryEntry, via: String) {
+    YoinPerf.detailClick("album", "${memory.entityProvider}:${memory.entityId}", via)
+}
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

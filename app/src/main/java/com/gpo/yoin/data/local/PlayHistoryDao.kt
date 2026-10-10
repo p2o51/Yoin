@@ -121,9 +121,9 @@ interface PlayHistoryDao {
         limit: Int,
     ): List<ArtistSongPlayAggregate>
 
-    /** Total plays + the most recent play across the same artist match as [getArtistTopSongs]. */
+    /** Total plays across the same artist match as [getArtistTopSongs]. */
     @Query(
-        "SELECT COUNT(*) AS playCount, MAX(playedAt) AS lastPlayedAt " +
+        "SELECT COUNT(*) AS playCount " +
             "FROM play_history " +
             "WHERE profileId = :profileId AND provider = :provider " +
             "AND (albumId IN (:albumIds) OR artist = :artistName)",
@@ -236,7 +236,6 @@ data class AlbumPlayStats(
 
 data class ArtistPlayStats(
     val playCount: Int,
-    val lastPlayedAt: Long?,
 )
 
 data class AlbumPlayHistoryAggregate(

@@ -44,7 +44,11 @@ internal fun ArtworkSwap(
     requestSizePx: Int?,
     reveal: ArtworkReveal,
     direction: Int,
-    onError: () -> Unit
+    onError: (Throwable) -> Unit,
+    // A retry after a failure: the first image reveals over the fallback icon
+    // instead of snapping in, and [onRevealed] reports when it covers it.
+    revealFirstLoad: Boolean = false,
+    onRevealed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var settled by remember { mutableStateOf<Painter?>(null) }
@@ -63,6 +67,7 @@ internal fun ArtworkSwap(
             val revealDirection = remember { direction }
             val currentPrimary by rememberUpdatedState(primary)
             val currentTertiary by rememberUpdatedState(tertiary)
+            val currentOnRevealed by rememberUpdatedState(onRevealed)
             var loaded by remember { mutableStateOf<AsyncImagePainter.State.Success?>(null) }
             val progress = remember { Animatable(0f) }
             val request = remember(context) {
@@ -77,12 +82,13 @@ internal fun ArtworkSwap(
                 val success = loaded ?: return@LaunchedEffect
                 val cachedThumbnail = reveal == ArtworkReveal.Crossfade &&
                     success.result.dataSource == DataSource.MEMORY_CACHE
-                if (settled == null || cachedThumbnail) {
+                if (!revealFirstLoad && (settled == null || cachedThumbnail)) {
                     progress.snapTo(1f)
                 } else {
                     progress.animateTo(1f, effectSpec)
                 }
                 settled = success.painter
+                currentOnRevealed()
             }
             // Freeze a partially revealed cover if another skip interrupts it.
             // This retains actual painters and the mask, never another URL request.
@@ -118,11 +124,12 @@ internal fun ArtworkSwap(
                 contentScale = contentScale,
                 filterQuality = filterQuality,
                 onSuccess = { loaded = it },
-                onError = { onError() },
+                onError = { onError(it.result.throwable) },
                 modifier = Modifier.fillMaxSize().drawWithContent {
                     val success = loaded
                     val amount = when {
                         success == null -> 0f
+                        revealFirstLoad -> progress.value.coerceIn(0f, 1f)
                         settled == null -> 1f
                         reveal == ArtworkReveal.Crossfade && success.result.dataSource == DataSource.MEMORY_CACHE -> 1f
                         else -> progress.value.coerceIn(0f, 1f)

@@ -1016,17 +1016,6 @@
     <issue
         id="LocalContextResourcesRead"
         message="Reading Resources using LocalContext.current.resources"
-        errorLine1="            val resources = LocalContext.current.resources"
-        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gpo/yoin/ui/detail/ArtistDetailScreen.kt"
-            line="761"
-            column="29"/>
-    </issue>
-
-    <issue
-        id="LocalContextResourcesRead"
-        message="Reading Resources using LocalContext.current.resources"
         errorLine1="    val text = cloudSyncEntrySummary(state, now, LocalContext.current.resources)"
         errorLine2="                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -1923,17 +1912,6 @@
         <location
             file="src/main/res/values/strings_detail.xml"
             line="72"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;albums&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;detail_artist_album_average&quot;>Album average %1$s, %2$d of %3$d albums rated&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings_detail.xml"
-            line="110"
             column="5"/>
     </issue>
 

@@ -76,7 +76,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -89,7 +88,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
@@ -108,6 +106,7 @@ import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
+import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
@@ -117,7 +116,6 @@ import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
-import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.minimumTouchTarget
@@ -259,6 +257,11 @@ fun LibraryScreen(
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
+    // Songs-tab rows only: the tapped row plus the whole list it sits in, so
+    // the list plays on from there. Search and Favorites keep their own.
+    onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
     onAddSongToPlaylist: (Track) -> Unit = {},
     // The Wide shell opens results as its detail column, BEHIND the
     // full-window search dialog: a result tap must collapse the search (the
@@ -293,6 +296,7 @@ fun LibraryScreen(
         onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
         onFavoriteSongClick = onFavoriteSongClick,
+        onSongsListClick = onSongsListClick,
         onAddSongToPlaylist = onAddSongToPlaylist,
         collapseSearchOnOpen = collapseSearchOnOpen,
         onAddSongToLibrary = viewModel::addSongToLibrary,
@@ -324,6 +328,9 @@ fun LibraryContent(
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
+    onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
     collapseSearchOnOpen: Boolean = false,
@@ -418,6 +425,7 @@ fun LibraryContent(
                             onPlaylistClick = onPlaylistClick,
                             onSongClick = onSongClick,
                             onFavoriteSongClick = onFavoriteSongClick,
+                            onSongsListClick = onSongsListClick,
                             onAddSongToPlaylist = onAddSongToPlaylist,
                             onAddSongToLibrary = onAddSongToLibrary,
                             onCreatePlaylist = onCreatePlaylist,
@@ -453,6 +461,7 @@ private fun LibraryContentBody(
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
+    onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
     onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
@@ -728,7 +737,7 @@ private fun LibraryContentBody(
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
                             notedSongIds = notedSongIds,
-                            onSongClick = onSongClick,
+                            onSongClick = onSongsListClick,
                             onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
                             onReshuffle = onReshuffleSongs,
                             canReshuffle = state.canReshuffleSongs,
@@ -1050,36 +1059,19 @@ private fun ArtistGridItem(
         modifier = modifier.noRippleClickable(interactionSource = interactionSource, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Surface(
+        // The shared artwork: its fallback icon on a failed load, and the retry
+        // that brings the portrait back.
+        ExpressiveMediaArtwork(
+            model = coverArtUrl,
+            contentDescription = artist.name,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .seamDissolve()
-                .elasticPress(interactionSource),
+                .seamDissolve(),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
-        ) {
-            if (coverArtUrl != null) {
-                AsyncImage(
-                    model = coverArtUrl,
-                    contentDescription = artist.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = YoinSymbols.Artist,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-            }
-        }
+            fallbackIcon = YoinSymbols.Artist,
+            interactionSource = interactionSource,
+        )
         Spacer(modifier = Modifier.height(5.dp))
         Text(
             text = artist.name,
@@ -1129,32 +1121,13 @@ private fun ArtistListItem(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
+            ExpressiveMediaArtwork(
+                model = coverArtUrl,
+                contentDescription = artist.name,
                 modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
-            ) {
-                if (coverArtUrl != null) {
-                    AsyncImage(
-                        model = coverArtUrl,
-                        contentDescription = artist.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = YoinSymbols.Artist,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
-            }
+                fallbackIcon = YoinSymbols.Artist,
+            )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = artist.name,
@@ -1281,7 +1254,7 @@ private fun SongsTabContent(
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     notedSongIds: Set<String>,
-    onSongClick: (Track) -> Unit,
+    onSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: ((Track) -> Unit)?,
     onReshuffle: () -> Unit,
     canReshuffle: Boolean = true,
@@ -1338,7 +1311,7 @@ private fun SongsTabContent(
                         album = song.album.orEmpty(),
                         durationSeconds = song.durationSec,
                         coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
-                        onClick = { onSongClick(song) },
+                        onClick = { onSongClick(song, songs, index) },
                         onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
                         isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                         playbackSignal = playbackSignal,

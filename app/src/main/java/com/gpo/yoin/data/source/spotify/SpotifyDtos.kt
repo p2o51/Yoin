@@ -75,13 +75,6 @@ data class SpotifyAlbumObject(
 )
 
 @Serializable
-data class SpotifyPlaylistTracksObject(
-    val total: Int? = null,
-    val items: List<SpotifyPlaylistItemObject> = emptyList(),
-    val next: String? = null,
-)
-
-@Serializable
 data class SpotifyPlaylistObject(
     val id: String,
     val name: String,
@@ -90,15 +83,31 @@ data class SpotifyPlaylistObject(
     val images: List<SpotifyImageObject> = emptyList(),
     val owner: SpotifyOwnerObject? = null,
     val public: Boolean? = null,
-    val tracks: SpotifyPlaylistTracksObject? = null,
+    /**
+     * The playlist's entries: their `total`, and on `GET /playlists/{id}` the
+     * first page. The February 2026 migration renamed this from `tracks`
+     * (still sent, deprecated) and fills it only for playlists the user owns
+     * or collaborates on. Read it through [entries].
+     */
+    @SerialName("items") val itemsPage: SpotifyPagingObject<SpotifyPlaylistItemObject>? = null,
+    val tracks: SpotifyPagingObject<SpotifyPlaylistItemObject>? = null,
     /** Optimistic-concurrency token returned by `/playlists/{id}` and mutations. */
     @SerialName("snapshot_id") val snapshotId: String? = null,
-)
+) {
+    /** The entries under their current name, else the deprecated one. */
+    val entries: SpotifyPagingObject<SpotifyPlaylistItemObject>?
+        get() = itemsPage ?: tracks
+}
 
 @Serializable
 data class SpotifyPlaylistItemObject(
+    /** The entry's track; `track` before the February 2026 migration (still sent, deprecated). */
+    val item: SpotifyTrackObject? = null,
     val track: SpotifyTrackObject? = null,
-)
+) {
+    val playable: SpotifyTrackObject?
+        get() = item ?: track
+}
 
 @Serializable
 data class SpotifySavedTrackObject(

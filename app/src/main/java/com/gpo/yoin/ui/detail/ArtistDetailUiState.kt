@@ -23,18 +23,11 @@ sealed interface ArtistDetailUiState {
         val isStarred: Boolean = false,
         /**
          * This profile's own listening, from local play history (every
-         * provider). Loaded after the page paints; null until then, so the
-         * hero's Last Play shows a placeholder rather than "Never".
+         * provider). Loaded after the page paints; null until then, and
+         * Most Played grows in once it lands.
          */
         val listening: ArtistListeningSummary? = null,
-    ) : ArtistDetailUiState {
-        /** Releases carrying the user's own album rating. */
-        val ratedAlbumCount: Int get() = albums.count { it.userRating != null }
-
-        /** Mean of the user's album ratings for this artist; null when none are rated. */
-        val averageAlbumRating: Float?
-            get() = albums.mapNotNull { it.userRating }.takeIf { it.isNotEmpty() }?.average()?.toFloat()
-    }
+    ) : ArtistDetailUiState
 
     data class Error(val message: UiText) : ArtistDetailUiState
 }
@@ -53,7 +46,6 @@ data class ArtistAlbum(
 
 data class ArtistListeningSummary(
     val playCount: Int,
-    val lastPlayedAt: Long?,
     val mostPlayed: List<ArtistPlayedSong>,
 )
 

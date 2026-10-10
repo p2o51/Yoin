@@ -3,6 +3,7 @@ package com.gpo.yoin.data.source.applemusic
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.PlaybackHandle
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient
@@ -218,6 +219,26 @@ class AppleMusicSourceTest {
         assertEquals(0, server.requestCount)
     }
 
+    // PlaybackManager leaves isUnplayableAppleImport tracks out before MusicKit
+    // sees them: the predicate must name exactly the tracks handleFor refuses.
+    @Test fun should_refuseExactlyTheTracksMarkedUnplayable_when_resolvingPlayback() = runTest {
+        val parsed = listOf(
+            """{"id": "123", "type": "songs", "attributes": {"name": "Catalog"}}""",
+            """{"id": "i.matched", "type": "library-songs", "attributes": {"playParams": {"catalogId": "456"}}}""",
+            """{"id": "i.import", "type": "library-songs", "attributes": {"name": "Imported"}}"""
+        ).map { json -> AppleMusicSong.fromJson(Json.parseToJsonElement(json).jsonObject).toTrack() }
+        // A library id that carries its catalog id in extras only.
+        val extrasOnly = parsed.last().let { it.copy(extras = it.extras + (AppleMusicSong.EXTRA_CATALOG_ID to "789")) }
+        val tracks = parsed + extrasOnly
+
+        assertEquals(listOf(false, false, true, false), tracks.map { it.isUnplayableAppleImport })
+        tracks.forEach { track ->
+            val refused = runCatching { source.handleFor(track) }.isFailure
+            assertEquals(track.id.toString(), track.isUnplayableAppleImport, refused)
+        }
+        assertEquals(0, server.requestCount)
+    }
+
     @Test fun should_searchOnlyUserLibrary_when_libraryScopeIsSelected() = runTest {
         reply(
             """{
@@ -404,6 +425,69 @@ class AppleMusicSourceTest {
         reply("""{"data":[]}""")
         assertEquals(LibraryMembership.Pending, cancellableSource.libraryMembership(id).getOrThrow())
         assertEquals(4, server.requestCount)
+    }
+
+    @Test fun should_keepPageLimit_when_followingArtistAlbumsNextLink() = runTest {
+        reply("""{"data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Artist"}}]}""")
+        reply(
+            """{
+              "data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}],
+              "next":"/v1/me/library/artists/r.1/albums?offset=100"
+            }"""
+        )
+        reply("""{"data":[{"id":"l.2","type":"library-albums","attributes":{"name":"Two"}}]}""")
+        val artist = source.getArtist(MediaId("applemusic", "library:r.1"))!!
+        assertEquals(listOf("library:l.1", "library:l.2"), artist.albums.map { it.id.rawId })
+        assertEquals("/v1/me/library/artists/r.1", server.takeRequest().requestUrl!!.encodedPath)
+        val first = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/artists/r.1/albums", first.encodedPath)
+        assertEquals("100", first.queryParameter("limit"))
+        val second = server.takeRequest().requestUrl!!
+        assertEquals("100", second.queryParameter("offset"))
+        // Apple's link carries only the offset; the page size must not fall back to 25.
+        assertEquals(listOf("100"), second.queryParameterValues("limit"))
+    }
+
+    @Test fun should_keepPageLimit_when_followingLibraryArtistsNextLink() = runTest {
+        reply(
+            """{
+              "data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}],
+              "next":"/v1/me/library/artists?offset=100&limit=100"
+            }"""
+        )
+        reply("""{"data":[{"id":"r.2","type":"library-artists","attributes":{"name":"Beta"}}]}""")
+        val indices = source.getArtists()
+        assertEquals(listOf("Alpha", "Beta"), indices.flatMap { index -> index.artists.map { it.name } })
+        assertEquals("100", server.takeRequest().requestUrl!!.queryParameter("limit"))
+        // A link that already names the limit is sent as it is, not with a second one.
+        assertEquals(listOf("100"), server.takeRequest().requestUrl!!.queryParameterValues("limit"))
+    }
+
+    @Test fun should_askForLargerPages_when_readingRecentlyAddedAlbums() = runTest {
+        reply(
+            """{
+              "data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}],
+              "next":"/v1/me/library/recently-added?offset=25"
+            }"""
+        )
+        reply("""{"data":[{"id":"l.2","type":"library-albums","attributes":{"name":"Two"}}]}""")
+        val albums = source.getAlbumList("newest", size = 10, offset = 0)
+        assertEquals(listOf("library:l.1", "library:l.2"), albums.map { it.id.rawId })
+        val first = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/recently-added", first.encodedPath)
+        assertEquals("25", first.queryParameter("limit"))
+        val second = server.takeRequest().requestUrl!!
+        assertEquals("25", second.queryParameter("offset"))
+        assertEquals(listOf("25"), second.queryParameterValues("limit"))
+    }
+
+    @Test fun should_fallBackToDefaultPages_when_recentlyAddedRefusesThePageSize() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        reply("""{"data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}]}""")
+        val albums = source.getAlbumList("newest", size = 10, offset = 0)
+        assertEquals(listOf("library:l.1"), albums.map { it.id.rawId })
+        assertEquals("25", server.takeRequest().requestUrl!!.queryParameter("limit"))
+        assertEquals(null, server.takeRequest().requestUrl!!.queryParameter("limit"))
     }
 
     @Test fun should_roundTripAppleCredentials_withProviderDiscriminator() {

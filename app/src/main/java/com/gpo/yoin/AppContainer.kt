@@ -30,6 +30,7 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.sync.CloudSyncManager
+import com.gpo.yoin.perf.YoinPerfHttp
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.player.AudioVisualizerManager
 import com.gpo.yoin.player.CastManager
@@ -172,6 +173,8 @@ class AppContainer(private val context: Context) {
             )
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
+            // Debug-only `http` timing marks; null (nothing added) in release.
+            .apply { YoinPerfHttp.interceptor()?.let(::addInterceptor) }
             .build()
     }
 
@@ -183,6 +186,9 @@ class AppContainer(private val context: Context) {
                     maxSize = ProviderHttpCacheBytes,
                 ),
             )
+            // Debug-only `http` timing marks, ahead of the auth interceptor
+            // SubsonicApiFactory appends (the query is never logged anyway).
+            .apply { YoinPerfHttp.interceptor()?.let(::addInterceptor) }
             .build()
     }
 
@@ -473,7 +479,7 @@ class AppContainer(private val context: Context) {
     val lyricsProviderRegistry: LyricsProviderRegistry by lazy { LyricsProviderRegistry() }
 
     private val detailCacheStore: DetailCacheStore by lazy {
-        DetailCacheStore(database.detailCacheDao())
+        DetailCacheStore(database.detailCacheDao(), scope = applicationScope)
     }
 
     val albumScrapbookSource: AlbumScrapbookSource by lazy { AlbumScrapbookSource.from(database, profileManager.activeProfileId) }
@@ -486,6 +492,7 @@ class AppContainer(private val context: Context) {
         YoinRepository(
             activeSource = profileManager.activeSource,
             activeProfileId = profileManager.activeProfileId,
+            activeSourceSettled = profileManager.activeSourceSettled,
             database = database,
             spotifyLibrarySyncCoordinator = SpotifyLibrarySyncCoordinator(
                 database = database,

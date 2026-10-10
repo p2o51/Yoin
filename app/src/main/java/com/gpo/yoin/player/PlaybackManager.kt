@@ -17,6 +17,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
@@ -238,7 +239,11 @@ class PlaybackManager(
      * Starts [tracks] at [startIndex]. [shuffled] says the caller already
      * shuffled the list for a Shuffle button: Media3 / MusicKit play it as
      * given, while Spotify starts its context at the first track with
-     * Spotify's own shuffle on (a context can't take Yoin's order).
+     * Spotify's own shuffle on (a context can't take Yoin's order). Apple
+     * Music imports MusicKit can't play are dropped first ([playableQueue]).
+     * [explicitStart] says the user picked tracks[startIndex] (a row tap); a
+     * Play or Shuffle button picks no song, and neither does a shuffled list's
+     * first place, so an import there gives way to the next song that plays.
      */
     fun play(
         tracks: List<Track>,
@@ -246,8 +251,20 @@ class PlaybackManager(
         source: MusicSource,
         activityContext: ActivityContext = ActivityContext.None,
         shuffled: Boolean = false,
+        explicitStart: Boolean = true,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        val queue = playableQueue(tracks, startIndex, explicitStart = explicitStart && !shuffled)
+        startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled)
+    }
+
+    private fun startQueue(
+        tracks: List<Track>,
+        startIndex: Int,
+        source: MusicSource,
+        activityContext: ActivityContext,
+        shuffled: Boolean
+    ) {
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         lastRecordedTrackId = null
         _currentActivityContext.value = activityContext
@@ -424,10 +441,17 @@ class PlaybackManager(
      * owner F1 2026-10-05), Spotify's way: Play next right after the current
      * song; Add to queue after what the user already queued there, ahead of
      * the rest of the album or playlist. Spotify has one queue, its own,
-     * which plays before the context resumes: both land there.
+     * which plays before the context resumes: both land there. Apple Music
+     * imports MusicKit can't play are left out, as in [play]: one used to
+     * fail the whole batch.
      */
     fun addToQueue(tracks: List<Track>, source: MusicSource, next: Boolean) {
-        if (tracks.isEmpty()) return
+        val playable = tracks.filterNot { it.isUnplayableAppleImport }
+        if (playable.isEmpty()) return
+        queueTracks(playable, source, next)
+    }
+
+    private fun queueTracks(tracks: List<Track>, source: MusicSource, next: Boolean) {
         scope.launch {
             runCatching {
                 val handle = source.playback().handleFor(tracks.first())
