@@ -279,7 +279,12 @@ internal object ConnectGuide {
             showStep(0)
             return true
         }
-        if (openKind.value != null) finishIfOpen()
+        if (openKind.value != null) {
+            // The other guide is the same singleTask activity: let it go first, or this launch would reach the
+            // dying instance and the new kind would be lost.
+            finishIfOpen()
+            withTimeoutOrNull(REPLACE_TIMEOUT_MS) { openKind.first { it == null } }
+        }
         context.startActivity(intent(context, kind))
         return withTimeoutOrNull(READY_TIMEOUT_MS) { ready.first { it == kind } } != null
     }
@@ -302,4 +307,5 @@ internal object ConnectGuide {
     }
 
     private const val READY_TIMEOUT_MS = 3_000L
+    private const val REPLACE_TIMEOUT_MS = 1_500L
 }

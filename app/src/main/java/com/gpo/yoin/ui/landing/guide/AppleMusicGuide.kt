@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.landing.guide
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -8,7 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.R
@@ -25,8 +28,9 @@ import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationViewModel
 internal fun AppleMusicSignInWithGuide(vm: AppleMusicValidationViewModel) {
     val context = LocalContext.current
     val state by vm.state.collectAsState()
-    // An attempt is out: its outcome steers the window.
-    var awaiting by remember { mutableStateOf(false) }
+    // An attempt is out: its outcome steers the window. Saveable: the result still arrives (the registry and the
+    // ViewModel survive) when this activity is recreated while Apple's sign-in is open.
+    var awaiting by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         vm.authorizationResult(it.data)
     }
@@ -37,10 +41,12 @@ internal fun AppleMusicSignInWithGuide(vm: AppleMusicValidationViewModel) {
             launcher.launch(signIn)
         }
     }
-    LaunchedEffect(awaiting, state.busy, state.connected, state.retryable, state.status) {
-        if (!awaiting || state.busy) return@LaunchedEffect
+    LaunchedEffect(awaiting, state.busy, state.retryable, state.status) {
+        // The attempt's own outcome, by its status: `connected` alone may be left over from the account being
+        // reconnected (Settings), and `connect()` sets "authorize" before handing over the sign-in.
+        if (!awaiting || state.busy || state.status == Authorizing) return@LaunchedEffect
         when {
-            state.connected -> {
+            state.status == Connected -> {
                 awaiting = false
                 ConnectGuide.finishIfOpen()
             }
@@ -57,7 +63,18 @@ internal fun AppleMusicSignInWithGuide(vm: AppleMusicValidationViewModel) {
     }
     DisposableEffect(Unit) {
         onDispose {
-            if (ConnectGuide.open.value == GuideKind.AppleMusic) ConnectGuide.finishIfOpen()
+            // Leaving the screen ends the guide; a recreation (rotation, resize) is not leaving.
+            val recreating = context.findActivity()?.isChangingConfigurations == true
+            if (!recreating && ConnectGuide.open.value == GuideKind.AppleMusic) ConnectGuide.finishIfOpen()
         }
     }
+}
+
+private val Authorizing = UiText.Res(R.string.settings_apple_status_authorize)
+private val Connected = UiText.Res(R.string.settings_apple_status_connected_profiles)
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
