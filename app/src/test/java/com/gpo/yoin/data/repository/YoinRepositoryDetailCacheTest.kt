@@ -311,6 +311,73 @@ class YoinRepositoryDetailCacheTest {
         coVerify(exactly = 0) { library.getAlbum(LIBRARY_ALBUM_ID) }
     }
 
+    @Test
+    fun should_keepTheCatalogCopy_when_aStaleLibraryAlbumIsRefreshed() = runTest {
+        val dao = FakeDetailCacheDao()
+        // A library album row with no catalog row beside it, past the revalidate age (2 h), still disk-fresh (7 d).
+        DetailCacheStore(dao, clock = { currentTime - 3 * HOUR_MS })
+            .writeAlbum(PROFILE, LIBRARY_ALBUM_ID.toString(), resolvedAlbum())
+        val repository = repository(heldCodecStore(dao))
+        coEvery { library.getAlbum(LIBRARY_ALBUM_ID) } returns resolvedAlbum().copy(name = "Album (Remaster)")
+
+        // The page is served from disk, and a background refresh fetches the album again …
+        val page = async { repository.getAlbum(LIBRARY_ALBUM_ID) }
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+        assertEquals("Album", page.await()?.name)
+        coVerify(exactly = 1) { library.getAlbum(LIBRARY_ALBUM_ID) }
+        // The refresh writes the library row, then the catalog copy.
+        repeat(2) {
+            codec.runAll()
+            runCurrent()
+        }
+
+        // … which it keeps under the catalog id as well: in mem, and on disk across a restart.
+        assertEquals(setOf(LIBRARY_ALBUM_ID.toString(), CATALOG_ALBUM_ID.toString()), dao.entityIds)
+        assertEquals("Album (Remaster)", repository.getAlbum(CATALOG_ALBUM_ID)?.name)
+        val restarted = repository(heldCodecStore(dao))
+        val read = async { restarted.getAlbum(CATALOG_ALBUM_ID) }
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+        assertEquals("Album (Remaster)", read.await()?.name)
+        coVerify(exactly = 0) { library.getAlbum(CATALOG_ALBUM_ID) }
+    }
+
+    @Test
+    fun should_skipTheRefreshedCatalogCopy_when_anEditDropsTheCatalogAlbumWhileTheRefreshIsOut() = runTest {
+        val dao = FakeDetailCacheDao()
+        DetailCacheStore(dao, clock = { currentTime - 3 * HOUR_MS })
+            .writeAlbum(PROFILE, LIBRARY_ALBUM_ID.toString(), resolvedAlbum())
+        val repository = repository(heldCodecStore(dao))
+        val refresh = CompletableDeferred<Album>()
+        coEvery { library.getAlbum(LIBRARY_ALBUM_ID) } coAnswers { refresh.await() }
+        coEvery { library.getAlbum(CATALOG_ALBUM_ID) } returns resolvedAlbum().copy(name = "Album (Edited)")
+
+        val page = async { repository.getAlbum(LIBRARY_ALBUM_ID) }
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+        assertEquals("Album", page.await()?.name)
+        // The refresh is out when an edit to one of the catalog album's songs drops the catalog id …
+        repository.setFavorite(track().copy(id = CATALOG_TRACK_ID, albumId = CATALOG_ALBUM_ID), favorite = true)
+        runCurrent()
+        refresh.complete(resolvedAlbum().copy(name = "Album (Remaster)"))
+        runCurrent()
+        // Room for the library row and, were it let through, the catalog copy.
+        repeat(2) {
+            codec.runAll()
+            runCurrent()
+        }
+
+        // … so its fetch lands under the library id only, and the catalog id loads afresh.
+        assertEquals(setOf(LIBRARY_ALBUM_ID.toString()), dao.entityIds)
+        assertEquals("Album (Remaster)", repository.getAlbum(LIBRARY_ALBUM_ID)?.name)
+        assertEquals("Album (Edited)", repository.getAlbum(CATALOG_ALBUM_ID)?.name)
+        coVerify(exactly = 1) { library.getAlbum(CATALOG_ALBUM_ID) }
+    }
+
     private fun TestScope.repository(store: DetailCacheStore? = null) = YoinRepository(
         activeSource = MutableStateFlow(source),
         activeProfileId = MutableStateFlow(PROFILE),
