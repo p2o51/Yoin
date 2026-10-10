@@ -25,10 +25,10 @@
 
 | 事件 | 字段 | 打在哪 | 含义 |
 | --- | --- | --- | --- |
-| `detail.click` | `kind=album\|artist\|playlist` `id=<provider:rawId>` `via=` | `YoinNavHost.kt` 的 `navigateTo{Album,Artist,Playlist}FromShell`、Memories 印章的 `onOpenAlbum`、`pushPane`；`AlbumDetailActivity` 的 `onOpenArtist`、`ArtistDetailActivity` 的 `onAlbumClick` | 用户请求打开详情。`via=activity`（推独立 Activity）/ `pane`（同窗分列，替换右列根页）/ `pane-push`（右列里再推一页）/ `push`（详情 Activity 里点到另一个详情）。被 launch gate 挡掉的点击不打。shell 里的 Now Playing 点专辑/艺人也走 `navigateTo*FromShell`，同样会打；没覆盖桌面小组件、详情 Activity 里 Now Playing 的入口（`launchChildDetail(…, fromNowPlaying = true)`）、以及横竖屏切换时把右列页面转成 Activity 的自动重开。点击即预取（`ui/detail/DetailPrefetch.kt`）挂在这些入口最前面、launch gate 之前，上面没打点的小组件和详情页里 Now Playing 的入口也有：被挡掉的点击不打 `detail.click`，但照样预取。 |
-| `detail.load` | `kind` `id` `src=` `ms=` [`provider`] [`joined=true`] [`err`] | `YoinRepository.loadCachedDetail` | 一次 `getAlbum/getArtist/getPlaylist` 调用从进门到拿到结果的耗时。`src=mem`（内存新鲜命中）/ `disk`（Room 磁盘新鲜命中）/ `net`（走网络，带 `provider`）/ `stale`（网络失败，退回磁盘或过期内存，`err=` 是网络异常类名）/ `err`（整体失败或调用方被取消，`err=` 是异常类名）。`joined=true`：这次调用搭了别人已在飞的同一请求（预取、并发读者）。有了点击即预取，一次打开通常先出预取那条（从点击起计时），VM 自己那条随后出现：预取还在飞就是 `joined=true`，已经落地就是 `src=mem`（歌单只认落地 5 秒内的内存副本，过了照样联网）。 |
+| `detail.click` | `kind=album\|artist\|playlist` `id=<provider:rawId>` `via=` | `YoinNavHost.kt` 的 `navigateTo{Album,Artist,Playlist}FromShell`、Memories 印章的 `onOpenAlbum`、`pushPane`；`AlbumDetailActivity` 的 `onOpenArtist`、`ArtistDetailActivity` 的 `onAlbumClick` | 用户请求打开详情。`via=activity`（推独立 Activity）/ `pane`（同窗分列，替换右列根页）/ `pane-push`（右列里再推一页）/ `push`（详情 Activity 里点到另一个详情）。被 launch gate 挡掉的点击不打。shell 里的 Now Playing 点专辑/艺人也走 `navigateTo*FromShell`，同样会打；没覆盖桌面小组件、详情 Activity 里 Now Playing 的入口（`launchChildDetail(…, fromNowPlaying = true)`）、以及横竖屏切换时把右列页面转成 Activity 的自动重开。点击即预取（`ui/detail/DetailPrefetch.kt`）挂在这些入口最前面、launch gate 之前，上面没打点的小组件和详情页里 Now Playing 的入口也有：被挡掉的点击不打 `detail.click`，但照样预取。小组件冷启动时 source 还没建好，预取等它建好再发（最多等 3 秒）。 |
+| `detail.load` | `kind` `id` `src=` `ms=` [`provider`] [`joined=true`] [`err`] | `YoinRepository.loadCachedDetail` | 一次 `getAlbum/getArtist/getPlaylist` 调用从进门到拿到结果的耗时。`src=mem`（内存新鲜命中）/ `disk`（Room 磁盘新鲜命中）/ `net`（走网络，带 `provider`）/ `stale`（网络失败，退回磁盘或过期内存，`err=` 是网络异常类名）/ `err`（整体失败或调用方被取消，`err=` 是异常类名）。`joined=true`：这次调用搭了别人已在飞的同一请求（预取、并发读者）。有了点击即预取，一次打开通常有两条：预取那条（从点击起计时）和 VM 自己那条。两条等的是同一个请求时几乎同时结束，谁先打出来不固定；发起请求的一方不带 `joined`，通常是预取，搭车的一方带 `joined=true`，它的 `ms` 从它自己进门算起、偏短。预取已经落地时 VM 那条是 `src=mem`（歌单只认 5 秒内从网络拿到的内存副本，离线回退的旧副本不算，过了照样联网）。 |
 | `detail.diskWrite` | `kind=ALBUM\|ARTIST\|PLAYLIST` `chars=` `ok=` `ms=` | `DetailCacheStore.write` | JSON 编码 + 等锁 + upsert（+ 可能的 trim）。网络路径的磁盘写在数据交给调用方之后、在后台做，不算在 `net` 那次 `detail.load` 的 `ms` 里。`skipped=true`：拿到锁时这条已经作废（点赞、关注、歌单编辑）或已经切了账号，没写。 |
-| `detail.diskTrim` | `rows=` `ms=` | `DetailCacheStore.trimToBudget` | 超 24MB 预算时的 SUM + 扫描 + 逐行删除，删到 20MB 为止（回滞，免得之后每次写都再 trim；刚写的那行不删）；`rows` 是删掉的行数（SUM 发现没超就是 0）。 |
+| `detail.diskTrim` | `rows=` `ms=` | `DetailCacheStore.trimToBudget` | 超 24MB 预算时的 SUM + 扫描 + 逐行删除，删到 20MB 为止（回滞，免得之后每次写都再 trim；刚写的那行、刚读出而 LRU touch 还没落库的行都不删）；`rows` 是删掉的行数（SUM 发现没超就是 0）。 |
 | `detail.content` | `kind` `id` [`resolved`] | `Album/Artist/PlaylistDetailViewModel` 第一次把 `_uiState` 设成 Content 之后 | VM 级别的「数据就绪」。每个 VM 只打一次（retry / 歌单刷新不重复打）。`id` 是打开时请求的 id；`resolved` 只在内容实体 id 不同时出现（Apple Music 会把 library 专辑折叠成目录专辑）。 |
 | `detail.visible` | `kind` `id` `host=window\|pane` `commit=` | `DetailEnterIntro.kt` 的 `DetailPerfVisibleEffect`，挂在三个 Screen 的 `AnimatedContent` Content 分支里 | Content 第一次组合后，下一次帧提交（`registerFrameCommitCallback`，API 29+）完成的时间。`id` 是内容实体 id（= `detail.content` 的 `resolved`，没有 `resolved` 时 = `id`）。`commit=false`：帧提交握手失败（1.5s 超时或视图已脱离），这一行的时间不可信。**近似值**：若 Loading 先上了屏（700ms 超时、或分列模式），这一帧是 Content 交叉淡入的开始，不是完全不透明的时刻；Activity 模式下页面还在 96dp 滑入途中（不透明）。同一页面组合里只打一次。 |
 
@@ -102,15 +102,19 @@ detail.click  →  detail.load  →  detail.content  →  detail.visible
 规则：
 
 1. 以 `detail.click` 为起点，键是 `(kind, id)`。
-2. 同键、`t` ≥ 点击时间的第一条 `detail.load` / `detail.content` 归这次点击。
-   点击即预取之后，这第一条 `detail.load` 通常就是点击发出的预取：它从点击起计时，`ms` 就是加载本身。
+2. 同键、`t` ≥ 点击时间的第一条 `detail.content` 归这次点击。`detail.load` 取同键、`t` ≥ 点击时间、
+   不带 `joined=true` 的第一条（没有再退回第一条）：点击即预取和 VM 搭车的那条等的是同一个请求，
+   几乎同时结束，先后不固定，不带 `joined` 的是发起请求的一方，通常就是点击发出的预取。
    艺人页预取前 6 张专辑的那些 `detail.load` 前面没有对应的点击，自然配不上；预取之后再点进去，
    点击后的那条 `detail.load` 一般是 `src=mem`。
+   `ms` 是这一条自己从进门算起的耗时，不一定从这次点击算起：被 launch gate 挡掉的点击也会预取，
+   紧接着再点一次时，前一次的预取那条会落在这次点击之后、配给这次点击，`ms` 从更早那次点击算起。
+   所以点击到数据看 `load.t - click.t`，不要直接用 `ms`。
 3. `detail.visible` 用内容 id：先从同次的 `detail.content` 取 `resolved`（没有就用 `id`），
    再找同 kind、该 id、`t` ≥ content 时间的第一条 `detail.visible`。
 4. 时长都是 `t` 相减：
    - 点击 → 数据：`load.t - click.t`（有点击即预取时 ≈ 加载本身，和 Activity 启动 / 分列展开并行；
-     没有预取的入口 ≈ Activity 启动 / 分列展开 + VM 创建 + 加载本身。加载本身是 `load.ms`）
+     没有预取的入口 ≈ Activity 启动 / 分列展开 + VM 创建 + 加载本身）
    - 数据 → VM：`content.t - load.t`（数据先到时，是 Activity 启动 / 分列展开 + VM 创建还剩下的部分；
      VM 拿到数据后到发 Content 之间不再等 visit 记录写库）
    - VM → 上屏：`visible.t - content.t`（Activity 模式含 200ms 底栏交接等待和入场门控）
@@ -135,13 +139,13 @@ for i, (name, f) in enumerate(events):
         continue
     kind, req, t0 = f["kind"], f["id"], int(f["t"])
 
-    def first(event, ident, after):
+    def first(event, ident, after, ok=lambda g: True):
         for n, g in events[i + 1:]:
-            if n == event and g.get("kind") == kind and g.get("id") == ident and int(g["t"]) >= after:
+            if n == event and g.get("kind") == kind and g.get("id") == ident and int(g["t"]) >= after and ok(g):
                 return g
         return None
 
-    load = first("detail.load", req, t0)
+    load = first("detail.load", req, t0, lambda g: "joined" not in g) or first("detail.load", req, t0)
     content = first("detail.content", req, t0)
     shown = content.get("resolved", req) if content else req
     visible = first("detail.visible", shown, int(content["t"]) if content else t0)
@@ -160,6 +164,6 @@ Home 冷启动：`home.content` 的 `ms_since_process_start` 就是「进程起�
 - `detail.load` 的 `src=err` 也包括调用方被取消（离开页面），`err=JobCancellationException`。
 - stale-while-revalidate 的后台刷新不打 `detail.load`，只能从 `http` 行看到。
 - 分列模式下右列从无到有展开时，详情页（连同它的 VM）要等展开弹簧落定
-  （`DetailPaneState.pageReady`）才组合，所以这种 `pane` 点击的「点击 → load」里含展开时间；
-  右列已经开着时换页没有这段。
+  （`DetailPaneState.pageReady`）才组合；点击即预取让加载和展开并行，所以这种 `pane` 点击的
+  「点击 → load」不再含展开时间，「load → content」里才有。右列已经开着时换页没有这段。
 - 单测里 `YoinPerf.sink` 可替换（`YoinPerfTest`）；release 单测里 `enabled == false`，相关断言跳过。
