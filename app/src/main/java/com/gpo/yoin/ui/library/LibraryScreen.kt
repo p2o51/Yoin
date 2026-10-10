@@ -301,6 +301,8 @@ fun LibraryScreen(
     LaunchedEffect(isContent, shownTab) {
         if (isContent) viewModel.ensureSelectedTabLoaded()
     }
+    // Recents re-sort only as Library comes into view, never under the user.
+    val inView = rememberLibraryInView(onShown = viewModel::onLibraryShown)
     // What Library opens counts for Recents by the id Library lists it under.
     val openArtist = remember(viewModel, onArtistClick) {
         { id: String ->
@@ -374,7 +376,7 @@ fun LibraryScreen(
         onCreatePlaylist = viewModel::createPlaylist,
         onRetry = viewModel::refresh,
         coverArtUrlBuilder = viewModel::buildCoverArtUrl,
-        modifier = modifier,
+        modifier = modifier.then(inView),
     )
 }
 

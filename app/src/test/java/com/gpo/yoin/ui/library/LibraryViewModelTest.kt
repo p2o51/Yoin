@@ -1139,14 +1139,98 @@ class LibraryViewModelTest {
             allKeys()
         )
 
-        // An artist page opened: it moves up in place, nothing fetched again.
+        // An artist page opened, and Library came back into view: it moves up in place, nothing fetched again.
         records.value = records.value.copy(artists = mapOf("ar" to 200L))
+        viewModel.onLibraryShown()
         advanceUntilIdle()
         assertEquals(
             listOf("artist:subsonic:ar", "playlist:subsonic:pl", "album:subsonic:new", "album:subsonic:old"),
             allKeys()
         )
         coVerify(exactly = 1) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_holdRecentsBack_when_libraryStaysInView() = runTest {
+        val records = MutableStateFlow(LibraryRecents.None)
+        val repository = subsonicLibrary(
+            albums = listOf(
+                album("old", "Old", added = "2020-01-01T00:00:00Z"),
+                album("new", "New", added = "2024-01-01T00:00:00Z")
+            )
+        )
+        val viewModel = libraryViewModel(repository, recentsSource = { _, _ -> records })
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        fun albumIds() = content(viewModel).albums.orEmpty().map { it.id.rawId }
+        assertEquals(listOf("new", "old"), albumIds())
+
+        // Played while the list is on screen (a Wide split, the album beside it): the order holds.
+        records.value = LibraryRecents(albums = mapOf("old" to 500L))
+        advanceUntilIdle()
+        assertEquals(listOf("new", "old"), albumIds())
+
+        // The detail column closes: Library is back in view, and takes it in once.
+        viewModel.onLibraryShown()
+        advanceUntilIdle()
+        assertEquals(listOf("old", "new"), albumIds())
+    }
+
+    @Test
+    fun should_readRecentsOnceForABurst_when_libraryComesIntoViewTwiceAtOnce() = runTest {
+        var reads = 0
+        val repository = subsonicLibrary()
+        val viewModel = libraryViewModel(
+            repository,
+            recentsSource = { _, _ ->
+                reads++
+                flowOf(LibraryRecents.None)
+            }
+        )
+        advanceUntilIdle()
+        assertEquals(1, reads)
+
+        // Composed and resumed in the same moment.
+        viewModel.onLibraryShown()
+        viewModel.onLibraryShown()
+        advanceUntilIdle()
+
+        assertEquals(2, reads)
+    }
+
+    @Test
+    fun should_resortOnlyTheRecentsViews_when_recentsChange() = runTest {
+        val records = MutableStateFlow(LibraryRecents.None)
+        val store = LibrarySortStore.InMemory()
+        LibraryTab.entries.forEach { store.setSort("test-profile", it, LibrarySort.Alphabetical) }
+        var sortPasses = 0
+        val viewModel = LibraryViewModel(
+            repository = subsonicLibrary(),
+            sortStore = store,
+            recentsSource = { _, _ -> records },
+            sortDispatcher = mainDispatcherRule.dispatcher,
+            nameOrder = {
+                sortPasses++
+                String.CASE_INSENSITIVE_ORDER
+            },
+            scrollIndex = { JvmLibraryScrollIndex }
+        )
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        val sortedBefore = sortPasses
+
+        // Every view is A–Z: new recents leave each of them as it was.
+        records.value = LibraryRecents(albums = mapOf("al" to 500L))
+        viewModel.onLibraryShown()
+        advanceUntilIdle()
+        assertEquals(sortedBefore, sortPasses)
+
+        // Albums back on Recents: that view alone sorts again.
+        viewModel.selectSort(LibraryTab.Albums, LibrarySort.Recents)
+        advanceUntilIdle()
+        assertEquals(sortedBefore + 1, sortPasses)
     }
 
     @Test
@@ -1490,6 +1574,8 @@ class LibraryViewModelTest {
         assertEquals(listOf("library:l.new", "library:l.opened"), albumIds())
 
         viewModel.recordOpened(LibraryOpenKind.Album, "applemusic:library:l.opened")
+        // Back from the album page.
+        viewModel.onLibraryShown()
         advanceUntilIdle()
 
         assertEquals(listOf("library:l.opened", "library:l.new"), albumIds())
@@ -1535,6 +1621,7 @@ class LibraryViewModelTest {
 
         // A playlist page records no visit of its own: opening it from Library is what counts.
         viewModel.recordOpened(LibraryOpenKind.Playlist, "subsonic:opened")
+        viewModel.onLibraryShown()
         advanceUntilIdle()
 
         assertEquals(

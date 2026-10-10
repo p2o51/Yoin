@@ -33,6 +33,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -146,6 +150,12 @@ class LibraryViewModel(
      * state, so the last change always wins.
      */
     private val listInputs = MutableStateFlow(LibraryListInputs())
+
+    /** [onLibraryShown]'s signal: Recents read again ([observeRecents]). */
+    private val libraryShows = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     private var lastSorted: SortedLibraryLists? = null
     private var pendingSearchShortcutScope: LibrarySearchScope? = null
     private var searchFocusRequestCounter = 0L
@@ -1055,56 +1065,92 @@ class LibraryViewModel(
 
     /**
      * The one writer of the sorted Artists, Albums, Playlists and All. Sorting
-     * runs off the main thread; a newer input cancels an older pass.
+     * runs off the main thread; a newer input cancels an older pass. A view
+     * whose own inputs didn't change keeps its last result ([sortLists]).
      */
     private fun observeSortedLists() {
         viewModelScope.launch {
+            var previous: LibrarySortPass? = null
             listInputs.collectLatest { inputs ->
-                val sorted = withContext(sortDispatcher) { sortLists(inputs) }
+                val last = previous
+                val pass = withContext(sortDispatcher) { sortLists(inputs, last) }
+                previous = pass
                 if (inputs.generation != libraryDataGeneration) return@collectLatest
-                lastSorted = sorted
-                updateContent { withSorted(sorted) }
+                lastSorted = pass.lists
+                updateContent { withSorted(pass.lists) }
             }
         }
     }
 
-    private fun sortLists(inputs: LibraryListInputs): SortedLibraryLists {
-        val sorter = LibrarySorter(nameOrder(), inputs.recents, inputs.ignoredArticles)
-        val indexer = LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles)
+    /**
+     * Sorts and indexes each view anew only when what it is made of changed:
+     * its list, its sort, the ignored articles, and — for a view sorted by
+     * Recents only — the recents. So new recents re-sort just the Recents
+     * views, and a view in another order is left as it was ([previous]).
+     */
+    private fun sortLists(inputs: LibraryListInputs, previous: LibrarySortPass?): LibrarySortPass {
+        val sorter by lazy { LibrarySorter(nameOrder(), inputs.recents, inputs.ignoredArticles) }
+        val indexer by lazy { LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles) }
         fun sortOf(view: LibraryTab) = inputs.sorts[view] ?: LibrarySort.Recents
-        val sections = mutableMapOf<LibraryTab, List<FastScrollSection>>()
+        fun keyOf(view: LibraryTab, vararg made: Any?): LibraryViewSortKey {
+            val sort = sortOf(view)
+            return LibraryViewSortKey(
+                made = made.toList(),
+                sort = sort,
+                ignoredArticles = inputs.ignoredArticles,
+                recents = inputs.recents.takeIf { sort == LibrarySort.Recents }
+            )
+        }
+        fun <T> view(
+            key: LibraryViewSortKey,
+            last: LibrarySortedView<T>?,
+            sort: () -> LibraryIndex.Sorted<T>?
+        ): LibrarySortedView<T> = last?.takeIf { it.key == key } ?: LibrarySortedView(key, sort())
 
-        // Sorted, then put in the fast scroller's order with its sections.
-        fun <T> indexed(view: LibraryTab, list: List<T>, index: (List<T>) -> LibraryIndex.Sorted<T>): List<T> {
-            val result = indexedOrPlain(list, index)
-            sections[view] = result.sections
-            return result.items
-        }
-        val artists = inputs.artists?.let { list ->
+        val artists = view(keyOf(LibraryTab.Artists, inputs.artists), previous?.artists) {
             val sort = sortOf(LibraryTab.Artists)
-            indexed(LibraryTab.Artists, sorter.artists(list, sort)) { indexer.artists(it, sort) }
+            inputs.artists?.let { list -> indexedOrPlain(sorter.artists(list, sort)) { indexer.artists(it, sort) } }
         }
-        val albums = inputs.albums?.let { list ->
+        val albums = view(keyOf(LibraryTab.Albums, inputs.albums), previous?.albums) {
             val sort = sortOf(LibraryTab.Albums)
-            indexed(LibraryTab.Albums, sorter.albums(list, sort)) { indexer.albums(it, sort) }
+            inputs.albums?.let { list -> indexedOrPlain(sorter.albums(list, sort)) { indexer.albums(it, sort) } }
         }
-        val playlists = inputs.playlists?.let { list ->
+        val playlists = view(keyOf(LibraryTab.Playlists, inputs.playlists), previous?.playlists) {
             val sort = sortOf(LibraryTab.Playlists)
             // No scroller over Playlists: only the same A–Z as the other views.
-            indexedOrPlain(sorter.playlists(list, sort)) { indexer.playlists(it, sort) }.items
+            inputs.playlists?.let { list ->
+                indexedOrPlain(sorter.playlists(list, sort)) { indexer.playlists(it, sort) }
+            }
         }
-        val all = allOf(sorter, inputs, sortOf(LibraryTab.All))?.let { list ->
+        val allPlaylists = inputs.playlists.takeIf { inputs.allHoldsPlaylists }
+        val all = view(
+            keyOf(LibraryTab.All, inputs.artists, inputs.albums, allPlaylists, inputs.allSettled),
+            previous?.all
+        ) {
             val sort = sortOf(LibraryTab.All)
-            indexed(LibraryTab.All, list) { indexer.all(it, sort, albums = inputs.albums.orEmpty()) }
+            allOf(sorter, inputs, sort)?.let { list ->
+                indexedOrPlain(list) { indexer.all(it, sort, albums = inputs.albums.orEmpty()) }
+            }
         }
-        return SortedLibraryLists(
-            generation = inputs.generation,
+        val sections = buildMap {
+            artists.sorted?.let { put(LibraryTab.Artists, it.sections) }
+            albums.sorted?.let { put(LibraryTab.Albums, it.sections) }
+            all.sorted?.let { put(LibraryTab.All, it.sections) }
+        }
+        return LibrarySortPass(
             artists = artists,
             albums = albums,
             playlists = playlists,
             all = all,
-            sections = sections,
-            playlistsMixed = inputs.playlists?.hasMixedOwnership() == true
+            lists = SortedLibraryLists(
+                generation = inputs.generation,
+                artists = artists.sorted?.items,
+                albums = albums.sorted?.items,
+                playlists = playlists.sorted?.items,
+                all = all.sorted?.items,
+                sections = sections,
+                playlistsMixed = inputs.playlists?.hasMixedOwnership() == true
+            )
         )
     }
 
@@ -1156,8 +1202,23 @@ class LibraryViewModel(
         lastSorted?.takeIf { it.generation == libraryDataGeneration }?.let { withSorted(it) } ?: this
 
     /**
+     * Library came into view: its tab chosen, the app or Library's own window
+     * back in front (a detail page or the background left), or its column
+     * widened again (the detail column or Now Playing's panel closed). Only
+     * now do Recents take in what was opened and played since
+     * ([observeRecents]); a list on screen never re-sorts under the user.
+     */
+    fun onLibraryShown() {
+        libraryShows.tryEmit(Unit)
+    }
+
+    /**
      * This profile's Yoin records of what it opened and played, for Recents:
-     * the visit and play rows, and what was opened from Library itself.
+     * the visit and play rows, and what was opened from Library itself. Read
+     * once as the profile's lists first sort, then again only each time
+     * Library comes into view ([onLibraryShown]; a burst of those reads
+     * once). Between reads nothing is watched: a song played elsewhere costs
+     * no query and no sort, and a list on screen holds its order.
      */
     private fun observeRecents() {
         viewModelScope.launch {
@@ -1169,11 +1230,21 @@ class LibraryViewModel(
                     if (profileId.isNullOrBlank() || providerId == null) {
                         flowOf(LibraryRecents.None)
                     } else {
-                        combine(
-                            recentsSource.observe(profileId, providerId),
-                            openStore.observe(profileId, providerId),
-                            LibraryRecents::latestWith
-                        )
+                        libraryShows
+                            .debounce(RECENTS_SHOW_DEBOUNCE_MS)
+                            .onStart { emit(Unit) }
+                            .transformLatest {
+                                val recents = try {
+                                    recentsSource.observe(profileId, providerId).first()
+                                        .latestWith(openStore.observe(profileId, providerId).first())
+                                } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
+                                    // Only an order hint: the lists keep the recents they have.
+                                    Log.w(TAG, "Library recents couldn't be read", e)
+                                    return@transformLatest
+                                }
+                                emit(recents)
+                            }
                     }
                 }
                 .distinctUntilChanged()
@@ -1869,6 +1940,9 @@ class LibraryViewModel(
         /** Songs read for a library list (Apple's saved songs, Spotify's likes). */
         private const val LIBRARY_SONGS_SIZE = 500
 
+        /** Library coming into view twice at once (composed, then resumed) reads Recents once. */
+        private const val RECENTS_SHOW_DEBOUNCE_MS = 150L
+
         /** Subsonic's `getAlbumList2` ceiling for one request. */
         private const val SUBSONIC_ALBUMS_BATCH = 500
 
@@ -1914,6 +1988,30 @@ private data class LibraryListInputs(
     val sorts: Map<LibraryTab, LibrarySort> = emptyMap(),
     val recents: LibraryRecents = LibraryRecents.None,
     val ignoredArticles: List<String> = emptyList()
+)
+
+/**
+ * What one view's sort read ([LibraryViewModel]'s `sortLists`): the lists it is
+ * made of, its sort and the ignored articles, and the recents only when it is
+ * sorted by Recents. Equal keys sort alike, so the last result stands.
+ */
+private data class LibraryViewSortKey(
+    val made: List<Any?>,
+    val sort: LibrarySort,
+    val ignoredArticles: List<String>,
+    val recents: LibraryRecents?
+)
+
+/** One view sorted and indexed, null while its list hasn't loaded, under the key it was sorted for. */
+private class LibrarySortedView<T>(val key: LibraryViewSortKey, val sorted: LibraryIndex.Sorted<T>?)
+
+/** A sort pass: each view's result, kept for the next pass to reuse, and the lists it publishes. */
+private class LibrarySortPass(
+    val artists: LibrarySortedView<Artist>,
+    val albums: LibrarySortedView<Album>,
+    val playlists: LibrarySortedView<Playlist>,
+    val all: LibrarySortedView<LibraryItem>,
+    val lists: SortedLibraryLists
 )
 
 private class SortedLibraryLists(
