@@ -1,12 +1,16 @@
 package com.gpo.yoin.ui.library
 
 import com.gpo.yoin.data.model.LibraryMembership
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.repository.LibraryRecents
+import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
@@ -25,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -32,6 +37,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -56,7 +62,7 @@ class LibraryViewModelTest {
         every { repository.libraryRevision } returns flowOf(0L)
         coEvery { repository.getArtists() } returns emptyList()
 
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.openSearchShortcut(LibrarySearchScope.CurrentLibrary)
@@ -78,7 +84,7 @@ class LibraryViewModelTest {
             capabilities = setOf(Capability.SEARCH, Capability.CATALOG_SEARCH),
         )
         coEvery { repository.searchCurrentLibrary("Apple") } returns expected
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.search("Apple")
@@ -101,7 +107,7 @@ class LibraryViewModelTest {
         )
         coEvery { repository.search("Music") } returns SearchResults()
         coEvery { repository.searchCurrentLibrary("Music") } returns SearchResults()
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.openSearchShortcut(LibrarySearchScope.AppleMusicGlobal)
@@ -126,7 +132,7 @@ class LibraryViewModelTest {
             providerId = MediaId.PROVIDER_APPLE_MUSIC,
             capabilities = setOf(Capability.CATALOG_SEARCH),
         )
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         viewModel.openSearchShortcut(LibrarySearchScope.AppleMusicGlobal)
         advanceUntilIdle()
 
@@ -141,7 +147,7 @@ class LibraryViewModelTest {
             providerId = MediaId.PROVIDER_APPLE_MUSIC,
             capabilities = setOf(Capability.SEARCH),
         )
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.openSearchShortcut(LibrarySearchScope.AppleMusicGlobal)
@@ -157,7 +163,7 @@ class LibraryViewModelTest {
             providerId = MediaId.PROVIDER_APPLE_MUSIC,
             capabilities = setOf(Capability.CATALOG_SEARCH),
         )
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.openSearchShortcut(LibrarySearchScope.SpotifyGlobal)
@@ -175,7 +181,7 @@ class LibraryViewModelTest {
             capabilities = setOf(Capability.LIBRARY_SONGS),
         )
         coEvery { repository.getLibrarySongs(size = 500) } returns emptyList()
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         val initial = viewModel.uiState.value as LibraryUiState.Content
@@ -203,7 +209,7 @@ class LibraryViewModelTest {
         }
         val repository = repositoryWithWrites(writes)
         val track = appleMusicTrack()
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.addSongToLibrary(track)
@@ -231,7 +237,7 @@ class LibraryViewModelTest {
         }
         val repository = repositoryWithWrites(writes)
         val track = appleMusicTrack()
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.addSongToLibrary(track)
@@ -258,7 +264,7 @@ class LibraryViewModelTest {
             }
         }
         val repository = repositoryWithWrites(writes, profileIds)
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         val track = appleMusicTrack()
         advanceUntilIdle()
         viewModel.addSongToLibrary(track)
@@ -290,7 +296,7 @@ class LibraryViewModelTest {
             providerId = MediaId.PROVIDER_SUBSONIC,
             capabilities = setOf(Capability.SEARCH),
         )
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.addSongToLibrary(appleMusicTrack())
@@ -314,7 +320,7 @@ class LibraryViewModelTest {
                 listOf(ArtistIndex("F", listOf(freshArtist)))
             }
         }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         runCurrent()
 
         viewModel.refresh()
@@ -340,7 +346,7 @@ class LibraryViewModelTest {
         coEvery { repository.getLibrarySongs(size = 500) } coAnswers {
             if (profileIds.value == "first") oldSongs.await() else listOf(newSong)
         }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.openSearchShortcut(LibrarySearchScope.AppleMusicGlobal)
         viewModel.selectTab(LibraryTab.Songs)
@@ -372,7 +378,7 @@ class LibraryViewModelTest {
         var savedSongs = emptyList<Track>()
         coEvery { repository.getLibrarySongs(size = 500) } coAnswers { savedSongs }
         coEvery { repository.searchCurrentLibrary("song") } coAnswers { SearchResults(tracks = savedSongs) }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
         viewModel.search("song")
@@ -411,7 +417,7 @@ class LibraryViewModelTest {
         coEvery { repository.getLibrarySongs(size = 500) } coAnswers {
             if (profileIds.value == "second") secondAccountSongs else emptyList()
         }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
         advanceUntilIdle()
@@ -432,18 +438,18 @@ class LibraryViewModelTest {
     @Test
     fun should_hideFavoritesTab_when_serviceFavoritesAreItsLibrary() = runTest {
         val repository = spotifyRepository()
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value as LibraryUiState.Content
         // Liked songs, saved albums and followed artists are Songs, Albums and Artists.
         assertEquals(
-            listOf(LibraryTab.Artists, LibraryTab.Albums, LibraryTab.Songs, LibraryTab.Playlists),
+            listOf(LibraryTab.Playlists, LibraryTab.Artists, LibraryTab.Albums, LibraryTab.Songs),
             state.availableTabs
         )
         assertFalse(state.canReshuffleSongs)
         viewModel.selectTab(LibraryTab.Favorites)
-        assertEquals(LibraryTab.Artists, (viewModel.uiState.value as LibraryUiState.Content).selectedTab)
+        assertEquals(LibraryTab.All, (viewModel.uiState.value as LibraryUiState.Content).selectedTab)
     }
 
     @Test
@@ -452,18 +458,18 @@ class LibraryViewModelTest {
             MediaId.PROVIDER_SUBSONIC,
             setOf(Capability.FAVORITES, Capability.RANDOM_SONGS, Capability.PLAYLISTS_READ)
         )
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value as LibraryUiState.Content
-        assertEquals(LibraryTab.entries, state.availableTabs)
+        assertEquals(LibraryTab.Chips, state.availableTabs)
         assertTrue(state.canReshuffleSongs)
     }
 
     /**
      * The provider and capability flow on its own, with the profile id held
      * still. A real profile switch reloads the library first and lands on
-     * Artists ([LibraryViewModel] observeProfileChanges); this pins the
+     * All ([LibraryViewModel] observeProfileChanges); this pins the
      * normalisation behind it, so a provider or capability change that
      * arrives without a reload can't leave the selection on a hidden tab.
      */
@@ -478,7 +484,7 @@ class LibraryViewModelTest {
         every { repository.currentCapabilities() } answers { capabilities.value }
         every { repository.activeProviderId } returns providerIds
         every { repository.capabilities } returns capabilities
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Favorites)
         advanceUntilIdle()
@@ -490,7 +496,7 @@ class LibraryViewModelTest {
 
         val state = viewModel.uiState.value as LibraryUiState.Content
         assertFalse(LibraryTab.Favorites in state.availableTabs)
-        assertEquals(LibraryTab.Artists, state.selectedTab)
+        assertEquals(LibraryTab.All, state.selectedTab)
     }
 
     @Test
@@ -498,7 +504,7 @@ class LibraryViewModelTest {
         val repository = spotifyRepository()
         val liked = listOf(spotifyTrack("new"), spotifyTrack("old"))
         coEvery { repository.getLibrarySongs(size = 500) } returns liked
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.selectTab(LibraryTab.Songs)
@@ -523,7 +529,7 @@ class LibraryViewModelTest {
             read.await()
             cache
         }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
         advanceUntilIdle()
@@ -553,7 +559,7 @@ class LibraryViewModelTest {
         var cache = listOf(old)
         coEvery { repository.getLibrarySongs(size = 500) } coAnswers { cache }
         coEvery { repository.readCachedLikedSongs(size = 500) } coAnswers { cache }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
         advanceUntilIdle()
@@ -583,7 +589,7 @@ class LibraryViewModelTest {
             listOf(ArtistIndex("A", listOf(arca)), ArtistIndex("B", listOf(bruit)))
         var cache = listOf(ArtistIndex("A", listOf(arca)), ArtistIndex("C", listOf(caroline)))
         coEvery { repository.readCachedFollowedArtists() } coAnswers { cache }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         // Unfollow Bruit, follow Caroline on their artist pages.
@@ -609,7 +615,7 @@ class LibraryViewModelTest {
         every { repository.favoriteOverrides } returns overrides
         val sample = listOf(subsonicTrack("a"), subsonicTrack("b"))
         coEvery { repository.getRandomSongs(size = 50) } returns sample
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
         advanceUntilIdle()
@@ -641,7 +647,7 @@ class LibraryViewModelTest {
                 playlists = emptyList(),
                 starred = Starred()
             )
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.search("band")
@@ -651,6 +657,313 @@ class LibraryViewModelTest {
         assertEquals(listOf(followed), state.artists)
         assertEquals(listOf(followed, fromSavedAlbum), state.searchResults?.artists)
     }
+
+    // ── All, chips and sorts (Q12/Q13) ───────────────────────────────────
+
+    @Test
+    fun should_startOnAllAndLoadItsListsOnlyOnScreen_when_libraryOpens() = runTest {
+        val repository = subsonicLibrary()
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        val cold = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(LibraryTab.All, cold.selectedTab)
+        assertNull(cold.allItems)
+        // The cold start costs what it always did: the artists only.
+        coVerify(exactly = 0) { repository.getAlbumList(any(), any(), any()) }
+        coVerify(exactly = 0) { repository.getPlaylists() }
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        val all = (viewModel.uiState.value as LibraryUiState.Content).allItems.orEmpty()
+        assertEquals(
+            setOf("artist:subsonic:ar", "album:subsonic:al", "playlist:subsonic:pl"),
+            all.map(LibraryItem::key).toSet()
+        )
+        coVerify(exactly = 0) { repository.getRandomSongs(any()) }
+        coVerify(exactly = 0) { repository.getLibrarySongs(any(), any()) }
+        coVerify(exactly = 1) { repository.getArtists() }
+    }
+
+    @Test
+    fun should_leavePlaylistsOutOfAll_when_serviceCannotReadThem() = runTest {
+        val repository = subsonicLibrary(capabilities = setOf(Capability.FAVORITES, Capability.RANDOM_SONGS))
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        val all = (viewModel.uiState.value as LibraryUiState.Content).allItems.orEmpty()
+        assertEquals(listOf("album:subsonic:al", "artist:subsonic:ar"), all.map(LibraryItem::key))
+        coVerify(exactly = 0) { repository.getPlaylists() }
+    }
+
+    @Test
+    fun should_keepAllWithWhatLoaded_when_oneListFails() = runTest {
+        val repository = subsonicLibrary()
+        coEvery { repository.getAlbumList("newest", size = 500) } throws IllegalStateException("albums down")
+        val viewModel = libraryViewModel(repository)
+        val messages = mutableListOf<String>()
+        backgroundScope.launch { viewModel.messages.collect { messages += it } }
+        advanceUntilIdle()
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(LibraryTab.All, state.selectedTab)
+        assertEquals(
+            setOf("artist:subsonic:ar", "playlist:subsonic:pl"),
+            state.allItems.orEmpty().map(LibraryItem::key).toSet()
+        )
+        assertEquals(listOf("albums down"), messages)
+    }
+
+    @Test
+    fun should_orderAllByLocalRecordsThenRecentlyAdded_when_sortIsRecents() = runTest {
+        val records = MutableStateFlow(LibraryRecents(playlists = mapOf("pl" to 100L)))
+        val repository = subsonicLibrary(
+            albums = listOf(
+                album("old", "Old", added = "2020-01-01T00:00:00Z"),
+                album("new", "New", added = "2024-01-01T00:00:00Z")
+            )
+        )
+        val viewModel = libraryViewModel(repository, recentsSource = { _, _ -> records })
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        fun allKeys() = (viewModel.uiState.value as LibraryUiState.Content).allItems.orEmpty().map(LibraryItem::key)
+        // The played playlist first; then by library date; the undated artist last.
+        assertEquals(
+            listOf("playlist:subsonic:pl", "album:subsonic:new", "album:subsonic:old", "artist:subsonic:ar"),
+            allKeys()
+        )
+
+        // An artist page opened: it moves up in place, nothing fetched again.
+        records.value = records.value.copy(artists = mapOf("ar" to 200L))
+        advanceUntilIdle()
+        assertEquals(
+            listOf("artist:subsonic:ar", "playlist:subsonic:pl", "album:subsonic:new", "album:subsonic:old"),
+            allKeys()
+        )
+        coVerify(exactly = 1) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_readRecentsOfTheActiveProfileAndProvider_when_observing() = runTest {
+        val asked = mutableListOf<Pair<String, String>>()
+        val repository = subsonicLibrary()
+        libraryViewModel(
+            repository,
+            recentsSource = { profileId, provider ->
+                asked += profileId to provider
+                flowOf(LibraryRecents.None)
+            }
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf("test-profile" to MediaId.PROVIDER_SUBSONIC), asked)
+    }
+
+    @Test
+    fun should_reorderAndRememberPerProfileAndView_when_sortChosen() = runTest {
+        val store = LibrarySortStore.InMemory()
+        val repository = subsonicLibrary(
+            albums = listOf(
+                album("b", "Beta", added = "2024-01-01T00:00:00Z"),
+                album("a", "Alpha", added = "2020-01-01T00:00:00Z")
+            )
+        )
+        val first = libraryViewModel(repository, sortStore = store)
+        advanceUntilIdle()
+        first.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        val resting = first.uiState.value as LibraryUiState.Content
+        assertEquals(LibrarySort.Recents, resting.sorts[LibraryTab.Albums])
+        assertEquals(listOf("b", "a"), resting.albums.orEmpty().map { it.id.rawId })
+
+        first.selectSort(LibraryTab.Albums, LibrarySort.Alphabetical)
+        advanceUntilIdle()
+
+        val sorted = first.uiState.value as LibraryUiState.Content
+        assertEquals(LibrarySort.Alphabetical, sorted.sorts[LibraryTab.Albums])
+        assertEquals(listOf("a", "b"), sorted.albums.orEmpty().map { it.id.rawId })
+        // Each view keeps its own.
+        assertEquals(LibrarySort.Recents, sorted.sorts[LibraryTab.All])
+        assertEquals(LibrarySort.Alphabetical, store.sortFor("test-profile", LibraryTab.Albums))
+
+        val reopened = libraryViewModel(repository, sortStore = store)
+        advanceUntilIdle()
+        assertEquals(
+            LibrarySort.Alphabetical,
+            (reopened.uiState.value as LibraryUiState.Content).sorts[LibraryTab.Albums]
+        )
+    }
+
+    @Test
+    fun should_returnToAllAndReadThatProfilesSorts_when_profileSwitches() = runTest {
+        val store = LibrarySortStore.InMemory()
+        store.setSort("second", LibraryTab.All, LibrarySort.Creator)
+        val profileIds = MutableStateFlow<String?>("first")
+        val repository = subsonicLibrary()
+        every { repository.currentProfileId() } answers { profileIds.value }
+        every { repository.currentProfileIdFlow } returns profileIds
+        val viewModel = libraryViewModel(repository, sortStore = store)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        viewModel.selectSort(LibraryTab.All, LibrarySort.Alphabetical)
+        advanceUntilIdle()
+
+        profileIds.value = "second"
+        advanceUntilIdle()
+
+        val switched = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(LibraryTab.All, switched.selectedTab)
+        assertEquals(LibrarySort.Creator, switched.sorts[LibraryTab.All])
+        assertEquals(LibrarySort.Alphabetical, store.sortFor("first", LibraryTab.All))
+    }
+
+    @Test
+    fun should_goBackToAllWithoutRefetching_when_chipCleared() = runTest {
+        val repository = subsonicLibrary()
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        viewModel.selectTab(LibraryTab.All)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(LibraryTab.All, state.selectedTab)
+        assertEquals(3, state.allItems.orEmpty().size)
+        coVerify(exactly = 1) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_fillSpotifysAllFromTheSyncedCache_when_libraryShows() = runTest {
+        val repository = spotifyRepository()
+        val followed = Artist(MediaId.spotify("ar"), "Followed", null, null, isStarred = true)
+        coEvery { repository.getArtists() } returns listOf(ArtistIndex("F", listOf(followed)))
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } returns
+            SpotifyLibrarySyncCoordinator.SpotifyLocalSearchSnapshot(
+                artists = listOf(followed, Artist(MediaId.spotify("other"), "Not followed", null, null)),
+                albums = listOf(album("al", "Saved").copy(id = MediaId.spotify("al"))),
+                tracks = emptyList(),
+                playlists = listOf(
+                    Playlist(
+                        id = MediaId.spotify("pl"),
+                        name = "Mine",
+                        owner = "me",
+                        coverArt = null,
+                        songCount = null,
+                        durationSec = null
+                    )
+                ),
+                starred = Starred()
+            )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        // Followed artists only, and no freshness-checked read that could start a sync.
+        assertEquals(
+            setOf("artist:spotify:ar", "album:spotify:al", "playlist:spotify:pl"),
+            (viewModel.uiState.value as LibraryUiState.Content).allItems.orEmpty().map(LibraryItem::key).toSet()
+        )
+        coVerify(exactly = 0) { repository.getAlbumList(any(), any(), any()) }
+        coVerify(exactly = 0) { repository.getPlaylists() }
+        coVerify(exactly = 1) { repository.refreshSpotifyLibrary(any()) }
+    }
+
+    @Test
+    fun should_offerOnlyWhatTheServiceCanSort_when_spotifyIsActive() = runTest {
+        val repository = spotifyRepository()
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(LibrarySort.entries, state.sortOptions[LibraryTab.All])
+        assertEquals(LibrarySort.entries, state.sortOptions[LibraryTab.Albums])
+        assertEquals(listOf(LibrarySort.Recents, LibrarySort.Alphabetical), state.sortOptions[LibraryTab.Artists])
+        assertEquals(listOf(LibrarySort.Recents, LibrarySort.Alphabetical), state.sortOptions[LibraryTab.Playlists])
+        // Songs is Liked Songs in its own order: no sort row.
+        assertNull(state.sortOptions[LibraryTab.Songs])
+
+        viewModel.selectSort(LibraryTab.Playlists, LibrarySort.RecentlyAdded)
+        viewModel.selectSort(LibraryTab.Songs, LibrarySort.Alphabetical)
+
+        val after = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(LibrarySort.Recents, after.sorts[LibraryTab.Playlists])
+        assertNull(after.sorts[LibraryTab.Songs])
+    }
+
+    @Test
+    fun should_dropAStoredSortTheServiceNoLongerOffers_when_loading() = runTest {
+        val store = LibrarySortStore.InMemory()
+        store.setSort("test-profile", LibraryTab.Playlists, LibrarySort.RecentlyAdded)
+        val viewModel = libraryViewModel(spotifyRepository(), sortStore = store)
+        advanceUntilIdle()
+
+        assertEquals(
+            LibrarySort.Recents,
+            (viewModel.uiState.value as LibraryUiState.Content).sorts[LibraryTab.Playlists]
+        )
+    }
+
+    /** A Subsonic library with one artist, the given albums and one playlist. */
+    private fun subsonicLibrary(
+        capabilities: Set<Capability> = setOf(Capability.FAVORITES, Capability.RANDOM_SONGS, Capability.PLAYLISTS_READ),
+        albums: List<Album> = listOf(album("al", "Album"))
+    ): YoinRepository = repositoryFor(MediaId.PROVIDER_SUBSONIC, capabilities).also { repository ->
+        coEvery { repository.getArtists() } returns
+            listOf(ArtistIndex("A", listOf(Artist(MediaId.subsonic("ar"), "Artist", null, null))))
+        coEvery { repository.getAlbumList("newest", size = 500) } returns albums
+        coEvery { repository.getPlaylists() } returns listOf(
+            Playlist(
+                id = MediaId.subsonic("pl"),
+                name = "Playlist",
+                owner = "me",
+                coverArt = null,
+                songCount = null,
+                durationSec = null
+            )
+        )
+    }
+
+    private fun album(id: String, name: String, added: String? = null) = Album(
+        id = MediaId.subsonic(id),
+        name = name,
+        artist = "Someone",
+        artistId = null,
+        coverArt = null,
+        songCount = null,
+        durationSec = null,
+        year = null,
+        genre = null,
+        libraryAddedAt = added
+    )
+
+    /**
+     * The ViewModel as tests drive it: sorting on the test dispatcher (so
+     * advanceUntilIdle covers it) and a JVM name order, since android.icu is
+     * a stub off device.
+     */
+    private fun libraryViewModel(
+        repository: YoinRepository,
+        sortStore: LibrarySortStore = LibrarySortStore.InMemory(),
+        recentsSource: LibraryRecentsSource = LibraryRecentsSource.None
+    ): LibraryViewModel = LibraryViewModel(
+        repository = repository,
+        sortStore = sortStore,
+        recentsSource = recentsSource,
+        sortDispatcher = mainDispatcherRule.dispatcher,
+        nameOrder = { String.CASE_INSENSITIVE_ORDER }
+    )
 
     private fun repositoryFor(
         providerId: String,

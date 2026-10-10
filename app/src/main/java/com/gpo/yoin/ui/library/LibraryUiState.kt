@@ -13,6 +13,7 @@ sealed interface LibraryUiState {
     data object Loading : LibraryUiState
 
     data class Content(
+        /** The chip that is on, or [LibraryTab.All] when none is. */
         val selectedTab: LibraryTab,
         /**
          * Per-tab payloads. `null` = not loaded yet (the tab shows a loading
@@ -40,13 +41,27 @@ sealed interface LibraryUiState {
         val canSearchAppleMusicCatalog: Boolean = false,
         val searchFocusRequestId: Long = 0L,
         /**
-         * Tabs the active source supports. When the provider lacks
+         * The chips the active source supports ([LibraryTab.All] is never
+         * one: it is no chip at all). When the provider lacks
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_READ] the Playlists
-         * tab is dropped from the row entirely rather than showing an empty
+         * chip is dropped from the row entirely rather than showing an empty
          * state. A `selectedTab` that gets filtered out is normalised to
-         * [LibraryTab.Artists] by the ViewModel.
+         * [LibraryTab.All] by the ViewModel.
          */
-        val availableTabs: List<LibraryTab> = LibraryTab.entries,
+        val availableTabs: List<LibraryTab> = LibraryTab.Chips,
+        /**
+         * The All view: artists, albums and playlists mixed, in its sort's
+         * order — never songs. `null` until each of its lists has loaded or
+         * failed.
+         */
+        val allItems: List<LibraryItem>? = null,
+        /** Each view's current order ([LibrarySortStore], per profile). */
+        val sorts: Map<LibraryTab, LibrarySort> = emptyMap(),
+        /**
+         * The orders each view can offer here ([librarySortOptions]); a view
+         * with fewer than two has no sort row.
+         */
+        val sortOptions: Map<LibraryTab, List<LibrarySort>> = emptyMap(),
         /**
          * Gates the "+" FAB in the Playlists tab. Follows
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_WRITE].
@@ -62,7 +77,23 @@ sealed interface LibraryUiState {
     data class Error(val message: UiText) : LibraryUiState
 }
 
-enum class LibraryTab { Artists, Albums, Songs, Playlists, Favorites }
+/**
+ * Library's views, in chip order (Spotify's Your Library). [All] is the
+ * resting view, with no chip on.
+ */
+enum class LibraryTab {
+    All,
+    Playlists,
+    Artists,
+    Albums,
+    Songs,
+    Favorites;
+
+    companion object {
+        /** Every view that has a chip of its own. */
+        val Chips: List<LibraryTab> = entries - All
+    }
+}
 
 enum class LibrarySearchScope { CurrentLibrary, SpotifyGlobal, AppleMusicGlobal }
 

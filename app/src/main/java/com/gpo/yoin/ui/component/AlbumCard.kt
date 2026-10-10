@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -40,6 +41,9 @@ fun AlbumCard(
     modifier: Modifier = Modifier,
     fixedWidth: androidx.compose.ui.unit.Dp? = 156.dp,
     showIndication: Boolean = false,
+    // What a missing cover shows: the kind of thing the card is (a playlist
+    // card in Library's All view shows the playlist mark).
+    fallbackIcon: ImageVector = YoinSymbols.Album,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -86,7 +90,7 @@ fun AlbumCard(
                     .aspectRatio(1f)
                     .seamDissolve(),
                 shape = YoinArtworkShapes.Cover,
-                fallbackIcon = YoinSymbols.Album,
+                fallbackIcon = fallbackIcon,
                 interactionSource = interactionSource,
                 fillFraction = 1f,
                 tonalElevation = 0.dp,

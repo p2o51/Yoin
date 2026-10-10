@@ -33,7 +33,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -275,6 +278,13 @@ fun LibraryScreen(
     val workingLibraryTrackIds by viewModel.workingLibraryTrackIds.collectAsState()
     val copyResources = LocalContext.current.resources
     SideEffect { viewModel.updateCopyResources(copyResources) }
+    // Library is on screen: the view it shows loads now if it hasn't (All's
+    // albums and playlists wait for this, not the app's cold start).
+    val isContent = uiState is LibraryUiState.Content
+    val shownTab = (uiState as? LibraryUiState.Content)?.selectedTab
+    LaunchedEffect(isContent, shownTab) {
+        if (isContent) viewModel.ensureSelectedTabLoaded()
+    }
 
     LibraryContent(
         uiState = uiState,
@@ -285,6 +295,7 @@ fun LibraryScreen(
         trackLibraryStates = trackLibraryStates,
         workingLibraryTrackIds = workingLibraryTrackIds,
         onTabSelected = viewModel::selectTab,
+        onSortSelected = viewModel::selectSort,
         onSearchScopeSelected = viewModel::selectSearchScope,
         onSearchQueryChanged = viewModel::search,
         onClearSearch = viewModel::clearSearch,
@@ -317,6 +328,7 @@ fun LibraryContent(
     trackLibraryStates: Map<MediaId, LibraryMembership> = emptyMap(),
     workingLibraryTrackIds: Set<MediaId> = emptySet(),
     onTabSelected: (LibraryTab) -> Unit,
+    onSortSelected: (view: LibraryTab, sort: LibrarySort) -> Unit = { _, _ -> },
     onSearchScopeSelected: (LibrarySearchScope) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -414,6 +426,7 @@ fun LibraryContent(
                             trackLibraryStates = trackLibraryStates,
                             workingLibraryTrackIds = workingLibraryTrackIds,
                             onTabSelected = onTabSelected,
+                            onSortSelected = onSortSelected,
                             onSearchScopeSelected = onSearchScopeSelected,
                             onSearchQueryChanged = onSearchQueryChanged,
                             onClearSearch = onClearSearch,
@@ -450,6 +463,7 @@ private fun LibraryContentBody(
     trackLibraryStates: Map<MediaId, LibraryMembership>,
     workingLibraryTrackIds: Set<MediaId>,
     onTabSelected: (LibraryTab) -> Unit,
+    onSortSelected: (view: LibraryTab, sort: LibrarySort) -> Unit,
     onSearchScopeSelected: (LibrarySearchScope) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -488,6 +502,7 @@ private fun LibraryContentBody(
     // AnimatedContent: exited tab content is disposed, so a lazy state
     // created inside a tab body would reset and returning to that tab
     // would land back at the top instead of where the user left off.
+    val allGridState = rememberLazyGridState()
     val artistsGridState = rememberLazyGridState()
     val albumsGridState = rememberLazyGridState()
     val songsListState = rememberLazyListState()
@@ -717,16 +732,37 @@ private fun LibraryContentBody(
                     label = "tabContent",
                     modifier = Modifier.fillMaxSize(),
                 ) { tab ->
+                    // Each view's order and the orders it offers; under two, no sort row.
+                    val sort = state.sorts[tab]
+                    val sortOptions = state.sortOptions[tab].orEmpty()
+                    val sortRow = remember(tab, sort, sortOptions, onSortSelected) {
+                        LibrarySortRowSpec(
+                            sort = sort,
+                            options = sortOptions,
+                            onSortSelected = { picked -> onSortSelected(tab, picked) }
+                        )
+                    }
                     when (tab) {
+                        LibraryTab.All -> AllTabContent(
+                            items = state.allItems,
+                            gridState = allGridState,
+                            sortRow = sortRow,
+                            onArtistClick = onArtistClick,
+                            onAlbumClick = onAlbumClick,
+                            onPlaylistClick = onPlaylistClick,
+                            coverArtUrlBuilder = coverArtUrlBuilder
+                        )
                         LibraryTab.Artists -> ArtistsTabContent(
                             artists = state.artists,
                             gridState = artistsGridState,
+                            sortRow = sortRow,
                             onArtistClick = onArtistClick,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Albums -> AlbumsTabContent(
                             albums = state.albums,
                             gridState = albumsGridState,
+                            sortRow = sortRow,
                             onAlbumClick = onAlbumClick,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
@@ -746,6 +782,7 @@ private fun LibraryContentBody(
                         LibraryTab.Playlists -> PlaylistsTabContent(
                             playlists = state.playlists,
                             listState = playlistsListState,
+                            sortRow = sortRow,
                             onPlaylistClick = onPlaylistClick,
                             onCreatePlaylist = onCreatePlaylist.takeIf { state.canCreatePlaylists },
                             coverArtUrlBuilder = coverArtUrlBuilder,
@@ -837,18 +874,16 @@ private fun LibraryFilterChips(
 ) {
     // Render only tabs the active source supports (e.g. drop Playlists on a
     // provider without PLAYLISTS_READ). Callers pass
-    // `LibraryUiState.Content.availableTabs`.
-    // Full-width row; contentPadding keeps the resting chips on the 16dp
-    // page margin while scrolled chips run under the screen edges with the
-    // scroll-aware fade.
+    // `LibraryUiState.Content.availableTabs`; no chip on is All.
+    // Full-width row; the resting chips keep the 16dp page margin while
+    // scrolled chips run under the screen edges with the scroll-aware fade.
     val labels = libraryTabLabels()
-    ExpressiveSegmentedTabs(
-        items = tabs,
-        selectedItem = selectedTab,
+    LibraryFilterRow(
+        tabs = tabs,
+        selectedTab = selectedTab,
         label = { labels.getValue(it) },
-        onSelectedChange = onTabSelected,
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp),
+        onTabSelected = onTabSelected,
+        modifier = modifier
     )
 }
 
@@ -986,6 +1021,7 @@ private fun LibrarySearchScope.chipLabel(): String = when (this) {
 private fun ArtistsTabContent(
     artists: List<Artist>?,
     gridState: LazyGridState,
+    sortRow: LibrarySortRowSpec,
     onArtistClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -1021,6 +1057,7 @@ private fun ArtistsTabContent(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        librarySortRow(sortRow)
         itemsIndexed(artists, key = { _, artist -> artist.id.toString() }) { index, artist ->
             val entranceProgress = rememberLibraryItemEntrance(
                 key = artist.id,
@@ -1157,6 +1194,7 @@ private fun ArtistListItem(
 private fun AlbumsTabContent(
     albums: List<Album>?,
     gridState: LazyGridState,
+    sortRow: LibrarySortRowSpec,
     onAlbumClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -1192,6 +1230,7 @@ private fun AlbumsTabContent(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        librarySortRow(sortRow)
         itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
             val entranceProgress = rememberLibraryItemEntrance(
                 key = album.id,
@@ -1244,6 +1283,155 @@ private fun AlbumGridItem(
         modifier = modifier.fillMaxWidth(),
         fixedWidth = null,
     )
+}
+
+/** A playlist as a square cover in the All grid, beside the albums (the same card). */
+@Suppress("ktlint:standard:function-naming") // a Composable
+@Composable
+private fun PlaylistGridItem(
+    playlist: Playlist,
+    onClick: () -> Unit,
+    coverArtUrl: String?,
+    modifier: Modifier = Modifier
+) {
+    com.gpo.yoin.ui.component.AlbumCard(
+        coverArtUrl = coverArtUrl,
+        title = playlist.name,
+        subtitle = playlist.owner?.takeIf { it.isNotBlank() } ?: stringResource(R.string.library_playlist_fallback),
+        onClick = onClick,
+        extractBackdropColors = false,
+        modifier = modifier.fillMaxWidth(),
+        fixedWidth = null,
+        fallbackIcon = YoinSymbols.Playlist
+    )
+}
+
+/**
+ * All, the view with no chip on: artists, albums and playlists in one grid,
+ * in the view's sort order, and no songs (Spotify's Your Library). Artists are
+ * round, albums and playlists square — the same cells the Artists and Albums
+ * grids use, so the columns follow the width the same way at every size.
+ */
+@Suppress("ktlint:standard:function-naming") // a Composable
+@Composable
+private fun AllTabContent(
+    items: List<LibraryItem>?,
+    gridState: LazyGridState,
+    sortRow: LibrarySortRowSpec,
+    onArtistClick: (String) -> Unit,
+    onAlbumClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
+    coverArtUrlBuilder: ((String) -> String)?,
+    modifier: Modifier = Modifier
+) {
+    if (items == null) {
+        TabLoadingState(modifier = modifier)
+        return
+    }
+    if (items.isEmpty()) {
+        EmptyState(message = stringResource(R.string.library_empty_all), modifier = modifier)
+        return
+    }
+    KeepGridAnchorAcrossWidthChanges(gridState)
+    LazyVerticalGrid(
+        columns = libraryGridCells(),
+        state = gridState,
+        modifier = modifier
+            .fillMaxSize()
+            .seamDissolveViewport(
+                background = expressivePageSeamBackground(),
+                remainingPx = { gridState.seamRemainingPx() }
+            ) { gridState.seamScrolledPx() },
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = 8.dp,
+            end = 16.dp,
+            bottom = floatingBottomGroupContentPadding()
+        ),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        librarySortRow(sortRow)
+        itemsIndexed(
+            items = items,
+            key = { _, item -> item.key },
+            contentType = { _, item -> item::class }
+        ) { index, item ->
+            val entranceProgress = rememberLibraryItemEntrance(
+                key = item.key,
+                index = index,
+                delayStepMillis = 24L
+            )
+            // A new sort moves each cell to its new place on the spatial spring.
+            val itemModifier = Modifier
+                .animateItem(
+                    fadeInSpec = YoinMotion.effectsSpring(),
+                    placementSpec = YoinMotion.spatialSpring(),
+                    fadeOutSpec = YoinMotion.effectsSpring()
+                )
+                .expressiveEntrance(
+                    progress = entranceProgress,
+                    initialOffsetY = 22.dp,
+                    initialScale = 0.92f
+                )
+            when (item) {
+                is LibraryItem.ArtistItem -> ArtistGridItem(
+                    artist = item.artist,
+                    coverArtUrl = libraryCoverArtUrl(item.artist.coverArt, coverArtUrlBuilder),
+                    onClick = { onArtistClick(item.artist.id.toString()) },
+                    modifier = itemModifier
+                )
+                is LibraryItem.AlbumItem -> AlbumGridItem(
+                    album = item.album,
+                    onClick = { onAlbumClick(item.album.id.toString()) },
+                    coverArtUrl = libraryCoverArtUrl(item.album.coverArt, coverArtUrlBuilder)
+                        ?: item.album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                            ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                    modifier = itemModifier
+                )
+                is LibraryItem.PlaylistItem -> PlaylistGridItem(
+                    playlist = item.playlist,
+                    onClick = { onPlaylistClick(item.playlist.id.toString()) },
+                    coverArtUrl = playlistBackdropArtUrl(item.playlist, coverArtUrlBuilder),
+                    modifier = itemModifier
+                )
+            }
+        }
+    }
+}
+
+/** A view's sort row: its order, the orders it offers, and where a choice goes. */
+private class LibrarySortRowSpec(
+    val sort: LibrarySort?,
+    val options: List<LibrarySort>,
+    val onSortSelected: (LibrarySort) -> Unit
+) {
+    val shown: Boolean get() = sort != null && options.size > 1
+}
+
+private const val LIBRARY_SORT_ROW_KEY = "library-sort-row"
+
+/** The sort row as a grid's first, full-width item: it scrolls away with the cells. */
+private fun LazyGridScope.librarySortRow(spec: LibrarySortRowSpec) {
+    val sort = spec.sort ?: return
+    if (!spec.shown) return
+    item(key = LIBRARY_SORT_ROW_KEY, span = { GridItemSpan(maxLineSpan) }, contentType = LIBRARY_SORT_ROW_KEY) {
+        LibrarySortRow(sort = sort, options = spec.options, onSortSelected = spec.onSortSelected)
+    }
+}
+
+/** [librarySortRow] for a list, whose rows carry their own 16dp margin. */
+private fun LazyListScope.librarySortRow(spec: LibrarySortRowSpec) {
+    val sort = spec.sort ?: return
+    if (!spec.shown) return
+    item(key = LIBRARY_SORT_ROW_KEY, contentType = LIBRARY_SORT_ROW_KEY) {
+        LibrarySortRow(
+            sort = sort,
+            options = spec.options,
+            onSortSelected = spec.onSortSelected,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+    }
 }
 
 @Composable
@@ -1371,6 +1559,7 @@ private fun RandomMixHeader(
 private fun PlaylistsTabContent(
     playlists: List<Playlist>?,
     listState: LazyListState,
+    sortRow: LibrarySortRowSpec,
     onPlaylistClick: (String) -> Unit,
     /** `null` hides the "+" FAB (provider without PLAYLISTS_WRITE). */
     onCreatePlaylist: ((name: String) -> Unit)?,
@@ -1433,6 +1622,7 @@ private fun PlaylistsTabContent(
                     bottom = floatingBottomGroupContentPadding(),
                 ),
             ) {
+                librarySortRow(sortRow)
                 itemsIndexed(playlists, key = { _, playlist -> playlist.id.toString() }) { index, playlist ->
                     val entranceProgress = rememberLibraryItemEntrance(
                         key = playlist.id,
