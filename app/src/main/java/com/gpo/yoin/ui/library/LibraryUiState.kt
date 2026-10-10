@@ -74,6 +74,8 @@ sealed interface LibraryUiState {
         val canCreatePlaylists: Boolean = true,
         /** Library-only providers show saved songs without the random-mix header. */
         val canReshuffleSongs: Boolean = true,
+        /** What follows [songs]' last row: more of them, or nothing. */
+        val songsMore: LibrarySongsMore = LibrarySongsMore.None,
         val canAddToLibrary: Boolean = false,
         /** Visible inside full-screen search, above the shell's snackbar layer. */
         val libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
@@ -98,6 +100,25 @@ enum class LibraryTab {
         /** Every view that has a chip of its own. */
         val Chips: List<LibraryTab> = entries - All
     }
+}
+
+/**
+ * Songs read a page at a time
+ * ([com.gpo.yoin.data.source.ServiceFeatures.songsFromNewestAlbums]):
+ * whether more follow the rows on hand, as the list's foot shows it.
+ */
+enum class LibrarySongsMore {
+    /** The list is whole: nothing at its foot. */
+    None,
+
+    /** More to read once the list nears its end: a loading indicator at the foot. */
+    Available,
+
+    /** The next page is being read: a loading indicator. */
+    Loading,
+
+    /** The last read failed: a retry button reads it again. */
+    Failed
 }
 
 enum class LibrarySearchScope { CurrentLibrary, SpotifyGlobal, AppleMusicGlobal }

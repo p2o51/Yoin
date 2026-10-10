@@ -39,6 +39,15 @@ data class ServiceFeatures(
      */
     val favoritesAreLibrary: Boolean = false,
     /**
+     * The service lists no songs of its own to page through, so Library's
+     * Songs is its albums' songs: the most recently added album first, each
+     * in its track order, a page of albums at a time as the list scrolls
+     * (Subsonic: `getAlbumList2` type=newest, then each album). Set here, as
+     * [favoritesAreLibrary] is: [Capability.RANDOM_SONGS] stays for Home's
+     * grid and says nothing about Library.
+     */
+    val songsFromNewestAlbums: Boolean = false,
+    /**
      * Library lists whose items carry the date they joined the library
      * ([com.gpo.yoin.data.model.Album.libraryAddedAt],
      * [com.gpo.yoin.data.model.Playlist.libraryAddedAt]), so Library offers
@@ -66,6 +75,7 @@ object ServiceFeatureCatalog {
         id = MediaId.PROVIDER_SUBSONIC,
         nameRes = R.string.settings_feature_name_subsonic,
         supportsYoinCast = true,
+        songsFromNewestAlbums = true,
         // AlbumID3.created and a playlist's created.
         albumsHaveLibraryDates = true,
         playlistsHaveLibraryDates = true,

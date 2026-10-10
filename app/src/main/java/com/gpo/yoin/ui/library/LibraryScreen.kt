@@ -321,6 +321,7 @@ fun LibraryScreen(
         onClearSearch = viewModel::clearSearch,
         onRetrySearch = viewModel::retrySearch,
         onReshuffleSongs = viewModel::reshuffleSongs,
+        onLoadMoreSongs = viewModel::loadMoreSongs,
         onNavigateToSettings = onNavigateToSettings,
         onArtistClick = openArtist,
         onAlbumClick = openAlbum,
@@ -355,6 +356,8 @@ fun LibraryContent(
     onClearSearch: () -> Unit,
     onRetrySearch: () -> Unit = {},
     onReshuffleSongs: () -> Unit = {},
+    // Songs' next page, where it comes a page at a time (LibrarySongsMore).
+    onLoadMoreSongs: () -> Unit = {},
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
@@ -454,6 +457,7 @@ fun LibraryContent(
                             onClearSearch = onClearSearch,
                             onRetrySearch = onRetrySearch,
                             onReshuffleSongs = onReshuffleSongs,
+                            onLoadMoreSongs = onLoadMoreSongs,
                             onNavigateToSettings = onNavigateToSettings,
                             onArtistClick = onArtistClick,
                             onAlbumClick = onAlbumClick,
@@ -492,6 +496,7 @@ private fun LibraryContentBody(
     onClearSearch: () -> Unit,
     onRetrySearch: () -> Unit,
     onReshuffleSongs: () -> Unit,
+    onLoadMoreSongs: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
@@ -806,6 +811,8 @@ private fun LibraryContentBody(
                             onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
                             onReshuffle = onReshuffleSongs,
                             canReshuffle = state.canReshuffleSongs,
+                            more = state.songsMore,
+                            onLoadMore = onLoadMoreSongs,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Playlists -> PlaylistsTabContent(
@@ -1485,6 +1492,9 @@ private fun SongsTabContent(
     onAddSongToPlaylist: ((Track) -> Unit)?,
     onReshuffle: () -> Unit,
     canReshuffle: Boolean = true,
+    // A list read a page at a time reads on near its end; its foot shows how.
+    more: LibrarySongsMore = LibrarySongsMore.None,
+    onLoadMore: () -> Unit = {},
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -1493,6 +1503,7 @@ private fun SongsTabContent(
         return
     }
     val scope = rememberCoroutineScope()
+    LoadMoreSongsEffect(listState = listState, more = more, songCount = songs.size, onLoadMore = onLoadMore)
     Column(modifier = modifier.fillMaxSize()) {
         // The tab is a random 50-song sample, not the whole library — say so,
         // and offer a reshuffle (the only way to redraw; favorite toggles
@@ -1554,6 +1565,7 @@ private fun SongsTabContent(
                             .expressiveEntrance(entranceProgress),
                     )
                 }
+                librarySongsFoot(more = more, onRetry = onLoadMore)
             }
         }
     }

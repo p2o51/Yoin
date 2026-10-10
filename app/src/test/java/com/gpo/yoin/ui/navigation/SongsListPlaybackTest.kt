@@ -64,7 +64,8 @@ class SongsListPlaybackTest {
 
     @Test
     fun should_playTheWholeList_when_aShortListIsTappedNearItsEnd() {
-        // Subsonic's Songs tab is a random 50: none of it is cut away, whichever row is tapped.
+        // A Songs list shorter than the window (Subsonic's first page of albums, say):
+        // none of it is cut away, whichever row is tapped.
         val random = (0 until 50).map { song("s$it") }
 
         container.playSongsList(random, startIndex = 40)

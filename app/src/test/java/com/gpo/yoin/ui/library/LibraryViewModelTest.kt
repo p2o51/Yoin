@@ -30,12 +30,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -464,7 +466,8 @@ class LibraryViewModelTest {
 
         val state = viewModel.uiState.value as LibraryUiState.Content
         assertEquals(LibraryTab.Chips, state.availableTabs)
-        assertTrue(state.canReshuffleSongs)
+        // Songs is the albums' songs, no random mix to redraw.
+        assertFalse(state.canReshuffleSongs)
     }
 
     /**
@@ -610,28 +613,223 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun should_keepRandomSample_when_favoriteChangesOnSubsonicSongsTab() = runTest {
+    fun should_flipHeartInPlace_when_favoriteChangesOnSubsonicSongsTab() = runTest {
         val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
         val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, setOf(Capability.FAVORITES, Capability.RANDOM_SONGS))
         every { repository.favoriteOverrides } returns overrides
-        val sample = listOf(subsonicTrack("a"), subsonicTrack("b"))
-        coEvery { repository.getRandomSongs(size = 50) } returns sample
+        repository.stubNewestAlbums(listOf(albumWithSongs("al", "a", "b")))
         val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectTab(LibraryTab.Songs)
         advanceUntilIdle()
 
-        overrides.value = mapOf(sample.first().id to true)
+        overrides.value = mapOf(MediaId.subsonic("a") to true)
         advanceUntilIdle()
 
-        // The heart flips in place; the sample is neither re-read nor cut.
+        // The heart flips in place; the list is neither re-read nor cut.
         val songs = (viewModel.uiState.value as LibraryUiState.Content).songs.orEmpty()
-        assertEquals(sample.map(Track::id), songs.map(Track::id))
+        assertEquals(listOf("a", "b"), songs.map { it.id.rawId })
         assertTrue(songs.first().isStarred)
-        coVerify(exactly = 1) { repository.getRandomSongs(size = 50) }
+        coVerify(exactly = 1) { repository.getAlbumList("newest", size = 10, offset = 0) }
+        coVerify(exactly = 0) { repository.getRandomSongs(any()) }
         coVerify(exactly = 0) { repository.getLibrarySongs(any(), any()) }
         coVerify(exactly = 0) { repository.readCachedLikedSongs(any(), any()) }
         coVerify(exactly = 0) { repository.readCachedFollowedArtists() }
+    }
+
+    // ── Songs from the newest albums (Q9, Subsonic) ─────────────────────
+
+    @Test
+    fun should_listTheNewestAlbumsSongs_when_subsonicSongsTabOpens() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
+        repository.stubNewestAlbums(twelveAlbums())
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        // The first page: ten albums, newest first, each album's songs in its order.
+        assertEquals((1..10).flatMap { listOf("al$it-1", "al$it-2") }, state.songs.orEmpty().map { it.id.rawId })
+        assertEquals(LibrarySongsMore.Available, state.songsMore)
+        assertFalse(state.canReshuffleSongs)
+        coVerify(exactly = 1) { repository.getAlbumList("newest", size = 10, offset = 0) }
+        coVerify(exactly = 10) { repository.getAlbum(any()) }
+        coVerify(exactly = 0) { repository.getRandomSongs(any()) }
+        coVerify(exactly = 0) { repository.getLibrarySongs(any(), any()) }
+    }
+
+    @Test
+    fun should_appendTheNextAlbums_when_moreSongsAreAskedFor() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
+        repository.stubNewestAlbums(twelveAlbums())
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        viewModel.loadMoreSongs()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals((1..12).flatMap { listOf("al$it-1", "al$it-2") }, state.songs.orEmpty().map { it.id.rawId })
+        // Two albums on the last page: the end, and nothing at the foot.
+        assertEquals(LibrarySongsMore.None, state.songsMore)
+
+        viewModel.loadMoreSongs()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { repository.getAlbumList("newest", size = 10, offset = 10) }
+        coVerify(exactly = 2) { repository.getAlbumList("newest", size = 10, offset = any()) }
+    }
+
+    @Test
+    fun should_readOnePageAtATime_when_moreIsAskedForAgainWhileReading() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
+        val secondPage = CompletableDeferred<Unit>()
+        repository.stubNewestAlbums(twelveAlbums(), beforePage = { offset -> if (offset == 10) secondPage.await() })
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        viewModel.loadMoreSongs()
+        runCurrent()
+        assertEquals(LibrarySongsMore.Loading, (viewModel.uiState.value as LibraryUiState.Content).songsMore)
+        viewModel.loadMoreSongs()
+        viewModel.loadMoreSongs()
+        secondPage.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(24, (viewModel.uiState.value as LibraryUiState.Content).songs.orEmpty().size)
+        coVerify(exactly = 1) { repository.getAlbumList("newest", size = 10, offset = 10) }
+    }
+
+    @Test
+    fun should_offerRetryAndReadThePageAgain_when_thePageFails() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
+        var secondPageFails = true
+        repository.stubNewestAlbums(
+            twelveAlbums(),
+            beforePage = { offset -> if (offset == 10 && secondPageFails) error("server down") }
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        viewModel.loadMoreSongs()
+        advanceUntilIdle()
+        val failed = viewModel.uiState.value as LibraryUiState.Content
+        // The rows already read stay; the foot offers a retry.
+        assertEquals(LibraryTab.Songs, failed.selectedTab)
+        assertEquals(20, failed.songs.orEmpty().size)
+        assertEquals(LibrarySongsMore.Failed, failed.songsMore)
+
+        secondPageFails = false
+        viewModel.loadMoreSongs()
+        advanceUntilIdle()
+
+        val retried = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals((1..12).flatMap { listOf("al$it-1", "al$it-2") }, retried.songs.orEmpty().map { it.id.rawId })
+        assertEquals(LibrarySongsMore.None, retried.songsMore)
+        coVerify(exactly = 2) { repository.getAlbumList("newest", size = 10, offset = 10) }
+    }
+
+    @Test
+    fun should_cancelThePageBeingRead_when_libraryRefreshes() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
+        val secondPage = CompletableDeferred<Unit>()
+        var secondPageCancelled = false
+        repository.stubNewestAlbums(twelveAlbums(), beforePage = { offset ->
+            if (offset == 10) {
+                try {
+                    secondPage.await()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    secondPageCancelled = true
+                    throw e
+                }
+            }
+        })
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+        viewModel.loadMoreSongs()
+        runCurrent()
+
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertTrue(secondPageCancelled)
+        val refreshed = viewModel.uiState.value as LibraryUiState.Content
+        assertNull(refreshed.songs)
+        assertEquals(LibrarySongsMore.None, refreshed.songsMore)
+
+        // Songs starts again from its first page.
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+        val reopened = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(20, reopened.songs.orEmpty().size)
+        assertEquals(LibrarySongsMore.Available, reopened.songsMore)
+        coVerify(exactly = 2) { repository.getAlbumList("newest", size = 10, offset = 0) }
+    }
+
+    @Test
+    fun should_dropTheOldAccountsPage_when_profileSwitchesWhileReading() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
+        val profileIds = MutableStateFlow<String?>("first")
+        every { repository.currentProfileId() } answers { profileIds.value }
+        every { repository.currentProfileIdFlow } returns profileIds
+        val secondPage = CompletableDeferred<Unit>()
+        repository.stubNewestAlbums(twelveAlbums(), beforePage = { offset ->
+            if (offset == 10) withContext(NonCancellable) { secondPage.await() }
+        })
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+        viewModel.loadMoreSongs()
+        runCurrent()
+
+        profileIds.value = "second"
+        advanceUntilIdle()
+        // The old account's page arrives anyway: it must not land.
+        secondPage.complete(Unit)
+        advanceUntilIdle()
+
+        val switched = viewModel.uiState.value as LibraryUiState.Content
+        assertNull(switched.songs)
+        assertEquals(LibrarySongsMore.None, switched.songsMore)
+        viewModel.loadMoreSongs()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { repository.getAlbumList("newest", size = 10, offset = 10) }
+    }
+
+    @Test
+    fun should_askForNotesAFewHundredAtATime_when_songsOutgrowOneQuery() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
+        // Sixty albums of ten: six hundred songs once three pages are read.
+        repository.stubNewestAlbums((1..60).map { a -> albumWithSongs("al$a", *Array(10) { "al$a-$it" }) })
+        val asked = mutableListOf<Int>()
+        every { repository.observeTracksWithNotes(any()) } answers {
+            val ids = firstArg<Collection<MediaId>>()
+            asked += ids.size
+            flowOf(ids.filterTo(HashSet()) { it.rawId == "al1-0" || it.rawId == "al60-9" })
+        }
+        val viewModel = libraryViewModel(repository)
+        backgroundScope.launch { viewModel.notedSongIds.collect {} }
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+        repeat(5) {
+            viewModel.loadMoreSongs()
+            advanceUntilIdle()
+        }
+
+        assertEquals(600, (viewModel.uiState.value as LibraryUiState.Content).songs.orEmpty().size)
+        assertEquals(setOf("subsonic:al1-0", "subsonic:al60-9"), viewModel.notedSongIds.value)
+        assertTrue(asked.all { it <= 500 })
     }
 
     @Test
@@ -1190,6 +1388,25 @@ class LibraryViewModelTest {
             neoDbSyncService = mockk(relaxed = true),
             repositoryScope = backgroundScope,
         )
+    }
+
+    /** Twelve albums, newest first, two songs each. */
+    private fun twelveAlbums(): List<Album> = (1..12).map { albumWithSongs("al$it", "al$it-1", "al$it-2") }
+
+    private fun albumWithSongs(rawId: String, vararg songs: String): Album =
+        album(rawId, rawId).copy(tracks = songs.map(::subsonicTrack))
+
+    /**
+     * Subsonic's newest albums, a page at a time ([NewestAlbumSongsPager]), and
+     * each album as its page opens it. [beforePage] runs before a page is read.
+     */
+    private fun YoinRepository.stubNewestAlbums(albums: List<Album>, beforePage: suspend (offset: Int) -> Unit = {}) {
+        coEvery { getAlbumList("newest", size = 10, offset = any()) } coAnswers {
+            val offset = thirdArg<Int>()
+            beforePage(offset)
+            albums.drop(offset).take(secondArg<Int>())
+        }
+        coEvery { getAlbum(any()) } coAnswers { albums.firstOrNull { it.id == firstArg<MediaId>() } }
     }
 
     private fun spotifyRepository(): YoinRepository = repositoryFor(
