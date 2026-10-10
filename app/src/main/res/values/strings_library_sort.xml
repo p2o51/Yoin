@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Library's views and orders (Spotify's Your Library). -->
+    <string name="library_cd_clear_filter">Clear filter</string>
+    <string name="library_empty_all">Your library is empty</string>
+    <string name="library_filter_by_you">By You</string>
+
+    <string name="library_sort_action">Sort</string>
+    <string name="library_sort_recents">Recents</string>
+    <string name="library_sort_recently_added">Recently added</string>
+    <string name="library_sort_alphabetical">Alphabetical</string>
+    <string name="library_sort_creator">Creator</string>
+</resources>

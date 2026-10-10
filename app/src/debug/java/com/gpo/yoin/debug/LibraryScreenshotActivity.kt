@@ -14,19 +14,32 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.library.LibraryContent
+import com.gpo.yoin.ui.library.LibrarySort
+import com.gpo.yoin.ui.library.LibrarySorter
 import com.gpo.yoin.ui.library.LibraryTab
 import com.gpo.yoin.ui.library.LibraryUiState
+import com.gpo.yoin.ui.library.libraryNameOrder
+import com.gpo.yoin.ui.library.librarySortOptions
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
+import java.util.Locale
 
 /**
  * Debug-only launcher for visual QA of the Library page with fixed fake data.
- * Not exported in release. Pick the tab via the "tab" string extra:
+ * Not exported in release. Pick the view via the "tab" string extra (All when
+ * absent):
  *   adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.LibraryScreenshotActivity --es tab Albums
+ * Chips, the ✕ and the sort menu work on the fake data (no network), so the
+ * reorder springs can be watched.
  */
 class LibraryScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,28 +47,48 @@ class LibraryScreenshotActivity : ComponentActivity() {
         enableYoinEdgeToEdge()
         val tab = intent.getStringExtra("tab")
             ?.let { raw -> LibraryTab.entries.firstOrNull { it.name == raw } }
-            ?: LibraryTab.Albums
+            ?: LibraryTab.All
+        val initial = fakeState(tab)
         setContent {
             // 对齐生产环境：QA 台也提供窗口信息，Medium/Wide 分支才可验。
             val windowInfo = rememberYoinWindowInfo()
+            var state by remember { mutableStateOf(initial.sorted()) }
             CompositionLocalProvider(LocalYoinWindowInfo provides windowInfo) {
-            YoinTheme {
-                LibraryContent(
-                    uiState = fakeState(tab),
-                    onTabSelected = {},
-                    onSearchQueryChanged = {},
-                    onClearSearch = {},
-                    onNavigateToSettings = {},
-                    onArtistClick = {},
-                    onAlbumClick = {},
-                    onPlaylistClick = {},
-                    onSongClick = {},
-                    onRetry = {},
-                    coverArtUrlBuilder = null,
-                )
-            }
+                YoinTheme {
+                    LibraryContent(
+                        uiState = state,
+                        onTabSelected = { picked -> state = state.copy(selectedTab = picked) },
+                        onSortSelected = { view, sort ->
+                            state = state.copy(sorts = state.sorts + (view to sort)).sorted()
+                        },
+                        onSearchQueryChanged = {},
+                        onClearSearch = {},
+                        onNavigateToSettings = {},
+                        onArtistClick = {},
+                        onAlbumClick = {},
+                        onPlaylistClick = {},
+                        onSongClick = {},
+                        onRetry = {},
+                        coverArtUrlBuilder = null
+                    )
+                }
             }
         }
+    }
+
+    /** The fake lists in each view's order, as the ViewModel would hand them over. */
+    private fun LibraryUiState.Content.sorted(): LibraryUiState.Content {
+        val sorter = LibrarySorter(libraryNameOrder())
+        fun sortOf(view: LibraryTab) = sorts[view] ?: LibrarySort.Recents
+        val artists = artists.orEmpty()
+        val albums = albums.orEmpty()
+        val playlists = playlists.orEmpty()
+        return copy(
+            artists = sorter.artists(artists, sortOf(LibraryTab.Artists)),
+            albums = sorter.albums(albums, sortOf(LibraryTab.Albums)),
+            playlists = sorter.playlists(playlists, sortOf(LibraryTab.Playlists)),
+            allItems = sorter.all(artists, albums, playlists, sortOf(LibraryTab.All))
+        )
     }
 
     private fun swatchCover(name: String, color: Int): CoverRef {
@@ -120,6 +153,8 @@ class LibraryScreenshotActivity : ComponentActivity() {
                 durationSec = 2000 + i * 60,
                 year = 2020 + (i % 6),
                 genre = null,
+                // Out of name order, so each sort visibly moves the covers.
+                libraryAddedAt = libraryDate(month = 1 + (i * 5) % 12, day = 1 + (i * 7) % 28)
             )
         }
         val artists = listOf("Hannah Jadagu", "Vitesse X", "秦凡淇", "hemlocke springs").mapIndexed { i, name ->
@@ -181,6 +216,15 @@ class LibraryScreenshotActivity : ComponentActivity() {
             searchQuery = "",
             searchResults = null,
             isSearching = false,
+            sortOptions = LibraryTab.entries
+                .associateWith { view -> librarySortOptions(view, ServiceFeatureCatalog.subsonic) }
+                .filterValues { it.isNotEmpty() },
+            sorts = LibraryTab.entries
+                .associateWith { LibrarySort.Recents }
+                .filterKeys { it != LibraryTab.Songs && it != LibraryTab.Favorites }
         )
     }
+
+    private fun libraryDate(month: Int, day: Int): String =
+        String.format(Locale.ROOT, "2026-%02d-%02dT00:00:00Z", month, day)
 }

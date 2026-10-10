@@ -26,6 +26,8 @@ import com.gpo.yoin.data.integration.neodb.NeoDBApi
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.integration.neodb.NeoDbTokenStore
 import com.gpo.yoin.data.remote.GeminiService
+import com.gpo.yoin.data.repository.LibraryRecentsSource
+import com.gpo.yoin.data.repository.RoomLibraryRecentsSource
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
@@ -39,6 +41,10 @@ import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
+import com.gpo.yoin.ui.library.LibraryOpenStore
+import com.gpo.yoin.ui.library.LibrarySortStore
+import com.gpo.yoin.ui.library.SharedPrefsLibraryOpenStore
+import com.gpo.yoin.ui.library.SharedPrefsLibrarySortStore
 import com.gpo.yoin.ui.memories.AlbumMemoryTitleResolver
 import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
 import com.gpo.yoin.ui.theme.PlaybackThemeState
@@ -486,6 +492,23 @@ class AppContainer(private val context: Context) {
 
     val homeLayoutStore: HomeLayoutStore by lazy {
         HomeLayoutStore(database.homeLayoutDao())
+    }
+
+    /**
+     * Library's chosen order per profile and view: this device only, out of
+     * Room and the cloud sync (Auto Backup skips it on Android 12+ only).
+     */
+    val librarySortStore: LibrarySortStore by lazy { SharedPrefsLibrarySortStore(context) }
+
+    /**
+     * What was opened from Library, by the id Library lists it under (Recents):
+     * on this device, out of Room and the cloud sync.
+     */
+    val libraryOpenStore: LibraryOpenStore by lazy { SharedPrefsLibraryOpenStore(context) }
+
+    /** Library's Recents: the visits and plays already in Room, nothing new stored. */
+    val libraryRecentsSource: LibraryRecentsSource by lazy {
+        RoomLibraryRecentsSource(database.activityEventDao(), database.playHistoryDao())
     }
 
     val repository: YoinRepository by lazy {

@@ -90,6 +90,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - 带底色的卡片内的文字从点阵里抬出、整块画在点阵之上（`seamFade` 自动处理）；嵌在另一个 `seamDissolve` 里的元素交给外层统一拆点。
 - Now Playing 升起时底部网点场随栏的显隐目标淡出（点长回整图），收起后长回来。
 - API 33 以下走 Path 兜底，几何与着色器一致，但读不到像素，所以不做按亮度让位。
+- 快速滚动条（资料库的把手，2026-10-10）的跳转走 `requestScrollToItem`，不经过嵌套滚动：潮线相位、底部网点场的无序度和余韵都不动，内容直接换位。不为它伪造滚动速度，否则快速换位时的点阵会把密恐感带回来。
 
 ### 图标：Yoin Symbols
 
@@ -352,9 +353,25 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 
 ### 📚 Library
 
-- 分类浏览：歌手 / 专辑 / 歌曲 / 收藏
-- 播放列表浏览在第二期加入（依赖播放列表 CRUD）
-- 普通点击底部 Library：进入当前 profile 的 Library，展示 saved artists / albums / playlists / songs
+- 分类浏览：歌单 / 歌手 / 专辑 / 歌曲 / 收藏。收藏标签只在「收藏」和「资料库」是两回事的服务上出现（Subsonic）。Spotify 的资料库本身就是收藏：喜欢一首歌就是把它加进 Liked Songs，专辑是保存的，歌手是关注的。所以 Spotify 下不显示收藏标签（2026-10-10 拍板），由 `ServiceFeatures.favoritesAreLibrary` 显式标记，不从能力组合推断。Apple Music 没有收藏能力，也不显示
+- **歌单的 By You 子胶囊**（2026-10-10 Q8 / D3，Spotify 式）：开着「歌单」时，紧跟它用空间弹簧展开一颗 By You（中文「我创建的」），后面的胶囊跟着同一个弹簧让位；它是叠在歌单视图上的开关，不是新视图，点它只筛歌单列表，All 和搜索不受影响。只有已加载的歌单里既有自己建的、也有别人的才出现，所以永远不会筛出空列表；归属不明的歌单在 By You 下不显示。展开时把自己滚进可视区并避开两端的渐隐：「歌单」是第一颗胶囊，手机和平板的胶囊行一般放得下；放不下的是窄 Wide 头排（详情栏把 shell 列挤到 840dp 左右），从 All 进来时 ✕ 还在同一组帧里展开、把这一排再挤窄，所以展开期间跟着这一排的宽度一起滚；行被滚到「歌单」贴边时同样会滚。落定以后这一排归用户，之后再改宽度或拖动都不会把它拉回来。状态在 ViewModel：切胶囊、刷新都保留，切账号复位，不持久化；列表不再混合时胶囊收起、列表回到全部，再混合时按原来的开关恢复。读屏念成复选框。归属是中性 `Playlist.ownedByMe: Boolean?`，和决定能否编辑的 `canWrite` 分开，不升库、不加 Capability：Spotify 比 `owner.id` 和当前用户 id（同步缓存只存 `canWrite`，两者同一个比较，读缓存时就当作归属；你参与协作但别人建的歌单不算）；Apple Music 只认资料库歌单的 `canEdit`（Apple 不给归属字段，系统生成的 Favorites Mix、Purchased 是 false；目录歌单记未知；`canWrite` 仍恒为 false）；Subsonic 比 `owner` 和登录名、不分大小写，没有 owner 记未知（单用户服务器全是自己的，胶囊不出现；Navidrome 的智能歌单默认归第一个管理员，所以管理员账号的 By You 里也有它们）。Spotify 仍最多同步 200 个歌单，By You 只在这批里筛
+- **All 和切换胶囊**（2026-10-10 Q12/Q13，Spotify Your Library 模型）：顶部一行胶囊「歌单 / 歌手 / 专辑 / 歌曲」，Subsonic 另有「收藏」。不开任何胶囊就是 **All**（默认）：歌单、歌手、专辑混在同一张网格里，歌手圆形、专辑和歌单方形（同歌手 / 专辑网格的格子，列数随宽度），不放歌曲。开着某个胶囊时，前面用空间弹簧展开一个 ✕；点 ✕ 或再点一次那个胶囊回到 All。选中状态在 ViewModel 里，切账号回到 All。Library 是根页面，系统返回不经过胶囊。冷启动只读歌手（和以前一样）；All 的专辑和歌单在 Library 上屏时才读，哪一类先到就先进网格（冷启动读到的歌手立刻就在），晚到的用条目弹簧挪进来，不等最慢的那一类；什么都还没到时才显示加载，全部到齐仍为空才显示空状态。Spotify 读本地同步缓存，不触发同步：专辑和歌单胶囊随后沿用 All 读到的这批，不再做新鲜度检查（被限流期间有意如此），要等冷启动按 TTL 同步、切账号或资料库变更才重读。改过歌单（加歌、新建、改名、删除）会把整个同步缓存标成过期，所以 Spotify 的 All 不为此重读（那会同步整个资料库），只有「歌单」胶囊和以前一样新鲜重读；Subsonic 和 Apple Music 的 All 照常重读歌单
+- **排序**（同上）：列表第一行，随列表滚走。左边是当前排序名加排序符号，点开是 YoinDropdownMenu，正在用的一项带勾；换排序时条目用 spatialSpring 移到新位置。只在已加载的集合里排，Spotify 每类仍最多 200 条
+  - Recents（最近）：Yoin 本地的访问和播放记录，按 profile + provider 取每个歌手、专辑、歌单最近一次的时间。来源是 activity_events 的 VISITED / PLAYED，加上 play_history 里每张专辑最后一次播放。没有记录的按 Recently added 排在后面，再没有日期的按名字。新设备没有记录时就等于 Recently added。另外在 Library 里点开的歌手、专辑、歌单也记一笔，用 Library 列出它的那个 id，存在本机 SharedPreferences（`yoin_library_opens`，每个 profile × 服务保留最新 300 条）：Apple Music 的 recently-added 列的是资料库专辑 id（`library:l.…`），详情页按解析出的目录专辑 id 记访问和播放，Library 对不上，靠这一笔对上；歌单页本身不记访问（记进 activity_events 会出现在首页动态里），从 Library 点开的歌单靠这一笔进 Recents。仍然对不上的：从首页、搜索打开的歌单只有「从歌单播放」留下记录；Apple 资料库专辑从首页打开或在别处播放，记录是目录 id，Library 认不出
+  - All 里歌手没有入库时间（三家都不给），就取它在已加载专辑里最新一张的入库时间（先按专辑的歌手 id，没有 id 按名字），这样 Recently added 和 Recents 的兜底里歌手和专辑、歌单混排，而不是全部歌手排在最后。专辑按最近加入取前 500 张，歌手只要有专辑在里面，最新那张一定在。歌手视图不借专辑的时间
+  - Recently added（最近添加）：各服务的入库时间 `libraryAddedAt`。Subsonic 专辑用 `created`、歌单用 `created`；Spotify 已存专辑用 `added_at`；Apple 资料库专辑和歌单用 `dateAdded`。Subsonic 的 `addedAt` 仍是收藏时间，留给首页 Recently Added
+  - Alphabetical（字母顺序）：快速滚动条的字母表（`LibraryIndex`：系统 ICU，跟随 app 语言），排序和分段用同一个 collator，所以每个字母只有一段：拉丁字母、日文假名行、韩文初声各自分段，数字和符号归入末尾的「#」；API 29+ 汉字按拼音排进字母段（周杰伦在 Z），API 26–28 只在 app 语言是中文时按拼音，否则汉字排在字母、假名、韩文之后、末尾「#」之前。Subsonic 跳过开头的冠词（服务器默认的 The / El / La / Los / Las / Le / Les / Os / As / O / A）。歌单没有滚动条，也用这套顺序，A–Z 在每个视图里一样
+  - Creator（创建者）：专辑按歌手，歌单按创建者，歌手按自己的名字
+  - 每个视图只露出做得到的：All 和专辑四种都有；歌手只有 Recents 和 Alphabetical（三家都没有关注或入库时间）；歌单有 Recents、Recently added、Alphabetical，但 Spotify 的 `/me/playlists` 没有日期，所以 Spotify 的歌单没有 Recently added；歌曲和收藏没有排序行（Spotify 的歌曲就是 Liked Songs 的加入顺序）。由 `ServiceFeatures.albumsHaveLibraryDates` / `playlistsHaveLibraryDates` / `sortIgnoresArticles` 显式标记
+  - **快速滚动条**（2026-10-10 U2 / D2 / Q13）：All、歌手、专辑的网格贴边一个小把手（`YoinFastScroller`，接线在 `LibraryFastScroller.kt`），歌单、歌曲、收藏没有。刻度跟随当前排序（`LibraryScrollIndexer`）：Alphabetical 是名字的首字母；Creator 是创建者的首字母，没有创建者的在末尾「#」（顺序本来就按创建者的字母排，它的首字母是唯一和网格对得上的索引，「R」就落在 Radiohead 的专辑上；标题首字母在这个顺序里是散的）；Recently added 是入库时间线（跨度不到两年按月，单段超过约 60% 或缺日期超过 20% 时不分段）；Recents 只有把手。跳到一段时，含这一段第一项的那一行停在顶部。轨道上沿 = 网格顶 + 8dp，下沿让出浮动栏（同网格底部留白）；把手贴页面自己的 end 边：Compact 以上越过 16dp 页边贴到列边，Wide 分栏时停在 shell 列边、不进 24dp 槽，RTL 在左边；切换视图的交叉淡化不裁切（`SizeTransform(clip = false)`，各视图同尺寸），把手在淡出途中仍然完整。触摸区 32×64dp（图形 24×48dp），只有把手可见时接收触摸，隐藏后点按全部穿透：Compact 以上整块落在 32dp 页边里，不压封面；Compact 和手机横屏页边只有 16dp，把手可见时最后一列封面最右 16dp（其中 8dp 在图形之外）、把手所在的 64dp 高度内的点按归把手。不放宽到 48dp，那样会压住封面 32dp。跳转不经过嵌套滚动（见溶解一节）；每次跳转把分栏开合用的宽度锚点设到这一行起始的那一段（没有就是这一行），列数变了这一段仍在顶部
+  - 偏好按 profile × 视图存在本机 SharedPreferences（`yoin_library_sort`），不进 Room 和云同步。自动备份只在 Android 12+ 排除它（data_extraction_rules.xml 只列要备份的）；Android 8–11 不读这份规则，manifest 也没有 fullBackupContent，所有 SharedPreferences 都会进备份，这份也一样（键是 profile id，恢复后跟着数据库一起，无害）
+- 普通点击底部 Library：进入当前 profile 的 Library，展示 saved artists / albums / playlists / songs。Spotify 下：
+  - 歌曲 = Liked Songs，按加入时间倒序，新喜欢的在最上面；同一秒加入的几首按 Spotify 自己列出的顺序，不按标题；在别处取消喜欢，这一行淡出
+  - 点一行以 Liked Songs 起播（`spotify:collection:tracks` + `offset.uri`）：Spotify 从这首往下播它自己的收藏，不动用户的队列
+  - 歌手只放关注的歌手；在歌手页关注或取消关注，列表随即增减；资料库搜索仍然搜得到已存专辑和喜欢歌曲的歌手
+  - 心形和关注改动列表时只重读本地同步缓存，不触发同步请求
+  - 每类和以前一样最多同步最近 200 条
+- **Subsonic 的歌曲**（2026-10-10 Q9）：服务器没有能分页的「全部歌曲」，所以歌曲 = 各专辑的曲目。专辑按加入资料库的时间倒序（`getAlbumList2` type=newest，一页 10 张），专辑内按专辑页的曲目顺序（逐碟；`Track` 没有碟号，只按曲目号排会把多碟专辑交错）；展开专辑走 `getAlbum`，和专辑页共用详情缓存，同时最多开 3 张，按专辑顺序拼接，同一首只出现一次。代价：展开过的专辑都写进详情缓存，磁盘那份是全部账号共用的约 24MB LRU，一路滑下去会把很久没碰的详情（含其他账号的）挤出磁盘，挤掉的再打开要走网络。滑到离底部约一屏时读下一页，这是 Library 第一个增量列表：同时只有一次读取，刷新或切账号时取消；底部只放一个 YoinLoadingIndicator，读失败换成一个重试图标按钮（不加文字），到底什么都不放。一张专辑打不开，这一页算失败；重试时它再失败就跳过它，不卡住后面的专辑（首页那一页失败时，再点一次歌曲 chip 就是重试）。滑动期间服务器的专辑表会变：下一页从上一页末尾往回多读 5 张，接在已读过的最后一张后面，所以期间删掉不超过 5 张不会漏读；期间新加的专辑（在最上面）不插进列表中间，刷新后出现在顶部。不再是随机样本，所以没有「随机歌曲 / 换一批」标题行；首页的随机歌曲不受影响。点一行从这首起整表播放，取它周围最多 100 首（`startWindowQueue`），不带 context。由 `ServiceFeatures.songsFromNewestAlbums` 显式标记。Apple Music 的歌曲维持原样：资料库曲目，字母序，最多 500 首
 - Library 内普通搜索：默认 scope 为 Current Library，只搜索当前 profile 已保存内容
 - 长按底部 Library：支持目录搜索的 profile 打开搜索框并默认 scope 为该服务目录（Spotify：`Search Spotify`、Spotify / Library；Apple Music：`Search Apple Music`、Apple Music / Library）；Subsonic 打开 Current Library 搜索。Apple Music 的 Library scope 调用个人资料库搜索接口，歌曲标签读取已加入资料库的歌曲，不用随机歌曲代替
 - 右上角 ⚙️ 设置入口

@@ -18,10 +18,17 @@ interface SpotifyLibraryCacheDao {
     @Upsert
     suspend fun upsertSyncMeta(meta: SpotifyLibrarySyncMeta)
 
+    /**
+     * Liked Songs' own order: newest like first, and likes in the same second
+     * as Spotify lists them. A sync inserts the saved tracks in the order
+     * `/me/tracks` returns them, so within one `addedAt` the row id is that
+     * order — a title tie-break would make Library's next song a different
+     * one from the next song Spotify plays from the collection.
+     */
     @Query(
         "SELECT * FROM spotify_library_track_cache " +
             "WHERE profileId = :profileId AND cachedAt >= :minCachedAt " +
-            "ORDER BY addedAt DESC, title COLLATE NOCASE ASC",
+            "ORDER BY addedAt DESC, rowid ASC",
     )
     suspend fun getFreshTracks(
         profileId: String,
@@ -106,6 +113,18 @@ interface SpotifyLibraryCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylists(items: List<SpotifyLibraryPlaylistCache>)
+
+    @Query(
+        "SELECT * FROM spotify_library_artist_cache " +
+            "WHERE profileId = :profileId AND artistId = :artistId LIMIT 1"
+    )
+    suspend fun getArtist(profileId: String, artistId: String): SpotifyLibraryArtistCache?
+
+    @Upsert
+    suspend fun upsertArtist(artist: SpotifyLibraryArtistCache)
+
+    @Query("DELETE FROM spotify_library_artist_cache WHERE profileId = :profileId AND artistId = :artistId")
+    suspend fun deleteArtist(profileId: String, artistId: String)
 
     @Query("DELETE FROM spotify_library_track_cache WHERE profileId = :profileId AND trackId = :trackId")
     suspend fun deleteTrack(profileId: String, trackId: String)

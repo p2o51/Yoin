@@ -68,6 +68,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
+import com.gpo.yoin.data.source.spotify.toSpotifyLibraryArtistCache
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
 import com.gpo.yoin.data.source.spotify.toTrack
 import com.gpo.yoin.perf.YoinPerf
@@ -682,23 +683,42 @@ class YoinRepository(
 
     // ── Artists ────────────────────────────────────────────────────────
 
+    /**
+     * The Library's Artists. On Spotify only the followed ones, as in its own
+     * library: the cache also holds the artists of saved albums and liked
+     * songs, which the saved-library search still reads
+     * ([getSpotifyLocalSearchSnapshot]).
+     */
     suspend fun getArtists(): List<ArtistIndex> {
         if (isSpotifyActive()) {
             val source = requireSpotifySource()
-            val profileId = spotifyProfileId(source)
             ensureSpotifyLibraryFresh(source).getOrThrow()
-            val artists = spotifyCoordinator().readArtists(profileId)
-            return artists
-                .filter { artist -> artist.name.isNotBlank() }
-                .sortedBy { artist -> artist.name.lowercase() }
-                .groupBy { artist ->
-                    artist.name.firstOrNull()?.uppercaseChar()?.takeIf(Char::isLetter)?.toString() ?: "#"
-                }
-                .toSortedMap()
-                .map { (name, grouped) -> ArtistIndex(name = name, artists = grouped) }
+            return readSpotifyFollowedArtists(spotifyProfileId(source))
         }
         return requireSource().library().getArtists()
     }
+
+    /**
+     * Spotify's followed artists as the synced cache holds them now: no
+     * freshness check, so never a request. A follow or unfollow files its row
+     * before it publishes its override ([setArtistFollowed]), so a re-read on
+     * that override sees it. Null off Spotify, whose Artists isn't a cached list.
+     */
+    suspend fun readCachedFollowedArtists(): List<ArtistIndex>? {
+        if (!isSpotifyActive()) return null
+        return readSpotifyFollowedArtists(spotifyProfileId(requireSpotifySource()))
+    }
+
+    private suspend fun readSpotifyFollowedArtists(profileId: String): List<ArtistIndex> =
+        spotifyCoordinator().readArtists(profileId)
+            // A cached artist's isStarred is its isFollowed column.
+            .filter { artist -> artist.isStarred && artist.name.isNotBlank() }
+            .sortedBy { artist -> artist.name.lowercase() }
+            .groupBy { artist ->
+                artist.name.firstOrNull()?.uppercaseChar()?.takeIf(Char::isLetter)?.toString() ?: "#"
+            }
+            .toSortedMap()
+            .map { (name, grouped) -> ArtistIndex(name = name, artists = grouped) }
 
     suspend fun getArtist(id: MediaId): ArtistDetail? = loadCachedDetail(
         kind = "artist",
@@ -720,8 +740,39 @@ class YoinRepository(
     suspend fun searchCurrentLibrary(query: String): SearchResults =
         requireSource().library().searchLibrary(query)
 
-    suspend fun getLibrarySongs(size: Int = 100, offset: Int = 0): List<Track> =
-        requireSource().library().getLibrarySongs(size, offset)
+    /**
+     * The Library's Songs, [size] from [offset]. On Spotify the liked songs
+     * from the synced cache — SpotifyMusicSource has no list of its own — in
+     * Liked Songs' own order (newest like first, same-second likes as Spotify
+     * lists them; the cache's read keeps it), so a row can start that
+     * collection at itself.
+     */
+    suspend fun getLibrarySongs(size: Int = 100, offset: Int = 0): List<Track> {
+        if (isSpotifyActive()) {
+            val source = requireSpotifySource()
+            ensureSpotifyLibraryFresh(source).getOrThrow()
+            return readSpotifyLikedSongs(spotifyProfileId(source), size, offset)
+        }
+        return requireSource().library().getLibrarySongs(size, offset)
+    }
+
+    /**
+     * [getLibrarySongs] on Spotify as the synced cache holds it now: no
+     * freshness check, so never a request — a heart's re-read must not set
+     * off a library sync. A like or unlike files its row before it publishes
+     * its override, so a re-read on that override sees it. Null off Spotify,
+     * whose Songs isn't a cached list.
+     */
+    suspend fun readCachedLikedSongs(size: Int = 100, offset: Int = 0): List<Track>? {
+        if (!isSpotifyActive()) return null
+        return readSpotifyLikedSongs(spotifyProfileId(requireSpotifySource()), size, offset)
+    }
+
+    private suspend fun readSpotifyLikedSongs(profileId: String, size: Int, offset: Int): List<Track> =
+        spotifyCoordinator()
+            .readTracks(profileId)
+            .drop(offset.coerceAtLeast(0))
+            .take(size.coerceAtLeast(0))
 
     // ── Favorites ──────────────────────────────────────────────────────
 
@@ -751,8 +802,16 @@ class YoinRepository(
      * Spotify the follow endpoint, not the saved-tracks library). Optimistic via
      * [favoriteOverrides]; invalidates the cached artist detail on success so the
      * follow heart isn't served stale on re-open.
+     *
+     * On Spotify, Library's Artists are the followed ones, read from the synced
+     * cache: the artist's row is filed there first, as a like files its track
+     * (an artist not cached yet is filed from [artist]), and put back if the
+     * write fails. No request beyond the follow itself.
      */
-    suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> {
+    suspend fun setArtistFollowed(id: MediaId, followed: Boolean, artist: ArtistDetail? = null): Result<Unit> {
+        if (id.provider == MediaId.PROVIDER_SPOTIFY && isSpotifyActive()) {
+            return setSpotifyArtistFollowed(id, followed, artist)
+        }
         _favoriteOverrides.value = _favoriteOverrides.value + (id to followed)
         return requireSource().writeActions().setArtistFollowed(id, followed)
             .onSuccess {
@@ -762,6 +821,38 @@ class YoinRepository(
             .onFailure {
                 _favoriteOverrides.value = _favoriteOverrides.value - id
             }
+    }
+
+    private suspend fun setSpotifyArtistFollowed(id: MediaId, followed: Boolean, artist: ArtistDetail?): Result<Unit> {
+        // Bound once, before any suspension, as setSpotifyFavorite does.
+        val source = requireSpotifySource()
+        val profileId = spotifyProfileId(source)
+        val dao = database.spotifyLibraryCacheDao()
+        val mutex = favoriteMutexes[(id.hashCode() and Int.MAX_VALUE) % favoriteMutexes.size]
+        return mutex.withLock {
+            val existing = dao.getArtist(profileId, id.rawId)
+            val filed = existing?.copy(isFollowed = followed)
+                ?: artist?.takeIf { followed }?.let { detail ->
+                    com.gpo.yoin.data.model.Artist(
+                        id = id,
+                        name = detail.name,
+                        albumCount = detail.albumCount,
+                        coverArt = detail.coverArt,
+                        isStarred = true
+                    ).toSpotifyLibraryArtistCache(profileId, cachedAt = clock())
+                }
+            filed?.let { row -> dao.upsertArtist(row) }
+            _favoriteOverrides.value = _favoriteOverrides.value + (id to followed)
+            source.writeActions().setArtistFollowed(id, followed)
+                .onSuccess { invalidateArtistDetail(id) }
+                .onFailure {
+                    when {
+                        existing != null -> dao.upsertArtist(existing)
+                        filed != null -> dao.deleteArtist(profileId, id.rawId)
+                    }
+                }
+                .also { _favoriteOverrides.value = _favoriteOverrides.value - id }
+        }
     }
 
     suspend fun getStarred(): Starred {

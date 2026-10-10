@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.library
 
 import android.content.res.Resources
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -15,14 +16,24 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.repository.LibraryRecents
+import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -38,15 +49,32 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
     private val repository: YoinRepository,
     private val onPlaylistMutated: () -> Unit = {},
+    private val sortStore: LibrarySortStore = LibrarySortStore.InMemory(),
+    private val recentsSource: LibraryRecentsSource = LibraryRecentsSource.None,
+    /** What was opened from Library, by the id Library lists it under ([recordOpened]). */
+    private val openStore: LibraryOpenStore = LibraryOpenStore.InMemory(),
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** Where the lists are sorted: off the main thread (tests pass their own dispatcher). */
+    private val sortDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** A fresh name order for each sort pass: an ICU collator isn't thread-safe ([libraryNameOrder]). */
+    private val nameOrder: () -> Comparator<String> = { libraryNameOrder() },
+    /**
+     * The fast scroller's alphabet and calendar, fresh for each sort pass like
+     * [nameOrder] ([LibraryScrollIndex.icu]). Off device android.icu is a
+     * stub: a pass that cannot index keeps the sorter's order, handle only.
+     */
+    private val scrollIndex: () -> LibraryScrollIndex = { LibraryScrollIndex.icu() }
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -73,8 +101,41 @@ class LibraryViewModel(
     private var cachedArtists: List<Artist>? = null
     private var cachedAlbums: List<Album>? = null
     private var cachedSongs: List<Track>? = null
+
+    /**
+     * Where Songs comes a page at a time ([songsFromNewestAlbums]): what reads
+     * the next page, set as the first one is read and kept through a failed
+     * first read (its next try leaves out an album that fails again); null
+     * for a list read whole, and once Songs is forgotten ([forgetSongs]).
+     */
+    private var songsPager: NewestAlbumSongsPager? = null
+
+    /** What follows [cachedSongs]; [publishSongsMore] keeps the state's copy in step. */
+    private var songsMoreState = LibrarySongsMore.None
+    private var songsMoreJob: Job? = null
     private var cachedPlaylists: List<Playlist>? = null
     private var cachedFavorites: Starred? = null
+
+    /** A playlist changed somewhere: the cached list still shows until a fresh one replaces it. */
+    private var playlistsStale = false
+
+    /** All's lists have each loaded or failed since they were last cleared. */
+    private var allSettled = false
+
+    /**
+     * By You under Playlists is on: kept through chips and refreshes, dropped
+     * with the profile ([observeProfileChanges]), never persisted.
+     */
+    private var playlistsByYouSelected = false
+
+    /**
+     * What the sorted lists are made of. Every change to a cached list, a sort,
+     * or the profile's recents goes through here, and [observeSortedLists]
+     * alone writes the sorted Artists, Albums, Playlists and All into the
+     * state, so the last change always wins.
+     */
+    private val listInputs = MutableStateFlow(LibraryListInputs())
+    private var lastSorted: SortedLibraryLists? = null
     private var pendingSearchShortcutScope: LibrarySearchScope? = null
     private var searchFocusRequestCounter = 0L
     private var searchAttemptCounter = 0
@@ -88,8 +149,8 @@ class LibraryViewModel(
     private var tabLoadGeneration = 0L
 
     val notedSongIds: StateFlow<Set<String>> = uiState
-        .flatMapLatest { state ->
-            val visibleTrackIds = when (state) {
+        .map { state ->
+            when (state) {
                 is LibraryUiState.Content -> when {
                     state.searchQuery.isNotBlank() ->
                         state.searchResults?.tracks.orEmpty().map(Track::id)
@@ -101,16 +162,30 @@ class LibraryViewModel(
                 }
                 else -> emptyList()
             }
-            if (visibleTrackIds.isEmpty()) {
-                flowOf(emptySet())
-            } else {
-                repository.observeTracksWithNotes(visibleTrackIds)
-            }
         }
+        // Only a change in the rows shown asks again (not the foot turning to loading).
+        .distinctUntilChanged()
+        .flatMapLatest(::observeNotedTracks)
         .map { ids -> ids.mapTo(linkedSetOf(), MediaId::toString) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    /**
+     * [trackIds]' notes, asked [NOTE_KEYS_PER_QUERY] at a time: a Songs list
+     * read a page at a time has no ceiling, and SQLite before 3.32 (Android 11
+     * and older) binds at most 999 values to one query.
+     */
+    private fun observeNotedTracks(trackIds: List<MediaId>): Flow<Set<MediaId>> {
+        if (trackIds.isEmpty()) return flowOf(emptySet())
+        val chunks = trackIds.chunked(NOTE_KEYS_PER_QUERY)
+        if (chunks.size == 1) return repository.observeTracksWithNotes(trackIds)
+        return combine(chunks.map(repository::observeTracksWithNotes)) { noted ->
+            noted.flatMapTo(HashSet()) { it }
+        }
+    }
+
     init {
+        observeSortedLists()
+        observeRecents()
         loadInitialData()
         observeSearch()
         observeCapabilities()
@@ -129,9 +204,12 @@ class LibraryViewModel(
         _uiState.value = LibraryUiState.Loading
         cachedArtists = null
         cachedAlbums = null
-        cachedSongs = null
+        forgetSongs()
         cachedPlaylists = null
         cachedFavorites = null
+        playlistsStale = false
+        allSettled = false
+        publishLists()
         pendingSearchShortcutScope = null
         searchAttemptCounter += 1
         searchRequestFlow.value = LibrarySearchRequest(
@@ -159,10 +237,17 @@ class LibraryViewModel(
                 if (isSpotifyProvider()) {
                     repository.refreshSpotifyLibrary(force = forceSpotifyRefresh)
                 }
+                // The cold start reads what it always has (the artists, which
+                // also tell a dead server from a live one). All's albums and
+                // playlists wait for Library to come on screen
+                // (ensureSelectedTabLoaded), so the app's launch costs no
+                // more requests than before.
                 val artists = loadArtistsFlat()
                 if (!isDataLoadCurrent(generation, profileId)) return@launch
                 cachedArtists = artists
                 val capabilities = repository.currentCapabilities()
+                val providerId = repository.currentProviderId()
+                val sortSettings = sortSettings(providerId, profileId)
                 val canSearchSpotifyCatalog = canSearchCatalog(MediaId.PROVIDER_SPOTIFY)
                 val hasPendingSearchShortcut = pendingSearchShortcutScope != null
                 val pendingScope = pendingSearchShortcutScope
@@ -170,11 +255,12 @@ class LibraryViewModel(
                     ?: LibrarySearchScope.CurrentLibrary
                 pendingSearchShortcutScope = null
                 _uiState.value = LibraryUiState.Content(
-                    selectedTab = LibraryTab.Artists,
-                    artists = artists,
-                    // null = not loaded yet; each tab lazy-loads on first
-                    // selection and the UI shows a loading indicator instead
+                    selectedTab = LibraryTab.All,
+                    // null = not loaded yet; the sorted lists arrive through
+                    // observeSortedLists, each view lazy-loads on first
+                    // selection, and the UI shows a loading indicator instead
                     // of a misleading "No X found" empty state.
+                    artists = null,
                     albums = null,
                     songs = null,
                     playlists = null,
@@ -186,11 +272,16 @@ class LibraryViewModel(
                     canSearchSpotifyCatalog = canSearchSpotifyCatalog,
                     canSearchAppleMusicCatalog = canSearchCatalog(MediaId.PROVIDER_APPLE_MUSIC),
                     searchFocusRequestId = if (hasPendingSearchShortcut) nextSearchFocusRequestId() else 0L,
-                    availableTabs = visibleTabs(capabilities),
+                    availableTabs = visibleTabs(capabilities, providerId),
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
-                    canReshuffleSongs = canReshuffleSongs(capabilities),
+                    canReshuffleSongs = canReshuffleSongs(capabilities, providerId),
                     canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
-                )
+                    sorts = sortSettings.sorts,
+                    sortOptions = sortSettings.options,
+                    playlistsByYou = PlaylistsByYou(selected = playlistsByYouSelected)
+                ).withLastSorted()
+                applySortSettings(sortSettings, capabilities)
+                publishLists()
                 searchRequestFlow.value = LibrarySearchRequest("", pendingScope)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -201,9 +292,11 @@ class LibraryViewModel(
                     val artists = cachedArtists ?: loadArtistsFlat()
                     if (!isDataLoadCurrent(generation, profileId)) return@launch
                     cachedArtists = artists
+                    val capabilities = repository.currentCapabilities()
+                    val sortSettings = sortSettings(repository.currentProviderId(), profileId)
                     _uiState.value = LibraryUiState.Content(
-                        selectedTab = LibraryTab.Artists,
-                        artists = artists,
+                        selectedTab = LibraryTab.All,
+                        artists = null,
                         albums = null,
                         songs = null,
                         playlists = null,
@@ -213,11 +306,16 @@ class LibraryViewModel(
                         isSearching = false,
                         searchScope = LibrarySearchScope.CurrentLibrary,
                         canSearchSpotifyCatalog = canSearchCatalog(MediaId.PROVIDER_SPOTIFY),
-                        availableTabs = visibleTabs(repository.currentCapabilities()),
-                        canCreatePlaylists = Capability.PLAYLISTS_WRITE in repository.currentCapabilities(),
-                        canReshuffleSongs = canReshuffleSongs(repository.currentCapabilities()),
-                        canAddToLibrary = Capability.LIBRARY_ADD in repository.currentCapabilities(),
-                    )
+                        availableTabs = visibleTabs(capabilities, repository.currentProviderId()),
+                        canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
+                        canReshuffleSongs = canReshuffleSongs(capabilities, repository.currentProviderId()),
+                        canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
+                        sorts = sortSettings.sorts,
+                        sortOptions = sortSettings.options,
+                        playlistsByYou = PlaylistsByYou(selected = playlistsByYouSelected)
+                    ).withLastSorted()
+                    applySortSettings(sortSettings, capabilities)
+                    publishLists()
                 } else {
                     _uiState.value = LibraryUiState.Error(
                         e.uiTextOr(UiText.Res(R.string.library_error_load_library)),
@@ -229,42 +327,63 @@ class LibraryViewModel(
 
     private fun observeCapabilities() {
         viewModelScope.launch {
-            repository.capabilities.collectLatest { capabilities ->
+            combine(repository.activeProviderId, repository.capabilities) { providerId, capabilities ->
+                providerId to capabilities
+            }.distinctUntilChanged().collectLatest { (providerId, capabilities) ->
                 val current = _uiState.value as? LibraryUiState.Content
                     ?: return@collectLatest
-                val visible = visibleTabs(capabilities)
-                val normalisedSelected = current.selectedTab.takeIf { it in visible }
-                    ?: visible.firstOrNull()
-                    ?: LibraryTab.Artists
+                val visible = visibleTabs(capabilities, providerId)
+                // A chip the service no longer offers falls back to All, the
+                // view with no chip on.
+                val normalisedSelected = current.selectedTab
+                    .takeIf { it == LibraryTab.All || it in visible }
+                    ?: LibraryTab.All
+                val sortSettings = sortSettings(providerId, repository.currentProfileId(), held = current.sorts)
                 _uiState.value = current.copy(
                     availableTabs = visible,
                     selectedTab = normalisedSelected,
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
-                    canReshuffleSongs = canReshuffleSongs(capabilities),
+                    canReshuffleSongs = canReshuffleSongs(capabilities, providerId),
                     canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
+                    sorts = sortSettings.sorts,
+                    sortOptions = sortSettings.options
                 )
+                applySortSettings(sortSettings, capabilities)
             }
         }
     }
 
     /**
      * Playlists disappear from the tab row when the provider doesn't support
-     * reading them. Songs can be either a saved-library list or a provider's
-     * random sample; favorite controls retain their own capability gate.
+     * reading them. Songs can be a saved-library list, the albums' songs
+     * ([com.gpo.yoin.data.source.ServiceFeatures.songsFromNewestAlbums]) or a
+     * provider's random sample; favorite controls retain their own capability gate.
+     * Favorites is left out where the favorites are the library itself
+     * ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary], Spotify):
+     * its liked songs, saved albums and followed artists are the Songs, Albums
+     * and Artists tabs.
      */
-    private fun visibleTabs(capabilities: Set<Capability>): List<LibraryTab> =
-        LibraryTab.entries.filter { tab ->
+    private fun visibleTabs(capabilities: Set<Capability>, providerId: String?): List<LibraryTab> {
+        val features = ServiceFeatureCatalog.forProvider(providerId)
+        val listsSongs = Capability.LIBRARY_SONGS in capabilities || features.songsFromNewestAlbums ||
+            Capability.RANDOM_SONGS in capabilities
+        return LibraryTab.Chips.filter { tab ->
             when (tab) {
                 LibraryTab.Playlists -> Capability.PLAYLISTS_READ in capabilities
-                LibraryTab.Favorites -> Capability.FAVORITES in capabilities
-                LibraryTab.Songs -> Capability.LIBRARY_SONGS in capabilities || Capability.RANDOM_SONGS in capabilities
+                LibraryTab.Favorites -> Capability.FAVORITES in capabilities && !features.favoritesAreLibrary
+                LibraryTab.Songs -> listsSongs
                 else -> true
             }
         }
+    }
 
+    /**
+     * Turns [tab]'s chip on, or every chip off with [LibraryTab.All], and loads
+     * that view if it hasn't been.
+     */
     fun selectTab(tab: LibraryTab) {
         val current = _uiState.value as? LibraryUiState.Content ?: return
-        if (tab !in current.availableTabs) return
+        if (tab != LibraryTab.All && tab !in current.availableTabs) return
         val previousTab = current.selectedTab
         tabLoadJob?.cancel()
         val loadGeneration = ++tabLoadGeneration
@@ -276,38 +395,49 @@ class LibraryViewModel(
         tabLoadJob = viewModelScope.launch {
             try {
                 when (tab) {
+                    LibraryTab.All -> loadAll(::isCurrent)
                     LibraryTab.Artists -> {
                         val artists = cachedArtists ?: loadArtistsFlat()
                         if (!isCurrent()) return@launch
                         cachedArtists = artists
-                        updateContent { copy(artists = cachedArtists.orEmpty()) }
+                        publishLists()
                     }
                     LibraryTab.Albums -> {
-                        // 最近添加 newest-first — "newest" is recently ADDED on
-                        // both providers (Subsonic native; Spotify addedAt sort).
-                        val albums = cachedAlbums ?: repository.getAlbumList("newest", size = 500)
+                        val albums = cachedAlbums ?: loadLibraryAlbums()
                         if (!isCurrent()) return@launch
                         cachedAlbums = albums
-                        updateContent { copy(albums = cachedAlbums.orEmpty()) }
+                        publishLists()
                     }
                     LibraryTab.Songs -> {
+                        // The albums' songs start from their first page; the
+                        // list then reads on as it scrolls (loadMoreSongs). A
+                        // first page that failed keeps its pager, so the chip's
+                        // next tap gets past an album that fails again.
+                        val firstPage = cachedSongs == null && songsFromNewestAlbums()
+                        val pager = if (firstPage) {
+                            songsPager ?: newestAlbumSongsPager().also { songsPager = it }
+                        } else {
+                            null
+                        }
                         val songs = cachedSongs ?: run {
-                            val loaded = if (Capability.LIBRARY_SONGS in repository.currentCapabilities()) {
-                                repository.getLibrarySongs(size = 500)
-                            } else {
-                                repository.getRandomSongs(size = 50)
+                            val loaded = when {
+                                pager != null -> pager.next()
+                                Capability.LIBRARY_SONGS in repository.currentCapabilities() ->
+                                    repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+                                else -> repository.getRandomSongs(size = 50)
                             }
-                            loaded.applyFavoriteOverrides(repository.favoriteOverrides.value)
+                            loaded.applySongsOverrides(repository.favoriteOverrides.value)
                         }
                         if (!isCurrent()) return@launch
                         cachedSongs = songs
-                        updateContent { copy(songs = cachedSongs.orEmpty()) }
+                        if (pager != null) songsMoreState = pager.moreState()
+                        updateContent { copy(songs = cachedSongs.orEmpty(), songsMore = songsMoreState) }
                     }
                     LibraryTab.Playlists -> {
-                        val playlists = cachedPlaylists ?: repository.getPlaylists()
+                        val playlists = currentPlaylists() ?: loadPlaylists()
                         if (!isCurrent()) return@launch
                         cachedPlaylists = playlists
-                        updateContent { copy(playlists = cachedPlaylists.orEmpty()) }
+                        publishLists()
                     }
                     LibraryTab.Favorites -> {
                         val favorites = cachedFavorites ?: repository.getStarred()
@@ -324,7 +454,10 @@ class LibraryViewModel(
                     return@launch
                 }
                 val content = _uiState.value as? LibraryUiState.Content
-                if (content == null) {
+                // All with nothing to show and no view to step back to: the
+                // page's own error, with Retry.
+                val nowhereBack = tab == LibraryTab.All && previousTab == LibraryTab.All
+                if (content == null || nowhereBack) {
                     _uiState.value = LibraryUiState.Error(
                         e.uiTextOr(tab.loadFailure()),
                     )
@@ -345,6 +478,199 @@ class LibraryViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * All's lists side by side. Each joins All as soon as it arrives (the
+     * artists the cold start read are there at once), so the slowest list
+     * never holds the others back. One that fails leaves All without it (a
+     * snackbar says so; its chip loads it again); only when none loads does
+     * the view fail as a whole.
+     */
+    private suspend fun loadAll(isCurrent: () -> Boolean) {
+        val holdsPlaylists = Capability.PLAYLISTS_READ in repository.currentCapabilities()
+        val spotify = isSpotifyProvider()
+        publishLists()
+        // Spotify: the rows on hand or the synced cache as it is, never a
+        // freshness-checked read, so opening Library never sets off a sync
+        // (the cold start refreshed the cache when it was due). That holds for
+        // stale playlists too: a playlist write marks the whole cache stale,
+        // so reading them "fresh" here would sync every list. The chips then
+        // reuse these rows; only the Playlists chip, after a playlist write,
+        // reads its list fresh, as it always has.
+        val spotifyCache = if (spotify && (cachedAlbums == null || cachedPlaylists == null)) {
+            attempt { repository.getSpotifyLocalSearchSnapshot() }.getOrNull()
+        } else {
+            null
+        }
+        val loads = coroutineScope {
+            val artists = allPart(isCurrent, { cachedArtists ?: loadArtistsFlat() }) { cachedArtists = it }
+            val albums = allPart(isCurrent, { cachedAlbums ?: spotifyCache?.albums ?: loadLibraryAlbums() }) {
+                cachedAlbums = it
+            }
+            val playlists = if (holdsPlaylists) {
+                val load: suspend () -> List<Playlist> = if (spotify) {
+                    { cachedPlaylists ?: spotifyCache?.playlists ?: loadPlaylists() }
+                } else {
+                    { currentPlaylists() ?: loadPlaylists() }
+                }
+                allPart(isCurrent, load) { cachedPlaylists = it }
+            } else {
+                null
+            }
+            Triple(artists.await(), albums.await(), playlists?.await())
+        }
+        if (!isCurrent()) return
+        val (artists, albums, playlists) = loads
+        val failures = listOfNotNull(
+            artists.exceptionOrNull()?.let { LibraryTab.Artists to it },
+            albums.exceptionOrNull()?.let { LibraryTab.Albums to it },
+            playlists?.exceptionOrNull()?.let { LibraryTab.Playlists to it }
+        )
+        if (listOfNotNull(artists, albums, playlists).none { it.isSuccess }) throw failures.first().second
+        allSettled = true
+        publishLists()
+        failures.firstOrNull()?.let { (kind, error) ->
+            _messages.tryEmit(error.snackbarOr(kind.loadFailureRes(), "Failed to load ${kind.name}"))
+        }
+    }
+
+    /** One of All's lists, loading: kept and shown the moment it arrives, while the others are on their way. */
+    private fun <T> CoroutineScope.allPart(
+        isCurrent: () -> Boolean,
+        load: suspend () -> T,
+        keep: (T) -> Unit
+    ): Deferred<Result<T>> = async {
+        attempt(load).onSuccess { loaded ->
+            if (isCurrent()) {
+                keep(loaded)
+                publishLists()
+            }
+        }
+    }
+
+    /** Recently added first, as every service lists it; Library re-sorts it ([LibrarySorter]). */
+    private suspend fun loadLibraryAlbums(): List<Album> = repository.getAlbumList("newest", size = 500)
+
+    private suspend fun loadPlaylists(): List<Playlist> = repository.getPlaylists().also { playlistsStale = false }
+
+    /** The cached playlists, unless a change elsewhere made them stale. */
+    private fun currentPlaylists(): List<Playlist>? = cachedPlaylists?.takeUnless { playlistsStale }
+
+    /**
+     * Library came on screen: loads the view it shows if it hasn't loaded yet.
+     * All's albums and playlists wait for this rather than the cold start.
+     */
+    fun ensureSelectedTabLoaded() {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (tabLoadJob?.isActive == true) return
+        val loaded = when (current.selectedTab) {
+            LibraryTab.All -> allSettled
+            LibraryTab.Artists -> cachedArtists != null
+            LibraryTab.Albums -> cachedAlbums != null
+            LibraryTab.Songs -> cachedSongs != null
+            LibraryTab.Playlists -> cachedPlaylists != null
+            LibraryTab.Favorites -> cachedFavorites != null
+        }
+        if (!loaded) selectTab(current.selectedTab)
+    }
+
+    /**
+     * Reads Songs' next page where Songs comes a page at a time
+     * ([songsFromNewestAlbums]): as the list nears its end, or from the retry
+     * button at its foot after a read failed. One read at a time and none past
+     * the end; a refresh or another profile cancels it ([cancelDataLoads]).
+     */
+    fun loadMoreSongs() {
+        val pager = songsPager ?: return
+        if (songsMoreState != LibrarySongsMore.Available && songsMoreState != LibrarySongsMore.Failed) return
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId) && songsPager === pager
+        publishSongsMore(LibrarySongsMore.Loading)
+        songsMoreJob = viewModelScope.launch {
+            try {
+                val more = pager.next().applySongsOverrides(repository.favoriteOverrides.value)
+                if (!isCurrent()) return@launch
+                cachedSongs = cachedSongs.orEmpty() + more
+                songsMoreState = pager.moreState()
+                updateContent { copy(songs = cachedSongs, songsMore = songsMoreState) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (!isCurrent()) return@launch
+                // The rows stay; the foot's retry reads the same page again.
+                publishSongsMore(LibrarySongsMore.Failed)
+            }
+        }
+    }
+
+    private fun publishSongsMore(more: LibrarySongsMore) {
+        songsMoreState = more
+        updateContent { copy(songsMore = more) }
+    }
+
+    /** Songs as if never read: the next visit starts again from the top. */
+    private fun forgetSongs() {
+        cachedSongs = null
+        songsPager = null
+        songsMoreState = LibrarySongsMore.None
+    }
+
+    private fun NewestAlbumSongsPager.moreState(): LibrarySongsMore =
+        if (reachedEnd) LibrarySongsMore.None else LibrarySongsMore.Available
+
+    /**
+     * The service lists no songs of its own: Songs is its albums' songs, newest
+     * album first ([com.gpo.yoin.data.source.ServiceFeatures.songsFromNewestAlbums], Subsonic).
+     */
+    private fun songsFromNewestAlbums(): Boolean =
+        ServiceFeatureCatalog.forProvider(repository.currentProviderId()).songsFromNewestAlbums
+
+    /** Albums by when they joined the library, opened through the album page's cache. */
+    private fun newestAlbumSongsPager(): NewestAlbumSongsPager = NewestAlbumSongsPager(
+        loadAlbums = { offset, size -> repository.getAlbumList("newest", size = size, offset = offset) },
+        loadAlbum = { id -> repository.getAlbum(id) }
+    )
+
+    /**
+     * [id] was opened from Library: Recents moves it up by the id Library
+     * lists it under, whatever the page it opens resolves it to (an Apple
+     * Music library album opens as its catalog album, and records its visit
+     * by that id), and for playlists, whose pages record no visit.
+     */
+    fun recordOpened(kind: LibraryOpenKind, id: String) {
+        val mediaId = MediaId.parseOrNull(id) ?: return
+        val profileId = repository.currentProfileId() ?: return
+        val at = clock()
+        viewModelScope.launch {
+            try {
+                openStore.recordOpened(profileId, mediaId.provider, kind, mediaId.rawId, at)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // Only an order hint: the page opens regardless.
+            }
+        }
+    }
+
+    /** Orders [view] by [sort] and remembers it for this profile. */
+    fun selectSort(view: LibraryTab, sort: LibrarySort) {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (sort !in current.sortOptions[view].orEmpty() || current.sorts[view] == sort) return
+        repository.currentProfileId()?.let { profileId -> sortStore.setSort(profileId, view, sort) }
+        val sorts = current.sorts + (view to sort)
+        _uiState.value = current.copy(sorts = sorts)
+        listInputs.update { it.copy(sorts = sorts) }
+    }
+
+    /**
+     * Turns Playlists' By You sub-chip on or off. It only turns on while it
+     * shows ([PlaylistsByYou.available]); off is always allowed.
+     */
+    fun selectPlaylistsByYou(selected: Boolean) {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (selected && !current.playlistsByYou.available) return
+        playlistsByYouSelected = selected
+        _uiState.value = current.copy(playlistsByYou = current.playlistsByYou.copy(selected = selected))
     }
 
     /**
@@ -559,6 +885,187 @@ class LibraryViewModel(
         return indices.flatMap { it.artists }
     }
 
+    /** Hands the cached lists to [observeSortedLists]. */
+    private fun publishLists() {
+        listInputs.update {
+            it.copy(
+                generation = libraryDataGeneration,
+                artists = cachedArtists,
+                albums = cachedAlbums,
+                playlists = cachedPlaylists,
+                allSettled = allSettled
+            )
+        }
+    }
+
+    /**
+     * The one writer of the sorted Artists, Albums, Playlists and All. Sorting
+     * runs off the main thread; a newer input cancels an older pass.
+     */
+    private fun observeSortedLists() {
+        viewModelScope.launch {
+            listInputs.collectLatest { inputs ->
+                val sorted = withContext(sortDispatcher) { sortLists(inputs) }
+                if (inputs.generation != libraryDataGeneration) return@collectLatest
+                lastSorted = sorted
+                updateContent { withSorted(sorted) }
+            }
+        }
+    }
+
+    private fun sortLists(inputs: LibraryListInputs): SortedLibraryLists {
+        val sorter = LibrarySorter(nameOrder(), inputs.recents, inputs.ignoredArticles)
+        val indexer = LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles)
+        fun sortOf(view: LibraryTab) = inputs.sorts[view] ?: LibrarySort.Recents
+        val sections = mutableMapOf<LibraryTab, List<FastScrollSection>>()
+
+        // Sorted, then put in the fast scroller's order with its sections.
+        fun <T> indexed(view: LibraryTab, list: List<T>, index: (List<T>) -> LibraryIndex.Sorted<T>): List<T> {
+            val result = indexedOrPlain(list, index)
+            sections[view] = result.sections
+            return result.items
+        }
+        val artists = inputs.artists?.let { list ->
+            val sort = sortOf(LibraryTab.Artists)
+            indexed(LibraryTab.Artists, sorter.artists(list, sort)) { indexer.artists(it, sort) }
+        }
+        val albums = inputs.albums?.let { list ->
+            val sort = sortOf(LibraryTab.Albums)
+            indexed(LibraryTab.Albums, sorter.albums(list, sort)) { indexer.albums(it, sort) }
+        }
+        val playlists = inputs.playlists?.let { list ->
+            val sort = sortOf(LibraryTab.Playlists)
+            // No scroller over Playlists: only the same A–Z as the other views.
+            indexedOrPlain(sorter.playlists(list, sort)) { indexer.playlists(it, sort) }.items
+        }
+        val all = allOf(sorter, inputs, sortOf(LibraryTab.All))?.let { list ->
+            val sort = sortOf(LibraryTab.All)
+            indexed(LibraryTab.All, list) { indexer.all(it, sort, albums = inputs.albums.orEmpty()) }
+        }
+        return SortedLibraryLists(
+            generation = inputs.generation,
+            artists = artists,
+            albums = albums,
+            playlists = playlists,
+            all = all,
+            sections = sections,
+            playlistsMixed = inputs.playlists?.hasMixedOwnership() == true
+        )
+    }
+
+    /**
+     * [sorted] through [index], or as it is with no sections when the index
+     * can't be built (ICU missing data on a device, a stub off device): the
+     * lists never wait on the scroller's ticks.
+     */
+    private fun <T> indexedOrPlain(
+        sorted: List<T>,
+        index: (List<T>) -> LibraryIndex.Sorted<T>
+    ): LibraryIndex.Sorted<T> = try {
+        index(sorted)
+    } catch (e: RuntimeException) {
+        if (e is CancellationException) throw e
+        Log.w(TAG, "Library fast-scroller index failed; showing the sorted list without sections", e)
+        LibraryIndex.Sorted(sorted, emptyList())
+    }
+
+    /**
+     * All from whatever has loaded, never songs: a list still on its way, or
+     * one that failed, is left out, and one arriving later moves in on the
+     * grid's item springs. Null (the loading indicator) only while nothing
+     * has loaded; empty (the empty state) only once every list settled.
+     */
+    private fun allOf(sorter: LibrarySorter, inputs: LibraryListInputs, sort: LibrarySort): List<LibraryItem>? {
+        val all = sorter.all(
+            artists = inputs.artists.orEmpty(),
+            albums = inputs.albums.orEmpty(),
+            playlists = if (inputs.allHoldsPlaylists) inputs.playlists.orEmpty() else emptyList(),
+            sort = sort
+        )
+        return all.takeIf { inputs.allSettled || it.isNotEmpty() }
+    }
+
+    private fun LibraryUiState.Content.withSorted(sorted: SortedLibraryLists): LibraryUiState.Content = copy(
+        artists = sorted.artists,
+        albums = sorted.albums,
+        playlists = sorted.playlists,
+        allItems = sorted.all,
+        scrollSections = sorted.sections,
+        // The sub-chip follows the list: it goes when the list stops being
+        // mixed (and comes back on, as it was, when it mixes again).
+        playlistsByYou = PlaylistsByYou(available = sorted.playlistsMixed, selected = playlistsByYouSelected)
+    )
+
+    /** A Content built anew starts from the latest sorted lists of this generation. */
+    private fun LibraryUiState.Content.withLastSorted(): LibraryUiState.Content =
+        lastSorted?.takeIf { it.generation == libraryDataGeneration }?.let { withSorted(it) } ?: this
+
+    /**
+     * This profile's Yoin records of what it opened and played, for Recents:
+     * the visit and play rows, and what was opened from Library itself.
+     */
+    private fun observeRecents() {
+        viewModelScope.launch {
+            combine(repository.currentProfileIdFlow, repository.activeProviderId) { profileId, providerId ->
+                profileId to providerId
+            }
+                .distinctUntilChanged()
+                .flatMapLatest { (profileId, providerId) ->
+                    if (profileId.isNullOrBlank() || providerId == null) {
+                        flowOf(LibraryRecents.None)
+                    } else {
+                        combine(
+                            recentsSource.observe(profileId, providerId),
+                            openStore.observe(profileId, providerId),
+                            LibraryRecents::latestWith
+                        )
+                    }
+                }
+                .distinctUntilChanged()
+                .collect { recents -> listInputs.update { it.copy(recents = recents) } }
+        }
+    }
+
+    /**
+     * The orders each view offers on [providerId] and the one each shows: the
+     * profile's choice when it is still offered, else the default (Recents).
+     */
+    private fun sortSettings(
+        providerId: String?,
+        profileId: String?,
+        held: Map<LibraryTab, LibrarySort> = emptyMap()
+    ): LibrarySortSettings {
+        val features = ServiceFeatureCatalog.forProvider(providerId)
+        val options = LibraryTab.entries
+            .associateWith { view -> librarySortOptions(view, features) }
+            .filterValues { it.isNotEmpty() }
+        val sorts = options.mapValues { (view, offered) ->
+            val chosen = profileId?.let { sortStore.sortFor(it, view) } ?: held[view]
+            chosen?.takeIf { it in offered } ?: offered.first()
+        }
+        val articles = if (features.sortIgnoresArticles) LibraryIgnoredArticles else emptyList()
+        return LibrarySortSettings(options = options, sorts = sorts, ignoredArticles = articles)
+    }
+
+    private fun applySortSettings(settings: LibrarySortSettings, capabilities: Set<Capability>) {
+        listInputs.update {
+            it.copy(
+                sorts = settings.sorts,
+                ignoredArticles = settings.ignoredArticles,
+                allHoldsPlaylists = Capability.PLAYLISTS_READ in capabilities
+            )
+        }
+    }
+
+    /** [block]'s value or failure; a cancellation still cancels. */
+    private suspend fun <T> attempt(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
     private inline fun updateContent(
         transform: LibraryUiState.Content.() -> LibraryUiState.Content,
     ) {
@@ -568,16 +1075,27 @@ class LibraryViewModel(
 
     private fun observeFavoriteOverrides() {
         viewModelScope.launch {
+            var previous: Map<MediaId, Boolean>? = null
             repository.favoriteOverrides.collectLatest { overrides ->
+                // The value already there on subscribe changed nothing the
+                // first loads didn't read.
+                val changed = previous != null && previous != overrides
+                previous = overrides
                 applyFavoriteOverrides(overrides)
                 val current = _uiState.value as? LibraryUiState.Content ?: return@collectLatest
-                // Only the Favorites tab re-reads live: getStarred() returns a
+                // The Favorites tab re-reads live: getStarred() returns a
                 // stable ordered set, so a newly-favorited track inserts cleanly
-                // and an un-favorited one drops. The Songs tab is intentionally
-                // NOT re-read here — it's a random sample (getRandomSongs does
-                // .shuffled().take(50)), so a live re-read would reshuffle the
-                // whole visible list on every toggle. Its heart icons are
-                // already updated in-place by applyFavoriteOverrides above.
+                // and an un-favorited one drops. So do Songs and Artists where
+                // they are the liked and followed lists (Spotify): a like lands
+                // on top, an unlike fades out, a follow or unfollow comes and
+                // goes. Any other Songs is NOT re-read: the albums' songs
+                // (Subsonic) would lose the pages already read, and a random
+                // sample (getRandomSongs does .shuffled().take(50)) would
+                // reshuffle on every toggle; their heart icons are already
+                // updated in-place by applyFavoriteOverrides above.
+                if (changed && favoritesAreLibrary()) {
+                    rereadCachedLibrary(overrides)
+                }
                 if (current.selectedTab == LibraryTab.Favorites) {
                     val generation = libraryDataGeneration
                     val profileId = repository.currentProfileId()
@@ -594,6 +1112,53 @@ class LibraryViewModel(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * The service's favorites are its library
+     * ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary], Spotify).
+     */
+    private fun favoritesAreLibrary(): Boolean =
+        ServiceFeatureCatalog.forProvider(repository.currentProviderId()).favoritesAreLibrary
+
+    /**
+     * Songs is the service's liked list ([favoritesAreLibrary]): a like adds a
+     * row and an unlike takes one away, unlike a random sample.
+     */
+    private fun songsAreLikedSongs(): Boolean =
+        favoritesAreLibrary() && Capability.LIBRARY_SONGS in repository.currentCapabilities()
+
+    /**
+     * Re-reads the liked Songs and followed Artists a heart or follow just
+     * changed, on any tab, from the synced cache only — the write filed its
+     * row there before it published the override. No freshness check, so a
+     * heart never sets off a library sync, wherever it was tapped (Now
+     * Playing, an album, the notification). Only lists already loaded: a
+     * first visit loads through [selectTab].
+     */
+    private suspend fun rereadCachedLibrary(overrides: Map<MediaId, Boolean>) {
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        try {
+            val songs = cachedSongs?.takeIf { songsAreLikedSongs() }?.let {
+                repository.readCachedLikedSongs(size = LIBRARY_SONGS_SIZE)?.applySongsOverrides(overrides)
+            }
+            val artists = cachedArtists?.let {
+                repository.readCachedFollowedArtists()?.flatMap(ArtistIndex::artists)
+            }
+            if (!isDataLoadCurrent(generation, profileId)) return
+            if (songs != null) {
+                cachedSongs = songs
+                updateContent { copy(songs = songs) }
+            }
+            if (artists != null) {
+                cachedArtists = artists
+                publishLists()
+            }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            // The lists stay; the override pass already took an unlike out.
         }
     }
 
@@ -646,7 +1211,9 @@ class LibraryViewModel(
         val snapshot = repository.getSpotifyLocalSearchSnapshot() ?: return SearchResults()
         val favorites = (cachedFavorites ?: snapshot.starred)
             .applyFavoriteOverrides(repository.favoriteOverrides.value)
-        val artists = (cachedArtists ?: snapshot.artists)
+        // Every artist the library holds, not only the followed ones the
+        // Artists tab lists: the saved albums' and liked songs' artists too.
+        val artists = snapshot.artists
             .plus(favorites.artists)
             .distinctBy(Artist::id)
         val albums = (cachedAlbums ?: snapshot.albums)
@@ -698,6 +1265,7 @@ class LibraryViewModel(
             repository.currentProfileIdFlow.distinctUntilChanged().collectLatest { profileId ->
                 if (profileId != previousProfileId) {
                     previousProfileId = profileId
+                    playlistsByYouSelected = false
                     updateWorkingLibraryTrackIds()
                     reloadLibrary()
                 }
@@ -724,11 +1292,19 @@ class LibraryViewModel(
                 libraryDataGeneration += 1
                 cachedArtists = null
                 cachedAlbums = null
-                cachedSongs = null
+                forgetSongs()
+                allSettled = false
+                publishLists()
                 if (current == null) {
                     loadInitialData()
                 } else {
-                    _uiState.value = current.copy(artists = null, albums = null, songs = null)
+                    _uiState.value = current.copy(
+                        artists = null,
+                        albums = null,
+                        songs = null,
+                        songsMore = LibrarySongsMore.None,
+                        allItems = null
+                    )
                     selectTab(current.selectedTab)
                     if (current.searchQuery.isNotBlank() &&
                         (current.searchScope == LibrarySearchScope.CurrentLibrary || current.isSearching)
@@ -744,6 +1320,7 @@ class LibraryViewModel(
         initialLoadJob?.cancel()
         tabLoadJob?.cancel()
         reshuffleJob?.cancel()
+        songsMoreJob?.cancel()
         tabLoadGeneration += 1
     }
 
@@ -832,12 +1409,12 @@ class LibraryViewModel(
     private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
         if (overrides.isEmpty()) return
 
-        cachedSongs = cachedSongs?.applyFavoriteOverrides(overrides)
+        cachedSongs = cachedSongs?.applySongsOverrides(overrides)
         cachedFavorites = cachedFavorites?.applyFavoriteOverrides(overrides)
 
         updateContent {
             copy(
-                songs = songs?.applyFavoriteOverrides(overrides),
+                songs = songs?.applySongsOverrides(overrides),
                 favorites = favorites?.applyFavoriteOverrides(overrides),
                 searchResults = searchResults?.applyFavoriteOverrides(overrides),
             )
@@ -848,6 +1425,12 @@ class LibraryViewModel(
         overrides: Map<MediaId, Boolean>,
     ): List<Track> = map { track ->
         overrides[track.id]?.let { isStarred -> track.copy(isStarred = isStarred) } ?: track
+    }
+
+    /** The Songs tab's [applyFavoriteOverrides]: on a liked list an unliked song also leaves it. */
+    private fun List<Track>.applySongsOverrides(overrides: Map<MediaId, Boolean>): List<Track> {
+        val applied = applyFavoriteOverrides(overrides)
+        return if (songsAreLikedSongs()) applied.filter(Track::isStarred) else applied
     }
 
     private fun SearchResults.applyFavoriteOverrides(
@@ -867,18 +1450,31 @@ class LibraryViewModel(
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 256).orEmpty()
 
+    /**
+     * A playlist changed elsewhere. The lists that show playlists (Playlists,
+     * All) keep the old ones on screen until the fresh list replaces them;
+     * otherwise the next visit reads them again. Spotify's All doesn't read
+     * them again: the write marked the synced cache stale, so a fresh read
+     * would sync the whole library (see [loadAll]); its rows stay, and the
+     * Playlists chip reads the list fresh, as it always has.
+     */
     fun invalidatePlaylists() {
-        cachedPlaylists = null
+        playlistsStale = true
         val current = _uiState.value as? LibraryUiState.Content ?: return
-        if (current.selectedTab != LibraryTab.Playlists) return
+        val rereads = when (current.selectedTab) {
+            LibraryTab.Playlists -> true
+            LibraryTab.All -> !isSpotifyProvider()
+            else -> false
+        }
+        if (!rereads || cachedPlaylists == null) return
         val generation = libraryDataGeneration
         val profileId = repository.currentProfileId()
         viewModelScope.launch {
-            runCatching { repository.getPlaylists() }
+            runCatching { loadPlaylists() }
                 .onSuccess { playlists ->
                     if (!isDataLoadCurrent(generation, profileId)) return@onSuccess
                     cachedPlaylists = playlists
-                    updateContent { copy(playlists = playlists) }
+                    publishLists()
                 }
                 .onFailure { error -> if (error is CancellationException) throw error }
         }
@@ -900,10 +1496,9 @@ class LibraryViewModel(
                     // Merge the newcomer into the cached list so the Playlists
                     // tab shows it immediately; a full refresh would wipe
                     // unrelated cached tabs.
-                    val updated = (cachedPlaylists.orEmpty() + created)
-                        .sortedBy { it.name.lowercase() }
-                    cachedPlaylists = updated
-                    updateContent { copy(playlists = updated) }
+                    // Placed by the Playlists and All sorts like any other.
+                    cachedPlaylists = cachedPlaylists.orEmpty() + created
+                    publishLists()
                     onPlaylistMutated()
                     _messages.tryEmit(
                         shownCopy(R.string.library_playlist_created, "Created \"$trimmed\"", trimmed),
@@ -935,13 +1530,17 @@ class LibraryViewModel(
         repository.currentProviderId() == providerId &&
             Capability.CATALOG_SEARCH in repository.currentCapabilities()
 
-    private fun canReshuffleSongs(capabilities: Set<Capability>): Boolean =
-        Capability.RANDOM_SONGS in capabilities && Capability.LIBRARY_SONGS !in capabilities
+    /** Songs is a random sample: neither a saved list nor the albums' songs ([songsFromNewestAlbums]). */
+    private fun canReshuffleSongs(capabilities: Set<Capability>, providerId: String?): Boolean =
+        Capability.RANDOM_SONGS in capabilities && Capability.LIBRARY_SONGS !in capabilities &&
+            !ServiceFeatureCatalog.forProvider(providerId).songsFromNewestAlbums
 
     private fun isSpotifyProvider(): Boolean =
         repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
 
     private fun hasSpotifyTabCache(tab: LibraryTab): Boolean = when (tab) {
+        LibraryTab.All -> !cachedArtists.isNullOrEmpty() || !cachedAlbums.isNullOrEmpty() ||
+            !cachedPlaylists.isNullOrEmpty()
         LibraryTab.Artists -> !cachedArtists.isNullOrEmpty()
         LibraryTab.Albums -> !cachedAlbums.isNullOrEmpty()
         LibraryTab.Songs -> !cachedSongs.isNullOrEmpty()
@@ -988,16 +1587,26 @@ class LibraryViewModel(
             LibraryViewModel(
                 repository = container.repository,
                 onPlaylistMutated = container::notifyPlaylistMutation,
+                sortStore = container.librarySortStore,
+                recentsSource = container.libraryRecentsSource,
+                openStore = container.libraryOpenStore
             ) as T
     }
 
     companion object {
+        private const val TAG = "LibraryViewModel"
         private const val SEARCH_DEBOUNCE_MS = 300L
 
         /** Max wait for the active [MusicSource] to resolve on a cold start
          *  before the first library load gives up (see [loadInitialData]). */
         private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
         private const val LOCAL_SEARCH_LIMIT_PER_TYPE = 40
+
+        /** Songs read for a library list (Apple's saved songs, Spotify's likes). */
+        private const val LIBRARY_SONGS_SIZE = 500
+
+        /** Well under SQLite's old 999-value limit, with room for the query's own values. */
+        private const val NOTE_KEYS_PER_QUERY = 500
     }
 }
 
@@ -1005,6 +1614,7 @@ private const val APPLE_MUSIC_PENDING_ENGLISH =
     "Waiting for Apple Music" // i18n-allow: LibraryViewModelTest asserts this English
 
 private fun LibraryTab.loadFailureRes(): Int = when (this) {
+    LibraryTab.All -> R.string.library_error_load_library
     LibraryTab.Artists -> R.string.library_error_load_tab_artists
     LibraryTab.Albums -> R.string.library_error_load_tab_albums
     LibraryTab.Songs -> R.string.library_error_load_tab_songs
@@ -1013,6 +1623,37 @@ private fun LibraryTab.loadFailureRes(): Int = when (this) {
 }
 
 private fun LibraryTab.loadFailure(): UiText = UiText.Res(loadFailureRes())
+
+/** What [LibraryViewModel]'s sort pass reads; see its `listInputs`. */
+private data class LibraryListInputs(
+    val generation: Long = 0L,
+    val artists: List<Artist>? = null,
+    val albums: List<Album>? = null,
+    val playlists: List<Playlist>? = null,
+    val allSettled: Boolean = false,
+    val allHoldsPlaylists: Boolean = false,
+    val sorts: Map<LibraryTab, LibrarySort> = emptyMap(),
+    val recents: LibraryRecents = LibraryRecents.None,
+    val ignoredArticles: List<String> = emptyList()
+)
+
+private class SortedLibraryLists(
+    val generation: Long,
+    val artists: List<Artist>?,
+    val albums: List<Album>?,
+    val playlists: List<Playlist>?,
+    val all: List<LibraryItem>?,
+    /** The fast scroller's sections over [artists], [albums] and [all], as listed. */
+    val sections: Map<LibraryTab, List<FastScrollSection>>,
+    /** The playlists' [hasMixedOwnership]: Playlists shows By You. */
+    val playlistsMixed: Boolean
+)
+
+private class LibrarySortSettings(
+    val options: Map<LibraryTab, List<LibrarySort>>,
+    val sorts: Map<LibraryTab, LibrarySort>,
+    val ignoredArticles: List<String>
+)
 
 private data class LibrarySearchRequest(
     val query: String,

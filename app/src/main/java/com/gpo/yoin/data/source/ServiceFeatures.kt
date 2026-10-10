@@ -29,6 +29,39 @@ data class ServiceFeatures(
     val capabilities: Set<Capability>,
     val features: List<ServiceFeature>,
     val supportsYoinCast: Boolean = false,
+    /**
+     * The service's favorites are its library: a liked song, a saved album and
+     * a followed artist are what the library holds (Spotify). Library then has
+     * no Favorites tab of its own — Songs is the liked list, newest like first,
+     * and plays as that collection; Artists keeps only the followed ones. Set
+     * here, never inferred from [capabilities]: Subsonic has favorites and a
+     * library too, and keeps its Favorites tab.
+     */
+    val favoritesAreLibrary: Boolean = false,
+    /**
+     * The service lists no songs of its own to page through, so Library's
+     * Songs is its albums' songs: the most recently added album first, each
+     * in its track order, a page of albums at a time as the list scrolls
+     * (Subsonic: `getAlbumList2` type=newest, then each album). Set here, as
+     * [favoritesAreLibrary] is: [Capability.RANDOM_SONGS] stays for Home's
+     * grid and says nothing about Library.
+     */
+    val songsFromNewestAlbums: Boolean = false,
+    /**
+     * Library lists whose items carry the date they joined the library
+     * ([com.gpo.yoin.data.model.Album.libraryAddedAt],
+     * [com.gpo.yoin.data.model.Playlist.libraryAddedAt]), so Library offers
+     * Recently added for them. Followed and library artists carry no such
+     * date on any service.
+     */
+    val albumsHaveLibraryDates: Boolean = false,
+    val playlistsHaveLibraryDates: Boolean = false,
+    /**
+     * Library's Alphabetical and Creator sorts skip a leading article ("The
+     * Beatles" under B), as the service's own lists do (Subsonic's
+     * `ignoredArticles`).
+     */
+    val sortIgnoresArticles: Boolean = false,
     @param:StringRes @get:StringRes val saveLabel: Int = R.string.settings_feature_save_favorites,
     @param:StringRes @get:StringRes val removeLabel: Int = R.string.settings_feature_remove_favorites,
 ) {
@@ -42,6 +75,11 @@ object ServiceFeatureCatalog {
         id = MediaId.PROVIDER_SUBSONIC,
         nameRes = R.string.settings_feature_name_subsonic,
         supportsYoinCast = true,
+        songsFromNewestAlbums = true,
+        // AlbumID3.created and a playlist's created.
+        albumsHaveLibraryDates = true,
+        playlistsHaveLibraryDates = true,
+        sortIgnoresArticles = true,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
@@ -94,11 +132,17 @@ object ServiceFeatureCatalog {
         nameRes = R.string.settings_feature_name_spotify,
         saveLabel = R.string.settings_feature_save_spotify,
         removeLabel = R.string.settings_feature_remove_spotify,
+        favoritesAreLibrary = true,
+        // A saved album's added_at; /me/playlists carries no date.
+        albumsHaveLibraryDates = true,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
             Capability.SEARCH,
             Capability.CATALOG_SEARCH,
+            // Library Songs is Liked Songs, read from the synced cache by
+            // YoinRepository; RANDOM_SONGS stays for Home's grid.
+            Capability.LIBRARY_SONGS,
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE,
@@ -145,6 +189,9 @@ object ServiceFeatureCatalog {
     val appleMusic = ServiceFeatures(
         id = MediaId.PROVIDER_APPLE_MUSIC,
         nameRes = R.string.settings_feature_name_apple,
+        // Library albums' and library playlists' dateAdded.
+        albumsHaveLibraryDates = true,
+        playlistsHaveLibraryDates = true,
         integrated = true,
         capabilities = setOf(
             Capability.SEARCH,
