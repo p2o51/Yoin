@@ -463,7 +463,9 @@ private fun YoinShell(
             paneStack.clear()
             paneState.snapClosed()
         }
-        homeViewModel.refresh()
+        // Not Home: it reloads on its own profile|provider scope and takes the
+        // same-profile credential edit from this revision itself, so a switch
+        // (or a delete of the active profile) loads it once, not twice.
         libraryViewModel.refresh()
         memoriesViewModel.refresh()
     }

@@ -38,7 +38,7 @@
 | --- | --- | --- | --- |
 | `home.loading` | `ms_since_process_start` | `HomeViewModel` 构造（init）时一次；之后每次 `emit` 从非 Loading 退回 Loading 时 | 冷启动时 Home 从 VM 创建起就停在 Loading，直到 `home.content`。 |
 | `home.content` | `ms_since_process_start` `sections=` `src=mem\|disk\|fresh` | `HomeViewModel.emit` 第一次发出 Content | `sections` 是非空区块数（Activities、Jump Back In 网格、Recently Added、Rediscover、Recently Played、Your Playlists，最多 6）。`src=mem`：进程内缓存（同进程里重建 VM）；`disk`：Spotify 的本地预绘；`fresh`：完整加载的结果。每个 VM 只打一次。 |
-| `home.refresh` | `provider` `result=ok\|error\|superseded` [`err`] `ms=` | `HomeViewModel.refresh` | 一次完整刷新（从读缓存到 fresh 内容发出）的耗时；`superseded` = 期间切了账号，结果作废。 |
+| `home.refresh` | `provider` `result=ok\|error\|superseded` [`err`] `ms=` | `HomeViewModel.loadScope`（账号 scope 变化、`refresh()`、同账号改凭据时各一次） | 一次完整加载（从读缓存到 fresh 内容发出）的耗时；`superseded` = 期间 scope 变了（切账号，或冷启动时 source 刚建好）或被新的 refresh 取代，结果作废。冷启动时 source 还没建好的那一次会先等 source（最多 4s），所以常见一条不带 `provider` 的 `result=superseded`，紧跟着真正那次。 |
 
 `ms_since_process_start = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()`，
 只有冷启动时有意义（热启动时进程早就在了）。
