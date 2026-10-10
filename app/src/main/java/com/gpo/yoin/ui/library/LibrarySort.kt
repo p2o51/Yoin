@@ -79,7 +79,9 @@ fun librarySortOptions(view: LibraryTab, features: ServiceFeatures): List<Librar
         LibraryTab.Playlists -> listOfNotNull(
             LibrarySort.Recents,
             LibrarySort.RecentlyAdded.takeIf { features.playlistsHaveLibraryDates },
-            LibrarySort.Alphabetical
+            LibrarySort.Alphabetical,
+            // By owner, as All already orders them (Q12/Q13's four sorts).
+            LibrarySort.Creator
         )
         LibraryTab.Songs, LibraryTab.Favorites -> emptyList()
     }

@@ -1553,7 +1553,10 @@ class LibraryViewModelTest {
         assertEquals(LibrarySort.entries, state.sortOptions[LibraryTab.All])
         assertEquals(LibrarySort.entries, state.sortOptions[LibraryTab.Albums])
         assertEquals(listOf(LibrarySort.Recents, LibrarySort.Alphabetical), state.sortOptions[LibraryTab.Artists])
-        assertEquals(listOf(LibrarySort.Recents, LibrarySort.Alphabetical), state.sortOptions[LibraryTab.Playlists])
+        assertEquals(
+            listOf(LibrarySort.Recents, LibrarySort.Alphabetical, LibrarySort.Creator),
+            state.sortOptions[LibraryTab.Playlists]
+        )
         // Songs is Liked Songs in its own order: no sort row.
         assertNull(state.sortOptions[LibraryTab.Songs])
 
