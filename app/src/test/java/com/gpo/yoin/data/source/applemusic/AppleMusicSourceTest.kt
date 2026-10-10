@@ -546,6 +546,76 @@ class AppleMusicSourceTest {
         assertNull(artistRequest.queryParameter("include"))
     }
 
+    @Test fun should_listLibraryArtistsWithoutPortraits_when_appleRefusesTheCatalogInclude() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        reply(
+            """{
+              "data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}],
+              "next":"/v1/me/library/artists?offset=100"
+            }"""
+        )
+        reply("""{"data":[{"id":"r.2","type":"library-artists","attributes":{"name":"Beta"}}]}""")
+        val artists = source.getArtists().flatMap { index -> index.artists }
+        assertEquals(listOf("library:r.1", "library:r.2"), artists.map { it.id.rawId })
+        assertTrue(artists.all { it.coverArt == null })
+        assertEquals("catalog", server.takeRequest().requestUrl!!.queryParameter("include"))
+        // The list is read again from its first page without the include, and so is every later page.
+        val retry = server.takeRequest().requestUrl!!
+        assertNull(retry.queryParameter("offset"))
+        assertNull(retry.queryParameter("include"))
+        assertEquals("100", retry.queryParameter("limit"))
+        val second = server.takeRequest().requestUrl!!
+        assertEquals("100", second.queryParameter("offset"))
+        assertNull(second.queryParameter("include"))
+        assertEquals(listOf("100"), second.queryParameterValues("limit"))
+    }
+
+    @Test fun should_failTheLibraryArtistList_when_appleRateLimitsTheRead() = runTest {
+        server.enqueue(MockResponse().setResponseCode(429))
+        val error = runCatching { source.getArtists() }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.RateLimited, (error as AppleMusicApiException).failure)
+        // A rate limit is not a refused include: no second request.
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun should_failTheLibraryArtistList_when_aLaterPageFails() = runTest {
+        reply(
+            """{
+              "data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}],
+              "next":"/v1/me/library/artists?offset=100"
+            }"""
+        )
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        val error = runCatching { source.getArtists() }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.Http(400), (error as AppleMusicApiException).failure)
+        // The first page took the include: a later page's failure is not Apple refusing it.
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_openALibraryArtistWithoutAPortrait_when_appleRefusesTheCatalogInclude() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        reply("""{"data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}]}""")
+        reply("""{"data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}]}""")
+        val artist = source.getArtist(MediaId("applemusic", "library:r.1"))!!
+        assertEquals(MediaId("applemusic", "library:r.1"), artist.id)
+        assertNull(artist.coverArt)
+        assertEquals(listOf("library:l.1"), artist.albums.map { it.id.rawId })
+        assertEquals("catalog", server.takeRequest().requestUrl!!.queryParameter("include"))
+        val retry = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/artists/r.1", retry.encodedPath)
+        assertNull(retry.queryParameter("include"))
+        assertEquals("/v1/me/library/artists/r.1/albums", server.takeRequest().requestUrl!!.encodedPath)
+    }
+
+    @Test fun should_failTheCatalogArtist_when_itsReadFails() = runTest {
+        reply("""{"data":[{"id":"jp"}]}""")
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        val error = runCatching { source.getArtist(MediaId("applemusic", "159260351")) }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.Http(400), (error as AppleMusicApiException).failure)
+        // It asked for no include, so there is none to drop: no retry.
+        assertEquals(2, server.requestCount)
+    }
+
     @Test fun should_askForLargerPages_when_readingRecentlyAddedAlbums() = runTest {
         reply(
             """{
