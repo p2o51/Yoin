@@ -518,6 +518,8 @@ private fun LibraryContentBody(
     // list back to the top a beat before it is replaced.
     val searchScrollMemory = remember { LibrarySearchScrollMemory() }
     val searchResultsAnchor = remember(state.searchResults) { state.searchQuery to state.searchScope }
+    // A blank query ends the search, and its positions with it.
+    LaunchedEffect(state.searchQuery) { searchScrollMemory.onSearchQuery(state.searchQuery) }
 
     // Queries the field sent that the VM may still echo back, late. Plain set,
     // not state: only these two effects touch it.

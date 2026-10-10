@@ -16,6 +16,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -130,6 +131,31 @@ class LibrarySearchFilterTest {
         assertNotSame(grid, memory.gridState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums))
     }
 
+    @Test
+    fun should_startAtTheTop_when_sameQueryIsSearchedAfterTheSearchEnded() {
+        val memory = LibrarySearchScrollMemory()
+        val list = memory.listState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Songs)
+        val grid = memory.gridState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums)
+
+        memory.onSearchQuery("")
+
+        assertNotSame(list, memory.listState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Songs))
+        assertNotSame(grid, memory.gridState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums))
+    }
+
+    @Test
+    fun should_keepPositions_when_typedQueryIsNotBlank() {
+        val memory = LibrarySearchScrollMemory()
+        val list = memory.listState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.All)
+
+        // Typing ahead of the shown results, or a Wide detail column that
+        // kept the query on collapse.
+        memory.onSearchQuery("qu")
+        memory.onSearchQuery("q")
+
+        assertSame(list, memory.listState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.All))
+    }
+
     // ── ViewModel write points ────────────────────────────────────────
 
     @Test
@@ -236,20 +262,32 @@ class LibrarySearchFilterTest {
 
     @Test
     fun should_fallBackToAll_when_capabilitiesStopCoveringThatType() = runTest {
-        val capabilities = MutableStateFlow(ServiceFeatureCatalog.appleMusic.capabilities)
-        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, capabilities.value)
-        every { repository.capabilities } returns capabilities
-        every { repository.currentCapabilities() } answers { capabilities.value }
+        // Two collectors read repository.capabilities: observeCapabilities,
+        // then observeProviderSearchAvailability (init order). Only the first
+        // gets the flow that moves, so this proves observeCapabilities
+        // normalises on its own; with one shared flow the provider observer
+        // would hide a missing normalisation. The provider observer has its
+        // own test below.
+        val initial = ServiceFeatureCatalog.appleMusic.capabilities
+        val moving = MutableStateFlow(initial)
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, initial)
+        every { repository.capabilities } returnsMany listOf(moving, flowOf(initial))
+        every { repository.currentCapabilities() } answers { moving.value }
         val viewModel = LibraryViewModel(repository)
         advanceUntilIdle()
         viewModel.selectSearchFilter(LibrarySearchFilter.Playlists)
+        assertTrue(viewModel.content().canAddToLibrary)
 
-        capabilities.value = capabilities.value - Capability.SEARCH_PLAYLISTS
+        moving.value = initial - Capability.SEARCH_PLAYLISTS - Capability.LIBRARY_ADD
         advanceUntilIdle()
 
         val state = viewModel.content()
+        // Only observeCapabilities writes canAddToLibrary: the moving flow
+        // reached the collector this test is about.
+        assertFalse(state.canAddToLibrary)
         assertEquals(LibrarySearchFilter.All, state.searchFilter)
         assertFalse(LibrarySearchFilter.Playlists in state.availableSearchFilters)
+        verify(exactly = 2) { repository.capabilities }
     }
 
     @Test

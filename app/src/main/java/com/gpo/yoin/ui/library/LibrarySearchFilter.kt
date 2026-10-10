@@ -61,7 +61,9 @@ internal fun SearchResults.shownFor(filter: LibrarySearchFilter): SearchResults 
  * One scroll position per (query, scope, filter) on the search surface, so
  * All → Songs → All lands where All was left, and a scope switched away from
  * and back keeps its place. Positions belong to the results of one query:
- * the first read for another query forgets them all.
+ * the first read for another query forgets them all. They also last only as
+ * long as the search: a blank query ends it ([onSearchQuery]), so the same
+ * words searched again start at the top.
  */
 @Stable
 internal class LibrarySearchScrollMemory {
@@ -77,6 +79,18 @@ internal class LibrarySearchScrollMemory {
     fun gridState(query: String, scope: LibrarySearchScope, filter: LibrarySearchFilter): LazyGridState {
         forgetOtherQueries(query)
         return grids.getOrPut(scope to filter) { LazyGridState() }
+    }
+
+    /**
+     * Follows the typed query. Blank means the search ended: cleared,
+     * collapsed, a search shortcut or Library home. A Wide detail column
+     * keeps the query on collapse, so the positions stay for the way back.
+     */
+    fun onSearchQuery(query: String) {
+        if (query.isNotBlank()) return
+        this.query = null
+        lists.clear()
+        grids.clear()
     }
 
     private fun forgetOtherQueries(query: String) {
