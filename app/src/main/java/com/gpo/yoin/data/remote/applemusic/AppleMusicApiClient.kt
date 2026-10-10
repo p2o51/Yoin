@@ -204,9 +204,11 @@ class AppleMusicApiClient(
                     429 -> AppleMusicApiFailure.RateLimited
                     else -> AppleMusicApiFailure.Http(response.code)
                 }
-                // Path and include only: catalog ids, never tokens or bodies. Which request failed is otherwise lost.
+                // Path and includes only: catalog ids, never tokens or bodies. Which request failed is otherwise lost.
                 if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "${response.code} ${target.encodedPath} include=${target.queryParameter("include")}")
+                    val includes = target.queryParameterNames.filter { it.startsWith("include") }
+                        .joinToString(" ") { "$it=${target.queryParameter(it)}" }
+                    Log.w(TAG, "${response.code} ${target.encodedPath} $includes")
                 }
                 throw AppleMusicApiException(failure)
             }

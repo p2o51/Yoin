@@ -6,8 +6,13 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
+import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -56,18 +61,258 @@ class AppleMusicAlbumAlignmentTest {
         assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
         assertTrue("Library membership is not a favorite", album.tracks.none { it.isStarred })
 
-        assertEquals("/v1/me/library/albums/l.1", server.takeRequest().requestUrl!!.encodedPath)
-        assertEquals("/v1/me/storefront", server.takeRequest().requestUrl!!.encodedPath)
-        val catalog = server.takeRequest()
-        assertEquals("/v1/catalog/jp/albums/900", catalog.requestUrl!!.encodedPath)
+        // The library tracklist is read alongside the library album, so arrival order is not fixed.
+        val requests = List(5) { server.takeRequest() }.associateBy { it.requestUrl!!.encodedPath }
+        assertEquals(
+            setOf(
+                "/v1/me/library/albums/l.1",
+                "/v1/me/library/albums/l.1/tracks",
+                "/v1/me/storefront",
+                "/v1/catalog/jp/albums/900",
+                "/v1/catalog/jp/albums/900/tracks"
+            ),
+            requests.keys
+        )
+        val catalog = requests.getValue("/v1/catalog/jp/albums/900")
         assertEquals("artists,library", catalog.requestUrl!!.queryParameter("include"))
+        assertEquals("albums,artists", catalog.requestUrl!!.queryParameter("include[songs]"))
         assertEquals("user", catalog.getHeader("Music-User-Token"))
-        // The two tracklists are read at once: either may reach the server first.
-        val tracklists = List(2) { server.takeRequest() }.associateBy { it.requestUrl!!.encodedPath }
-        val libraryTracks = tracklists.getValue("/v1/me/library/albums/l.1/tracks")
+        val libraryTracks = requests.getValue("/v1/me/library/albums/l.1/tracks")
         assertEquals("catalog", libraryTracks.requestUrl!!.queryParameter("include"))
-        assertTrue("/v1/catalog/jp/albums/900/tracks" in tracklists)
         assertEquals(5, server.requestCount)
+    }
+
+    @Test fun should_requestLibraryTracksWithFirstRequest_when_openingLibraryAlbum() = runTest {
+        // The library album is answered only once its tracklist has been asked for: a read that waited for the
+        // library album (or the catalog album after it) would wait out the latch and get a 500 for the album.
+        val tracksAsked = CountDownLatch(1)
+        val requested = Collections.synchronizedList(mutableListOf<String>())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.requestUrl!!.encodedPath
+                requested += path
+                return when (path) {
+                    "/v1/me/library/albums/l.1" ->
+                        if (tracksAsked.await(5, TimeUnit.SECONDS)) {
+                            body(libraryAlbum("l.1", catalogId = "900"))
+                        } else {
+                            MockResponse().setResponseCode(500)
+                        }
+                    "/v1/me/library/albums/l.1/tracks" -> {
+                        tracksAsked.countDown()
+                        body(librarySongs("i.1" to "10", "i.2" to "10"))
+                    }
+                    "/v1/me/storefront" -> body(storefront())
+                    "/v1/catalog/jp/albums/900" -> body(catalogAlbum("900", tracks = embedded(song("10"), song("11"))))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
+
+        assertEquals(MediaId("applemusic", "900"), album.id)
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertEquals("i.1", album.tracks.first().extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertNull(album.tracks.last().extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+        // Each read once; the catalog tracklist came with the catalog album.
+        assertEquals(
+            listOf(
+                "/v1/me/library/albums/l.1",
+                "/v1/me/library/albums/l.1/tracks",
+                "/v1/me/storefront",
+                "/v1/catalog/jp/albums/900"
+            ).sorted(),
+            requested.sorted()
+        )
+    }
+
+    @Test fun should_skipCatalogTracksRequest_when_albumEmbedsCompleteTracks() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(
+                catalogAlbum(
+                    "900",
+                    tracks = embedded(song("10"), musicVideo("50"), song("11", artistId = "8"), song("10"))
+                )
+            )
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        // Order kept, the music video left out, the repeated identity listed once.
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertEquals(2, album.songCount)
+        // Each song keeps its own artist (a featured artist, not the album's 7) and album as navigation targets.
+        assertEquals(MediaId("applemusic", "8"), album.tracks.last().artistId)
+        assertEquals(MediaId("applemusic", "7"), album.tracks.first().artistId)
+        assertTrue(album.tracks.all { it.albumId == MediaId("applemusic", "900") })
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+        assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_ID) })
+        server.takeRequest()
+        val catalog = server.takeRequest().requestUrl!!
+        assertEquals("artists,library", catalog.queryParameter("include"))
+        assertEquals("albums,artists", catalog.queryParameter("include[songs]"))
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_fetchCatalogTracks_when_embeddedTracksHaveNextPage() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(
+                catalogAlbum("900", tracks = embedded(song("10"), next = "/v1/catalog/jp/albums/900/tracks?offset=300"))
+            ),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10", "11", "12"))
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(listOf("10", "11", "12"), album.tracks.map { it.id.rawId })
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+        repeat(2) { server.takeRequest() }
+        val tracklist = server.takeRequest().requestUrl!!
+        // The whole tracklist from its first page, with the songs' relationships as before.
+        assertEquals("/v1/catalog/jp/albums/900/tracks", tracklist.encodedPath)
+        assertNull(tracklist.queryParameter("offset"))
+        assertEquals("albums,artists", tracklist.queryParameter("include"))
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test fun should_fetchCatalogTracks_when_embeddedSongsLackRelationships() = runTest {
+        // Apple leaving out the songs' relationships (an ignored include[songs]) loses no navigation targets.
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(
+                catalogAlbum("900", tracks = embedded(song("10"), song("11", relationships = false)))
+            ),
+            "/v1/catalog/jp/albums/900/tracks" to body(
+                """{"data":[${song("10")},${song("11", artistId = "8")}]}"""
+            )
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(MediaId("applemusic", "8"), album.tracks.single { it.id.rawId == "11" }.artistId)
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test fun should_fetchCatalogTracks_when_embeddedTracklistIsEmpty() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900", tracks = embedded())),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10"))
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(listOf("10"), album.tracks.map { it.id.rawId })
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test fun should_readAlbumWithoutSongRelationships_when_appleRefusesThem() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to MockResponse().setResponseCode(400),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900", libraryId = "l.9")),
+            "/v1/me/library/albums/l.9/tracks" to body(librarySongs("i.5" to "11")),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10", "11"))
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        // The personal read still answered, so the rows are marked.
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertEquals("i.5", album.tracks.last().extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+        val albumReads = List(5) { server.takeRequest().requestUrl!! }
+            .filter { it.encodedPath == "/v1/catalog/jp/albums/900" }
+        assertEquals(listOf("albums,artists", null), albumReads.map { it.queryParameter("include[songs]") })
+        assertEquals(listOf("artists,library", "artists,library"), albumReads.map { it.queryParameter("include") })
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test fun should_failAlbum_when_libraryAlbumIsRateLimited_evenIfItsTracksArrive() = runTest {
+        route(
+            "/v1/me/library/albums/l.1" to MockResponse().setResponseCode(429),
+            "/v1/me/library/albums/l.1/tracks" to body(librarySongs("i.1" to "10"))
+        )
+
+        val failure = runCatching { source.getAlbum(MediaId("applemusic", "library:l.1")) }.exceptionOrNull()
+
+        assertEquals(AppleMusicApiFailure.RateLimited, (failure as AppleMusicApiException).failure)
+    }
+
+    @Test fun should_openCatalogAlbumUnmarked_when_libraryAlbumTracksFail() = runTest {
+        route(
+            "/v1/me/library/albums/l.1" to body(libraryAlbum("l.1", catalogId = "900")),
+            "/v1/me/library/albums/l.1/tracks" to MockResponse().setResponseCode(404),
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900", tracks = embedded(song("10"), song("11"))))
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
+
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_CHECKED) })
+        assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_ID) })
+    }
+
+    @Test fun should_failAlbum_when_libraryAlbumTracksAreRateLimited() = runTest {
+        route(
+            "/v1/me/library/albums/l.1" to body(libraryAlbum("l.1", catalogId = "900")),
+            "/v1/me/library/albums/l.1/tracks" to MockResponse().setResponseCode(429),
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900", tracks = embedded(song("10"))))
+        )
+
+        val failure = runCatching { source.getAlbum(MediaId("applemusic", "library:l.1")) }.exceptionOrNull()
+
+        assertEquals(AppleMusicApiFailure.RateLimited, (failure as AppleMusicApiException).failure)
+    }
+
+    @Test fun should_useFirstLibraryRead_when_catalogTracklistFailsAndAlbumFallsBack() = runTest {
+        // The catalog tracklist 404s, with its relationships and without; everything unrouted 404s.
+        route(
+            "/v1/me/library/albums/l.1" to body(libraryAlbum("l.1", catalogId = "900")),
+            "/v1/me/library/albums/l.1/tracks" to body(librarySongs("i.1" to "10", "i.2" to "10", "i.3" to null)),
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900"))
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
+
+        assertEquals(MediaId("applemusic", "library:l.1"), album.id)
+        assertEquals(listOf("10", "library:i.3"), album.tracks.map { it.id.rawId })
+        val paths = List(server.requestCount) { server.takeRequest().requestUrl!!.encodedPath }
+        assertEquals(1, paths.count { it == "/v1/me/library/albums/l.1/tracks" })
+        assertEquals(2, paths.count { it == "/v1/catalog/jp/albums/900/tracks" })
+    }
+
+    @Test fun should_stopOpening_when_cancelledWhileLibraryTracksAreInFlight() = runBlocking {
+        val bothAsked = CountDownLatch(2)
+        val release = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val response = when (request.requestUrl!!.encodedPath) {
+                    "/v1/me/library/albums/l.1" -> body(libraryAlbum("l.1", catalogId = "900"))
+                    "/v1/me/library/albums/l.1/tracks" -> body(librarySongs("i.1" to "10"))
+                    else -> return MockResponse().setResponseCode(404)
+                }
+                bothAsked.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                return response
+            }
+        }
+
+        val open = async(Dispatchers.Default) { source.getAlbum(MediaId("applemusic", "library:l.1")) }
+        assertTrue(bothAsked.await(5, TimeUnit.SECONDS))
+        open.cancel()
+        release.countDown()
+
+        assertTrue(runCatching { open.await() }.exceptionOrNull() is CancellationException)
+        // Cancelled with both reads in flight: nothing after them was asked for.
+        assertEquals(2, server.requestCount)
     }
 
     @Test fun should_readBothTracklistsAtOnce_when_albumHasLibraryCopy() = runTest {
@@ -148,18 +393,30 @@ class AppleMusicAlbumAlignmentTest {
     }
 
     @Test fun should_openCatalogAlbumUnmarked_when_libraryLookupFails() = runTest {
-        reply(storefront())
-        server.enqueue(MockResponse().setResponseCode(500))
-        reply(catalogAlbum("900"))
-        reply(catalogSongs("10", "11"))
+        // The personal read fails with and without the songs' relationships; the tracklist is read meanwhile.
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to MockResponse().setResponseCode(500),
+            "/v1/catalog/jp/albums/900" to MockResponse().setResponseCode(500),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900")),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10", "11"))
+        )
 
         val album = source.getAlbum(MediaId("applemusic", "900"))!!
 
         assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
         assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_CHECKED) })
-        server.takeRequest()
-        assertEquals("artists,library", server.takeRequest().requestUrl!!.queryParameter("include"))
-        assertEquals("artists", server.takeRequest().requestUrl!!.queryParameter("include"))
+        val albumReads = List(5) { server.takeRequest() }
+            .filter { it.requestUrl!!.encodedPath == "/v1/catalog/jp/albums/900" }
+        assertEquals(
+            listOf("artists,library", "artists,library", "artists"),
+            albumReads.map { it.requestUrl!!.queryParameter("include") }
+        )
+        assertEquals(
+            listOf("albums,artists", null, null),
+            albumReads.map { it.requestUrl!!.queryParameter("include[songs]") }
+        )
+        assertNull(albumReads.last().getHeader("Music-User-Token"))
     }
 
     @Test fun should_openCatalogAlbum_when_tracklistRelationshipsFail() = runTest {
@@ -203,21 +460,32 @@ class AppleMusicAlbumAlignmentTest {
     }
 
     @Test fun should_keepLibraryTracklist_when_catalogMatchIsNotServed() = runTest {
-        reply(libraryAlbum("l.1", catalogId = "900"))
-        reply(storefront())
-        server.enqueue(MockResponse().setResponseCode(404))
-        server.enqueue(MockResponse().setResponseCode(404))
-        reply(librarySongs("i.1" to "10", "i.3" to null))
+        // The catalog album 404s (as everything unrouted does), personal and public.
+        route(
+            "/v1/me/library/albums/l.1" to body(libraryAlbum("l.1", catalogId = "900")),
+            "/v1/me/library/albums/l.1/tracks" to body(librarySongs("i.1" to "10", "i.3" to null)),
+            "/v1/me/storefront" to body(storefront())
+        )
 
         val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
 
         assertEquals(MediaId("applemusic", "library:l.1"), album.id)
         assertEquals(listOf("10", "library:i.3"), album.tracks.map { it.id.rawId })
+        val requests = List(server.requestCount) { server.takeRequest().requestUrl!! }
+        // The tracklist read with the library album is the one the fallback uses: it is not asked for again.
+        assertEquals(1, requests.count { it.encodedPath == "/v1/me/library/albums/l.1/tracks" })
+        // A 404 is not a refused include: no second personal read, straight to the public one.
+        assertEquals(
+            listOf("artists,library", "artists"),
+            requests.filter { it.encodedPath == "/v1/catalog/jp/albums/900" }.map { it.queryParameter("include") }
+        )
     }
 
     @Test fun should_keepLibraryTracklistDeduplicated_when_albumHasNoCatalogMatch() = runTest {
-        reply(libraryAlbum("l.1", catalogId = null))
-        reply(librarySongs("i.1" to "10", "i.2" to "10", "i.3" to null))
+        route(
+            "/v1/me/library/albums/l.1" to body(libraryAlbum("l.1", catalogId = null)),
+            "/v1/me/library/albums/l.1/tracks" to body(librarySongs("i.1" to "10", "i.2" to "10", "i.3" to null))
+        )
 
         val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
 
@@ -225,6 +493,15 @@ class AppleMusicAlbumAlignmentTest {
         assertEquals(listOf("10", "library:i.3"), album.tracks.map { it.id.rawId })
         assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_CHECKED) })
         assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_returnNull_when_libraryAlbumIsGone() = runTest {
+        route(
+            "/v1/me/library/albums/l.1" to body("""{"data":[]}"""),
+            "/v1/me/library/albums/l.1/tracks" to body(librarySongs("i.1" to "10"))
+        )
+
+        assertNull(source.getAlbum(MediaId("applemusic", "library:l.1")))
     }
 
     @Test fun should_deduplicateSavedSongs_when_twoLibrarySongsShareOneCatalogSong() = runTest {
@@ -280,13 +557,29 @@ class AppleMusicAlbumAlignmentTest {
  "relationships":{"catalog":{"data":[${catalogId?.let { """{"id":"$it","type":"albums"}""" } ?: ""}]}}}]}
 """
 
-    private fun catalogAlbum(id: String, libraryId: String? = null) = """
+    /** [tracks] is the album's `tracks` relationship as Apple embeds it; without it the album embeds none. */
+    private fun catalogAlbum(id: String, libraryId: String? = null, tracks: String? = null) = """
 {"data":[{"id":"$id","type":"albums","attributes":{"name":"Album","artistName":"Artist","trackCount":3},
  "relationships":{
    "artists":{"data":[{"id":"7","type":"artists"}]},
-   "library":{"data":[${libraryId?.let { """{"id":"$it","type":"library-albums"}""" } ?: ""}]}
+   "library":{"data":[${libraryId?.let { """{"id":"$it","type":"library-albums"}""" } ?: ""}]}${tracks?.let { ""","tracks":$it""" } ?: ""}
  }}]}
 """
+
+    private fun embedded(vararg tracks: String, next: String? = null): String {
+        val nextLink = next?.let { ""","next":"$it"""" } ?: ""
+        return """{"href":"/v1/catalog/jp/albums/900/tracks","data":[${tracks.joinToString(",")}]$nextLink}"""
+    }
+
+    /** A catalog song of album 900 with its album and artist relationships, as include[songs] asks for. */
+    private fun song(id: String, artistId: String = "7", relationships: Boolean = true): String {
+        val related = """,
+ "relationships":{"albums":{"data":[{"id":"900","type":"albums"}]},"artists":{"data":[{"id":"$artistId","type":"artists"}]}}"""
+        val attributes = """"attributes":{"name":"Song $id","durationInMillis":1000}"""
+        return """{"id":"$id","type":"songs",$attributes${if (relationships) related else ""}}"""
+    }
+
+    private fun musicVideo(id: String) = """{"id":"$id","type":"music-videos","attributes":{"name":"Video $id"}}"""
 
     private fun librarySongs(vararg songs: Pair<String, String?>) = """
 {"data":[${songs.joinToString(",") { (libraryId, catalogId) ->
