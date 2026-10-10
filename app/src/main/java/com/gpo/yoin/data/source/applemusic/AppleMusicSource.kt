@@ -29,6 +29,8 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -187,30 +189,29 @@ class AppleMusicSource(
         val libraryPath = libraryAlbumPath
             ?: resource.related("library").firstOrNull { it.text("type") == "library-albums" }
                 ?.let { path("albums", it.mediaId()) }
+        // The user's copy and the catalog tracklist don't depend on each other: read both at once. Each
+        // outcome is then taken in the order a one-after-the-other read had, so the same failure wins.
+        val (libraryRead, catalogRead) = coroutineScope {
+            val library = libraryPath?.let { libraryTracks ->
+                async { attempt { all(libraryTracks + "tracks", mapOf("include" to "catalog")) } }
+            }
+            val catalog = async { attempt { catalogTracks(path) } }
+            library?.await() to catalog.await()
+        }
         // First library copy wins when Apple holds two library songs for one catalog song.
         val libraryIdsByCatalogId = mutableMapOf<String, String>()
         var libraryTracksRead = true
-        libraryPath?.let { libraryTracks ->
-            try {
-                all(libraryTracks + "tracks", mapOf("include" to "catalog")).songTracks().forEach { track ->
-                    val catalogId = track.extras[AppleMusicSong.EXTRA_CATALOG_ID] ?: return@forEach
-                    val libraryId = track.extras[AppleMusicSong.EXTRA_LIBRARY_ID] ?: return@forEach
-                    libraryIdsByCatalogId.putIfAbsent(catalogId, libraryId)
-                }
-            } catch (error: AppleMusicApiException) {
-                if (error.failsCatalogToo()) throw error
-                libraryIdsByCatalogId.clear()
-                libraryTracksRead = false
+        libraryRead?.onSuccess { libraryTracks ->
+            libraryTracks.songTracks().forEach { track ->
+                val catalogId = track.extras[AppleMusicSong.EXTRA_CATALOG_ID] ?: return@forEach
+                val libraryId = track.extras[AppleMusicSong.EXTRA_LIBRARY_ID] ?: return@forEach
+                libraryIdsByCatalogId.putIfAbsent(catalogId, libraryId)
             }
+        }?.onFailure { error ->
+            if (error !is AppleMusicApiException || error.failsCatalogToo()) throw error
+            libraryTracksRead = false
         }
-        val tracks = try {
-            all(path + "tracks", mapOf("include" to "albums,artists"))
-        } catch (error: AppleMusicApiException) {
-            // Apple 500s some tracklists' included relationships (catalog 207192046 from search, 2026-10-09)
-            // while serving the bare tracks; those fall back to this album and its artist below.
-            if (error.failure !is AppleMusicApiFailure.Http) throw error
-            all(path + "tracks", emptyMap())
-        }.songTracks()
+        val tracks = catalogRead.getOrThrow().songTracks()
             .distinctBy { it.id }
             .map { track ->
                 val extras = track.extras.toMutableMap()
@@ -225,6 +226,28 @@ class AppleMusicSource(
                 )
             }
         return mappedAlbum.withTracks(tracks)
+    }
+
+    /** The album's catalog tracklist, with its albums and artists when Apple will include them. */
+    private suspend fun catalogTracks(path: List<String>): List<JsonObject> = try {
+        all(path + "tracks", mapOf("include" to "albums,artists"))
+    } catch (error: AppleMusicApiException) {
+        // Apple 500s some tracklists' included relationships (catalog 207192046 from search, 2026-10-09)
+        // while serving the bare tracks; those fall back to this album and its artist below.
+        if (error.failure !is AppleMusicApiFailure.Http) throw error
+        all(path + "tracks", emptyMap())
+    }
+
+    /**
+     * [block]'s outcome as a Result, so one of two parallel reads failing doesn't cancel the other before the
+     * caller has weighed both. Cancellation still propagates.
+     */
+    private suspend fun <T> attempt(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Result.failure(error)
     }
 
     /** A token or rate-limit failure fails the plain catalog request as well; any other failure is the lookup's. */
