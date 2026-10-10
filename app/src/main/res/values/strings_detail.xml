@@ -7,6 +7,8 @@
     <string name="detail_menu_play_next">Play next</string>
     <string name="detail_menu_add_to_queue">Add to queue</string>
     <string name="detail_menu_add_to_playlist">Add to playlist</string>
+    <string name="detail_menu_save_to_library">Save to library</string>
+    <string name="detail_menu_remove_from_library">Remove from library</string>
     <string name="detail_menu_open_spotify">Open in Spotify</string>
     <string name="detail_menu_open_apple_music">Open in Apple Music</string>
     <plurals name="detail_menu_queued">
@@ -28,6 +30,8 @@
     <string name="detail_album_error_not_found">Album not found</string>
     <string name="detail_album_error_load">Couldn\'t load this album.</string>
     <string name="detail_album_neodb_failed">Couldn\'t sync to NeoDB</string>
+    <string name="detail_album_save_failed">Couldn\'t save to library</string>
+    <string name="detail_album_remove_failed">Couldn\'t remove from library</string>
     <string name="detail_artist_error_not_found">Artist not found</string>
     <string name="detail_artist_error_load">Couldn\'t load this artist.</string>
     <string name="detail_playlist_error_not_found">Playlist not found</string>

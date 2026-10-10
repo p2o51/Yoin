@@ -15,6 +15,14 @@ data class Album(
     val addedAt: String? = null,
     /** What kind of release this is, when the provider says; null = unknown. */
     val releaseType: ReleaseType? = null,
+    /**
+     * When the album joined the user's library, as the provider dates it
+     * (ISO-8601): Subsonic's `AlbumID3.created`, a saved Spotify album's
+     * `added_at`, an Apple Music library album's `dateAdded`. Library sorts
+     * Recently added by it. Not [addedAt], which on Subsonic is the star time
+     * Home's Recently Added reads. Null where the provider gives no date.
+     */
+    val libraryAddedAt: String? = null,
 )
 
 /**

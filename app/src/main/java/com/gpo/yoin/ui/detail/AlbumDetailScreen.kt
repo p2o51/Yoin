@@ -87,6 +87,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
@@ -145,6 +147,8 @@ fun AlbumDetailScreen(
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
     onRetry: () -> Unit,
+    // The page is on screen again (its window resumed): the host re-asks for the rows' hearts.
+    onResumed: () -> Unit = {},
     notedSongIds: Set<String> = emptySet(),
     currentTrackId: String? = null,
     expandedSongId: String? = null,
@@ -199,6 +203,7 @@ fun AlbumDetailScreen(
 ) {
     val content = uiState as? AlbumDetailUiState.Content
     val pageAccent = rememberDetailPageAccent(content?.coverArtUrl)
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { onResumed() }
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole

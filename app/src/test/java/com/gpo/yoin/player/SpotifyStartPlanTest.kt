@@ -91,6 +91,22 @@ class SpotifyStartPlanTest {
     }
 
     @Test
+    fun should_startLikedSongsAtTheTappedSong_when_aSpotifySongsRowHandsOverItsWindow() {
+        // Library Songs on Spotify is Liked Songs, cut to the start window around the row.
+        val liked = (0 until 300).map { track("x$it") }
+        val window = startWindowQueue(liked, startIndex = 150)
+
+        val result = attempts(ActivityContext.LikedSongs(), list = window.tracks, start = window.startIndex)
+
+        // The collection itself first, at the tapped song; the window's uris only if that fails.
+        assertEquals(SpotifyStartAttempt.LikedSongs(offsetUri = "spotify:track:x150"), result[0])
+        val fallback = result[1] as SpotifyStartAttempt.Tracks
+        assertEquals((130 until 230).map { "spotify:track:x$it" }, fallback.uris)
+        assertEquals("spotify:track:x150", fallback.uris[fallback.offsetPosition])
+        assertEquals(2, result.size)
+    }
+
+    @Test
     fun should_playThePlainListWithoutTouchingTheQueue_when_thereIsNoContext() {
         val result = attempts(ActivityContext.None, start = 4)
 

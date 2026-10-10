@@ -43,6 +43,13 @@ sealed interface AlbumDetailUiState {
         val userReviewAt: Long? = null,
         /** review 脏位：编辑后 vs Room 持久化的内容不一致。 */
         val reviewHasUnsavedEdits: Boolean = false,
+        /**
+         * Whether the album is in the account's library: the ▾ menu's
+         * Save to library / Remove from library row. Null — no row — where the
+         * service can't save an album (Capability.ALBUM_SAVE — only Spotify),
+         * and while it isn't known yet whether this one is saved.
+         */
+        val librarySaved: Boolean? = null,
     ) : AlbumDetailUiState {
         /**
          * 「Based on X/N」的分母 N。用实际加载到的 songs.size，而不是 provider
@@ -95,4 +102,9 @@ data class AlbumSong(
     val libraryActionInFlight: Boolean = false,
     /** Yoin 放不了（Apple 资料库里没有目录对应的导入曲目）：行变灰并可展开原因。 */
     val isUnavailable: Boolean = false,
+    /**
+     * [isStarred] 静默翻转的次数：Spotify 晚到的确认，以及页面打开那次查询回来之前（之后则是这一行的第一份状态），
+     * 第一次纠正了专辑自带旧值的非用户状态。这些变化静默淡入淡出，不跳；点击、回退、之后的同步照常跳（FavoriteGlyph）。
+     */
+    val favoriteQuietFlips: Int = 0,
 )

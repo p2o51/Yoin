@@ -19,10 +19,12 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
@@ -31,6 +33,18 @@ import kotlinx.coroutines.supervisorScope
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+
+/**
+ * When the requests behind the cached library lists started, by list, on
+ * the source's clock ([SpotifyMusicSource.warmLibraryCaches]): what Spotify
+ * said at that moment, which is what a row written from the list stands on.
+ */
+data class SpotifyLibraryReadTimes(
+    val savedTracksMs: Long,
+    val savedAlbumsMs: Long,
+    val playlistsMs: Long,
+    val followedArtistsMs: Long
+)
 
 class SpotifyMusicSource(
     initialCredentials: ProfileCredentials.Spotify,
@@ -75,6 +89,10 @@ class SpotifyMusicSource(
     private val playlistsCache = SingleFlightValue<List<SpotifyPlaylistObject>>(clock = clock)
     private val followedArtistsCache = SingleFlightValue<List<SpotifyArtistObject>>(clock = clock)
     private val savedTrackDelta = SavedTrackDelta(clock)
+
+    // Album saves and removals written through this source, laid over the
+    // cached saved-albums list the same way (an album id in place of a track's).
+    private val savedAlbumDelta = SavedTrackDelta(clock)
     private val recentlyPlayedCache =
         SingleFlightValue<List<SpotifyPlayHistoryObject>>(RECENTLY_PLAYED_MAX_AGE_MS, clock)
     private val playlistTrackOffsetsById = ConcurrentHashMap<String, List<Int>>()
@@ -97,8 +115,9 @@ class SpotifyMusicSource(
             .take(size.coerceAtLeast(0))
 
         override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
-            val albums = savedAlbums()
             val savedAlbumIds = savedAlbumIds()
+            // An album removed through Yoin that Spotify's list still carries is no longer saved.
+            val albums = savedAlbums().filter { savedAlbum -> savedAlbum.album?.id in savedAlbumIds }
             val mapped = when (type) {
                 "alphabeticalByName" -> albums.sortedBy { it.album?.name?.lowercase().orEmpty() }
                 "recent" -> albums.sortedByDescending { it.addedAt.orEmpty() }
@@ -106,7 +125,7 @@ class SpotifyMusicSource(
                 else -> albums
             }.mapNotNull { savedAlbum ->
                 savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
-                    ?.copy(addedAt = savedAlbum.addedAt)
+                    ?.copy(addedAt = savedAlbum.addedAt, libraryAddedAt = savedAlbum.addedAt)
             }
             return mapped.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
         }
@@ -154,7 +173,9 @@ class SpotifyMusicSource(
             val meId = apiClient.getCurrentUserId()
             return currentUserPlaylists()
                 .sortedBy { it.name.lowercase() }
-                .map { playlist -> playlist.toPlaylist(canWrite = playlist.owner?.id == meId) }
+                .map { playlist ->
+                    playlist.toPlaylist(canWrite = playlist.owner?.id == meId, ownedByMe = playlist.ownedBy(meId))
+                }
         }
 
         override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
@@ -173,6 +194,7 @@ class SpotifyMusicSource(
                 playlist.toPlaylist(
                     tracks = indexedTracks.map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
+                    ownedByMe = playlist.ownedBy(meId.await()),
                 )
             }
         }
@@ -205,6 +227,11 @@ class SpotifyMusicSource(
                 .shuffled()
                 .take(size.coerceAtLeast(0))
 
+        // No getLibrarySongs here: LIBRARY_SONGS (Liked Songs) is served by
+        // YoinRepository.getLibrarySongs from the synced cache, which also
+        // holds the likes written since the last sync. A list of the source's
+        // own would page /me/tracks again and miss those likes.
+
         override suspend fun search(query: String): SearchResults =
             apiClient.search(query = query).toSearchResults(
                 savedTrackIds = savedTrackIds(),
@@ -222,6 +249,32 @@ class SpotifyMusicSource(
     }
 
     private val writeActions = object : MusicWriteActions {
+        // Asked of Spotify, since the saved-tracks list stops at 200. One
+        // contains read per 40 tracks, one after another. Episodes and local
+        // files App Remote reported have no track id to ask about. A batch
+        // failing after others answered (a 429) keeps their answers. The
+        // albums go first, so the page's own album is in the first request.
+        override suspend fun favoriteStates(tracks: List<Track>, albums: List<MediaId>): Result<Map<MediaId, Boolean>> {
+            val askedAlbums = albums.mapNotNull { id -> spotifyAlbumUriOrNull(id)?.let { uri -> id to uri } }
+            val askedTracks = tracks
+                .mapNotNull { track -> spotifyTrackUriOrNull(track)?.let { uri -> track.id to uri } }
+            val asked = (askedAlbums + askedTracks).distinctBy { (id, _) -> id }
+            if (asked.isEmpty()) return Result.success(emptyMap())
+            val answered = LinkedHashMap<MediaId, Boolean>()
+            return try {
+                apiClient.libraryContains(asked.map { (_, uri) -> uri }) { from, saved ->
+                    saved.forEachIndexed { offset, isSaved -> answered[asked[from + offset].first] = isSaved }
+                }
+                Result.success(answered.toMap())
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                Result.failure(
+                    if (answered.isEmpty()) error else FavoriteStatesIncompleteException(answered.toMap(), error)
+                )
+            }
+        }
+
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> = runCatching {
             val rawId = requireSpotify(id).rawId
             // setFavorite is the TRACK like (saved-tracks library). Artist follow
@@ -234,6 +287,19 @@ class SpotifyMusicSource(
             }
             // Laid over the cached saved-tracks list rather than dropping it.
             savedTrackDelta.record(rawId, favorite)
+        }
+
+        // PUT / DELETE /v1/me/library with the album's URI, like a track's like.
+        override suspend fun setAlbumSaved(album: Album, saved: Boolean): Result<Unit> = runCatching {
+            val rawId = requireSpotify(album.id).rawId
+            val uri = "spotify:album:$rawId"
+            if (saved) {
+                apiClient.saveToLibrary(uri)
+            } else {
+                apiClient.removeFromLibrary(uri)
+            }
+            // Laid over the cached saved-albums list rather than dropping it (up to 4 pages).
+            savedAlbumDelta.record(rawId, saved)
         }
 
         override suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> =
@@ -254,7 +320,7 @@ class SpotifyMusicSource(
             val created = apiClient.createPlaylist(name = name, description = description)
             playlistsCache.invalidate()
             // Freshly-created playlists are owned by the caller → canWrite = true.
-            created.toPlaylist(canWrite = true)
+            created.toPlaylist(canWrite = true, ownedByMe = true)
         }
 
         override suspend fun renamePlaylist(
@@ -394,6 +460,19 @@ class SpotifyMusicSource(
         recentlyPlayed().take(limit.coerceAtLeast(0))
 
     /**
+     * One artist's portrait for Home's Activities (recently-played names its
+     * artists without images): one GET /artists/{id}, through the rate-limit
+     * gate like every read. An artist Spotify no longer has reads as one
+     * without a portrait; any other failure — a 429 or a closed gate
+     * included — throws.
+     */
+    suspend fun getArtistPortrait(artistId: String): SpotifyArtistPortrait {
+        val artist = orNullIfNotFound { apiClient.getArtist(artistId) }
+            ?: return SpotifyArtistPortrait(name = null, url = null)
+        return SpotifyArtistPortrait(name = artist.name, url = artist.bestImageUrl())
+    }
+
+    /**
      * Translate the visible row index in Yoin's filtered playlist view back
      * to Spotify's raw playlist offset. Returns null when the source no
      * longer has a trustworthy mapping (e.g. stale cache after a mutation),
@@ -414,31 +493,43 @@ class SpotifyMusicSource(
         is CoverRef.SourceRelative -> null
     }
 
-    private suspend fun savedTracks(): List<SpotifySavedTrackObject> = savedTracksCache.get {
+    private suspend fun savedTracks(): List<SpotifySavedTrackObject> = savedTracksRead().value
+
+    private suspend fun savedTracksRead(): ReadValue<List<SpotifySavedTrackObject>> = savedTracksCache.read {
         val readCheckpoint = savedTrackDelta.checkpoint()
         apiClient.getSavedTracks().also { saved ->
             savedTrackDelta.reconcile(saved.mapNotNullTo(HashSet()) { it.track?.id }, readCheckpoint)
         }
     }
 
-    private suspend fun savedAlbums(): List<SpotifySavedAlbumObject> =
-        savedAlbumsCache.get { apiClient.getSavedAlbums() }
+    private suspend fun savedAlbums(): List<SpotifySavedAlbumObject> = savedAlbumsRead().value
 
-    private suspend fun currentUserPlaylists(): List<SpotifyPlaylistObject> =
-        playlistsCache.get { apiClient.getCurrentUserPlaylists() }
+    private suspend fun savedAlbumsRead(): ReadValue<List<SpotifySavedAlbumObject>> = savedAlbumsCache.read {
+        val readCheckpoint = savedAlbumDelta.checkpoint()
+        apiClient.getSavedAlbums().also { saved ->
+            savedAlbumDelta.reconcile(saved.mapNotNullTo(HashSet()) { it.album?.id }, readCheckpoint)
+        }
+    }
 
-    private suspend fun followedArtists(): List<SpotifyArtistObject> =
-        followedArtistsCache.get { apiClient.getFollowedArtists() }
+    private suspend fun currentUserPlaylists(): List<SpotifyPlaylistObject> = currentUserPlaylistsRead().value
+
+    private suspend fun currentUserPlaylistsRead(): ReadValue<List<SpotifyPlaylistObject>> =
+        playlistsCache.read { apiClient.getCurrentUserPlaylists() }
+
+    private suspend fun followedArtists(): List<SpotifyArtistObject> = followedArtistsRead().value
+
+    private suspend fun followedArtistsRead(): ReadValue<List<SpotifyArtistObject>> =
+        followedArtistsCache.read { apiClient.getFollowedArtists() }
 
     private suspend fun recentlyPlayed(): List<SpotifyPlayHistoryObject> =
         recentlyPlayedCache.get { apiClient.getRecentlyPlayed(limit = RECENTLY_PLAYED_LIMIT) }
 
     /**
-     * Whether a like or unlike written through this source still waits for a
-     * saved-tracks read made after it; until then only the saved ids carry
-     * it, not the cached list's tracks.
+     * Whether a like or unlike (or an album save or removal) written through
+     * this source still waits for a saved-tracks (saved-albums) read made
+     * after it; until then only the saved ids carry it, not the cached list.
      */
-    fun hasUnsettledFavoriteWrites(): Boolean = savedTrackDelta.isUnsettled()
+    fun hasUnsettledFavoriteWrites(): Boolean = savedTrackDelta.isUnsettled() || savedAlbumDelta.isUnsettled()
 
     /**
      * Drops in-memory library caches so the next read pulls fresh network
@@ -467,16 +558,20 @@ class SpotifyMusicSource(
      * safe — and it turns a cold full sync from four serial round-trips into
      * roughly one. Already-warm caches (e.g. from [prime]) return instantly.
      * Call before the derived [library] reads so they hit warm caches.
+     * Returns when the read behind each list started — for a warm cache,
+     * its earlier read, and for a read already out, that one's start.
      */
-    suspend fun warmLibraryCaches(): Unit = coroutineScope {
-        val tracks = async { savedTracks() }
-        val albums = async { savedAlbums() }
-        val playlists = async { currentUserPlaylists() }
-        val artists = async { followedArtists() }
-        tracks.await()
-        albums.await()
-        playlists.await()
-        artists.await()
+    suspend fun warmLibraryCaches(): SpotifyLibraryReadTimes = coroutineScope {
+        val tracks = async { savedTracksRead() }
+        val albums = async { savedAlbumsRead() }
+        val playlists = async { currentUserPlaylistsRead() }
+        val artists = async { followedArtistsRead() }
+        SpotifyLibraryReadTimes(
+            savedTracksMs = tracks.await().readStartedAtMs,
+            savedAlbumsMs = albums.await().readStartedAtMs,
+            playlistsMs = playlists.await().readStartedAtMs,
+            followedArtistsMs = artists.await().readStartedAtMs
+        )
     }
 
     private suspend fun savedTrackIds(): Set<String> {
@@ -484,8 +579,10 @@ class SpotifyMusicSource(
         return savedTrackDelta.applyTo(listed)
     }
 
-    private suspend fun savedAlbumIds(): Set<String> =
-        savedAlbums().mapNotNullTo(linkedSetOf()) { savedAlbum -> savedAlbum.album?.id }
+    private suspend fun savedAlbumIds(): Set<String> {
+        val listed = savedAlbums().mapNotNullTo(linkedSetOf()) { savedAlbum -> savedAlbum.album?.id }
+        return savedAlbumDelta.applyTo(listed)
+    }
 
     private suspend fun followedArtistIds(): Set<String> =
         followedArtists().mapTo(linkedSetOf(), SpotifyArtistObject::id)

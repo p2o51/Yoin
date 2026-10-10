@@ -184,6 +184,26 @@ class SpotifyMusicSourceTest {
     }
 
     @Test
+    fun should_tellWhenEachListWasRead_when_aResyncLandsOnAReadInFlight() = runTest {
+        val savedTracksRequests = savedTracksBehindLatch()
+        val source = newSource()
+        val openedAt = now
+
+        val album = async(Dispatchers.IO) { source.library().getAlbum(MediaId.spotify("a1")) }
+        assertTrue(savedTracksRequests.started.await(5, TimeUnit.SECONDS))
+        now += 3_000L
+        source.invalidateLibraryCaches(keepRecentLoads = true)
+        val warm = async(Dispatchers.IO) { source.warmLibraryCaches() }
+        savedTracksRequests.release.countDown()
+        album.await()
+        val readTimes = warm.await()
+
+        // The saved tracks are the album open's read, from before the re-sync; the playlists its own.
+        assertEquals(openedAt, readTimes.savedTracksMs)
+        assertEquals(openedAt + 3_000L, readTimes.playlistsMs)
+    }
+
+    @Test
     fun should_readSavedTracksAgain_when_invalidateDropsTheReadInFlight() = runTest {
         val savedTracksRequests = savedTracksBehindLatch()
         val source = newSource()
@@ -331,7 +351,56 @@ class SpotifyMusicSourceTest {
         assertFalse(source.hasUnsettledFavoriteWrites())
     }
 
+    @Test
+    fun should_markOwnedByMe_when_ownerIdIsTheUser() = runTest {
+        routes["/v1/me/playlists"] = { ok(ownershipPlaylists()) }
+
+        val playlists = newSource().library().getPlaylists().associateBy { it.id.rawId }
+
+        assertEquals(true, playlists.getValue("mine").ownedByMe)
+        assertEquals(false, playlists.getValue("theirs").ownedByMe)
+        assertNull(playlists.getValue("nameless").ownedByMe)
+        val canWrite = listOf("mine", "theirs", "nameless").map { playlists.getValue(it).canWrite }
+        assertEquals(listOf(true, false, false), canWrite)
+    }
+
+    @Test
+    fun should_readOwnershipAsCanWrite_when_playlistComesBackFromTheLibraryCache() = runTest {
+        routes["/v1/me/playlists"] = { ok(ownershipPlaylists()) }
+        val synced = newSource().library().getPlaylists()
+
+        // The cache keeps canWrite only. It is the same owner.id == me comparison,
+        // so it reads back as ownership; a playlist with no owner id cached false.
+        val cached = synced.map { it.toSpotifyLibraryPlaylistCache(profileId = "p", cachedAt = 0L).toPlaylist() }
+            .associateBy { it.id.rawId }
+
+        cached.values.forEach { assertEquals(it.canWrite, it.ownedByMe) }
+        assertEquals(true, cached.getValue("mine").ownedByMe)
+        assertEquals(false, cached.getValue("theirs").ownedByMe)
+        assertEquals(false, cached.getValue("nameless").ownedByMe)
+        synced.filter { it.ownedByMe != null }.forEach { network ->
+            assertEquals(network.ownedByMe, cached.getValue(network.id.rawId).ownedByMe)
+        }
+    }
+
+    @Test
+    fun should_ownTheNewPlaylist_when_userCreatesOne() = runTest {
+        routes["/v1/me/playlists"] = { ok("""{"id":"new","name":"New","owner":{"id":"me"}}""") }
+
+        val created = newSource().writeActions().createPlaylist("New", null).getOrThrow()
+
+        assertEquals(true, created.ownedByMe)
+        assertTrue(created.canWrite)
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
+
+    /** The user's own playlist, one they follow, and one whose owner has no id. */
+    private fun ownershipPlaylists(): String = """{"items":[""" +
+        """{"id":"mine","name":"Mine","owner":{"id":"me"}},""" +
+        """{"id":"theirs","name":"Theirs","owner":{"id":"someone"}},""" +
+        """{"id":"nameless","name":"Nameless","owner":{"display_name":"Nobody"}}""" +
+        """],"next":null,"total":3}"""
 
     private fun newSource(): SpotifyMusicSource {
         val httpClient = OkHttpClient()

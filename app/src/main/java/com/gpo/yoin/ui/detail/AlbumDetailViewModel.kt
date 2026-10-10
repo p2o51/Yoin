@@ -20,11 +20,15 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
+import com.gpo.yoin.data.repository.AlbumSavedState
+import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.component.FavoriteGlyph
 import com.gpo.yoin.ui.component.toUserMessage
 import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
 import kotlinx.coroutines.CancellationException
@@ -52,6 +56,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -79,6 +84,46 @@ class AlbumDetailViewModel(
 
     private var albumSongs: List<Track> = emptyList()
     private var loadedAlbum: Album? = null
+
+    /** The album's tracks as fetched: the baseline under each row's heart (YoinRepository.observeFavoriteStates). */
+    private val favoriteBase = MutableStateFlow<List<Track>>(emptyList())
+
+    /** Heart taps whose write is still out; the row shows one at once. Each tap is its own token. */
+    private val pendingFavoriteTaps = MutableStateFlow<Map<MediaId, PendingFavoriteTap>>(emptyMap())
+
+    private class PendingFavoriteTap(val favorite: Boolean)
+
+    /**
+     * Each row's heart as shown; its quiet flips count Spotify's late answers
+     * and the page catching up with what Yoin knew as it opened (FavoriteGlyph).
+     */
+    private val favoriteGlyphs = HashMap<MediaId, FavoriteGlyph>()
+
+    /**
+     * Rows whose heart has caught up with what Yoin knew as the page opened,
+     * having been drawn from the album's own flags (a cached album's may be
+     * days old): every state from here goes through [FavoriteGlyph.next]. A
+     * row settles on the first state that isn't the user's to correct its
+     * flag while the page's opening check is out — quietly
+     * ([FavoriteGlyph.settle]) — on its first state of any kind once that
+     * check is back (quietly too, if it corrects the flag), or on the user's
+     * own change (a tap here, a write out from Now Playing), which animates.
+     */
+    private val favoriteSettledRows = HashSet<MediaId>()
+
+    /**
+     * Rows whose every state so far, with the page's opening check out,
+     * agreed with the flag the row was drawn from: nothing caught up on yet.
+     * Settled as that check comes back, so a later library sync animates.
+     */
+    private val favoriteCatchingUpRows = HashSet<MediaId>()
+
+    /**
+     * The page's opening check ([YoinRepository.refreshFavoriteStates]) while
+     * it is out, a token per load; null once it is back. It bounds how long
+     * the rows may still be catching up.
+     */
+    private var favoriteOpeningCheck: Any? = null
 
     /** The album's rating row as Room last reported it (its NeoDB dirty flags drive [neoDb]). */
     private var ratingRow: AlbumRating? = null
@@ -160,7 +205,7 @@ class AlbumDetailViewModel(
 
     init {
         loadAlbum()
-        observeFavoriteOverrides()
+        observeFavoriteStates()
         observeLibraryMembership()
     }
 
@@ -196,6 +241,12 @@ class AlbumDetailViewModel(
                 }
                 loadedAlbum = album
                 albumSongs = album.tracks.applyFavoriteOverrides(repository.favoriteOverrides.value)
+                favoriteGlyphs.clear()
+                favoriteSettledRows.clear()
+                favoriteCatchingUpRows.clear()
+                val openingCheck = Any()
+                favoriteOpeningCheck = openingCheck
+                albumSongs.forEach { track -> favoriteGlyphs[track.id] = FavoriteGlyph(track.isStarred) }
                 albumTrackIds.value = albumSongs.map(Track::id)
                 // The visit row feeds Home's activity and the widgets, not this page:
                 // Content doesn't wait on the Room insert.
@@ -216,6 +267,23 @@ class AlbumDetailViewModel(
                         .withLibraryMembership(repository.trackLibraryStates.first(), workingLibraryTrackIds.value),
                 )
                 markPerfContent(album.id.toString())
+
+                // The rows follow the favorite state from here on — until this
+                // check is back, the first state correcting a heart drawn from a
+                // stale flag flips it quietly — and Spotify is asked about likes
+                // its 200-track mirror can't show: one batched check after the
+                // page is out, whose answer flips hearts quietly.
+                // The album's own saved state (the ▾ menu's library row) rides
+                // the same check when its saved-albums mirror doesn't have it.
+                favoriteBase.value = album.tracks
+                observeAlbumSaved(album.id)
+                launch {
+                    try {
+                        repository.refreshFavoriteStates(album.tracks, album = album)
+                    } finally {
+                        if (favoriteOpeningCheck === openingCheck) endFavoriteCatchUp()
+                    }
+                }
 
                 // 观察 album_ratings，把持久化状态 merge 回 Content —— 用户在
                 // 别处（Memory / 以后的 NeoDB 拉取）改了评分 / 评论时，打开
@@ -298,34 +366,135 @@ class AlbumDetailViewModel(
             addToLibrary(track)
             return
         }
-        val target = !track.isStarred
-        // Optimistic locally, then revert if the write fails — the favoriteOverrides
-        // observer can't revert (it bails when the override is cleared on failure).
-        setSongStarred(songId, target)
+        val target = !(favoriteGlyphs[track.id]?.favorite ?: track.isStarred)
+        // The row shows the tap at once (Subsonic's write only lands with the
+        // server's answer). When the write ends the repository's state takes
+        // over: the same heart once it landed, the old one back if it failed.
+        val tap = PendingFavoriteTap(target)
+        pendingFavoriteTaps.update { taps -> taps + (track.id to tap) }
         viewModelScope.launch {
-            repository.setFavorite(track, favorite = target)
-                .onFailure { setSongStarred(songId, !target) }
+            try {
+                repository.setFavorite(track, favorite = target)
+            } finally {
+                pendingFavoriteTaps.update { taps -> if (taps[track.id] === tap) taps - track.id else taps }
+            }
         }
     }
 
-    private fun setSongStarred(songId: String, starred: Boolean) {
-        albumSongs = albumSongs.map { track ->
-            if (track.id.toString() == songId) track.copy(isStarred = starred) else track
+    /**
+     * The page is on screen again (its Activity or pane resumed): asks Spotify
+     * about the rows once more — a like made in the Spotify app meanwhile shows
+     * here. The repository asks about a track at most every 30 s.
+     */
+    fun onResumed() {
+        val tracks = favoriteBase.value.takeIf { it.isNotEmpty() } ?: return
+        viewModelScope.launch { repository.refreshFavoriteStates(tracks, album = loadedAlbum) }
+    }
+
+    private var albumSavedJob: Job? = null
+
+    /**
+     * The ▾ menu's library row follows the album's saved state: none where the
+     * service can't save albums, nor while nothing says whether this one is
+     * saved ([AlbumSavedState.Unknown]) — the row comes in with the answer.
+     */
+    private fun observeAlbumSaved(albumId: MediaId) {
+        albumSavedJob?.cancel()
+        albumSavedJob = viewModelScope.launch {
+            repository.observeAlbumSaved(albumId).collect { state ->
+                val saved = state.savedOrNull
+                val current = _uiState.value as? AlbumDetailUiState.Content ?: return@collect
+                if (current.librarySaved != saved) _uiState.value = current.copy(librarySaved = saved)
+            }
         }
+    }
+
+    /**
+     * The ▾ menu's Save to library / Remove from library. The row flips at
+     * once (the repository's write in flight); a failed write flips it back
+     * and says why on the window's snackbar.
+     */
+    fun toggleLibrarySaved() {
+        val album = loadedAlbum ?: return
+        val saved = (_uiState.value as? AlbumDetailUiState.Content)?.librarySaved ?: return
+        val target = !saved
+        viewModelScope.launch {
+            repository.setAlbumSaved(album, target).onFailure { error ->
+                Log.w(TAG, "Album ${if (target) "save" else "removal"} failed for ${album.id}", error)
+                _messages.tryEmit(
+                    error.toLibrarySaveMessage(
+                        if (target) R.string.detail_album_save_failed else R.string.detail_album_remove_failed
+                    )
+                )
+            }
+        }
+    }
+
+    /** Folds the repository's favorite state, the taps still out on top, into the rows. */
+    private fun observeFavoriteStates() {
+        viewModelScope.launch {
+            combine(
+                favoriteBase.flatMapLatest { tracks -> repository.observeFavoriteStates(tracks) },
+                pendingFavoriteTaps
+            ) { states, taps -> states to taps }
+                .collect { (states, taps) -> applyFavoriteStates(states, taps) }
+        }
+    }
+
+    private fun applyFavoriteStates(states: Map<MediaId, FavoriteState>, taps: Map<MediaId, PendingFavoriteTap>) {
         val current = _uiState.value as? AlbumDetailUiState.Content ?: return
+        albumSongs = albumSongs.map { track ->
+            // A tap carries the newest answer the repository has, so one that
+            // comes in while the write is out is seen as it lands: a failed
+            // write falling back to it is the rollback, not a late answer.
+            val tap = taps[track.id]
+            val answeredAtMs = states[track.id]?.answeredAtMs ?: 0L
+            val state = tap?.let { FavoriteState(it.favorite, fromUser = true, answeredAtMs = answeredAtMs) }
+                ?: states[track.id]
+                ?: return@map track
+            val shown = favoriteGlyphs[track.id] ?: FavoriteGlyph(track.isStarred)
+            val glyph = when {
+                track.id in favoriteSettledRows -> shown.next(state)
+                // The user's own change — a tap here, a write still out from
+                // Now Playing — is no catching up: it animates as ever.
+                tap != null || (state.fromUser && track.id in repository.favoriteOverrides.value) -> {
+                    settleFavoriteRow(track.id)
+                    shown.next(state)
+                }
+                // The page catching up with what Yoin knew as it opened: the first
+                // state to correct the row's flag while the opening check is out
+                // (the mirror, a library sync landing, a like written before the
+                // page opened), or its first state at all once the check is back.
+                favoriteOpeningCheck == null || state.isStarred != shown.favorite -> {
+                    settleFavoriteRow(track.id)
+                    shown.settle(state)
+                }
+                else -> {
+                    favoriteCatchingUpRows += track.id
+                    shown.settle(state)
+                }
+            }
+            favoriteGlyphs[track.id] = glyph
+            if (track.isStarred == glyph.favorite) track else track.copy(isStarred = glyph.favorite)
+        }
         _uiState.value = current.copy(
             songs = current.songs.map { song ->
-                if (song.id == songId) song.copy(isStarred = starred) else song
-            },
+                val glyph = MediaId.parseOrNull(song.id)?.let(favoriteGlyphs::get) ?: return@map song
+                song.copy(isStarred = glyph.favorite, favoriteQuietFlips = glyph.quietFlips)
+            }
         )
     }
 
-    private fun observeFavoriteOverrides() {
-        viewModelScope.launch {
-            repository.favoriteOverrides.collectLatest { overrides ->
-                applyFavoriteOverrides(overrides)
-            }
-        }
+    private fun settleFavoriteRow(id: MediaId) {
+        favoriteSettledRows += id
+        favoriteCatchingUpRows -= id
+    }
+
+    /** The page's opening check is back: no row is catching up any more. */
+    private fun endFavoriteCatchUp() {
+        favoriteOpeningCheck = null
+        favoriteSettledRows += favoriteCatchingUpRows
+        favoriteCatchingUpRows.clear()
     }
 
     private fun addToLibrary(track: Track) {
@@ -363,20 +532,6 @@ class AlbumDetailViewModel(
         song.copy(
             libraryMembership = states[id] ?: LibraryMembership.Unknown,
             libraryActionInFlight = song.id in working,
-        )
-    }
-
-    private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
-        if (overrides.isEmpty()) return
-        albumSongs = albumSongs.applyFavoriteOverrides(overrides)
-
-        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
-        _uiState.value = current.copy(
-            songs = current.songs.map { song ->
-                val id = MediaId.parseOrNull(song.id)
-                val isStarred = id?.let(overrides::get) ?: return@map song
-                song.copy(isStarred = isStarred)
-            },
         )
     }
 
@@ -666,6 +821,14 @@ private fun String.toProviderLabel(): UiText = when (this) {
  * load goes ahead as before (the disk cache still answers; no source = error).
  */
 internal const val DETAIL_SOURCE_WAIT_MS = 4_000L
+
+/**
+ * A failed album save's snackbar line. Spotify's rate limit (the likeliest
+ * reason while the account is throttled) is said in the app's language; the
+ * rest as [toDetailMessage] says it.
+ */
+internal fun Throwable.toLibrarySaveMessage(@StringRes fallback: Int): UiText =
+    if (this is SpotifyRateLimitException) UiText.Res(R.string.cmp_error_spotify_busy) else toDetailMessage(fallback)
 
 /**
  * [toUserMessage] owns the connectivity lines. A sentinel fallback means this

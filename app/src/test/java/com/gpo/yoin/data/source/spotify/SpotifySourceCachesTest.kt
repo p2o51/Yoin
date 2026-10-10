@@ -10,9 +10,50 @@ import org.junit.Test
 
 /**
  * The coroutine edges of [SingleFlightValue]: a cancelled leader, and an
- * invalidate while a load is out — dropping it, or keeping a recent one.
+ * invalidate while a load is out — dropping it, or keeping a recent one —
+ * and when the request behind a value it serves started.
  */
 class SpotifySourceCachesTest {
+
+    @Test
+    fun should_tellWhenTheReadStarted_when_servingTheValueItLoadedEarlier() = runTest {
+        var now = 1_000L
+        val cache = SingleFlightValue<String>(clock = { now })
+
+        val loaded = cache.read {
+            now = 1_600L
+            "list"
+        }
+        now = 9_000L
+        val cached = cache.read { error("served from the cache") }
+
+        assertEquals("list" to 1_000L, loaded.value to loaded.readStartedAtMs)
+        assertEquals("list" to 1_000L, cached.value to cached.readStartedAtMs)
+    }
+
+    @Test
+    fun should_tellTheLoadsStart_when_joiningALoadAlreadyOut() = runTest {
+        var now = 1_000L
+        val cache = SingleFlightValue<String>(clock = { now })
+        val gate = CompletableDeferred<Unit>()
+        val leader = async {
+            cache.read {
+                gate.await()
+                "list"
+            }
+        }
+        runCurrent()
+        now = 3_000L
+        // A refresh keeps the read just started and joins it.
+        cache.invalidate(keepLoadStartedWithinMs = 5_000L)
+        val joined = async { cache.read { error("joins the read out") } }
+        runCurrent()
+
+        gate.complete(Unit)
+
+        assertEquals(1_000L, leader.await().readStartedAtMs)
+        assertEquals(1_000L, joined.await().readStartedAtMs)
+    }
 
     @Test
     fun should_loadAgainForWaiter_when_leaderCancelled() = runTest {

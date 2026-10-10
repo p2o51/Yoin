@@ -105,9 +105,8 @@ class ArtistDetailViewModel(
     }
 
     /**
-     * Re-read the personal layer (ratings + listening) — the Activity calls this
-     * on resume, so a rating given on an album page or a play made meanwhile
-     * shows up when the user comes back.
+     * Re-read the personal layer (local listening) — the Activity calls this on
+     * resume, so a play made meanwhile shows up when the user comes back.
      */
     fun refreshPersonal() {
         val artist = loadedArtist ?: return
@@ -115,13 +114,12 @@ class ArtistDetailViewModel(
     }
 
     /**
-     * The user's own layer, merged in after the page paints: album ratings and
-     * local listening (plays, most-played songs). Best-effort — a
-     * failed read leaves the page as the provider data alone.
+     * The user's own layer, merged in after the page paints: local listening
+     * (plays, most-played songs). Best-effort — a failed read leaves the page
+     * as the provider data alone.
      */
     private suspend fun loadPersonal(artist: ArtistDetail) {
         val albumIds = artist.albums.map { it.id }
-        val ratings = runCatching { repository.getAlbumRatings(albumIds) }.getOrDefault(emptyMap())
         val listening = runCatching {
             repository.getArtistListening(artist.id, artist.name, albumIds)
         }.getOrNull()
@@ -158,12 +156,7 @@ class ArtistDetailViewModel(
             )
         } ?: ArtistListeningSummary(playCount = 0, mostPlayed = emptyList())
         (_uiState.value as? ArtistDetailUiState.Content)?.let { current ->
-            _uiState.value = current.copy(
-                albums = current.albums.map { album ->
-                    album.copy(userRating = ratings[MediaId.parse(album.id).rawId])
-                },
-                listening = summary,
-            )
+            _uiState.value = current.copy(listening = summary)
         }
     }
 
@@ -182,7 +175,8 @@ class ArtistDetailViewModel(
         val target = !current.isStarred
         _uiState.value = current.copy(isStarred = target)
         viewModelScope.launch {
-            repository.setArtistFollowed(id, followed = target).onFailure {
+            // The loaded artist files a new follow into Spotify's Library Artists.
+            repository.setArtistFollowed(id, followed = target, artist = loadedArtist).onFailure {
                 (_uiState.value as? ArtistDetailUiState.Content)?.let { c ->
                     _uiState.value = c.copy(isStarred = !target)
                 }

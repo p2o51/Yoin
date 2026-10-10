@@ -153,6 +153,8 @@ internal fun AlbumPaneEntry(
         tracks = { viewModel.getAlbumSongs() },
         onMessage = onMessage,
         onAddToPlaylist = onAddToPlaylist,
+        inLibrary = content?.librarySaved,
+        onToggleLibrary = viewModel::toggleLibrarySaved,
     )
     val share = {
         val title = content?.let {
@@ -198,6 +200,7 @@ internal fun AlbumPaneEntry(
         },
         onToggleStar = viewModel::toggleStar,
         onRetry = viewModel::retry,
+        onResumed = viewModel::onResumed,
         onRenameMemoryTitle = viewModel::renameMemoryTitle,
         onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
         notedSongIds = notedSongIds,
@@ -242,9 +245,8 @@ internal fun ArtistPaneEntry(
     val uiState by viewModel.uiState.collectAsState()
     val content = uiState as? ArtistDetailUiState.Content
 
-    // Ratings given on an album page (or plays made) while this entry sat
-    // under another show up when it is the top entry again — the window
-    // page's ON_RESUME refresh.
+    // Plays made while this entry sat under another show up in Most Played
+    // when it is the top entry again — the window page's ON_RESUME refresh.
     LaunchedEffect(isTop) { if (isTop) viewModel.refreshPersonal() }
 
     fun playArtist(shuffle: Boolean) {

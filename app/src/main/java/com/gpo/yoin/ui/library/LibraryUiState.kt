@@ -8,11 +8,13 @@ import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.component.FastScrollSection
 
 sealed interface LibraryUiState {
     data object Loading : LibraryUiState
 
     data class Content(
+        /** The chip that is on, or [LibraryTab.All] when none is. */
         val selectedTab: LibraryTab,
         /**
          * Per-tab payloads. `null` = not loaded yet (the tab shows a loading
@@ -40,20 +42,60 @@ sealed interface LibraryUiState {
         val canSearchAppleMusicCatalog: Boolean = false,
         val searchFocusRequestId: Long = 0L,
         /**
-         * Tabs the active source supports. When the provider lacks
-         * [com.gpo.yoin.data.source.Capability.PLAYLISTS_READ] the Playlists
-         * tab is dropped from the row entirely rather than showing an empty
-         * state. A `selectedTab` that gets filtered out is normalised to
-         * [LibraryTab.Artists] by the ViewModel.
+         * The result type the search surface lists. Back to All whenever the
+         * search is cleared or reopened, and normalised against
+         * [availableSearchFilters] on every scope or capability change.
          */
-        val availableTabs: List<LibraryTab> = LibraryTab.entries,
+        val searchFilter: LibrarySearchFilter = LibrarySearchFilter.All,
+        /** Type chips for the active provider and [searchScope] ([searchFiltersFor]). */
+        val availableSearchFilters: List<LibrarySearchFilter> = LibrarySearchFilter.entries,
+        /**
+         * The chips the active source supports ([LibraryTab.All] is never
+         * one: it is no chip at all). When the provider lacks
+         * [com.gpo.yoin.data.source.Capability.PLAYLISTS_READ] the Playlists
+         * chip is dropped from the row entirely rather than showing an empty
+         * state. A `selectedTab` that gets filtered out is normalised to
+         * [LibraryTab.All] by the ViewModel.
+         */
+        val availableTabs: List<LibraryTab> = LibraryTab.Chips,
+        /**
+         * The All view: artists, albums and playlists mixed, in its sort's
+         * order — never songs. Whatever has loaded so far: `null` while none
+         * of its lists has, empty only once each has loaded or failed.
+         */
+        val allItems: List<LibraryItem>? = null,
+        /** Each view's current order ([LibrarySortStore], per profile). */
+        val sorts: Map<LibraryTab, LibrarySort> = emptyMap(),
+        /**
+         * The orders each view can offer here ([librarySortOptions]); a view
+         * with fewer than two has no sort row.
+         */
+        val sortOptions: Map<LibraryTab, List<LibrarySort>> = emptyMap(),
+        /**
+         * The fast scroller's sections over All, Artists and Albums as their
+         * sorts listed them ([LibraryScrollIndexer]); a view without any
+         * shows the handle alone. Read with its list: both come from one
+         * sort pass.
+         */
+        val scrollSections: Map<LibraryTab, List<FastScrollSection>> = emptyMap(),
+        /**
+         * Playlists' By You sub-chip. [playlists] stays the whole list; the
+         * view lists [shownPlaylists].
+         */
+        val playlistsByYou: PlaylistsByYou = PlaylistsByYou(),
         /**
          * Gates the "+" FAB in the Playlists tab. Follows
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_WRITE].
          */
         val canCreatePlaylists: Boolean = true,
-        /** Library-only providers show saved songs without the random-mix header. */
-        val canReshuffleSongs: Boolean = true,
+        /**
+         * Songs is a random sample with a Random mix header and a reshuffle.
+         * No shipped service lists Songs that way any more (Subsonic lists its
+         * newest albums' songs), so it is off unless the view model says so.
+         */
+        val canReshuffleSongs: Boolean = false,
+        /** What follows [songs]' last row: more of them, or nothing. */
+        val songsMore: LibrarySongsMore = LibrarySongsMore.None,
         val canAddToLibrary: Boolean = false,
         /** Visible inside full-screen search, above the shell's snackbar layer. */
         val libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
@@ -62,7 +104,42 @@ sealed interface LibraryUiState {
     data class Error(val message: UiText) : LibraryUiState
 }
 
-enum class LibraryTab { Artists, Albums, Songs, Playlists, Favorites }
+/**
+ * Library's views, in chip order (Spotify's Your Library). [All] is the
+ * resting view, with no chip on.
+ */
+enum class LibraryTab {
+    All,
+    Playlists,
+    Artists,
+    Albums,
+    Songs,
+    Favorites;
+
+    companion object {
+        /** Every view that has a chip of its own. */
+        val Chips: List<LibraryTab> = entries - All
+    }
+}
+
+/**
+ * Songs read a page at a time
+ * ([com.gpo.yoin.data.source.ServiceFeatures.songsFromNewestAlbums]):
+ * whether more follow the rows on hand, as the list's foot shows it.
+ */
+enum class LibrarySongsMore {
+    /** The list is whole: nothing at its foot. */
+    None,
+
+    /** More to read once the list nears its end: a loading indicator at the foot. */
+    Available,
+
+    /** The next page is being read: a loading indicator. */
+    Loading,
+
+    /** The last read failed: a retry button reads it again. */
+    Failed
+}
 
 enum class LibrarySearchScope { CurrentLibrary, SpotifyGlobal, AppleMusicGlobal }
 

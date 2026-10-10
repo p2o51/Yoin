@@ -125,10 +125,13 @@ internal fun List<Artist>.toArtistIndices(): List<ArtistIndex> =
  *   playlist. Source is responsible for comparing `owner.id` against
  *   `apiClient.getCurrentUserId()`; the mapper does not reach out to the
  *   network.
+ * @param ownedByMe [ownedBy] the current profile user; `null` where Yoin
+ *   doesn't ask (search results).
  */
 internal fun SpotifyPlaylistObject.toPlaylist(
     tracks: List<Track> = emptyList(),
     canWrite: Boolean = false,
+    ownedByMe: Boolean? = null,
 ): Playlist = Playlist(
     id = MediaId.spotify(id),
     name = name,
@@ -143,7 +146,15 @@ internal fun SpotifyPlaylistObject.toPlaylist(
     // Spotify sends "" (not null) for playlists without a description, and
     // editorial playlists carry an HTML fragment rather than plain text.
     comment = description?.let(::spotifyDescriptionToPlainText),
+    ownedByMe = ownedByMe,
 )
+
+/**
+ * Whether the user [meId] made this playlist: its owner is them. A playlist
+ * they only collaborate on is someone else's. `null` when the playlist names
+ * no owner id.
+ */
+internal fun SpotifyPlaylistObject.ownedBy(meId: String): Boolean? = owner?.id?.let { it == meId }
 
 /**
  * Editorial playlist descriptions arrive as an HTML fragment: entity-encoded

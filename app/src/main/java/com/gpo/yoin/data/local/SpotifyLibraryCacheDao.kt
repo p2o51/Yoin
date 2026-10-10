@@ -18,10 +18,17 @@ interface SpotifyLibraryCacheDao {
     @Upsert
     suspend fun upsertSyncMeta(meta: SpotifyLibrarySyncMeta)
 
+    /**
+     * Liked Songs' own order: newest like first, and likes in the same second
+     * as Spotify lists them. A sync inserts the saved tracks in the order
+     * `/me/tracks` returns them, so within one `addedAt` the row id is that
+     * order — a title tie-break would make Library's next song a different
+     * one from the next song Spotify plays from the collection.
+     */
     @Query(
         "SELECT * FROM spotify_library_track_cache " +
             "WHERE profileId = :profileId AND cachedAt >= :minCachedAt " +
-            "ORDER BY addedAt DESC, title COLLATE NOCASE ASC",
+            "ORDER BY addedAt DESC, rowid ASC",
     )
     suspend fun getFreshTracks(
         profileId: String,
@@ -64,18 +71,51 @@ interface SpotifyLibraryCacheDao {
     )
     suspend fun getTrack(profileId: String, trackId: String): SpotifyLibraryTrackCache?
 
-    /** Reactive saved-state for one track — drives the Now Playing heart. */
+    /**
+     * Reactive mirror rows for [trackIds] (those in the saved-tracks mirror) —
+     * one layer of the heart YoinRepository.observeFavoriteStates resolves.
+     */
     @Query(
         "SELECT * FROM spotify_library_track_cache " +
-            "WHERE profileId = :profileId AND trackId = :trackId LIMIT 1",
+            "WHERE profileId = :profileId AND trackId IN (:trackIds)"
     )
-    fun observeTrack(profileId: String, trackId: String): Flow<SpotifyLibraryTrackCache?>
+    fun observeTracks(profileId: String, trackIds: List<String>): Flow<List<SpotifyLibraryTrackCache>>
+
+    @Query(
+        "SELECT * FROM spotify_library_album_cache " +
+            "WHERE profileId = :profileId AND albumId = :albumId LIMIT 1"
+    )
+    suspend fun getAlbum(profileId: String, albumId: String): SpotifyLibraryAlbumCache?
+
+    /** The saved-albums mirror row for [albumId], live — the album page's library row reads it. */
+    @Query(
+        "SELECT * FROM spotify_library_album_cache " +
+            "WHERE profileId = :profileId AND albumId = :albumId LIMIT 1"
+    )
+    fun observeAlbum(profileId: String, albumId: String): Flow<SpotifyLibraryAlbumCache?>
+
+    @Upsert
+    suspend fun upsertAlbum(album: SpotifyLibraryAlbumCache)
+
+    @Query("DELETE FROM spotify_library_album_cache WHERE profileId = :profileId AND albumId = :albumId")
+    suspend fun deleteAlbum(profileId: String, albumId: String)
 
     @Query(
         "SELECT * FROM spotify_library_track_cache " +
             "WHERE profileId = :profileId AND pendingFavoriteAction = 1",
     )
     suspend fun getPendingTracks(profileId: String): List<SpotifyLibraryTrackCache>
+
+    /**
+     * The followed artists among [artistIds] (raw ids) for [profileId], any
+     * age. Only these carry Spotify's own portrait: the other rows are the
+     * artists of saved albums and Liked Songs, on an album's cover.
+     */
+    @Query(
+        "SELECT * FROM spotify_library_artist_cache " +
+            "WHERE profileId = :profileId AND isFollowed = 1 AND artistId IN (:artistIds)"
+    )
+    suspend fun getFollowedArtists(profileId: String, artistIds: List<String>): List<SpotifyLibraryArtistCache>
 
     @Upsert
     suspend fun upsertTrack(track: SpotifyLibraryTrackCache)
@@ -106,6 +146,18 @@ interface SpotifyLibraryCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylists(items: List<SpotifyLibraryPlaylistCache>)
+
+    @Query(
+        "SELECT * FROM spotify_library_artist_cache " +
+            "WHERE profileId = :profileId AND artistId = :artistId LIMIT 1"
+    )
+    suspend fun getArtist(profileId: String, artistId: String): SpotifyLibraryArtistCache?
+
+    @Upsert
+    suspend fun upsertArtist(artist: SpotifyLibraryArtistCache)
+
+    @Query("DELETE FROM spotify_library_artist_cache WHERE profileId = :profileId AND artistId = :artistId")
+    suspend fun deleteArtist(profileId: String, artistId: String)
 
     @Query("DELETE FROM spotify_library_track_cache WHERE profileId = :profileId AND trackId = :trackId")
     suspend fun deleteTrack(profileId: String, trackId: String)

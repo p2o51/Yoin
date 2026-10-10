@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.profile.ProfileCredentials
+import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -11,6 +12,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -299,6 +302,40 @@ class SpotifyApiClient(
             url = apiUrl("v1", "me", "player"),
             jsonBody = body,
         )
+    }
+
+    /**
+     * Whether each of [uris] is in the user's library — for a track, its
+     * Liked Songs — in the order given (`GET /v1/me/library/contains`). The
+     * endpoint takes at most [LIBRARY_CONTAINS_BATCH] URIs, so a longer list
+     * goes out one batch after another, never side by side; the first
+     * failure (a 429 among them) ends the read, with no retry. A closed
+     * rate-limit gate fails it before any request.
+     *
+     * [onBatch] gets each batch's answers as they land — `from` is the index
+     * in [uris] of the batch's first URI — so what the batches before a
+     * failure learned isn't thrown away with it.
+     */
+    suspend fun libraryContains(
+        uris: List<String>,
+        onBatch: (from: Int, saved: List<Boolean>) -> Unit = { _, _ -> }
+    ): List<Boolean> = withContext(Dispatchers.IO) {
+        val saved = ArrayList<Boolean>(uris.size)
+        for (batch in uris.chunked(LIBRARY_CONTAINS_BATCH)) {
+            // Colons percent-encoded, commas left as the list separator: the reference's own form.
+            val encoded = batch.joinToString(",") { uri -> URLEncoder.encode(uri, Charsets.UTF_8.name()) }
+            val url = apiUrl("v1", "me", "library", "contains")
+                .newBuilder()
+                .addEncodedQueryParameter("uris", encoded)
+                .build()
+            val answer = getDecoded(url, LIBRARY_CONTAINS_SERIALIZER)
+            check(answer.size == batch.size) {
+                "Spotify answered ${answer.size} library states for ${batch.size} URIs"
+            }
+            onBatch(saved.size, answer)
+            saved += answer
+        }
+        saved
     }
 
     suspend fun saveToLibrary(uri: String) {
@@ -755,6 +792,10 @@ class SpotifyApiClient(
         private const val DEFAULT_TRACKS_LIMIT = 300
         private const val MAX_SEARCH_LIMIT = 10
         private const val DEFAULT_SEARCH_LIMIT = MAX_SEARCH_LIMIT
+
+        /** URIs one `GET /v1/me/library/contains` takes (its reference: "Maximum: 40 URIs"). */
+        const val LIBRARY_CONTAINS_BATCH = 40
+        private val LIBRARY_CONTAINS_SERIALIZER = ListSerializer(Boolean.serializer())
         private val EMPTY_BODY = ByteArray(0).toRequestBody()
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

@@ -225,6 +225,26 @@ internal fun activityPresetSupportingCount(spec: ActivityBentoSpec, hasHero: Boo
     }
 
 /**
+ * The supporting entries (indices) [preset] seats on [spec] in a card that
+ * draws its cover — every slot but the hero's and the strips (text only),
+ * in reading order. A short supply fills from the front and strips stay
+ * strips, so the indices below the supply are what shows.
+ */
+internal fun activityPresetPicturedEntries(
+    spec: ActivityBentoSpec,
+    hasHero: Boolean,
+    preset: HomeRowPreset
+): List<Int> = when (spec.recipe) {
+    BentoRecipe.Units -> activityUnitSlots(spec, hasHero, supportingCount = Int.MAX_VALUE, preset = preset)
+        .filter { it.kind != SlotKind.Hero && it.kind != SlotKind.Strip }
+        .map { it.entryIndex }
+    else -> activityCodeRows(spec.recipe, preset, hasHero, supportingCount = Int.MAX_VALUE)
+        .flatMap { row -> row.slots }
+        .filter { it.entryIndex >= 0 && it.kind != SlotKind.Strip }
+        .map { it.entryIndex }
+}
+
+/**
  * One Activities composition: the code-built [rows] or the unit [slots]
  * (the other empty), and how many supporting entries it seats.
  */

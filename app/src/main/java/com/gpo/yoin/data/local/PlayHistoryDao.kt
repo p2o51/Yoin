@@ -31,6 +31,14 @@ interface PlayHistoryDao {
     @Insert
     suspend fun insert(entry: PlayHistory)
 
+    /** Each album's last play for this profile (Library's Recents); albumless plays are left out. */
+    @Query(
+        "SELECT albumId, MAX(playedAt) AS lastPlayedAt FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider AND albumId != '' " +
+            "GROUP BY albumId"
+    )
+    fun observeAlbumLastPlayed(profileId: String, provider: String): Flow<List<AlbumLastPlayed>>
+
     @Query("DELETE FROM play_history WHERE playedAt < :timestamp")
     suspend fun deleteOlderThan(timestamp: Long)
 
@@ -247,4 +255,9 @@ data class AlbumPlayHistoryAggregate(
     val playCount: Int,
     val firstPlayedAt: Long?,
     val lastPlayedAt: Long?,
+)
+
+data class AlbumLastPlayed(
+    val albumId: String,
+    val lastPlayedAt: Long
 )

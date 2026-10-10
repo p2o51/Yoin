@@ -19,33 +19,50 @@ import kotlinx.coroutines.ensureActive
  * caller is cancelled, the callers waiting on it start a load of their own
  * rather than failing with its cancellation. A failure is shared with the
  * waiting callers and is not cached.
+ *
+ * [read] also says when the request behind a value started — a cached
+ * value's, or the load in flight a caller joined — so what is written from
+ * it can be dated by when Spotify was asked, not by when it was used.
  */
 internal class SingleFlightValue<T : Any>(
     private val maxAgeMs: Long = Long.MAX_VALUE,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
-    private class Turn<T>(val result: CompletableDeferred<T>, val leads: Boolean, val generation: Long)
+    private class Turn<T>(
+        val result: CompletableDeferred<T>,
+        val leads: Boolean,
+        val generation: Long,
+        val startedAtMs: Long
+    )
 
     private val lock = Any()
     private var value: T? = null
     private var loadedAtMs = 0L
+    private var valueStartedAtMs = 0L
     private var inFlight: CompletableDeferred<T>? = null
     private var inFlightStartedAtMs = 0L
     private var generation = 0L
 
-    suspend fun get(load: suspend () -> T): T {
+    suspend fun get(load: suspend () -> T): T = read(load).value
+
+    /** [get], with when the request behind the value it serves started. */
+    suspend fun read(load: suspend () -> T): ReadValue<T> {
         while (true) {
             val turn = synchronized(lock) {
-                value?.let { cached -> if (clock() - loadedAtMs <= maxAgeMs) return cached }
-                inFlight?.let { shared -> Turn(shared, leads = false, generation = generation) }
-                    ?: Turn(CompletableDeferred<T>(), leads = true, generation = generation).also {
+                val cached = value
+                if (cached != null && clock() - loadedAtMs <= maxAgeMs) return ReadValue(cached, valueStartedAtMs)
+                inFlight?.let { shared ->
+                    Turn(shared, leads = false, generation = generation, startedAtMs = inFlightStartedAtMs)
+                } ?: clock().let { now ->
+                    Turn(CompletableDeferred<T>(), leads = true, generation = generation, startedAtMs = now).also {
                         inFlight = it.result
-                        inFlightStartedAtMs = clock()
+                        inFlightStartedAtMs = now
                     }
+                }
             }
-            if (turn.leads) return lead(turn, load)
+            if (turn.leads) return ReadValue(lead(turn, load), turn.startedAtMs)
             try {
-                return turn.result.await()
+                return ReadValue(turn.result.await(), turn.startedAtMs)
             } catch (_: CancellationException) {
                 // Our own cancellation ends here; the leader's sends us round again.
                 currentCoroutineContext().ensureActive()
@@ -86,12 +103,16 @@ internal class SingleFlightValue<T : Any>(
             if (generation == turn.generation) {
                 value = loaded
                 loadedAtMs = clock()
+                valueStartedAtMs = turn.startedAtMs
             }
         }
         turn.result.complete(loaded)
         return loaded
     }
 }
+
+/** A [SingleFlightValue]'s value, and when the request that read it started. */
+internal class ReadValue<T>(val value: T, val readStartedAtMs: Long)
 
 /**
  * Likes and unlikes written through this source, laid over the cached

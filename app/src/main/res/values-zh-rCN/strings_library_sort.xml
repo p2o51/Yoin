@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_cd_clear_filter">清除筛选</string>
+    <string name="library_empty_all">资料库是空的</string>
+    <!-- REVIEW: 候选：我创建的 | 我的 | 我建的 -->
+    <string name="library_filter_by_you">我创建的</string>
+
+    <string name="library_sort_action">排序</string>
+    <string name="library_sort_recents">最近</string>
+    <string name="library_sort_recently_added">最近添加</string>
+    <string name="library_sort_alphabetical">字母顺序</string>
+    <string name="library_sort_creator">创建者</string>
+
+    <string name="library_recents_today">今天</string>
+    <string name="library_recents_this_week">本周</string>
+    <string name="library_recents_this_month">本月</string>
+    <string name="library_recents_not_opened">未打开过</string>
+</resources>

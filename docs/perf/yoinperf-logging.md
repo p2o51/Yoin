@@ -26,8 +26,8 @@
 | 事件 | 字段 | 打在哪 | 含义 |
 | --- | --- | --- | --- |
 | `detail.click` | `kind=album\|artist\|playlist` `id=<provider:rawId>` `via=` | `YoinNavHost.kt` 的 `navigateTo{Album,Artist,Playlist}FromShell`、Memories 印章的 `onOpenAlbum`、`pushPane`；`AlbumDetailActivity` 的 `onOpenArtist`、`ArtistDetailActivity` 的 `onAlbumClick` | 用户请求打开详情。`via=activity`（推独立 Activity）/ `pane`（同窗分列，替换右列根页）/ `pane-push`（右列里再推一页）/ `push`（详情 Activity 里点到另一个详情）。被 launch gate 挡掉的点击不打。shell 里的 Now Playing 点专辑/艺人也走 `navigateTo*FromShell`，同样会打；没覆盖桌面小组件、详情 Activity 里 Now Playing 的入口（`launchChildDetail(…, fromNowPlaying = true)`）、以及横竖屏切换时把右列页面转成 Activity 的自动重开。点击即预取（`ui/detail/DetailPrefetch.kt`）挂在这些入口最前面、launch gate 之前，上面没打点的小组件和详情页里 Now Playing 的入口也有：被挡掉的点击不打 `detail.click`，但照样预取。小组件冷启动时 source 还没建好，预取等它建好再发（最多等 3 秒）。 |
-| `detail.load` | `kind` `id` `src=` `ms=` [`provider`] [`joined=true`] [`err`] | `YoinRepository.loadCachedDetail` | 一次 `getAlbum/getArtist/getPlaylist` 调用从进门到拿到结果的耗时。`src=mem`（内存新鲜命中）/ `disk`（Room 磁盘新鲜命中）/ `net`（走网络，带 `provider`）/ `stale`（网络失败，退回磁盘或过期内存，`err=` 是网络异常类名）/ `err`（整体失败或调用方被取消，`err=` 是异常类名）。`joined=true`：这次调用搭了别人已在飞的同一请求（预取、并发读者）。有了点击即预取，一次打开通常有两条：预取那条（从点击起计时）和 VM 自己那条。两条等的是同一个请求时几乎同时结束，谁先打出来不固定；发起请求的一方不带 `joined`，通常是预取，搭车的一方带 `joined=true`，它的 `ms` 从它自己进门算起、偏短。预取已经落地时 VM 那条是 `src=mem`（歌单只认 5 秒内从网络拿到的内存副本，离线回退的旧副本不算，过了照样联网）。 |
-| `detail.diskWrite` | `kind=ALBUM\|ARTIST\|PLAYLIST` `chars=` `ok=` `ms=` | `DetailCacheStore.write` | JSON 编码 + 等锁 + upsert（+ 可能的 trim）。网络路径的磁盘写在数据交给调用方之后、在后台做，不算在 `net` 那次 `detail.load` 的 `ms` 里。`skipped=true`：拿到锁时这条已经作废（点赞、关注、歌单编辑）或已经切了账号，没写。 |
+| `detail.load` | `kind` `id` `src=` `ms=` [`provider`] [`joined=true`] [`err`] | `YoinRepository.loadCachedDetail` | 一次 `getAlbum/getArtist/getPlaylist` 调用从进门到拿到结果的耗时。`src=mem`（内存新鲜命中）/ `disk`（Room 磁盘新鲜命中）/ `net`（走网络，带 `provider`）/ `stale`（网络失败，退回磁盘或过期内存，`err=` 是网络异常类名）/ `err`（整体失败或调用方被取消，`err=` 是异常类名）。`joined=true`：这次调用搭了别人已在飞的同一请求（预取、并发读者）。有了点击即预取，一次打开通常有两条：预取那条（从点击起计时）和 VM 自己那条。两条等的是同一个请求时几乎同时结束，谁先打出来不固定；发起请求的一方不带 `joined`，通常是预取，搭车的一方带 `joined=true`，它的 `ms` 从它自己进门算起、偏短。预取已经落地时 VM 那条是 `src=mem`（歌单只认 5 秒内从网络拿到的内存副本，离线回退的旧副本不算，过了照样联网）。Apple Music 资料库专辑从网络解析成目录专辑后，同一份结果也按目录 id 存进内存和磁盘，所以随后按目录 id 的读取（Home 的 hero、Activities 卡）是 `src=mem`，不再是第二次 `src=net`。 |
+| `detail.diskWrite` | `kind=ALBUM\|ARTIST\|PLAYLIST` `chars=` `ok=` `ms=` | `DetailCacheStore.write` | JSON 编码 + 等锁 + upsert（+ 可能的 trim）。网络路径的磁盘写在数据交给调用方之后、在后台做，不算在 `net` 那次 `detail.load` 的 `ms` 里。`skipped=true`：拿到锁时这条已经作废（点赞、关注、歌单编辑）或已经切了账号，没写。Apple Music 资料库专辑解析成目录专辑时会有两条 `kind=ALBUM`：资料库 id 一条、目录 id 一条。 |
 | `detail.diskTrim` | `rows=` `ms=` | `DetailCacheStore.trimToBudget` | 超 24MB 预算时的 SUM + 扫描 + 逐行删除，删到 20MB 为止（回滞，免得之后每次写都再 trim；刚写的那行、刚读出而 LRU touch 还没落库的行都不删）；`rows` 是删掉的行数（SUM 发现没超就是 0）。 |
 | `detail.content` | `kind` `id` [`resolved`] | `Album/Artist/PlaylistDetailViewModel` 第一次把 `_uiState` 设成 Content 之后 | VM 级别的「数据就绪」。每个 VM 只打一次（retry / 歌单刷新不重复打）。`id` 是打开时请求的 id；`resolved` 只在内容实体 id 不同时出现（Apple Music 会把 library 专辑折叠成目录专辑）。 |
 | `detail.visible` | `kind` `id` `host=window\|pane` `commit=` | `DetailEnterIntro.kt` 的 `DetailPerfVisibleEffect`，挂在三个 Screen 的 `AnimatedContent` Content 分支里 | Content 第一次组合后，下一次帧提交（`registerFrameCommitCallback`，API 29+）完成的时间。`id` 是内容实体 id（= `detail.content` 的 `resolved`，没有 `resolved` 时 = `id`）。`commit=false`：帧提交握手失败（1.5s 超时或视图已脱离），这一行的时间不可信。**近似值**：若 Loading 先上了屏（700ms 超时、或分列模式），这一帧是 Content 交叉淡入的开始，不是完全不透明的时刻；Activity 模式下页面还在 96dp 滑入途中（不透明）。同一页面组合里只打一次。 |
@@ -37,8 +37,11 @@
 | 事件 | 字段 | 打在哪 | 含义 |
 | --- | --- | --- | --- |
 | `home.loading` | `ms_since_process_start` | `HomeViewModel` 构造（init）时一次；之后每次 `emit` 从非 Loading 退回 Loading 时 | 冷启动时 Home 从 VM 创建起就停在 Loading，直到 `home.content`。 |
-| `home.content` | `ms_since_process_start` `sections=` `src=mem\|disk\|fresh` | `HomeViewModel.emit` 第一次发出 Content | `sections` 是非空区块数（Activities、Jump Back In 网格、Recently Added、Rediscover、Recently Played、Your Playlists，最多 6）。`src=mem`：进程内缓存（同进程里重建 VM）；`disk`：Spotify 的本地预绘；`fresh`：完整加载的结果。每个 VM 只打一次。 |
-| `home.refresh` | `provider` `result=ok\|error\|superseded` [`err`] `ms=` | `HomeViewModel.loadScope`（账号 scope 变化、`refresh()`、同账号改凭据时各一次） | 一次完整加载（从读缓存到 fresh 内容发出）的耗时；`superseded` = 期间 scope 变了（切账号，或冷启动时 source 刚建好）或被新的 refresh 取代，结果作废。冷启动时 source 还没建好的那一次会先等 source（最多 4s），所以常见一条不带 `provider` 的 `result=superseded`，紧跟着真正那次。 |
+| `home.content` | `ms_since_process_start` `sections=` `src=mem\|disk\|snapshot` | `HomeViewModel.emit` 第一次发出 Content | `sections` 是非空区块数（Activities、Jump Back In 网格、Recently Added、Rediscover、Recently Played、Your Playlists，最多 6）。`src=mem`：进程内缓存（同进程里重建 VM）；`snapshot`：这个账号存在磁盘上的上次首页快照（`HomeSnapshotStore`，冷启动或本进程第一次进这个账号；source 还没建好时也先画，Subsonic 封面等 source 好了再淡入）；`disk`：本地层（所有 provider：动态记录、候选池、笔记卡；先到的其它区块一起带上）。之后的区块各自拼进来（拼在快照上也一样），不再打这条。每个 VM 只打一次。 |
+| `home.snapshot` | `result=hit\|miss\|corrupt\|version\|profile\|error` `bytes=` [`age_s`] `ms=` | `HomeSnapshotStore.read`（IO 线程；VM 创建时读当前账号的，切账号开始时读目标账号的） | 读一次快照文件的耗时。`hit`：读到了，`age_s` 是快照写入至今的秒数；`miss`：没有文件；`corrupt` / `version`（格式版本不对）/ `profile`（文件不是这个账号的）：读不了，文件已删，按没有处理；`error`：IO 失败。读到了也可能不画：和账号的 source 不是同一个 provider 时丢弃（source 建好前已经画了的，这时退回 Loading，再打一条 `home.loading`）；快照要等这个账号的首页布局也读到才画，两者 400ms 内没到齐就照常 Loading。 |
+| `home.snapshot.save` | `result=ok\|same\|deleted\|error` `bytes=` `ms=` | `HomeSnapshotStore.write`（后台） | fresh 内容发布后写快照：同一账号先等 2s 让分层发布落定，只写最新一份；写完至少隔 30s 才写下一次。`same`：和上次写的一样，没写；`deleted`：账号已删，没写。只画了快照、还没有 fresh 内容时不写（播放把 Rediscover 卡拿掉也不算 fresh，等下一个新读到的区块一起写）。 |
+| `home.refresh` | `provider` `result=ok\|error\|superseded` [`err`] `ms=` | `HomeViewModel.loadScope`（账号 scope 变化、`refresh()`、同账号改凭据时各一次） | 一次完整加载（从读缓存到最后一个区块拼进来）的耗时；`superseded` = 期间 scope 变了（切账号，或冷启动时 source 刚建好）或被新的 refresh 取代，结果作废。冷启动时 source 还没建好的那一次会先等 source（最多 4s），所以常见一条不带 `provider` 的 `result=superseded`，紧跟着真正那次。 |
+| `home.portraits` | `shown=` `asked=` `found=` `stop=done\|gate\|429\|error` | `SpotifyActivityArtistArtwork.fetchMissing`（Spotify 首页这一轮加载完、首页静止 1.5s 后，每轮一条；静止 = 前台可见、没被盖住、列表不动） | Activities 艺人头像补图（Q16）。`shown`：bento 带图卡片上要看的艺人数（文字条带不算，最多 20）；`asked`：这一轮真正发出的 `GET /v1/artists/{id}` 数（本机已有头像、30 天内问过、24 小时内确认没图的都不发）；`found`：拿到头像的数；`stop`：`done` 全部问完，`gate` 限流 gate 关着，`429` 遇到 429（之后本进程不再为这个账号补图），`error` 网络或服务端失败（不缓存，下一轮再问）。gate 一开始就关着、或本进程已遇到过 429 时整轮不打。每个请求另有一条 `http path=/v1/artists/{id}`。 |
 
 `ms_since_process_start = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()`，
 只有冷启动时有意义（热启动时进程早就在了）。
@@ -56,6 +59,15 @@
 - `cache`：`hit` = OkHttp 磁盘缓存直接命中，`cond` = 条件请求（304 重新验证），`net` = 纯网络。
 - 应用拦截器：重定向、重试在它里面完成，一行代表一次调用。
 - 歌词、NeoDB、Gemini、Drive 同步、播放流（Media3）的 client 没挂。
+
+### 心形（Spotify 已喜欢状态，P4）
+
+| 事件 | 字段 | 打在哪 | 含义 |
+| --- | --- | --- | --- |
+| `favorite.check` | `src=appRemote` `ok` [`err`] `ms` | `PlaybackManager.appRemoteLibraryState` | Now Playing 换歌（或节流后的重查）时问 App Remote `getLibraryState`。本机 IPC，没有对应的 `http` 行。`ok=false err=IllegalStateException` 多半是 App Remote 没连上。 |
+| `favorite.check` | `src=contains` `n` `ok` [`err`] [`answered`] [`album`] `ms` | `YoinRepository.refreshFavoriteStates` | 一次 Web API contains 查询：专辑页加载或回到前台，或者 Now Playing 的 App Remote 出错后的回退。`n` 是这次问的曲目数（每 40 个一个请求，`http` 行里能看到 `/v1/me/library/contains`）。中途某一批失败（比如 429）时 `answered` 是前面几批已经答到、照样记下的曲目数。`album=true`：专辑本身（▾ 菜单的「保存到资料库」那一行，Q11）也排在这次的第一个一起问了，只在已保存专辑镜像里没有它、而且 Yoin 自己对它的保存或移出既不在途也不在 60 秒宽限内时才问；这时 `n` 可以是 0（曲目 30 秒内都问过，专辑单独占一个请求），`n` 是 40 的倍数时专辑也会多占一个请求（design.md「保存到资料库」的「请求数」）。限流门关着或 30 秒内问过的曲目不发请求，也不打这一行；Subsonic 不打。 |
+
+- 验收时看：连续听歌一小时，`src=contains` 的次数应当接近 0（App Remote 正常时 Now Playing 不走 Web API）；打开一张专辑最多一行 `src=contains`。
 
 ### 图片（Coil）
 
@@ -88,7 +100,44 @@ $ADB shell am start -W -n com.gpo.yoin/.MainActivity
 $ADB logcat -d -v raw -s YoinPerf:D | grep '^home\.'
 ```
 
-只看某类：`grep '^detail\.'`、`grep '^http '`、`grep '^image\.error'`。
+只看某类：`grep '^detail\.'`、`grep '^http '`、`grep '^image\.error'`、`grep '^favorite\.'`。
+
+## App Remote 收藏状态探针（只读，Q17）
+
+debug 包里有一个广播入口 `LibraryStateProbeReceiver`（`app/src/debug`，manifest 要求发送方持有 DUMP，只有 adb shell 有）。它连上 App Remote，对每个 URI 调 `UserApi.getLibraryState`，把结果打到 logcat 的 `YoinProbe`。
+
+- **不起播、不改队列**：只读状态。Spotify 账号在用时直接用 Yoin 已有的连接；当前账号不要 App Remote 时（Subsonic、Apple Music）探针自己连一次，读完就断开，这段时间里不把 Spotify 的播放状态交给播放器，之后的回到前台也不会因为它重连。
+- Spotify 账号自己的常驻连接在探针期间到来（比如冷启动后立刻发广播）时，探针结束后连接留给账号，不断开；探针期间被挡住的播放状态会重新订阅补上。连接最后是关掉了还是留下了，日志按实际结果写（见下）。
+- Client ID 是全 app 一个的设置（设置 › Spotify），不按账号存，切账号不会改变它。它从 Room 读出来，冷启动时先是空的，所以探针先给 Room 留 1.5 秒宽限（和播放器冷启动连接一样），之后仍为空才报 `no Spotify client id configured`，不尝试连接。
+- **不打 token**：日志里只有 URI、结果、耗时和错误类名，没有 access token，也没有 Client ID。
+- App Remote 只有在某个 Yoin Activity 处于 started 状态时才能连，所以**先把 Yoin 打开到前台**，用 Spotify 账号。
+- URI 只能是 track 或 album（UserApi 文档的限制）。一次最多读前 10 个，免得超过后台广播约一分钟的时限。
+
+```sh
+$ADB logcat -c
+$ADB shell am broadcast -n com.gpo.yoin/.debug.LibraryStateProbeReceiver \
+    -a com.gpo.yoin.debug.LIBRARY_STATE \
+    --esa uris spotify:track:<id1>,spotify:track:<id2>,spotify:album:<id3>
+$ADB logcat -d -v raw -s YoinProbe:*
+```
+
+清单 receiver 收不到隐式广播，所以必须带 `-n`。`--esa` 用逗号分隔多个 URI；只有一个时也可以用 `--es uris spotify:track:<id>`。
+
+输出示例：
+
+```
+connect Connected ms=412 account=spotify
+libraryState uri=spotify:track:<id1> isAdded=true canAdd=true ms=18
+libraryState uri=spotify:track:<id2> ms=3004 error=TimeoutCancellationException: Timed out waiting for 3000 ms
+```
+
+- `account=`：探针连上（或放弃）那一刻的当前账号。账号的 source 已经建好时是它的服务（`spotify`、`subsonic`、`applemusic`）；选了账号、source 还在建（冷启动后立刻发广播的常见情况）是 `building`；选了账号、ProfileManager 已经建完但没有 source（凭据解不开）是 `unavailable`；根本没有选账号才是 `none`。不是 Spotify 时另起一行说明这个事实，不代表连不上：`active account is <服务>, not Spotify`、`the active account's source was still being built`、`the active account has no source: its credentials didn't open` 或 `no active account`。
+- 连接最后怎样，只在探针确实连上时另起一行，按探针结束时的实际结果写：`App Remote was opened for the probe alone: closed after it`（探针自己开的，没人要，关掉了）；`App Remote was opened for the probe and kept: the account's warm-up or a play wanted it meanwhile`（期间 Spotify 账号的 warm 或一次播放要了这条连接，留下了；`account=building` 后面通常跟这一行）；不是 Spotify 账号、探针之前就连着时是 `App Remote was already connected: left as it was`。`NoClientId`、`NoHost`、`TimedOut` 时没有连接，不写这一行。
+- `connect NoClientId`：宽限过后仍没有 Spotify Client ID，日志是 `no Spotify client id configured: set one in Settings › Spotify (one for the app, not per account)`。和当前账号是不是 Spotify 无关，两件事分两行说。
+- `connect NoHost`：没有 started 的 Yoin Activity，先把 Yoin 打开到前台。
+- `connect TimedOut`：有 Activity，但 8 秒内没连上（Spotify 没装、没登录或冷启动太慢）。
+- 每个 URI 最多等 3 秒。
+- 要确认的四件事：scope 是否够用；耗时；在 Spotify app 和通知栏里点赞后，结果是否立刻变化；只在某个歌单里、显示绿勾但不在 Liked Songs 的歌，返回什么。
 
 ## 按 id 配对算时长
 
@@ -156,7 +205,8 @@ for i, (name, f) in enumerate(events):
 ```
 
 Home 冷启动：`home.content` 的 `ms_since_process_start` 就是「进程起来到 Home 有内容」；
-和 `home.loading`（VM 创建）的差就是 Home 停在 Loading 的时长。
+和 `home.loading`（VM 创建）的差就是 Home 停在 Loading 的时长。有快照时它是 `src=snapshot`，
+fresh 内容什么时候拼完看紧跟的 `home.refresh`（`result=ok` 那条的 `ms`）。
 
 ## 已知的近似和空白
 

@@ -83,10 +83,10 @@ Composable（只读 UiState，不碰 AppContainer）
 
 | 能力 / 方法 | Subsonic | Spotify | Apple Music |
 |---|---|---|---|
-| `FAVORITES` / `getStarred` | 实做（getStarred2） | 实做（Room：已存曲目、专辑 + 关注艺人） | **桩**，恒为空（`AppleMusicSource.kt:343`） |
+| `FAVORITES` / `getStarred` | 实做（getStarred2） | 实做（Room：已存曲目、专辑 + 关注艺人）；Library 不显示 Favorites 标签（`ServiceFeatures.favoritesAreLibrary`） | **桩**，恒为空（`AppleMusicSource.kt:343`） |
 | `RANDOM_SONGS` / `getRandomSongs` | 实做 | 部分：把已存曲目打乱 | **桩**（`:344`） |
 | `getAlbumList(type)` | type 透传，random/newest/highest/frequent 都可用 | Repository 读 Room：newest、recent 按 addedAt，random 为打乱 | 只认 `newest`，**其他 type 被忽略**，「随机」其实永远是前 18 张（`:105-127`） |
-| `LIBRARY_SONGS` / `getLibrarySongs` | 不支持 | 不支持 | 实做 |
+| `LIBRARY_SONGS` / `getLibrarySongs` | 不支持 | 实做（2026-10-10 起 = Liked Songs：Repository 读同步缓存，按加入时间倒序；`SpotifyMusicSource` 本身不提供） | 实做 |
 | `PLAYLISTS_WRITE` | 有 | 有（删除 = 取消关注） | 无（只读） |
 | 播放 `handleFor` | `DirectStream` | `ExternalController`（App Remote，需要 Premium） | `ExternalController`（MusicKit）；导入曲目会抛错（`:361-366`） |
 | 远端「历史」 | `recent`/`frequent` 依赖 scrobble，**Yoin 从不 scrobble** | 只有 `/me/player/recently-played`（≤50） | 未接线 |
@@ -881,7 +881,7 @@ Library 页不受影响：歌曲行长按仍是「加入歌单」（`ui/library/
   - Subsonic：`getAlbumList("random")` + `getRandomSongs`。
   - Spotify：打乱 Room 里的缓存。
   - **Apple**：要先修 `getAlbumList`，改用随机 offset（`AppleMusicSource.kt:105-127`）；曲目改用 `getLibrarySongs(size, 随机 offset)`。修好之前不显示这个按钮。
-  - 门控：`RANDOM_SONGS || LIBRARY_SONGS`。
+  - 门控：`RANDOM_SONGS || LIBRARY_SONGS`。Spotify 两个都声明（2026-10-10 起 `LIBRARY_SONGS` = Liked Songs，`RANDOM_SONGS` 留给 Home 的随机池），对它恒为真，这里正好要放行它。
 - **尺寸**（修正评委指出的问题）：
   - 不用负 margin，`Modifier.padding` 遇到负值会抛异常。
   - 标题行末端放一个 M3 IconButton，视觉 40dp、触控 48dp。
@@ -908,7 +908,7 @@ Library 页不受影响：歌曲行长按仍是「加入歌单」（`ui/library/
 - Apple：`getLibrarySongs(size, 随机 offset)`，依赖 P1-3。
 - **Spotify 关闭**：App Remote 上任意队列的语义未验证，由 `ServiceFeatureCatalog` 关掉。
 - 队列快播完时续取 50 首。
-- 门控：`RANDOM_SONGS || LIBRARY_SONGS`。
+- 门控：`RANDOM_SONGS || LIBRARY_SONGS`。注意 Spotify 两个都声明（2026-10-10 起 `LIBRARY_SONGS` = Liked Songs），这个门控挡不住它；关掉 Spotify 只能靠 `ServiceFeatureCatalog` 上的显式标记（照 `supportsYoinCast`、`favoritesAreLibrary` 的做法），不能靠能力组合。
 
 ### 格子层（范围由 Q5 决定）
 

@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.source.applemusic
 
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.PlaybackHandle
@@ -461,6 +462,158 @@ class AppleMusicSourceTest {
         assertEquals("100", server.takeRequest().requestUrl!!.queryParameter("limit"))
         // A link that already names the limit is sent as it is, not with a second one.
         assertEquals(listOf("100"), server.takeRequest().requestUrl!!.queryParameterValues("limit"))
+    }
+
+    @Test fun should_takeTheCatalogArtistsArtwork_when_libraryArtistsIncludeTheirCatalogArtist() = runTest {
+        reply(
+            """{
+              "data":[{
+                "id":"r.1","type":"library-artists","attributes":{"name":"Alpha"},
+                "relationships":{"catalog":{"data":[{
+                  "id":"159260351","type":"artists",
+                  "attributes":{"name":"Alpha","artwork":{"url":"https://is1.test/a/{w}x{h}bb.jpg","width":2400}}
+                }]}}
+              }],
+              "next":"/v1/me/library/artists?offset=100"
+            }"""
+        )
+        reply("""{"data":[{"id":"r.2","type":"library-artists","attributes":{"name":"Beta"}}]}""")
+        val artists = source.getArtists().flatMap { index -> index.artists }
+        // The library id stays: the row still opens the library artist page.
+        assertEquals(listOf("library:r.1", "library:r.2"), artists.map { it.id.rawId })
+        assertEquals(CoverRef.Url("https://is1.test/a/600x600bb.jpg"), artists[0].coverArt)
+        assertNull(artists[1].coverArt)
+        val first = server.takeRequest().requestUrl!!
+        assertEquals("catalog", first.queryParameter("include"))
+        assertEquals("100", first.queryParameter("limit"))
+        // Apple's link carries only the offset; the next page asks for the catalog artist again.
+        val second = server.takeRequest().requestUrl!!
+        assertEquals(listOf("catalog"), second.queryParameterValues("include"))
+        assertEquals(listOf("100"), second.queryParameterValues("limit"))
+    }
+
+    @Test fun should_leaveThePortraitEmpty_when_aLibraryArtistHasNoCatalogArtist() = runTest {
+        reply(
+            """{"data":[
+              {"id":"r.1","type":"library-artists","attributes":{"name":"Imported"},
+               "relationships":{"catalog":{"data":[]}}},
+              {"id":"r.2","type":"library-artists","attributes":{"name":"Bare"}},
+              {"id":"r.3","type":"library-artists","attributes":{"name":"Faceless"},
+               "relationships":{"catalog":{"data":[{"id":"7","type":"artists","attributes":{"name":"Faceless"}}]}}}
+            ]}"""
+        )
+        val artists = source.getArtists().flatMap { index -> index.artists }
+        assertEquals(listOf("Bare", "Faceless", "Imported"), artists.map { it.name })
+        assertTrue(artists.all { it.coverArt == null })
+    }
+
+    @Test fun should_openALibraryArtistWithItsCatalogPortrait_when_loadingTheArtistPage() = runTest {
+        reply(
+            """{"data":[{
+              "id":"r.1","type":"library-artists","attributes":{"name":"Alpha"},
+              "relationships":{"catalog":{"data":[{
+                "id":"159260351","type":"artists",
+                "attributes":{"name":"Alpha","artwork":{"url":"https://is1.test/a/{w}x{h}bb.jpg"}}
+              }]}}
+            }]}"""
+        )
+        reply("""{"data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}]}""")
+        val artist = source.getArtist(MediaId("applemusic", "library:r.1"))!!
+        assertEquals(MediaId("applemusic", "library:r.1"), artist.id)
+        assertEquals(CoverRef.Url("https://is1.test/a/600x600bb.jpg"), artist.coverArt)
+        assertEquals(listOf("library:l.1"), artist.albums.map { it.id.rawId })
+        val artistRequest = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/artists/r.1", artistRequest.encodedPath)
+        assertEquals("catalog", artistRequest.queryParameter("include"))
+        // The releases are read as before.
+        val albumsRequest = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/artists/r.1/albums", albumsRequest.encodedPath)
+        assertNull(albumsRequest.queryParameter("include"))
+    }
+
+    @Test fun should_notAskForACatalogRelationship_when_loadingACatalogArtist() = runTest {
+        reply("""{"data":[{"id":"jp"}]}""")
+        reply(
+            """{"data":[{"id":"159260351","type":"artists",
+              "attributes":{"name":"Alpha","artwork":{"url":"https://is1.test/a/{w}x{h}bb.jpg"}}}]}"""
+        )
+        reply("""{"data":[]}""")
+        val artist = source.getArtist(MediaId("applemusic", "159260351"))!!
+        assertEquals(CoverRef.Url("https://is1.test/a/600x600bb.jpg"), artist.coverArt)
+        assertEquals("/v1/me/storefront", server.takeRequest().path)
+        val artistRequest = server.takeRequest().requestUrl!!
+        assertEquals("/v1/catalog/jp/artists/159260351", artistRequest.encodedPath)
+        assertNull(artistRequest.queryParameter("include"))
+    }
+
+    @Test fun should_listLibraryArtistsWithoutPortraits_when_appleRefusesTheCatalogInclude() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        reply(
+            """{
+              "data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}],
+              "next":"/v1/me/library/artists?offset=100"
+            }"""
+        )
+        reply("""{"data":[{"id":"r.2","type":"library-artists","attributes":{"name":"Beta"}}]}""")
+        val artists = source.getArtists().flatMap { index -> index.artists }
+        assertEquals(listOf("library:r.1", "library:r.2"), artists.map { it.id.rawId })
+        assertTrue(artists.all { it.coverArt == null })
+        assertEquals("catalog", server.takeRequest().requestUrl!!.queryParameter("include"))
+        // The list is read again from its first page without the include, and so is every later page.
+        val retry = server.takeRequest().requestUrl!!
+        assertNull(retry.queryParameter("offset"))
+        assertNull(retry.queryParameter("include"))
+        assertEquals("100", retry.queryParameter("limit"))
+        val second = server.takeRequest().requestUrl!!
+        assertEquals("100", second.queryParameter("offset"))
+        assertNull(second.queryParameter("include"))
+        assertEquals(listOf("100"), second.queryParameterValues("limit"))
+    }
+
+    @Test fun should_failTheLibraryArtistList_when_appleRateLimitsTheRead() = runTest {
+        server.enqueue(MockResponse().setResponseCode(429))
+        val error = runCatching { source.getArtists() }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.RateLimited, (error as AppleMusicApiException).failure)
+        // A rate limit is not a refused include: no second request.
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun should_failTheLibraryArtistList_when_aLaterPageFails() = runTest {
+        reply(
+            """{
+              "data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}],
+              "next":"/v1/me/library/artists?offset=100"
+            }"""
+        )
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        val error = runCatching { source.getArtists() }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.Http(400), (error as AppleMusicApiException).failure)
+        // The first page took the include: a later page's failure is not Apple refusing it.
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_openALibraryArtistWithoutAPortrait_when_appleRefusesTheCatalogInclude() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        reply("""{"data":[{"id":"r.1","type":"library-artists","attributes":{"name":"Alpha"}}]}""")
+        reply("""{"data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}]}""")
+        val artist = source.getArtist(MediaId("applemusic", "library:r.1"))!!
+        assertEquals(MediaId("applemusic", "library:r.1"), artist.id)
+        assertNull(artist.coverArt)
+        assertEquals(listOf("library:l.1"), artist.albums.map { it.id.rawId })
+        assertEquals("catalog", server.takeRequest().requestUrl!!.queryParameter("include"))
+        val retry = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/artists/r.1", retry.encodedPath)
+        assertNull(retry.queryParameter("include"))
+        assertEquals("/v1/me/library/artists/r.1/albums", server.takeRequest().requestUrl!!.encodedPath)
+    }
+
+    @Test fun should_failTheCatalogArtist_when_itsReadFails() = runTest {
+        reply("""{"data":[{"id":"jp"}]}""")
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        val error = runCatching { source.getArtist(MediaId("applemusic", "159260351")) }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.Http(400), (error as AppleMusicApiException).failure)
+        // It asked for no include, so there is none to drop: no retry.
+        assertEquals(2, server.requestCount)
     }
 
     @Test fun should_askForLargerPages_when_readingRecentlyAddedAlbums() = runTest {

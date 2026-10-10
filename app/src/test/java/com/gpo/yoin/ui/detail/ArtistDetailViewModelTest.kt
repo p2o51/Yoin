@@ -24,9 +24,10 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * The personal layer (album ratings + local listening) merged into the Artist
- * page after it paints. The hero no longer shows Last Play or an album
- * average, so what is left is the play count and Most Played.
+ * The personal layer (local listening) merged into the Artist page after it
+ * paints. The hero no longer shows Last Play or an album average and the
+ * Discography rows carry no score, so what is left is the play count and
+ * Most Played.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ArtistDetailViewModelTest {
@@ -39,7 +40,6 @@ class ArtistDetailViewModelTest {
     @Before
     fun setUp() {
         coEvery { repository.getArtist(any()) } returns artist()
-        coEvery { repository.getAlbumRatings(any()) } returns emptyMap()
         every { repository.favoriteOverrides } returns MutableStateFlow(emptyMap())
         every { repository.resolveCoverUrl(any(), any()) } answers {
             (firstArg<CoverRef?>() as? CoverRef.SourceRelative)?.let { "cover://${it.coverArtId}" }
@@ -95,7 +95,6 @@ class ArtistDetailViewModelTest {
     @Test
     fun should_fallBackToAnEmptySummary_when_theListeningReadFails() = runTest {
         coEvery { repository.getArtistListening(any(), any(), any(), any()) } throws IllegalStateException("locked")
-        coEvery { repository.getAlbumRatings(any()) } returns mapOf("al-1" to 8f)
 
         val viewModel = viewModel()
         advanceUntilIdle()
@@ -103,8 +102,8 @@ class ArtistDetailViewModelTest {
         val content = content(viewModel)
         assertEquals(ArtistListeningSummary(playCount = 0, mostPlayed = emptyList()), content.listening)
         assertTrue(viewModel.getMostPlayedTracks().isEmpty())
-        // The ratings still land.
-        assertEquals(8f, content.albums.first { it.id == "subsonic:al-1" }.userRating)
+        // The provider's releases stay as they painted.
+        assertEquals(listOf("subsonic:al-1", "subsonic:al-2"), content.albums.map { it.id })
     }
 
     @Test
@@ -115,18 +114,6 @@ class ArtistDetailViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ArtistListeningSummary(playCount = 0, mostPlayed = emptyList()), content(viewModel).listening)
-    }
-
-    @Test
-    fun should_mergeAlbumRatingsByRawId_when_thePersonalLayerLoads() = runTest {
-        coEvery { repository.getArtistListening(any(), any(), any(), any()) } returns ArtistListening(0, emptyList())
-        coEvery { repository.getAlbumRatings(any()) } returns mapOf("al-2" to 6.5f)
-
-        val viewModel = viewModel()
-        advanceUntilIdle()
-
-        val ratings = content(viewModel).albums.associate { it.id to it.userRating }
-        assertEquals(mapOf("subsonic:al-1" to null, "subsonic:al-2" to 6.5f), ratings)
     }
 
     @Test

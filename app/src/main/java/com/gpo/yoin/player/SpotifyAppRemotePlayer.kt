@@ -8,8 +8,10 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.spotify.EXTRA_SPOTIFY_URI_TYPE
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
+import com.gpo.yoin.data.source.spotify.spotifyUriType
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
@@ -25,6 +27,7 @@ import com.spotify.protocol.client.CallResult
 import com.spotify.protocol.client.PendingResult
 import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.Empty
+import com.spotify.protocol.types.LibraryState
 import com.spotify.protocol.types.PlayerContext
 import com.spotify.protocol.types.PlayerState
 import kotlinx.coroutines.CancellationException
@@ -32,8 +35,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -101,12 +109,30 @@ sealed interface SpotifyConnectFailure {
     }
 }
 
+/**
+ * How [SpotifyAppRemotePlayer] reaches App Remote: the SDK (through
+ * [SpotifyAppRemoteCompat]'s package lookup) in the app, a fake in tests.
+ */
+internal interface AppRemoteConnector {
+    fun connect(context: Context, params: ConnectionParams, listener: Connector.ConnectionListener)
+
+    fun disconnect(remote: SpotifyAppRemote)
+
+    object Sdk : AppRemoteConnector {
+        override fun connect(context: Context, params: ConnectionParams, listener: Connector.ConnectionListener) =
+            SpotifyAppRemoteCompat.connect(context, params, listener)
+
+        override fun disconnect(remote: SpotifyAppRemote) = SpotifyAppRemote.disconnect(remote)
+    }
+}
+
 internal class SpotifyAppRemotePlayer(
     private val applicationContext: Context,
     private val clientIdProvider: () -> String,
     private val onSnapshot: (SpotifyRemoteSnapshot) -> Unit,
     private val onActionRequired: (SpotifyConnectFailure, String) -> Unit = { _, _ -> },
     private val onContext: (SpotifyPlaybackContext?) -> Unit = {},
+    private val appRemote: AppRemoteConnector = AppRemoteConnector.Sdk,
 ) {
     private val tag = "SpotifyAppRemotePlayer"
 
@@ -176,16 +202,30 @@ internal class SpotifyAppRemotePlayer(
      * Spotify happens to be playing externally (e.g. the user was already
      * listening via car audio, smart speaker, or another device).
      *
-     * Idempotent — no-op when the remote is already connected or already
-     * connecting. Treated as a "soft" connection attempt: if we can't
-     * reach the Spotify app right now, we stay silent (no banner, no
-     * snapshot with `Error`). The real failure path still fires when the
-     * user explicitly plays something.
+     * Idempotent — no new connect when the remote is already connected or
+     * already connecting — but the want is recorded first, whatever is up:
+     * a connection the debug probe opened ([withProbeConnection]) is then
+     * the account's to keep, not closed under it when the probe ends. Its
+     * state and context went unreported while it was the probe's alone, so
+     * they are subscribed to again and come in now. Treated as a "soft"
+     * connection attempt: if we can't reach the Spotify app right now, we
+     * stay silent (no banner, no snapshot with `Error`). The real failure
+     * path still fires when the user explicitly plays something.
      */
     fun warmConnection() {
-        if (remote?.isConnected == true || connectJob?.isActive == true) return
-        Log.d(tag, "warmConnection: attempting soft connect for PlayerState observation")
+        val wanted = wantsConnection
         wantsConnection = true
+        val connected = remote?.takeIf { it.isConnected }
+        if (connected != null) {
+            if (!wanted) {
+                Log.d(tag, "warmConnection: keeping the probe's connection, subscribing again")
+                subscribeToPlayerState(connected)
+                subscribeToPlayerContext(connected)
+            }
+            return
+        }
+        if (connectJob?.isActive == true) return
+        Log.d(tag, "warmConnection: attempting soft connect for PlayerState observation")
         connectIfPossible()
     }
 
@@ -391,6 +431,133 @@ internal class SpotifyAppRemotePlayer(
         playQueue(mirroredQueue, index)
     }
 
+    /**
+     * Spotify's own library state for [uri] — a track or an album, all
+     * UserApi accepts — read over App Remote's local IPC: no Web API request,
+     * so none of the rate-limit budget. Fails when App Remote isn't
+     * connected, the call errors, or no answer comes within
+     * [LIBRARY_STATE_TIMEOUT_MS]. Never connects, plays or touches the queue.
+     */
+    suspend fun libraryState(uri: String): Result<LibraryState> = withContext(Dispatchers.Main.immediate) {
+        val connected = remote?.takeIf { it.isConnected }
+            ?: return@withContext Result.failure(IllegalStateException("App Remote is not connected"))
+        try {
+            val state = withTimeout(LIBRARY_STATE_TIMEOUT_MS) { connected.userApi.getLibraryState(uri).awaitData() }
+            state?.let { Result.success(it) } ?: Result.failure(IllegalStateException("No library state for $uri"))
+        } catch (timeout: TimeoutCancellationException) {
+            Result.failure(timeout)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    /**
+     * For the debug library-state probe: runs [block] with App Remote
+     * connected when it can be, connecting it for the probe when it isn't
+     * (waiting up to [timeoutMs]; it connects only while a Yoin Activity is
+     * started), and leaves things as it found them. The probe never asks for
+     * the connection to stay ([wantsConnection] is left as it was), so no
+     * later host start reconnects for it; a connection it opened where none
+     * was wanted — a Subsonic or Apple Music account — reports nothing to
+     * the player while it lasts and closes when [block] is done, unless
+     * something wanted it meanwhile (a Spotify account's [warmConnection], a
+     * play). Without a client id it doesn't try — once Room has had
+     * [CLIENT_ID_BOOTSTRAP_GRACE_MS] to read it, as a cold connect gets: a
+     * process the broadcast just started may not have it yet. Plays nothing.
+     * Returns [block]'s result with how the connection was left
+     * ([ProbeLeft]), as it turned out once [block] was done.
+     */
+    suspend fun <T> withProbeConnection(timeoutMs: Long, block: suspend (ProbeConnection) -> T): ProbeRun<T> =
+        withContext(Dispatchers.Main.immediate) {
+            if (remote?.isConnected == true) {
+                return@withContext ProbeRun(block(ProbeConnection.Connected), ProbeLeft.AsFound)
+            }
+            if (!awaitClientId(CLIENT_ID_BOOTSTRAP_GRACE_MS)) {
+                return@withContext ProbeRun(block(ProbeConnection.NoClientId), ProbeLeft.NotConnected)
+            }
+            connectIfPossible()
+            val connected = withTimeoutOrNull(timeoutMs) {
+                while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
+                true
+            } ?: false
+            var closed = false
+            val value = try {
+                block(
+                    when {
+                        connected -> ProbeConnection.Connected
+                        hostContext == null -> ProbeConnection.NoHost
+                        else -> ProbeConnection.TimedOut
+                    }
+                )
+            } finally {
+                // Opened for the probe alone (nothing asked for it since): closed again.
+                if (!wantsConnection && pendingOperations.isEmpty()) {
+                    connectJob?.cancel()
+                    connectJob = null
+                    if (remote != null) disconnectRemote(preserveSnapshot = true)
+                    closed = true
+                }
+            }
+            val left = when {
+                !connected -> ProbeLeft.NotConnected
+                closed -> ProbeLeft.Closed
+                else -> ProbeLeft.Kept
+            }
+            ProbeRun(value, left)
+        }
+
+    /**
+     * Whether a client id is set, or comes in within [graceMs]: it is read
+     * from Room on a cold start, and blank until that first read lands.
+     */
+    private suspend fun awaitClientId(graceMs: Long): Boolean = clientIdProvider().isNotBlank() ||
+        withTimeoutOrNull(graceMs) {
+            while (clientIdProvider().isBlank()) delay(CONNECTION_POLL_MS)
+            true
+        } == true
+
+    /** How the debug probe's App Remote connection went ([withProbeConnection]). */
+    internal enum class ProbeConnection {
+        /** Connected, or already was. */
+        Connected,
+
+        /**
+         * No Spotify client id set, even after Room's first read: App Remote
+         * can't connect at all. It is the app's one setting (Settings ›
+         * Spotify), not an account's — switching accounts doesn't change it.
+         */
+        NoClientId,
+
+        /** No started Yoin Activity to connect from. */
+        NoHost,
+
+        /** A host was there, but App Remote didn't connect in time. */
+        TimedOut
+    }
+
+    /** What [withProbeConnection]'s block returned, and how the probe left App Remote's connection. */
+    internal data class ProbeRun<T>(val value: T, val left: ProbeLeft)
+
+    /** How the debug probe left App Remote's connection ([withProbeConnection]). */
+    internal enum class ProbeLeft {
+        /** It was connected before the probe: left as it was. */
+        AsFound,
+
+        /**
+         * Opened for the probe, and something wanted it meanwhile — a Spotify
+         * account's warm-up (a cold start's source coming in), a play: kept.
+         */
+        Kept,
+
+        /** Opened for the probe alone: closed once it was done. */
+        Closed,
+
+        /** Not connected for the probe (no client id, no host, or not in time). */
+        NotConnected
+    }
+
     private fun enqueueOperation(
         replacePending: Boolean = false,
         operation: suspend (SpotifyAppRemote) -> Unit,
@@ -547,7 +714,7 @@ internal class SpotifyAppRemotePlayer(
             .setRedirectUri(SpotifyAuthConfig.REDIRECT_URI)
             .showAuthView(true)
             .build()
-        SpotifyAppRemoteCompat.connect(
+        appRemote.connect(
             context,
             params,
             object : Connector.ConnectionListener {
@@ -558,7 +725,7 @@ internal class SpotifyAppRemotePlayer(
                         // a live remote and leak its IPC connection — disconnect it.
                         continuation.resume(spotifyAppRemote) { _ ->
                             Log.d(tag, "connect: cancelled before delivery, disconnecting remote")
-                            SpotifyAppRemote.disconnect(spotifyAppRemote)
+                            appRemote.disconnect(spotifyAppRemote)
                         }
                     } else {
                         Log.d(tag, "connect: ignoring duplicate onConnected callback")
@@ -601,7 +768,8 @@ internal class SpotifyAppRemotePlayer(
                         tag,
                         "playerState: paused=${playerState.isPaused} position=${playerState.playbackPosition} trackUri=${playerState.track?.uri}",
                     )
-                    publish(fromPlayerState(playerState))
+                    // A connection only the debug probe opened reports nothing.
+                    if (wantsConnection) publish(fromPlayerState(playerState))
                 }
             }
             .setLifecycleCallback(
@@ -626,7 +794,7 @@ internal class SpotifyAppRemotePlayer(
         playerContextSubscription = connected.playerApi.subscribeToPlayerContext()
             .setEventCallback { ctx ->
                 scope.launch {
-                    onContext(SpotifyPlaybackContext(uri = ctx.uri, title = ctx.title))
+                    if (wantsConnection) onContext(SpotifyPlaybackContext(uri = ctx.uri, title = ctx.title))
                 }
             }
             .setLifecycleCallback(
@@ -648,7 +816,7 @@ internal class SpotifyAppRemotePlayer(
         playerStateSubscription = null
         playerContextSubscription?.cancel()
         playerContextSubscription = null
-        remote?.let(SpotifyAppRemote::disconnect)
+        remote?.let(appRemote::disconnect)
         remote = null
         if (preserveSnapshot) {
             publish(
@@ -728,6 +896,9 @@ internal class SpotifyAppRemotePlayer(
             genre = null,
             userRating = null,
             isStarred = false,
+            // An episode or a local file keeps its kind, so nothing asks
+            // Spotify whether its id is a liked track.
+            extras = spotifyUriType(uri)?.let { type -> mapOf(EXTRA_SPOTIFY_URI_TYPE to type) }.orEmpty(),
         )
     }
 
@@ -844,6 +1015,16 @@ internal class SpotifyAppRemotePlayer(
     private companion object {
         /** Tracks the App Remote fallback queues after the started one. */
         const val FALLBACK_QUEUE_LIMIT = 10
+
+        /**
+         * How long a library-state read waits for Spotify's answer. It is
+         * local IPC and normally answers in milliseconds; a CallResult a
+         * dropped connection stranded must not hold the heart check open.
+         */
+        const val LIBRARY_STATE_TIMEOUT_MS = 3_000L
+
+        /** How often [withProbeConnection] looks whether the connect (or the client id) landed. */
+        const val CONNECTION_POLL_MS = 100L
 
         /**
          * Gap between the failing connect and the silent retry. Long enough
@@ -984,6 +1165,13 @@ internal fun String?.normalizedSpotifyErrorMessage(): String? {
         .replace("\\\"", "\"")
         .trim()
         .ifBlank { null }
+}
+
+/** The call's data; null when Spotify answered without any. */
+private suspend fun <T> CallResult<T>.awaitData(): T? = suspendCancellableCoroutine { continuation ->
+    setResultCallback { data -> continuation.resume(data) }
+    setErrorCallback { throwable -> continuation.resumeWithException(throwable) }
+    continuation.invokeOnCancellation { cancel() }
 }
 
 private suspend fun CallResult<Empty>.awaitUnit() {

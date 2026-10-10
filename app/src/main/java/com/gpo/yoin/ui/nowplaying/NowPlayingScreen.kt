@@ -133,10 +133,10 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.FavoriteGlyphIcon
 import com.gpo.yoin.ui.component.LyricsDisplay
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
@@ -1562,6 +1562,7 @@ private fun CompactPlayingContent(
                                     if (state.serviceFeatures.supportsFavorites) {
                                         FavoriteButton(
                                             isStarred = state.isStarred,
+                                            quietFlips = state.favoriteQuietFlips,
                                             actionLabel = stringResource(
                                                 if (state.isStarred) {
                                                     state.serviceFeatures.removeLabel
@@ -2356,6 +2357,7 @@ private fun WidePlayingContent(
                         if (state.serviceFeatures.supportsFavorites) {
                             FavoriteButton(
                                 isStarred = state.isStarred,
+                                quietFlips = state.favoriteQuietFlips,
                                 actionLabel = stringResource(
                                     if (state.isStarred) {
                                         state.serviceFeatures.removeLabel
@@ -2910,6 +2912,7 @@ private fun LandscapePlayingContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         FavoriteButton(
                             isStarred = state.isStarred,
+                            quietFlips = state.favoriteQuietFlips,
                             actionLabel = stringResource(
                                 if (state.isStarred) {
                                     state.serviceFeatures.removeLabel
@@ -4920,6 +4923,8 @@ internal fun FavoriteButton(
         if (isStarred) R.string.np_cd_remove_favorite else R.string.np_cd_add_favorite,
     ),
     modifier: Modifier = Modifier,
+    // NowPlayingUiState.Playing.favoriteQuietFlips: late answers from Spotify crossfade, no beat.
+    quietFlips: Int = 0,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -4992,8 +4997,9 @@ internal fun FavoriteButton(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                painter = rememberFavoriteSymbolPainter(favorite = isStarred),
+            FavoriteGlyphIcon(
+                favorite = isStarred,
+                quietFlips = quietFlips,
                 contentDescription = actionLabel,
                 tint = heartColor,
                 modifier = Modifier.size(24.dp),

@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -22,6 +23,7 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.perf.YoinPerf
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
@@ -37,6 +39,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -110,6 +113,28 @@ class PlaybackManager(
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
         onContext = ::onSpotifyPlayerContext,
+    )
+
+    /**
+     * The Spotify heart check, made here — once per track change, however
+     * many Now Playing hosts are open — and pushed into the repository's
+     * favorite state (this depends on the repository, never the reverse).
+     */
+    private val savedStateRefresher = SpotifySavedStateRefresher(
+        scope = scope,
+        clock = System::currentTimeMillis,
+        appRemoteState = ::appRemoteLibraryState,
+        sink = object : SpotifySavedStateSink {
+            override fun currentProfileId(): String? = repository.currentProfileId()
+
+            override fun recordAppRemoteState(profileId: String, trackId: MediaId, saved: Boolean) {
+                repository.recordFavoriteState(profileId, trackId, saved)
+            }
+
+            override suspend fun checkWithWebApi(track: Track) {
+                repository.refreshFavoriteStates(listOf(track))
+            }
+        }
     )
 
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -216,6 +241,7 @@ class PlaybackManager(
     fun disconnect() {
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
+        savedStateRefresher.reset()
         activeBackend = ActiveBackend.NONE
         requestedMedia3Source = null
         pendingSpotifyHandoff = false
@@ -818,6 +844,11 @@ class PlaybackManager(
                 }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
+                // Spotify's own state, adopted or Yoin-started alike: checks the
+                // heart on a track change, rechecks now and then on later events.
+                if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
+                    savedStateRefresher.onPlayerState(snapshot.currentTrack)
+                }
             }
 
             ConnectionPhase.Error -> {
@@ -1057,6 +1088,64 @@ class PlaybackManager(
         android.os.Build.MODEL,
     )
 
+    /** App Remote's answer whether [uri] is in Liked Songs; null when it can't give one. */
+    private suspend fun appRemoteLibraryState(uri: String): Boolean? {
+        val perf = YoinPerf.begin("favorite.check")
+        val state = spotifyRemotePlayer.libraryState(uri)
+        YoinPerf.end(
+            perf,
+            "src" to "appRemote",
+            "ok" to state.isSuccess,
+            "err" to state.exceptionOrNull()?.javaClass?.simpleName
+        )
+        return state.getOrNull()?.isAdded
+    }
+
+    /**
+     * The debug library-state probe (`app/src/debug` LibraryStateProbeReceiver,
+     * docs/perf/yoinperf-logging.md): connects App Remote when it isn't —
+     * plays nothing, leaves the queue alone, and is closed again after the
+     * reads where nothing else wanted it ([SpotifyAppRemotePlayer.withProbeConnection])
+     * — and reads Spotify's library state for each of [uris], one after another.
+     */
+    internal suspend fun probeSpotifyLibraryStates(
+        uris: List<String>,
+        connectTimeoutMs: Long
+    ): SpotifyLibraryStateProbe {
+        val connectStart = SystemClock.elapsedRealtime()
+        val run = spotifyRemotePlayer.withProbeConnection(connectTimeoutMs) { connection ->
+            val connectMs = SystemClock.elapsedRealtime() - connectStart
+            val account = probedAccount()
+            if (connection != SpotifyAppRemotePlayer.ProbeConnection.Connected) {
+                return@withProbeConnection SpotifyLibraryStateProbe(connection, connectMs, emptyList(), account)
+            }
+            val readings = uris.map { uri ->
+                val start = SystemClock.elapsedRealtime()
+                val state = spotifyRemotePlayer.libraryState(uri)
+                SpotifyLibraryStateReading(
+                    uri = uri,
+                    isAdded = state.getOrNull()?.isAdded,
+                    canAdd = state.getOrNull()?.canAdd,
+                    elapsedMs = SystemClock.elapsedRealtime() - start,
+                    error = state.exceptionOrNull()
+                )
+            }
+            SpotifyLibraryStateProbe(connection, connectMs, readings, account)
+        }
+        return run.value.copy(left = run.left)
+    }
+
+    /**
+     * The active account as the probe found it, for its log: its service, or
+     * why it has no source — none chosen, its source still being built (a
+     * cold start), or none coming (ProfileManager settled without one).
+     */
+    private suspend fun probedAccount(): String = repository.currentProviderId() ?: when {
+        repository.currentProfileId() == null -> SpotifyLibraryStateProbe.ACCOUNT_NONE
+        repository.activeSourceSettled.first() -> SpotifyLibraryStateProbe.ACCOUNT_UNAVAILABLE
+        else -> SpotifyLibraryStateProbe.ACCOUNT_BUILDING
+    }
+
     /**
      * Spotify reported a new "playing from" context (album / playlist / …). When we're
      * playing externally-started Spotify content, derive an [ActivityContext] so Now
@@ -1171,6 +1260,77 @@ class PlaybackManager(
         private const val EXTRA_USER_QUEUED = "yoin_user_queued"
     }
 }
+
+/**
+ * What the debug library-state probe found: how App Remote's connection
+ * went, then one reading per URI. [account]: the active account as the probe
+ * ran — its service's id, or [ACCOUNT_NONE] (none chosen),
+ * [ACCOUNT_BUILDING] (its source still being built, as on a cold start) or
+ * [ACCOUNT_UNAVAILABLE] (no source coming: its credentials didn't open).
+ * [left]: how the probe left the connection, once it was done (null: not
+ * told).
+ */
+internal data class SpotifyLibraryStateProbe(
+    val connection: SpotifyAppRemotePlayer.ProbeConnection,
+    val connectMs: Long,
+    val readings: List<SpotifyLibraryStateReading>,
+    val account: String = ACCOUNT_NONE,
+    val left: SpotifyAppRemotePlayer.ProbeLeft? = null
+) {
+    /**
+     * The probe's notes on the connection, one fact a line, for its log. An
+     * account that isn't Spotify's is said on its own line: it doesn't stop
+     * the probe, which connects App Remote for itself on any account. Nor
+     * does it explain a missing client id — that is the app's one setting,
+     * not the account's. What became of the connection is said as it turned
+     * out, only where the probe connected: one it opened was closed after it,
+     * or kept because something wanted it meanwhile (a Spotify account's
+     * source coming in on a cold start warms it).
+     */
+    fun connectionNotes(connectTimeoutMs: Long): List<String> = buildList {
+        when (account) {
+            MediaId.PROVIDER_SPOTIFY -> Unit
+            ACCOUNT_NONE -> add("no active account")
+            ACCOUNT_BUILDING -> add("the active account's source was still being built")
+            ACCOUNT_UNAVAILABLE -> add("the active account has no source: its credentials didn't open")
+            else -> add("active account is $account, not Spotify")
+        }
+        when (connection) {
+            SpotifyAppRemotePlayer.ProbeConnection.Connected -> Unit
+            SpotifyAppRemotePlayer.ProbeConnection.NoClientId -> add(
+                "no Spotify client id configured: set one in Settings › Spotify (one for the app, not per account)"
+            )
+            SpotifyAppRemotePlayer.ProbeConnection.NoHost ->
+                add("App Remote did not connect: open Yoin (an Activity must be started) and retry")
+            SpotifyAppRemotePlayer.ProbeConnection.TimedOut ->
+                add("App Remote did not connect within ${connectTimeoutMs / 1_000} s: open Spotify and retry")
+        }
+        when (left) {
+            SpotifyAppRemotePlayer.ProbeLeft.Closed -> add("App Remote was opened for the probe alone: closed after it")
+            SpotifyAppRemotePlayer.ProbeLeft.Kept -> add(
+                "App Remote was opened for the probe and kept: the account's warm-up or a play wanted it meanwhile"
+            )
+            SpotifyAppRemotePlayer.ProbeLeft.AsFound ->
+                if (account != MediaId.PROVIDER_SPOTIFY) add("App Remote was already connected: left as it was")
+            SpotifyAppRemotePlayer.ProbeLeft.NotConnected, null -> Unit
+        }
+    }
+
+    companion object {
+        const val ACCOUNT_NONE = "none"
+        const val ACCOUNT_BUILDING = "building"
+        const val ACCOUNT_UNAVAILABLE = "unavailable"
+    }
+}
+
+/** One App Remote `getLibraryState` read: its answer, or the [error] it failed with. */
+internal data class SpotifyLibraryStateReading(
+    val uri: String,
+    val isAdded: Boolean?,
+    val canAdd: Boolean?,
+    val elapsedMs: Long,
+    val error: Throwable?
+)
 
 /**
  * The window indices of [timeline] that play after [current], in play order
