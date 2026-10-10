@@ -1030,7 +1030,7 @@ private fun YoinShell(
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back
                                         // 从专辑页回来时它还在。
-                                        onOpenAlbum = app.container.repository.prefetchingMemoryAlbum { memory ->
+                                        onOpenAlbum = rememberMemoryAlbumOpen(app.container.repository) { memory ->
                                             // MemoryEntry.entityId is the RAW id
                                             // (the coordinator strips the provider
                                             // prefix); AlbumDetailViewModel parses a
@@ -1578,11 +1578,19 @@ private fun markDetailClick(route: DetailPaneRoute, via: String) {
     YoinPerf.detailClick(kind, route.entityId, via)
 }
 
-/** [open] for a Memories stamp's album, after its tap-time prefetch (ui/detail/DetailPrefetch.kt). */
-private fun YoinRepository.prefetchingMemoryAlbum(open: (MemoryEntry) -> Unit): (MemoryEntry) -> Unit = { memory ->
-    prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
-    open(memory)
-}
+/**
+ * [open] for a Memories stamp's album, starting the album's tap-time prefetch first (ui/detail/DetailPrefetch.kt).
+ * Remembered per [open] — a lambda the compiler already memoizes on what it captures — so the deck keeps getting
+ * the same callback instance across recompositions and can still skip them.
+ */
+@Composable
+private fun rememberMemoryAlbumOpen(repository: YoinRepository, open: (MemoryEntry) -> Unit): (MemoryEntry) -> Unit =
+    remember(repository, open) {
+        { memory ->
+            repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
+            open(memory)
+        }
+    }
 
 /** Debug-only `detail.click` for a Memories stamp's album (its full MediaId, as the page is opened with). */
 private fun markMemoryAlbumClick(memory: MemoryEntry, via: String) {
