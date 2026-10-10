@@ -667,7 +667,19 @@ internal fun HomeEditorialContent(
     val enabledOrder = layout.enabledSections
     // Derived, by value: a motion flag that leaves the blocks as they are (the
     // placeholders above a lifted block opening with none held back) recomposes nothing.
-    val blocks by remember(layout, editing, motion, widgetGrid, recentlyAddedTracks, recentlyAddedAlbums, rediscover) {
+    // Keyed on every list hasContent reads: Home's tiers splice a block in on
+    // its own, and one missing here would stay out (or stay in, empty).
+    val blocks by remember(
+        layout,
+        editing,
+        motion,
+        widgetGrid,
+        recentlyAddedTracks,
+        recentlyAddedAlbums,
+        rediscover,
+        recentlyPlayed,
+        playlists
+    ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
                 layout = layout,
