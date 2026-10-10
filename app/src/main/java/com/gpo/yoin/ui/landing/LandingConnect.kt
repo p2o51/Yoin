@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -79,7 +78,10 @@ import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.MorphPolygonShape
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.landing.guide.SpotifyGuideActivity
+import com.gpo.yoin.ui.landing.guide.AppleMusicSignInWithGuide
+import com.gpo.yoin.ui.landing.guide.ConnectGuide
+import com.gpo.yoin.ui.landing.guide.GuideKind
+import com.gpo.yoin.ui.landing.guide.signingCertificateSha1
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationViewModel
 import com.gpo.yoin.ui.settings.provider
@@ -386,7 +388,7 @@ internal fun SpotifyConnectScene(
                 onClick = {
                     guideOpened = true
                     focusManager.clearFocus()
-                    context.startActivity(SpotifyGuideActivity.intent(context))
+                    context.startActivity(ConnectGuide.intent(context, GuideKind.Spotify))
                 },
                 modifier = Modifier.padding(top = 8.dp),
             ) {
@@ -533,12 +535,28 @@ private fun RedirectUris(open: Boolean, onToggle: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
                 ) {
+                    // Everything the dashboard asks for, as it names it, for whoever fills it in on a computer.
+                    val context = LocalContext.current
+                    DashboardFieldLabel(R.string.landing_spotify_uris_label)
                     CopyRow(SpotifyAuthConfig.REDIRECT_URI)
                     CopyRow(SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI)
+                    DashboardFieldLabel(R.string.landing_spotify_packages_label)
+                    CopyRow(context.packageName)
+                    remember(context) { signingCertificateSha1(context) }?.let { CopyRow(it) }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun DashboardFieldLabel(@StringRes text: Int) {
+    Text(
+        text = stringResource(text),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+    )
 }
 
 @Composable
@@ -616,11 +634,9 @@ internal fun AppleConnectScene(
     var ownUrl by rememberSaveable { mutableStateOf("") }
     var attempted by rememberSaveable { mutableStateOf(false) }
     val shake = remember { Animatable(0f) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        vm.authorizationResult(it.data)
-    }
     LaunchedEffect(vm) { vm.initialize(null) }
-    LaunchedEffect(vm) { vm.authorization.collect { launcher.launch(it) } }
+    // Apple's sign-in, with the floating window that says it may take more than one go.
+    AppleMusicSignInWithGuide(vm)
     LaunchedEffect(vm) {
         vm.saved.collect {
             attempted = false

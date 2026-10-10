@@ -46,7 +46,10 @@
     <string name="landing_spotify_open">Open Spotify for Developers</string>
     <string name="landing_spotify_paste">Paste the Client ID</string>
     <string name="landing_spotify_pasted">Pasted from clipboard</string>
-    <string name="landing_spotify_uris">Redirect URIs</string>
+    <string name="landing_spotify_uris">For the dashboard</string>
+    <!-- The dashboard's own field names, kept in English like the guide's keys -->
+    <string name="landing_spotify_uris_label" translatable="false">Redirect URIs</string>
+    <string name="landing_spotify_packages_label" translatable="false">Android packages</string>
     <string name="landing_connected">Connected</string>
     <string name="landing_copy">Copy</string>
     <string name="landing_copied">Copied</string>
@@ -75,17 +78,29 @@
     <string name="guide_name">Name and description: anything, like %1$s</string>
     <string name="guide_uri_first">Paste into %1$s, tap %2$s</string>
     <string name="guide_uri_second">The second address, same way</string>
-    <string name="guide_apis">Tick %1$s and %2$s, agree, tap %3$s</string>
+    <string name="guide_apis">Tick %1$s and %2$s</string>
+    <string name="guide_package">Under %1$s, paste the package name</string>
+    <string name="guide_sha1">Then the SHA1 fingerprint, tap %1$s</string>
+    <string name="guide_save">Agree to the terms, tap %1$s</string>
     <string name="guide_client_id">Copy the %1$s, then come back</string>
     <string name="guide_then_name">Next: the name</string>
     <string name="guide_then_uris">Next: the redirect URIs</string>
     <string name="guide_then_second">Next: the second address</string>
     <string name="guide_then_apis">Next: the APIs</string>
+    <string name="guide_then_package">Next: the Android package</string>
+    <string name="guide_then_sha1">Next: its fingerprint</string>
+    <string name="guide_then_save">Next: save</string>
     <string name="guide_then_client_id">Last: the Client ID</string>
     <string name="guide_action_prev">Previous step</string>
     <string name="guide_action_next">Next step</string>
     <string name="guide_action_copy_first">Copy the first address</string>
     <string name="guide_action_copy_second">Copy the second address</string>
+    <string name="guide_action_copy_package">Copy the package name</string>
+    <string name="guide_action_copy_sha1">Copy the SHA1 fingerprint</string>
     <string name="guide_action_back">Back to Yoin</string>
     <string name="guide_copied">Copied</string>
+    <string name="guide_apple_title" translatable="false">Apple Music</string>
+    <string name="guide_apple_sign_in">Sign in with your Apple ID and allow Yoin</string>
+    <string name="guide_apple_then_tries">It can take two or more tries</string>
+    <string name="guide_apple_retry">Not through yet. Tap Connect again</string>
 </resources>

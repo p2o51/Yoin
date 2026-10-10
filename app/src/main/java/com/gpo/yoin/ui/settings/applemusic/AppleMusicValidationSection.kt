@@ -2,8 +2,6 @@
 
 package com.gpo.yoin.ui.settings.applemusic
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,6 +27,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.remote.applemusic.YoinTokenService
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.landing.guide.AppleMusicSignInWithGuide
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -40,11 +39,9 @@ fun AppleMusicValidationSection(
     viewModel: AppleMusicValidationViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        viewModel.authorizationResult(it.data)
-    }
     LaunchedEffect(viewModel, profileId) { viewModel.initialize(profileId) }
-    LaunchedEffect(viewModel) { viewModel.authorization.collect { launcher.launch(it) } }
+    // Apple's sign-in, with the floating window that says it may take more than one go.
+    AppleMusicSignInWithGuide(viewModel)
     LaunchedEffect(viewModel, onSaved) { viewModel.saved.collect { onSaved(it) } }
     AppleMusicValidationContent(state, viewModel::connect)
 }
