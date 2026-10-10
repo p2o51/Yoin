@@ -11,6 +11,7 @@ import com.gpo.yoin.YoinApplication
 import com.spotify.sdk.android.auth.AuthorizationClient
 import com.spotify.sdk.android.auth.AuthorizationRequest
 import com.spotify.sdk.android.auth.AuthorizationResponse
+import com.spotify.sdk.android.auth.PKCEInformationFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -22,7 +23,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * background; on current Android / Spotify builds it never appears, and a first-time account
  * only ever gets "Explicit user authorization is required". So Yoin asks itself, from the
  * foreground: an invisible activity opens Spotify's authorization page (the spotify-auth
- * library, `app-remote-control` only — the token is just proof of consent and is dropped),
+ * library, `app-remote-control` only, authorization code + PKCE — the code is just proof of consent and is dropped),
  * then retries the connection so the play that failed goes through. A refusal shows Spotify's
  * own reason in place of the connect error.
  */
@@ -54,12 +55,16 @@ class SpotifyConsentActivity : ComponentActivity() {
                 finishQuietly()
                 return@launch
             }
+            // Authorization code + PKCE: Client IDs created since 9 April 2025 refuse the implicit grant
+            // (response_type=token) outright — Spotify answers AUTHENTICATION_SERVICE_UNAVAILABLE. The code
+            // itself is only proof that the grant happened; it isn't exchanged.
             val request = AuthorizationRequest.Builder(
                 clientId,
-                AuthorizationResponse.Type.TOKEN,
+                AuthorizationResponse.Type.CODE,
                 SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI,
             )
                 .setScopes(arrayOf(SpotifyAuthConfig.APP_REMOTE_CONTROL_SCOPE))
+                .setPkceInformation(PKCEInformationFactory.create())
                 .build()
             runCatching { authorize.launch(AuthorizationClient.createLoginActivityIntent(this@SpotifyConsentActivity, request)) }
                 .onFailure { error ->
