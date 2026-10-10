@@ -36,6 +36,9 @@ interface LibraryOpenStore {
 
     suspend fun recordOpened(profileId: String, provider: String, kind: LibraryOpenKind, rawId: String, at: Long)
 
+    /** Forgets everything [profileId] opened, on every service (the profile was deleted). */
+    suspend fun clear(profileId: String)
+
     /** Process-local, for previews and tests. */
     class InMemory : LibraryOpenStore {
         private val opened = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -53,6 +56,10 @@ interface LibraryOpenStore {
             opened.update { entries ->
                 entries.withOpened(openPrefix(profileId, provider), openKey(profileId, provider, kind, rawId), at)
             }
+        }
+
+        override suspend fun clear(profileId: String) {
+            opened.update { entries -> entries.filterKeys { key -> !key.startsWith("$profileId/") } }
         }
     }
 
@@ -99,6 +106,16 @@ class SharedPrefsLibraryOpenStore(
                     kept[key]?.let { putLong(key, it) }
                     (own.keys - kept.keys).forEach(::remove)
                 }
+            }
+        }
+        changes.update { it + 1 }
+    }
+
+    override suspend fun clear(profileId: String) {
+        writes.withLock {
+            withContext(io) {
+                val own = prefs.all.keys.filter { key -> key.startsWith("$profileId/") }
+                if (own.isNotEmpty()) prefs.edit { own.forEach(::remove) }
             }
         }
         changes.update { it + 1 }
