@@ -11,13 +11,12 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.perf.YoinPerf
+import com.gpo.yoin.player.SPOTIFY_START_MAX_URIS
 import com.gpo.yoin.ui.common.UiText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -206,23 +205,41 @@ class ArtistDetailViewModel(
     }
 
     /**
-     * Every track across the artist's albums, for the toolbar's Play / Shuffle.
-     * Albums from the artist endpoint are summaries without tracks, so each is
-     * loaded on demand here (a handful of quick queries on tap).
+     * Every track across the artist's albums, in discography order (the
+     * menu's Add to queue). Albums from the artist endpoint are summaries
+     * without tracks, so each is loaded on demand, a few at a time
+     * ([loadArtistTracks]).
      */
-    suspend fun getAllTracks(): List<Track> {
-        val albums = (uiState.value as? ArtistDetailUiState.Content)?.albums ?: return emptyList()
-        // Load albums concurrently (cap via the repo's own gating) so Play/Shuffle
-        // doesn't stall on N serial network round-trips on a cold cache.
-        return coroutineScope {
-            albums.map { album ->
-                async {
-                    runCatching { repository.getAlbum(MediaId.parse(album.id))?.tracks }
-                        .getOrNull()
-                        .orEmpty()
-                }
-            }.awaitAll()
-        }.flatten()
+    suspend fun getAllTracks(): List<Track> = loadArtistTracks(releases(), ::albumTracks)
+
+    /**
+     * The toolbar's Play ([shuffle] false) or Shuffle queue, in play order.
+     * Spotify's start plays only the first [SPOTIFY_START_MAX_URIS] tracks
+     * of a list (both start at its top), so on Spotify only the albums those
+     * come from are loaded ([loadArtistPlayTracks]); other providers queue
+     * the whole discography.
+     */
+    suspend fun getPlayTracks(shuffle: Boolean): List<Track> = loadArtistPlayTracks(
+        releases = releases(),
+        shuffle = shuffle,
+        startLimit = SPOTIFY_START_MAX_URIS.takeIf {
+            MediaId.parseOrNull(artistId)?.provider == MediaId.PROVIDER_SPOTIFY
+        },
+        loadAlbum = ::albumTracks
+    )
+
+    private fun releases(): List<ArtistRelease> =
+        (uiState.value as? ArtistDetailUiState.Content)?.albums.orEmpty().mapNotNull { album ->
+            MediaId.parseOrNull(album.id)?.let { id -> ArtistRelease(id, album.songCount) }
+        }
+
+    /** An album's tracks; empty when it can't be read, so one bad album doesn't sink Play. */
+    private suspend fun albumTracks(id: MediaId): List<Track> = try {
+        repository.getAlbum(id)?.tracks.orEmpty()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        emptyList()
     }
 
     class Factory(

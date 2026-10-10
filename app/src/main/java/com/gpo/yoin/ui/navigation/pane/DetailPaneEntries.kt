@@ -249,9 +249,9 @@ internal fun ArtistPaneEntry(
 
     fun playArtist(shuffle: Boolean) {
         scope.launch {
-            val tracks = viewModel.getAllTracks()
-            if (tracks.isEmpty()) return@launch
-            val ordered = if (shuffle) tracks.shuffled() else tracks
+            // Already in play order: Shuffle's order is drawn before its albums load.
+            val ordered = viewModel.getPlayTracks(shuffle)
+            if (ordered.isEmpty()) return@launch
             app.container.profileManager.activeSource.value?.let { source ->
                 app.container.playbackManager.play(
                     tracks = ordered,
