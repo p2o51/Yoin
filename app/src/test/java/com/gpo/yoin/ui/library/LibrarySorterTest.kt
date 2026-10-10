@@ -275,18 +275,33 @@ class LibrarySorterTest {
     @Test
     fun should_hideRecentlyAddedForPlaylists_when_serviceDatesNoPlaylists() {
         assertEquals(
-            listOf(LibrarySort.Recents, LibrarySort.RecentlyAdded, LibrarySort.Alphabetical),
+            listOf(LibrarySort.Recents, LibrarySort.RecentlyAdded, LibrarySort.Alphabetical, LibrarySort.Creator),
             librarySortOptions(LibraryTab.Playlists, ServiceFeatureCatalog.subsonic)
         )
         assertEquals(
-            listOf(LibrarySort.Recents, LibrarySort.RecentlyAdded, LibrarySort.Alphabetical),
+            listOf(LibrarySort.Recents, LibrarySort.RecentlyAdded, LibrarySort.Alphabetical, LibrarySort.Creator),
             librarySortOptions(LibraryTab.Playlists, ServiceFeatureCatalog.appleMusic)
         )
         // /me/playlists carries no date.
         assertEquals(
-            listOf(LibrarySort.Recents, LibrarySort.Alphabetical),
+            listOf(LibrarySort.Recents, LibrarySort.Alphabetical, LibrarySort.Creator),
             librarySortOptions(LibraryTab.Playlists, ServiceFeatureCatalog.spotify)
         )
+    }
+
+    @Test
+    fun should_orderPlaylistsByOwnerThenName_when_playlistsSortByCreator() {
+        val playlists = listOf(
+            Playlist(MediaId.subsonic("z"), "Zeal", "Bea", null, null, null),
+            Playlist(MediaId.subsonic("n"), "No owner", null, null, null, null),
+            Playlist(MediaId.subsonic("a"), "Aria", "Bea", null, null, null),
+            Playlist(MediaId.subsonic("m"), "Mine", "Al", null, null, null)
+        )
+
+        val sorted = sorter().playlists(playlists, LibrarySort.Creator)
+
+        // By owner, then by name; a playlist without an owner last.
+        assertEquals(listOf("m", "a", "z", "n"), sorted.map { it.id.rawId })
     }
 
     @Test

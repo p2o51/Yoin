@@ -24,6 +24,8 @@ import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.toUserMessage
+import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +35,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,7 +80,9 @@ class LibraryViewModel(
      * [nameOrder] ([LibraryScrollIndex.icu]). Off device android.icu is a
      * stub: a pass that cannot index keeps the sorter's order, handle only.
      */
-    private val scrollIndex: () -> LibraryScrollIndex = { LibraryScrollIndex.icu() }
+    private val scrollIndex: () -> LibraryScrollIndex = { LibraryScrollIndex.icu() },
+    /** Albums past which a collection's read stops ([readAlbumBatches]; tests pass a small one). */
+    private val albumsReadCeiling: Int = ALBUMS_READ_CEILING
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -100,6 +108,24 @@ class LibraryViewModel(
 
     private var cachedArtists: List<Artist>? = null
     private var cachedAlbums: List<Album>? = null
+
+    /**
+     * Where the next batch of [cachedAlbums] starts: the batches so far all
+     * came back full, so more may follow ([readRemainingAlbums]). Null once
+     * the whole collection is in, and for a list read whole (Spotify's).
+     */
+    private var albumsNextOffset: Int? = null
+    private var albumsReadJob: Job? = null
+
+    /**
+     * Albums a background batch brought that All and Albums don't list yet
+     * ([holdsAlbumBatches]): in [cachedAlbums], left out of what is sorted
+     * ([publishLists]) until [releaseHeldAlbums] lets them in together.
+     */
+    private var albumsHeldBack: Set<MediaId> = emptySet()
+
+    /** Artists and Songs read again after the library changed ([rereadAfterLibraryChange]). */
+    private var libraryRefreshJob: Job? = null
     private var cachedSongs: List<Track>? = null
 
     /**
@@ -134,7 +160,13 @@ class LibraryViewModel(
      * alone writes the sorted Artists, Albums, Playlists and All into the
      * state, so the last change always wins.
      */
-    private val listInputs = MutableStateFlow(LibraryListInputs())
+    private val listInputs = MutableStateFlow(LibraryListInputs(day = localDay()))
+
+    /** [onLibraryShown]'s signal: Recents read again ([observeRecents]). */
+    private val libraryShows = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     private var lastSorted: SortedLibraryLists? = null
     private var pendingSearchShortcutScope: LibrarySearchScope? = null
     private var searchFocusRequestCounter = 0L
@@ -194,6 +226,7 @@ class LibraryViewModel(
         observeSearchLibraryMembership()
         observeProfileChanges()
         observeLibraryRevision()
+        observeLibraryAlbumsRevision()
     }
 
     fun refresh() = reloadLibrary(forceSpotifyRefresh = true)
@@ -204,6 +237,8 @@ class LibraryViewModel(
         _uiState.value = LibraryUiState.Loading
         cachedArtists = null
         cachedAlbums = null
+        albumsNextOffset = null
+        albumsHeldBack = emptySet()
         forgetSongs()
         cachedPlaylists = null
         cachedFavorites = null
@@ -394,6 +429,8 @@ class LibraryViewModel(
         fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId) &&
             loadGeneration == tabLoadGeneration
         _uiState.value = current.copy(selectedTab = tab)
+        // Another view lays the list out anew anyway: albums held back join it now.
+        releaseHeldAlbums()
         tabLoadJob = viewModelScope.launch {
             try {
                 when (tab) {
@@ -405,10 +442,9 @@ class LibraryViewModel(
                         publishLists()
                     }
                     LibraryTab.Albums -> {
-                        val albums = cachedAlbums ?: loadLibraryAlbums()
+                        val albums = cachedAlbums?.let { AlbumsBatch(it, albumsNextOffset) } ?: loadLibraryAlbums()
                         if (!isCurrent()) return@launch
-                        cachedAlbums = albums
-                        publishLists()
+                        keepAlbums(albums)
                     }
                     LibraryTab.Songs -> {
                         // The albums' songs start from their first page; the
@@ -507,9 +543,14 @@ class LibraryViewModel(
         }
         val loads = coroutineScope {
             val artists = allPart(isCurrent, { cachedArtists ?: loadArtistsFlat() }) { cachedArtists = it }
-            val albums = allPart(isCurrent, { cachedAlbums ?: spotifyCache?.albums ?: loadLibraryAlbums() }) {
-                cachedAlbums = it
-            }
+            val albums = allPart(
+                isCurrent,
+                {
+                    cachedAlbums?.let { AlbumsBatch(it, albumsNextOffset) }
+                        ?: spotifyCache?.albums?.let { AlbumsBatch(it, nextOffset = null) }
+                        ?: loadLibraryAlbums()
+                }
+            ) { keepAlbums(it) }
             val playlists = if (holdsPlaylists) {
                 val load: suspend () -> List<Playlist> = if (spotify) {
                     { cachedPlaylists ?: spotifyCache?.playlists ?: loadPlaylists() }
@@ -551,8 +592,184 @@ class LibraryViewModel(
         }
     }
 
-    /** Recently added first, as every service lists it; Library re-sorts it ([LibrarySorter]). */
-    private suspend fun loadLibraryAlbums(): List<Album> = repository.getAlbumList("newest", size = 500)
+    /**
+     * The first batch of the library's albums ([libraryAlbumsQuery]); a full
+     * batch leaves the rest to [readRemainingAlbums]. Library sorts them
+     * itself ([LibrarySorter]); the order they come in only decides whether a
+     * later batch may join a list on screen at once ([holdsAlbumBatches]).
+     */
+    private suspend fun loadLibraryAlbums(): AlbumsBatch {
+        val query = libraryAlbumsQuery()
+            ?: return AlbumsBatch(repository.getAlbumList("newest", size = ALBUMS_READ_WHOLE), nextOffset = null)
+        val albums = repository.getAlbumList(query.type, size = query.batch, offset = 0)
+        return AlbumsBatch(albums, nextOffset = albums.size.takeIf { it >= query.batch })
+    }
+
+    /**
+     * How Library reads the service's whole album collection, a batch at a
+     * time, and in what order the batches come:
+     * - Subsonic: `getAlbumList2` newest by offset, 500 a batch (the API's
+     *   ceiling for one request), newest first: Recently added's order.
+     * - Apple Music: its library albums (`/v1/me/library/albums`, 100 a page
+     *   with the `catalog` relationship, each dated by `dateAdded`) — the
+     *   source reads them for any list type but `newest`, which is the
+     *   recently-added window, not the library. Apple documents them as
+     *   "in alphabetical order": Alphabetical's.
+     * - Spotify: none. Its list is the synced mirror's newest 200, read whole
+     *   (Q10).
+     */
+    private fun libraryAlbumsQuery(): LibraryAlbumsQuery? = when (repository.currentProviderId()) {
+        MediaId.PROVIDER_SPOTIFY -> null
+        MediaId.PROVIDER_APPLE_MUSIC ->
+            LibraryAlbumsQuery(APPLE_LIBRARY_ALBUMS, APPLE_ALBUMS_BATCH, arrivesIn = LibrarySort.Alphabetical)
+        else -> LibraryAlbumsQuery("newest", SUBSONIC_ALBUMS_BATCH, arrivesIn = LibrarySort.RecentlyAdded)
+    }
+
+    /** [batch] becomes Library's albums; a full one goes on to read the rest. */
+    private fun keepAlbums(batch: AlbumsBatch) {
+        cachedAlbums = batch.albums
+        albumsNextOffset = batch.nextOffset
+        publishLists()
+        readRemainingAlbums()
+    }
+
+    /**
+     * The albums behind the first batch, one batch after another in the
+     * background. Each joins the list as it lands where it falls in past the
+     * albums already listed; where it would land among them, on screen, it
+     * waits ([holdsAlbumBatches]) and the waiting batches join together when
+     * the read ends. All and Albums take them on their item springs, and the sort
+     * and the scroller's sections follow. One read at a time; a refresh or
+     * another profile cancels it ([cancelDataLoads]). A batch that fails
+     * stops it where it is, and Library's next look reads on from there
+     * ([ensureSelectedTabLoaded]).
+     */
+    private fun readRemainingAlbums() {
+        if (albumsReadJob?.isActive == true) return
+        val from = albumsNextOffset ?: return
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        albumsReadJob = viewModelScope.launch {
+            readAlbumBatches(from) { isDataLoadCurrent(generation, profileId) }
+            // The read ended, at the collection's end or on a failed batch: what it held joins now.
+            if (isDataLoadCurrent(generation, profileId)) releaseHeldAlbums()
+        }
+    }
+
+    /**
+     * Library's albums read again from the first batch, the list on screen
+     * kept meanwhile: each batch's new albums join it as [readRemainingAlbums]'
+     * do (at once, or held to the end), and nothing leaves until the whole
+     * collection is in and replaces it (an album gone from the library leaves
+     * then). A batch that fails leaves the list as it is, the held albums in.
+     */
+    private fun rereadAlbums() {
+        albumsReadJob?.cancel()
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId)
+        albumsReadJob = viewModelScope.launch {
+            val first = attempt { loadLibraryAlbums() }.getOrElse { error ->
+                Log.w(TAG, "Library albums couldn't be read again; the list stays", error)
+                if (isCurrent()) releaseHeldAlbums()
+                return@launch
+            }
+            if (!isCurrent()) return@launch
+            val fresh = first.albums.toMutableList()
+            val hold = libraryAlbumsQuery()?.let(::holdsAlbumBatches) == true
+            mergeAlbums(first.albums, first.nextOffset, hold)
+            val complete = first.nextOffset?.let { from -> readAlbumBatches(from, fresh, ::isCurrent) } ?: true
+            if (!isCurrent()) return@launch
+            if (complete) cachedAlbums = fresh.distinctBy(Album::id)
+            albumsHeldBack = emptySet()
+            publishLists()
+        }
+    }
+
+    /**
+     * Batches from [from] to the end of the collection, each merged into the
+     * list as it lands (and added to [fresh], when given). False when a batch
+     * failed, or the data moved on, and the read stopped there.
+     *
+     * The end is a batch short of full. Two guards stand in for a server that
+     * never sends one: a full batch with no album this read hadn't seen yet
+     * (a server that ignores `offset` and answers every request with the
+     * same albums) ends the read too, and so does [albumsReadCeiling].
+     */
+    private suspend fun readAlbumBatches(
+        from: Int,
+        fresh: MutableList<Album>? = null,
+        isCurrent: () -> Boolean
+    ): Boolean {
+        val query = libraryAlbumsQuery() ?: return true
+        val seen = fresh.orEmpty().mapTo(HashSet(), Album::id)
+        var offset = from
+        while (true) {
+            if (offset >= albumsReadCeiling) {
+                Log.w(TAG, "Library albums stopped at the $albumsReadCeiling-album ceiling")
+                albumsNextOffset = null
+                return true
+            }
+            val batch = attempt {
+                repository.getAlbumList(query.type, size = query.batch, offset = offset)
+            }.getOrElse { error ->
+                Log.w(TAG, "Library albums stopped at $offset; the next look reads on", error)
+                return false
+            }
+            if (!isCurrent()) return false
+            offset += batch.size
+            val brought = batch.count { seen.add(it.id) } > 0
+            val more = batch.size >= query.batch && brought
+            if (batch.isNotEmpty() && !brought) {
+                Log.w(TAG, "Library albums at $offset repeat the ones read already; the collection counts as read")
+            }
+            fresh?.addAll(batch)
+            mergeAlbums(batch, nextOffset = offset.takeIf { more }, hold = holdsAlbumBatches(query))
+            if (!more) return true
+        }
+    }
+
+    /**
+     * [batch] joins Library's albums (nothing shown leaves), its new ones
+     * held back from the lists when [hold]; [nextOffset] is where reading
+     * goes on.
+     */
+    private fun mergeAlbums(batch: List<Album>, nextOffset: Int?, hold: Boolean) {
+        albumsNextOffset = nextOffset
+        val known = cachedAlbums.orEmpty()
+        val ids = known.mapTo(HashSet(), Album::id)
+        val added = batch.filter { ids.add(it.id) }
+        if (added.isEmpty()) return
+        cachedAlbums = known + added
+        if (hold) albumsHeldBack = albumsHeldBack + added.map(Album::id)
+        publishLists()
+    }
+
+    /**
+     * Whether a background batch waits instead of joining the list at once:
+     * while the view shown lists albums (All, Albums) in another order than
+     * the batches come in ([LibraryAlbumsQuery.arrivesIn]). Joining would
+     * land its albums among the ones on screen — Apple Music's pages come
+     * A–Z, so under Recents or Recently added each page's newest albums
+     * would go to the top — and shift the grid under the user batch after
+     * batch. In the batches' own order a batch falls in past every album
+     * already listed, so what is above it holds still.
+     * Held albums join together ([releaseHeldAlbums]) when the read ends,
+     * Library comes into view, or the view or its sort changes.
+     */
+    private fun holdsAlbumBatches(query: LibraryAlbumsQuery): Boolean {
+        val current = _uiState.value as? LibraryUiState.Content ?: return false
+        val view = current.selectedTab
+        if (view != LibraryTab.All && view != LibraryTab.Albums) return false
+        return (current.sorts[view] ?: LibrarySort.Recents) != query.arrivesIn
+    }
+
+    /** [albumsHeldBack] joins All and Albums, in one re-sort. */
+    private fun releaseHeldAlbums() {
+        if (albumsHeldBack.isEmpty()) return
+        albumsHeldBack = emptySet()
+        publishLists()
+    }
 
     private suspend fun loadPlaylists(): List<Playlist> = repository.getPlaylists().also { playlistsStale = false }
 
@@ -562,9 +779,11 @@ class LibraryViewModel(
     /**
      * Library came on screen: loads the view it shows if it hasn't loaded yet.
      * All's albums and playlists wait for this rather than the cold start.
+     * Albums whose reading stopped on a failed batch read on from there.
      */
     fun ensureSelectedTabLoaded() {
         val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (cachedAlbums != null) readRemainingAlbums()
         if (tabLoadJob?.isActive == true) return
         val loaded = when (current.selectedTab) {
             LibraryTab.All -> allSettled
@@ -638,9 +857,14 @@ class LibraryViewModel(
      * [id] was opened from Library: Recents moves it up by the id Library
      * lists it under, whatever the page it opens resolves it to (an Apple
      * Music library album opens as its catalog album, and records its visit
-     * by that id), and for playlists, whose pages record no visit.
+     * by that id), and for playlists, whose pages record no visit. A search
+     * result counts only from the library's own scope ([fromSearch]): a
+     * catalog result isn't in the library, and would only crowd out the
+     * records that are.
      */
-    fun recordOpened(kind: LibraryOpenKind, id: String) {
+    fun recordOpened(kind: LibraryOpenKind, id: String, fromSearch: Boolean = false) {
+        val searchScope = (_uiState.value as? LibraryUiState.Content)?.searchScope
+        if (fromSearch && searchScope != LibrarySearchScope.CurrentLibrary) return
         val mediaId = MediaId.parseOrNull(id) ?: return
         val profileId = repository.currentProfileId() ?: return
         val at = clock()
@@ -661,6 +885,8 @@ class LibraryViewModel(
         repository.currentProfileId()?.let { profileId -> sortStore.setSort(profileId, view, sort) }
         val sorts = current.sorts + (view to sort)
         _uiState.value = current.copy(sorts = sorts)
+        // Every item moves to its new place anyway: albums held back join in the same move.
+        releaseHeldAlbums()
         listInputs.update { it.copy(sorts = sorts) }
     }
 
@@ -907,7 +1133,9 @@ class LibraryViewModel(
             it.copy(
                 generation = libraryDataGeneration,
                 artists = cachedArtists,
-                albums = cachedAlbums,
+                albums = cachedAlbums?.let { albums ->
+                    if (albumsHeldBack.isEmpty()) albums else albums.filterNot { it.id in albumsHeldBack }
+                },
                 playlists = cachedPlaylists,
                 allSettled = allSettled
             )
@@ -916,56 +1144,96 @@ class LibraryViewModel(
 
     /**
      * The one writer of the sorted Artists, Albums, Playlists and All. Sorting
-     * runs off the main thread; a newer input cancels an older pass.
+     * runs off the main thread; a newer input cancels an older pass. A view
+     * whose own inputs didn't change keeps its last result ([sortLists]).
      */
     private fun observeSortedLists() {
         viewModelScope.launch {
+            var previous: LibrarySortPass? = null
             listInputs.collectLatest { inputs ->
-                val sorted = withContext(sortDispatcher) { sortLists(inputs) }
+                val last = previous
+                val pass = withContext(sortDispatcher) { sortLists(inputs, last) }
+                previous = pass
                 if (inputs.generation != libraryDataGeneration) return@collectLatest
-                lastSorted = sorted
-                updateContent { withSorted(sorted) }
+                lastSorted = pass.lists
+                updateContent { withSorted(pass.lists) }
             }
         }
     }
 
-    private fun sortLists(inputs: LibraryListInputs): SortedLibraryLists {
-        val sorter = LibrarySorter(nameOrder(), inputs.recents, inputs.ignoredArticles)
-        val indexer = LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles)
+    /**
+     * Sorts and indexes each view anew only when what it is made of changed:
+     * its list, its sort, the ignored articles, and — for a view sorted by
+     * Recents only — the recents and the day its sections are cut on. So new
+     * recents re-sort just the Recents views, and a view in another order is
+     * left as it was ([previous]).
+     */
+    private fun sortLists(inputs: LibraryListInputs, previous: LibrarySortPass?): LibrarySortPass {
+        val sorter by lazy { LibrarySorter(nameOrder(), inputs.recents, inputs.ignoredArticles) }
+        // Recents' sections are cut at today, this week and this month.
+        val indexer by lazy { LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles, inputs.recents, clock()) }
         fun sortOf(view: LibraryTab) = inputs.sorts[view] ?: LibrarySort.Recents
-        val sections = mutableMapOf<LibraryTab, List<FastScrollSection>>()
+        fun keyOf(view: LibraryTab, vararg made: Any?): LibraryViewSortKey {
+            val sort = sortOf(view)
+            val byRecents = sort == LibrarySort.Recents
+            return LibraryViewSortKey(
+                made = made.toList(),
+                sort = sort,
+                ignoredArticles = inputs.ignoredArticles,
+                recents = inputs.recents.takeIf { byRecents },
+                day = inputs.day.takeIf { byRecents }
+            )
+        }
+        fun <T> view(
+            key: LibraryViewSortKey,
+            last: LibrarySortedView<T>?,
+            sort: () -> LibraryIndex.Sorted<T>?
+        ): LibrarySortedView<T> = last?.takeIf { it.key == key } ?: LibrarySortedView(key, sort())
 
-        // Sorted, then put in the fast scroller's order with its sections.
-        fun <T> indexed(view: LibraryTab, list: List<T>, index: (List<T>) -> LibraryIndex.Sorted<T>): List<T> {
-            val result = indexedOrPlain(list, index)
-            sections[view] = result.sections
-            return result.items
-        }
-        val artists = inputs.artists?.let { list ->
+        val artists = view(keyOf(LibraryTab.Artists, inputs.artists), previous?.artists) {
             val sort = sortOf(LibraryTab.Artists)
-            indexed(LibraryTab.Artists, sorter.artists(list, sort)) { indexer.artists(it, sort) }
+            inputs.artists?.let { list -> indexedOrPlain(sorter.artists(list, sort)) { indexer.artists(it, sort) } }
         }
-        val albums = inputs.albums?.let { list ->
+        val albums = view(keyOf(LibraryTab.Albums, inputs.albums), previous?.albums) {
             val sort = sortOf(LibraryTab.Albums)
-            indexed(LibraryTab.Albums, sorter.albums(list, sort)) { indexer.albums(it, sort) }
+            inputs.albums?.let { list -> indexedOrPlain(sorter.albums(list, sort)) { indexer.albums(it, sort) } }
         }
-        val playlists = inputs.playlists?.let { list ->
+        val playlists = view(keyOf(LibraryTab.Playlists, inputs.playlists), previous?.playlists) {
             val sort = sortOf(LibraryTab.Playlists)
             // No scroller over Playlists: only the same A–Z as the other views.
-            indexedOrPlain(sorter.playlists(list, sort)) { indexer.playlists(it, sort) }.items
+            inputs.playlists?.let { list ->
+                indexedOrPlain(sorter.playlists(list, sort)) { indexer.playlists(it, sort) }
+            }
         }
-        val all = allOf(sorter, inputs, sortOf(LibraryTab.All))?.let { list ->
+        val allPlaylists = inputs.playlists.takeIf { inputs.allHoldsPlaylists }
+        val all = view(
+            keyOf(LibraryTab.All, inputs.artists, inputs.albums, allPlaylists, inputs.allSettled),
+            previous?.all
+        ) {
             val sort = sortOf(LibraryTab.All)
-            indexed(LibraryTab.All, list) { indexer.all(it, sort, albums = inputs.albums.orEmpty()) }
+            allOf(sorter, inputs, sort)?.let { list ->
+                indexedOrPlain(list) { indexer.all(it, sort, albums = inputs.albums.orEmpty()) }
+            }
         }
-        return SortedLibraryLists(
-            generation = inputs.generation,
+        val sections = buildMap {
+            artists.sorted?.let { put(LibraryTab.Artists, it.sections) }
+            albums.sorted?.let { put(LibraryTab.Albums, it.sections) }
+            all.sorted?.let { put(LibraryTab.All, it.sections) }
+        }
+        return LibrarySortPass(
             artists = artists,
             albums = albums,
             playlists = playlists,
             all = all,
-            sections = sections,
-            playlistsMixed = inputs.playlists?.hasMixedOwnership() == true
+            lists = SortedLibraryLists(
+                generation = inputs.generation,
+                artists = artists.sorted?.items,
+                albums = albums.sorted?.items,
+                playlists = playlists.sorted?.items,
+                all = all.sorted?.items,
+                sections = sections,
+                playlistsMixed = inputs.playlists?.hasMixedOwnership() == true
+            )
         )
     }
 
@@ -1017,8 +1285,30 @@ class LibraryViewModel(
         lastSorted?.takeIf { it.generation == libraryDataGeneration }?.let { withSorted(it) } ?: this
 
     /**
+     * Library came into view: its tab chosen, the app or Library's own window
+     * back in front (a detail page or the background left), or its column
+     * widened again (the detail column or Now Playing's panel closed). Only
+     * now do Recents take in what was opened and played since
+     * ([observeRecents]); a list on screen never re-sorts under the user.
+     */
+    fun onLibraryShown() {
+        // A new day moves Recents' "today" and "this week" even with no new record.
+        listInputs.update { it.copy(day = localDay()) }
+        libraryShows.tryEmit(Unit)
+        // So do the albums a background read held back.
+        releaseHeldAlbums()
+    }
+
+    private fun localDay(): Long =
+        Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay()
+
+    /**
      * This profile's Yoin records of what it opened and played, for Recents:
-     * the visit and play rows, and what was opened from Library itself.
+     * the visit and play rows, and what was opened from Library itself. Read
+     * once as the profile's lists first sort, then again only each time
+     * Library comes into view ([onLibraryShown]; a burst of those reads
+     * once). Between reads nothing is watched: a song played elsewhere costs
+     * no query and no sort, and a list on screen holds its order.
      */
     private fun observeRecents() {
         viewModelScope.launch {
@@ -1030,11 +1320,21 @@ class LibraryViewModel(
                     if (profileId.isNullOrBlank() || providerId == null) {
                         flowOf(LibraryRecents.None)
                     } else {
-                        combine(
-                            recentsSource.observe(profileId, providerId),
-                            openStore.observe(profileId, providerId),
-                            LibraryRecents::latestWith
-                        )
+                        libraryShows
+                            .debounce(RECENTS_SHOW_DEBOUNCE_MS)
+                            .onStart { emit(Unit) }
+                            .transformLatest {
+                                val recents = try {
+                                    recentsSource.observe(profileId, providerId).first()
+                                        .latestWith(openStore.observe(profileId, providerId).first())
+                                } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
+                                    // Only an order hint: the lists keep the recents they have.
+                                    Log.w(TAG, "Library recents couldn't be read", e)
+                                    return@transformLatest
+                                }
+                                emit(recents)
+                            }
                     }
                 }
                 .distinctUntilChanged()
@@ -1223,9 +1523,30 @@ class LibraryViewModel(
             if (isSpotifyProvider()) {
                 searchSpotifySavedLibrary(query)
             } else {
-                repository.searchCurrentLibrary(query)
+                repository.searchCurrentLibrary(query).withLoadedArtistPortraits()
             }
         }
+    }
+
+    /**
+     * The artists found without a portrait take the one the loaded Artists
+     * list holds under the same id: Apple Music's library search gives its
+     * library artists none, while Library › Artists reads them with their
+     * catalog artist's. Nothing is asked for; one Library hasn't loaded keeps
+     * its type icon.
+     */
+    private fun SearchResults.withLoadedArtistPortraits(): SearchResults {
+        if (artists.none { it.coverArt == null }) return this
+        val portraits = cachedArtists.orEmpty()
+            .mapNotNull { artist -> artist.coverArt?.let { artist.id to it } }
+            .toMap()
+        if (portraits.isEmpty()) return this
+        return copy(
+            artists = artists.map { artist ->
+                val portrait = portraits[artist.id]
+                if (artist.coverArt == null && portrait != null) artist.copy(coverArt = portrait) else artist
+            }
+        )
     }
 
     private suspend fun searchSpotifySavedLibrary(query: String): SearchResults {
@@ -1238,7 +1559,9 @@ class LibraryViewModel(
         val artists = snapshot.artists
             .plus(favorites.artists)
             .distinctBy(Artist::id)
-        val albums = (cachedAlbums ?: snapshot.albums)
+        // The mirror as it is now, not the albums Library loaded: an album
+        // removed on its page since then is gone from it.
+        val albums = snapshot.albums
             .plus(favorites.albums)
             .distinctBy(Album::id)
         val songs = snapshot.tracks.ifEmpty { favorites.tracks }
@@ -1307,29 +1630,119 @@ class LibraryViewModel(
                 val current = _uiState.value as? LibraryUiState.Content
                 cancelDataLoads()
                 libraryDataGeneration += 1
-                cachedArtists = null
-                cachedAlbums = null
-                forgetSongs()
-                allSettled = false
-                publishLists()
                 if (current == null) {
+                    cachedArtists = null
+                    cachedAlbums = null
+                    albumsNextOffset = null
+                    albumsHeldBack = emptySet()
+                    forgetSongs()
+                    allSettled = false
+                    publishLists()
                     loadInitialData()
                 } else {
-                    _uiState.value = current.copy(
-                        artists = null,
-                        albums = null,
-                        songs = null,
-                        songsMore = LibrarySongsMore.None,
-                        allItems = null
-                    )
-                    selectTab(current.selectedTab)
-                    if (current.searchQuery.isNotBlank() &&
-                        (current.searchScope == LibrarySearchScope.CurrentLibrary || current.isSearching)
-                    ) {
-                        retrySearch()
+                    rereadAfterLibraryChange(current)
+                }
+            }
+        }
+    }
+
+    /**
+     * The library gained something (an Apple Music song added: with it maybe
+     * its album and artist), with Library on screen. The lists stay as they
+     * are — no view goes back to its loading indicator, no grid loses its
+     * place — while the ones it can touch are read again, each replacing its
+     * list when it arrives: Songs where it is the library's songs, Artists,
+     * and Albums ([rereadAlbums]). Playlists are left alone, and so are Songs
+     * that are the albums' songs or a random sample. A view not loaded yet
+     * loads as usual.
+     */
+    private fun rereadAfterLibraryChange(current: LibraryUiState.Content) {
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId)
+        publishLists()
+        // A read cancelled on its way in (a reshuffle, the Songs foot) leaves its view loading again.
+        if (songsMoreState == LibrarySongsMore.Loading) publishSongsMore(LibrarySongsMore.Available)
+        if (cachedAlbums != null) rereadAlbums()
+        val rereadsSongs = cachedSongs != null && songsPager == null &&
+            Capability.LIBRARY_SONGS in repository.currentCapabilities()
+        val rereadsArtists = cachedArtists != null
+        libraryRefreshJob = viewModelScope.launch {
+            coroutineScope {
+                if (rereadsArtists) {
+                    launch {
+                        attempt { loadArtistsFlat() }.onSuccess { artists ->
+                            if (!isCurrent()) return@onSuccess
+                            cachedArtists = artists
+                            publishLists()
+                        }
+                    }
+                }
+                if (rereadsSongs) {
+                    launch {
+                        attempt {
+                            repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+                                .applySongsOverrides(repository.favoriteOverrides.value)
+                        }.onSuccess { songs ->
+                            if (!isCurrent()) return@onSuccess
+                            cachedSongs = songs
+                            updateContent { copy(songs = songs) }
+                        }
                     }
                 }
             }
+        }
+        ensureSelectedTabLoaded()
+        if (current.searchQuery.isNotBlank() &&
+            (current.searchScope == LibrarySearchScope.CurrentLibrary || current.isSearching)
+        ) {
+            retrySearch()
+        }
+    }
+
+    /**
+     * An album saved to the library or removed from it on its page (Spotify,
+     * [YoinRepository.setAlbumSaved]): the albums Library holds are read again
+     * from the saved-albums mirror the write already updated — no freshness
+     * check, so no sync — and All and Albums take the change on their item
+     * springs. A library search on screen runs again against the same mirror.
+     *
+     * Each profile's count is watched on its own. Paired with the profile's
+     * flow, a switch could hand over the old profile's count with the new
+     * profile before the new count arrives, and a new count higher than the
+     * old would read as a save. Collected afresh as each profile becomes
+     * active, the count's first value is that profile's own, the baseline,
+     * and only a rise past it counts.
+     */
+    private fun observeLibraryAlbumsRevision() {
+        viewModelScope.launch {
+            repository.currentProfileIdFlow.distinctUntilChanged().collectLatest { profileId ->
+                var seen: Long? = null
+                repository.libraryAlbumsRevision.collectLatest { revision ->
+                    val rose = seen?.let { revision > it } == true
+                    if (seen == null || rose) seen = revision
+                    if (!rose || profileId != repository.currentProfileId()) return@collectLatest
+                    rereadSavedAlbums()
+                }
+            }
+        }
+    }
+
+    /** [observeLibraryAlbumsRevision]'s read: Spotify's mirror only, never the service. */
+    private suspend fun rereadSavedAlbums() {
+        if (!isSpotifyProvider()) return
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        val albums = attempt { repository.getSpotifyLocalSearchSnapshot()?.albums }.getOrNull() ?: return
+        if (!isDataLoadCurrent(generation, profileId)) return
+        // Only a list already loaded: a first visit reads the mirror itself (loadAll).
+        if (cachedAlbums != null) {
+            cachedAlbums = albums
+            publishLists()
+        }
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (current.searchQuery.isNotBlank() && current.searchScope == LibrarySearchScope.CurrentLibrary) {
+            retrySearch()
         }
     }
 
@@ -1338,6 +1751,8 @@ class LibraryViewModel(
         tabLoadJob?.cancel()
         reshuffleJob?.cancel()
         songsMoreJob?.cancel()
+        albumsReadJob?.cancel()
+        libraryRefreshJob?.cancel()
         tabLoadGeneration += 1
     }
 
@@ -1620,6 +2035,32 @@ class LibraryViewModel(
         /** Songs read for a library list (Apple's saved songs, Spotify's likes). */
         private const val LIBRARY_SONGS_SIZE = 500
 
+        /** Library coming into view twice at once (composed, then resumed) reads Recents once. */
+        private const val RECENTS_SHOW_DEBOUNCE_MS = 150L
+
+        /** Subsonic's `getAlbumList2` ceiling for one request. */
+        private const val SUBSONIC_ALBUMS_BATCH = 500
+
+        /**
+         * Apple Music library albums per read: one of the source's 100-album
+         * pages, so All shows the first after one request, not five.
+         */
+        private const val APPLE_ALBUMS_BATCH = 100
+
+        /** Any list type but `newest` reads Apple Music's library albums ([libraryAlbumsQuery]). */
+        private const val APPLE_LIBRARY_ALBUMS = "alphabeticalByName"
+
+        /**
+         * Albums past which Library stops reading a collection (200 Subsonic
+         * batches, 1,000 Apple Music pages), so a server that keeps answering
+         * with full batches of albums it never sent before can't keep the
+         * read going for good.
+         */
+        private const val ALBUMS_READ_CEILING = 100_000
+
+        /** A list read whole in one go: Spotify's synced mirror holds at most 200. */
+        private const val ALBUMS_READ_WHOLE = 500
+
         /** Well under SQLite's old 999-value limit, with room for the query's own values. */
         private const val NOTE_KEYS_PER_QUERY = 500
     }
@@ -1649,7 +2090,34 @@ private data class LibraryListInputs(
     val allHoldsPlaylists: Boolean = false,
     val sorts: Map<LibraryTab, LibrarySort> = emptyMap(),
     val recents: LibraryRecents = LibraryRecents.None,
-    val ignoredArticles: List<String> = emptyList()
+    val ignoredArticles: List<String> = emptyList(),
+    /** The local day Library last came into view on: Recents' sections are cut against it. */
+    val day: Long = 0L
+)
+
+/**
+ * What one view's sort read ([LibraryViewModel]'s `sortLists`): the lists it is
+ * made of, its sort and the ignored articles, and the recents and the day only
+ * when it is sorted by Recents. Equal keys sort alike, so the last result stands.
+ */
+private data class LibraryViewSortKey(
+    val made: List<Any?>,
+    val sort: LibrarySort,
+    val ignoredArticles: List<String>,
+    val recents: LibraryRecents?,
+    val day: Long?
+)
+
+/** One view sorted and indexed, null while its list hasn't loaded, under the key it was sorted for. */
+private class LibrarySortedView<T>(val key: LibraryViewSortKey, val sorted: LibraryIndex.Sorted<T>?)
+
+/** A sort pass: each view's result, kept for the next pass to reuse, and the lists it publishes. */
+private class LibrarySortPass(
+    val artists: LibrarySortedView<Artist>,
+    val albums: LibrarySortedView<Album>,
+    val playlists: LibrarySortedView<Playlist>,
+    val all: LibrarySortedView<LibraryItem>,
+    val lists: SortedLibraryLists
 )
 
 private class SortedLibraryLists(
@@ -1663,6 +2131,15 @@ private class SortedLibraryLists(
     /** The playlists' [hasMixedOwnership]: Playlists shows By You. */
     val playlistsMixed: Boolean
 )
+
+/** A batch of Library's albums, and where the next starts: null after the last. */
+private class AlbumsBatch(val albums: List<Album>, val nextOffset: Int?)
+
+/**
+ * A service's album list Library reads whole, [batch] at a time, the batches
+ * coming in [arrivesIn]'s order ([LibraryViewModel]'s `libraryAlbumsQuery`).
+ */
+private class LibraryAlbumsQuery(val type: String, val batch: Int, val arrivesIn: LibrarySort)
 
 private class LibrarySortSettings(
     val options: Map<LibraryTab, List<LibrarySort>>,

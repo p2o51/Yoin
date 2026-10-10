@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
@@ -100,6 +101,32 @@ class LibraryViewModelTest {
         assertEquals(expected, state.searchResults)
         coVerify(exactly = 1) { repository.searchCurrentLibrary("Apple") }
         coVerify(exactly = 0) { repository.search(any()) }
+    }
+
+    @Test
+    fun should_giveLibrarySearchArtistsTheirLoadedPortraits_when_appleMusicSearchHasNone() = runTest {
+        val repository = repositoryFor(
+            providerId = MediaId.PROVIDER_APPLE_MUSIC,
+            capabilities = setOf(Capability.SEARCH, Capability.CATALOG_SEARCH)
+        )
+        val portrait = CoverRef.Url("https://example.com/portrait.jpg")
+        val known = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.known")
+        val unknown = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.unknown")
+        coEvery { repository.getArtists() } returns
+            listOf(ArtistIndex("*", listOf(Artist(known, "Known", null, portrait))))
+        coEvery { repository.searchCurrentLibrary("k") } returns SearchResults(
+            artists = listOf(Artist(known, "Known", null, null), Artist(unknown, "Kept", null, null))
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.search("k")
+        advanceUntilIdle()
+
+        val found = content(viewModel).searchResults?.artists.orEmpty().associate { it.id to it.coverArt }
+        // The Artists list's portrait, by id; one Library doesn't hold keeps its type icon.
+        assertEquals(mapOf(known to portrait, unknown to null), found)
+        coVerify(exactly = 1) { repository.getArtists() }
     }
 
     @Test
@@ -399,6 +426,115 @@ class LibraryViewModelTest {
         assertEquals(savedSongs, state.searchResults?.tracks)
         coVerify(exactly = 2) { repository.getLibrarySongs(size = 500) }
         coVerify(exactly = 2) { repository.searchCurrentLibrary("song") }
+    }
+
+    @Test
+    fun should_keepAllOnScreenWhileRereading_when_appleAdditionConfirmed() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val revision = MutableStateFlow(0L)
+        every { repository.libraryRevision } returns revision
+        val first = Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.1"), "First", null, null)
+        val added = Artist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.2"), "Added", null, null)
+        var artists = listOf(first)
+        coEvery { repository.getArtists() } coAnswers { listOf(ArtistIndex("*", artists)) }
+        val oldAlbum = appleAlbum("library:l.old", "Old", added = "2020-01-01T00:00:00Z")
+        val newAlbum = appleAlbum("library:l.new", "New", added = "2026-10-10T00:00:00Z")
+        val reread = CompletableDeferred<List<Album>>()
+        var albumReads = 0
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } coAnswers {
+            if (albumReads++ == 0) listOf(oldAlbum) else reread.await()
+        }
+        coEvery { repository.getPlaylists() } returns listOf(
+            Playlist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "p.1"), "Mine", null, null, null, null)
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        val shown = mutableListOf<List<LibraryItem>?>()
+        backgroundScope.launch { viewModel.uiState.collect { shown += (it as LibraryUiState.Content).allItems } }
+        runCurrent()
+
+        // A song added elsewhere brought its album and artist into the library.
+        artists = listOf(first, added)
+        revision.value = 1L
+        advanceUntilIdle()
+        assertTrue("album:${oldAlbum.id}" in content(viewModel).allItems.orEmpty().map(LibraryItem::key))
+        reread.complete(listOf(newAlbum, oldAlbum))
+        advanceUntilIdle()
+
+        val keys = content(viewModel).allItems.orEmpty().map(LibraryItem::key).toSet()
+        val expected = setOf(
+            "artist:${first.id}",
+            "artist:${added.id}",
+            "album:${newAlbum.id}",
+            "album:${oldAlbum.id}",
+            "playlist:applemusic:p.1"
+        )
+        assertEquals(expected, keys)
+        // All never fell back to its loading indicator, and the playlists weren't read again.
+        assertTrue(shown.none { it == null })
+        coVerify(exactly = 1) { repository.getPlaylists() }
+    }
+
+    @Test
+    fun should_dropAlbumNoLongerInLibrary_when_rereadCompletes() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val revision = MutableStateFlow(0L)
+        every { repository.libraryRevision } returns revision
+        val kept = appleAlbum("library:l.kept", "Kept", added = "2020-01-01T00:00:00Z")
+        val gone = appleAlbum("library:l.gone", "Gone", added = "2021-01-01T00:00:00Z")
+        val added = appleAlbum("library:l.added", "Added", added = "2026-10-10T00:00:00Z")
+        var library = listOf(gone, kept)
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } coAnswers { library }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        // A song added elsewhere brought its album in; another album left the library meanwhile.
+        library = listOf(added, kept)
+        revision.value = 1L
+        advanceUntilIdle()
+
+        // The whole collection read again: it replaces the list, so the album gone from the library leaves.
+        val inAll = content(viewModel).allItems.orEmpty().filterIsInstance<LibraryItem.AlbumItem>().map { it.album.id }
+        assertEquals(listOf(added.id, kept.id), inAll)
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals(listOf(added.id, kept.id), content(viewModel).albums.orEmpty().map(Album::id))
+    }
+
+    @Test
+    fun should_keepMergedAlbums_when_rereadFailsMidway() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val revision = MutableStateFlow(0L)
+        every { repository.libraryRevision } returns revision
+        val firstPage = appleNumbered(0 until 100)
+        val tail = appleAlbum("library:l.tail", "Tail", added = "2020-01-01T00:00:00Z")
+        val added = appleAlbum("library:l.added", "Added", added = "2026-10-10T00:00:00Z")
+        var rereading = false
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } coAnswers {
+            if (rereading) appleNumbered(0 until 99) + added else firstPage
+        }
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 100) } coAnswers {
+            if (rereading) error("Apple Music unavailable") else listOf(tail)
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals(101, content(viewModel).albums.orEmpty().size)
+
+        rereading = true
+        revision.value = 1L
+        advanceUntilIdle()
+
+        // The read stopped at its second page: the albums it didn't get to again stay, the new one is in.
+        assertEquals(
+            (firstPage + tail + added).map(Album::id).toSet(),
+            content(viewModel).albums.orEmpty().map(Album::id).toSet()
+        )
     }
 
     @Test
@@ -1063,14 +1199,98 @@ class LibraryViewModelTest {
             allKeys()
         )
 
-        // An artist page opened: it moves up in place, nothing fetched again.
+        // An artist page opened, and Library came back into view: it moves up in place, nothing fetched again.
         records.value = records.value.copy(artists = mapOf("ar" to 200L))
+        viewModel.onLibraryShown()
         advanceUntilIdle()
         assertEquals(
             listOf("artist:subsonic:ar", "playlist:subsonic:pl", "album:subsonic:new", "album:subsonic:old"),
             allKeys()
         )
         coVerify(exactly = 1) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_holdRecentsBack_when_libraryStaysInView() = runTest {
+        val records = MutableStateFlow(LibraryRecents.None)
+        val repository = subsonicLibrary(
+            albums = listOf(
+                album("old", "Old", added = "2020-01-01T00:00:00Z"),
+                album("new", "New", added = "2024-01-01T00:00:00Z")
+            )
+        )
+        val viewModel = libraryViewModel(repository, recentsSource = { _, _ -> records })
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        fun albumIds() = content(viewModel).albums.orEmpty().map { it.id.rawId }
+        assertEquals(listOf("new", "old"), albumIds())
+
+        // Played while the list is on screen (a Wide split, the album beside it): the order holds.
+        records.value = LibraryRecents(albums = mapOf("old" to 500L))
+        advanceUntilIdle()
+        assertEquals(listOf("new", "old"), albumIds())
+
+        // The detail column closes: Library is back in view, and takes it in once.
+        viewModel.onLibraryShown()
+        advanceUntilIdle()
+        assertEquals(listOf("old", "new"), albumIds())
+    }
+
+    @Test
+    fun should_readRecentsOnceForABurst_when_libraryComesIntoViewTwiceAtOnce() = runTest {
+        var reads = 0
+        val repository = subsonicLibrary()
+        val viewModel = libraryViewModel(
+            repository,
+            recentsSource = { _, _ ->
+                reads++
+                flowOf(LibraryRecents.None)
+            }
+        )
+        advanceUntilIdle()
+        assertEquals(1, reads)
+
+        // Composed and resumed in the same moment.
+        viewModel.onLibraryShown()
+        viewModel.onLibraryShown()
+        advanceUntilIdle()
+
+        assertEquals(2, reads)
+    }
+
+    @Test
+    fun should_resortOnlyTheRecentsViews_when_recentsChange() = runTest {
+        val records = MutableStateFlow(LibraryRecents.None)
+        val store = LibrarySortStore.InMemory()
+        LibraryTab.entries.forEach { store.setSort("test-profile", it, LibrarySort.Alphabetical) }
+        var sortPasses = 0
+        val viewModel = LibraryViewModel(
+            repository = subsonicLibrary(),
+            sortStore = store,
+            recentsSource = { _, _ -> records },
+            sortDispatcher = mainDispatcherRule.dispatcher,
+            nameOrder = {
+                sortPasses++
+                String.CASE_INSENSITIVE_ORDER
+            },
+            scrollIndex = { JvmLibraryScrollIndex }
+        )
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        val sortedBefore = sortPasses
+
+        // Every view is A–Z: new recents leave each of them as it was.
+        records.value = LibraryRecents(albums = mapOf("al" to 500L))
+        viewModel.onLibraryShown()
+        advanceUntilIdle()
+        assertEquals(sortedBefore, sortPasses)
+
+        // Albums back on Recents: that view alone sorts again.
+        viewModel.selectSort(LibraryTab.Albums, LibrarySort.Recents)
+        advanceUntilIdle()
+        assertEquals(sortedBefore + 1, sortPasses)
     }
 
     @Test
@@ -1203,6 +1423,117 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_dropAlbumFromAllAndAlbums_when_albumRemovedFromLibrary() = runTest {
+        val repository = spotifyRepository()
+        val albumsRevision = MutableStateFlow(0L)
+        every { repository.libraryAlbumsRevision } returns albumsRevision
+        val kept = album("kept", "Kept").copy(id = MediaId.spotify("kept"))
+        val removed = album("removed", "Removed").copy(id = MediaId.spotify("removed"))
+        var mirror = spotifySnapshot().copy(albums = listOf(kept, removed))
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers { mirror }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals(listOf("kept", "removed"), content(viewModel).albums.orEmpty().map { it.id.rawId }.sorted())
+
+        // Removed on its album page: the write dropped its mirror row, then told Library.
+        mirror = mirror.copy(albums = listOf(kept))
+        albumsRevision.value = 1L
+        advanceUntilIdle()
+
+        val state = content(viewModel)
+        assertEquals(listOf("kept"), state.albums.orEmpty().map { it.id.rawId })
+        assertFalse("album:spotify:removed" in state.allItems.orEmpty().map(LibraryItem::key))
+        // From the mirror alone: neither a service read nor a sync.
+        coVerify(exactly = 0) { repository.getAlbumList(any(), any(), any()) }
+        coVerify(exactly = 1) { repository.refreshSpotifyLibrary(any()) }
+    }
+
+    @Test
+    fun should_addAlbumToAllAndAlbums_when_albumSavedToLibrary() = runTest {
+        val repository = spotifyRepository()
+        val albumsRevision = MutableStateFlow(0L)
+        every { repository.libraryAlbumsRevision } returns albumsRevision
+        val saved = album("new", "New").copy(id = MediaId.spotify("new"), libraryAddedAt = "2026-10-10T08:00:00Z")
+        var mirror = spotifySnapshot()
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers { mirror }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        mirror = mirror.copy(albums = listOf(saved) + mirror.albums)
+        albumsRevision.value = 1L
+        advanceUntilIdle()
+
+        assertTrue("album:spotify:new" in content(viewModel).allItems.orEmpty().map(LibraryItem::key))
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals("new", content(viewModel).albums.orEmpty().first().id.rawId)
+    }
+
+    @Test
+    fun should_notReadSavedAlbumsAgain_when_theProfileSwitchesToOneWithMoreSaves() = runTest {
+        val repository = spotifyRepository()
+        val profiles = MutableStateFlow("first")
+        every { repository.currentProfileId() } answers { profiles.value }
+        every { repository.currentProfileIdFlow } returns profiles
+        // As the repository builds it: the active profile's own count of saves and removals.
+        val counts = MutableStateFlow(mapOf("first" to 0L, "second" to 3L))
+        every { repository.libraryAlbumsRevision } returns
+            combine(profiles, counts) { profileId, byProfile -> byProfile[profileId] ?: 0L }.distinctUntilChanged()
+        var mirrorReads = 0
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers {
+            mirrorReads++
+            spotifySnapshot()
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        val readsBefore = mirrorReads
+
+        // The other account saved albums earlier: its count is higher, but nothing changed on it now.
+        profiles.value = "second"
+        advanceUntilIdle()
+        assertEquals(readsBefore, mirrorReads)
+
+        // A save on the new account still reaches Library.
+        counts.value = counts.value + ("second" to 4L)
+        advanceUntilIdle()
+        assertEquals(readsBefore + 1, mirrorReads)
+    }
+
+    @Test
+    fun should_leaveRemovedAlbumOutOfLibrarySearch_when_albumRemovedOnItsPage() = runTest {
+        val repository = spotifyRepository()
+        val albumsRevision = MutableStateFlow(0L)
+        every { repository.libraryAlbumsRevision } returns albumsRevision
+        val first = album("one", "Saved One").copy(id = MediaId.spotify("one"))
+        val second = album("two", "Saved Two").copy(id = MediaId.spotify("two"))
+        var mirror = spotifySnapshot().copy(albums = listOf(first, second))
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers { mirror }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        viewModel.search("Saved")
+        advanceUntilIdle()
+        val found = content(viewModel).searchResults?.albums.orEmpty().map { it.id.rawId }
+        assertEquals(setOf("one", "two"), found.toSet())
+
+        mirror = mirror.copy(albums = listOf(first))
+        albumsRevision.value = 1L
+        advanceUntilIdle()
+
+        // The search on screen runs again against the mirror, not the albums All loaded.
+        assertEquals(listOf("one"), content(viewModel).searchResults?.albums.orEmpty().map { it.id.rawId })
+    }
+
+    @Test
     fun should_keepSpotifysAllWithoutAFreshRead_when_aPlaylistChangesElsewhere() = runTest {
         val repository = spotifyRepository()
         coEvery { repository.getSpotifyLocalSearchSnapshot() } returns spotifySnapshot()
@@ -1313,11 +1644,11 @@ class LibraryViewModelTest {
 
     @Test
     fun should_moveALibraryAlbumUp_when_openedFromLibrary() = runTest {
-        // Apple Music lists recently-added albums by library id; the album page records its visit
-        // and plays under the catalog id it resolves to, which Library can't match.
+        // Apple Music lists a library album with no catalog match by its library id; the album
+        // page records its visit and plays under the id it resolves to, which Library can't match.
         val records = MutableStateFlow(LibraryRecents(albums = mapOf("1440000001" to 900L)))
         val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, setOf(Capability.LIBRARY_SONGS))
-        coEvery { repository.getAlbumList("newest", size = 500) } returns listOf(
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } returns listOf(
             appleAlbum("library:l.new", "New", added = "2024-01-01T00:00:00Z"),
             appleAlbum("library:l.opened", "Opened", added = "2020-01-01T00:00:00Z")
         )
@@ -1335,6 +1666,8 @@ class LibraryViewModelTest {
         assertEquals(listOf("library:l.new", "library:l.opened"), albumIds())
 
         viewModel.recordOpened(LibraryOpenKind.Album, "applemusic:library:l.opened")
+        // Back from the album page.
+        viewModel.onLibraryShown()
         advanceUntilIdle()
 
         assertEquals(listOf("library:l.opened", "library:l.new"), albumIds())
@@ -1342,6 +1675,28 @@ class LibraryViewModelTest {
             mapOf("library:l.opened" to 1_000L),
             openStore.observe("test-profile", MediaId.PROVIDER_APPLE_MUSIC).first().albums
         )
+    }
+
+    @Test
+    fun should_recordASearchOpenOnlyInTheLibraryScope_when_openedFromSearch() = runTest {
+        val repository = spotifyRepository()
+        val openStore = LibraryOpenStore.InMemory()
+        val viewModel = libraryViewModel(repository, openStore = openStore, clock = { 7L })
+        advanceUntilIdle()
+        suspend fun opened() = openStore.observe("test-profile", MediaId.PROVIDER_SPOTIFY).first().albums
+
+        // A catalog result: not in the library, so it takes no place among its records.
+        viewModel.openSearchShortcut(LibrarySearchScope.SpotifyGlobal)
+        viewModel.recordOpened(LibraryOpenKind.Album, "spotify:catalog", fromSearch = true)
+        advanceUntilIdle()
+        assertEquals(emptyMap<String, Long>(), opened())
+
+        // A result of the library's own search counts like any open from Library.
+        viewModel.selectSearchScope(LibrarySearchScope.CurrentLibrary)
+        viewModel.recordOpened(LibraryOpenKind.Album, "spotify:saved", fromSearch = true)
+        viewModel.recordOpened(LibraryOpenKind.Album, "spotify:grid")
+        advanceUntilIdle()
+        assertEquals(mapOf("saved" to 7L, "grid" to 7L), opened())
     }
 
     @Test
@@ -1358,6 +1713,7 @@ class LibraryViewModelTest {
 
         // A playlist page records no visit of its own: opening it from Library is what counts.
         viewModel.recordOpened(LibraryOpenKind.Playlist, "subsonic:opened")
+        viewModel.onLibraryShown()
         advanceUntilIdle()
 
         assertEquals(
@@ -1376,7 +1732,10 @@ class LibraryViewModelTest {
         assertEquals(LibrarySort.entries, state.sortOptions[LibraryTab.All])
         assertEquals(LibrarySort.entries, state.sortOptions[LibraryTab.Albums])
         assertEquals(listOf(LibrarySort.Recents, LibrarySort.Alphabetical), state.sortOptions[LibraryTab.Artists])
-        assertEquals(listOf(LibrarySort.Recents, LibrarySort.Alphabetical), state.sortOptions[LibraryTab.Playlists])
+        assertEquals(
+            listOf(LibrarySort.Recents, LibrarySort.Alphabetical, LibrarySort.Creator),
+            state.sortOptions[LibraryTab.Playlists]
+        )
         // Songs is Liked Songs in its own order: no sort row.
         assertNull(state.sortOptions[LibraryTab.Songs])
 
@@ -1399,6 +1758,291 @@ class LibraryViewModelTest {
             LibrarySort.Recents,
             (viewModel.uiState.value as LibraryUiState.Content).sorts[LibraryTab.Playlists]
         )
+    }
+
+    // ── The whole album collection (provider-runtime-1) ─────────────────
+
+    @Test
+    fun should_readTheRestOfTheAlbumsInTheBackground_when_theFirstBatchIsFull() = runTest {
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 500) } returns numberedAlbums(500 until 620)
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        viewModel.selectSort(LibraryTab.Albums, LibrarySort.Alphabetical)
+        advanceUntilIdle()
+
+        // Every album, the oldest too: A–Z runs over the whole library, not its newest 500.
+        val state = content(viewModel)
+        assertEquals(620, state.albums.orEmpty().size)
+        assertEquals(620, state.allItems.orEmpty().count { it is LibraryItem.AlbumItem })
+        // A batch short of 500 was the last: nothing past it is asked for.
+        coVerify(exactly = 2) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_readAppleMusicsLibraryAlbums_when_appleMusicIsActive() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val first = numberedAlbums(0 until 100, provider = MediaId.PROVIDER_APPLE_MUSIC)
+        val rest = numberedAlbums(100 until 103, provider = MediaId.PROVIDER_APPLE_MUSIC)
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } returns first
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 100) } returns rest
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        assertEquals(103, content(viewModel).albums.orEmpty().size)
+        // The library's albums, not the recently-added window.
+        coVerify(exactly = 0) { repository.getAlbumList("newest", any(), any()) }
+    }
+
+    @Test
+    fun should_showAppleMusicsAlbumsAPageAtATime_when_allLoads() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val secondPage = CompletableDeferred<List<Album>>()
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } returns
+            numberedAlbums(0 until 100, provider = MediaId.PROVIDER_APPLE_MUSIC)
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 100) } coAnswers {
+            secondPage.await()
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        // One request in: the first page is in All while the next is on its way.
+        fun albumsInAll() = content(viewModel).allItems?.count { it is LibraryItem.AlbumItem }
+        assertEquals(100, albumsInAll())
+
+        secondPage.complete(numberedAlbums(100 until 130, provider = MediaId.PROVIDER_APPLE_MUSIC))
+        advanceUntilIdle()
+        // Merged in where it belongs; All never went back to its loading indicator.
+        assertEquals(130, albumsInAll())
+        coVerify(exactly = 2) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_holdLaterPagesBack_when_theyWouldResortTheListOnScreen() = runTest {
+        // Apple Music's library albums come A–Z; All sorts by Recents, here Recently added.
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(),
+            200 to CompletableDeferred()
+        ) { pages ->
+            val viewModel = libraryViewModel(this)
+            advanceUntilIdle()
+            viewModel.ensureSelectedTabLoaded()
+            advanceUntilIdle()
+            fun albumKeys() = content(viewModel).allItems.orEmpty().filterIsInstance<LibraryItem.AlbumItem>()
+                .map(LibraryItem::key)
+            val firstShown = albumKeys()
+            assertEquals(100, firstShown.size)
+
+            // A full page whose newest album came last week: All holds as it is while the read goes on.
+            val zero7 = appleAlbum("library:l.zero7", "Zero 7", added = "2026-10-10T00:00:00Z")
+            pages.getValue(100).complete(appleNumbered(100 until 199) + zero7)
+            advanceUntilIdle()
+            assertEquals(firstShown, albumKeys())
+
+            // The read ends: everything joins at once, the newest on top.
+            pages.getValue(200).complete(appleNumbered(200 until 230))
+            advanceUntilIdle()
+            val keys = albumKeys()
+            assertEquals(230, keys.size)
+            assertEquals("album:${zero7.id}", keys.first())
+        }
+    }
+
+    @Test
+    fun should_addEachPageAsItLands_when_theViewSortsInTheOrderPagesCome() = runTest {
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(appleNumbered(100 until 200)),
+            200 to CompletableDeferred()
+        ) {
+            val store = LibrarySortStore.InMemory()
+            store.setSort("test-profile", LibraryTab.Albums, LibrarySort.Alphabetical)
+            val viewModel = libraryViewModel(this, sortStore = store)
+            advanceUntilIdle()
+            viewModel.selectTab(LibraryTab.Albums)
+            advanceUntilIdle()
+
+            // A–Z, as Apple Music sends them: the second page extends the list's end while the third is on its way.
+            assertEquals(
+                appleNumbered(0 until 200).map { it.id },
+                content(viewModel).albums.orEmpty().map(Album::id)
+            )
+        }
+    }
+
+    @Test
+    fun should_letHeldAlbumsIn_when_libraryComesIntoView() = runTest {
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(appleNumbered(100 until 200)),
+            200 to CompletableDeferred()
+        ) {
+            val viewModel = libraryViewModel(this)
+            advanceUntilIdle()
+            viewModel.ensureSelectedTabLoaded()
+            advanceUntilIdle()
+            fun albumsInAll() = content(viewModel).allItems.orEmpty().count { it is LibraryItem.AlbumItem }
+            assertEquals(100, albumsInAll())
+
+            // Back from a detail page, the read still going: Library re-sorts once, with the page it held.
+            viewModel.onLibraryShown()
+            advanceUntilIdle()
+            assertEquals(200, albumsInAll())
+        }
+    }
+
+    @Test
+    fun should_letHeldAlbumsIn_when_theSortChanges() = runTest {
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(appleNumbered(100 until 200)),
+            200 to CompletableDeferred(),
+            300 to CompletableDeferred()
+        ) { pages ->
+            val viewModel = libraryViewModel(this)
+            advanceUntilIdle()
+            viewModel.selectTab(LibraryTab.Albums)
+            advanceUntilIdle()
+            fun albums() = content(viewModel).albums.orEmpty().size
+            assertEquals(100, albums())
+
+            // Every album moves to its A–Z place anyway: the held page joins in the same move.
+            viewModel.selectSort(LibraryTab.Albums, LibrarySort.Alphabetical)
+            advanceUntilIdle()
+            assertEquals(200, albums())
+
+            // Now in the order the pages come, the next one joins as it lands.
+            pages.getValue(200).complete(appleNumbered(200 until 300))
+            advanceUntilIdle()
+            assertEquals(300, albums())
+        }
+    }
+
+    @Test
+    fun should_addEachBatchAsItLands_when_subsonicSortsByRecentlyAdded() = runTest {
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 500) } returns numberedAlbums(500 until 1_000)
+        val lastBatch = CompletableDeferred<List<Album>>()
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 1_000) } coAnswers { lastBatch.await() }
+        val store = LibrarySortStore.InMemory()
+        store.setSort("test-profile", LibraryTab.Albums, LibrarySort.RecentlyAdded)
+        val viewModel = libraryViewModel(repository, sortStore = store)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        // Subsonic's batches come newest first: the second only extends the list's end.
+        assertEquals(1_000, content(viewModel).albums.orEmpty().size)
+    }
+
+    @Test
+    fun should_keepSpotifysAlbumsAsTheyAre_when_theListIsRead() = runTest {
+        val repository = spotifyRepository()
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 0) } returns
+            numberedAlbums(0 until 200, provider = MediaId.PROVIDER_SPOTIFY)
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        // The synced 200 stay the list (Q10): no further batch.
+        assertEquals(200, content(viewModel).albums.orEmpty().size)
+        coVerify(exactly = 1) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_dropTheOldAccountsAlbums_when_theProfileSwitchesMidRead() = runTest {
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        val profiles = MutableStateFlow("first")
+        every { repository.currentProfileId() } answers { profiles.value }
+        every { repository.currentProfileIdFlow } returns profiles
+        val secondBatch = CompletableDeferred<List<Album>>()
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 500) } coAnswers { secondBatch.await() }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        profiles.value = "second"
+        advanceUntilIdle()
+        secondBatch.complete(numberedAlbums(500 until 510))
+        advanceUntilIdle()
+
+        // The read was cancelled with the account: the new one starts from nothing.
+        assertNull(content(viewModel).albums)
+    }
+
+    @Test
+    fun should_readOnFromWhereItStopped_when_aBatchFailed() = runTest {
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        var failing = true
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 500) } coAnswers {
+            if (failing) error("server down") else numberedAlbums(500 until 501)
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        // The first batch stays; nothing was lost.
+        assertEquals(500, content(viewModel).albums.orEmpty().size)
+
+        failing = false
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        assertEquals(501, content(viewModel).albums.orEmpty().size)
+        coVerify(exactly = 1) { repository.getAlbumList("newest", size = 500, offset = 0) }
+    }
+
+    @Test
+    fun should_stopReading_when_aBatchBringsNothingNew() = runTest {
+        // A server that ignores offset: every request answers with the same newest 500.
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        coEvery { repository.getAlbumList("newest", size = 500, offset = any()) } returns numberedAlbums(0 until 500)
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        assertEquals(500, content(viewModel).albums.orEmpty().size)
+        // The first batch, then the background read's own first, then one with nothing it hadn't had: done.
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
+
+        // Read to its end: Library's next look asks for nothing more.
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_stopReading_when_theCollectionReachesTheCeiling() = runTest {
+        // Full batches of albums never sent before, however far the offset goes.
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        coEvery { repository.getAlbumList("newest", size = 500, offset = any()) } coAnswers {
+            val offset = thirdArg<Int>()
+            numberedAlbums(offset until offset + 500)
+        }
+        val viewModel = libraryViewModel(repository, albumsReadCeiling = 1_500)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        assertEquals(1_500, content(viewModel).albums.orEmpty().size)
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
     }
 
     // ── Fast scroller sections (U2) ─────────────────────────────────────
@@ -1425,6 +2069,42 @@ class LibraryViewModelTest {
         assertEquals(
             listOf(section("A", 0), section("B", 1), section("C", 3), section("#", 4)),
             state.scrollSections[LibraryTab.Artists]
+        )
+    }
+
+    @Test
+    fun should_cutRecentsByWhenEachWasLastOpened_when_viewSortsByRecents() = runTest {
+        // Wednesday 14 October 2026, noon UTC.
+        val now = 1_791_979_200_000L
+        val day = 86_400_000L
+        val records = MutableStateFlow(
+            LibraryRecents(albums = mapOf("today" to now - 1_000L, "sep" to now - 30 * day, "jul" to now - 90 * day))
+        )
+        val repository = subsonicLibrary(
+            albums = listOf(
+                album("never", "Never", added = "2020-01-01T00:00:00Z"),
+                album("jul", "July"),
+                album("today", "Today"),
+                album("sep", "September")
+            )
+        )
+        val viewModel = libraryViewModel(repository, recentsSource = { _, _ -> records }, clock = { now })
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        val state = content(viewModel)
+        assertEquals(LibrarySort.Recents, state.sorts[LibraryTab.Albums])
+        assertEquals(listOf("today", "sep", "jul", "never"), state.albums.orEmpty().map { it.id.rawId })
+        // Today, then months; what was never opened in Yoin is the last section.
+        assertEquals(
+            listOf(
+                section(RecentsLabel.Today.key, 0),
+                FastScrollSection("2026-09", 1, "09"),
+                FastScrollSection("2026-07", 2, "07"),
+                section(RecentsLabel.NotOpened.key, 3)
+            ),
+            state.scrollSections[LibraryTab.Albums]
         )
     }
 
@@ -1542,6 +2222,33 @@ class LibraryViewModelTest {
         starred = Starred()
     )
 
+    /** Albums "n000"… named after their number. */
+    private fun numberedAlbums(numbers: IntRange, provider: String = MediaId.PROVIDER_SUBSONIC): List<Album> =
+        numbers.map { n ->
+            val rawId = "n%03d".format(n)
+            album(rawId, rawId, added = "2020-01-01T00:00:00Z").copy(id = MediaId(provider, rawId))
+        }
+
+    private fun appleNumbered(numbers: IntRange): List<Album> =
+        numberedAlbums(numbers, provider = MediaId.PROVIDER_APPLE_MUSIC)
+
+    /**
+     * An Apple Music account whose library albums come a page of 100 at a
+     * time, each page answering when its [pages] entry (by offset) completes,
+     * and [block] run against it.
+     */
+    private suspend fun applePagedAlbums(
+        vararg pages: Pair<Int, CompletableDeferred<List<Album>>>,
+        block: suspend YoinRepository.(Map<Int, CompletableDeferred<List<Album>>>) -> Unit
+    ) {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val byOffset = pages.toMap()
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = any()) } coAnswers {
+            byOffset[thirdArg<Int>()]?.await().orEmpty()
+        }
+        repository.block(byOffset)
+    }
+
     private fun appleAlbum(rawId: String, name: String, added: String) =
         album(rawId, name, added).copy(id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, rawId))
 
@@ -1568,7 +2275,9 @@ class LibraryViewModelTest {
         sortStore: LibrarySortStore = LibrarySortStore.InMemory(),
         recentsSource: LibraryRecentsSource = LibraryRecentsSource.None,
         openStore: LibraryOpenStore = LibraryOpenStore.InMemory(),
-        clock: () -> Long = { 0L }
+        clock: () -> Long = { 0L },
+        // Production's ceiling.
+        albumsReadCeiling: Int = 100_000
     ): LibraryViewModel = LibraryViewModel(
         repository = repository,
         sortStore = sortStore,
@@ -1577,7 +2286,8 @@ class LibraryViewModelTest {
         clock = clock,
         sortDispatcher = mainDispatcherRule.dispatcher,
         nameOrder = { String.CASE_INSENSITIVE_ORDER },
-        scrollIndex = { JvmLibraryScrollIndex }
+        scrollIndex = { JvmLibraryScrollIndex },
+        albumsReadCeiling = albumsReadCeiling
     )
 
     private fun repositoryFor(
@@ -1593,6 +2303,7 @@ class LibraryViewModelTest {
         every { repository.currentProfileId() } returns "test-profile"
         every { repository.currentProfileIdFlow } returns flowOf("test-profile")
         every { repository.libraryRevision } returns flowOf(0L)
+        every { repository.libraryAlbumsRevision } returns flowOf(0L)
         coEvery { repository.getArtists() } returns emptyList()
     }
 

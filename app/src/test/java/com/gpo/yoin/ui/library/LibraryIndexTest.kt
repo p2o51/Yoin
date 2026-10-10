@@ -265,7 +265,96 @@ class LibraryIndexTest {
         assertEquals(listOf(0, 2, 4, 5), sections.map { it.startIndex })
     }
 
+    // ── Recents ─────────────────────────────────────────────────────────
+
+    // Wednesday 14 October 2026, noon UTC: the US week began on Sunday the 11th.
+    private val now = on(2026, 10, 14, hour = 12)
+
+    @Test
+    fun should_cutRecentsByTodayWeekMonthThenMonths_when_recordsSpanUnderTwoYears() {
+        val lastSeen = listOf(
+            on(2026, 10, 14, hour = 9),
+            on(2026, 10, 12),
+            on(2026, 10, 11),
+            on(2026, 10, 5),
+            on(2026, 9, 20),
+            on(2026, 8, 3),
+            on(2025, 12, 25),
+            on(2025, 11, 2)
+        ) + List(20) { null }
+
+        val sections = LibraryIndex.recents(lastSeen, now, Locale.US, utc)
+
+        assertEquals(
+            listOf(
+                FastScrollSection(RecentsLabel.Today.key, 0),
+                FastScrollSection(RecentsLabel.ThisWeek.key, 1),
+                FastScrollSection(RecentsLabel.ThisMonth.key, 3),
+                FastScrollSection("Sep 2026", 4, "Sep"),
+                FastScrollSection("Aug 2026", 5, "Aug"),
+                // The year stands in for the month where an earlier year starts.
+                FastScrollSection("Dec 2025", 6, "2025"),
+                FastScrollSection("Nov 2025", 7, "Nov"),
+                // Never opened in Yoin: one last section, however much of the list it is.
+                FastScrollSection(RecentsLabel.NotOpened.key, 8)
+            ),
+            sections
+        )
+    }
+
+    @Test
+    fun should_startTheWeekOnTheLocalesFirstDay_when_appLanguageIsChinese() {
+        // China's week begins on Monday: Sunday the 11th was last week, still this month.
+        val lastSeen = listOf(on(2026, 10, 14, hour = 9), on(2026, 10, 12), on(2026, 10, 11), on(2026, 9, 20), null)
+
+        val sections = LibraryIndex.recents(lastSeen, now, Locale.SIMPLIFIED_CHINESE, utc)
+
+        assertEquals(
+            listOf(RecentsLabel.Today.key, RecentsLabel.ThisWeek.key, RecentsLabel.ThisMonth.key, "2026年9月"),
+            sections.take(4).map { it.label }
+        )
+        assertEquals("9月", sections[3].tickLabel)
+        assertEquals(RecentsLabel.NotOpened.key, sections.last().label)
+    }
+
+    @Test
+    fun should_cutOlderRecordsByYear_when_theyReachBackTwoYears() {
+        val lastSeen = listOf(now, at(2025, 6), at(2024, 3), at(2023, 1), null)
+
+        val sections = LibraryIndex.recents(lastSeen, now, Locale.US, utc)
+
+        assertEquals(
+            listOf(RecentsLabel.Today.key, "2025", "2024", "2023", RecentsLabel.NotOpened.key),
+            sections.map { it.label }
+        )
+        assertEquals(listOf(0, 1, 2, 3, 4), sections.map { it.startIndex })
+    }
+
+    @Test
+    fun should_showTheHandleAlone_when_nothingHasARecord() {
+        assertTrue(LibraryIndex.recents(List(30) { null }, now, Locale.US, utc).isEmpty())
+        assertTrue(LibraryIndex.recents(emptyList(), now, Locale.US, utc).isEmpty())
+    }
+
+    @Test
+    fun should_showTheHandleAlone_when_oneSegmentHoldsMostOfTheRecords() {
+        // Four of five records today (80%), whatever the unopened rest.
+        val lastSeen = List(4) { on(2026, 10, 14, hour = 8 + it) } + on(2026, 9, 1) + List(50) { null }
+
+        assertTrue(LibraryIndex.recents(lastSeen, now, Locale.US, utc).isEmpty())
+    }
+
+    @Test
+    fun should_standForNoRealName_when_aRecentsKeyIsRead() {
+        RecentsLabel.entries.forEach { label -> assertEquals(label, RecentsLabel.of(label.key)) }
+        assertEquals(null, RecentsLabel.of("Today"))
+        assertEquals(null, RecentsLabel.of("Sep 2026"))
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
+
+    private fun on(year: Int, month: Int, day: Int, hour: Int = 12): Long =
+        ZonedDateTime.of(year, month, day, hour, 0, 0, 0, ZoneOffset.UTC).toInstant().toEpochMilli()
 
     private fun at(year: Int, month: Int): Long =
         ZonedDateTime.of(year, month, 15, 12, 0, 0, 0, ZoneOffset.UTC).toInstant().toEpochMilli()

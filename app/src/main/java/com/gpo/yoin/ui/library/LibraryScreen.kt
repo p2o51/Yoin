@@ -301,6 +301,8 @@ fun LibraryScreen(
     LaunchedEffect(isContent, shownTab) {
         if (isContent) viewModel.ensureSelectedTabLoaded()
     }
+    // Recents re-sort only as Library comes into view, never under the user.
+    val inView = rememberLibraryInView(onShown = viewModel::onLibraryShown)
     // What Library opens counts for Recents by the id Library lists it under.
     val openArtist = remember(viewModel, onArtistClick) {
         { id: String ->
@@ -317,6 +319,25 @@ fun LibraryScreen(
     val openPlaylist = remember(viewModel, onPlaylistClick) {
         { id: String ->
             viewModel.recordOpened(LibraryOpenKind.Playlist, id)
+            onPlaylistClick(id)
+        }
+    }
+    // A search result counts only in the library's own scope (recordOpened).
+    val openSearchArtist = remember(viewModel, onArtistClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Artist, id, fromSearch = true)
+            onArtistClick(id)
+        }
+    }
+    val openSearchAlbum = remember(viewModel, onAlbumClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Album, id, fromSearch = true)
+            onAlbumClick(id)
+        }
+    }
+    val openSearchPlaylist = remember(viewModel, onPlaylistClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Playlist, id, fromSearch = true)
             onPlaylistClick(id)
         }
     }
@@ -343,6 +364,9 @@ fun LibraryScreen(
         onArtistClick = openArtist,
         onAlbumClick = openAlbum,
         onPlaylistClick = openPlaylist,
+        onSearchArtistClick = openSearchArtist,
+        onSearchAlbumClick = openSearchAlbum,
+        onSearchPlaylistClick = openSearchPlaylist,
         onSongClick = onSongClick,
         onFavoriteSongClick = onFavoriteSongClick,
         onSongsListClick = onSongsListClick,
@@ -352,7 +376,7 @@ fun LibraryScreen(
         onCreatePlaylist = viewModel::createPlaylist,
         onRetry = viewModel::refresh,
         coverArtUrlBuilder = viewModel::buildCoverArtUrl,
-        modifier = modifier,
+        modifier = modifier.then(inView),
     )
 }
 
@@ -380,6 +404,10 @@ fun LibraryContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
+    // Search results' own opens (LibraryScreen records them only in the library's scope).
+    onSearchArtistClick: (String) -> Unit = onArtistClick,
+    onSearchAlbumClick: (String) -> Unit = onAlbumClick,
+    onSearchPlaylistClick: (String) -> Unit = onPlaylistClick,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
@@ -481,6 +509,9 @@ fun LibraryContent(
                             onArtistClick = onArtistClick,
                             onAlbumClick = onAlbumClick,
                             onPlaylistClick = onPlaylistClick,
+                            onSearchArtistClick = onSearchArtistClick,
+                            onSearchAlbumClick = onSearchAlbumClick,
+                            onSearchPlaylistClick = onSearchPlaylistClick,
                             onSongClick = onSongClick,
                             onFavoriteSongClick = onFavoriteSongClick,
                             onSongsListClick = onSongsListClick,
@@ -521,6 +552,9 @@ private fun LibraryContentBody(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
+    onSearchArtistClick: (String) -> Unit,
+    onSearchAlbumClick: (String) -> Unit,
+    onSearchPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
@@ -934,9 +968,9 @@ private fun LibraryContentBody(
             trackLibraryStates = trackLibraryStates,
             workingLibraryTrackIds = workingLibraryTrackIds,
             libraryActionFeedback = state.libraryActionFeedback,
-            onArtistClick = fromSearch(onArtistClick),
-            onAlbumClick = fromSearch(onAlbumClick),
-            onPlaylistClick = fromSearch(onPlaylistClick),
+            onArtistClick = fromSearch(onSearchArtistClick),
+            onAlbumClick = fromSearch(onSearchAlbumClick),
+            onPlaylistClick = fromSearch(onSearchPlaylistClick),
             onSongClick = onSongClick,
             onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
             onAddSongToLibrary = onAddSongToLibrary,
@@ -1704,6 +1738,12 @@ private fun SongsTabContent(
                         album = song.album.orEmpty(),
                         durationSeconds = song.durationSec,
                         coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
+                        // Known limit (Subsonic, read a page at a time): the queue is the rows read
+                        // so far, around this one (startWindowQueue's 100), and pages read later
+                        // don't join it. A tap in the last rows before the next page lands queues
+                        // only what follows on screen; Repeat All then comes back round to the
+                        // window's start. Spotify plays its Liked Songs context and Apple Music's
+                        // list is read whole, so neither stops short.
                         onClick = { onSongClick(song, songs, index) },
                         onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
                         isNowPlaying = isPlaying && song.id.toString() == activeSongId,

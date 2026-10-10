@@ -245,6 +245,25 @@ class YoinRepositoryAlbumSaveTest {
     }
 
     @Test
+    fun should_tellLibraryOncePerLandedWrite_when_anAlbumIsSavedOrRemoved() = runTest {
+        assertEquals(0L, repository.libraryAlbumsRevision.first())
+
+        assertTrue(repository.setAlbumSaved(album, saved = true).isSuccess)
+        // Library hears of it once the mirror holds the save.
+        assertEquals(1L, repository.libraryAlbumsRevision.first())
+        assertEquals(true, database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1")?.isSaved)
+
+        writeActions.writeResult = Result.failure(IllegalStateException("offline"))
+        assertTrue(repository.setAlbumSaved(album, saved = false).isFailure)
+        // A write that failed changed nothing Library lists.
+        assertEquals(1L, repository.libraryAlbumsRevision.first())
+
+        // Another account has heard of nothing.
+        profileIds.value = "other-profile"
+        assertEquals(0L, repository.libraryAlbumsRevision.first())
+    }
+
+    @Test
     fun should_holdTheSaveForTheGraceAndAskOnlyAfterIt_when_spotifysAnswerWouldLagBehind() = runTest {
         repository.setAlbumSaved(album, saved = true)
         database.spotifyLibraryCacheDao().deleteAlbum(PROFILE, "al1")

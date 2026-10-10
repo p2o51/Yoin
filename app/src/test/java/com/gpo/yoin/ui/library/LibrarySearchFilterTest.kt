@@ -183,7 +183,7 @@ class LibrarySearchFilterTest {
     fun should_keepFilterWithoutSearchingAgain_when_typeSelectedOrQueryChanges() = runTest {
         val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, ServiceFeatureCatalog.subsonic.capabilities)
         coEvery { repository.searchCurrentLibrary(any()) } returns SearchResults(tracks = tracks(1))
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = searchViewModel(repository)
         advanceUntilIdle()
         viewModel.search("song")
         advanceUntilIdle()
@@ -236,7 +236,7 @@ class LibrarySearchFilterTest {
     fun should_fallBackToAll_when_newScopeCannotSearchThatType() = runTest {
         // Catalog playlists, but no saved playlists to search in the library.
         val capabilities = setOf(Capability.CATALOG_SEARCH, Capability.SEARCH_PLAYLISTS)
-        val viewModel = LibraryViewModel(repositoryFor(MediaId.PROVIDER_SPOTIFY, capabilities))
+        val viewModel = searchViewModel(repositoryFor(MediaId.PROVIDER_SPOTIFY, capabilities))
         advanceUntilIdle()
         viewModel.selectSearchScope(LibrarySearchScope.SpotifyGlobal)
         viewModel.selectSearchFilter(LibrarySearchFilter.Playlists)
@@ -273,7 +273,7 @@ class LibrarySearchFilterTest {
         val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, initial)
         every { repository.capabilities } returnsMany listOf(moving, flowOf(initial))
         every { repository.currentCapabilities() } answers { moving.value }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = searchViewModel(repository)
         advanceUntilIdle()
         viewModel.selectSearchFilter(LibrarySearchFilter.Playlists)
         assertTrue(viewModel.content().canAddToLibrary)
@@ -299,7 +299,7 @@ class LibrarySearchFilterTest {
         val repository = repositoryFor(MediaId.PROVIDER_SPOTIFY, capabilities)
         every { repository.activeProviderId } returns providerId
         every { repository.currentProviderId() } answers { providerId.value }
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = searchViewModel(repository)
         advanceUntilIdle()
         viewModel.openSearchShortcut(LibrarySearchScope.SpotifyGlobal)
         viewModel.selectSearchFilter(LibrarySearchFilter.Playlists)
@@ -324,7 +324,7 @@ class LibrarySearchFilterTest {
                 playlists = emptyList(),
                 starred = Starred()
             )
-        val viewModel = LibraryViewModel(repository)
+        val viewModel = searchViewModel(repository)
         advanceUntilIdle()
 
         viewModel.search("song")
@@ -338,7 +338,15 @@ class LibrarySearchFilterTest {
     private fun LibraryViewModel.content(): LibraryUiState.Content = uiState.value as LibraryUiState.Content
 
     private fun viewModelFor(service: ServiceFeatures): LibraryViewModel =
-        LibraryViewModel(repositoryFor(service.id, service.capabilities))
+        searchViewModel(repositoryFor(service.id, service.capabilities))
+
+    /** Sorting on the test dispatcher, so no pass outlives the test; a JVM name order and index. */
+    private fun searchViewModel(repository: YoinRepository): LibraryViewModel = LibraryViewModel(
+        repository = repository,
+        sortDispatcher = mainDispatcherRule.dispatcher,
+        nameOrder = { String.CASE_INSENSITIVE_ORDER },
+        scrollIndex = { JvmLibraryScrollIndex }
+    )
 
     private fun repositoryFor(providerId: String, capabilities: Set<Capability>): YoinRepository {
         val repository = mockk<YoinRepository>(relaxed = true)
