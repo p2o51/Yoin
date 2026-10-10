@@ -17,6 +17,7 @@ import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -160,6 +161,62 @@ class HomeSnapshotViewModelTest {
         val afterSource = seen.dropWhile { state -> state !is HomeUiState.Content }.drop(1)
         assertEquals(HomeUiState.Loading, afterSource.first())
         assertEquals(listOf("Fresh playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+    }
+
+    @Test
+    fun should_keepTheSnapshotUntilTheSourceArrives_when_theSourceOutlastsTheHold() = runTest {
+        // A cold start whose source takes longer than Home's hold for it: the
+        // sourceless load past the hold would put a next-to-empty feed over
+        // the snapshot. The snapshot stays; the source's load replaces it.
+        val profile = "snapshot-slow-source"
+        val provider = MutableStateFlow<String?>(null)
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(provider)
+        coEvery { repository.getPlaylists() } answers {
+            if (provider.value == null) throw IOException("No profile configured")
+            listOf(playlist("fresh-pl", "Fresh playlist"))
+        }
+        val seen = record(viewModel(repository, MutableStateFlow(profile), store()))
+
+        runCurrent()
+        assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+
+        advanceTimeBy(30_000)
+        runCurrent()
+        // Past the hold: still the snapshot, and nothing was read from no source.
+        assertEquals(listOf("snap-artist"), (seen.last() as HomeUiState.Content).activities.map { it.entityId })
+        assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        coVerify(exactly = 0) { repository.getPlaylists() }
+
+        provider.value = MediaId.PROVIDER_SUBSONIC
+        advanceUntilIdle()
+        assertEquals(listOf("Fresh playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        // Snapshot to fresh feed, block by block: never Loading, never an empty shelf.
+        val painted = seen.dropWhile { state -> state !is HomeUiState.Content }
+        assertTrue(painted.none { state -> state is HomeUiState.Loading })
+        assertTrue(painted.filterIsInstance<HomeUiState.Content>().all { content -> content.playlists.isNotEmpty() })
+    }
+
+    @Test
+    fun should_keepTheSnapshot_when_profileManagerSettlesWithoutASource() = runTest {
+        // Unreadable credentials: no source is coming until the account is
+        // fixed. The snapshot stays rather than give way to a feed of nothing.
+        val profile = "snapshot-no-source"
+        val provider = MutableStateFlow<String?>(null)
+        val settled = MutableStateFlow(false)
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns settled
+        val seen = record(viewModel(repository, MutableStateFlow(profile), store()))
+        runCurrent()
+
+        settled.value = true
+        advanceTimeBy(30_000)
+        runCurrent()
+
+        assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        assertEquals(1, seen.count { state -> state is HomeUiState.Content })
+        coVerify(exactly = 0) { repository.getRecentlyPlayedAlbums(any()) }
     }
 
     @Test

@@ -50,6 +50,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -608,6 +609,12 @@ class HomeViewModel(
                         provider == null && settled
                     }.first { sourceless -> sourceless }
                 }
+                // Unless a feed is up already — the account's snapshot: a
+                // feed read from no source is next to empty and would replace
+                // it, then give way to the snapshot again once the source is
+                // in. It stays until the source moves the scope (cancelling
+                // this) and the load of that scope replaces it.
+                if (sourcelessLoadWouldReplace(scopeKey)) awaitCancellation()
             }
             HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad).run()
             if (perf != null) {
@@ -645,6 +652,15 @@ class HomeViewModel(
     /** The content up (or queued while editing) when it belongs to [scopeKey]. */
     private fun contentOf(scopeKey: String): HomeUiState.Content? =
         currentContent()?.takeIf { contentScopeKey == scopeKey }
+
+    /**
+     * Whether a sourceless load of [scopeKey] would put its feed over another
+     * one up (or queued while editing) — a snapshot painted ahead of the
+     * source, whose scope is its provider's. A load onto [scopeKey]'s own
+     * content (a reload of a sourceless feed) splices into it instead.
+     */
+    private fun sourcelessLoadWouldReplace(scopeKey: String): Boolean =
+        currentContent() != null && contentOf(scopeKey) == null
 
     /** [scopeKey]'s content was just published on signals read at [stamp] (null: built without them). */
     private fun recordSignalStamp(scopeKey: String, stamp: Long?) {
