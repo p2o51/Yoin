@@ -37,9 +37,11 @@ import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -1420,6 +1422,42 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun should_keepGridPool_when_failedReadsLeaveOnlyEmptyResults() = runTest {
+        // Apple Music offline: no random-songs endpoint, so the tracks pool
+        // samples starred tracks — which Apple answers empty without a request.
+        // That "success" mustn't let the two failed reads wipe the batch.
+        val profile = "applemusic-offline-pools"
+        val repository = memorySignalRepository(profile = profile)
+        val keptAlbum = album("kept-apple-album", "Kept Album")
+        every { repository.currentCapabilities() } returns emptySet()
+        coEvery { repository.getCachedHomeGridPools(isNull(inverse = true)) } returns null
+        coEvery { repository.getCachedHomeGridPools(isNull()) } returns YoinRepository.HomeGridPoolSnapshot(
+            albums = listOf(keptAlbum),
+            tracks = emptyList(),
+            playlists = emptyList(),
+            cachedAt = 1L
+        )
+        coEvery { repository.getAlbumList("random", any(), any()) } throws IOException("offline")
+        coEvery { repository.getStarred() } returns Starred()
+        coEvery { repository.getPlaylists() } throws IOException("offline")
+
+        val viewModel = homeViewModel(repository, profile)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            val content = awaitItem() as HomeUiState.Content
+            assertTrue(
+                content.widgetGrid.any { card ->
+                    card.target == HomeWidgetTarget.AlbumDetail(keptAlbum.id.toString())
+                }
+            )
+        }
+        coVerify(exactly = 0) {
+            repository.replaceHomeGridPools(albums = any(), tracks = any(), playlists = any())
+        }
+    }
+
+    @Test
     fun should_refreshOnce_when_accountSwitches() = runTest {
         val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
         val profileId = MutableStateFlow<String?>("subsonic-switch-a")
@@ -1486,15 +1524,156 @@ class HomeViewModelTest {
         val profileId = MutableStateFlow<String?>("subsonic-credentials")
         val revision = MutableStateFlow(0L)
         val repository = scopedRepository("subsonic-credentials", provider)
+        var source = Any()
+        every { repository.activeSourceIdentity() } answers { source }
         coEvery { repository.getRecentlyPlayedAlbums(any()) } returns emptyList()
         scopedViewModel(repository, profileId, revision)
         advanceUntilIdle()
         coVerify(exactly = 1) { repository.getRecentlyPlayedAlbums(any()) }
 
+        // ProfileManager.update: a new source for the same provider, then the tick.
+        source = Any()
         revision.value = 1L
         advanceUntilIdle()
 
         coVerify(exactly = 2) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_notReload_when_revisionTicksWithoutSourceRebuild() = runTest {
+        // Adding or editing another account ticks the revision too; the active
+        // source stays as it was, and so does Home.
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>("subsonic-other-account")
+        val revision = MutableStateFlow(0L)
+        val repository = scopedRepository("subsonic-other-account", provider)
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns emptyList()
+        scopedViewModel(repository, profileId, revision)
+        advanceUntilIdle()
+
+        revision.value = 1L
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_reload_when_credentialsChangeAfterProfileMovedWithoutTick() = runTest {
+        // A profile can become active with no revision tick (the start-up Apple
+        // Music migration creates and activates one). A later edit of its
+        // credentials still reloads: the check is against the scope Home loaded,
+        // not against where the previous tick left the profile.
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>("subsonic-untold-a")
+        val revision = MutableStateFlow(0L)
+        val repository = scopedRepository("subsonic-untold-a", provider)
+        var source = Any()
+        every { repository.activeSourceIdentity() } answers { source }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns emptyList()
+        scopedViewModel(repository, profileId, revision)
+        advanceUntilIdle()
+
+        source = Any()
+        profileId.value = "subsonic-untold-b"
+        advanceUntilIdle()
+        coVerify(exactly = 2) { repository.getRecentlyPlayedAlbums(any()) }
+
+        source = Any()
+        revision.value = 1L
+        advanceUntilIdle()
+
+        coVerify(exactly = 3) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_holdOutgoingFeed_when_switchLandsInTwoBeats() = runTest {
+        // ProfileManager.switchTo sets the new source, then setActive. Should the
+        // two land in separate beats, the in-between scope (new provider on the
+        // outgoing profile) loads nothing and shows no Loading.
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>("subsonic-two-beats-a")
+        val revision = MutableStateFlow(0L)
+        val repository = scopedRepository("subsonic-two-beats-a", provider)
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns emptyList()
+        val viewModel = scopedViewModel(repository, profileId, revision)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            assertTrue(awaitItem() is HomeUiState.Content)
+
+            provider.value = MediaId.PROVIDER_APPLE_MUSIC
+            runCurrent()
+            advanceTimeBy(1_000)
+            expectNoEvents()
+            coVerify(exactly = 1) { repository.getRecentlyPlayedAlbums(any()) }
+
+            profileId.value = "applemusic-two-beats-b"
+            assertEquals(HomeUiState.Loading, awaitItem())
+            assertTrue(awaitItem() is HomeUiState.Content)
+        }
+        coVerify(exactly = 2) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_loadWithoutSource_when_profileManagerSettlesWithoutOne() = runTest {
+        // Unreadable credentials (a backup restored onto another device): no
+        // source is coming. Home holds only until ProfileManager says so — not
+        // the whole bound, and not again on Retry.
+        val profile = "subsonic-no-source"
+        val provider = MutableStateFlow<String?>(null)
+        val settled = MutableStateFlow(false)
+        val repository = scopedRepository(profile, provider, settled)
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns emptyList()
+        val viewModel = homeViewModel(repository, profile)
+
+        advanceTimeBy(1_000)
+        assertEquals(HomeUiState.Loading, viewModel.uiState.value)
+
+        settled.value = true
+        runCurrent()
+        assertTrue(viewModel.uiState.value is HomeUiState.Content)
+        coVerify(exactly = 1) { repository.getRecentlyPlayedAlbums(any()) }
+
+        viewModel.refresh()
+        advanceTimeBy(100)
+        coVerify(exactly = 2) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_rebuildSignals_when_reloadFailsAfterReadingNewStamp() = runTest {
+        // A reload builds its signals on a new stamp, then fails elsewhere: the
+        // feed it started from stays up, built on the old stamp. That stamp's
+        // tick must still rebuild the pill — the reload never published.
+        val profile = "subsonic-unpublished-stamp"
+        val stamp = MutableStateFlow(5L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var notes = 1
+        var activitiesFail = false
+        every { repository.getRecentActivities(limit = any()) } answers {
+            flow {
+                if (activitiesFail) {
+                    // After the signal build, which reads no activities.
+                    delay(10)
+                    throw IOException("offline")
+                }
+                emit(emptyList<ActivityEvent>())
+            }
+        }
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        coEvery { repository.countNotes() } answers { notes }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        assertEquals(1, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
+
+        notes = 2
+        stamp.value = 6L
+        activitiesFail = true
+        viewModel.refresh()
+        advanceTimeBy(100)
+        assertEquals(1, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
+
+        advanceUntilIdle()
+        assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
     }
 
     @Test
@@ -1540,12 +1719,22 @@ class HomeViewModelTest {
         assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
     }
 
-    /** [memorySignalRepository] whose active provider follows [provider], as the active source's id does. */
-    private fun scopedRepository(profile: String, provider: MutableStateFlow<String?>): YoinRepository =
-        memorySignalRepository(profile = profile).also { repository ->
-            every { repository.currentProviderId() } answers { provider.value }
-            every { repository.activeProviderId } returns provider
-        }
+    /**
+     * [memorySignalRepository] whose active provider follows [provider], as the
+     * active source's id does. The source's identity follows it too (a rebuild
+     * for the same provider is a test's own stub); [settled] is
+     * ProfileManager's "no build in flight".
+     */
+    private fun scopedRepository(
+        profile: String,
+        provider: MutableStateFlow<String?>,
+        settled: Flow<Boolean> = MutableStateFlow(false)
+    ): YoinRepository = memorySignalRepository(profile = profile).also { repository ->
+        every { repository.currentProviderId() } answers { provider.value }
+        every { repository.activeProviderId } returns provider
+        every { repository.activeSourceSettled } returns settled
+        every { repository.activeSourceIdentity() } answers { provider.value }
+    }
 
     private fun scopedViewModel(
         repository: YoinRepository,
