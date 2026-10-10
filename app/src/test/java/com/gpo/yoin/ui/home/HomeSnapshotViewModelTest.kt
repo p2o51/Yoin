@@ -13,6 +13,7 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
@@ -46,6 +47,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -216,6 +218,57 @@ class HomeSnapshotViewModelTest {
 
         assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
         assertEquals(1, seen.count { state -> state is HomeUiState.Content })
+        coVerify(exactly = 0) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_endTheLoadAndRunItAgainOnRefresh_when_profileManagerSettlesWithoutASource() = runTest {
+        assumeTrue(YoinPerf.enabled)
+        // Unreadable credentials: the snapshot stays, but the load ends as a
+        // failed one instead of waiting forever, so Retry runs it again.
+        val profile = "snapshot-no-source-refresh"
+        val provider = MutableStateFlow<String?>(null)
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns MutableStateFlow(true)
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store())
+        val seen = record(viewModel)
+
+        val loads = homeLoadResults {
+            advanceTimeBy(30_000)
+            runCurrent()
+            viewModel.refresh()
+            advanceTimeBy(30_000)
+            runCurrent()
+        }
+
+        assertEquals(listOf("error", "error"), loads)
+        assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        assertTrue(seen.none { state -> state is HomeUiState.Error })
+        coVerify(exactly = 0) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_endTheHold_when_profileManagerSettlesWithoutASourceAfterTheBound() = runTest {
+        assumeTrue(YoinPerf.enabled)
+        // The source was still being built past Home's bound, then none came.
+        val profile = "snapshot-no-source-late"
+        val provider = MutableStateFlow<String?>(null)
+        val settled = MutableStateFlow(false)
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns settled
+        val seen = record(viewModel(repository, MutableStateFlow(profile), store()))
+
+        val loads = homeLoadResults {
+            advanceTimeBy(30_000)
+            runCurrent()
+            settled.value = true
+            runCurrent()
+        }
+
+        assertEquals(listOf("error"), loads)
+        assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
         coVerify(exactly = 0) { repository.getRecentlyPlayedAlbums(any()) }
     }
 
@@ -500,6 +553,21 @@ class HomeSnapshotViewModelTest {
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
+
+    /** The result of each Home load that ended while [block] ran (its debug `home.refresh` mark), in order. */
+    private inline fun homeLoadResults(block: () -> Unit): List<String> {
+        val lines = mutableListOf<String>()
+        val sink = YoinPerf.sink
+        YoinPerf.sink = { line -> synchronized(lines) { lines += line } }
+        try {
+            block()
+        } finally {
+            YoinPerf.sink = sink
+        }
+        return synchronized(lines) { lines.toList() }
+            .filter { line -> line.startsWith("home.refresh ") }
+            .map { line -> line.substringAfter(" result=").substringBefore(' ') }
+    }
 
     private fun activityIds(viewModel: HomeViewModel): List<String> =
         (viewModel.uiState.value as HomeUiState.Content).activities.map { it.entityId }

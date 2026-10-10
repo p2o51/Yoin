@@ -52,7 +52,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -635,17 +634,23 @@ class HomeViewModel(
                 // but for ProfileManager settling without one (unreadable
                 // credentials): then, or at the bound, the load below runs
                 // without a source, as before.
-                withTimeoutOrNull(ACTIVE_SOURCE_WAIT_MS) {
-                    combine(repository.activeProviderId, repository.activeSourceSettled) { provider, settled ->
-                        provider == null && settled
-                    }.first { sourceless -> sourceless }
-                }
+                val noSourceComing = repository.activeProviderId
+                    .combine(repository.activeSourceSettled) { provider, settled -> provider == null && settled }
+                val settledWithoutSource = withTimeoutOrNull(ACTIVE_SOURCE_WAIT_MS) {
+                    noSourceComing.first { sourceless -> sourceless }
+                } != null
                 // Unless a feed is up already — the account's snapshot: a
                 // feed read from no source is next to empty and would replace
                 // it, then give way to the snapshot again once the source is
                 // in. It stays until the source moves the scope (cancelling
-                // this) and the load of that scope replaces it.
-                if (sourcelessLoadWouldReplace(scopeKey)) awaitCancellation()
+                // this) and the load of that scope replaces it. Should
+                // ProfileManager settle without one, none is coming: the
+                // snapshot still stays, and the load ends as a failed one
+                // (below) rather than wait for ever, so a refresh runs it again.
+                if (sourcelessLoadWouldReplace(scopeKey)) {
+                    if (!settledWithoutSource) noSourceComing.first { sourceless -> sourceless }
+                    throw NoActiveSourceException()
+                }
             }
             HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad).run()
             if (perf != null) {
@@ -662,8 +667,9 @@ class HomeViewModel(
             }
             if (!matchesCurrentScope(providerId, profileId)) return
             // Content of this scope already up (cached, the local tier, or the
-            // feed a same-scope reload started from) stays rather than an error.
-            if (contentOf(scopeKey) == null) {
+            // feed a same-scope reload started from) stays rather than an
+            // error — and so does the account's snapshot with no source coming.
+            if (contentOf(scopeKey) == null && e !is NoActiveSourceException) {
                 val detail = e.message
                 emit(
                     HomeUiState.Error(
@@ -2254,6 +2260,13 @@ private data class HomeScope(val providerId: String?, val profileId: String?) {
     fun handsOverTo(next: HomeScope): Boolean = profileId != null && next.profileId == profileId &&
         providerId != null && next.providerId != null && next.providerId != providerId
 }
+
+/**
+ * A Home load that found no source and none coming (ProfileManager settled
+ * without one: unreadable credentials) with the account's snapshot up: it
+ * fails, keeping the snapshot, instead of waiting for ever.
+ */
+private class NoActiveSourceException : IllegalStateException("No source for the active account")
 
 /**
  * The shared memory read: header pill + the grid's memory 1×2 (card, album
