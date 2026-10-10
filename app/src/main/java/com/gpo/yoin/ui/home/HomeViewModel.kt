@@ -119,6 +119,14 @@ class HomeViewModel(
     // brings nothing new (the first tick replays the load's own stamp).
     private val signalStamps = mutableMapOf<String, Long>()
 
+    // The memory-signal ticks seen so far, the last one's provider|profile
+    // and stamp, and a nudge that replays it: a load that publishes signals
+    // older than a tick which came in while it was out replays that tick
+    // (see [replaySignalTickMissedByLoad]).
+    private var signalTickCount = 0
+    private var lastSignalTick: Pair<String, Long>? = null
+    private val signalTickReplays = MutableStateFlow(0)
+
     // The scope the latest load ran for, and the active source it started
     // with: a revision tick that finds the same scope on a rebuilt source is
     // an edit of the active account's credentials (see [observeConfigurationRevision]).
@@ -294,6 +302,7 @@ class HomeViewModel(
         val scopeKey = homeScopeKey(providerId, profileId)
         loadedScope = scope
         loadedSource = repository.activeSourceIdentity()
+        val signalTicksBeforeLoad = signalTickCount
         val perf = YoinPerf.begin("home.refresh")
         try {
             val shown = contentOf(scopeKey)
@@ -343,6 +352,7 @@ class HomeViewModel(
             if (perf != null) YoinPerf.end(perf, "provider" to providerId, "result" to "ok")
             contentScopeKey = scopeKey
             recordSignalStamp(scopeKey, fresh.signalStamp)
+            replaySignalTickMissedByLoad(scopeKey, fresh.signalStamp, signalTicksBeforeLoad)
         } catch (cancellation: CancellationException) {
             // The scope moved on (or a refresh restarted it) mid-load.
             if (perf != null) YoinPerf.end(perf, "provider" to providerId, "result" to "superseded")
@@ -377,6 +387,20 @@ class HomeViewModel(
     /** [scopeKey]'s content was just published on signals read at [stamp] (null: built without them). */
     private fun recordSignalStamp(scopeKey: String, stamp: Long?) {
         if (stamp != null) signalStamps[scopeKey] = stamp else signalStamps.remove(scopeKey)
+    }
+
+    /**
+     * A load just published [scopeKey]'s content on signals read at
+     * [publishedStamp], as it began. A memory-signal tick that came in while
+     * its network reads ran was dropped (Loading had nothing to splice into)
+     * or spliced into content this publish just replaced, and Room won't
+     * tick the same stamp again — so a tick of this scope since
+     * [ticksBeforeLoad] with another stamp is replayed.
+     */
+    private fun replaySignalTickMissedByLoad(scopeKey: String, publishedStamp: Long?, ticksBeforeLoad: Int) {
+        if (signalTickCount == ticksBeforeLoad) return
+        val (tickScopeKey, tickStamp) = lastSignalTick ?: return
+        if (tickScopeKey == scopeKey && tickStamp != publishedStamp) signalTickReplays.update { it + 1 }
     }
 
     /**
@@ -681,14 +705,19 @@ class HomeViewModel(
     @OptIn(FlowPreview::class)
     private fun observeMemorySignals() {
         viewModelScope.launch {
-            repository.observeMemorySignalStamp()
-                .debounce(RECENT_HISTORY_DEBOUNCE_MS)
+            // A replay re-sends the latest tick ([replaySignalTickMissedByLoad]).
+            combine(
+                repository.observeMemorySignalStamp().debounce(RECENT_HISTORY_DEBOUNCE_MS),
+                signalTickReplays
+            ) { stamp, _ -> stamp }
                 .collectLatest { stamp ->
                     // The tick belongs to the scope it started in; if that
                     // moves while it builds, it is dropped, never "kept".
                     val providerId = repository.currentProviderId()
                     val profileId = activeProfileId.value
                     val scopeKey = homeScopeKey(providerId, profileId)
+                    signalTickCount++
+                    lastSignalTick = scopeKey to stamp
                     if (contentScopeKey != scopeKey) return@collectLatest
                     val currentContent = currentContent() ?: return@collectLatest
                     // Nothing moved since the last build read this stamp — the
@@ -1041,8 +1070,10 @@ class HomeViewModel(
         val providerId = repository.currentProviderId() ?: return null
         val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return null
         // Read BEFORE the build: a write landing mid-build moves the stamp past
-        // this one, so [observeMemorySignals] still rebuilds for it. Recorded
-        // only once content built on it is published ([recordSignalStamp]).
+        // this one, so [observeMemorySignals] still rebuilds for it — on its
+        // tick, or on the load's replay of a tick that came in before the
+        // publish ([replaySignalTickMissedByLoad]). Recorded only once content
+        // built on it is published ([recordSignalStamp]).
         val stamp = guardedOrNull { repository.observeMemorySignalStamp().firstOrNull() }
         val pool = try {
             repository.getAlbumMemoryCandidates(limit = MEMORY_CANDIDATE_LIMIT, includeIneligible = true)

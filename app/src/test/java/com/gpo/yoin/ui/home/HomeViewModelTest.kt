@@ -1719,6 +1719,70 @@ class HomeViewModelTest {
         assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
     }
 
+    @Test
+    fun should_applySignalWrite_when_itLandsDuringLoad() = runTest {
+        // Cold start: Home shows Loading while a slow network read runs. A note
+        // written after the load read its stamp ticks while still Loading —
+        // nothing to splice into — and the load then publishes the older
+        // signals. Room never ticks the same stamp again: the load replays it.
+        val profile = "subsonic-write-during-load"
+        val stamp = MutableStateFlow(5L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var notes = 1
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        coEvery { repository.countNotes() } answers { notes }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } coAnswers {
+            delay(5_000)
+            emptyList()
+        }
+
+        val viewModel = homeViewModel(repository, profile)
+        advanceTimeBy(500)
+        assertEquals(HomeUiState.Loading, viewModel.uiState.value)
+
+        notes = 2
+        stamp.value = 6L
+        // The write's (debounced) tick comes and goes while Home is Loading.
+        advanceTimeBy(2_000)
+        assertEquals(HomeUiState.Loading, viewModel.uiState.value)
+
+        advanceUntilIdle()
+        assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
+    }
+
+    @Test
+    fun should_keepSignalWrite_when_reloadPublishesOlderSignalsOverIt() = runTest {
+        // A same-scope reload keeps the feed up. A note written after the
+        // reload read its stamp is spliced in on its tick, then the reload
+        // publishes its older signals over the splice — and replays the tick.
+        val profile = "subsonic-write-during-reload"
+        val stamp = MutableStateFlow(5L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var notes = 1
+        var slowShelf = false
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        coEvery { repository.countNotes() } answers { notes }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } coAnswers {
+            if (slowShelf) delay(5_000)
+            emptyList()
+        }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        assertEquals(1, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
+
+        slowShelf = true
+        viewModel.refresh()
+        advanceTimeBy(500)
+        notes = 2
+        stamp.value = 6L
+        advanceTimeBy(2_000)
+        // The tick spliced the new note count into the feed still up.
+        assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
+
+        advanceUntilIdle()
+        assertEquals(2, (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount)
+    }
+
     /**
      * [memorySignalRepository] whose active provider follows [provider], as the
      * active source's id does. The source's identity follows it too (a rebuild
