@@ -67,6 +67,7 @@ class ArtistDetailViewModel(
     private fun loadArtist() {
         viewModelScope.launch {
             try {
+                repository.awaitActiveSource(DETAIL_SOURCE_WAIT_MS)
                 val artist = repository.getArtist(MediaId.parse(artistId))
                 if (artist == null) {
                     _uiState.value = ArtistDetailUiState.Error(UiText.Res(R.string.detail_artist_error_not_found))

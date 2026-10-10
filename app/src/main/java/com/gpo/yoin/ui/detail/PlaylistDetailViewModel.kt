@@ -152,6 +152,7 @@ class PlaylistDetailViewModel(
     private fun loadPlaylist() {
         viewModelScope.launch {
             try {
+                repository.awaitActiveSource(DETAIL_SOURCE_WAIT_MS)
                 val playlist = repository.getPlaylist(MediaId.parse(playlistId))
                 if (playlist == null) {
                     _uiState.value = PlaylistDetailUiState.Error(UiText.Res(R.string.detail_playlist_error_not_found))

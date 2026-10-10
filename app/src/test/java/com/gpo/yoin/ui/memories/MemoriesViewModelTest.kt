@@ -8,6 +8,7 @@ import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.detail.AlbumNeoDbSync
@@ -20,6 +21,7 @@ import io.mockk.mockk
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -43,7 +45,9 @@ class MemoriesViewModelTest {
     private val repository = mockk<YoinRepository>()
     private val sessionStore = ExperienceSessionStore()
     private val activeProfileId = MutableStateFlow<String?>("profile-a")
-    private val activeSourceId = MutableStateFlow<String?>("subsonic")
+
+    // What YoinRepository.awaitActiveSource waits on: null until the cold-start source is built.
+    private val activeSource = MutableStateFlow<MusicSource?>(mockk<MusicSource>())
     private val memorySignal = MutableStateFlow(0L)
     private val titleDao = FakeAlbumMemoryTitleDao()
     private val titleStore = AlbumMemoryTitleStore(titleDao, activeProfileId, clock = { 7_000L })
@@ -141,17 +145,17 @@ class MemoriesViewModelTest {
     }
 
     @Test
-    fun should_reload_when_active_source_becomes_ready_after_empty() = runTest {
-        // Cold start: the profile id is restored but its source isn't built yet,
-        // so the first build sees no candidates.
-        activeSourceId.value = null
-        stubCandidates(emptyList())
+    fun should_buildDeck_when_activeSourceArrivesAfterInit() = runTest {
+        // Cold start: the profile id is restored but its source isn't built yet.
+        // The build waits for it instead of landing on Empty.
+        activeSource.value = null
+        stubCandidates(buildAlbumCandidates(count = 4))
         val viewModel = buildViewModel()
         advanceUntilIdle()
-        assertEquals(MemoriesUiState.Empty, viewModel.uiState.value)
+        assertEquals(MemoriesUiState.Loading, viewModel.uiState.value)
+        coVerify(exactly = 0) { repository.getAlbumMemoryCandidates(limit = 48) }
 
-        stubCandidates(buildAlbumCandidates(count = 4))
-        activeSourceId.value = "subsonic"
+        activeSource.value = mockk<MusicSource>()
         advanceUntilIdle()
 
         val content = viewModel.uiState.value as MemoriesUiState.Content
@@ -414,6 +418,7 @@ class MemoriesViewModelTest {
 
     private fun buildViewModel(playback: MemoriesPlayback? = null): MemoriesViewModel {
         every { repository.observeMemorySignalStamp() } returns memorySignal
+        coEvery { repository.awaitActiveSource(any()) } coAnswers { activeSource.filterNotNull().first() }
         return MemoriesViewModel(
             deckCoordinator = MemoriesDeckCoordinator(
                 repository = repository,
@@ -423,7 +428,6 @@ class MemoriesViewModelTest {
             sessionStore = sessionStore,
             repository = repository,
             activeProfileId = activeProfileId,
-            activeSourceId = activeSourceId,
             playback = playback,
             titleStore = titleStore,
         )

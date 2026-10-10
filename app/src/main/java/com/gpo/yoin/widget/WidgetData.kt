@@ -13,9 +13,7 @@ import com.gpo.yoin.data.memory.memoryEligible
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** What a widget item points at; decides the backdrop shape and the image shape (artist = circle). */
 enum class WidgetEntity { ALBUM, PLAYLIST, ARTIST }
@@ -51,8 +49,7 @@ internal val Context.yoinContainer: AppContainer
  * A cold widget process has no active source yet ([com.gpo.yoin.data.profile.ProfileManager] fills it
  * asynchronously); every repository read returns empty until it lands.
  */
-private suspend fun AppContainer.awaitActiveSource(): Boolean =
-    withTimeoutOrNull(SOURCE_TIMEOUT_MS) { profileManager.activeSource.filterNotNull().first() } != null
+private suspend fun AppContainer.awaitActiveSource(): Boolean = repository.awaitActiveSource(SOURCE_TIMEOUT_MS) != null
 
 private const val SOURCE_TIMEOUT_MS = 8_000L
 

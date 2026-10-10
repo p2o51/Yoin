@@ -85,6 +85,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -92,6 +93,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -413,6 +415,18 @@ class YoinRepository(
 
     /** Synchronous snapshot of [activeProviderId]. */
     fun currentProviderId(): String? = activeSource.value?.id
+
+    /**
+     * The active source, waiting up to [timeoutMs] for the first one. The
+     * profile id is restored synchronously at launch, but ProfileManager
+     * builds its source asynchronously, so for a beat every remote read would
+     * fail with "No profile configured" (a cold start, a widget tap that opens
+     * a detail page). Returns at once when a source is already active; null
+     * when none arrives in time (no profile, unreadable credentials) — callers
+     * then carry on exactly as they would have without waiting.
+     */
+    suspend fun awaitActiveSource(timeoutMs: Long): MusicSource? =
+        activeSource.value ?: withTimeoutOrNull(timeoutMs) { activeSource.filterNotNull().first() }
 
     /** Synchronous snapshot of the active profile id. */
     fun currentProfileId(): String? = activeProfileId.value
