@@ -92,10 +92,9 @@ internal fun spotifyStartAttempts(
 private fun spotifyId(raw: String): MediaId? =
     MediaId.parseOrNull(raw)?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY }
 
-/** [tracks] as a `uris` start: at most [SPOTIFY_START_MAX_URIS], keeping a little history. */
+/** [tracks] as a `uris` start: the [startWindow] around [startIndex]. */
 private fun tracksAttempt(tracks: List<Track>, startIndex: Int): SpotifyStartAttempt.Tracks? {
-    val from = (startIndex - SPOTIFY_START_HISTORY).coerceAtLeast(0)
-    val window = tracks.subList(from, minOf(tracks.size, from + SPOTIFY_START_MAX_URIS))
-    val uris = window.map { it.spotifyTrackUri() ?: return null }
-    return SpotifyStartAttempt.Tracks(uris = uris, offsetPosition = startIndex - from)
+    val window = startWindow(tracks.size, startIndex)
+    val uris = tracks.slice(window).map { it.spotifyTrackUri() ?: return null }
+    return SpotifyStartAttempt.Tracks(uris = uris, offsetPosition = startIndex - window.first)
 }

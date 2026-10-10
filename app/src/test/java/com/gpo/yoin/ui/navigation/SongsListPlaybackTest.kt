@@ -43,6 +43,25 @@ class SongsListPlaybackTest {
     }
 
     @Test
+    fun should_playOnlyTheWindowAroundTheTappedRow_when_songsListIsLong() {
+        // Apple's Songs list runs to 500: MusicKit would ask for every id in one request.
+        val library = (0 until 500).map { song("s$it") }
+
+        container.playSongsList(library, startIndex = 300)
+
+        verify(exactly = 1) {
+            manager.play(
+                tracks = library.subList(280, 380),
+                startIndex = 20,
+                source = activeSource.value!!,
+                activityContext = ActivityContext.None,
+                shuffled = false,
+                explicitStart = true
+            )
+        }
+    }
+
+    @Test
     fun should_playNothing_when_noProfileIsActive() {
         activeSource.value = null
 

@@ -89,6 +89,7 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
+import com.gpo.yoin.player.startWindowQueue
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
@@ -1556,12 +1557,19 @@ internal fun trackCoverArtId(track: Track): String? =
         ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
 
 /**
- * A Library Songs row: the whole list plays on from the tapped song. Context
- * None, not LikedSongs: Songs isn't Spotify's Liked order.
+ * A Library Songs row: the list plays on from the tapped song. Context None,
+ * not LikedSongs: Songs isn't Spotify's Liked order.
+ *
+ * Only the window around the tapped row is handed over ([startWindowQueue]),
+ * on every provider. Apple's Songs list runs to 500 songs, and MusicKit
+ * prepares a queue with ONE catalog request for all its ids, which Apple
+ * caps at 300 — a large library would fail the start a single song used to
+ * play. Spotify cuts its `uris` start to the same window anyway.
  */
 internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
     val source = profileManager.activeSource.value ?: return
-    playbackManager.play(queue, startIndex, source, ActivityContext.None)
+    val window = startWindowQueue(queue, startIndex)
+    playbackManager.play(window.tracks, window.startIndex, source, ActivityContext.None)
 }
 
 internal fun canLaunchDetailFromShell(
