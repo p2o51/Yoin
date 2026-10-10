@@ -106,10 +106,11 @@ $ADB logcat -d -v raw -s YoinPerf:D | grep '^home\.'
 
 debug 包里有一个广播入口 `LibraryStateProbeReceiver`（`app/src/debug`，manifest 要求发送方持有 DUMP，只有 adb shell 有）。它连上 App Remote，对每个 URI 调 `UserApi.getLibraryState`，把结果打到 logcat 的 `YoinProbe`。
 
-- **不起播、不改队列**：复用 Yoin 自己的 warm connection（Spotify 账号在用时 Yoin 本来就会这样连），只读状态。
+- **不起播、不改队列**：只读状态。Spotify 账号在用时直接用 Yoin 已有的连接；当前账号不要 App Remote 时（Subsonic、Apple Music）探针自己连一次，读完就断开，这段时间里不把 Spotify 的播放状态交给播放器，之后的回到前台也不会因为它重连。
+- 当前没有 Spotify Client ID 时不尝试连接，直接报 `no Spotify client id`。
 - **不打 token**：日志里只有 URI、结果、耗时和错误类名，没有 access token，也没有 Client ID。
 - App Remote 只有在某个 Yoin Activity 处于 started 状态时才能连，所以**先把 Yoin 打开到前台**，用 Spotify 账号。
-- URI 只能是 track 或 album（UserApi 文档的限制）。
+- URI 只能是 track 或 album（UserApi 文档的限制）。一次最多读前 10 个，免得超过后台广播约一分钟的时限。
 
 ```sh
 $ADB logcat -c
@@ -124,12 +125,14 @@ $ADB logcat -d -v raw -s YoinProbe:*
 输出示例：
 
 ```
-connect ok=true host=true ms=412
+connect Connected ms=412
 libraryState uri=spotify:track:<id1> isAdded=true canAdd=true ms=18
 libraryState uri=spotify:track:<id2> ms=3004 error=TimeoutCancellationException: Timed out waiting for 3000 ms
 ```
 
-- `connect ok=false`：App Remote 没连上。`host=false` 表示探针开始时没有 started 的 Yoin Activity。
+- `connect NoClientId`：没有 Spotify Client ID，日志是 `no Spotify client id: switch to a Spotify profile`。
+- `connect NoHost`：没有 started 的 Yoin Activity，先把 Yoin 打开到前台。
+- `connect TimedOut`：有 Activity，但 8 秒内没连上（Spotify 没装、没登录或冷启动太慢）。
 - 每个 URI 最多等 3 秒。
 - 要确认的四件事：scope 是否够用；耗时；在 Spotify app 和通知栏里点赞后，结果是否立刻变化；只在某个歌单里、显示绿勾但不在 Liked Songs 的歌，返回什么。
 

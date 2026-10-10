@@ -1102,31 +1102,34 @@ class PlaybackManager(
 
     /**
      * The debug library-state probe (`app/src/debug` LibraryStateProbeReceiver,
-     * docs/perf/yoinperf-logging.md): connects App Remote when it isn't — the
-     * warm connection, which plays nothing and leaves the queue alone — and
-     * reads Spotify's library state for each of [uris], one after another.
+     * docs/perf/yoinperf-logging.md): connects App Remote when it isn't —
+     * plays nothing, leaves the queue alone, and is closed again after the
+     * reads where nothing else wanted it ([SpotifyAppRemotePlayer.withProbeConnection])
+     * — and reads Spotify's library state for each of [uris], one after another.
      */
     internal suspend fun probeSpotifyLibraryStates(
         uris: List<String>,
         connectTimeoutMs: Long
     ): SpotifyLibraryStateProbe {
-        val hadHost = spotifyRemotePlayer.hasHost()
         val connectStart = SystemClock.elapsedRealtime()
-        val connected = spotifyRemotePlayer.awaitConnection(connectTimeoutMs)
-        val connectMs = SystemClock.elapsedRealtime() - connectStart
-        if (!connected) return SpotifyLibraryStateProbe(false, hadHost, connectMs, emptyList())
-        val readings = uris.map { uri ->
-            val start = SystemClock.elapsedRealtime()
-            val state = spotifyRemotePlayer.libraryState(uri)
-            SpotifyLibraryStateReading(
-                uri = uri,
-                isAdded = state.getOrNull()?.isAdded,
-                canAdd = state.getOrNull()?.canAdd,
-                elapsedMs = SystemClock.elapsedRealtime() - start,
-                error = state.exceptionOrNull()
-            )
+        return spotifyRemotePlayer.withProbeConnection(connectTimeoutMs) { connection ->
+            val connectMs = SystemClock.elapsedRealtime() - connectStart
+            if (connection != SpotifyAppRemotePlayer.ProbeConnection.Connected) {
+                return@withProbeConnection SpotifyLibraryStateProbe(connection, connectMs, emptyList())
+            }
+            val readings = uris.map { uri ->
+                val start = SystemClock.elapsedRealtime()
+                val state = spotifyRemotePlayer.libraryState(uri)
+                SpotifyLibraryStateReading(
+                    uri = uri,
+                    isAdded = state.getOrNull()?.isAdded,
+                    canAdd = state.getOrNull()?.canAdd,
+                    elapsedMs = SystemClock.elapsedRealtime() - start,
+                    error = state.exceptionOrNull()
+                )
+            }
+            SpotifyLibraryStateProbe(connection, connectMs, readings)
         }
-        return SpotifyLibraryStateProbe(true, hadHost, connectMs, readings)
     }
 
     /**
@@ -1244,11 +1247,9 @@ class PlaybackManager(
     }
 }
 
-/** What the debug library-state probe found: whether App Remote connected, then one reading per URI. */
+/** What the debug library-state probe found: how App Remote's connection went, then one reading per URI. */
 internal data class SpotifyLibraryStateProbe(
-    val connected: Boolean,
-    /** Whether a started Yoin Activity was there to connect from when the probe began. */
-    val hadHost: Boolean,
+    val connection: SpotifyAppRemotePlayer.ProbeConnection,
     val connectMs: Long,
     val readings: List<SpotifyLibraryStateReading>
 )
