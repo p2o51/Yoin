@@ -27,6 +27,10 @@ import java.util.TimeZone
  * Chinese indexes with the zh (pinyin) collator, and any other language
  * leaves Han in ICU's trailing overflow bucket, after kana and Hangul.
  *
+ * Japanese names written in kanji are Han too: API 29+ files them by their
+ * Mandarin reading (坂本龍一 under B), API 26–28 with a non-Chinese app
+ * language puts them in the trailing overflow section with the other Han.
+ *
  * Timeline: the dates of a list in its own order (newest first, usually),
  * cut into runs of one month. The ticks show the year, or the month when the
  * whole list spans under two years. Unhelpful timelines give no sections at
@@ -118,9 +122,14 @@ object LibraryIndex {
      *
      * The bubble label is the localized year and month ("Mar 2024",
      * "2024年3月"); the tick is the year, or the short month ("Mar", "3月")
-     * when the dates span under two years. No sections at all when more than
-     * 20% of the items are undated, or one tick segment (a year, or a month
-     * when cut by month) holds more than about 60% of the dated items.
+     * when the dates span under two years. Then the year stands in for the
+     * month wherever a new year starts ("2024", "Feb", "2023", "Nov" …): a
+     * repeated month name always has its year above it, and two runs of the
+     * same month a year apart never merge into one tick.
+     *
+     * No sections at all when more than 20% of the items are undated, or one
+     * tick segment (a year, or a month when cut by month) holds more than
+     * about 60% of the dated items.
      */
     fun timeline(
         datesMs: List<Long?>,
@@ -145,18 +154,21 @@ object LibraryIndex {
         val monthFormat = skeletonFormat("MMM", locale, timeZone)
         val sections = ArrayList<FastScrollSection>()
         var currentMonth = Int.MIN_VALUE
+        var currentYear = Int.MIN_VALUE
         datesMs.forEachIndexed { position, ms ->
             if (ms == null) return@forEachIndexed
             val month = monthOf(ms, zone)
             if (month == currentMonth) return@forEachIndexed
             currentMonth = month
+            val year = month / 12
             val date = Date(ms)
             sections += FastScrollSection(
                 label = bubbleFormat.format(date),
                 // Leading undated items belong to the first run.
                 startIndex = if (sections.isEmpty()) 0 else position,
-                tickLabel = if (byMonth) monthFormat.format(date) else (month / 12).toString()
+                tickLabel = if (byMonth && year == currentYear) monthFormat.format(date) else year.toString()
             )
+            currentYear = year
         }
         return sections
     }

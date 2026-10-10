@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.library
 
 import android.app.Application
 import android.os.Build
+import com.gpo.yoin.ui.component.FastScrollMath
 import com.gpo.yoin.ui.component.FastScrollSection
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
@@ -187,13 +188,26 @@ class LibraryIndexTest {
     }
 
     @Test
-    fun should_tickByMonth_when_datesSpanUnderTwoYears() {
+    fun should_tickByMonthWithTheYearWhereOneStarts_when_datesSpanUnderTwoYears() {
         val dates = listOf(at(2024, 6), at(2024, 2), at(2023, 11), at(2023, 8), at(2023, 3), at(2023, 1))
         val sections = LibraryIndex.timeline(dates, Locale.US, utc)
 
-        assertEquals(listOf("Jun", "Feb", "Nov", "Aug", "Mar", "Jan"), sections.map { it.tickLabel })
+        assertEquals(listOf("2024", "Feb", "2023", "Aug", "Mar", "Jan"), sections.map { it.tickLabel })
         assertEquals("Jun 2024", sections.first().label)
         assertEquals((0..5).toList(), sections.map { it.startIndex })
+        val zh = LibraryIndex.timeline(dates, Locale.SIMPLIFIED_CHINESE, utc)
+        assertEquals(listOf("2024", "2月", "2023", "8月", "3月", "1月"), zh.map { it.tickLabel })
+    }
+
+    @Test
+    fun should_keepTwoTicks_when_theSameMonthOfTwoYearsMeet() {
+        // Nothing added between March 2023 and March 2024.
+        val dates = listOf(at(2024, 3), at(2024, 3), at(2023, 3), at(2023, 3), at(2023, 2), at(2023, 1))
+        val sections = LibraryIndex.timeline(dates, Locale.US, utc)
+
+        assertEquals(listOf("Mar 2024", "Mar 2023", "Feb 2023", "Jan 2023"), sections.map { it.label })
+        assertEquals(listOf("2024", "2023", "Feb", "Jan"), sections.map { it.tickLabel })
+        assertEquals(sections.size, FastScrollMath.ticks(sections).size)
     }
 
     @Test
