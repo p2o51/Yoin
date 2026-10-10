@@ -316,6 +316,11 @@ internal fun HomeEditorialContent(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
+    // The artists (MediaId strings) the Activities bento seats, and whether
+    // the list is moving: Home asks Spotify for those portraits only, and
+    // only while the feed rests (owner Q16).
+    onActivityArtistsShown: (List<String>) -> Unit = {},
+    onFeedScrollChanged: (Boolean) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val haptics = rememberYoinHaptics()
@@ -423,6 +428,13 @@ internal fun HomeEditorialContent(
             }
         }
     }
+    val currentOnFeedScrollChanged by rememberUpdatedState(onFeedScrollChanged)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling -> currentOnFeedScrollChanged(scrolling) }
+    }
+    // A feed that leaves mid-fling doesn't leave Home thinking it still moves.
+    DisposableEffect(listState) { onDispose { currentOnFeedScrollChanged(false) } }
+    val currentOnActivityArtistsShown by rememberUpdatedState(onActivityArtistsShown)
     LaunchedEffect(listState, allowBackdropPalette) {
         if (allowBackdropPalette) return@LaunchedEffect
         snapshotFlow { listState.isScrollInProgress }
@@ -1029,6 +1041,20 @@ internal fun HomeEditorialContent(
                                     val candidates = remember(bentoEntries, heroEntry) {
                                         bentoEntries.filterNot { it === heroEntry }
                                     }
+                                    // The artists this preset seats (the hero is
+                                    // never one): the portraits worth asking for.
+                                    val activityPreset = layout.rowsOf(HomeSection.Activities)
+                                    val seatedArtistIds = remember(candidates, bentoSpec, heroEntry, activityPreset) {
+                                        val seated = activityPresetSupportingCount(
+                                            spec = bentoSpec,
+                                            hasHero = heroEntry != null,
+                                            preset = activityPreset
+                                        )
+                                        candidates.take(seated).mapNotNull { entry ->
+                                            (entry.target as? HomeEntryTarget.Artist)?.artistId
+                                        }
+                                    }
+                                    LaunchedEffect(seatedArtistIds) { currentOnActivityArtistsShown(seatedArtistIds) }
                                     val bentoModifier = remember(firstReveal) {
                                         Modifier
                                             .fillMaxWidth()
@@ -1042,7 +1068,7 @@ internal fun HomeEditorialContent(
                                         hero = heroEntry,
                                         candidates = candidates,
                                         spec = bentoSpec,
-                                        preset = layout.rowsOf(HomeSection.Activities),
+                                        preset = activityPreset,
                                         heroFootnoteExtra = homeHeroFootnote(
                                             year = activityHeroYear,
                                             songCount = activityHeroSongCount,

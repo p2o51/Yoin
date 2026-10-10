@@ -186,6 +186,12 @@ class HomeViewModel(
     // account's) it would rearrange from a beat later.
     private val layoutReadFor = MutableStateFlow<String?>(null)
 
+    // Owner Q16: the artists the Activities bento seats (MediaId strings, as
+    // the feed reports them) and whether the feed's list is moving. Spotify
+    // portraits are asked for only while it rests ([fillActivityPortraits]).
+    private val shownActivityArtists = MutableStateFlow<List<String>>(emptyList())
+    private val feedScrolling = MutableStateFlow(false)
+
     /**
      * Turns a source-relative cover id into the feed's URL (the activities and
      * the shelves resolve theirs as they compose). A new instance for each
@@ -232,6 +238,16 @@ class HomeViewModel(
         observeRecentHistory()
         observeMemorySignals()
         observeRediscoverRemovals()
+    }
+
+    /** The feed reports the artists (MediaId strings) its Activities seat now. */
+    fun onActivityArtistsShown(artistIds: List<String>) {
+        shownActivityArtists.value = artistIds
+    }
+
+    /** The feed's list started or stopped moving. */
+    fun onFeedScrollChanged(scrolling: Boolean) {
+        feedScrolling.value = scrolling
     }
 
     /**
@@ -414,6 +430,8 @@ class HomeViewModel(
                         delay(ACTIVE_SOURCE_WAIT_MS)
                     }
                     loadScope(scope)
+                    // The load is done: the Activities artists' portraits.
+                    fillActivityPortraits(scope)
                 }
         }
     }
@@ -432,6 +450,72 @@ class HomeViewModel(
                 if (scope == loadedScope && repository.activeSourceIdentity() !== loadedSource) refresh()
             }
         }
+    }
+
+    /**
+     * Owner Q16: Spotify's recently-played names artists without images; the
+     * repository fills what the device has before the feed goes up, and
+     * here, once [scope]'s load is done, Spotify is asked for the rest — the
+     * artists the bento seats in this process's endpoint feed, while the
+     * feed rests (still for [ACTIVITY_PORTRAIT_SETTLE_MS]), one request at a
+     * time, each waiting out a scroll, stopping at the rate limit. Each
+     * portrait splices in as it lands ([splicePortrait]). Runs until the
+     * scope moves or reloads (collectLatest cancels it); newly seated artists
+     * (a row preset, a wider window) are asked for as they come.
+     */
+    @OptIn(FlowPreview::class)
+    private suspend fun fillActivityPortraits(scope: HomeScope) {
+        if (scope.providerId != MediaId.PROVIDER_SPOTIFY || scope.profileId.isNullOrBlank()) return
+        val scopeKey = homeScopeKey(scope.providerId, scope.profileId)
+        combine(shownActivityArtists, feedScrolling) { shown, scrolling -> shown.takeUnless { scrolling } }
+            .debounce(ACTIVITY_PORTRAIT_SETTLE_MS)
+            .filterNotNull()
+            .map { shown -> portraitCandidates(scope, scopeKey, shown) }
+            .filter { artistIds -> artistIds.isNotEmpty() }
+            .distinctUntilChanged()
+            .collect { artistIds ->
+                try {
+                    repository.fillSpotifyActivityArtistPortraits(
+                        artistIds = artistIds,
+                        awaitTurn = { feedScrolling.first { scrolling -> !scrolling } },
+                        onPortrait = { artistId, url -> splicePortrait(scope, scopeKey, artistId, url) }
+                    )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    // Not the feed's failure: the cards keep their stand-ins.
+                }
+            }
+    }
+
+    /**
+     * The raw ids of [shown] that are artists of [scopeKey]'s Activities as
+     * this process's endpoint read them — not a snapshot's (an earlier
+     * process's) nor the activity log a failed read fell back to.
+     */
+    private fun portraitCandidates(scope: HomeScope, scopeKey: String, shown: List<String>): List<String> {
+        if (!matchesCurrentScope(scope.providerId, scope.profileId)) return emptyList()
+        val content = contentOf(scopeKey) ?: return emptyList()
+        if (!content.activitiesFromRemote || scopeKey in snapshotEndpointFeeds) return emptyList()
+        val inFeed = content.activities.mapNotNullTo(HashSet()) { event -> event.spotifyArtistRawId() }
+        return shown.mapNotNull { id -> MediaId.parseOrNull(id)?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY } }
+            .map(MediaId::rawId)
+            .filter { rawId -> rawId in inFeed }
+            .distinct()
+    }
+
+    /** [artistId]'s portrait just came in: onto [scopeKey]'s Activities, if they are still the endpoint's. */
+    private fun splicePortrait(scope: HomeScope, scopeKey: String, artistId: String, url: String) {
+        if (!matchesCurrentScope(scope.providerId, scope.profileId)) return
+        val latest = contentOf(scopeKey)?.takeIf { it.activitiesFromRemote } ?: return
+        if (latest.activities.none { it.spotifyArtistRawId() == artistId && it.coverArtId != url }) return
+        val next = latest.copy(
+            activities = latest.activities.map { event ->
+                if (event.spotifyArtistRawId() == artistId) event.copy(coverArtId = url) else event
+            }
+        )
+        keep(scopeKey, scope.providerId, scope.profileId, next)
+        emit(next, scope.profileId)
     }
 
     /**
@@ -2014,6 +2098,11 @@ class HomeViewModel(
         // waits as long) before loading without one.
         private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
 
+        // How long the feed rests — loaded, its list still — before Spotify
+        // is asked for its Activities artists' portraits (Q16): past the
+        // first reveal, and never mid-fling.
+        private const val ACTIVITY_PORTRAIT_SETTLE_MS = 1_500L
+
         // How long a load with nothing up waits for its snapshot's read (a
         // small file, read since the VM or the switch began; usually in by
         // then) and the account's layout before going ahead with Loading.
@@ -2070,6 +2159,14 @@ private fun parseAddedAtMillis(addedAt: String?): Long? {
 /** No pools persisted, or an empty batch. */
 private fun YoinRepository.HomeGridPoolSnapshot?.isNullOrEmpty(): Boolean =
     this == null || (albums.isEmpty() && tracks.isEmpty() && playlists.isEmpty())
+
+/** This event's raw artist id when it is a Spotify artist's, else null. */
+private fun ActivityEvent.spotifyArtistRawId(): String? =
+    if (provider == MediaId.PROVIDER_SPOTIFY && entityType == ActivityEntityType.ARTIST.name) {
+        MediaId.storedRawId(MediaId.PROVIDER_SPOTIFY, entityId)
+    } else {
+        null
+    }
 
 /** What Home's content belongs to: the active profile and its source's provider (null until built). */
 private data class HomeScope(val providerId: String?, val profileId: String?) {

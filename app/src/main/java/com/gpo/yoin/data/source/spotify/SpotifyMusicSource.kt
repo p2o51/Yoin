@@ -394,6 +394,19 @@ class SpotifyMusicSource(
         recentlyPlayed().take(limit.coerceAtLeast(0))
 
     /**
+     * One artist's portrait for Home's Activities (recently-played names its
+     * artists without images): one GET /artists/{id}, through the rate-limit
+     * gate like every read. An artist Spotify no longer has reads as one
+     * without a portrait; any other failure — a 429 or a closed gate
+     * included — throws.
+     */
+    suspend fun getArtistPortrait(artistId: String): SpotifyArtistPortrait {
+        val artist = orNullIfNotFound { apiClient.getArtist(artistId) }
+            ?: return SpotifyArtistPortrait(name = null, url = null)
+        return SpotifyArtistPortrait(name = artist.name, url = artist.bestImageUrl())
+    }
+
+    /**
      * Translate the visible row index in Yoin's filtered playlist view back
      * to Spotify's raw playlist offset. Returns null when the source no
      * longer has a trustworthy mapping (e.g. stale cache after a mutation),

@@ -174,6 +174,8 @@ fun HomeScreen(
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
         modifier = modifier,
+        onActivityArtistsShown = viewModel::onActivityArtistsShown,
+        onFeedScrollChanged = viewModel::onFeedScrollChanged,
     )
 }
 
@@ -210,6 +212,9 @@ fun HomeContent(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
+    // What the feed seats in Activities and whether it scrolls (owner Q16).
+    onActivityArtistsShown: (List<String>) -> Unit = {},
+    onFeedScrollChanged: (Boolean) -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -321,6 +326,8 @@ fun HomeContent(
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 modifier = Modifier.fillMaxSize(),
+                                onActivityArtistsShown = onActivityArtistsShown,
+                                onFeedScrollChanged = onFeedScrollChanged,
                             )
                         }
                     }
