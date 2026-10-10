@@ -93,7 +93,7 @@ class AlbumDetailViewModel(
 
     private class PendingFavoriteTap(val favorite: Boolean)
 
-    /** Each row's heart as shown; its quiet flips count the changes nobody tapped (FavoriteGlyph). */
+    /** Each row's heart as shown; its quiet flips count Spotify's late answers (FavoriteGlyph). */
     private val favoriteGlyphs = HashMap<MediaId, FavoriteGlyph>()
 
     /** The album's rating row as Room last reported it (its NeoDB dirty flags drive [neoDb]). */
@@ -407,7 +407,7 @@ class AlbumDetailViewModel(
                 ?: states[track.id]
                 ?: return@map track
             val glyph = (favoriteGlyphs[track.id] ?: FavoriteGlyph(track.isStarred))
-                .next(state.isStarred, state.fromUser)
+                .next(state)
             favoriteGlyphs[track.id] = glyph
             if (track.isStarred == glyph.favorite) track else track.copy(isStarred = glyph.favorite)
         }

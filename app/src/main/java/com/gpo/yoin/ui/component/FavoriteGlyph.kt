@@ -18,32 +18,58 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
- * The favorite heart's shown state. [quietFlips] counts the changes that were
- * not the user's own tap — the service confirming a like late, a library
- * sync, the next track — each of which [FavoriteGlyphIcon] crossfades in
- * quietly instead of letting the symbol beat. A tap keeps [quietFlips], so
- * the same symbol animates it: the fill grows and the outline beats.
+ * The favorite heart's shown state (D4). [quietFlips] counts the service's
+ * answers that came in late and flipped the heart — Spotify confirming a like
+ * after the page is up, or saying it was unliked elsewhere — each of which
+ * [FavoriteGlyphIcon] crossfades in quietly instead of letting the symbol
+ * beat. Every other change keeps [quietFlips], so the same symbol animates
+ * it as ever (the fill grows and the outline beats): a tap, a failed write
+ * rolling back, a library sync, another track. [answeredAtMs]: the newest
+ * answer shown so far, which tells one coming in from one fallen back to.
  */
 @Immutable
-data class FavoriteGlyph(val favorite: Boolean, val quietFlips: Int = 0) {
-    /** This glyph after the heart became [favorite]; [fromUser]: the user's own write did it. */
-    fun next(favorite: Boolean, fromUser: Boolean): FavoriteGlyph = when {
-        favorite == this.favorite -> this
-        fromUser -> copy(favorite = favorite)
-        else -> FavoriteGlyph(favorite, quietFlips + 1)
+data class FavoriteGlyph(val favorite: Boolean, val quietFlips: Int = 0, val answeredAtMs: Long = 0L) {
+    /** This glyph after the heart's state became [state]. */
+    fun next(state: FavoriteState): FavoriteGlyph {
+        val lateAnswer = state.fromAnswer && state.answeredAtMs > answeredAtMs
+        val shown = when {
+            state.isStarred == favorite -> this
+            lateAnswer -> copy(favorite = state.isStarred, quietFlips = quietFlips + 1)
+            else -> copy(favorite = state.isStarred)
+        }
+        return if (state.answeredAtMs > shown.answeredAtMs) shown.copy(answeredAtMs = state.answeredAtMs) else shown
+    }
+
+    /**
+     * This glyph as the heart of another track (Now Playing moving on), whose
+     * state is [state]: a change like a tap's, not a late answer, so a liked
+     * next track beats in; its answers count from here.
+     */
+    fun forTrack(state: FavoriteState): FavoriteGlyph =
+        if (state.isStarred == favorite && state.answeredAtMs == answeredAtMs) {
+            this
+        } else {
+            copy(favorite = state.isStarred, answeredAtMs = state.answeredAtMs)
+        }
+
+    companion object {
+        /** The heart as first shown, at [state] (nothing to animate from). */
+        fun of(state: FavoriteState): FavoriteGlyph = FavoriteGlyph(state.isStarred, answeredAtMs = state.answeredAtMs)
     }
 }
 
 /**
  * The favorite symbol for [favorite]. A change within one [quietFlips] value
- * (the user's tap) runs the symbol's own motion. A new [quietFlips] value
- * starts a fresh symbol already at its state and crossfades it over the old
- * one on the effects spring — fill and colour change, nothing beats.
+ * (a tap, a rollback, another track) runs the symbol's own motion. A new
+ * [quietFlips] value (a late answer) starts a fresh symbol already at its
+ * state and crossfades it over the old one on the effects spring — fill and
+ * colour change, nothing beats.
  */
 @Composable
 fun FavoriteGlyphIcon(

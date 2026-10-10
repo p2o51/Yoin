@@ -310,11 +310,10 @@ class NowPlayingViewModel(
     // The heart: the repository's one favorite read for the playing track (the
     // user's write, Spotify's answer, the saved-tracks mirror, the track's own
     // flag — see YoinRepository.observeFavoriteStates), folded into a glyph.
-    // A change the user didn't tap (Spotify confirming a like late, the next
-    // track) is a quiet flip: it crossfades instead of beating. What caused
-    // the change decides, not where the value came from: the next track is
-    // quiet even when its state is the user's own earlier write (Subsonic
-    // keeps that override for the session, Spotify for the write's grace).
+    // Only Spotify's answer coming in late and flipping the playing track's
+    // heart is a quiet flip (D4): it crossfades instead of beating. A tap, a
+    // failed write rolling back, a library sync and the next track animate as
+    // ever — a liked next track beats in, whatever its state stands on.
     // The checks themselves are PlaybackManager's, once per track for every host.
     private val favoriteFlow: Flow<FavoriteGlyph> = playbackManager.playbackState
         .map { it.currentTrack }
@@ -328,10 +327,10 @@ class NowPlayingViewModel(
             states.map { state -> track?.id to state }
         }
         .runningFold(null as TrackHeart?) { shown, (trackId, state) ->
-            val glyph = if (shown == null) {
-                FavoriteGlyph(state.isStarred)
-            } else {
-                shown.glyph.next(state.isStarred, fromUser = state.fromUser && trackId == shown.trackId)
+            val glyph = when {
+                shown == null -> FavoriteGlyph.of(state)
+                trackId != shown.trackId -> shown.glyph.forTrack(state)
+                else -> shown.glyph.next(state)
             }
             TrackHeart(trackId, glyph)
         }

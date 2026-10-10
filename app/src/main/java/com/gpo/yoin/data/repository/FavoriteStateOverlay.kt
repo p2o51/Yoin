@@ -19,14 +19,23 @@ const val FAVORITE_RECHECK_INTERVAL_MS = 30_000L
 const val FAVORITE_WRITE_GRACE_MS = SavedTrackDelta.DEFAULT_GRACE_MS
 
 /**
- * A track's heart as the UI shows it. [fromUser]: the value is the user's own
- * write, in flight or landed within [FAVORITE_WRITE_GRACE_MS], so a change to
- * it answers a tap (the heart may beat); any other change — the service's
- * answer, a library sync, a failed write rolling back — is a quiet one. Which
- * track is shown is the reader's business: a host that moves to another track
- * (Now Playing) treats that change as quiet whatever this says.
+ * A track's heart as the UI shows it, and what the value stands on.
+ * [fromUser]: the user's own write, in flight or landed within
+ * [FAVORITE_WRITE_GRACE_MS]. [fromAnswer]: the service's own answer to a
+ * check (App Remote's library state, the Web API's contains) — the latest
+ * one about the track, which came in at [answeredAtMs]. [answeredAtMs] rides
+ * along whatever value wins (0: no answer yet), so a reader can tell an
+ * answer coming in from one it has seen before: only a late answer that
+ * flips the heart is a quiet change (D4, the UI's `FavoriteGlyph`);
+ * a tap, a failed write rolling back, a library sync or another track
+ * animate as ever.
  */
-data class FavoriteState(val isStarred: Boolean, val fromUser: Boolean = false)
+data class FavoriteState(
+    val isStarred: Boolean,
+    val fromUser: Boolean = false,
+    val fromAnswer: Boolean = false,
+    val answeredAtMs: Long = 0L
+)
 
 /**
  * What Yoin has learned about tracks' favorite state beyond the tracks
@@ -151,21 +160,22 @@ internal fun resolveLearnedFavoriteState(
     nowMs: Long,
     graceMs: Long = FAVORITE_WRITE_GRACE_MS
 ): FavoriteState? {
-    if (inFlight != null) return FavoriteState(inFlight, fromUser = true)
+    val answeredAtMs = entry?.takeIf { it.remote != null }?.remoteAtMs ?: 0L
+    if (inFlight != null) return FavoriteState(inFlight, fromUser = true, answeredAtMs = answeredAtMs)
     var best: FavoriteState? = null
     var bestAtMs = Long.MIN_VALUE
     entry?.written?.let { written ->
         bestAtMs = entry.writtenAtMs + graceMs
-        best = FavoriteState(written, fromUser = nowMs < bestAtMs)
+        best = FavoriteState(written, fromUser = nowMs < bestAtMs, answeredAtMs = answeredAtMs)
     }
     entry?.remote?.let { remote ->
         if (entry.remoteAtMs > bestAtMs) {
-            best = FavoriteState(remote)
+            best = FavoriteState(remote, fromAnswer = true, answeredAtMs = answeredAtMs)
             bestAtMs = entry.remoteAtMs
         }
     }
     mirrorSaved?.let { saved ->
-        if (mirrorAtMs > bestAtMs) best = FavoriteState(saved)
+        if (mirrorAtMs > bestAtMs) best = FavoriteState(saved, answeredAtMs = answeredAtMs)
     }
     return best
 }

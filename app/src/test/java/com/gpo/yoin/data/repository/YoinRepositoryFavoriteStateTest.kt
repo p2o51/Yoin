@@ -112,7 +112,7 @@ class YoinRepositoryFavoriteStateTest {
         assertEquals(FavoriteState(isStarred = false), heart(oldLike))
         repository.refreshFavoriteStates(listOf(oldLike))
 
-        assertEquals(FavoriteState(isStarred = true, fromUser = false), heart(oldLike))
+        assertEquals(answer(isStarred = true, atMs = now), heart(oldLike))
     }
 
     @Test
@@ -144,23 +144,24 @@ class YoinRepositoryFavoriteStateTest {
 
         now += 10_000L
         repository.refreshFavoriteStates(listOf(track), minIntervalMs = 0L)
-        assertEquals(FavoriteState(isStarred = true, fromUser = true), heart(track))
+        assertEquals(FavoriteState(isStarred = true, fromUser = true, answeredAtMs = now), heart(track))
 
         // Past the grace Spotify's answer is the truth (unliked elsewhere).
         now += FAVORITE_WRITE_GRACE_MS
         repository.refreshFavoriteStates(listOf(track), minIntervalMs = 0L)
-        assertEquals(FavoriteState(isStarred = false, fromUser = false), heart(track))
+        assertEquals(answer(isStarred = false, atMs = now), heart(track))
     }
 
     @Test
     fun should_followTheMirror_when_aSyncAfterTheAnswerSavedTheTrack() = runTest {
         writeActions.answer = mapOf(oldLike.id to false)
         repository.refreshFavoriteStates(listOf(oldLike))
+        val answeredAt = now
 
         now += 1_000L
         database.spotifyLibraryCacheDao().upsertTrack(mirrorRow(oldLike.id.rawId, cachedAt = now))
 
-        assertEquals(FavoriteState(isStarred = true), heart(oldLike))
+        assertEquals(FavoriteState(isStarred = true, answeredAtMs = answeredAt), heart(oldLike))
     }
 
     @Test
@@ -171,14 +172,15 @@ class YoinRepositoryFavoriteStateTest {
         database.spotifyLibraryCacheDao().upsertTrack(mirrorRow("t1", cachedAt = syncedAt))
         val track = track("t1", isStarred = true)
         repository.recordFavoriteState(PROFILE, track.id, saved = false)
-        assertEquals(FavoriteState(isStarred = false), heart(track))
+        val answered = answer(isStarred = false, atMs = now)
+        assertEquals(answered, heart(track))
 
         // A like from Yoin, refused: the mirror row goes back as it was, read time and all.
         now += 1_000L
         writeActions.writeFailure = IOException("429")
         assertTrue(repository.setFavorite(track, favorite = true).isFailure)
 
-        assertEquals(FavoriteState(isStarred = false), heart(track))
+        assertEquals(answered, heart(track))
         val row = database.spotifyLibraryCacheDao().getTrack(PROFILE, "t1")
         assertEquals(true, row?.isSaved)
         assertEquals(syncedAt, row?.cachedAt)
@@ -217,7 +219,7 @@ class YoinRepositoryFavoriteStateTest {
 
         repository.refreshFavoriteStates(listOf(oldLike, unanswered))
 
-        assertEquals(FavoriteState(isStarred = true), heart(oldLike))
+        assertEquals(answer(isStarred = true, atMs = now), heart(oldLike))
         assertEquals(FavoriteState(isStarred = false), heart(unanswered))
         // The failure isn't retried: the unanswered track stays asked for the interval.
         writeActions.failure = null
@@ -258,6 +260,10 @@ class YoinRepositoryFavoriteStateTest {
     }
 
     private suspend fun heart(track: Track): FavoriteState = repository.observeFavoriteState(track).first()
+
+    /** Spotify's answer to a check, which came in at [atMs]. */
+    private fun answer(isStarred: Boolean, atMs: Long) =
+        FavoriteState(isStarred = isStarred, fromAnswer = true, answeredAtMs = atMs)
 
     private fun track(rawId: String, isStarred: Boolean) = Track(
         id = MediaId.spotify(rawId),

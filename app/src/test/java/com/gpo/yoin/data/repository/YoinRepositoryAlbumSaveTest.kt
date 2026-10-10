@@ -134,7 +134,10 @@ class YoinRepositoryAlbumSaveTest {
         assertEquals(listOf(Lookup(tracks = listOf(track.id), albums = listOf(album.id))), writeActions.lookups)
         assertEquals(AlbumSavedState.Saved, state(album))
         // The album's answer doesn't turn into a track's heart, nor the reverse.
-        assertEquals(FavoriteState(isStarred = false), repository.observeFavoriteState(track).first())
+        assertEquals(
+            FavoriteState(isStarred = false, fromAnswer = true, answeredAtMs = now),
+            repository.observeFavoriteState(track).first()
+        )
     }
 
     @Test

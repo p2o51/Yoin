@@ -66,9 +66,10 @@ sealed interface NowPlayingUiState {
         val rating: Float,
         val isStarred: Boolean,
         /**
-         * Changes of [isStarred] the user didn't tap (Spotify confirming a
-         * like late, the next track): each crossfades the heart quietly
-         * instead of beating ([com.gpo.yoin.ui.component.FavoriteGlyph]).
+         * Spotify's answers that came in late and flipped [isStarred]: each
+         * crossfades the heart quietly instead of beating
+         * ([com.gpo.yoin.ui.component.FavoriteGlyph]); any other change
+         * animates it as ever.
          */
         val favoriteQuietFlips: Int = 0,
         val lyrics: List<LyricLine>,
