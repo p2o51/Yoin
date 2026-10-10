@@ -1738,6 +1738,12 @@ private fun SongsTabContent(
                         album = song.album.orEmpty(),
                         durationSeconds = song.durationSec,
                         coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
+                        // Known limit (Subsonic, read a page at a time): the queue is the rows read
+                        // so far, around this one (startWindowQueue's 100), and pages read later
+                        // don't join it. A tap in the last rows before the next page lands queues
+                        // only what follows on screen; Repeat All then comes back round to the
+                        // window's start. Spotify plays its Liked Songs context and Apple Music's
+                        // list is read whole, so neither stops short.
                         onClick = { onSongClick(song, songs, index) },
                         onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
                         isNowPlaying = isPlaying && song.id.toString() == activeSongId,
