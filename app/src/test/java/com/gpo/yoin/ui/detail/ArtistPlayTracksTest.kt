@@ -10,6 +10,7 @@ import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import java.io.IOException
 import java.util.Collections
 import kotlin.random.Random
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -26,8 +28,8 @@ import org.junit.Test
 
 /**
  * The artist page's Play / Shuffle / Add to queue loads: a few albums at a
- * time, in discography order, and on Spotify only the albums its start can
- * use.
+ * time in a sliding window, in discography order, and on Spotify and Apple
+ * Music only the albums their start can use.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ArtistPlayTracksTest {
@@ -82,9 +84,64 @@ class ArtistPlayTracksTest {
             loadAlbum = loader::load
         )
 
-        // Batches of three until the list holds 100: four batches, twelve albums.
+        // Three in flight until the albums read hold 100: twelve albums, cut to the start's 100.
         assertEquals(12, loader.loaded.size)
-        assertEquals(120, tracks.size)
+        assertEquals((0 until 10).flatMap { album -> List(10) { "al$album-$it" } }, tracks.map { it.id.rawId })
+    }
+
+    @Test
+    fun should_cutPlayToTheStartLimit_when_anAlbumHoldsMoreThanItReports() = runTest {
+        // A box set reporting 10 tracks that holds 250.
+        val loader = Loader(tracksPerAlbum = { if (index(it) == 1) 250 else 10 })
+
+        val tracks = loadArtistPlayTracks(
+            releases = releases(60),
+            shuffle = false,
+            startLimit = SPOTIFY_START_MAX_URIS,
+            loadAlbum = loader::load
+        )
+
+        // Its real count is enough on its own: one more album was already reading, none after.
+        assertEquals((0 until 4).map { MediaId.spotify("al$it") }, loader.loaded)
+        assertEquals(100, tracks.size)
+        assertEquals(List(10) { "al0-$it" } + List(90) { "al1-$it" }, tracks.map { it.id.rawId })
+    }
+
+    @Test
+    fun should_startTheNextAlbumAtOnce_when_anyReadFinishes() = runTest {
+        val startedAt = mutableMapOf<MediaId, Long>()
+
+        val tracks = loadArtistTracks(releases(6)) { id ->
+            startedAt[id] = currentTime
+            delay(if (index(id) == 0) 10_000L else 100L)
+            List(10) { track(id, it) }
+        }
+
+        // The slow first album holds one slot; the other two keep turning over beside it.
+        val starts = (0 until 6).map { startedAt.getValue(MediaId.spotify("al$it")) }
+        assertEquals(listOf(0L, 0L, 0L, 100L, 100L, 200L), starts)
+        assertEquals(10_000L, currentTime)
+        assertEquals((0 until 6).flatMap { album -> List(10) { "al$album-$it" } }, tracks.map { it.id.rawId })
+    }
+
+    @Test
+    fun should_readPastASlowAlbum_when_playFillsTheStart() = runTest {
+        val loaded = mutableListOf<MediaId>()
+
+        val tracks = loadArtistPlayTracks(
+            releases = releases(60),
+            shuffle = false,
+            startLimit = SPOTIFY_START_MAX_URIS
+        ) { id ->
+            loaded += id
+            delay(if (index(id) == 0) 10_000L else 100L)
+            List(10) { track(id, it) }
+        }
+
+        // The other nine albums are read while the first is still out, so the start waits only on it.
+        assertEquals((0 until 10).map { MediaId.spotify("al$it") }, loaded)
+        assertEquals(10_000L, currentTime)
+        assertEquals((0 until 10).flatMap { album -> List(10) { "al$album-$it" } }, tracks.map { it.id.rawId })
     }
 
     @Test
@@ -120,9 +177,9 @@ class ArtistPlayTracksTest {
         )
 
         listOf(all, play, shuffle).forEach { loader ->
-            assertEquals(ARTIST_ALBUM_LOAD_BATCH, loader.maxInFlight)
+            assertEquals(ARTIST_ALBUM_LOADS_IN_FLIGHT, loader.maxInFlight)
         }
-        assertEquals(3, ARTIST_ALBUM_LOAD_BATCH)
+        assertEquals(3, ARTIST_ALBUM_LOADS_IN_FLIGHT)
     }
 
     @Test
@@ -166,8 +223,9 @@ class ArtistPlayTracksTest {
         )
 
         assertEquals(31, loader.loaded.size)
-        assertEquals(310, tracks.size)
-        assertEquals(310, tracks.map { it.id }.toSet().size)
+        // All 310 shuffled, of which the start takes its 100.
+        assertEquals(100, tracks.size)
+        assertEquals(100, tracks.map { it.id }.toSet().size)
     }
 
     @Test
@@ -218,7 +276,63 @@ class ArtistPlayTracksTest {
     }
 
     @Test
-    fun should_queueTheWholeDiscography_when_artistIsNotOnSpotify() = runTest {
+    fun should_capPlayAndShuffleToTheStartWindow_when_artistIsOnAppleMusic() = runTest {
+        val loads = mutableListOf<MediaId>()
+        val viewModel = viewModelFor(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "ar-1"), albums = 200, loads = loads)
+
+        val play = viewModel.getPlayTracks(shuffle = false)
+
+        // MusicKit asks for every id in one catalog request (Apple caps it at 300):
+        // Play reads the first ten albums for 100 tracks, not all 200 for 2,000.
+        assertEquals((0 until 10).map { MediaId(MediaId.PROVIDER_APPLE_MUSIC, "al$it") }, loads)
+        assertEquals(SPOTIFY_START_MAX_URIS, play.size)
+
+        loads.clear()
+        val shuffled = viewModel.getPlayTracks(shuffle = true)
+
+        assertEquals(SPOTIFY_START_MAX_URIS, shuffled.size)
+        assertEquals(shuffled.map { it.albumId }.toSet(), loads.toSet())
+        assertTrue(loads.size <= SPOTIFY_START_MAX_URIS)
+    }
+
+    @Test
+    fun should_loadOnlyDrawnAlbums_when_spotifyArtistShuffles() = runTest {
+        val loads = mutableListOf<MediaId>()
+        val viewModel = viewModelFor(MediaId.spotify("ar-1"), albums = 200, loads = loads)
+
+        val tracks = viewModel.getPlayTracks(shuffle = true)
+
+        assertEquals(SPOTIFY_START_MAX_URIS, tracks.size)
+        assertEquals(tracks.size, tracks.toSet().size)
+        // 100 places drawn over 2,000 reported tracks: only their albums are read, each once.
+        assertEquals(tracks.map { it.albumId }.toSet(), loads.toSet())
+        assertEquals(loads.distinct(), loads)
+        assertTrue(loads.size <= SPOTIFY_START_MAX_URIS)
+    }
+
+    @Test
+    fun should_dropPlacesOfFailedAlbums_when_shuffleLoadFails() = runTest {
+        val loads = mutableListOf<MediaId>()
+        // Every even album's read fails, as reads queued behind a closed 429 gate do.
+        val viewModel = viewModelFor(
+            MediaId.spotify("ar-1"),
+            albums = 200,
+            loads = loads,
+            failing = { index(it) % 2 == 0 }
+        )
+
+        val tracks = viewModel.getPlayTracks(shuffle = true)
+
+        // Their drawn places drop out rather than being redrawn: a shorter start, no error.
+        assertTrue(tracks.isNotEmpty())
+        assertTrue(tracks.size < SPOTIFY_START_MAX_URIS)
+        assertTrue(tracks.all { index(it.albumId!!) % 2 == 1 })
+        assertTrue(loads.any { index(it) % 2 == 0 })
+        assertEquals(loads.distinct(), loads)
+    }
+
+    @Test
+    fun should_queueTheWholeDiscography_when_artistIsOnSubsonic() = runTest {
         val loads = mutableListOf<MediaId>()
         val viewModel = viewModelFor(MediaId.subsonic("ar-1"), albums = 40, loads = loads)
 
@@ -234,7 +348,8 @@ class ArtistPlayTracksTest {
     private fun TestScope.viewModelFor(
         artistId: MediaId,
         albums: Int,
-        loads: MutableList<MediaId>
+        loads: MutableList<MediaId>,
+        failing: (MediaId) -> Boolean = { false }
     ): ArtistDetailViewModel {
         val repository = mockk<YoinRepository>(relaxed = true)
         val albumIds = List(albums) { MediaId(artistId.provider, "al$it") }
@@ -252,6 +367,7 @@ class ArtistPlayTracksTest {
         coEvery { repository.getAlbum(any()) } answers {
             val id = firstArg<MediaId>()
             loads += id
+            if (failing(id)) throw IOException("HTTP 429")
             album(id, tracks = List(10) { track(id, it) })
         }
         val viewModel = ArtistDetailViewModel(artistId.toString(), repository)

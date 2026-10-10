@@ -214,17 +214,17 @@ class ArtistDetailViewModel(
 
     /**
      * The toolbar's Play ([shuffle] false) or Shuffle queue, in play order.
-     * Spotify's start plays only the first [SPOTIFY_START_MAX_URIS] tracks
-     * of a list (both start at its top), so on Spotify only the albums those
-     * come from are loaded ([loadArtistPlayTracks]); other providers queue
-     * the whole discography.
+     * Spotify's `uris` start carries only the first [SPOTIFY_START_MAX_URIS]
+     * tracks of a list, and Apple Music's start is held to the same count
+     * (MusicKit asks for every id in one capped catalog request). Both
+     * buttons start at the list's top, so on those providers only the albums
+     * those tracks come from are loaded ([artistStartLimit],
+     * [loadArtistPlayTracks]); other providers queue the whole discography.
      */
     suspend fun getPlayTracks(shuffle: Boolean): List<Track> = loadArtistPlayTracks(
         releases = releases(),
         shuffle = shuffle,
-        startLimit = SPOTIFY_START_MAX_URIS.takeIf {
-            MediaId.parseOrNull(artistId)?.provider == MediaId.PROVIDER_SPOTIFY
-        },
+        startLimit = artistStartLimit(MediaId.parseOrNull(artistId)?.provider),
         loadAlbum = ::albumTracks
     )
 
