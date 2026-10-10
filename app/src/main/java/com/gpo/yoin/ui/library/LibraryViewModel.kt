@@ -1362,9 +1362,30 @@ class LibraryViewModel(
             if (isSpotifyProvider()) {
                 searchSpotifySavedLibrary(query)
             } else {
-                repository.searchCurrentLibrary(query)
+                repository.searchCurrentLibrary(query).withLoadedArtistPortraits()
             }
         }
+    }
+
+    /**
+     * The artists found without a portrait take the one the loaded Artists
+     * list holds under the same id: Apple Music's library search gives its
+     * library artists none, while Library › Artists reads them with their
+     * catalog artist's. Nothing is asked for; one Library hasn't loaded keeps
+     * its type icon.
+     */
+    private fun SearchResults.withLoadedArtistPortraits(): SearchResults {
+        if (artists.none { it.coverArt == null }) return this
+        val portraits = cachedArtists.orEmpty()
+            .mapNotNull { artist -> artist.coverArt?.let { artist.id to it } }
+            .toMap()
+        if (portraits.isEmpty()) return this
+        return copy(
+            artists = artists.map { artist ->
+                val portrait = portraits[artist.id]
+                if (artist.coverArt == null && portrait != null) artist.copy(coverArt = portrait) else artist
+            }
+        )
     }
 
     private suspend fun searchSpotifySavedLibrary(query: String): SearchResults {

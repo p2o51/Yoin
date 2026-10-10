@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
@@ -100,6 +101,32 @@ class LibraryViewModelTest {
         assertEquals(expected, state.searchResults)
         coVerify(exactly = 1) { repository.searchCurrentLibrary("Apple") }
         coVerify(exactly = 0) { repository.search(any()) }
+    }
+
+    @Test
+    fun should_giveLibrarySearchArtistsTheirLoadedPortraits_when_appleMusicSearchHasNone() = runTest {
+        val repository = repositoryFor(
+            providerId = MediaId.PROVIDER_APPLE_MUSIC,
+            capabilities = setOf(Capability.SEARCH, Capability.CATALOG_SEARCH)
+        )
+        val portrait = CoverRef.Url("https://example.com/portrait.jpg")
+        val known = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.known")
+        val unknown = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:r.unknown")
+        coEvery { repository.getArtists() } returns
+            listOf(ArtistIndex("*", listOf(Artist(known, "Known", null, portrait))))
+        coEvery { repository.searchCurrentLibrary("k") } returns SearchResults(
+            artists = listOf(Artist(known, "Known", null, null), Artist(unknown, "Kept", null, null))
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.search("k")
+        advanceUntilIdle()
+
+        val found = content(viewModel).searchResults?.artists.orEmpty().associate { it.id to it.coverArt }
+        // The Artists list's portrait, by id; one Library doesn't hold keeps its type icon.
+        assertEquals(mapOf(known to portrait, unknown to null), found)
+        coVerify(exactly = 1) { repository.getArtists() }
     }
 
     @Test
