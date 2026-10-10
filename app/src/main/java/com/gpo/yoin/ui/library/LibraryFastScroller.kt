@@ -60,7 +60,8 @@ internal fun libraryJumpAnchor(
  * [bottomInset] above the grid's bottom (the floating bar's clearance), and
  * reaches [endOverhang] past the grid's end edge, so the handle hugs the
  * page's own edge across the page gutter — the shell column's edge in a
- * Wide split, never into the 24dp gap beside it.
+ * Wide split, never into the 24dp gap beside it. Nothing between it and the
+ * page may clip that overhang: the views' cross-fade is unclipped for it.
  *
  * @param leadingItems full-span rows before the first item (the sort row).
  */

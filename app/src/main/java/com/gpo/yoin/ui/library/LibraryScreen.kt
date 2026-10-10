@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
@@ -68,6 +69,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -766,11 +768,18 @@ private fun LibraryContentBody(
                 )
             }
             Box(modifier = Modifier.weight(1f)) {
+                val tabSizeSpec = YoinMotion.spatialSpring<IntSize>()
                 AnimatedContent(
                     targetState = state.selectedTab,
+                    // Unclipped: every view fills this box, so there is no size
+                    // change to clip, and the fast scroller's handle reaches
+                    // past the box across the page gutter (LibraryGridFastScroller)
+                    // — a clipped cross-fade would cut it to a sliver.
                     transitionSpec = {
-                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                        (
+                            YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                                YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                            ) using SizeTransform(clip = false) { _, _ -> tabSizeSpec }
                     },
                     label = "tabContent",
                     modifier = Modifier.fillMaxSize(),
