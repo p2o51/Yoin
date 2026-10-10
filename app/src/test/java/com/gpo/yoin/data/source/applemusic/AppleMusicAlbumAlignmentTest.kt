@@ -9,6 +9,8 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -20,6 +22,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -292,6 +295,7 @@ class AppleMusicAlbumAlignmentTest {
     @Test fun should_stopOpening_when_cancelledWhileLibraryTracksAreInFlight() = runBlocking {
         val bothAsked = CountDownLatch(2)
         val release = CountDownLatch(1)
+        val answered = AtomicInteger()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val response = when (request.requestUrl!!.encodedPath) {
@@ -301,6 +305,7 @@ class AppleMusicAlbumAlignmentTest {
                 }
                 bothAsked.countDown()
                 release.await(5, TimeUnit.SECONDS)
+                answered.incrementAndGet()
                 return response
             }
         }
@@ -308,11 +313,101 @@ class AppleMusicAlbumAlignmentTest {
         val open = async(Dispatchers.Default) { source.getAlbum(MediaId("applemusic", "library:l.1")) }
         assertTrue(bothAsked.await(5, TimeUnit.SECONDS))
         open.cancel()
-        release.countDown()
+        open.join()
 
+        // Both reads were cancelled with the open: it did not wait for either answer.
+        assertEquals(0, answered.get())
+        release.countDown()
         assertTrue(runCatching { open.await() }.exceptionOrNull() is CancellationException)
         // Cancelled with both reads in flight: nothing after them was asked for.
         assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_failAlbumAtOnce_when_libraryAlbumFailsWhileItsTracksAreInFlight() = runTest {
+        val (outcome, tracksAnswered) = openWhileLibraryTracksHang(MockResponse().setResponseCode(404))
+
+        assertEquals(AppleMusicApiFailure.Http(404), (outcome.exceptionOrNull() as AppleMusicApiException).failure)
+        // The failure is handed over without waiting for the tracklist read, which is cancelled instead.
+        assertFalse(tracksAnswered)
+    }
+
+    @Test fun should_returnNullAtOnce_when_libraryAlbumIsGoneWhileItsTracksAreInFlight() = runTest {
+        val (outcome, tracksAnswered) = openWhileLibraryTracksHang(body("""{"data":[]}"""))
+
+        assertNull(outcome.getOrThrow())
+        assertFalse(tracksAnswered)
+    }
+
+    @Test fun should_markEmbeddedTracksFromLibraryCopy_when_searchedAlbumIsInLibrary() = runTest {
+        // A catalog album opened from search (or Home): tracklist embedded, the user's copy read after the album.
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(
+                catalogAlbum("900", libraryId = "l.9", tracks = embedded(song("10"), song("11"), song("12")))
+            ),
+            "/v1/me/library/albums/l.9/tracks" to body(librarySongs("i.5" to "11", "i.6" to "11", "i.7" to "12"))
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(listOf("10", "11", "12"), album.tracks.map { it.id.rawId })
+        val byId = album.tracks.associateBy { it.id.rawId }
+        assertNull(byId.getValue("10").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        // First library copy wins when Apple holds two library songs for one catalog song.
+        assertEquals("i.5", byId.getValue("11").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertEquals("i.7", byId.getValue("12").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+        val paths = List(3) { server.takeRequest().requestUrl!!.encodedPath }
+        assertEquals(
+            setOf("/v1/me/storefront", "/v1/catalog/jp/albums/900", "/v1/me/library/albums/l.9/tracks"),
+            paths.toSet()
+        )
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test fun should_markWithFirstLibraryRead_when_libraryAlbumsCatalogMatchRefusesSongRelationships() = runTest {
+        // The catalog album answers only without include[songs], and only once the tracklist has been asked for:
+        // a tracklist read that waited for that album read would wait out the latch and get a 500 for the album.
+        val tracklistAsked = CountDownLatch(1)
+        val albumReads = AtomicInteger()
+        val requested = Collections.synchronizedList(mutableListOf<RecordedRequest>())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requested += request
+                return when (request.requestUrl!!.encodedPath) {
+                    "/v1/me/library/albums/l.1" -> body(libraryAlbum("l.1", catalogId = "900"))
+                    "/v1/me/library/albums/l.1/tracks" -> body(librarySongs("i.1" to "10", "i.2" to "10"))
+                    "/v1/me/storefront" -> body(storefront())
+                    "/v1/catalog/jp/albums/900" -> when {
+                        albumReads.incrementAndGet() == 1 -> MockResponse().setResponseCode(500)
+                        tracklistAsked.await(5, TimeUnit.SECONDS) -> body(catalogAlbum("900"))
+                        else -> MockResponse().setResponseCode(500)
+                    }
+                    "/v1/catalog/jp/albums/900/tracks" -> {
+                        tracklistAsked.countDown()
+                        body(catalogSongs("10", "11"))
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
+
+        assertEquals(MediaId("applemusic", "900"), album.id)
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertEquals("i.1", album.tracks.first().extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertNull(album.tracks.last().extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+        val urls = requested.map { it.requestUrl!! }
+        // The library tracklist read with the library album marks the rows: it is not asked for again.
+        assertEquals(1, urls.count { it.encodedPath == "/v1/me/library/albums/l.1/tracks" })
+        assertEquals(
+            listOf("albums,artists", null),
+            urls.filter { it.encodedPath == "/v1/catalog/jp/albums/900" }.map { it.queryParameter("include[songs]") }
+        )
+        assertEquals(1, urls.count { it.encodedPath == "/v1/catalog/jp/albums/900/tracks" })
+        assertEquals(6, urls.size)
     }
 
     @Test fun should_readBothTracklistsAtOnce_when_albumHasLibraryCopy() = runTest {
@@ -531,6 +626,38 @@ class AppleMusicAlbumAlignmentTest {
         val request = server.takeRequest()
         assertEquals("/v1/me/library/albums", request.requestUrl!!.encodedPath)
         assertEquals("catalog", request.requestUrl!!.queryParameter("include"))
+    }
+
+    /**
+     * Opens library album l.1, answered with [albumResponse] once its tracklist has been asked for; that
+     * tracklist is then held for up to five seconds. Returns the open's outcome and whether the tracklist had
+     * been answered by the time the open returned.
+     */
+    private suspend fun openWhileLibraryTracksHang(albumResponse: MockResponse): Pair<Result<Any?>, Boolean> {
+        val tracksAsked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val tracksAnswered = AtomicBoolean()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "/v1/me/library/albums/l.1" -> {
+                    tracksAsked.await(5, TimeUnit.SECONDS)
+                    albumResponse
+                }
+                "/v1/me/library/albums/l.1/tracks" -> {
+                    tracksAsked.countDown()
+                    release.await(5, TimeUnit.SECONDS)
+                    tracksAnswered.set(true)
+                    body(librarySongs("i.1" to "10"))
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val outcome = runCatching { source.getAlbum(MediaId("applemusic", "library:l.1")) }
+        val answered = tracksAnswered.get()
+        release.countDown()
+        // The tracklist was in flight when the album was answered: a cancelled read, not one never sent.
+        assertEquals(0L, tracksAsked.count)
+        return outcome to answered
     }
 
     private fun reply(body: String) = server.enqueue(MockResponse().setBody(body))
