@@ -1734,6 +1734,125 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_holdLaterPagesBack_when_theyWouldResortTheListOnScreen() = runTest {
+        // Apple Music's library albums come A–Z; All sorts by Recents, here Recently added.
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(),
+            200 to CompletableDeferred()
+        ) { pages ->
+            val viewModel = libraryViewModel(this)
+            advanceUntilIdle()
+            viewModel.ensureSelectedTabLoaded()
+            advanceUntilIdle()
+            fun albumKeys() = content(viewModel).allItems.orEmpty().filterIsInstance<LibraryItem.AlbumItem>()
+                .map(LibraryItem::key)
+            val firstShown = albumKeys()
+            assertEquals(100, firstShown.size)
+
+            // A full page whose newest album came last week: All holds as it is while the read goes on.
+            val zero7 = appleAlbum("library:l.zero7", "Zero 7", added = "2026-10-10T00:00:00Z")
+            pages.getValue(100).complete(appleNumbered(100 until 199) + zero7)
+            advanceUntilIdle()
+            assertEquals(firstShown, albumKeys())
+
+            // The read ends: everything joins at once, the newest on top.
+            pages.getValue(200).complete(appleNumbered(200 until 230))
+            advanceUntilIdle()
+            val keys = albumKeys()
+            assertEquals(230, keys.size)
+            assertEquals("album:${zero7.id}", keys.first())
+        }
+    }
+
+    @Test
+    fun should_addEachPageAsItLands_when_theViewSortsInTheOrderPagesCome() = runTest {
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(appleNumbered(100 until 200)),
+            200 to CompletableDeferred()
+        ) {
+            val store = LibrarySortStore.InMemory()
+            store.setSort("test-profile", LibraryTab.Albums, LibrarySort.Alphabetical)
+            val viewModel = libraryViewModel(this, sortStore = store)
+            advanceUntilIdle()
+            viewModel.selectTab(LibraryTab.Albums)
+            advanceUntilIdle()
+
+            // A–Z, as Apple Music sends them: the second page extends the list's end while the third is on its way.
+            assertEquals(
+                appleNumbered(0 until 200).map { it.id },
+                content(viewModel).albums.orEmpty().map(Album::id)
+            )
+        }
+    }
+
+    @Test
+    fun should_letHeldAlbumsIn_when_libraryComesIntoView() = runTest {
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(appleNumbered(100 until 200)),
+            200 to CompletableDeferred()
+        ) {
+            val viewModel = libraryViewModel(this)
+            advanceUntilIdle()
+            viewModel.ensureSelectedTabLoaded()
+            advanceUntilIdle()
+            fun albumsInAll() = content(viewModel).allItems.orEmpty().count { it is LibraryItem.AlbumItem }
+            assertEquals(100, albumsInAll())
+
+            // Back from a detail page, the read still going: Library re-sorts once, with the page it held.
+            viewModel.onLibraryShown()
+            advanceUntilIdle()
+            assertEquals(200, albumsInAll())
+        }
+    }
+
+    @Test
+    fun should_letHeldAlbumsIn_when_theSortChanges() = runTest {
+        applePagedAlbums(
+            0 to CompletableDeferred(appleNumbered(0 until 100)),
+            100 to CompletableDeferred(appleNumbered(100 until 200)),
+            200 to CompletableDeferred(),
+            300 to CompletableDeferred()
+        ) { pages ->
+            val viewModel = libraryViewModel(this)
+            advanceUntilIdle()
+            viewModel.selectTab(LibraryTab.Albums)
+            advanceUntilIdle()
+            fun albums() = content(viewModel).albums.orEmpty().size
+            assertEquals(100, albums())
+
+            // Every album moves to its A–Z place anyway: the held page joins in the same move.
+            viewModel.selectSort(LibraryTab.Albums, LibrarySort.Alphabetical)
+            advanceUntilIdle()
+            assertEquals(200, albums())
+
+            // Now in the order the pages come, the next one joins as it lands.
+            pages.getValue(200).complete(appleNumbered(200 until 300))
+            advanceUntilIdle()
+            assertEquals(300, albums())
+        }
+    }
+
+    @Test
+    fun should_addEachBatchAsItLands_when_subsonicSortsByRecentlyAdded() = runTest {
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 500) } returns numberedAlbums(500 until 1_000)
+        val lastBatch = CompletableDeferred<List<Album>>()
+        coEvery { repository.getAlbumList("newest", size = 500, offset = 1_000) } coAnswers { lastBatch.await() }
+        val store = LibrarySortStore.InMemory()
+        store.setSort("test-profile", LibraryTab.Albums, LibrarySort.RecentlyAdded)
+        val viewModel = libraryViewModel(repository, sortStore = store)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        // Subsonic's batches come newest first: the second only extends the list's end.
+        assertEquals(1_000, content(viewModel).albums.orEmpty().size)
+    }
+
+    @Test
     fun should_keepSpotifysAlbumsAsTheyAre_when_theListIsRead() = runTest {
         val repository = spotifyRepository()
         coEvery { repository.getAlbumList("newest", size = 500, offset = 0) } returns
@@ -2017,6 +2136,26 @@ class LibraryViewModelTest {
             val rawId = "n%03d".format(n)
             album(rawId, rawId, added = "2020-01-01T00:00:00Z").copy(id = MediaId(provider, rawId))
         }
+
+    private fun appleNumbered(numbers: IntRange): List<Album> =
+        numberedAlbums(numbers, provider = MediaId.PROVIDER_APPLE_MUSIC)
+
+    /**
+     * An Apple Music account whose library albums come a page of 100 at a
+     * time, each page answering when its [pages] entry (by offset) completes,
+     * and [block] run against it.
+     */
+    private suspend fun applePagedAlbums(
+        vararg pages: Pair<Int, CompletableDeferred<List<Album>>>,
+        block: suspend YoinRepository.(Map<Int, CompletableDeferred<List<Album>>>) -> Unit
+    ) {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val byOffset = pages.toMap()
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = any()) } coAnswers {
+            byOffset[thirdArg<Int>()]?.await().orEmpty()
+        }
+        repository.block(byOffset)
+    }
 
     private fun appleAlbum(rawId: String, name: String, added: String) =
         album(rawId, name, added).copy(id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, rawId))
