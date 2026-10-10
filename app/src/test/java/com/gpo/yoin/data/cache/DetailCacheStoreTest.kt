@@ -6,6 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,6 +30,41 @@ class DetailCacheStoreTest {
 
         assertEquals(setOf(id(3), id(4), id(5)), dao.entityIds)
         assertEquals(1, dao.evictionScans)
+    }
+
+    @Test
+    fun should_trimBelowCap_when_onlyMaxBytesIsSet() = runTest {
+        val row = rowLength()
+        val dao = FakeDetailCacheDao()
+        // No trim target given: it follows the cap (5/6 of it, here just under three rows).
+        val store = store(dao, maxBytes = 3 * row + row / 2)
+
+        (1..4).forEach { n -> write(store, n) }
+
+        assertEquals(setOf(id(3), id(4)), dao.entityIds)
+    }
+
+    @Test
+    fun should_rejectTrimTarget_when_aboveCap() {
+        assertThrows(IllegalArgumentException::class.java) {
+            DetailCacheStore(FakeDetailCacheDao(), maxBytes = 1_000L, trimTargetBytes = 2_000L)
+        }
+    }
+
+    @Test
+    fun should_keepServedRow_when_trimRunsBeforeItsTouchLands() = runTest {
+        val row = rowLength()
+        val dao = FakeDetailCacheDao()
+        val store = store(dao, maxBytes = 3 * row + row / 2, trimTargetBytes = 2 * row)
+        (1..3).forEach { n -> write(store, n) }
+        // Row 1, the oldest, is served; its LRU touch is still on its way …
+        dao.touchGate = CompletableDeferred()
+        store.readAlbum(PROFILE, id(1))!!.value()
+
+        // … when a write crosses the cap: the trim takes the next-oldest rows instead.
+        write(store, 4)
+
+        assertEquals(setOf(id(1), id(4)), dao.entityIds)
     }
 
     @Test
@@ -74,17 +110,22 @@ class DetailCacheStoreTest {
         return dao.jsonLength(PROFILE, "ALBUM", id(1))!!
     }
 
+    /** A store on [dao]; without [trimTargetBytes] the store's own default (it follows [maxBytes]). */
     private fun TestScope.store(
         dao: FakeDetailCacheDao,
         maxBytes: Long = DetailCacheStore.DEFAULT_MAX_BYTES,
-        trimTargetBytes: Long = DetailCacheStore.DEFAULT_TRIM_TARGET_BYTES
-    ) = DetailCacheStore(
-        dao = dao,
-        clock = { now },
-        maxBytes = maxBytes,
-        trimTargetBytes = trimTargetBytes,
-        scope = backgroundScope
-    )
+        trimTargetBytes: Long? = null
+    ) = if (trimTargetBytes == null) {
+        DetailCacheStore(dao = dao, clock = { now }, maxBytes = maxBytes, scope = backgroundScope)
+    } else {
+        DetailCacheStore(
+            dao = dao,
+            clock = { now },
+            maxBytes = maxBytes,
+            trimTargetBytes = trimTargetBytes,
+            scope = backgroundScope
+        )
+    }
 
     private suspend fun write(store: DetailCacheStore, n: Int) {
         now += 1_000L

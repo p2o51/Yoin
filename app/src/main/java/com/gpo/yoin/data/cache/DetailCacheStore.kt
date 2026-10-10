@@ -6,6 +6,8 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.perf.YoinPerf
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,10 +46,20 @@ class DetailCacheStore(
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxBytes: Long = DEFAULT_MAX_BYTES,
     private val maxAgeMs: Long = DEFAULT_MAX_AGE_MS,
-    private val trimTargetBytes: Long = DEFAULT_TRIM_TARGET_BYTES,
+    // Where a trim stops once the cap is crossed, so the next writes have room:
+    // 5/6 of the cap (~20 MB of the default 24 MB). It follows the cap, so a
+    // smaller maxBytes alone can't leave the target above it — a trim would
+    // then stop before deleting anything.
+    private val trimTargetBytes: Long = maxBytes * 5 / 6,
     // Where the LRU touch of a served row runs, off the read path.
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    // Where the JSON encodes and decodes run, off the caller's thread.
+    private val codecDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
+    init {
+        require(trimTargetBytes in 0..maxBytes) { "trimTargetBytes must be within 0..maxBytes" }
+    }
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = false
@@ -62,6 +74,13 @@ class DetailCacheStore(
      */
     private var totalBytesEstimate: Long? = null
     private val sizeLock = Mutex()
+
+    /**
+     * Rows served whose LRU touch hasn't landed yet (it runs in the background).
+     * A trim skips them: until the touch lands a row read a moment ago still
+     * carries its old `accessedAt`, and the oldest is what a trim deletes first.
+     */
+    private val touchesPending: MutableSet<Triple<String, String, String>> = ConcurrentHashMap.newKeySet()
 
     suspend fun readAlbum(profileId: String, id: String): Cached<Album>? =
         read(profileId, KIND_ALBUM, id) { json.decodeFromString(AlbumDto.serializer(), it).toDomain() }
@@ -82,22 +101,16 @@ class DetailCacheStore(
         id: String,
         value: ArtistDetail,
         stillCurrent: () -> Boolean = { true }
-    ) =
-        write(profileId, KIND_ARTIST, id, stillCurrent) {
-            json.encodeToString(ArtistDetailDto.serializer(), ArtistDetailDto.from(value))
-        }
+    ) = write(profileId, KIND_ARTIST, id, stillCurrent) {
+        json.encodeToString(ArtistDetailDto.serializer(), ArtistDetailDto.from(value))
+    }
 
     suspend fun readPlaylist(profileId: String, id: String): Cached<Playlist>? =
         read(profileId, KIND_PLAYLIST, id) {
             json.decodeFromString(PlaylistDto.serializer(), it).toDomain()
         }
 
-    suspend fun writePlaylist(
-        profileId: String,
-        id: String,
-        value: Playlist,
-        stillCurrent: () -> Boolean = { true }
-    ) =
+    suspend fun writePlaylist(profileId: String, id: String, value: Playlist, stillCurrent: () -> Boolean = { true }) =
         write(profileId, KIND_PLAYLIST, id, stillCurrent) {
             json.encodeToString(PlaylistDto.serializer(), PlaylistDto.from(value))
         }
@@ -135,14 +148,19 @@ class DetailCacheStore(
         }
         return Cached(entry.cachedAt) {
             // Corrupt / incompatible JSON → treat as a miss rather than crash.
-            val decoded = withContext(Dispatchers.Default) {
+            val decoded = withContext(codecDispatcher) {
                 runCatching { decode(entry.json) }.getOrNull()
             }
             if (decoded != null) {
                 // LRU-touch only rows we actually serve — in the background: it
-                // is a Room write, and the page has nothing to wait for in it …
+                // is a Room write, and the page has nothing to wait for in it.
+                // Trims leave the row alone until it lands (completion, not a
+                // finally: it fires even if the touch never got to run) …
                 val now = clock()
+                val key = Triple(profileId, kind, id)
+                touchesPending += key
                 scope.launch { runCatching { dao.touch(profileId, kind, id, now) } }
+                    .invokeOnCompletion { touchesPending -= key }
             } else {
                 // … never a corrupt one: delete it, or it would sit
                 // LRU-protected in the cache forever.
@@ -171,7 +189,7 @@ class DetailCacheStore(
         var chars = -1
         var skipped = false
         val result = runCatching {
-            val encoded = withContext(Dispatchers.Default) { encode() }
+            val encoded = withContext(codecDispatcher) { encode() }
             chars = encoded.length
             val now = clock()
             sizeLock.withLock {
@@ -228,7 +246,8 @@ class DetailCacheStore(
      * Once over [maxBytes], evict oldest-accessed entries until back under
      * [trimTargetBytes]; returns the post-eviction total (one fresh SUM, adjusted
      * per deletion), which the caller stores as the new running total. The row
-     * just written (the keep* key) is never evicted by its own write. Called with
+     * just written (the keep* key) is never evicted by its own write, nor a row
+     * served whose touch is still pending ([touchesPending]). Called with
      * [sizeLock] held.
      */
     private suspend fun trimToBudget(keepProfileId: String, keepKind: String, keepId: String): Long {
@@ -243,6 +262,7 @@ class DetailCacheStore(
             for (row in dao.sizesOldestFirst()) {
                 if (total <= trimTargetBytes) break
                 if (row.profileId == keepProfileId && row.kind == keepKind && row.entityId == keepId) continue
+                if (Triple(row.profileId, row.kind, row.entityId) in touchesPending) continue
                 dao.delete(row.profileId, row.kind, row.entityId)
                 total -= row.bytes
                 rows++
@@ -263,9 +283,6 @@ class DetailCacheStore(
 
         /** ~24 MB on-disk cap (JSON char count proxy). */
         const val DEFAULT_MAX_BYTES = 24L * 1024 * 1024
-
-        /** Where a trim stops once the cap is crossed (~20 MB), so the next writes have room. */
-        const val DEFAULT_TRIM_TARGET_BYTES = 20L * 1024 * 1024
 
         /** Entries older than this are never served and get purged (30 days). */
         const val DEFAULT_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
