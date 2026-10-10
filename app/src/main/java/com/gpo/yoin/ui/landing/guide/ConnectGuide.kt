@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.landing.guide
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -50,30 +53,88 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
+import java.security.MessageDigest
 
-// Turn-by-turn for Spotify for Developers, like a maps app's floating window:
-// one instruction at a time, what to tap named the way the site names it.
-// Yoin cannot see the browser, so the user moves on with the window's own
-// actions (Next / Previous); the redirect URIs are copied from it.
+// Turn-by-turn floating windows for the two services that send people out of
+// Yoin, like a maps app's: one instruction at a time, what to tap named the way
+// the other side names it. Yoin cannot see the browser, so on Spotify for
+// Developers the user moves on with the window's own actions (Next / Previous)
+// and copies each value from it; on Apple's sign-in the window follows Yoin's
+// attempts instead (owner 2026-10-10: one sign-in often doesn't take).
 
-/** One step of the guide. [labels] are the site's own words, kept in English and drawn as keys. */
+/** Which floating guide. */
+internal enum class GuideKind { Spotify, AppleMusic }
+
+/** A value a guide step puts on the clipboard, with its copy action's label. */
+internal enum class GuideCopy(@param:StringRes val actionLabel: Int) {
+    RedirectUri(R.string.guide_action_copy_first),
+    AppRemoteRedirectUri(R.string.guide_action_copy_second),
+    PackageName(R.string.guide_action_copy_package),
+    Sha1(R.string.guide_action_copy_sha1),
+    ;
+
+    /** The value for this install: the package and signing certificate are this APK's own. */
+    fun value(context: Context): String? = when (this) {
+        RedirectUri -> SpotifyAuthConfig.REDIRECT_URI
+        AppRemoteRedirectUri -> SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI
+        PackageName -> context.packageName
+        Sha1 -> signingCertificateSha1(context)
+    }
+}
+
+/** One step of a guide. [labels] are the other side's own words, kept in English and drawn as keys. */
 @Immutable
 internal data class GuideStep(
     @param:StringRes val text: Int,
     val labels: List<String>,
     @param:StringRes val then: Int?,
     /** What this step's copy action puts on the clipboard, if it has one. */
-    val copies: String? = null,
+    val copies: GuideCopy? = null,
 )
 
+/**
+ * Spotify for Developers, Create app. Ticking Android opens the "Android packages" rows: without this
+ * install's package name and signing fingerprint there, App Remote refuses to control playback.
+ */
 internal val SpotifyGuideSteps: List<GuideStep> = listOf(
     GuideStep(R.string.guide_create, listOf("Create app"), R.string.guide_then_name),
     GuideStep(R.string.guide_name, listOf("Yoin"), R.string.guide_then_uris),
-    GuideStep(R.string.guide_uri_first, listOf("Redirect URIs", "Add"), R.string.guide_then_second, copies = SpotifyAuthConfig.REDIRECT_URI),
-    GuideStep(R.string.guide_uri_second, emptyList(), R.string.guide_then_apis, copies = SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI),
-    GuideStep(R.string.guide_apis, listOf("Web API", "Android", "Save"), R.string.guide_then_client_id),
+    GuideStep(R.string.guide_uri_first, listOf("Redirect URIs", "Add"), R.string.guide_then_second, copies = GuideCopy.RedirectUri),
+    GuideStep(R.string.guide_uri_second, emptyList(), R.string.guide_then_apis, copies = GuideCopy.AppRemoteRedirectUri),
+    GuideStep(R.string.guide_apis, listOf("Web API", "Android"), R.string.guide_then_package),
+    GuideStep(R.string.guide_package, listOf("Android packages"), R.string.guide_then_sha1, copies = GuideCopy.PackageName),
+    GuideStep(R.string.guide_sha1, listOf("Add"), R.string.guide_then_save, copies = GuideCopy.Sha1),
+    GuideStep(R.string.guide_save, listOf("Save"), R.string.guide_then_client_id),
     GuideStep(R.string.guide_client_id, listOf("Client ID"), null),
 )
+
+/** Apple's sign-in. Step 0 while it's open; step [AppleMusicRetryStep] after an attempt that didn't take. */
+internal val AppleMusicGuideSteps: List<GuideStep> = listOf(
+    GuideStep(R.string.guide_apple_sign_in, emptyList(), R.string.guide_apple_then_tries),
+    GuideStep(R.string.guide_apple_retry, emptyList(), null),
+)
+
+internal const val AppleMusicRetryStep = 1
+
+internal fun guideSteps(kind: GuideKind): List<GuideStep> = when (kind) {
+    GuideKind.Spotify -> SpotifyGuideSteps
+    GuideKind.AppleMusic -> AppleMusicGuideSteps
+}
+
+/** SHA-1 of this APK's signing certificate as Spotify's dashboard takes it: `E7:47:B5:…`, upper case. */
+internal fun signingCertificateSha1(context: Context): String? = runCatching {
+    val pm = context.packageManager
+    val certificate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            .signingInfo?.apkContentsSigners?.firstOrNull()
+    } else {
+        @Suppress("DEPRECATION")
+        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures?.firstOrNull()
+    } ?: return null
+    formatFingerprint(MessageDigest.getInstance("SHA-1").digest(certificate.toByteArray()))
+}.getOrNull()
+
+internal fun formatFingerprint(digest: ByteArray): String = digest.joinToString(":") { "%02X".format(it) }
 
 internal const val SpotifyDashboardUrl = "https://developer.spotify.com/dashboard"
 
@@ -90,14 +151,15 @@ private val GuideGround = Color(0xFF0B0A1C)
  * (`sourceRectHint`) instead of from a full-screen page.
  */
 @Composable
-internal fun SpotifyGuideScreen(
+internal fun ConnectGuideScreen(
+    kind: GuideKind,
     inPictureInPicture: Boolean,
     stepIndex: Int,
     flash: String?,
     onCardBounds: (Rect) -> Unit,
 ) {
     if (inPictureInPicture) {
-        SpotifyGuideCard(stepIndex = stepIndex, flash = flash)
+        ConnectGuideCard(kind = kind, stepIndex = stepIndex, flash = flash)
         return
     }
     Box(
@@ -106,7 +168,8 @@ internal fun SpotifyGuideScreen(
             .background(GuideGround),
         contentAlignment = Alignment.Center,
     ) {
-        SpotifyGuideCard(
+        ConnectGuideCard(
+            kind = kind,
             stepIndex = stepIndex,
             flash = flash,
             modifier = Modifier
@@ -125,10 +188,11 @@ internal const val GuideAspectRatio = 4f / 3f
 
 /**
  * The guide card. It fills whatever it is given: the picture-in-picture window, or the centred card of
- * [SpotifyGuideScreen].
+ * [ConnectGuideScreen].
  */
 @Composable
-internal fun SpotifyGuideCard(
+internal fun ConnectGuideCard(
+    kind: GuideKind,
     stepIndex: Int,
     flash: String?,
     modifier: Modifier = Modifier,
@@ -136,15 +200,16 @@ internal fun SpotifyGuideCard(
     // Everything scales with the window: the system decides how big the picture-in-picture window is (and the
     // user can pinch it), so the card is laid out for 240 x 180dp and scaled to fit.
     val scale = minOf(maxWidth / GuideDesignWidth, maxHeight / GuideDesignHeight).coerceIn(0.55f, 1.8f)
-    GuideCardContent(stepIndex, flash, scale)
+    GuideCardContent(kind, stepIndex, flash, scale)
 }
 
 private val GuideDesignWidth = 240.dp
 private val GuideDesignHeight = 180.dp
 
 @Composable
-private fun GuideCardContent(stepIndex: Int, flash: String?, scale: Float) {
-    val step = SpotifyGuideSteps[stepIndex]
+private fun GuideCardContent(kind: GuideKind, stepIndex: Int, flash: String?, scale: Float) {
+    val steps = guideSteps(kind)
+    val step = steps[stepIndex.coerceIn(0, steps.lastIndex)]
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -159,7 +224,11 @@ private fun GuideCardContent(stepIndex: Int, flash: String?, scale: Float) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)) {
                 GuideMark(size = (22 * scale).dp)
                 Text(
-                    text = stringResource(R.string.guide_step, stepIndex + 1, SpotifyGuideSteps.size),
+                    // Spotify is a numbered walk; Apple's sign-in is one thing that may need repeating.
+                    text = when (kind) {
+                        GuideKind.Spotify -> stringResource(R.string.guide_step, stepIndex + 1, steps.size)
+                        GuideKind.AppleMusic -> stringResource(R.string.guide_apple_title)
+                    },
                     style = guideText(12 * scale, FontWeight.Medium),
                     color = Color.White.copy(alpha = 0.85f),
                 )
@@ -177,7 +246,7 @@ private fun GuideCardContent(stepIndex: Int, flash: String?, scale: Float) {
                 label = "guideStep",
                 modifier = Modifier.weight(1f),
             ) { index ->
-                val current = SpotifyGuideSteps[index]
+                val current = steps[index.coerceIn(0, steps.lastIndex)]
                 Column {
                     Text(
                         text = instruction(current),
@@ -257,13 +326,13 @@ private fun GuideMark(size: Dp) {
 @Preview(widthDp = 240, heightDp = 180)
 @Composable
 private fun SpotifyGuideCardPreview() {
-    SpotifyGuideCard(stepIndex = 2, flash = null)
+    ConnectGuideCard(kind = GuideKind.Spotify, stepIndex = 6, flash = null)
 }
 
 @Preview(widthDp = 252, heightDp = 162)
 @Composable
-private fun SpotifyGuideCardLastPreview() {
+private fun AppleMusicGuideCardPreview() {
     Column(Modifier.height(162.dp).width(252.dp)) {
-        SpotifyGuideCard(stepIndex = 5, flash = null)
+        ConnectGuideCard(kind = GuideKind.AppleMusic, stepIndex = 0, flash = null)
     }
 }
