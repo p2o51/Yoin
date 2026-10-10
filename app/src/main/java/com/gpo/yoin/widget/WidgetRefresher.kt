@@ -5,6 +5,8 @@ import android.content.Intent
 import android.util.Log
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
@@ -22,9 +24,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Keeps placed widgets current while the process lives: new plays / visits, memory signals (ratings, notes,
@@ -100,14 +104,32 @@ internal object WidgetLaunch {
                     WidgetEntity.PLAYLIST -> PlaylistDetailActivity.intent(activity, id.toString())
                     WidgetEntity.ARTIST -> ArtistDetailActivity.intent(activity, id.toString())
                 }
-                // The page's load starts now, not once its Activity is up (ui/detail/DetailPrefetch.kt) — if the
-                // source is built. On a cold start it may not be yet: a load that has to reach the network would
-                // fail at once, and a page that joined it would show that error, so the page loads on its own.
-                if (container.profileManager.activeSource.value != null) container.repository.prefetchDetail(target)
+                // The page's load starts now, not once its Activity is up (ui/detail/DetailPrefetch.kt).
+                prefetchOnceSourceIsUp(activity, container, target)
                 activity.startActivity(target)
             }
             else -> return false
         }
         return true
     }
+
+    /**
+     * Prefetch [target]'s page — on a cold start only once the source is built: a load started without one
+     * would fail at once, and a page that joined it would show that error. The wait is tied to the shell under
+     * the page and capped at [PREFETCH_SOURCE_WAIT_MS]; past that the page has loaded on its own.
+     */
+    private fun prefetchOnceSourceIsUp(activity: android.app.Activity, container: AppContainer, target: Intent) {
+        val activeSource = container.profileManager.activeSource
+        if (activeSource.value != null) {
+            container.repository.prefetchDetail(target)
+            return
+        }
+        val scope = (activity as? LifecycleOwner)?.lifecycleScope ?: return
+        scope.launch {
+            withTimeoutOrNull(PREFETCH_SOURCE_WAIT_MS) { activeSource.first { it != null } } ?: return@launch
+            container.repository.prefetchDetail(target)
+        }
+    }
+
+    private const val PREFETCH_SOURCE_WAIT_MS = 3_000L
 }
