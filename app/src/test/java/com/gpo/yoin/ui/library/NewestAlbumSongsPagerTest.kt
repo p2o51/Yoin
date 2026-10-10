@@ -62,7 +62,10 @@ class NewestAlbumSongsPagerTest {
         assertEquals((11..20).map { "s$it" }, second.rawIds())
         assertEquals((21..25).map { "s$it" }, third.rawIds())
         assertTrue(pager.reachedEnd)
-        assertEquals(listOf(0 to 10, 10 to 10, 20 to 10), library.pageReads)
+        // Each page after the first lists the five albums before it again...
+        assertEquals(listOf(0 to 10, 5 to 15, 15 to 15), library.pageReads)
+        // ...but opens each album once.
+        assertEquals((1..25).map { "al$it" }, library.opened)
         // Past the end: nothing, and no request.
         assertEquals(emptyList<Track>(), pager.next())
         assertEquals(3, library.pageReads.size)
@@ -79,7 +82,7 @@ class NewestAlbumSongsPagerTest {
                 album("d", "s5")
             )
         )
-        val pager = library.pager(albumsPerPage = 2)
+        val pager = library.pager(albumsPerPage = 2, reread = 0)
         val first = pager.next()
         // An album added on the server between pages shifts "b" into the next page.
         library.albums = listOf(album("new", "s0")) + library.albums
@@ -93,12 +96,46 @@ class NewestAlbumSongsPagerTest {
     }
 
     @Test
+    fun should_readTheAlbumsAfterTheLastRead_when_albumsAreDeletedBetweenPages() = runTest {
+        val library = FakeLibrary(albums = (1..30).map { album("al$it", "s$it") })
+        val pager = library.pager(albumsPerPage = 10)
+        pager.next()
+        // Two albums the first page listed are deleted on the server: the rest shift up by two.
+        library.albums = library.albums.filterNot { it.id.rawId == "al4" || it.id.rawId == "al5" }
+
+        val second = pager.next()
+        val rest = mutableListOf<Track>()
+        while (!pager.reachedEnd) rest += pager.next()
+
+        // "al11" and "al12" now sit where the first page ended; they are not skipped.
+        assertEquals((11..22).map { "s$it" }, second.rawIds())
+        assertEquals((23..30).map { "s$it" }, rest.rawIds())
+    }
+
+    @Test
+    fun should_leaveNewAlbumsForTheTop_when_albumsAreAddedBetweenPages() = runTest {
+        val library = FakeLibrary(albums = (1..20).map { album("al$it", "s$it") })
+        val pager = library.pager(albumsPerPage = 10)
+        val first = pager.next()
+        // Seven albums added on the server: newest, so at the top, reaching into the re-read albums.
+        library.albums = (1..7).map { album("new$it", "n$it") } + library.albums
+
+        val later = mutableListOf<Track>()
+        while (!pager.reachedEnd) later += pager.next()
+
+        // The list reads on from "al11"; the new albums come with a refresh, at the top.
+        assertEquals((1..10).map { "s$it" }, first.rawIds())
+        assertEquals((11..20).map { "s$it" }, later.rawIds())
+        assertTrue(library.opened.none { it.startsWith("new") })
+    }
+
+    @Test
     fun should_readOnToTheNextPage_when_aPageHoldsNoNewSong() = runTest {
         val library = FakeLibrary(
             albums = listOf(album("a", "s1"), album("b", "s2"), album("empty"), album("gone"), album("c", "s3")),
             missing = setOf("gone")
         )
-        val pager = library.pager(albumsPerPage = 2)
+        val pager = library.pager(albumsPerPage = 2, reread = 0)
 
         assertEquals(listOf("s1", "s2"), pager.next().rawIds())
         // "empty" holds no song and "gone" no longer opens: the same call reads on to "c".
@@ -110,28 +147,61 @@ class NewestAlbumSongsPagerTest {
     @Test
     fun should_readTheSamePageAgain_when_aReadFailed() = runTest {
         val library = FakeLibrary(albums = (1..4).map { album("al$it", "s$it") })
-        val pager = library.pager(albumsPerPage = 2)
+        val pager = library.pager(albumsPerPage = 2, reread = 0)
         pager.next()
         library.failing = setOf("al4")
 
-        try {
-            pager.next()
-            fail("The page should fail with its album")
-        } catch (expected: IllegalStateException) {
-            // The whole page fails: none of its songs are given.
-        }
+        assertReadFails(pager)
         library.failing = emptySet()
         val retried = pager.next()
 
+        // The whole page failed, then came whole: an album that opens on the retry is kept.
         assertEquals(listOf("s3", "s4"), retried.rawIds())
         assertEquals(listOf(0 to 2, 2 to 2, 2 to 2), library.pageReads)
+    }
+
+    @Test
+    fun should_leaveAnAlbumOut_when_itFailsAgainOnTheNextRead() = runTest {
+        val library = FakeLibrary(albums = (1..4).map { album("al$it", "s$it") })
+        // "al3" never opens, however often it is asked for.
+        library.failing = setOf("al3")
+        val pager = library.pager(albumsPerPage = 2)
+        assertEquals(listOf("s1", "s2"), pager.next().rawIds())
+
+        assertReadFails(pager)
+        val past = pager.next()
+
+        // The second failure leaves "al3" out; "al4" and what follows it are no longer held back.
+        assertEquals(listOf("s4"), past.rawIds())
+        assertEquals(emptyList<Track>(), pager.next())
+        assertTrue(pager.reachedEnd)
+        // Once left out, it isn't asked for again.
+        assertEquals(2, library.attempts.count { it == "al3" })
+    }
+
+    @Test
+    fun should_getPastEveryBrokenAlbum_when_onePageHoldsSeveral() = runTest {
+        val library = FakeLibrary(
+            albums = listOf(album("al1", "s1"), album("broken1", "b1"), album("broken2", "b2"), album("al2", "s2"))
+        )
+        library.failing = setOf("broken1", "broken2")
+        // One at a time: the first broken album fails the read before the second is asked for.
+        val pager = library.pager(albumsPerPage = 4, parallelism = 1)
+
+        // "broken1" fails the first read; left out on the second, "broken2" fails that one.
+        assertReadFails(pager)
+        assertReadFails(pager)
+        // Both are remembered, so they don't take turns failing every read after.
+        val songs = pager.next()
+
+        assertEquals(listOf("s1", "s2"), songs.rawIds())
     }
 
     @Test
     fun should_stayWhereItWas_when_aReadIsCancelled() = runTest {
         val gate = CompletableDeferred<Unit>()
         val library = FakeLibrary(albums = (1..4).map { album("al$it", "s$it") })
-        val pager = library.pager(albumsPerPage = 2)
+        val pager = library.pager(albumsPerPage = 2, reread = 0)
         pager.next()
         library.gate = gate
 
@@ -154,6 +224,15 @@ class NewestAlbumSongsPagerTest {
         assertTrue(pager.reachedEnd)
     }
 
+    private suspend fun assertReadFails(pager: NewestAlbumSongsPager) {
+        try {
+            pager.next()
+            fail("The read should fail with its album")
+        } catch (expected: IllegalStateException) {
+            // The whole page fails: none of its songs are given.
+        }
+    }
+
     private class FakeLibrary(
         var albums: List<Album>,
         private val openDelayMs: Map<String, Long> = emptyMap(),
@@ -162,20 +241,30 @@ class NewestAlbumSongsPagerTest {
         var failing: Set<String> = emptySet()
         var gate: CompletableDeferred<Unit>? = null
         val pageReads = mutableListOf<Pair<Int, Int>>()
+
+        /** Every album asked for, whether it opened or not. */
+        val attempts = mutableListOf<String>()
         val opened = mutableListOf<String>()
         var mostOpenAtOnce = 0
         private var openNow = 0
 
-        fun pager(albumsPerPage: Int = 10) = NewestAlbumSongsPager(
+        fun pager(
+            albumsPerPage: Int = 10,
+            parallelism: Int = NewestAlbumSongsPager.ALBUMS_OPENED_AT_ONCE,
+            reread: Int = NewestAlbumSongsPager.ALBUMS_REREAD
+        ) = NewestAlbumSongsPager(
             loadAlbums = { offset, size ->
                 pageReads += offset to size
                 albums.drop(offset).take(size)
             },
             loadAlbum = { id -> open(id.rawId) },
-            albumsPerPage = albumsPerPage
+            albumsPerPage = albumsPerPage,
+            parallelism = parallelism,
+            reread = reread
         )
 
         private suspend fun open(rawId: String): Album? {
+            attempts += rawId
             openNow += 1
             mostOpenAtOnce = maxOf(mostOpenAtOnce, openNow)
             try {

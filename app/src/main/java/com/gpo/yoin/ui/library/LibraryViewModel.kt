@@ -96,7 +96,9 @@ class LibraryViewModel(
 
     /**
      * Where Songs comes a page at a time ([songsFromNewestAlbums]): what reads
-     * the next page, set with the first one; null for a list read whole.
+     * the next page, set as the first one is read and kept through a failed
+     * first read (its next try leaves out an album that fails again); null
+     * for a list read whole, and once Songs is forgotten ([forgetSongs]).
      */
     private var songsPager: NewestAlbumSongsPager? = null
 
@@ -400,9 +402,15 @@ class LibraryViewModel(
                     }
                     LibraryTab.Songs -> {
                         // The albums' songs start from their first page; the
-                        // list then reads on as it scrolls (loadMoreSongs).
+                        // list then reads on as it scrolls (loadMoreSongs). A
+                        // first page that failed keeps its pager, so the chip's
+                        // next tap gets past an album that fails again.
                         val firstPage = cachedSongs == null && songsFromNewestAlbums()
-                        val pager = if (firstPage) newestAlbumSongsPager() else null
+                        val pager = if (firstPage) {
+                            songsPager ?: newestAlbumSongsPager().also { songsPager = it }
+                        } else {
+                            null
+                        }
                         val songs = cachedSongs ?: run {
                             val loaded = when {
                                 pager != null -> pager.next()
@@ -414,10 +422,7 @@ class LibraryViewModel(
                         }
                         if (!isCurrent()) return@launch
                         cachedSongs = songs
-                        if (pager != null) {
-                            songsPager = pager
-                            songsMoreState = pager.moreState()
-                        }
+                        if (pager != null) songsMoreState = pager.moreState()
                         updateContent { copy(songs = cachedSongs.orEmpty(), songsMore = songsMoreState) }
                     }
                     LibraryTab.Playlists -> {

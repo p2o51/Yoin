@@ -72,8 +72,12 @@ sealed interface LibraryUiState {
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_WRITE].
          */
         val canCreatePlaylists: Boolean = true,
-        /** Library-only providers show saved songs without the random-mix header. */
-        val canReshuffleSongs: Boolean = true,
+        /**
+         * Songs is a random sample with a Random mix header and a reshuffle.
+         * No shipped service lists Songs that way any more (Subsonic lists its
+         * newest albums' songs), so it is off unless the view model says so.
+         */
+        val canReshuffleSongs: Boolean = false,
         /** What follows [songs]' last row: more of them, or nothing. */
         val songsMore: LibrarySongsMore = LibrarySongsMore.None,
         val canAddToLibrary: Boolean = false,

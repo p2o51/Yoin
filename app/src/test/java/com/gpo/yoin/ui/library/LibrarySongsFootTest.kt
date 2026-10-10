@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.library
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
@@ -24,8 +27,13 @@ class LibrarySongsFootTest {
 
     private var moreAsked = 0
 
+    /** The rows on hand and what follows them, as the view model publishes them. */
+    private var shown by mutableStateOf(0 to LibrarySongsMore.None)
+
     private fun setSongs(count: Int, more: LibrarySongsMore) {
+        shown = count to more
         rule.setContent {
+            val (rows, foot) = shown
             YoinTheme {
                 ProvidePreviewWindow(widthDp = 412, heightDp = 915) {
                     LibraryContent(
@@ -33,14 +41,13 @@ class LibrarySongsFootTest {
                             selectedTab = LibraryTab.Songs,
                             artists = emptyList(),
                             albums = emptyList(),
-                            songs = (1..count).map { song("s$it") },
+                            songs = (1..rows).map { song("s$it") },
                             playlists = emptyList(),
                             favorites = null,
                             searchQuery = "",
                             searchResults = null,
                             isSearching = false,
-                            canReshuffleSongs = false,
-                            songsMore = more
+                            songsMore = foot
                         ),
                         onTabSelected = {},
                         onSearchQueryChanged = {},
@@ -80,6 +87,28 @@ class LibrarySongsFootTest {
 
         assertEquals(0, moreAsked)
         rule.onNodeWithContentDescription("Retry").assertDoesNotExist()
+    }
+
+    @Test
+    fun should_notAskForMoreSongs_when_aPageIsBeingRead() {
+        setSongs(count = 4, more = LibrarySongsMore.Loading)
+
+        assertEquals(0, moreAsked)
+    }
+
+    @Test
+    fun should_askAgain_when_aPageLeavesTheListStillShort() {
+        setSongs(count = 4, more = LibrarySongsMore.Available)
+        assertEquals(1, moreAsked)
+
+        // The view model reads the page, then hands back a list still within a screen of its end.
+        shown = 4 to LibrarySongsMore.Loading
+        rule.waitForIdle()
+        assertEquals(1, moreAsked)
+        shown = 8 to LibrarySongsMore.Available
+        rule.waitForIdle()
+
+        assertEquals(2, moreAsked)
     }
 
     @Test
