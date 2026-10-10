@@ -403,7 +403,13 @@ class AlbumDetailViewModel(
     private fun applyFavoriteStates(states: Map<MediaId, FavoriteState>, taps: Map<MediaId, PendingFavoriteTap>) {
         val current = _uiState.value as? AlbumDetailUiState.Content ?: return
         albumSongs = albumSongs.map { track ->
-            val state = taps[track.id]?.let { tap -> FavoriteState(tap.favorite, fromUser = true) }
+            // A tap carries the newest answer the repository has, so one that
+            // comes in while the write is out is seen as it lands: a failed
+            // write falling back to it is the rollback, not a late answer.
+            val state = taps[track.id]
+                ?.let { tap ->
+                    FavoriteState(tap.favorite, fromUser = true, answeredAtMs = states[track.id]?.answeredAtMs ?: 0L)
+                }
                 ?: states[track.id]
                 ?: return@map track
             val glyph = (favoriteGlyphs[track.id] ?: FavoriteGlyph(track.isStarred))

@@ -105,6 +105,32 @@ class AlbumDetailViewModelFavoriteTest {
     }
 
     @Test
+    fun should_animateTheFallBack_when_anAnswerCameInWhileTheFailedWriteWasOut() = runTest {
+        val write = CompletableDeferred<Result<Unit>>()
+        coEvery { repository.setFavorite(second, true) } coAnswers {
+            write.await().also {
+                // The write is refused: the repository's state falls back to that answer.
+                states.value = states.value + (second.id to answer(false, atMs = 5L))
+            }
+        }
+        val viewModel = viewModel()
+        runCurrent()
+
+        viewModel.toggleStar(second.id.toString())
+        runCurrent()
+        // The page's check answers while the write is out: the write still wins, the answer rides along.
+        states.value = states.value + (second.id to FavoriteState(true, fromUser = true, answeredAtMs = 5L))
+        runCurrent()
+        assertEquals(true to 0, row(viewModel, second))
+
+        write.complete(Result.failure(IllegalStateException("offline")))
+        runCurrent()
+
+        // Back to an answer the heart already saw under the tap: the rollback, not a late answer.
+        assertEquals(false to 0, row(viewModel, second))
+    }
+
+    @Test
     fun should_askAgain_when_thePageResumes() = runTest {
         val viewModel = viewModel()
         runCurrent()
@@ -128,6 +154,9 @@ class AlbumDetailViewModelFavoriteTest {
         val song = content.songs.single { it.id == track.id.toString() }
         return song.isStarred to song.favoriteQuietFlips
     }
+
+    private fun answer(isStarred: Boolean, atMs: Long) =
+        FavoriteState(isStarred = isStarred, fromAnswer = true, answeredAtMs = atMs)
 
     private fun track(rawId: String) = Track(
         id = MediaId.spotify(rawId),
