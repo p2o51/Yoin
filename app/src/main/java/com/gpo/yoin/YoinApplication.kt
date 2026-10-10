@@ -11,7 +11,6 @@ import androidx.window.embedding.SplitController
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
-import com.gpo.yoin.perf.YoinPerfImages
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 import com.gpo.yoin.widget.WidgetRefresher
 
@@ -26,13 +25,12 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
      * detail pages are separate Activities, so per-Activity loaders multiplied
      * every cache. Pixel-reading callers (palette/seed extraction) must keep
      * `allowHardware(false)` on their own [coil3.request.ImageRequest]s rather
-     * than reach for a separately-configured loader. Debug builds add only the
-     * YoinPerf image listener (docs/perf/yoinperf-logging.md); release gets none.
+     * than reach for a separately-configured loader. Built in YoinImageLoader.kt:
+     * its own OkHttp client, a disk cache that never stores an error response,
+     * and — debug builds only — the YoinPerf image listener
+     * (docs/perf/yoinperf-logging.md); release gets no listener.
      */
-    override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context)
-            .apply { YoinPerfImages.listenerFactory()?.let(::eventListenerFactory) }
-            .build()
+    override fun newImageLoader(context: PlatformContext): ImageLoader = buildYoinImageLoader(context)
 
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate() {
@@ -45,6 +43,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         // JavaCPP's process-memory budget is captured on first MusicKit/Pointer use.
         AppleMusicNativeMemoryPolicy.initialize(this)
         container = containerOverrideForTests ?: AppContainer(this)
+        retireLegacyImageDiskCache(cacheDir)
         registerHostLifecycle()
         registerActivityEmbeddingRules()
         if (containerOverrideForTests == null) WidgetRefresher.start(this, container)
