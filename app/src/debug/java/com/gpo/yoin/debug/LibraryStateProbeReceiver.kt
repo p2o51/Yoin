@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.player.SpotifyAppRemotePlayer.ProbeConnection
 import com.gpo.yoin.player.normalizedSpotifyErrorMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,9 +17,10 @@ import kotlinx.coroutines.launch
 /**
  * Debug-only, read-only App Remote probe (Q17): asks the Spotify app whether
  * each URI is in the user's library through UserApi.getLibraryState and logs
- * the answers under [TAG]. Connects App Remote when it isn't — the same warm
- * connection Yoin makes for a Spotify profile, which plays nothing and leaves
- * the queue alone. Logs no token or client id.
+ * the answers under [TAG]. Connects App Remote when it isn't — it plays
+ * nothing and leaves the queue alone — and leaves the connection as it found
+ * it: one opened on a Subsonic or Apple Music account closes after the reads,
+ * and nothing reconnects for it later. Logs no token or client id.
  *
  * ```
  * adb shell am broadcast -n com.gpo.yoin/.debug.LibraryStateProbeReceiver \
@@ -45,11 +47,22 @@ class LibraryStateProbeReceiver : BroadcastReceiver() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope.launch {
             try {
-                val probe = app.container.playbackManager.probeSpotifyLibraryStates(uris, CONNECT_TIMEOUT_MS)
-                Log.i(TAG, "connect ok=${probe.connected} host=${probe.hadHost} ms=${probe.connectMs}")
-                if (!probe.connected) {
-                    Log.w(TAG, "App Remote did not connect: open Yoin (an Activity must be started) and retry")
+                val probe = app.container.playbackManager.probeSpotifyLibraryStates(
+                    uris.take(MAX_URIS),
+                    CONNECT_TIMEOUT_MS
+                )
+                Log.i(TAG, "connect ${probe.connection} ms=${probe.connectMs}")
+                when (probe.connection) {
+                    ProbeConnection.Connected -> Unit
+                    ProbeConnection.NoClientId -> Log.w(TAG, "no Spotify client id: switch to a Spotify profile")
+                    ProbeConnection.NoHost ->
+                        Log.w(TAG, "App Remote did not connect: open Yoin (an Activity must be started) and retry")
+                    ProbeConnection.TimedOut -> Log.w(
+                        TAG,
+                        "App Remote did not connect within ${CONNECT_TIMEOUT_MS / 1_000} s: open Spotify and retry"
+                    )
                 }
+                if (uris.size > MAX_URIS) Log.w(TAG, "probe: read the first $MAX_URIS of ${uris.size} uris")
                 probe.readings.forEach { reading ->
                     val error = reading.error
                     if (error == null) {
@@ -90,5 +103,8 @@ class LibraryStateProbeReceiver : BroadcastReceiver() {
 
         /** App Remote's error text is a short sentence; this only bounds a surprise. */
         private const val MAX_ERROR_CHARS = 200
+
+        /** At most this many reads (3 s each at worst) keep the broadcast inside its minute. */
+        private const val MAX_URIS = 10
     }
 }

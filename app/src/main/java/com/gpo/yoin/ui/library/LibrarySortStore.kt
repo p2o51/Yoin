@@ -17,6 +17,9 @@ interface LibrarySortStore {
 
     fun setSort(profileId: String, view: LibraryTab, sort: LibrarySort)
 
+    /** Forgets [profileId]'s choices, every view's (the profile was deleted). */
+    fun clear(profileId: String)
+
     /** Process-local, for previews and tests. */
     class InMemory : LibrarySortStore {
         private val sorts = HashMap<Pair<String, LibraryTab>, LibrarySort>()
@@ -25,6 +28,10 @@ interface LibrarySortStore {
 
         override fun setSort(profileId: String, view: LibraryTab, sort: LibrarySort) {
             sorts[profileId to view] = sort
+        }
+
+        override fun clear(profileId: String) {
+            sorts.keys.removeAll { (owner, _) -> owner == profileId }
         }
     }
 }
@@ -40,6 +47,11 @@ class SharedPrefsLibrarySortStore(context: Context) : LibrarySortStore {
 
     override fun setSort(profileId: String, view: LibraryTab, sort: LibrarySort) {
         prefs.edit { putString(key(profileId, view), sort.name) }
+    }
+
+    override fun clear(profileId: String) {
+        val own = prefs.all.keys.filter { stored -> stored.startsWith("$profileId/") }
+        if (own.isNotEmpty()) prefs.edit { own.forEach(::remove) }
     }
 
     private fun key(profileId: String, view: LibraryTab): String = "$profileId/${view.name}"

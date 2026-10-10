@@ -422,21 +422,57 @@ internal class SpotifyAppRemotePlayer(
     }
 
     /**
-     * For the debug library-state probe: starts the warm connection when
-     * there is none and waits up to [timeoutMs] for it. App Remote connects
-     * only while a Yoin Activity is started. Plays nothing.
+     * For the debug library-state probe: runs [block] with App Remote
+     * connected when it can be, connecting it for the probe when it isn't
+     * (waiting up to [timeoutMs]; it connects only while a Yoin Activity is
+     * started), and leaves things as it found them. The probe never asks for
+     * the connection to stay ([wantsConnection] is left as it was), so no
+     * later host start reconnects for it; a connection it opened where none
+     * was wanted — a Subsonic or Apple Music account — reports nothing to
+     * the player while it lasts and closes when [block] is done. Without a
+     * client id it doesn't try. Plays nothing.
      */
-    suspend fun awaitConnection(timeoutMs: Long): Boolean = withContext(Dispatchers.Main.immediate) {
-        if (remote?.isConnected == true) return@withContext true
-        warmConnection()
-        withTimeoutOrNull(timeoutMs) {
-            while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
-            true
-        } ?: false
-    }
+    suspend fun <T> withProbeConnection(timeoutMs: Long, block: suspend (ProbeConnection) -> T): T =
+        withContext(Dispatchers.Main.immediate) {
+            if (remote?.isConnected == true) return@withContext block(ProbeConnection.Connected)
+            if (clientIdProvider().isBlank()) return@withContext block(ProbeConnection.NoClientId)
+            connectIfPossible()
+            val connected = withTimeoutOrNull(timeoutMs) {
+                while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
+                true
+            } ?: false
+            try {
+                block(
+                    when {
+                        connected -> ProbeConnection.Connected
+                        hostContext == null -> ProbeConnection.NoHost
+                        else -> ProbeConnection.TimedOut
+                    }
+                )
+            } finally {
+                // Opened for the probe alone (nothing asked for it since): closed again.
+                if (!wantsConnection) {
+                    connectJob?.cancel()
+                    connectJob = null
+                    if (remote != null) disconnectRemote(preserveSnapshot = true)
+                }
+            }
+        }
 
-    /** Whether a started Yoin Activity is there to connect App Remote from (debug probe). */
-    fun hasHost(): Boolean = hostContext != null
+    /** How the debug probe's App Remote connection went ([withProbeConnection]). */
+    internal enum class ProbeConnection {
+        /** Connected, or already was. */
+        Connected,
+
+        /** No Spotify client id set: App Remote can't connect at all. */
+        NoClientId,
+
+        /** No started Yoin Activity to connect from. */
+        NoHost,
+
+        /** A host was there, but App Remote didn't connect in time. */
+        TimedOut
+    }
 
     private fun enqueueOperation(
         replacePending: Boolean = false,
@@ -648,7 +684,8 @@ internal class SpotifyAppRemotePlayer(
                         tag,
                         "playerState: paused=${playerState.isPaused} position=${playerState.playbackPosition} trackUri=${playerState.track?.uri}",
                     )
-                    publish(fromPlayerState(playerState))
+                    // A connection only the debug probe opened reports nothing.
+                    if (wantsConnection) publish(fromPlayerState(playerState))
                 }
             }
             .setLifecycleCallback(
@@ -673,7 +710,7 @@ internal class SpotifyAppRemotePlayer(
         playerContextSubscription = connected.playerApi.subscribeToPlayerContext()
             .setEventCallback { ctx ->
                 scope.launch {
-                    onContext(SpotifyPlaybackContext(uri = ctx.uri, title = ctx.title))
+                    if (wantsConnection) onContext(SpotifyPlaybackContext(uri = ctx.uri, title = ctx.title))
                 }
             }
             .setLifecycleCallback(
@@ -902,7 +939,7 @@ internal class SpotifyAppRemotePlayer(
          */
         const val LIBRARY_STATE_TIMEOUT_MS = 3_000L
 
-        /** How often [awaitConnection] looks whether the connect landed. */
+        /** How often [withProbeConnection] looks whether the connect landed. */
         const val CONNECTION_POLL_MS = 100L
 
         /**

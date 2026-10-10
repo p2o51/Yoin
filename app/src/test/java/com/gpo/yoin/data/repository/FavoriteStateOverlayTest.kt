@@ -21,10 +21,12 @@ class FavoriteStateOverlayTest {
     @Test
     fun should_followTheWriteInFlight_when_answersSayOtherwise() {
         overlay.recordRemote(key, saved = false)
+        val answeredAt = now
 
         val state = resolve(baseline = false, inFlight = true, mirrorSaved = false, mirrorAtMs = now)
 
-        assertEquals(FavoriteState(isStarred = true, fromUser = true), state)
+        // The answer's time rides along: a reader can tell it from a new one.
+        assertEquals(FavoriteState(isStarred = true, fromUser = true, answeredAtMs = answeredAt), state)
     }
 
     @Test
@@ -34,7 +36,7 @@ class FavoriteStateOverlayTest {
         // Spotify hasn't applied the like yet.
         overlay.recordRemote(key, saved = false)
 
-        assertEquals(FavoriteState(isStarred = true, fromUser = true), resolve(baseline = false))
+        assertEquals(FavoriteState(isStarred = true, fromUser = true, answeredAtMs = now), resolve(baseline = false))
     }
 
     @Test
@@ -44,7 +46,7 @@ class FavoriteStateOverlayTest {
         // Unliked in the Spotify app since.
         overlay.recordRemote(key, saved = false)
 
-        assertEquals(FavoriteState(isStarred = false, fromUser = false), resolve(baseline = true))
+        assertEquals(answer(isStarred = false, atMs = now), resolve(baseline = true))
     }
 
     @Test
@@ -72,10 +74,10 @@ class FavoriteStateOverlayTest {
         overlay.recordRemote(key, saved = false)
         // A later sync wrote the track into the mirror: liked in the Spotify app meanwhile.
         val newerMirror = resolve(baseline = false, mirrorSaved = true, mirrorAtMs = now + 1)
-        assertEquals(FavoriteState(isStarred = true), newerMirror)
+        assertEquals(FavoriteState(isStarred = true, answeredAtMs = now), newerMirror)
         // The mirror row is older than the answer: the answer wins.
         val olderMirror = resolve(baseline = true, mirrorSaved = true, mirrorAtMs = now - 1)
-        assertEquals(FavoriteState(isStarred = false), olderMirror)
+        assertEquals(answer(isStarred = false, atMs = now), olderMirror)
     }
 
     @Test
@@ -96,7 +98,7 @@ class FavoriteStateOverlayTest {
         val answered = overlay.entries.value[key]
 
         assertEquals(
-            FavoriteState(isStarred = false),
+            answer(isStarred = false, atMs = now),
             resolveLearnedFavoriteState(null, answered, mirrorSaved = null, mirrorAtMs = 0L, nowMs = now)
         )
         assertEquals(
@@ -143,6 +145,10 @@ class FavoriteStateOverlayTest {
         assertEquals(9, kept.size)
         assertTrue("t10" in kept && "t0" !in kept && "t1" !in kept)
     }
+
+    /** The service's answer to a check, which came in at [atMs]. */
+    private fun answer(isStarred: Boolean, atMs: Long) =
+        FavoriteState(isStarred = isStarred, fromAnswer = true, answeredAtMs = atMs)
 
     private fun resolve(
         baseline: Boolean,

@@ -29,8 +29,8 @@ import org.junit.Test
 /**
  * The album rows' hearts (P4, D4): the page is out first, then one batched
  * check, whose late answer flips a heart quietly; a tap shows at once and
- * animates as the user's; a failed write falls back quietly; coming back on
- * screen asks again (the repository throttles it).
+ * animates as the user's, and so does a failed write falling back; coming
+ * back on screen asks again (the repository throttles it).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumDetailViewModelFavoriteTest {
@@ -77,7 +77,8 @@ class AlbumDetailViewModelFavoriteTest {
         coVerify(exactly = 1) { repository.refreshFavoriteStates(listOf(first, second), any(), album) }
         assertEquals(false to 0, row(viewModel, first))
 
-        states.value = states.value + (first.id to FavoriteState(isStarred = true, fromUser = false))
+        val answer = FavoriteState(isStarred = true, fromAnswer = true, answeredAtMs = 1L)
+        states.value = states.value + (first.id to answer)
         runCurrent()
 
         assertEquals(true to 1, row(viewModel, first))
@@ -87,7 +88,7 @@ class AlbumDetailViewModelFavoriteTest {
     }
 
     @Test
-    fun should_showTheTapAtOnceAndFallBackQuietly_when_theWriteFails() = runTest {
+    fun should_showTheTapAtOnceAndAnimateTheFallBack_when_theWriteFails() = runTest {
         val write = CompletableDeferred<Result<Unit>>()
         coEvery { repository.setFavorite(second, true) } coAnswers { write.await() }
         val viewModel = viewModel()
@@ -99,7 +100,8 @@ class AlbumDetailViewModelFavoriteTest {
 
         write.complete(Result.failure(IllegalStateException("offline")))
         runCurrent()
-        assertEquals(false to 1, row(viewModel, second))
+        // Not a late answer: the same symbol animates back.
+        assertEquals(false to 0, row(viewModel, second))
     }
 
     @Test

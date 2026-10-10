@@ -70,6 +70,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyActivityArtistArtwork
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
+import com.gpo.yoin.data.source.spotify.SpotifyPortraitPassEnd
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryArtistCache
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
@@ -667,13 +668,16 @@ class YoinRepository(
                     // The optimistic row was created by this call — drop it.
                     dao.deleteTrack(profileId, rawId)
                 } else {
+                    // Back as it was, its read time too: restamped now, the
+                    // old state would outrank a newer answer from Spotify
+                    // (App Remote, a contains check) in the favorite overlay.
                     dao.updateTrackFavoriteState(
                         profileId = profileId,
                         trackId = rawId,
                         isSaved = existing.isSaved,
                         pending = false,
                         lastSyncError = error.message,
-                        cachedAt = clock(),
+                        cachedAt = existing.cachedAt,
                     )
                 }
                 _favoriteOverrides.value = _favoriteOverrides.value - id
@@ -922,11 +926,16 @@ class YoinRepository(
                         isStarred = true
                     ).toSpotifyLibraryArtistCache(profileId, cachedAt = clock())
                 }
+            // Held over a library sync from now: one that read its lists
+            // before this write would otherwise rewrite the row away.
+            val ticket = spotifyLibrarySyncCoordinator
+                ?.holdArtistFollow(profileId, id.rawId, followed, row = filed?.takeIf { followed })
             filed?.let { row -> dao.upsertArtist(row) }
             _favoriteOverrides.value = _favoriteOverrides.value + (id to followed)
             source.writeActions().setArtistFollowed(id, followed)
                 .onSuccess { invalidateArtistDetail(id) }
                 .onFailure {
+                    ticket?.let { spotifyLibrarySyncCoordinator?.forgetArtistFollow(profileId, id.rawId, it) }
                     when {
                         existing != null -> dao.upsertArtist(existing)
                         filed != null -> dao.deleteArtist(profileId, id.rawId)
@@ -2987,15 +2996,15 @@ class YoinRepository(
      * GET /artists/{id} at a time, each after [awaitTurn], stopping at a
      * closed rate-limit gate or the first 429 (see
      * [SpotifyActivityArtistArtwork]). Each portrait goes to [onPortrait] as
-     * it lands. Nothing to do off Spotify.
+     * it lands. Returns why the pass ended. Nothing to do off Spotify.
      */
     suspend fun fillSpotifyActivityArtistPortraits(
         artistIds: List<String>,
         awaitTurn: suspend () -> Unit,
         onPortrait: (artistId: String, url: String) -> Unit
-    ) {
-        val source = activeSource.value as? SpotifyMusicSource ?: return
-        spotifyActivityArtwork.fetchMissing(
+    ): SpotifyPortraitPassEnd {
+        val source = activeSource.value as? SpotifyMusicSource ?: return SpotifyPortraitPassEnd.Done
+        return spotifyActivityArtwork.fetchMissing(
             profileId = spotifyProfileId(source),
             artistIds = artistIds,
             fetch = source::getArtistPortrait,

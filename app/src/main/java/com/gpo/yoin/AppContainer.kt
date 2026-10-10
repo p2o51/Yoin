@@ -336,10 +336,13 @@ class AppContainer(private val context: Context) {
                 // shows new-profile content.
                 notifyMusicConfigurationChanged()
             },
-            // A deleted profile's home layout row and feed snapshot would otherwise be orphaned.
+            // A deleted profile's home layout row, feed snapshot, and Library
+            // opens and sort choices would otherwise be orphaned.
             onProfileDeleted = { profileId ->
                 homeLayoutStore.clearLayout(profileId)
                 homeSnapshotStore.delete(profileId)
+                libraryOpenStore.clear(profileId)
+                librarySortStore.clear(profileId)
             },
         ).also { manager ->
             applicationScope.launch {

@@ -102,6 +102,6 @@ data class AlbumSong(
     val libraryActionInFlight: Boolean = false,
     /** Yoin 放不了（Apple 资料库里没有目录对应的导入曲目）：行变灰并可展开原因。 */
     val isUnavailable: Boolean = false,
-    /** [isStarred] 不是用户点的那些变化（Spotify 晚到的确认）：心形静默淡入淡出，不跳（FavoriteGlyph）。 */
+    /** [isStarred] 被 Spotify 晚到的确认翻转的次数：这些变化静默淡入淡出，不跳；点击、回退、同步照常跳（FavoriteGlyph）。 */
     val favoriteQuietFlips: Int = 0,
 )

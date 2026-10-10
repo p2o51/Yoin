@@ -29,9 +29,10 @@ import org.junit.Test
 
 /**
  * Now Playing's heart (P4, D4): it reads the repository's one favorite state,
- * and tells the user's own taps (the heart beats) from every other change —
- * Spotify confirming a like late, the next track — which flip quietly. It
- * never asks Spotify itself: PlaybackManager does, once for every host.
+ * and only Spotify's answer coming in late and flipping it is a quiet flip;
+ * a tap, a failed write rolling back, a library sync and the next track
+ * animate the heart as ever (a like beats). It never asks Spotify itself:
+ * PlaybackManager does, once for every host.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class NowPlayingViewModelFavoriteTest {
@@ -52,10 +53,23 @@ class NowPlayingViewModelFavoriteTest {
         val viewModel = viewModel()
         assertEquals(false to 0, heart(viewModel))
 
-        hearts.getValue(first.id).value = FavoriteState(isStarred = true, fromUser = false)
+        hearts.getValue(first.id).value = answer(true, atMs = 1L)
         runCurrent()
 
         assertEquals(true to 1, heart(viewModel))
+    }
+
+    @Test
+    fun should_flipQuietly_when_spotifySaysItWasUnlikedAfterTheUsersLike() = runTest {
+        val viewModel = viewModel()
+        hearts.getValue(first.id).value = FavoriteState(isStarred = true, fromUser = true)
+        runCurrent()
+
+        // Past the write's grace, a newer answer: unliked in Spotify.
+        hearts.getValue(first.id).value = answer(false, atMs = 2L)
+        runCurrent()
+
+        assertEquals(false to 1, heart(viewModel))
     }
 
     @Test
@@ -75,30 +89,60 @@ class NowPlayingViewModelFavoriteTest {
     }
 
     @Test
-    fun should_flipQuietly_when_theNextTrackIsLiked() = runTest {
+    fun should_animateTheRollback_when_aLikeWriteFails() = runTest {
+        // Spotify answered "not liked" before; the user likes it; the write is refused.
+        hearts.getValue(first.id).value = answer(false, atMs = 1L)
+        val viewModel = viewModel()
+        hearts.getValue(first.id).value = FavoriteState(isStarred = true, fromUser = true, answeredAtMs = 1L)
+        runCurrent()
+        assertEquals(true to 0, heart(viewModel))
+
+        // Back to the answer it had: the rollback, not a late answer.
+        hearts.getValue(first.id).value = answer(false, atMs = 1L)
+        runCurrent()
+
+        assertEquals(false to 0, heart(viewModel))
+    }
+
+    @Test
+    fun should_animate_when_aLibrarySyncFlipsTheHeart() = runTest {
+        val viewModel = viewModel()
+
+        // The saved-tracks mirror, not an answer to a check.
+        hearts.getValue(first.id).value = FavoriteState(isStarred = true)
+        runCurrent()
+
+        assertEquals(true to 0, heart(viewModel))
+    }
+
+    @Test
+    fun should_beatIn_when_theNextTrackIsLiked() = runTest {
         val viewModel = viewModel()
 
         playback.value = playing(second)
         runCurrent()
 
-        assertEquals(true to 1, heart(viewModel))
+        assertEquals(true to 0, heart(viewModel))
     }
 
     @Test
-    fun should_flipQuietly_when_theNextTrackHoldsTheUsersEarlierLike() = runTest {
-        // Liked through Yoin earlier: its state still reads as the user's (Subsonic keeps the
-        // override for the session, Spotify for the write's grace), but nobody tapped it now.
-        hearts.getValue(second.id).value = FavoriteState(isStarred = true, fromUser = true)
+    fun should_beatIn_when_theNextTracksLikeIsAnEarlierAnswer() = runTest {
+        // Spotify said so on an earlier visit: the track changing is what flips the heart.
+        hearts.getValue(second.id).value = answer(true, atMs = 5L)
         val viewModel = viewModel()
 
         playback.value = playing(second)
         runCurrent()
+        assertEquals(true to 0, heart(viewModel))
 
-        assertEquals(true to 1, heart(viewModel))
+        // A newer answer about it, coming in late: quiet.
+        hearts.getValue(second.id).value = answer(false, atMs = 6L)
+        runCurrent()
+        assertEquals(false to 1, heart(viewModel))
     }
 
     @Test
-    fun should_flipQuietly_when_skippingBackToATrackJustLiked() = runTest {
+    fun should_beatIn_when_skippingBackToATrackJustLiked() = runTest {
         val viewModel = viewModel()
         hearts.getValue(first.id).value = FavoriteState(isStarred = true, fromUser = true)
         runCurrent()
@@ -108,11 +152,11 @@ class NowPlayingViewModelFavoriteTest {
         // On to an unliked track and back, inside the like's grace.
         playback.value = playing(second)
         runCurrent()
-        assertEquals(false to 1, heart(viewModel))
+        assertEquals(false to 0, heart(viewModel))
         playback.value = playing(first)
         runCurrent()
 
-        assertEquals(true to 2, heart(viewModel))
+        assertEquals(true to 0, heart(viewModel))
     }
 
     @Test
@@ -124,6 +168,10 @@ class NowPlayingViewModelFavoriteTest {
 
         coVerify(exactly = 0) { repository.refreshFavoriteStates(any(), any()) }
     }
+
+    /** Spotify's answer to a check, which came in at [atMs]. */
+    private fun answer(isStarred: Boolean, atMs: Long) =
+        FavoriteState(isStarred = isStarred, fromAnswer = true, answeredAtMs = atMs)
 
     private fun TestScope.viewModel(): NowPlayingViewModel {
         val manager = mockk<PlaybackManager>(relaxed = true)

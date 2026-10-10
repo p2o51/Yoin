@@ -114,16 +114,16 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 | 符号 | 用在哪 |
 | --- | --- |
 | 翻译 `rememberTranslateSymbolPainter` | 歌词工具条的翻译键：翻译进行中「文」「A」绕圈换位，结束回到「文A」；进行中按键保持亮着 |
-| 收藏 `rememberFavoriteSymbolPainter`（经 `FavoriteGlyphIcon`） | Now Playing 的收藏键、专辑页曲目行的收藏键；只有用户自己点的变化才跳，规则见下 |
+| 收藏 `rememberFavoriteSymbolPainter`（经 `FavoriteGlyphIcon`） | Now Playing 的收藏键、专辑页曲目行的收藏键；只有晚到的远端确认静默翻转，其余变化照常跳，规则见下 |
 | 均衡器 `rememberEqualizerSymbolPainter` | 专辑页当前曲目：播放时跳，暂停后从两边往中间沉成点 |
 | 展开箭头 `rememberExpandSymbolPainter` | 设置的可展开项、Play ▾（横版和竖版）：铰链式先压平再翻过去，不转圈 |
 | 播放模式 `rememberPlayModeSymbolPainter` | Now Playing 的播放模式键 |
 
 - 动效档位跟随 `MotionProfile`：`AdaptiveReduced` 对应 `SymbolMotion.Reduced`，其余 `SymbolMotion.Default`（库的默认弹簧就是 M3 Expressive motion scheme），在 `YoinActivityRoot` 统一提供。系统「移除动画」时符号静止。
-- **收藏心形的两种变化（D4，2026-10-10 owner）**：Now Playing 的收藏键和专辑页曲目行都一样。
-  - **用户点的**（写入还在进行，或刚落地、仍在 60 秒宽限内）：照常由同一个 `rememberFavoriteSymbolPainter` 变化——点亮时填充长满、轮廓跳一下（beat），取消时只缩回填充。按钮自己的按压回弹也照旧。
-  - **其余一切变化**都是静默翻转：Spotify 晚到的确认（App Remote `getLibraryState` 或 Web API contains）、资料库同步、写入失败回退、换到下一首。`FavoriteGlyphIcon` 按 key 换一个新的 painter，它一出现就处在终态；新旧两层按 effects spring 交叉淡入，只有填充和颜色在变，不跳。专辑行的底色、描边、心形颜色也都走 effects spring。
-  - 实现：状态层是 `FavoriteGlyph(favorite, quietFlips)`，`quietFlips` 只在不是用户点的变化时 +1。仓库的 `FavoriteState.fromUser` 标出用户自己的写入，过了 60 秒宽限就不再算（`YoinRepository.observeFavoriteStates` 是这两处心形的读取入口）。看的是「什么引起了变化」而不只是「值从哪来」：Now Playing 按曲目 id 判断，换了一首，第一个值一律静默，哪怕它是用户先前点出来的状态（Subsonic 的覆盖整个会话都在，Spotify 的在宽限内）。没有改 yoin-symbols。
+- **收藏心形：晚到的远端确认静默翻转（D4，2026-10-10 owner）**：主人拍板的只有这一条——先出页面，远端确认晚到时心形静默翻转，只做填充和颜色的 effects spring 过渡，不播 beat。Now Playing 的收藏键和专辑页曲目行都一样。
+  - **静默翻转**只给远端确认：Spotify 对一次查询的回答（App Remote `getLibraryState` 或 Web API contains）在页面出来之后才到，并且翻转了心形。`FavoriteGlyphIcon` 按 key 换一个新的 painter，它一出现就处在终态；新旧两层按 effects spring 交叉淡入，只有填充和颜色在变，不跳。
+  - **其余变化照旧**（P4 之前的行为）：用户点的、写入失败回退、资料库同步、换到下一首（下一首已喜欢就照常亮起），都由同一个 `rememberFavoriteSymbolPainter` 变化——点亮时填充长满、轮廓跳一下（beat），取消时只缩回填充。按钮自己的按压回弹照旧；专辑行的底色、描边、心形颜色照旧走 effects spring。
+  - 实现：状态层是 `FavoriteGlyph(favorite, quietFlips, answeredAtMs)`，`quietFlips` 只在晚到的远端确认翻转心形时 +1。仓库的 `FavoriteState` 标出值是不是远端的回答（`fromAnswer`），并带上这首歌最新一次回答的时间（`answeredAtMs`，不管最后显示的是哪一层都带着）。只有比心形已经见过的更新的回答才算「晚到」，所以写入失败退回到之前那次回答时照常变化，不算静默。Now Playing 换了一首用 `FavoriteGlyph.forTrack`，照常变化，这首歌之后再到的回答才静默。`YoinRepository.observeFavoriteStates` 是这两处心形的读取入口。没有改 yoin-symbols。
   - 先出页面再确认：Spotify 的已保存镜像只有最新 200 首，所以页面先按已知状态显示，确认结果晚到时静默翻转。不加载中样式，不加文字。
 
 **播放模式**（一个按钮三个状态，点一下按顺序切换，默认列表循环）

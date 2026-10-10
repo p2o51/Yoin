@@ -4923,7 +4923,7 @@ internal fun FavoriteButton(
         if (isStarred) R.string.np_cd_remove_favorite else R.string.np_cd_add_favorite,
     ),
     modifier: Modifier = Modifier,
-    // NowPlayingUiState.Playing.favoriteQuietFlips: changes nobody tapped crossfade, no beat.
+    // NowPlayingUiState.Playing.favoriteQuietFlips: late answers from Spotify crossfade, no beat.
     quietFlips: Int = 0,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {

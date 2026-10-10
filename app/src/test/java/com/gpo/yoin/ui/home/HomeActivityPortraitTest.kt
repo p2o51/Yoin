@@ -8,6 +8,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.spotify.SpotifyPortraitPassEnd
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -21,8 +22,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -45,6 +48,9 @@ class HomeActivityPortraitTest {
 
     private val asked = mutableListOf<List<String>>()
     private val requested = mutableListOf<String>()
+
+    // How the next passes end (Done once these run out).
+    private val passEnds = ArrayDeque<SpotifyPortraitPassEnd>()
 
     @Test
     fun should_spliceThePortrait_when_theFeedRests() = runTest {
@@ -178,6 +184,110 @@ class HomeActivityPortraitTest {
         coVerify(exactly = 0) { repository.fillSpotifyActivityArtistPortraits(any(), any(), any()) }
     }
 
+    @Test
+    fun should_askAgainAtTheNextRestAfterAMinute_when_aPassEndsOnAFailedRead() = runTest {
+        passEnds += SpotifyPortraitPassEnd.Error
+        val repository = spotifyRepository(endpoint = { feed("artist-1") })
+        val viewModel = homeViewModel(repository, "spotify-portrait-retry")
+        advanceUntilIdle()
+        val start = currentTime
+
+        viewModel.onFeedAtRestChanged(true)
+        viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
+        advanceTo(start + 1_600)
+        assertEquals(1, asked.size)
+        assertEquals(ALBUM_COVER, artistCover(viewModel))
+
+        // The same artists, the feed resting all along: not before the wait is over.
+        advanceTo(start + 1_500 + 60_000 + 1_400)
+        assertEquals(1, asked.size)
+
+        advanceTo(start + 1_500 + 60_000 + 1_600)
+        assertEquals(listOf(listOf("artist-1"), listOf("artist-1")), asked)
+        assertEquals(portraitOf("artist-1"), artistCover(viewModel))
+
+        // Done: not asked again.
+        advanceTo(currentTime + 3 * HOUR_MS)
+        assertEquals(2, asked.size)
+    }
+
+    @Test
+    fun should_waitLongerBeforeEachRetry_when_passesKeepStopping() = runTest {
+        passEnds += listOf(
+            SpotifyPortraitPassEnd.Error,
+            SpotifyPortraitPassEnd.Gate,
+            SpotifyPortraitPassEnd.Error,
+            SpotifyPortraitPassEnd.Error
+        )
+        val repository = spotifyRepository(endpoint = { feed("artist-1") })
+        val viewModel = homeViewModel(repository, "spotify-portrait-backoff")
+        advanceUntilIdle()
+        val start = currentTime
+
+        viewModel.onFeedAtRestChanged(true)
+        viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
+        // Each pass: the feed's settle, then the wait after the pass before it.
+        var pass = start + 1_500
+        listOf(60_000L, 5 * MINUTE_MS, 30 * MINUTE_MS, 30 * MINUTE_MS).forEachIndexed { index, wait ->
+            advanceTo(pass + 100)
+            assertEquals(index + 1, asked.size)
+            pass += wait + 1_500
+            advanceTo(pass - 100)
+            assertEquals(index + 1, asked.size)
+        }
+        advanceTo(pass + 100)
+        assertEquals(5, asked.size)
+        assertEquals(portraitOf("artist-1"), artistCover(viewModel))
+        // The closed gate's pass asked nothing.
+        assertEquals(List(4) { "artist-1" }, requested)
+    }
+
+    @Test
+    fun should_retryOnlyOnceTheFeedRests_when_theWaitEndsWhileItMoves() = runTest {
+        passEnds += SpotifyPortraitPassEnd.Gate
+        val repository = spotifyRepository(endpoint = { feed("artist-1") })
+        val viewModel = homeViewModel(repository, "spotify-portrait-retry-moves")
+        advanceUntilIdle()
+        val start = currentTime
+
+        viewModel.onFeedAtRestChanged(true)
+        viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
+        advanceTo(start + 1_600)
+        assertEquals(1, asked.size)
+
+        viewModel.onFeedAtRestChanged(false)
+        advanceTo(start + 10 * MINUTE_MS)
+        assertEquals(1, asked.size)
+
+        viewModel.onFeedAtRestChanged(true)
+        advanceTo(currentTime + 1_600)
+        assertEquals(2, asked.size)
+        assertEquals(portraitOf("artist-1"), artistCover(viewModel))
+    }
+
+    @Test
+    fun should_notAskAgain_when_aPassMeetsTheRateLimit() = runTest {
+        passEnds += SpotifyPortraitPassEnd.RateLimited
+        val repository = spotifyRepository(endpoint = { feed("artist-1") })
+        val viewModel = homeViewModel(repository, "spotify-portrait-429")
+        advanceUntilIdle()
+
+        viewModel.onFeedAtRestChanged(true)
+        viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
+        advanceTo(currentTime + 1_600)
+        viewModel.onFeedAtRestChanged(false)
+        viewModel.onFeedAtRestChanged(true)
+        advanceTo(currentTime + 3 * HOUR_MS)
+
+        assertEquals(1, asked.size)
+        assertEquals(ALBUM_COVER, artistCover(viewModel))
+    }
+
+    private fun TestScope.advanceTo(timeMs: Long) {
+        advanceTimeBy(timeMs - currentTime)
+        runCurrent()
+    }
+
     private fun spotifyRepository(endpoint: () -> List<ActivityEvent>): YoinRepository {
         val repository = mockk<YoinRepository>(relaxed = true)
         every { repository.currentProviderId() } returns MediaId.PROVIDER_SPOTIFY
@@ -204,6 +314,15 @@ class HomeActivityPortraitTest {
             val awaitTurn = secondArg<suspend () -> Unit>()
             val onPortrait = thirdArg<(String, String) -> Unit>()
             asked += artistIds
+            val end = passEnds.removeFirstOrNull() ?: SpotifyPortraitPassEnd.Done
+            if (end != SpotifyPortraitPassEnd.Done) {
+                // Stopped: a closed gate asks nothing; a failed read or a 429 at the first request.
+                if (end != SpotifyPortraitPassEnd.Gate) {
+                    awaitTurn()
+                    requested += artistIds.first()
+                }
+                return@coAnswers end
+            }
             artistIds.forEachIndexed { index, artistId ->
                 // The repository's beat between two requests of a pass.
                 if (index > 0) delay(250)
@@ -211,6 +330,7 @@ class HomeActivityPortraitTest {
                 requested += artistId
                 onPortrait(artistId, portraitOf(artistId))
             }
+            SpotifyPortraitPassEnd.Done
         }
         return repository
     }
@@ -257,6 +377,8 @@ class HomeActivityPortraitTest {
 
     private companion object {
         const val ALBUM_COVER = "https://i.scdn.co/image/album-1"
+        const val MINUTE_MS = 60_000L
+        const val HOUR_MS = 60 * MINUTE_MS
 
         fun portraitOf(artistId: String) = "https://i.scdn.co/image/portrait-$artistId"
     }

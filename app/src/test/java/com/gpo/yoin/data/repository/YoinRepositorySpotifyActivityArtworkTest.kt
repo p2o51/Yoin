@@ -17,6 +17,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyArtistPortrait
 import com.gpo.yoin.data.source.spotify.SpotifyImageObject
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
+import com.gpo.yoin.data.source.spotify.SpotifyPortraitPassEnd
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.data.source.spotify.SpotifySimplifiedAlbumObject
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -293,6 +295,31 @@ class YoinRepositorySpotifyActivityArtworkTest {
     }
 
     @Test
+    fun should_tellWhyThePassEnded_when_itStopsOrFinishes() = runTest {
+        answers["offline"] = { throw IOException("offline") }
+        assertEquals(SpotifyPortraitPassEnd.Error, end("offline"))
+        assertTrue(SpotifyPortraitPassEnd.Error.retryable)
+
+        answers.remove("offline")
+        assertEquals(SpotifyPortraitPassEnd.Done, end("offline"))
+        assertFalse(SpotifyPortraitPassEnd.Done.retryable)
+
+        // A closed gate: nothing asked, worth a later pass.
+        gate.recordBackoff(PROFILE, retryAfterSeconds = 60)
+        assertEquals(SpotifyPortraitPassEnd.Gate, end("gated"))
+        assertEquals(listOf("offline", "offline"), requested)
+        assertTrue(SpotifyPortraitPassEnd.Gate.retryable)
+
+        now += 120_000L
+        answers["limited"] = {
+            throw SpotifyRateLimitException(retryAfterSeconds = 30, endpoint = "v1/artists/limited")
+        }
+        assertEquals(SpotifyPortraitPassEnd.RateLimited, end("limited"))
+        assertEquals(SpotifyPortraitPassEnd.RateLimited, end("other"))
+        assertFalse(SpotifyPortraitPassEnd.RateLimited.retryable)
+    }
+
+    @Test
     fun should_askForAtMostTwenty_when_moreArtistsAreShown() = runTest {
         val shown = (1..25).map { "artist-$it" }
 
@@ -316,6 +343,13 @@ class YoinRepositorySpotifyActivityArtworkTest {
 
         assertEquals(3, turns)
     }
+
+    private suspend fun end(vararg artistIds: String): SpotifyPortraitPassEnd =
+        repository.fillSpotifyActivityArtistPortraits(
+            artistIds = artistIds.toList(),
+            awaitTurn = {},
+            onPortrait = { _, _ -> }
+        )
 
     private suspend fun fill(vararg artistIds: String): Map<String, String> {
         val portraits = linkedMapOf<String, String>()

@@ -30,6 +30,7 @@ import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.spotify.SpotifyPortraitPassEnd
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -49,7 +50,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -473,31 +476,60 @@ class HomeViewModel(
      * Activities name artists without portraits does this
      * ([ServiceFeatures.activityArtistPortraits]: Spotify; Subsonic and
      * Apple Music build theirs from local records, with covers).
+     *
+     * The same artists are asked for again only after a pass a failed read
+     * or a closed rate-limit gate stopped: at the feed's next rest once
+     * [ACTIVITY_PORTRAIT_RETRY_DELAYS_MS] has passed — longer after each
+     * such pass in a row. A pass stopped by a closed gate asks nothing on
+     * its retry while it stays closed; one stopped by a 429 is never retried.
      */
     @OptIn(FlowPreview::class)
     private suspend fun fillActivityPortraits(scope: HomeScope) {
         if (!ServiceFeatureCatalog.forProvider(scope.providerId).activityArtistPortraits) return
         if (scope.profileId.isNullOrBlank()) return
         val scopeKey = homeScopeKey(scope.providerId, scope.profileId)
-        combine(shownActivityArtists, feedAtRest) { shown, atRest -> shown.takeIf { atRest } }
-            .debounce(ACTIVITY_PORTRAIT_SETTLE_MS)
-            .filterNotNull()
-            .map { shown -> portraitCandidates(scope, scopeKey, shown) }
-            .filter { artistIds -> artistIds.isNotEmpty() }
-            .distinctUntilChanged()
-            .collect { artistIds ->
-                try {
-                    repository.fillSpotifyActivityArtistPortraits(
-                        artistIds = artistIds,
-                        awaitTurn = ::awaitFeedAtRest,
-                        onPortrait = { artistId, url -> splicePortrait(scope, scopeKey, artistId, url) }
-                    )
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Exception) {
-                    // Not the feed's failure: the cards keep their stand-ins.
-                }
+        // Ticks when a stopped pass's wait is over: the same artists, at the
+        // next rest, then count as new.
+        val retries = MutableStateFlow(0)
+        var stoppedPasses = 0
+        coroutineScope {
+            var retryWait: Job? = null
+            combine(shownActivityArtists, feedAtRest, retries) { shown, atRest, retry ->
+                if (atRest) shown to retry else null
             }
+                .debounce(ACTIVITY_PORTRAIT_SETTLE_MS)
+                .filterNotNull()
+                .map { (shown, retry) -> portraitCandidates(scope, scopeKey, shown) to retry }
+                .filter { (artistIds, _) -> artistIds.isNotEmpty() }
+                .distinctUntilChanged()
+                .collect { (artistIds, _) ->
+                    retryWait?.cancel()
+                    val end = try {
+                        repository.fillSpotifyActivityArtistPortraits(
+                            artistIds = artistIds,
+                            awaitTurn = ::awaitFeedAtRest,
+                            onPortrait = { artistId, url -> splicePortrait(scope, scopeKey, artistId, url) }
+                        )
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Exception) {
+                        // Not the feed's failure: the cards keep their stand-ins.
+                        SpotifyPortraitPassEnd.Error
+                    }
+                    if (end.retryable) {
+                        val wait = ACTIVITY_PORTRAIT_RETRY_DELAYS_MS.let { delays ->
+                            delays[stoppedPasses.coerceAtMost(delays.lastIndex)]
+                        }
+                        stoppedPasses++
+                        retryWait = launch {
+                            delay(wait)
+                            retries.update { it + 1 }
+                        }
+                    } else {
+                        stoppedPasses = 0
+                    }
+                }
+        }
     }
 
     /**
@@ -608,6 +640,12 @@ class HomeViewModel(
                         provider == null && settled
                     }.first { sourceless -> sourceless }
                 }
+                // Unless a feed is up already — the account's snapshot: a
+                // feed read from no source is next to empty and would replace
+                // it, then give way to the snapshot again once the source is
+                // in. It stays until the source moves the scope (cancelling
+                // this) and the load of that scope replaces it.
+                if (sourcelessLoadWouldReplace(scopeKey)) awaitCancellation()
             }
             HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad).run()
             if (perf != null) {
@@ -645,6 +683,15 @@ class HomeViewModel(
     /** The content up (or queued while editing) when it belongs to [scopeKey]. */
     private fun contentOf(scopeKey: String): HomeUiState.Content? =
         currentContent()?.takeIf { contentScopeKey == scopeKey }
+
+    /**
+     * Whether a sourceless load of [scopeKey] would put its feed over another
+     * one up (or queued while editing) — a snapshot painted ahead of the
+     * source, whose scope is its provider's. A load onto [scopeKey]'s own
+     * content (a reload of a sourceless feed) splices into it instead.
+     */
+    private fun sourcelessLoadWouldReplace(scopeKey: String): Boolean =
+        currentContent() != null && contentOf(scopeKey) == null
 
     /** [scopeKey]'s content was just published on signals read at [stamp] (null: built without them). */
     private fun recordSignalStamp(scopeKey: String, stamp: Long?) {
@@ -2126,6 +2173,11 @@ class HomeViewModel(
         // is asked for its Activities artists' portraits (Q16): past the
         // first reveal, and never mid-fling.
         private const val ACTIVITY_PORTRAIT_SETTLE_MS = 1_500L
+
+        // How long after a portrait pass that a failed read or a closed rate
+        // limit gate stopped the same artists may be asked for again: 1 min,
+        // then 5, then every 30 while passes keep stopping.
+        private val ACTIVITY_PORTRAIT_RETRY_DELAYS_MS = longArrayOf(60_000L, 5L * 60_000L, 30L * 60_000L)
 
         // How long a load with nothing up waits for its snapshot's read (a
         // small file, read since the VM or the switch began; usually in by
