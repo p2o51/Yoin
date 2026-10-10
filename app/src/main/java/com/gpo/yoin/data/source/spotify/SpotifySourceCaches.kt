@@ -11,7 +11,9 @@ import kotlinx.coroutines.ensureActive
  * collection — the library sync, a detail open and Home used to read
  * /me/tracks side by side, all under one profile's rate-limit gate. A loaded
  * value is served for [maxAgeMs]. [invalidate] drops it; a load already in
- * flight then still answers its own callers but is not kept.
+ * flight then still answers its own callers but is not kept — unless the
+ * invalidate keeps recent loads, for a refresh that a load started just
+ * now already serves.
  *
  * The load runs in the coroutine of the caller that started it. If that
  * caller is cancelled, the callers waiting on it start a load of their own
@@ -28,6 +30,7 @@ internal class SingleFlightValue<T : Any>(
     private var value: T? = null
     private var loadedAtMs = 0L
     private var inFlight: CompletableDeferred<T>? = null
+    private var inFlightStartedAtMs = 0L
     private var generation = 0L
 
     suspend fun get(load: suspend () -> T): T {
@@ -35,8 +38,10 @@ internal class SingleFlightValue<T : Any>(
             val turn = synchronized(lock) {
                 value?.let { cached -> if (clock() - loadedAtMs <= maxAgeMs) return cached }
                 inFlight?.let { shared -> Turn(shared, leads = false, generation = generation) }
-                    ?: Turn(CompletableDeferred<T>(), leads = true, generation = generation)
-                        .also { inFlight = it.result }
+                    ?: Turn(CompletableDeferred<T>(), leads = true, generation = generation).also {
+                        inFlight = it.result
+                        inFlightStartedAtMs = clock()
+                    }
             }
             if (turn.leads) return lead(turn, load)
             try {
@@ -48,11 +53,23 @@ internal class SingleFlightValue<T : Any>(
         }
     }
 
-    fun invalidate() {
+    /**
+     * Drops the value, so the next [get] loads again. A load in flight still
+     * answers its own callers but is not kept — unless it started at most
+     * [keepLoadStartedWithinMs] ago: then it stays in flight, the next [get]
+     * joins it, and its result is kept. That is "refresh, but a read that
+     * just started will do"; a caller passes it only when no write the load
+     * might predate needs a newer read.
+     */
+    fun invalidate(keepLoadStartedWithinMs: Long? = null) {
         synchronized(lock) {
             value = null
-            inFlight = null
-            generation++
+            val keepsLoad = keepLoadStartedWithinMs != null && inFlight != null &&
+                clock() - inFlightStartedAtMs <= keepLoadStartedWithinMs
+            if (!keepsLoad) {
+                inFlight = null
+                generation++
+            }
         }
     }
 

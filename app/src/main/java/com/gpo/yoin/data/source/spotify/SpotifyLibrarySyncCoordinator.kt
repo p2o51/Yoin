@@ -172,9 +172,15 @@ class SpotifyLibrarySyncCoordinator(
         // TTL re-syncs always invalidate, and so does a first sync after a like
         // written since that warm-up: the starred tracks stored below come from
         // the saved-tracks list, and the warm one predates the like.
+        //
+        // A TTL re-sync joins a list read that started moments ago (an album
+        // open's saved-tracks read on the same cold start) instead of paging
+        // the list a second time beside it. Not while a like is unsettled —
+        // that read may predate it — and not on a forced refresh.
         val isColdFirstSync = dao.getSyncMeta(profileId) == null
-        if (force || !isColdFirstSync || spotifySource?.hasUnsettledFavoriteWrites() == true) {
-            spotifySource?.invalidateLibraryCaches()
+        val unsettledLikes = spotifySource?.hasUnsettledFavoriteWrites() == true
+        if (force || !isColdFirstSync || unsettledLikes) {
+            spotifySource?.invalidateLibraryCaches(keepRecentLoads = !force && !unsettledLikes)
         }
         // Warm the four independent library resources concurrently before the
         // derived reads below (which share those caches and would otherwise

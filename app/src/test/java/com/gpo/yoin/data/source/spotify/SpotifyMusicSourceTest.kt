@@ -3,6 +3,9 @@ package com.gpo.yoin.data.source.spotify
 import com.gpo.yoin.data.model.MediaId
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
@@ -161,6 +164,56 @@ class SpotifyMusicSourceTest {
         savedTracks()
         source.invalidateLibraryCaches()
         assertFalse(starredOf(source, "t1"))
+    }
+
+    @Test
+    fun should_readSavedTracksOnce_when_resyncLandsOnAReadInFlight() = runTest {
+        val savedTracksRequests = savedTracksBehindLatch()
+        val source = newSource()
+
+        // An album open starts the saved-tracks read; a TTL re-sync lands on it.
+        val album = async(Dispatchers.IO) { source.library().getAlbum(MediaId.spotify("a1")) }
+        assertTrue(savedTracksRequests.started.await(5, TimeUnit.SECONDS))
+        source.invalidateLibraryCaches(keepRecentLoads = true)
+        val warm = async(Dispatchers.IO) { source.warmLibraryCaches() }
+        savedTracksRequests.release.countDown()
+        album.await()
+        warm.await()
+
+        assertEquals(1, requestsTo("/v1/me/tracks"))
+    }
+
+    @Test
+    fun should_readSavedTracksAgain_when_invalidateDropsTheReadInFlight() = runTest {
+        val savedTracksRequests = savedTracksBehindLatch()
+        val source = newSource()
+
+        val album = async(Dispatchers.IO) { source.library().getAlbum(MediaId.spotify("a1")) }
+        assertTrue(savedTracksRequests.started.await(5, TimeUnit.SECONDS))
+        // A forced refresh, or one after a like: the read out may predate a write.
+        source.invalidateLibraryCaches()
+        val warm = async(Dispatchers.IO) { source.warmLibraryCaches() }
+        savedTracksRequests.release.countDown()
+        album.await()
+        warm.await()
+
+        assertEquals(2, requestsTo("/v1/me/tracks"))
+    }
+
+    /** /me/tracks answers once [release] opens; [started] opens on its first request. */
+    private class Latches {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+    }
+
+    private fun savedTracksBehindLatch(): Latches = Latches().also { latches ->
+        // warmLibraryCaches reads the user's playlists too.
+        routes["/v1/me/playlists"] = { ok("""{"items":[],"next":null,"total":0}""") }
+        routes["/v1/me/tracks"] = {
+            latches.started.countDown()
+            latches.release.await(5, TimeUnit.SECONDS)
+            ok(savedTrackPage(listOf("t1")))
+        }
     }
 
     @Test

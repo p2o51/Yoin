@@ -70,10 +70,10 @@ class SpotifyMusicSource(
 
     // Library lists, each read by one request at a time and kept until
     // invalidateLibraryCaches (the library sync) or a write that changes it.
-    private val savedTracksCache = SingleFlightValue<List<SpotifySavedTrackObject>>()
-    private val savedAlbumsCache = SingleFlightValue<List<SpotifySavedAlbumObject>>()
-    private val playlistsCache = SingleFlightValue<List<SpotifyPlaylistObject>>()
-    private val followedArtistsCache = SingleFlightValue<List<SpotifyArtistObject>>()
+    private val savedTracksCache = SingleFlightValue<List<SpotifySavedTrackObject>>(clock = clock)
+    private val savedAlbumsCache = SingleFlightValue<List<SpotifySavedAlbumObject>>(clock = clock)
+    private val playlistsCache = SingleFlightValue<List<SpotifyPlaylistObject>>(clock = clock)
+    private val followedArtistsCache = SingleFlightValue<List<SpotifyArtistObject>>(clock = clock)
     private val savedTrackDelta = SavedTrackDelta(clock)
     private val recentlyPlayedCache =
         SingleFlightValue<List<SpotifyPlayHistoryObject>>(RECENTLY_PLAYED_MAX_AGE_MS, clock)
@@ -444,12 +444,20 @@ class SpotifyMusicSource(
      * Drops in-memory library caches so the next read pulls fresh network
      * data. Likes written since stay laid over the re-read saved tracks until
      * that read reflects them (see [SavedTrackDelta]).
+     *
+     * [keepRecentLoads]: a list read already out that started within
+     * [LIBRARY_LOAD_JOIN_WINDOW_MS] is kept and joined rather than read again
+     * beside it — a TTL re-sync landing on the saved-tracks read an album
+     * open just started. Only when no write can predate those reads: a
+     * playlist or follow write drops its list's read in flight as it lands,
+     * but a like is only laid over the list, so not while one is unsettled.
      */
-    fun invalidateLibraryCaches() {
-        savedTracksCache.invalidate()
-        savedAlbumsCache.invalidate()
-        playlistsCache.invalidate()
-        followedArtistsCache.invalidate()
+    fun invalidateLibraryCaches(keepRecentLoads: Boolean = false) {
+        val keepLoadStartedWithinMs = LIBRARY_LOAD_JOIN_WINDOW_MS.takeIf { keepRecentLoads }
+        savedTracksCache.invalidate(keepLoadStartedWithinMs)
+        savedAlbumsCache.invalidate(keepLoadStartedWithinMs)
+        playlistsCache.invalidate(keepLoadStartedWithinMs)
+        followedArtistsCache.invalidate(keepLoadStartedWithinMs)
         playlistTrackOffsetsById.clear()
     }
 
@@ -571,6 +579,9 @@ class SpotifyMusicSource(
         private const val HTTP_NOT_FOUND = 404
         private const val RECENTLY_PLAYED_LIMIT = 50
         private const val RECENTLY_PLAYED_MAX_AGE_MS = 30_000L
+
+        /** How recently a library list read must have started for a re-sync to join it. */
+        const val LIBRARY_LOAD_JOIN_WINDOW_MS = 10_000L
 
         private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
