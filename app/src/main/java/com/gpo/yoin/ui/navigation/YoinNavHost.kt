@@ -86,6 +86,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
@@ -1557,19 +1558,28 @@ internal fun trackCoverArtId(track: Track): String? =
         ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
 
 /**
- * A Library Songs row: the list plays on from the tapped song. Context None,
- * not LikedSongs: Songs isn't Spotify's Liked order.
+ * A Library Songs row: the list plays on from the tapped song. Where Songs is
+ * the service's liked list ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary],
+ * Spotify, newest like first) it starts as Liked Songs — Spotify plays its own
+ * collection from the tapped song (`spotify:collection:tracks` + `offset.uri`)
+ * and its queue is left alone. Elsewhere Songs is no collection: context None.
  *
  * Only the window around the tapped row is handed over ([startWindowQueue]),
  * on every provider. Apple's Songs list runs to 500 songs, and MusicKit
  * prepares a queue with ONE catalog request for all its ids, which Apple
  * caps at 300 — a large library would fail the start a single song used to
- * play. Spotify cuts its `uris` start to the same window anyway.
+ * play. Spotify cuts its `uris` fallback to the same window anyway.
  */
 internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
     val source = profileManager.activeSource.value ?: return
     val window = startWindowQueue(queue, startIndex)
-    playbackManager.play(window.tracks, window.startIndex, source, ActivityContext.None)
+    val activityContext = if (ServiceFeatureCatalog.forProvider(source.id).favoritesAreLibrary) {
+        // The collection's cover, as Favorites gives it: the newest like's.
+        ActivityContext.LikedSongs(coverArtId = queue.firstOrNull()?.let(::trackCoverArtId))
+    } else {
+        ActivityContext.None
+    }
+    playbackManager.play(window.tracks, window.startIndex, source, activityContext)
 }
 
 internal fun canLaunchDetailFromShell(

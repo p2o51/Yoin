@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.navigation
 
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
@@ -16,7 +17,7 @@ import org.junit.Test
 class SongsListPlaybackTest {
 
     private val manager = mockk<PlaybackManager>(relaxed = true)
-    private val activeSource = MutableStateFlow<MusicSource?>(mockk<MusicSource>())
+    private val activeSource = MutableStateFlow<MusicSource?>(source(MediaId.PROVIDER_SUBSONIC))
     private val container = mockk<AppContainer>().also {
         every { it.playbackManager } returns manager
         every { it.profileManager.activeSource } returns activeSource
@@ -81,6 +82,45 @@ class SongsListPlaybackTest {
     }
 
     @Test
+    fun should_startAsLikedSongs_when_spotifySongsRowTapped() {
+        // Spotify's Songs is Liked Songs, newest like first: the row starts that collection at itself.
+        activeSource.value = source(MediaId.PROVIDER_SPOTIFY)
+        val liked = (0 until 300).map { spotifySong("s$it") }
+
+        container.playSongsList(liked, startIndex = 150)
+
+        verify(exactly = 1) {
+            manager.play(
+                tracks = liked.subList(130, 230),
+                startIndex = 20,
+                source = activeSource.value!!,
+                activityContext = ActivityContext.LikedSongs(coverArtId = "https://i.scdn.co/image/s0"),
+                shuffled = false,
+                explicitStart = true
+            )
+        }
+    }
+
+    @Test
+    fun should_startWithoutContext_when_appleMusicSongsRowTapped() {
+        // Apple's Songs is the saved library, A to Z: no collection to start.
+        activeSource.value = source(MediaId.PROVIDER_APPLE_MUSIC)
+
+        container.playSongsList(songs, startIndex = 2)
+
+        verify(exactly = 1) {
+            manager.play(
+                tracks = songs,
+                startIndex = 2,
+                source = activeSource.value!!,
+                activityContext = ActivityContext.None,
+                shuffled = false,
+                explicitStart = true
+            )
+        }
+    }
+
+    @Test
     fun should_playNothing_when_noProfileIsActive() {
         activeSource.value = null
 
@@ -88,6 +128,13 @@ class SongsListPlaybackTest {
 
         verify(exactly = 0) { manager.play(any(), any(), any(), any(), any(), any()) }
     }
+
+    private fun source(providerId: String) = mockk<MusicSource> { every { id } returns providerId }
+
+    private fun spotifySong(id: String) = song(id).copy(
+        id = MediaId.spotify(id),
+        coverArt = CoverRef.Url("https://i.scdn.co/image/$id")
+    )
 
     private fun song(id: String) = Track(
         id = MediaId.subsonic(id),

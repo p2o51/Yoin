@@ -29,6 +29,15 @@ data class ServiceFeatures(
     val capabilities: Set<Capability>,
     val features: List<ServiceFeature>,
     val supportsYoinCast: Boolean = false,
+    /**
+     * The service's favorites are its library: a liked song, a saved album and
+     * a followed artist are what the library holds (Spotify). Library then has
+     * no Favorites tab of its own — Songs is the liked list, newest like first,
+     * and plays as that collection; Artists keeps only the followed ones. Set
+     * here, never inferred from [capabilities]: Subsonic has favorites and a
+     * library too, and keeps its Favorites tab.
+     */
+    val favoritesAreLibrary: Boolean = false,
     @param:StringRes @get:StringRes val saveLabel: Int = R.string.settings_feature_save_favorites,
     @param:StringRes @get:StringRes val removeLabel: Int = R.string.settings_feature_remove_favorites,
 ) {
@@ -94,11 +103,14 @@ object ServiceFeatureCatalog {
         nameRes = R.string.settings_feature_name_spotify,
         saveLabel = R.string.settings_feature_save_spotify,
         removeLabel = R.string.settings_feature_remove_spotify,
+        favoritesAreLibrary = true,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
             Capability.SEARCH,
             Capability.CATALOG_SEARCH,
+            // Library Songs is Liked Songs; RANDOM_SONGS stays for Home's grid.
+            Capability.LIBRARY_SONGS,
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE,

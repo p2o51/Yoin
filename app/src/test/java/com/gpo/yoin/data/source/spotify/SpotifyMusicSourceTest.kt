@@ -331,6 +331,29 @@ class SpotifyMusicSourceTest {
         assertFalse(source.hasUnsettledFavoriteWrites())
     }
 
+    @Test
+    fun should_listLikedSongsNewestFirst_when_librarySongsRead() = runTest {
+        routes["/v1/me/tracks"] = {
+            ok(
+                """{"items":[""" +
+                    """{"added_at":"2025-01-01T00:00:00Z","track":${track("old")}},""" +
+                    """{"added_at":"2026-10-10T00:00:00Z","track":${track("new")}},""" +
+                    """{"added_at":"2025-06-01T00:00:00Z","track":${track("mid")}}""" +
+                    """],"next":null,"total":3}"""
+            )
+        }
+        val source = newSource()
+
+        val page = source.library().getLibrarySongs(size = 2, offset = 0)
+
+        assertEquals(listOf("new", "mid"), page.map { it.id.rawId })
+        assertTrue(page.all { it.isStarred })
+        assertEquals("2026-10-10T00:00:00Z", page.first().addedAt)
+        assertEquals(listOf("old"), source.library().getLibrarySongs(size = 2, offset = 2).map { it.id.rawId })
+        // The hearts' saved-tracks read, shared: no list of its own.
+        assertEquals(1, requestsTo("/v1/me/tracks"))
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun newSource(): SpotifyMusicSource {

@@ -682,6 +682,12 @@ class YoinRepository(
 
     // ── Artists ────────────────────────────────────────────────────────
 
+    /**
+     * The Library's Artists. On Spotify only the followed ones, as in its own
+     * library: the cache also holds the artists of saved albums and liked
+     * songs, which the saved-library search still reads
+     * ([getSpotifyLocalSearchSnapshot]).
+     */
     suspend fun getArtists(): List<ArtistIndex> {
         if (isSpotifyActive()) {
             val source = requireSpotifySource()
@@ -689,7 +695,8 @@ class YoinRepository(
             ensureSpotifyLibraryFresh(source).getOrThrow()
             val artists = spotifyCoordinator().readArtists(profileId)
             return artists
-                .filter { artist -> artist.name.isNotBlank() }
+                // A cached artist's isStarred is its isFollowed column.
+                .filter { artist -> artist.isStarred && artist.name.isNotBlank() }
                 .sortedBy { artist -> artist.name.lowercase() }
                 .groupBy { artist ->
                     artist.name.firstOrNull()?.uppercaseChar()?.takeIf(Char::isLetter)?.toString() ?: "#"
@@ -720,8 +727,25 @@ class YoinRepository(
     suspend fun searchCurrentLibrary(query: String): SearchResults =
         requireSource().library().searchLibrary(query)
 
-    suspend fun getLibrarySongs(size: Int = 100, offset: Int = 0): List<Track> =
-        requireSource().library().getLibrarySongs(size, offset)
+    /**
+     * The Library's Songs, [size] from [offset]. On Spotify the liked songs
+     * from the synced cache, newest like first — Liked Songs' own order, so a
+     * row can start that collection at itself.
+     */
+    suspend fun getLibrarySongs(size: Int = 100, offset: Int = 0): List<Track> {
+        if (isSpotifyActive()) {
+            val source = requireSpotifySource()
+            val profileId = spotifyProfileId(source)
+            ensureSpotifyLibraryFresh(source).getOrThrow()
+            return spotifyCoordinator()
+                .readTracks(profileId)
+                // Stable: likes in the same second keep the cache's title order.
+                .sortedByDescending { track -> track.addedAt.orEmpty() }
+                .drop(offset.coerceAtLeast(0))
+                .take(size.coerceAtLeast(0))
+        }
+        return requireSource().library().getLibrarySongs(size, offset)
+    }
 
     // ── Favorites ──────────────────────────────────────────────────────
 

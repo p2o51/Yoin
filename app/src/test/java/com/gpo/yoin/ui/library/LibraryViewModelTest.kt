@@ -5,12 +5,15 @@ import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -426,6 +429,186 @@ class LibraryViewModelTest {
         coVerify(exactly = 3) { repository.getLibrarySongs(size = 500) }
     }
 
+    @Test
+    fun should_hideFavoritesTab_when_serviceFavoritesAreItsLibrary() = runTest {
+        val repository = spotifyRepository()
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        // Liked songs, saved albums and followed artists are Songs, Albums and Artists.
+        assertEquals(
+            listOf(LibraryTab.Artists, LibraryTab.Albums, LibraryTab.Songs, LibraryTab.Playlists),
+            state.availableTabs
+        )
+        assertFalse(state.canReshuffleSongs)
+        viewModel.selectTab(LibraryTab.Favorites)
+        assertEquals(LibraryTab.Artists, (viewModel.uiState.value as LibraryUiState.Content).selectedTab)
+    }
+
+    @Test
+    fun should_keepFavoritesTab_when_subsonicDeclaresFavorites() = runTest {
+        val repository = repositoryFor(
+            MediaId.PROVIDER_SUBSONIC,
+            setOf(Capability.FAVORITES, Capability.RANDOM_SONGS, Capability.PLAYLISTS_READ)
+        )
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(LibraryTab.entries, state.availableTabs)
+        assertTrue(state.canReshuffleSongs)
+    }
+
+    @Test
+    fun should_leaveFavoritesTab_when_profileSwitchesToServiceWhoseFavoritesAreItsLibrary() = runTest {
+        val providerIds = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val subsonicCapabilities = setOf(Capability.FAVORITES, Capability.RANDOM_SONGS)
+        val spotifyCapabilities = setOf(Capability.FAVORITES, Capability.LIBRARY_SONGS, Capability.RANDOM_SONGS)
+        val capabilities = MutableStateFlow(subsonicCapabilities)
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, subsonicCapabilities)
+        every { repository.currentProviderId() } answers { providerIds.value }
+        every { repository.currentCapabilities() } answers { capabilities.value }
+        every { repository.activeProviderId } returns providerIds
+        every { repository.capabilities } returns capabilities
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Favorites)
+        advanceUntilIdle()
+        assertEquals(LibraryTab.Favorites, (viewModel.uiState.value as LibraryUiState.Content).selectedTab)
+
+        providerIds.value = MediaId.PROVIDER_SPOTIFY
+        capabilities.value = spotifyCapabilities
+        runCurrent()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        assertFalse(LibraryTab.Favorites in state.availableTabs)
+        assertEquals(LibraryTab.Artists, state.selectedTab)
+    }
+
+    @Test
+    fun should_loadLikedSongs_when_spotifySongsTabSelected() = runTest {
+        val repository = spotifyRepository()
+        val liked = listOf(spotifyTrack("new"), spotifyTrack("old"))
+        coEvery { repository.getLibrarySongs(size = 500) } returns liked
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        assertEquals(liked, (viewModel.uiState.value as LibraryUiState.Content).songs)
+        coVerify(exactly = 0) { repository.getRandomSongs(any()) }
+    }
+
+    @Test
+    fun should_rereadLikedSongs_when_likeChangesOnSpotifySongsTab() = runTest {
+        val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
+        val repository = spotifyRepository()
+        every { repository.favoriteOverrides } returns overrides
+        val old = spotifyTrack("old")
+        val unliked = spotifyTrack("unliked")
+        val liked = spotifyTrack("liked")
+        var cache = listOf(unliked, old)
+        coEvery { repository.getLibrarySongs(size = 500) } coAnswers { cache }
+        val read = CompletableDeferred<Unit>()
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        // An unlike leaves at once, before the re-read lands.
+        coEvery { repository.getLibrarySongs(size = 500) } coAnswers {
+            read.await()
+            cache
+        }
+        overrides.value = mapOf(unliked.id to false)
+        runCurrent()
+        assertEquals(listOf(old), (viewModel.uiState.value as LibraryUiState.Content).songs)
+
+        // A like lands on top once the cache has it (newest like first).
+        cache = listOf(liked, old)
+        read.complete(Unit)
+        overrides.value = mapOf(liked.id to true)
+        advanceUntilIdle()
+        assertEquals(listOf(liked, old), (viewModel.uiState.value as LibraryUiState.Content).songs)
+    }
+
+    @Test
+    fun should_readLikedSongsAgainOnNextVisit_when_likeChangesOnAnotherTab() = runTest {
+        val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
+        val repository = spotifyRepository()
+        every { repository.favoriteOverrides } returns overrides
+        val old = spotifyTrack("old")
+        val liked = spotifyTrack("liked")
+        var cache = listOf(old)
+        coEvery { repository.getLibrarySongs(size = 500) } coAnswers { cache }
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Artists)
+        advanceUntilIdle()
+
+        cache = listOf(liked, old)
+        overrides.value = mapOf(liked.id to true)
+        advanceUntilIdle()
+        coVerify(exactly = 1) { repository.getLibrarySongs(size = 500) }
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        assertEquals(listOf(liked, old), (viewModel.uiState.value as LibraryUiState.Content).songs)
+        coVerify(exactly = 2) { repository.getLibrarySongs(size = 500) }
+    }
+
+    @Test
+    fun should_keepRandomSample_when_favoriteChangesOnSubsonicSongsTab() = runTest {
+        val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, setOf(Capability.FAVORITES, Capability.RANDOM_SONGS))
+        every { repository.favoriteOverrides } returns overrides
+        val sample = listOf(subsonicTrack("a"), subsonicTrack("b"))
+        coEvery { repository.getRandomSongs(size = 50) } returns sample
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        overrides.value = mapOf(sample.first().id to true)
+        advanceUntilIdle()
+
+        // The heart flips in place; the sample is neither re-read nor cut.
+        val songs = (viewModel.uiState.value as LibraryUiState.Content).songs.orEmpty()
+        assertEquals(sample.map(Track::id), songs.map(Track::id))
+        assertTrue(songs.first().isStarred)
+        coVerify(exactly = 1) { repository.getRandomSongs(size = 50) }
+        coVerify(exactly = 0) { repository.getLibrarySongs(any(), any()) }
+    }
+
+    @Test
+    fun should_searchEveryLibraryArtist_when_spotifyArtistsTabListsFollowedOnly() = runTest {
+        val repository = spotifyRepository()
+        val followed = Artist(MediaId.spotify("followed"), "Followed Band", null, null, isStarred = true)
+        val fromSavedAlbum = Artist(MediaId.spotify("saved"), "Band From A Saved Album", null, null)
+        coEvery { repository.getArtists() } returns listOf(ArtistIndex("F", listOf(followed)))
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } returns
+            SpotifyLibrarySyncCoordinator.SpotifyLocalSearchSnapshot(
+                artists = listOf(followed, fromSavedAlbum),
+                albums = emptyList(),
+                tracks = emptyList(),
+                playlists = emptyList(),
+                starred = Starred()
+            )
+        val viewModel = LibraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.search("band")
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as LibraryUiState.Content
+        assertEquals(listOf(followed), state.artists)
+        assertEquals(listOf(followed, fromSavedAlbum), state.searchResults?.artists)
+    }
+
     private fun repositoryFor(
         providerId: String,
         capabilities: Set<Capability>,
@@ -471,6 +654,17 @@ class LibraryViewModelTest {
             repositoryScope = backgroundScope,
         )
     }
+
+    private fun spotifyRepository(): YoinRepository = repositoryFor(
+        MediaId.PROVIDER_SPOTIFY,
+        ServiceFeatureCatalog.spotify.capabilities
+    ).also { repository ->
+        coEvery { repository.refreshSpotifyLibrary(any()) } returns Result.success(Unit)
+    }
+
+    private fun spotifyTrack(id: String): Track = appleMusicTrack().copy(id = MediaId.spotify(id), isStarred = true)
+
+    private fun subsonicTrack(id: String): Track = appleMusicTrack().copy(id = MediaId.subsonic(id))
 
     private fun appleMusicTrack(): Track = Track(
         id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "123"),

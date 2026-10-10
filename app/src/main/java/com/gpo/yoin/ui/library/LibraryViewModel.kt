@@ -17,6 +17,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.CancellationException
@@ -186,7 +187,7 @@ class LibraryViewModel(
                     canSearchSpotifyCatalog = canSearchSpotifyCatalog,
                     canSearchAppleMusicCatalog = canSearchCatalog(MediaId.PROVIDER_APPLE_MUSIC),
                     searchFocusRequestId = if (hasPendingSearchShortcut) nextSearchFocusRequestId() else 0L,
-                    availableTabs = visibleTabs(capabilities),
+                    availableTabs = visibleTabs(capabilities, repository.currentProviderId()),
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
                     canReshuffleSongs = canReshuffleSongs(capabilities),
                     canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
@@ -213,7 +214,7 @@ class LibraryViewModel(
                         isSearching = false,
                         searchScope = LibrarySearchScope.CurrentLibrary,
                         canSearchSpotifyCatalog = canSearchCatalog(MediaId.PROVIDER_SPOTIFY),
-                        availableTabs = visibleTabs(repository.currentCapabilities()),
+                        availableTabs = visibleTabs(repository.currentCapabilities(), repository.currentProviderId()),
                         canCreatePlaylists = Capability.PLAYLISTS_WRITE in repository.currentCapabilities(),
                         canReshuffleSongs = canReshuffleSongs(repository.currentCapabilities()),
                         canAddToLibrary = Capability.LIBRARY_ADD in repository.currentCapabilities(),
@@ -229,10 +230,12 @@ class LibraryViewModel(
 
     private fun observeCapabilities() {
         viewModelScope.launch {
-            repository.capabilities.collectLatest { capabilities ->
+            combine(repository.activeProviderId, repository.capabilities) { providerId, capabilities ->
+                providerId to capabilities
+            }.distinctUntilChanged().collectLatest { (providerId, capabilities) ->
                 val current = _uiState.value as? LibraryUiState.Content
                     ?: return@collectLatest
-                val visible = visibleTabs(capabilities)
+                val visible = visibleTabs(capabilities, providerId)
                 val normalisedSelected = current.selectedTab.takeIf { it in visible }
                     ?: visible.firstOrNull()
                     ?: LibraryTab.Artists
@@ -251,16 +254,22 @@ class LibraryViewModel(
      * Playlists disappear from the tab row when the provider doesn't support
      * reading them. Songs can be either a saved-library list or a provider's
      * random sample; favorite controls retain their own capability gate.
+     * Favorites is left out where the favorites are the library itself
+     * ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary], Spotify):
+     * its liked songs, saved albums and followed artists are the Songs, Albums
+     * and Artists tabs.
      */
-    private fun visibleTabs(capabilities: Set<Capability>): List<LibraryTab> =
-        LibraryTab.entries.filter { tab ->
+    private fun visibleTabs(capabilities: Set<Capability>, providerId: String?): List<LibraryTab> {
+        val favoritesAreLibrary = ServiceFeatureCatalog.forProvider(providerId).favoritesAreLibrary
+        return LibraryTab.entries.filter { tab ->
             when (tab) {
                 LibraryTab.Playlists -> Capability.PLAYLISTS_READ in capabilities
-                LibraryTab.Favorites -> Capability.FAVORITES in capabilities
+                LibraryTab.Favorites -> Capability.FAVORITES in capabilities && !favoritesAreLibrary
                 LibraryTab.Songs -> Capability.LIBRARY_SONGS in capabilities || Capability.RANDOM_SONGS in capabilities
                 else -> true
             }
         }
+    }
 
     fun selectTab(tab: LibraryTab) {
         val current = _uiState.value as? LibraryUiState.Content ?: return
@@ -293,11 +302,11 @@ class LibraryViewModel(
                     LibraryTab.Songs -> {
                         val songs = cachedSongs ?: run {
                             val loaded = if (Capability.LIBRARY_SONGS in repository.currentCapabilities()) {
-                                repository.getLibrarySongs(size = 500)
+                                repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
                             } else {
                                 repository.getRandomSongs(size = 50)
                             }
-                            loaded.applyFavoriteOverrides(repository.favoriteOverrides.value)
+                            loaded.applySongsOverrides(repository.favoriteOverrides.value)
                         }
                         if (!isCurrent()) return@launch
                         cachedSongs = songs
@@ -571,13 +580,22 @@ class LibraryViewModel(
             repository.favoriteOverrides.collectLatest { overrides ->
                 applyFavoriteOverrides(overrides)
                 val current = _uiState.value as? LibraryUiState.Content ?: return@collectLatest
-                // Only the Favorites tab re-reads live: getStarred() returns a
+                // The Favorites tab re-reads live: getStarred() returns a
                 // stable ordered set, so a newly-favorited track inserts cleanly
-                // and an un-favorited one drops. The Songs tab is intentionally
-                // NOT re-read here — it's a random sample (getRandomSongs does
-                // .shuffled().take(50)), so a live re-read would reshuffle the
-                // whole visible list on every toggle. Its heart icons are
+                // and an un-favorited one drops. So does Songs where it is the
+                // liked list (Spotify), newest like first: a like lands on top,
+                // an unlike fades out. A random sample (getRandomSongs does
+                // .shuffled().take(50)) is NOT re-read — that would reshuffle
+                // the whole visible list on every toggle; its heart icons are
                 // already updated in-place by applyFavoriteOverrides above.
+                if (songsAreLikedSongs()) {
+                    if (current.selectedTab == LibraryTab.Songs) {
+                        reloadLikedSongs(overrides)
+                    } else {
+                        // Read again on the next visit; the old list shows until then.
+                        cachedSongs = null
+                    }
+                }
                 if (current.selectedTab == LibraryTab.Favorites) {
                     val generation = libraryDataGeneration
                     val profileId = repository.currentProfileId()
@@ -594,6 +612,29 @@ class LibraryViewModel(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Songs is the service's liked list ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary]):
+     * a like adds a row and an unlike takes one away, unlike a random sample.
+     */
+    private fun songsAreLikedSongs(): Boolean =
+        ServiceFeatureCatalog.forProvider(repository.currentProviderId()).favoritesAreLibrary &&
+            Capability.LIBRARY_SONGS in repository.currentCapabilities()
+
+    private suspend fun reloadLikedSongs(overrides: Map<MediaId, Boolean>) {
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        try {
+            val songs = repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+                .applySongsOverrides(overrides)
+            if (!isDataLoadCurrent(generation, profileId)) return
+            cachedSongs = songs
+            updateContent { copy(songs = cachedSongs) }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            // The list stays; the override pass already took an unlike out.
         }
     }
 
@@ -646,7 +687,9 @@ class LibraryViewModel(
         val snapshot = repository.getSpotifyLocalSearchSnapshot() ?: return SearchResults()
         val favorites = (cachedFavorites ?: snapshot.starred)
             .applyFavoriteOverrides(repository.favoriteOverrides.value)
-        val artists = (cachedArtists ?: snapshot.artists)
+        // Every artist the library holds, not only the followed ones the
+        // Artists tab lists: the saved albums' and liked songs' artists too.
+        val artists = snapshot.artists
             .plus(favorites.artists)
             .distinctBy(Artist::id)
         val albums = (cachedAlbums ?: snapshot.albums)
@@ -832,12 +875,12 @@ class LibraryViewModel(
     private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
         if (overrides.isEmpty()) return
 
-        cachedSongs = cachedSongs?.applyFavoriteOverrides(overrides)
+        cachedSongs = cachedSongs?.applySongsOverrides(overrides)
         cachedFavorites = cachedFavorites?.applyFavoriteOverrides(overrides)
 
         updateContent {
             copy(
-                songs = songs?.applyFavoriteOverrides(overrides),
+                songs = songs?.applySongsOverrides(overrides),
                 favorites = favorites?.applyFavoriteOverrides(overrides),
                 searchResults = searchResults?.applyFavoriteOverrides(overrides),
             )
@@ -848,6 +891,12 @@ class LibraryViewModel(
         overrides: Map<MediaId, Boolean>,
     ): List<Track> = map { track ->
         overrides[track.id]?.let { isStarred -> track.copy(isStarred = isStarred) } ?: track
+    }
+
+    /** The Songs tab's [applyFavoriteOverrides]: on a liked list an unliked song also leaves it. */
+    private fun List<Track>.applySongsOverrides(overrides: Map<MediaId, Boolean>): List<Track> {
+        val applied = applyFavoriteOverrides(overrides)
+        return if (songsAreLikedSongs()) applied.filter(Track::isStarred) else applied
     }
 
     private fun SearchResults.applyFavoriteOverrides(
@@ -998,6 +1047,9 @@ class LibraryViewModel(
          *  before the first library load gives up (see [loadInitialData]). */
         private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
         private const val LOCAL_SEARCH_LIMIT_PER_TYPE = 40
+
+        /** Songs read for a library list (Apple's saved songs, Spotify's likes). */
+        private const val LIBRARY_SONGS_SIZE = 500
     }
 }
 

@@ -205,6 +205,22 @@ class SpotifyMusicSource(
                 .shuffled()
                 .take(size.coerceAtLeast(0))
 
+        // Liked Songs, newest like first. The repository serves Library's
+        // Songs from the synced cache; this is the same list read from the
+        // saved tracks the hearts already share, not a read of its own.
+        override suspend fun getLibrarySongs(size: Int, offset: Int): List<Track> {
+            val savedTrackIds = savedTrackIds()
+            return savedTracks()
+                .sortedByDescending { savedTrack -> savedTrack.addedAt.orEmpty() }
+                .mapNotNull { savedTrack ->
+                    savedTrack.track?.toTrack(savedTrackIds = savedTrackIds)?.copy(addedAt = savedTrack.addedAt)
+                }
+                // An unlike not yet in the saved list is already gone from it.
+                .filter(Track::isStarred)
+                .drop(offset.coerceAtLeast(0))
+                .take(size.coerceAtLeast(0))
+        }
+
         override suspend fun search(query: String): SearchResults =
             apiClient.search(query = query).toSearchResults(
                 savedTrackIds = savedTrackIds(),
