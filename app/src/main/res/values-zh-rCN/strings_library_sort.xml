@@ -10,4 +10,9 @@
     <string name="library_sort_recently_added">最近添加</string>
     <string name="library_sort_alphabetical">字母顺序</string>
     <string name="library_sort_creator">创建者</string>
+
+    <string name="library_recents_today">今天</string>
+    <string name="library_recents_this_week">本周</string>
+    <string name="library_recents_this_month">本月</string>
+    <string name="library_recents_not_opened">未打开过</string>
 </resources>

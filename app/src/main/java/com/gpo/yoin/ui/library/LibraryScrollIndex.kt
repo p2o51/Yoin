@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.library
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.ui.component.FastScrollSection
 import java.util.Locale
 
@@ -17,6 +18,9 @@ interface LibraryScrollIndex {
 
     /** Sections over a list in date order, one date per item ([LibraryIndex.timeline]). */
     fun timeline(datesMs: List<Long?>): List<FastScrollSection>
+
+    /** Sections over a list in Recents' order, one last-seen time per item ([LibraryIndex.recents]). */
+    fun recents(lastSeenMs: List<Long?>, nowMs: Long): List<FastScrollSection>
 
     companion object {
         /** The platform's ICU in the app's language: the process locale, as [libraryNameOrder] reads it. */
@@ -37,6 +41,9 @@ private class IcuLibraryScrollIndex(private val locale: Locale) : LibraryScrollI
     )
 
     override fun timeline(datesMs: List<Long?>): List<FastScrollSection> = LibraryIndex.timeline(datesMs, locale)
+
+    override fun recents(lastSeenMs: List<Long?>, nowMs: Long): List<FastScrollSection> =
+        LibraryIndex.recents(lastSeenMs, nowMs, locale)
 }
 
 /**
@@ -57,15 +64,20 @@ private class IcuLibraryScrollIndex(private val locale: Locale) : LibraryScrollI
  * - **Recently added**: the timeline of the dates the order follows (years,
  *   or months over a short span); none when it would say nothing (most of
  *   the list in one segment, or too much of it undated).
- * - **Recents**: none, the handle alone. When something was last opened is
- *   not a thing anyone scans for.
+ * - **Recents**: when each was last opened or played — today, this week,
+ *   this month, then months or years — and the ones never opened in Yoin as
+ *   one last section ([LibraryIndex.recents]). The handle alone while
+ *   nothing has a record.
  *
  * Playlists show no scroller, but take the same alphabet order, so A–Z
  * reads the same in every view.
  */
 internal class LibraryScrollIndexer(
     private val index: LibraryScrollIndex,
-    private val ignoredArticles: List<String> = emptyList()
+    private val ignoredArticles: List<String> = emptyList(),
+    /** What Recents sorted by ([LibrarySorter]'s own), and the time its sections are cut at. */
+    private val recents: LibraryRecents = LibraryRecents.None,
+    private val nowMs: Long = 0L
 ) {
     fun artists(sorted: List<Artist>, sort: LibrarySort): LibraryIndex.Sorted<Artist> = indexed(
         sorted = sorted,
@@ -73,7 +85,8 @@ internal class LibraryScrollIndexer(
         name = Artist::name,
         creator = Artist::name,
         // No service dates its artists.
-        addedAtMs = { null }
+        addedAtMs = { null },
+        lastSeenMs = { recents.artists[it.id.rawId] }
     )
 
     fun albums(sorted: List<Album>, sort: LibrarySort): LibraryIndex.Sorted<Album> = indexed(
@@ -81,7 +94,8 @@ internal class LibraryScrollIndexer(
         sort = sort,
         name = Album::name,
         creator = Album::artist,
-        addedAtMs = { parseLibraryDate(it.libraryAddedAt) }
+        addedAtMs = { parseLibraryDate(it.libraryAddedAt) },
+        lastSeenMs = { recents.albums[it.id.rawId] }
     )
 
     fun playlists(sorted: List<Playlist>, sort: LibrarySort): LibraryIndex.Sorted<Playlist> = indexed(
@@ -89,7 +103,8 @@ internal class LibraryScrollIndexer(
         sort = sort,
         name = Playlist::name,
         creator = Playlist::owner,
-        addedAtMs = { parseLibraryDate(it.libraryAddedAt) }
+        addedAtMs = { parseLibraryDate(it.libraryAddedAt) },
+        lastSeenMs = { recents.playlists[it.id.rawId] }
     )
 
     /**
@@ -113,6 +128,13 @@ internal class LibraryScrollIndexer(
                     is LibraryItem.AlbumItem -> parseLibraryDate(item.album.libraryAddedAt)
                     is LibraryItem.PlaylistItem -> parseLibraryDate(item.playlist.libraryAddedAt)
                 }
+            },
+            lastSeenMs = { item ->
+                when (item) {
+                    is LibraryItem.ArtistItem -> recents.artists[item.artist.id.rawId]
+                    is LibraryItem.AlbumItem -> recents.albums[item.album.id.rawId]
+                    is LibraryItem.PlaylistItem -> recents.playlists[item.playlist.id.rawId]
+                }
             }
         )
     }
@@ -122,9 +144,10 @@ internal class LibraryScrollIndexer(
         sort: LibrarySort,
         name: (T) -> String,
         creator: (T) -> String?,
-        addedAtMs: (T) -> Long?
+        addedAtMs: (T) -> Long?,
+        lastSeenMs: (T) -> Long?
     ): LibraryIndex.Sorted<T> = when (sort) {
-        LibrarySort.Recents -> LibraryIndex.Sorted(sorted, emptyList())
+        LibrarySort.Recents -> LibraryIndex.Sorted(sorted, index.recents(sorted.map(lastSeenMs), nowMs))
         LibrarySort.RecentlyAdded -> LibraryIndex.Sorted(sorted, index.timeline(sorted.map(addedAtMs)))
         LibrarySort.Alphabetical -> index.alphabetical(sorted, name, ignoredArticles)
         LibrarySort.Creator -> byCreator(sorted, creator)

@@ -24,6 +24,8 @@ import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.toUserMessage
+import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -149,7 +151,7 @@ class LibraryViewModel(
      * alone writes the sorted Artists, Albums, Playlists and All into the
      * state, so the last change always wins.
      */
-    private val listInputs = MutableStateFlow(LibraryListInputs())
+    private val listInputs = MutableStateFlow(LibraryListInputs(day = localDay()))
 
     /** [onLibraryShown]'s signal: Recents read again ([observeRecents]). */
     private val libraryShows = MutableSharedFlow<Unit>(
@@ -1085,20 +1087,24 @@ class LibraryViewModel(
     /**
      * Sorts and indexes each view anew only when what it is made of changed:
      * its list, its sort, the ignored articles, and — for a view sorted by
-     * Recents only — the recents. So new recents re-sort just the Recents
-     * views, and a view in another order is left as it was ([previous]).
+     * Recents only — the recents and the day its sections are cut on. So new
+     * recents re-sort just the Recents views, and a view in another order is
+     * left as it was ([previous]).
      */
     private fun sortLists(inputs: LibraryListInputs, previous: LibrarySortPass?): LibrarySortPass {
         val sorter by lazy { LibrarySorter(nameOrder(), inputs.recents, inputs.ignoredArticles) }
-        val indexer by lazy { LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles) }
+        // Recents' sections are cut at today, this week and this month.
+        val indexer by lazy { LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles, inputs.recents, clock()) }
         fun sortOf(view: LibraryTab) = inputs.sorts[view] ?: LibrarySort.Recents
         fun keyOf(view: LibraryTab, vararg made: Any?): LibraryViewSortKey {
             val sort = sortOf(view)
+            val byRecents = sort == LibrarySort.Recents
             return LibraryViewSortKey(
                 made = made.toList(),
                 sort = sort,
                 ignoredArticles = inputs.ignoredArticles,
-                recents = inputs.recents.takeIf { sort == LibrarySort.Recents }
+                recents = inputs.recents.takeIf { byRecents },
+                day = inputs.day.takeIf { byRecents }
             )
         }
         fun <T> view(
@@ -1209,8 +1215,13 @@ class LibraryViewModel(
      * ([observeRecents]); a list on screen never re-sorts under the user.
      */
     fun onLibraryShown() {
+        // A new day moves Recents' "today" and "this week" even with no new record.
+        listInputs.update { it.copy(day = localDay()) }
         libraryShows.tryEmit(Unit)
     }
+
+    private fun localDay(): Long =
+        Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay()
 
     /**
      * This profile's Yoin records of what it opened and played, for Recents:
@@ -1987,19 +1998,22 @@ private data class LibraryListInputs(
     val allHoldsPlaylists: Boolean = false,
     val sorts: Map<LibraryTab, LibrarySort> = emptyMap(),
     val recents: LibraryRecents = LibraryRecents.None,
-    val ignoredArticles: List<String> = emptyList()
+    val ignoredArticles: List<String> = emptyList(),
+    /** The local day Library last came into view on: Recents' sections are cut against it. */
+    val day: Long = 0L
 )
 
 /**
  * What one view's sort read ([LibraryViewModel]'s `sortLists`): the lists it is
- * made of, its sort and the ignored articles, and the recents only when it is
- * sorted by Recents. Equal keys sort alike, so the last result stands.
+ * made of, its sort and the ignored articles, and the recents and the day only
+ * when it is sorted by Recents. Equal keys sort alike, so the last result stands.
  */
 private data class LibraryViewSortKey(
     val made: List<Any?>,
     val sort: LibrarySort,
     val ignoredArticles: List<String>,
-    val recents: LibraryRecents?
+    val recents: LibraryRecents?,
+    val day: Long?
 )
 
 /** One view sorted and indexed, null while its list hasn't loaded, under the key it was sorted for. */

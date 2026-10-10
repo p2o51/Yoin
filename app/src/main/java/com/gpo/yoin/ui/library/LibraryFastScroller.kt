@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.FastScrollMath
 import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.YoinFastScroller
@@ -77,9 +80,11 @@ internal fun LibraryGridFastScroller(
 ) {
     val currentSections by rememberUpdatedState(sections)
     val currentLeading by rememberUpdatedState(leadingItems)
+    val recentsNames = recentsLabelNames()
+    val named = remember(sections, recentsNames) { sections.namedWith(recentsNames) }
     YoinFastScroller(
         state = state,
-        sections = sections,
+        sections = named,
         leadingItems = leadingItems,
         onJumped = { jumped ->
             anchor.index = libraryJumpAnchor(
@@ -95,6 +100,27 @@ internal fun LibraryGridFastScroller(
             .testTag(LIBRARY_FAST_SCROLLER_TAG)
     )
 }
+
+/** Recents' section names ([RecentsLabel]) in the app's language. */
+@Composable
+internal fun recentsLabelNames(): Map<RecentsLabel, String> = mapOf(
+    RecentsLabel.Today to stringResource(R.string.library_recents_today),
+    RecentsLabel.ThisWeek to stringResource(R.string.library_recents_this_week),
+    RecentsLabel.ThisMonth to stringResource(R.string.library_recents_this_month),
+    RecentsLabel.NotOpened to stringResource(R.string.library_recents_not_opened)
+)
+
+/** The sections with each [RecentsLabel] key drawn as its name; any other label as it is. */
+internal fun List<FastScrollSection>.namedWith(names: Map<RecentsLabel, String>): List<FastScrollSection> =
+    map { section ->
+        val shown = RecentsLabel.of(section.label)?.let(names::getValue) ?: section.label
+        val shownTick = RecentsLabel.of(section.tickLabel)?.let(names::getValue) ?: section.tickLabel
+        if (shown == section.label && shownTick == section.tickLabel) {
+            section
+        } else {
+            section.copy(label = shown, tickLabel = shownTick)
+        }
+    }
 
 /**
  * Lays the content out [overhang] wider than this node, the extra past its

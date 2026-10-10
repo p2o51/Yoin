@@ -7,8 +7,11 @@ import android.icu.text.Transliterator
 import android.os.Build
 import androidx.annotation.RequiresApi
 import com.gpo.yoin.ui.component.FastScrollSection
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
+import java.time.temporal.WeekFields
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -173,6 +176,116 @@ object LibraryIndex {
         return sections
     }
 
+    /**
+     * Sections for Recents. [lastSeenMs] holds one entry per list item, in
+     * list order: when it was last opened or played in Yoin, newest first,
+     * then null for each item with no record. The recorded part is cut by
+     * that time, in the app's calendar: today, this week, this month, then
+     * month by month (the year standing in for the month wherever an earlier
+     * year starts), or year by year once the records reach back two years or
+     * more. The items with no record are one last section.
+     *
+     * The timeline's rule ([timeline]) judges the recorded part alone: no
+     * sections when one of its segments holds more than about 60% of it. The
+     * items with no record never count as undated, so a library mostly never
+     * opened in Yoin still gets its ticks; with no record at all there are
+     * none (the handle alone).
+     *
+     * The relative sections and the last carry [RecentsLabel] keys, named in
+     * the app's language where they are drawn.
+     */
+    fun recents(
+        lastSeenMs: List<Long?>,
+        nowMs: Long,
+        locale: Locale = Locale.getDefault(),
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): List<FastScrollSection> {
+        // Nothing recorded (a new device): no calendar to read at all.
+        if (lastSeenMs.all { it == null }) return emptyList()
+        val bubbleFormat by lazy { skeletonFormat("yMMM", locale, timeZone) }
+        val monthFormat by lazy { skeletonFormat("MMM", locale, timeZone) }
+        return recentsSections(
+            lastSeenMs = lastSeenMs,
+            nowMs = nowMs,
+            zone = timeZone.toZoneId(),
+            firstDayOfWeek = WeekFields.of(locale).firstDayOfWeek,
+            monthLabel = { ms -> bubbleFormat.format(Date(ms)) },
+            monthTick = { ms -> monthFormat.format(Date(ms)) }
+        )
+    }
+
+    /**
+     * [recents] with the calendar and the month names given: the bubble's
+     * year and month ([monthLabel]) and the tick's month ([monthTick]).
+     */
+    internal fun recentsSections(
+        lastSeenMs: List<Long?>,
+        nowMs: Long,
+        zone: ZoneId,
+        firstDayOfWeek: DayOfWeek,
+        monthLabel: (Long) -> String,
+        monthTick: (Long) -> String
+    ): List<FastScrollSection> {
+        val recorded = lastSeenMs.filterNotNull()
+        if (recorded.isEmpty()) return emptyList()
+        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val startOfToday = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        val startOfWeek = today.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
+            .atStartOfDay(zone).toInstant().toEpochMilli()
+        val startOfMonth = today.withDayOfMonth(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val byMonth = nowMs - recorded.minOf { it } < TWO_YEARS_MS
+
+        // Today, this week and this month above every month; a month, or a year.
+        fun segmentOf(ms: Long): Int = when {
+            ms >= startOfToday -> RECENTS_TODAY
+            ms >= startOfWeek -> RECENTS_THIS_WEEK
+            ms >= startOfMonth -> RECENTS_THIS_MONTH
+            byMonth -> monthOf(ms, zone)
+            else -> monthOf(ms, zone) / 12
+        }
+        val segmentCounts = recorded.groupingBy(::segmentOf).eachCount()
+        if (segmentCounts.values.max() > recorded.size * MAX_SEGMENT_SHARE) return emptyList()
+
+        val sections = ArrayList<FastScrollSection>()
+        var currentSegment: Int? = null
+        var currentYear = today.year
+        var unrecordedStarted = false
+        lastSeenMs.forEachIndexed { position, ms ->
+            if (ms == null) {
+                if (!unrecordedStarted) {
+                    unrecordedStarted = true
+                    sections += FastScrollSection(RecentsLabel.NotOpened.key, startIndex = position)
+                }
+                return@forEachIndexed
+            }
+            val segment = segmentOf(ms)
+            if (segment == currentSegment) return@forEachIndexed
+            currentSegment = segment
+            val start = if (sections.isEmpty()) 0 else position
+            sections += when (segment) {
+                RECENTS_TODAY -> FastScrollSection(RecentsLabel.Today.key, startIndex = start)
+                RECENTS_THIS_WEEK -> FastScrollSection(RecentsLabel.ThisWeek.key, startIndex = start)
+                RECENTS_THIS_MONTH -> FastScrollSection(RecentsLabel.ThisMonth.key, startIndex = start)
+                else -> {
+                    val year = Instant.ofEpochMilli(ms).atZone(zone).year
+                    val tick = if (byMonth && year == currentYear) monthTick(ms) else year.toString()
+                    currentYear = year
+                    FastScrollSection(
+                        label = if (byMonth) monthLabel(ms) else year.toString(),
+                        startIndex = start,
+                        tickLabel = tick
+                    )
+                }
+            }
+        }
+        return sections
+    }
+
+    // Recents' relative segments: above any month or year number.
+    private const val RECENTS_TODAY = Int.MAX_VALUE
+    private const val RECENTS_THIS_WEEK = Int.MAX_VALUE - 1
+    private const val RECENTS_THIS_MONTH = Int.MAX_VALUE - 2
+
     // ── Alphabetical internals ──────────────────────────────────────────
 
     /**
@@ -238,6 +351,30 @@ object LibraryIndex {
         DateFormat.getInstanceForSkeleton(skeleton, locale).apply {
             this.timeZone = android.icu.util.TimeZone.getTimeZone(timeZone.id)
         }
+}
+
+/**
+ * The Recents sections a [FastScrollSection] names by key ([LibraryIndex.recents]):
+ * the scroller draws them in the app's language ([LibraryGridFastScroller]).
+ */
+enum class RecentsLabel {
+    Today,
+    ThisWeek,
+    ThisMonth,
+
+    /** Never opened or played in Yoin: the last section. */
+    NotOpened;
+
+    /** What a section carries until it is drawn: no name a list item could have. */
+    val key: String get() = KEY_PREFIX + name
+
+    companion object {
+        private const val KEY_PREFIX = "\u0000recents."
+
+        /** The label [key] stands for, or null for a label of its own. */
+        fun of(label: String): RecentsLabel? =
+            if (label.startsWith(KEY_PREFIX)) entries.firstOrNull { it.key == label } else null
+    }
 }
 
 /**

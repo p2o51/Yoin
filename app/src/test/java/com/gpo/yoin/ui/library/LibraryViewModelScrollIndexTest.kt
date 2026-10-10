@@ -119,6 +119,9 @@ class LibraryViewModelScrollIndexTest {
 
         override fun timeline(datesMs: List<Long?>): List<FastScrollSection> =
             throw IllegalStateException("no ICU data")
+
+        override fun recents(lastSeenMs: List<Long?>, nowMs: Long): List<FastScrollSection> =
+            throw IllegalStateException("no ICU data")
     }
 
     private fun content(viewModel: LibraryViewModel) = viewModel.uiState.value as LibraryUiState.Content

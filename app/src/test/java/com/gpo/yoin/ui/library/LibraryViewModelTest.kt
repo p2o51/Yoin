@@ -1821,6 +1821,42 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_cutRecentsByWhenEachWasLastOpened_when_viewSortsByRecents() = runTest {
+        // Wednesday 14 October 2026, noon UTC.
+        val now = 1_791_979_200_000L
+        val day = 86_400_000L
+        val records = MutableStateFlow(
+            LibraryRecents(albums = mapOf("today" to now - 1_000L, "sep" to now - 30 * day, "jul" to now - 90 * day))
+        )
+        val repository = subsonicLibrary(
+            albums = listOf(
+                album("never", "Never", added = "2020-01-01T00:00:00Z"),
+                album("jul", "July"),
+                album("today", "Today"),
+                album("sep", "September")
+            )
+        )
+        val viewModel = libraryViewModel(repository, recentsSource = { _, _ -> records }, clock = { now })
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        val state = content(viewModel)
+        assertEquals(LibrarySort.Recents, state.sorts[LibraryTab.Albums])
+        assertEquals(listOf("today", "sep", "jul", "never"), state.albums.orEmpty().map { it.id.rawId })
+        // Today, then months; what was never opened in Yoin is the last section.
+        assertEquals(
+            listOf(
+                section(RecentsLabel.Today.key, 0),
+                FastScrollSection("2026-09", 1, "09"),
+                FastScrollSection("2026-07", 2, "07"),
+                section(RecentsLabel.NotOpened.key, 3)
+            ),
+            state.scrollSections[LibraryTab.Albums]
+        )
+    }
+
+    @Test
     fun should_followTheSort_when_albumsSortChanges() = runTest {
         val albums = listOf(
             album("n", "Nocturne", added = "2024-03-01T00:00:00Z").copy(artist = "Zola"),

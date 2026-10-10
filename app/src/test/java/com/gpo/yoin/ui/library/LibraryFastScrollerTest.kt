@@ -261,6 +261,27 @@ class LibraryFastScrollerTest {
     }
 
     @Test
+    fun should_nameRecentsSectionsInTheAppsLanguage_when_drawn() {
+        val recents = listOf(
+            FastScrollSection(RecentsLabel.Today.key, 0),
+            FastScrollSection(RecentsLabel.ThisWeek.key, 40),
+            FastScrollSection(RecentsLabel.ThisMonth.key, 60),
+            FastScrollSection("Sep 2026", 80, "Sep"),
+            FastScrollSection(RecentsLabel.NotOpened.key, 120)
+        )
+        lateinit var names: Map<RecentsLabel, String>
+        rule.setContent { names = recentsLabelNames() }
+        rule.waitForIdle()
+
+        val named = recents.namedWith(names)
+
+        // A section's own label stays as it is.
+        assertEquals(listOf("Today", "This week", "This month", "Sep 2026", "Not opened"), named.map { it.label })
+        assertEquals(listOf("Today", "This week", "This month", "Sep", "Not opened"), named.map { it.tickLabel })
+        assertEquals(recents.map { it.startIndex }, named.map { it.startIndex })
+    }
+
+    @Test
     @Config(qualifiers = "w412dp-h915dp")
     fun should_showNoScroller_when_playlistsOrSongsAreOn() {
         var tab by mutableStateOf(LibraryTab.Playlists)

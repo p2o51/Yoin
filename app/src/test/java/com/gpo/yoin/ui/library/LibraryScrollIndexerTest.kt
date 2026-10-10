@@ -5,7 +5,10 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.ui.component.FastScrollSection
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -42,13 +45,38 @@ class LibraryScrollIndexerTest {
     }
 
     @Test
-    fun should_showTheHandleAlone_when_artistsSortedByRecents() {
+    fun should_showTheHandleAlone_when_artistsSortedByRecentsHaveNoRecord() {
         val artists = listOf("Beta", "alpha").map(::artist)
 
         val result = indexer.artists(sorter.artists(artists, LibrarySort.Recents), LibrarySort.Recents)
 
         assertEquals(emptyList<FastScrollSection>(), result.sections)
         assertEquals(sorter.artists(artists, LibrarySort.Recents), result.items)
+    }
+
+    @Test
+    fun should_cutByWhenEachWasLastSeenWithTheUnopenedLast_when_albumsSortedByRecents() {
+        val now = ZonedDateTime.of(2026, 10, 14, 12, 0, 0, 0, ZoneOffset.UTC).toInstant().toEpochMilli()
+        val day = 86_400_000L
+        val recents = LibraryRecents(albums = mapOf("1" to now - 1_000L, "2" to now - 40 * day, "3" to now - 70 * day))
+        val albums = listOf(
+            album("4", "Never", artist = "D", added = "2024-01-01T00:00:00Z"),
+            album("3", "Ten weeks", artist = "C"),
+            album("1", "Today", artist = "A"),
+            album("2", "Six weeks", artist = "B")
+        )
+        val sorter = LibrarySorter(libraryNameOrder(Locale.ENGLISH), recents)
+        val indexer = LibraryScrollIndexer(index, recents = recents, nowMs = now)
+
+        val result = indexer.albums(sorter.albums(albums, LibrarySort.Recents), LibrarySort.Recents)
+
+        // The order stays the sorter's: last seen first, the never-opened after.
+        assertEquals(listOf("1", "2", "3", "4"), result.items.map { it.id.rawId })
+        assertEquals(
+            listOf(RecentsLabel.Today.key, "Sep 2026", "Aug 2026", RecentsLabel.NotOpened.key),
+            result.sections.map { it.label }
+        )
+        assertRuns(result)
     }
 
     @Test

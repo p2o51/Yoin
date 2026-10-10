@@ -10,4 +10,10 @@
     <string name="library_sort_recently_added">Recently added</string>
     <string name="library_sort_alphabetical">Alphabetical</string>
     <string name="library_sort_creator">Creator</string>
+
+    <!-- Recents' fast-scroller sections: when each was last opened or played in Yoin. -->
+    <string name="library_recents_today">Today</string>
+    <string name="library_recents_this_week">This week</string>
+    <string name="library_recents_this_month">This month</string>
+    <string name="library_recents_not_opened">Not opened</string>
 </resources>
