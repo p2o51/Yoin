@@ -56,10 +56,12 @@ internal fun buildYoinImageLoader(context: Context): ImageLoader = ImageLoader.B
     .build()
 
 /**
- * Caches only what can be shown again: a 2xx, or a 304 revalidating an entry
- * (Coil's default merges its headers into the stored one). Any other status is
- * neither written nor, should an old entry hold one, read back — the request
- * goes to the network instead.
+ * Caches only what can be shown again: a 2xx that carries an image, or a 304
+ * revalidating an entry (Coil's default merges its headers into the stored
+ * one). Anything else is neither written nor, should an old entry hold one,
+ * read back — the request goes to the network instead. Coil's fetcher already
+ * rejects a stored non-2xx code before [read] is asked; a stored 2xx that is
+ * not an image only this strategy keeps out.
  */
 @OptIn(ExperimentalCoilApi::class)
 internal object SuccessOnlyCacheStrategy : CacheStrategy {
@@ -67,7 +69,7 @@ internal object SuccessOnlyCacheStrategy : CacheStrategy {
         cacheResponse: NetworkResponse,
         networkRequest: NetworkRequest,
         options: Options
-    ): CacheStrategy.ReadResult = if (cacheResponse.code.isReusable()) {
+    ): CacheStrategy.ReadResult = if (cacheResponse.isShowable()) {
         CacheStrategy.DEFAULT.read(cacheResponse, networkRequest, options)
     } else {
         CacheStrategy.ReadResult(networkRequest)
@@ -78,14 +80,38 @@ internal object SuccessOnlyCacheStrategy : CacheStrategy {
         networkRequest: NetworkRequest,
         networkResponse: NetworkResponse,
         options: Options
-    ): CacheStrategy.WriteResult = if (networkResponse.code.isReusable()) {
+    ): CacheStrategy.WriteResult = if (networkResponse.isShowable()) {
         CacheStrategy.DEFAULT.write(cacheResponse, networkRequest, networkResponse, options)
     } else {
         CacheStrategy.WriteResult.DISABLED
     }
 
     // A stored entry's code is 304 once a revalidation has rewritten its headers.
-    private fun Int.isReusable(): Boolean = this in 200..299 || this == 304
+    private fun NetworkResponse.isShowable(): Boolean = when (code) {
+        HTTP_NOT_MODIFIED -> true
+        HTTP_NO_CONTENT -> false
+        in 200..299 -> hasImageBody()
+        else -> false
+    }
+
+    /**
+     * A 2xx can still carry no image: Subsonic answers a failed `getCoverArt`
+     * with HTTP 200 and its JSON (`f=json`) or XML error, a captive portal with
+     * its HTML page. Stored, that body would fail to decode on every retry.
+     * A missing or generic type (octet-stream, text/plain) stays cacheable —
+     * servers send images under those too.
+     */
+    private fun NetworkResponse.hasImageBody(): Boolean {
+        if (headers[CONTENT_LENGTH]?.trim() == "0") return false
+        val type = headers[CONTENT_TYPE]?.substringBefore(';')?.trim()?.lowercase() ?: return true
+        return type.startsWith("image/") || NOT_IMAGE_TYPE_MARKERS.none { it in type }
+    }
+
+    private const val HTTP_NO_CONTENT = 204
+    private const val HTTP_NOT_MODIFIED = 304
+    private const val CONTENT_TYPE = "Content-Type"
+    private const val CONTENT_LENGTH = "Content-Length"
+    private val NOT_IMAGE_TYPE_MARKERS = listOf("json", "xml", "html")
 }
 
 /**

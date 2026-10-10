@@ -5,6 +5,7 @@ import android.os.Looper
 import coil3.annotation.ExperimentalCoilApi
 import coil3.decode.DataSource
 import coil3.disk.DiskCache
+import coil3.fetch.FetchResult
 import coil3.fetch.SourceFetchResult
 import coil3.network.CacheStrategy
 import coil3.network.ConcurrentRequestStrategy
@@ -47,6 +48,7 @@ class YoinImageLoaderTest {
 
     private val options = Options(mockk<Context>(relaxed = true))
     private val request = NetworkRequest(url = "https://images.example/cover.jpg")
+    private val client = OkHttpClient()
     private lateinit var server: MockWebServer
 
     @Before
@@ -75,6 +77,40 @@ class YoinImageLoaderTest {
         }
         val default404 = CacheStrategy.DEFAULT.write(null, request, NetworkResponse(code = 404), options)
         assertNotEquals(CacheStrategy.WriteResult.DISABLED, default404)
+    }
+
+    @Test
+    fun should_notWriteDiskCache_when_2xxBodyIsNotAnImage() = runTest {
+        val notImages = listOf(
+            // Subsonic's getCoverArt error, f=json and f=xml: HTTP 200 with the error body.
+            response(200, contentType = "application/json; charset=utf-8"),
+            response(200, contentType = "text/xml; charset=UTF-8"),
+            response(200, contentType = "application/xml"),
+            // A captive portal's sign-in page.
+            response(200, contentType = "text/html"),
+            response(204),
+            response(200, contentType = "image/jpeg", contentLength = "0")
+        )
+        notImages.forEach { response ->
+            val result = SuccessOnlyCacheStrategy.write(null, request, response, options)
+            assertSame("${response.code} ${response.headers}", CacheStrategy.WriteResult.DISABLED, result)
+        }
+    }
+
+    @Test
+    fun should_writeDiskCache_when_2xxBodyMayBeAnImage() = runTest {
+        val images = listOf(
+            response(200, contentType = "image/jpeg", contentLength = "48213"),
+            response(200, contentType = "image/svg+xml"),
+            // Generic types servers also send images under.
+            response(200, contentType = "application/octet-stream"),
+            response(200, contentType = "text/plain"),
+            response(200)
+        )
+        images.forEach { response ->
+            val result = SuccessOnlyCacheStrategy.write(null, request, response, options)
+            assertEquals("${response.headers}", response, result.response)
+        }
     }
 
     @Test
@@ -109,6 +145,15 @@ class YoinImageLoaderTest {
     }
 
     @Test
+    fun should_bypassCache_when_cachedBodyIsNotAnImage() = runTest {
+        // Unlike an error code, a stored 2xx gets past Coil's own check and reaches read().
+        val cached = response(200, contentType = "application/json")
+        val result = SuccessOnlyCacheStrategy.read(cached, request, options)
+        assertNull(result.response)
+        assertEquals(request, result.request)
+    }
+
+    @Test
     fun should_reuseCache_when_cachedResponseIs200OrRevalidated() = runTest {
         listOf(200, 304).forEach { code ->
             val cached = NetworkResponse(code = code)
@@ -120,40 +165,42 @@ class YoinImageLoaderTest {
 
     @Test
     fun should_fetchFromNetworkAgain_when_theLastResponseWas404() = runBlocking {
-        // Coil refuses to fetch on the main looper; JVM stubs report null for both.
-        mockkStatic(Looper::class)
-        every { Looper.getMainLooper() } returns mockk(relaxed = true)
-        try {
-            server.enqueue(MockResponse().setResponseCode(404))
-            server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "image/jpeg").setBody("cover"))
-            val url = server.url("/cover.jpg").toString()
-            val diskCache = DiskCache.Builder()
-                .directory(temp.newFolder("images").toOkioPath())
-                .maxSizeBytes(1_000_000L)
-                .build()
-            val client = OkHttpClient()
-            fun fetcher() = NetworkFetcher(
-                url = url,
-                options = options,
-                networkClient = lazy { client.asNetworkClient() },
-                diskCache = lazy { diskCache },
-                cacheStrategy = lazy { SuccessOnlyCacheStrategy },
-                connectivityChecker = lazy { ConnectivityChecker.ONLINE },
-                concurrentRequestStrategy = lazy { ConcurrentRequestStrategy.UNCOORDINATED }
-            )
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "image/jpeg").setBody("cover"))
+        val url = server.url("/cover.jpg").toString()
+        val diskCache = newDiskCache()
 
-            val missing = runCatching { fetcher().fetch() }.exceptionOrNull()
-            assertEquals(404, (missing as? HttpException)?.response?.code)
-            assertNull(diskCache.openSnapshot(url))
+        val missing = runCatching { fetchOffMainLooper(url, diskCache) }.exceptionOrNull()
+        assertEquals(404, (missing as? HttpException)?.response?.code)
+        assertNull(diskCache.openSnapshot(url))
 
-            val found = fetcher().fetch() as SourceFetchResult
-            found.source.close()
-            assertEquals(DataSource.NETWORK, found.dataSource)
-            assertEquals(2, server.requestCount)
-            diskCache.openSnapshot(url).use { assertNotNull(it) }
-        } finally {
-            unmockkStatic(Looper::class)
-        }
+        val found = fetchOffMainLooper(url, diskCache) as SourceFetchResult
+        found.source.close()
+        assertEquals(DataSource.NETWORK, found.dataSource)
+        assertEquals(2, server.requestCount)
+        diskCache.openSnapshot(url).use { assertNotNull(it) }
+    }
+
+    @Test
+    fun should_fetchFromNetworkAgain_when_theLastResponseWasA200JsonError() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"subsonic-response":{"status":"failed","error":{"code":70}}}""")
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "image/jpeg").setBody("cover"))
+        val url = server.url("/rest/getCoverArt.view?id=ar-1&f=json").toString()
+        val diskCache = newDiskCache()
+
+        // Coil hands the JSON to the decoder, which fails; nothing may be stored for the retry.
+        (fetchOffMainLooper(url, diskCache) as SourceFetchResult).source.close()
+        assertNull(diskCache.openSnapshot(url))
+
+        val found = fetchOffMainLooper(url, diskCache) as SourceFetchResult
+        found.source.close()
+        assertEquals(DataSource.NETWORK, found.dataSource)
+        assertEquals(2, server.requestCount)
+        diskCache.openSnapshot(url).use { assertNotNull(it) }
     }
 
     @Test
@@ -171,5 +218,37 @@ class YoinImageLoaderTest {
         // Nothing left to delete on later launches.
         deleteLegacyImageDiskCache(cacheDir)
         assertTrue(current.exists())
+    }
+
+    private fun response(code: Int, contentType: String? = null, contentLength: String? = null) = NetworkResponse(
+        code = code,
+        headers = NetworkHeaders.Builder().apply {
+            contentType?.let { set("Content-Type", it) }
+            contentLength?.let { set("Content-Length", it) }
+        }.build()
+    )
+
+    private fun newDiskCache(): DiskCache = DiskCache.Builder()
+        .directory(temp.newFolder().toOkioPath())
+        .maxSizeBytes(1_000_000L)
+        .build()
+
+    private suspend fun fetchOffMainLooper(url: String, diskCache: DiskCache): FetchResult? {
+        // Coil refuses to fetch on the main looper; JVM stubs report null for both.
+        mockkStatic(Looper::class)
+        every { Looper.getMainLooper() } returns mockk(relaxed = true)
+        try {
+            return NetworkFetcher(
+                url = url,
+                options = options,
+                networkClient = lazy { client.asNetworkClient() },
+                diskCache = lazy { diskCache },
+                cacheStrategy = lazy { SuccessOnlyCacheStrategy },
+                connectivityChecker = lazy { ConnectivityChecker.ONLINE },
+                concurrentRequestStrategy = lazy { ConcurrentRequestStrategy.UNCOORDINATED }
+            ).fetch()
+        } finally {
+            unmockkStatic(Looper::class)
+        }
     }
 }
