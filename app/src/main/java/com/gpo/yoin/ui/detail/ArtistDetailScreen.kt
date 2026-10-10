@@ -572,13 +572,20 @@ private fun ArtistBody(
                 ) {
                     // Arrives with the personal layer; widens in, carrying its
                     // 48dp gap, so the discography narrows with it instead of
-                    // jumping.
+                    // jumping. Pinned at Start, it unfolds in place, title
+                    // first, instead of sliding in from the page edge.
                     AnimatedVisibility(
                         visible = mostPlayedVisible,
                         enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
-                            YoinMotion.expandHorizontally(role = YoinMotionRole.Expressive),
+                            YoinMotion.expandHorizontally(
+                                role = YoinMotionRole.Expressive,
+                                expandFrom = Alignment.Start,
+                            ),
                         exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
-                            YoinMotion.shrinkHorizontally(role = YoinMotionRole.Expressive),
+                            YoinMotion.shrinkHorizontally(
+                                role = YoinMotionRole.Expressive,
+                                shrinkTowards = Alignment.Start,
+                            ),
                     ) {
                         ArtistMostPlayed(
                             listening = content.listening,
