@@ -134,6 +134,10 @@ internal fun SpotifyLibraryPlaylistCache.toPlaylist(): Playlist = Playlist(
     tracks = emptyList(),
     canWrite = canWrite,
     snapshotId = snapshotId,
+    // The cache keeps no ownership column: its canWrite is the sync's
+    // `owner.id == me` (SpotifyMusicSource.getPlaylists), which is ownership.
+    // A playlist without an owner id cached false, so this is never null.
+    ownedByMe = canWrite,
 )
 
 internal fun buildStarredFromCache(

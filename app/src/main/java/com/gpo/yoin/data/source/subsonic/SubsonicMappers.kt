@@ -123,6 +123,11 @@ internal fun SubsonicPlaylist.toPlaylist(currentUsername: String? = null): Neutr
     snapshotId = null,
     comment = comment,
     libraryAddedAt = created,
+    // Ownership, not access: readonly says nothing about who made it. A
+    // server may log in a name in any case and send back the stored one.
+    ownedByMe = owner?.takeUnless(String::isBlank)?.let { playlistOwner ->
+        currentUsername?.let { playlistOwner.equals(it, ignoreCase = true) }
+    },
 )
 
 internal fun SubsonicSearchResult.toSearchResults(): SearchResults = SearchResults(

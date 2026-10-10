@@ -40,6 +40,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -566,7 +567,14 @@ class AppleMusicSource(
                 canWrite = false,
                 comment = a["description"]?.jsonObject?.text("standard"),
                 // A library playlist's; a catalog playlist has none.
-                libraryAddedAt = a.text("dateAdded")
+                libraryAddedAt = a.text("dateAdded"),
+                // Apple names no owner, but only the user's own library playlists are editable
+                // (its Purchased and Favorites Mix are not). Never canWrite: Yoin writes none.
+                ownedByMe = if (resource.text("type") == "library-playlists") {
+                    a["canEdit"]?.jsonPrimitive?.booleanOrNull
+                } else {
+                    null
+                }
             )
         }
     }

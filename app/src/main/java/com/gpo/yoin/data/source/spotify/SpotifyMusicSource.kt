@@ -154,7 +154,9 @@ class SpotifyMusicSource(
             val meId = apiClient.getCurrentUserId()
             return currentUserPlaylists()
                 .sortedBy { it.name.lowercase() }
-                .map { playlist -> playlist.toPlaylist(canWrite = playlist.owner?.id == meId) }
+                .map { playlist ->
+                    playlist.toPlaylist(canWrite = playlist.owner?.id == meId, ownedByMe = playlist.ownedBy(meId))
+                }
         }
 
         override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
@@ -173,6 +175,7 @@ class SpotifyMusicSource(
                 playlist.toPlaylist(
                     tracks = indexedTracks.map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
+                    ownedByMe = playlist.ownedBy(meId.await()),
                 )
             }
         }
@@ -259,7 +262,7 @@ class SpotifyMusicSource(
             val created = apiClient.createPlaylist(name = name, description = description)
             playlistsCache.invalidate()
             // Freshly-created playlists are owned by the caller → canWrite = true.
-            created.toPlaylist(canWrite = true)
+            created.toPlaylist(canWrite = true, ownedByMe = true)
         }
 
         override suspend fun renamePlaylist(
