@@ -646,7 +646,12 @@ class HomeViewModel(
                 // this) and the load of that scope replaces it. Should
                 // ProfileManager settle without one, none is coming: the
                 // snapshot still stays, and the load ends as a failed one
-                // (below) rather than wait for ever, so a refresh runs it again.
+                // (below) rather than wait for ever. No Retry shows then —
+                // there is no Error page over a feed — so the way out is the
+                // account itself: re-entering its credentials builds the
+                // source, which moves the scope, and that load replaces the
+                // snapshot. (Its card in the account switcher and Settings
+                // says so for Subsonic and Spotify; Apple Music's says nothing.)
                 if (sourcelessLoadWouldReplace(scopeKey)) {
                     if (!settledWithoutSource) noSourceComing.first { sourceless -> sourceless }
                     throw NoActiveSourceException()
@@ -2264,7 +2269,9 @@ private data class HomeScope(val providerId: String?, val profileId: String?) {
 /**
  * A Home load that found no source and none coming (ProfileManager settled
  * without one: unreadable credentials) with the account's snapshot up: it
- * fails, keeping the snapshot, instead of waiting for ever.
+ * fails, keeping the snapshot, instead of waiting for ever. No Error page and
+ * so no Retry: a source built from re-entered credentials moves the scope,
+ * and that load takes over.
  */
 private class NoActiveSourceException : IllegalStateException("No source for the active account")
 

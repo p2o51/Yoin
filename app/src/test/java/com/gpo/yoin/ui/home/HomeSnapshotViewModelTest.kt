@@ -225,7 +225,9 @@ class HomeSnapshotViewModelTest {
     fun should_endTheLoadAndRunItAgainOnRefresh_when_profileManagerSettlesWithoutASource() = runTest {
         assumeTrue(YoinPerf.enabled)
         // Unreadable credentials: the snapshot stays, but the load ends as a
-        // failed one instead of waiting forever, so Retry runs it again.
+        // failed one instead of waiting forever, so refresh() runs it again.
+        // Nothing on screen calls it then (no Error page over the snapshot):
+        // the account's own fix is the way out (the test after this one).
         val profile = "snapshot-no-source-refresh"
         val provider = MutableStateFlow<String?>(null)
         seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
@@ -246,6 +248,29 @@ class HomeSnapshotViewModelTest {
         assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
         assertTrue(seen.none { state -> state is HomeUiState.Error })
         coVerify(exactly = 0) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_replaceTheSnapshotWithTheFeed_when_theAccountsSourceComesAfterTheLoadEndedWithoutOne() = runTest {
+        // Unreadable credentials, then re-entered: ProfileManager builds the
+        // source, which moves the scope; no Retry is needed (none is shown).
+        val profile = "snapshot-no-source-fixed"
+        val provider = MutableStateFlow<String?>(null)
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns MutableStateFlow(true)
+        coEvery { repository.getPlaylists() } returns listOf(playlist("fresh-pl", "Fresh playlist"))
+        val seen = record(viewModel(repository, MutableStateFlow(profile), store()))
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertEquals(listOf("Snap playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+
+        provider.value = MediaId.PROVIDER_SUBSONIC
+        advanceUntilIdle()
+
+        assertEquals(listOf("Fresh playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        val painted = seen.dropWhile { state -> state !is HomeUiState.Content }
+        assertTrue(painted.none { state -> state is HomeUiState.Loading || state is HomeUiState.Error })
     }
 
     @Test
