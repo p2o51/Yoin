@@ -238,7 +238,8 @@ class PlaybackManager(
      * Starts [tracks] at [startIndex]. [shuffled] says the caller already
      * shuffled the list for a Shuffle button: Media3 / MusicKit play it as
      * given, while Spotify starts its context at the first track with
-     * Spotify's own shuffle on (a context can't take Yoin's order).
+     * Spotify's own shuffle on (a context can't take Yoin's order). Apple
+     * Music imports MusicKit can't play are dropped first ([playableQueue]).
      */
     fun play(
         tracks: List<Track>,
@@ -248,6 +249,17 @@ class PlaybackManager(
         shuffled: Boolean = false,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        val queue = playableQueue(tracks, startIndex)
+        startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled)
+    }
+
+    private fun startQueue(
+        tracks: List<Track>,
+        startIndex: Int,
+        source: MusicSource,
+        activityContext: ActivityContext,
+        shuffled: Boolean
+    ) {
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         lastRecordedTrackId = null
         _currentActivityContext.value = activityContext
