@@ -314,6 +314,7 @@ fun LibraryScreen(
         trackLibraryStates = trackLibraryStates,
         workingLibraryTrackIds = workingLibraryTrackIds,
         onTabSelected = viewModel::selectTab,
+        onPlaylistsByYouChange = viewModel::selectPlaylistsByYou,
         onSortSelected = viewModel::selectSort,
         onSearchScopeSelected = viewModel::selectSearchScope,
         onSearchQueryChanged = viewModel::search,
@@ -347,6 +348,7 @@ fun LibraryContent(
     trackLibraryStates: Map<MediaId, LibraryMembership> = emptyMap(),
     workingLibraryTrackIds: Set<MediaId> = emptySet(),
     onTabSelected: (LibraryTab) -> Unit,
+    onPlaylistsByYouChange: (Boolean) -> Unit = {},
     onSortSelected: (view: LibraryTab, sort: LibrarySort) -> Unit = { _, _ -> },
     onSearchScopeSelected: (LibrarySearchScope) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
@@ -445,6 +447,7 @@ fun LibraryContent(
                             trackLibraryStates = trackLibraryStates,
                             workingLibraryTrackIds = workingLibraryTrackIds,
                             onTabSelected = onTabSelected,
+                            onPlaylistsByYouChange = onPlaylistsByYouChange,
                             onSortSelected = onSortSelected,
                             onSearchScopeSelected = onSearchScopeSelected,
                             onSearchQueryChanged = onSearchQueryChanged,
@@ -482,6 +485,7 @@ private fun LibraryContentBody(
     trackLibraryStates: Map<MediaId, LibraryMembership>,
     workingLibraryTrackIds: Set<MediaId>,
     onTabSelected: (LibraryTab) -> Unit,
+    onPlaylistsByYouChange: (Boolean) -> Unit,
     onSortSelected: (view: LibraryTab, sort: LibrarySort) -> Unit,
     onSearchScopeSelected: (LibrarySearchScope) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
@@ -653,6 +657,8 @@ private fun LibraryContentBody(
                 tabs = state.availableTabs,
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
+                playlistsByYou = state.playlistsByYou,
+                onPlaylistsByYouChange = onPlaylistsByYouChange,
                 onNavigateToSettings = onNavigateToSettings,
                 showTitle = false,
                 searchMaxWidth = LibraryLandscapeSearchWidth,
@@ -669,6 +675,8 @@ private fun LibraryContentBody(
                 tabs = state.availableTabs,
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
+                playlistsByYou = state.playlistsByYou,
+                onPlaylistsByYouChange = onPlaylistsByYouChange,
                 onNavigateToSettings = onNavigateToSettings,
             )
         } else if (isMediumHeader) {
@@ -739,6 +747,8 @@ private fun LibraryContentBody(
                     tabs = state.availableTabs,
                     selectedTab = state.selectedTab,
                     onTabSelected = onTabSelected,
+                    playlistsByYou = state.playlistsByYou,
+                    onPlaylistsByYouChange = onPlaylistsByYouChange,
                 )
             }
             Box(modifier = Modifier.weight(1f)) {
@@ -799,7 +809,9 @@ private fun LibraryContentBody(
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Playlists -> PlaylistsTabContent(
-                            playlists = state.playlists,
+                            playlists = remember(state.playlists, state.playlistsByYou) {
+                                shownPlaylists(state.playlists, state.playlistsByYou)
+                            },
                             listState = playlistsListState,
                             sortRow = sortRow,
                             onPlaylistClick = onPlaylistClick,
@@ -890,6 +902,8 @@ private fun LibraryFilterChips(
     selectedTab: LibraryTab,
     onTabSelected: (LibraryTab) -> Unit,
     modifier: Modifier = Modifier,
+    playlistsByYou: PlaylistsByYou = PlaylistsByYou(),
+    onPlaylistsByYouChange: (Boolean) -> Unit = {},
 ) {
     // Render only tabs the active source supports (e.g. drop Playlists on a
     // provider without PLAYLISTS_READ). Callers pass
@@ -902,7 +916,9 @@ private fun LibraryFilterChips(
         selectedTab = selectedTab,
         label = { labels.getValue(it) },
         onTabSelected = onTabSelected,
-        modifier = modifier
+        modifier = modifier,
+        playlistsByYou = playlistsByYou,
+        onPlaylistsByYouChange = onPlaylistsByYouChange
     )
 }
 
@@ -952,6 +968,8 @@ private fun LibraryWideHeaderRow(
     onTabSelected: (LibraryTab) -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    playlistsByYou: PlaylistsByYou = PlaylistsByYou(),
+    onPlaylistsByYouChange: (Boolean) -> Unit = {},
     showTitle: Boolean = true,
     // Without the chips the pill takes the row between title and settings.
     showChips: Boolean = true,
@@ -994,6 +1012,8 @@ private fun LibraryWideHeaderRow(
                 selectedTab = selectedTab,
                 onTabSelected = onTabSelected,
                 modifier = Modifier.weight(1f),
+                playlistsByYou = playlistsByYou,
+                onPlaylistsByYouChange = onPlaylistsByYouChange,
             )
         }
         IconButton(

@@ -102,6 +102,12 @@ class LibraryViewModel(
     private var allSettled = false
 
     /**
+     * By You under Playlists is on: kept through chips and refreshes, dropped
+     * with the profile ([observeProfileChanges]), never persisted.
+     */
+    private var playlistsByYouSelected = false
+
+    /**
      * What the sorted lists are made of. Every change to a cached list, a sort,
      * or the profile's recents goes through here, and [observeSortedLists]
      * alone writes the sorted Artists, Albums, Playlists and All into the
@@ -238,7 +244,8 @@ class LibraryViewModel(
                     canReshuffleSongs = canReshuffleSongs(capabilities),
                     canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
                     sorts = sortSettings.sorts,
-                    sortOptions = sortSettings.options
+                    sortOptions = sortSettings.options,
+                    playlistsByYou = PlaylistsByYou(selected = playlistsByYouSelected)
                 ).withLastSorted()
                 applySortSettings(sortSettings, capabilities)
                 publishLists()
@@ -271,7 +278,8 @@ class LibraryViewModel(
                         canReshuffleSongs = canReshuffleSongs(capabilities),
                         canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
                         sorts = sortSettings.sorts,
-                        sortOptions = sortSettings.options
+                        sortOptions = sortSettings.options,
+                        playlistsByYou = PlaylistsByYou(selected = playlistsByYouSelected)
                     ).withLastSorted()
                     applySortSettings(sortSettings, capabilities)
                     publishLists()
@@ -550,6 +558,17 @@ class LibraryViewModel(
     }
 
     /**
+     * Turns Playlists' By You sub-chip on or off. It only turns on while it
+     * shows ([PlaylistsByYou.available]); off is always allowed.
+     */
+    fun selectPlaylistsByYou(selected: Boolean) {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (selected && !current.playlistsByYou.available) return
+        playlistsByYouSelected = selected
+        _uiState.value = current.copy(playlistsByYou = current.playlistsByYou.copy(selected = selected))
+    }
+
+    /**
      * Discards the current random sample and draws a fresh one. The Songs tab
      * is a 50-song random mix ([selectTab] only loads when `cachedSongs` is
      * null), so this is the only way to reshuffle — favorite toggles
@@ -797,7 +816,8 @@ class LibraryViewModel(
             artists = inputs.artists?.let { sorter.artists(it, sortOf(LibraryTab.Artists)) },
             albums = inputs.albums?.let { sorter.albums(it, sortOf(LibraryTab.Albums)) },
             playlists = inputs.playlists?.let { sorter.playlists(it, sortOf(LibraryTab.Playlists)) },
-            all = allOf(sorter, inputs, sortOf(LibraryTab.All))
+            all = allOf(sorter, inputs, sortOf(LibraryTab.All)),
+            playlistsMixed = inputs.playlists?.hasMixedOwnership() == true
         )
     }
 
@@ -821,7 +841,10 @@ class LibraryViewModel(
         artists = sorted.artists,
         albums = sorted.albums,
         playlists = sorted.playlists,
-        allItems = sorted.all
+        allItems = sorted.all,
+        // The sub-chip follows the list: it goes when the list stops being
+        // mixed (and comes back on, as it was, when it mixes again).
+        playlistsByYou = PlaylistsByYou(available = sorted.playlistsMixed, selected = playlistsByYouSelected)
     )
 
     /** A Content built anew starts from the latest sorted lists of this generation. */
@@ -1092,6 +1115,7 @@ class LibraryViewModel(
             repository.currentProfileIdFlow.distinctUntilChanged().collectLatest { profileId ->
                 if (profileId != previousProfileId) {
                     previousProfileId = profileId
+                    playlistsByYouSelected = false
                     updateWorkingLibraryTrackIds()
                     reloadLibrary()
                 }
@@ -1455,7 +1479,9 @@ private class SortedLibraryLists(
     val artists: List<Artist>?,
     val albums: List<Album>?,
     val playlists: List<Playlist>?,
-    val all: List<LibraryItem>?
+    val all: List<LibraryItem>?,
+    /** The playlists' [hasMixedOwnership]: Playlists shows By You. */
+    val playlistsMixed: Boolean
 )
 
 private class LibrarySortSettings(

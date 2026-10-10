@@ -3,6 +3,7 @@
     <!-- Library's views and orders (Spotify's Your Library). -->
     <string name="library_cd_clear_filter">Clear filter</string>
     <string name="library_empty_all">Your library is empty</string>
+    <string name="library_filter_by_you">By You</string>
 
     <string name="library_sort_action">Sort</string>
     <string name="library_sort_recents">Recents</string>

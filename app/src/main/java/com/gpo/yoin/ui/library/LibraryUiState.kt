@@ -63,6 +63,11 @@ sealed interface LibraryUiState {
          */
         val sortOptions: Map<LibraryTab, List<LibrarySort>> = emptyMap(),
         /**
+         * Playlists' By You sub-chip. [playlists] stays the whole list; the
+         * view lists [shownPlaylists].
+         */
+        val playlistsByYou: PlaylistsByYou = PlaylistsByYou(),
+        /**
          * Gates the "+" FAB in the Playlists tab. Follows
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_WRITE].
          */
