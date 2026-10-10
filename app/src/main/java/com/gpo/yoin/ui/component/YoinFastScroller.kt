@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -72,6 +73,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -105,6 +107,12 @@ data class FastScrollSection(
  * every touch outside the handle through. Uniform, single-span items only
  * (a vertical list or grid); [itemsPerLine] is the grid's column count.
  *
+ * Attach it once the list is fully loaded (the handle's place and the ticks
+ * are proportions of the whole list). A list that still changes length
+ * anyway (a refresh) never moves the target under a held finger: a drag
+ * measures in the length it was grabbed at, and the handle it leaves behind
+ * glides to the list's new place.
+ *
  * @param firstVisibleIndex the first visible item, fractional (the item's
  *   line plus how far it has scrolled past). Read in layout only.
  * @param itemsPerScreen how many items fill the viewport. Read in layout
@@ -112,6 +120,10 @@ data class FastScrollSection(
  * @param isScrollInProgress whether the list is being scrolled (by touch or
  *   fling): the handle wakes with it and sleeps a moment after.
  * @param onJump scrolls the list so the line of this item is at the top.
+ * @param onGrab the handle was pressed: stop any scroll in progress (a
+ *   fling) without moving the list. The handle sits over the list, so the
+ *   list never sees this touch, and a fling left running would carry the
+ *   content away under the held handle.
  */
 @Composable
 fun YoinFastScroller(
@@ -123,7 +135,8 @@ fun YoinFastScroller(
     onJump: (index: Int) -> Unit,
     modifier: Modifier = Modifier,
     showTicks: Boolean = true,
-    itemsPerLine: Int = 1
+    itemsPerLine: Int = 1,
+    onGrab: () -> Unit = {}
 ) {
     FastScroller(
         controller = remember { FastScrollerController() },
@@ -136,14 +149,20 @@ fun YoinFastScroller(
         showTicks = showTicks,
         itemsPerLine = itemsPerLine,
         isScrollInProgress = isScrollInProgress,
+        onGrab = onGrab,
         forceShown = false
     )
 }
 
 /**
  * [YoinFastScroller] over a vertical [LazyGridState]. Jumps go through
- * [LazyGridState.requestScrollToItem]; [onJumped] follows each one (e.g. to
- * move a width-change anchor along with the jump).
+ * [LazyGridState.requestScrollToItem]; [onJumped] follows each one with the
+ * grid index jumped to (e.g. to move a width-change anchor along with it).
+ * Grabbing the handle stops a fling where it is.
+ *
+ * @param leadingItems items before the first section item, each a full-span
+ *   row of its own (a sort row, a header). [sections] count from the item
+ *   after them; the handle's top end still brings back the very top.
  */
 @Composable
 fun YoinFastScroller(
@@ -151,11 +170,15 @@ fun YoinFastScroller(
     sections: List<FastScrollSection>,
     modifier: Modifier = Modifier,
     showTicks: Boolean = true,
+    leadingItems: Int = 0,
     onJumped: (index: Int) -> Unit = {}
 ) {
-    val itemCount by remember(state) { derivedStateOf { state.layoutInfo.totalItemsCount } }
+    val leading = leadingItems.coerceAtLeast(0)
+    val itemCount by remember(state, leading) {
+        derivedStateOf { (state.layoutInfo.totalItemsCount - leading).coerceAtLeast(0) }
+    }
     val itemsPerLine by remember(state) { derivedStateOf { state.layoutInfo.maxSpan.coerceAtLeast(1) } }
-    val reader = remember(state) { GridScrollReader(state) }
+    val reader = remember(state, leading) { GridScrollReader(state, leading) }
     val jumped by rememberUpdatedState(onJumped)
     YoinFastScroller(
         itemCount = itemCount,
@@ -163,27 +186,36 @@ fun YoinFastScroller(
         itemsPerScreen = reader::itemsPerScreen,
         sections = sections,
         onJump = { index ->
-            state.requestScrollToItem(index)
-            jumped(index)
+            val target = lazyIndexFor(index, leading)
+            state.requestScrollToItem(target)
+            jumped(target)
         },
         modifier = modifier,
         showTicks = showTicks,
         itemsPerLine = itemsPerLine,
-        isScrollInProgress = { state.isScrollInProgress }
+        isScrollInProgress = { state.isScrollInProgress },
+        onGrab = reader::stopFling
     )
 }
 
-/** [YoinFastScroller] over a vertical [LazyListState]; see the grid overload. */
+/**
+ * [YoinFastScroller] over a vertical [LazyListState]; see the grid overload
+ * ([leadingItems] here are items before the first section item).
+ */
 @Composable
 fun YoinFastScroller(
     state: LazyListState,
     sections: List<FastScrollSection>,
     modifier: Modifier = Modifier,
     showTicks: Boolean = true,
+    leadingItems: Int = 0,
     onJumped: (index: Int) -> Unit = {}
 ) {
-    val itemCount by remember(state) { derivedStateOf { state.layoutInfo.totalItemsCount } }
-    val reader = remember(state) { ListScrollReader(state) }
+    val leading = leadingItems.coerceAtLeast(0)
+    val itemCount by remember(state, leading) {
+        derivedStateOf { (state.layoutInfo.totalItemsCount - leading).coerceAtLeast(0) }
+    }
+    val reader = remember(state, leading) { ListScrollReader(state, leading) }
     val jumped by rememberUpdatedState(onJumped)
     YoinFastScroller(
         itemCount = itemCount,
@@ -191,14 +223,22 @@ fun YoinFastScroller(
         itemsPerScreen = reader::itemsPerScreen,
         sections = sections,
         onJump = { index ->
-            state.requestScrollToItem(index)
-            jumped(index)
+            val target = lazyIndexFor(index, leading)
+            state.requestScrollToItem(target)
+            jumped(target)
         },
         modifier = modifier,
         showTicks = showTicks,
-        isScrollInProgress = { state.isScrollInProgress }
+        isScrollInProgress = { state.isScrollInProgress },
+        onGrab = reader::stopFling
     )
 }
+
+/**
+ * The lazy layout index of section item [index]. The first item maps to the
+ * very top, so the handle's top end shows the leading rows again.
+ */
+private fun lazyIndexFor(index: Int, leadingItems: Int): Int = if (index <= 0) 0 else index + leadingItems
 
 // ── Geometry (pure) ─────────────────────────────────────────────────────
 
@@ -305,15 +345,43 @@ internal object FastScrollMath {
         return found
     }
 
-    /** One tick per run of sections sharing a tick label. */
-    fun ticks(sections: List<FastScrollSection>): List<FastScrollTick> {
+    /**
+     * One tick per run of sections sharing a tick label, and one per line at
+     * most: when several runs start on the same line, the last one keeps the
+     * tick. The bubble names a line's last item, so of the runs starting on
+     * a line only the last can ever be named there; a tick for an earlier
+     * one would light up beside a bubble naming another.
+     */
+    fun ticks(sections: List<FastScrollSection>, itemsPerLine: Int = 1): List<FastScrollTick> {
+        val perLine = itemsPerLine.coerceAtLeast(1)
         val ticks = ArrayList<FastScrollTick>()
         sections.forEachIndexed { i, section ->
-            if (i == 0 || sections[i - 1].tickLabel != section.tickLabel) {
-                ticks += FastScrollTick(section.tickLabel, section.startIndex)
+            if (i > 0 && sections[i - 1].tickLabel == section.tickLabel) return@forEachIndexed
+            val tick = FastScrollTick(section.tickLabel, section.startIndex)
+            val last = ticks.lastOrNull()
+            if (last != null && last.startIndex / perLine == section.startIndex / perLine) {
+                ticks[ticks.lastIndex] = tick
+            } else {
+                ticks += tick
             }
         }
         return ticks
+    }
+
+    /**
+     * For each section, the index of its run of sections sharing a tick
+     * label. The handle passing from one run into the next is what plays the
+     * segment tick: a letter, a year; a timeline's months under one year
+     * only change the bubble's words.
+     */
+    fun tickRuns(sections: List<FastScrollSection>): IntArray {
+        val runs = IntArray(sections.size)
+        var run = -1
+        sections.forEachIndexed { i, section ->
+            if (i == 0 || sections[i - 1].tickLabel != section.tickLabel) run++
+            runs[i] = run
+        }
+        return runs
     }
 
     /**
@@ -353,9 +421,9 @@ internal data class JumpRequest(val gesture: Int, val index: Int)
 
 /**
  * The drag. While [held] the handle sits at [fraction] (the finger, 1:1);
- * after release it stays [pinned] there until the list moves on its own,
- * then hands over to the list's position through a short [correction]
- * spring, so the release never shows a jump.
+ * after release it stays [pinned] there until the list moves on its own or
+ * changes under it, then [handOver]s to the list's position through a short
+ * [correction] spring, so the release never shows a jump.
  */
 @Stable
 internal class FastScrollerController {
@@ -367,23 +435,37 @@ internal class FastScrollerController {
     val correction = Animatable(0f)
 
     // Written in composition (SideEffect) and layout; read by the gesture.
-    var itemCount = 0
-    var itemsPerLine = 1
+    var itemCount by mutableIntStateOf(0)
+    var itemsPerLine by mutableIntStateOf(1)
     var firstVisibleIndex: () -> Float = { 0f }
     var itemsPerScreen: () -> Float = { 0f }
+    var onGrab: () -> Unit = {}
     var trackExtentPx = 0f
     var lastShownSection = -1
+
+    /**
+     * The list's length and columns as the handle was grabbed: a drag, its
+     * bubble and the handle it leaves pinned all measure in these, so a list
+     * that grows or reflows meanwhile (a refresh, a page arriving) never
+     * moves the target under a still finger, nor keeps pulling the next
+     * page in while the handle is held at the bottom.
+     */
+    var dragItemCount by mutableIntStateOf(0)
+        private set
+    var dragItemsPerLine by mutableIntStateOf(1)
+        private set
 
     private var gesture = 0
     private var raw = 0f
     private var linesPerScreen = 0f
     private var lastIndex = -1
 
-    val lines: Int get() = FastScrollMath.lineCount(itemCount, itemsPerLine)
+    /** The list changed length or columns since the grab: a pinned handle no longer marks its place. */
+    val isPinStale: Boolean get() = itemCount != dragItemCount || itemsPerLine != dragItemsPerLine
 
     fun restFraction(): Float = FastScrollMath.handleFraction(
         position = firstVisibleIndex() / itemsPerLine,
-        lines = lines,
+        lines = FastScrollMath.lineCount(itemCount, itemsPerLine),
         linesPerScreen = itemsPerScreen() / itemsPerLine
     )
 
@@ -391,14 +473,21 @@ internal class FastScrollerController {
         if (held || pinned) fraction else (restFraction() + correction.value).coerceIn(0f, 1f)
 
     fun begin() {
+        // First stop a fling, which would otherwise carry the content away
+        // under the held handle. It stops where it is, so the position read
+        // next is the one the drag starts from.
+        onGrab()
         val start = displayFraction()
         gesture++
         raw = start
         fraction = start
         // Frozen for the drag: a list whose rows measure differently as it
-        // jumps must not move the target under a still finger.
+        // jumps, or that changes length, must not move the target under a
+        // still finger.
+        dragItemCount = itemCount
+        dragItemsPerLine = itemsPerLine
         linesPerScreen = itemsPerScreen() / itemsPerLine
-        lastIndex = FastScrollMath.jumpIndex(start, itemCount, itemsPerLine, linesPerScreen)
+        lastIndex = FastScrollMath.jumpIndex(start, dragItemCount, dragItemsPerLine, linesPerScreen)
         pinned = false
         held = true
     }
@@ -407,7 +496,7 @@ internal class FastScrollerController {
         if (trackExtentPx <= 0f) return
         raw += deltaPx / trackExtentPx
         fraction = raw.coerceIn(0f, 1f)
-        val index = FastScrollMath.jumpIndex(fraction, itemCount, itemsPerLine, linesPerScreen)
+        val index = FastScrollMath.jumpIndex(fraction, dragItemCount, dragItemsPerLine, linesPerScreen)
         if (index != lastIndex) {
             lastIndex = index
             request = JumpRequest(gesture, index)
@@ -418,6 +507,29 @@ internal class FastScrollerController {
         if (!held) return
         held = false
         pinned = true
+    }
+
+    /** Held (or left pinned) at [fraction] of a list of [itemCount], as a preview shows it. */
+    fun preset(held: Boolean, fraction: Float, itemCount: Int, itemsPerLine: Int) {
+        this.itemCount = itemCount
+        this.itemsPerLine = itemsPerLine
+        dragItemCount = itemCount
+        dragItemsPerLine = itemsPerLine
+        this.fraction = fraction
+        pinned = !held
+        this.held = held
+    }
+
+    /**
+     * Let go of the pinned spot without a jump: the [correction] starts at
+     * the gap between the finger's spot and the list's own, and springs it
+     * shut.
+     */
+    suspend fun handOver(spec: AnimationSpec<Float>) {
+        if (!pinned || held) return
+        correction.snapTo(fraction - restFraction())
+        pinned = false
+        correction.animateTo(0f, spec)
     }
 }
 
@@ -471,7 +583,8 @@ internal fun FastScroller(
     showTicks: Boolean,
     itemsPerLine: Int,
     isScrollInProgress: () -> Boolean,
-    forceShown: Boolean
+    forceShown: Boolean,
+    onGrab: () -> Unit = {}
 ) {
     val perLine = itemsPerLine.coerceAtLeast(1)
     SideEffect {
@@ -479,6 +592,7 @@ internal fun FastScroller(
         controller.itemsPerLine = perLine
         controller.firstVisibleIndex = firstVisibleIndex
         controller.itemsPerScreen = itemsPerScreen
+        controller.onGrab = onGrab
     }
     val reduced = rememberReducedMotion()
     val haptics = rememberYoinHaptics()
@@ -498,22 +612,21 @@ internal fun FastScroller(
             } else {
                 delay(HIDE_DELAY_MILLIS)
                 awake = false
-                // Hidden: whatever the list did meanwhile, the next showing
-                // starts from where it really is.
-                controller.pinned = false
             }
         }
     }
     val correctionSpec = YoinMotion.fastSpatialSpec<Float>()
+    // A pinned handle hands over to the list's own place, on a spring, as
+    // soon as the list moves by itself or changes length or columns under
+    // it. Launched apart, so a handover still springing never holds up the
+    // next one.
     LaunchedEffect(controller) {
-        snapshotFlow { controller.pinned && !controller.held && currentScrolling() }.collect { moved ->
-            if (!moved) return@collect
-            controller.correction.snapTo(controller.fraction - controller.restFraction())
-            controller.pinned = false
-            controller.correction.animateTo(0f, correctionSpec)
+        snapshotFlow {
+            controller.pinned && !controller.held && (currentScrolling() || controller.isPinStale)
+        }.collect { due ->
+            if (due) launch { controller.handOver(correctionSpec) }
         }
     }
-    LaunchedEffect(controller, itemCount) { controller.pinned = false }
     // Jumps, coalesced per frame: a newer request cancels the one waiting.
     LaunchedEffect(controller) {
         snapshotFlow { controller.request }.filterNotNull().collectLatest { request ->
@@ -522,15 +635,24 @@ internal fun FastScroller(
         }
     }
 
-    val ticks = remember(sections) { FastScrollMath.ticks(sections) }
-    val currentSection by remember(controller, sections, itemCount, perLine) {
+    // While held, everything the finger drives measures in the list as it
+    // was grabbed (see FastScrollerController.dragItemCount).
+    val mapCount = if (controller.held) controller.dragItemCount else itemCount
+    val mapPerLine = if (controller.held) controller.dragItemsPerLine else perLine
+    val ticks = remember(sections, mapPerLine) { FastScrollMath.ticks(sections, mapPerLine) }
+    val tickRuns = remember(sections) { FastScrollMath.tickRuns(sections) }
+    val currentSection by remember(controller, sections) {
         derivedStateOf {
             if (!controller.held) {
                 -1
             } else {
                 FastScrollMath.sectionAt(
                     sections,
-                    FastScrollMath.labelIndex(controller.fraction, itemCount, perLine)
+                    FastScrollMath.labelIndex(
+                        controller.fraction,
+                        controller.dragItemCount,
+                        controller.dragItemsPerLine
+                    )
                 )
             }
         }
@@ -543,11 +665,14 @@ internal fun FastScroller(
 
     val pulse = remember { Animatable(1f) }
     val pulseSpec = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Expressive)
-    LaunchedEffect(controller, sections, itemCount, perLine) {
+    LaunchedEffect(controller, sections) {
         var previous = -1
         var lastTick = 0L
         snapshotFlow { currentSection }.collect { section ->
-            if (section >= 0 && previous >= 0 && section != previous) {
+            // One beat per tick passed (a letter, a year), not per change of
+            // the bubble's words (a timeline's months within a year).
+            val run = tickRuns.getOrElse(section) { -1 }
+            if (run >= 0 && previous >= 0 && run != previous) {
                 val now = System.nanoTime()
                 if (now - lastTick >= HAPTIC_MIN_INTERVAL_NANOS) {
                     haptics.performSegmentTick()
@@ -555,7 +680,7 @@ internal fun FastScroller(
                 }
                 if (!reduced) launch { pulse.animateTo(1f, pulseSpec, initialVelocity = PULSE_KICK) }
             }
-            previous = section
+            previous = run
         }
     }
 
@@ -566,6 +691,14 @@ internal fun FastScroller(
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "fastScrollerAppear"
     )
+    // Gone from sight, the handle lets go of a pinned spot, so the next
+    // showing starts where the list really is. Waiting for the fade to end
+    // keeps that move unseen: the handle fades out where the finger left it.
+    LaunchedEffect(controller, shown) {
+        if (shown) return@LaunchedEffect
+        snapshotFlow { appear.value }.first { it == 0f }
+        controller.pinned = false
+    }
     val slide = animateFloatAsState(
         targetValue = if (shown || reduced) 0f else 1f,
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
@@ -614,8 +747,8 @@ internal fun FastScroller(
             if (composeExtras && showTicks && ticks.isNotEmpty()) {
                 FastScrollTickColumn(
                     ticks = ticks,
-                    itemCount = itemCount,
-                    itemsPerLine = perLine,
+                    itemCount = mapCount,
+                    itemsPerLine = mapPerLine,
                     trackHeightPx = trackHeightPx,
                     currentIndex = sections.getOrNull(shownSection)?.startIndex ?: -1,
                     modifier = Modifier
@@ -848,33 +981,50 @@ private fun rememberReducedMotion(): Boolean {
 
 // ── Lazy layout readers ─────────────────────────────────────────────────
 
-private class GridScrollReader(private val state: LazyGridState) {
+/**
+ * Reads a vertical grid in section-item terms: items past [leading] (each
+ * leading item a full-span row of its own), lines of single-span items.
+ * While a leading row is still on screen the list counts as at the top.
+ */
+private class GridScrollReader(private val state: LazyGridState, private val leading: Int) {
     fun firstVisibleItem(): Float {
         val info = state.layoutInfo
         val perLine = info.maxSpan.coerceAtLeast(1)
-        val index = state.firstVisibleItemIndex
-        val first = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return index.toFloat()
+        val lazyIndex = state.firstVisibleItemIndex
+        val index = lazyIndex - leading
+        if (index < 0) return 0f
+        val first = info.visibleItemsInfo.firstOrNull { it.index == lazyIndex } ?: return index.toFloat()
         val linePx = (first.size.height + info.mainAxisItemSpacing).toFloat()
-        val row = if (first.row >= 0) first.row else index / perLine
         val offset = if (linePx > 0f) state.firstVisibleItemScrollOffset / linePx else 0f
-        return (row + offset) * perLine
+        return (index / perLine + offset) * perLine
     }
 
     fun itemsPerScreen(): Float {
         val info = state.layoutInfo
-        val first = info.visibleItemsInfo.firstOrNull() ?: return 0f
+        // A section item's line, not a leading row's (a sort row is shorter).
+        val first = info.visibleItemsInfo.firstOrNull { it.index >= leading } ?: return 0f
         val linePx = (first.size.height + info.mainAxisItemSpacing).toFloat()
         if (linePx <= 0f) return 0f
         val viewport = info.viewportSize.height - info.beforeContentPadding - info.afterContentPadding
         return viewport.coerceAtLeast(0) / linePx * info.maxSpan.coerceAtLeast(1)
     }
+
+    /** requestScrollToItem cancels any scroll in progress; asking for where the list already is stops it there. */
+    fun stopFling() {
+        if (state.isScrollInProgress) {
+            state.requestScrollToItem(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
+        }
+    }
 }
 
-private class ListScrollReader(private val state: LazyListState) {
+/** [GridScrollReader] for a vertical list: every item is a line. */
+private class ListScrollReader(private val state: LazyListState, private val leading: Int) {
     fun firstVisibleItem(): Float {
         val info = state.layoutInfo
-        val index = state.firstVisibleItemIndex
-        val first = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return index.toFloat()
+        val lazyIndex = state.firstVisibleItemIndex
+        val index = lazyIndex - leading
+        if (index < 0) return 0f
+        val first = info.visibleItemsInfo.firstOrNull { it.index == lazyIndex } ?: return index.toFloat()
         val linePx = (first.size + info.mainAxisItemSpacing).toFloat()
         return index + if (linePx > 0f) state.firstVisibleItemScrollOffset / linePx else 0f
     }
@@ -883,10 +1033,28 @@ private class ListScrollReader(private val state: LazyListState) {
         val info = state.layoutInfo
         val items = info.visibleItemsInfo
         if (items.isEmpty()) return 0f
-        val linePx = items.sumOf { it.size }.toFloat() / items.size + info.mainAxisItemSpacing
+        // The average section item; leading items only when nothing else shows.
+        var sum = 0
+        var count = 0
+        for (item in items) {
+            if (item.index < leading) continue
+            sum += item.size
+            count++
+        }
+        if (count == 0) {
+            sum = items.sumOf { it.size }
+            count = items.size
+        }
+        val linePx = sum.toFloat() / count + info.mainAxisItemSpacing
         if (linePx <= 0f) return 0f
         val viewport = info.viewportSize.height - info.beforeContentPadding - info.afterContentPadding
         return viewport.coerceAtLeast(0) / linePx
+    }
+
+    fun stopFling() {
+        if (state.isScrollInProgress) {
+            state.requestScrollToItem(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
+        }
     }
 }
 
@@ -931,11 +1099,7 @@ private fun FastScrollerPreviewHost(
                 }
             }
             val controller = remember {
-                FastScrollerController().apply {
-                    this.held = held
-                    this.fraction = fraction
-                    this.pinned = !held
-                }
+                FastScrollerController().apply { preset(held, fraction, itemCount, itemsPerLine = 1) }
             }
             FastScroller(
                 controller = controller,

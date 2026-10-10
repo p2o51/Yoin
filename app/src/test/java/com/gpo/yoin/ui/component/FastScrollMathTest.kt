@@ -137,6 +137,66 @@ class FastScrollMathTest {
     }
 
     @Test
+    fun should_giveTheLineToItsLastRun_when_sectionsStartOnTheSameRow() {
+        // 11 columns: Q (112) and R (115) both start on row 10, P on row 9.
+        val sections = listOf(
+            FastScrollSection("A", 0),
+            FastScrollSection("P", 100),
+            FastScrollSection("Q", 112),
+            FastScrollSection("R", 115),
+            FastScrollSection("S", 200)
+        )
+
+        val ticks = FastScrollMath.ticks(sections, perLine)
+
+        assertEquals(listOf("A", "P", "R", "S"), ticks.map { it.label })
+        assertEquals(115, ticks[2].startIndex)
+        // Dropped on R's tick, the bubble names R.
+        val f = FastScrollMath.tickFraction(115, items, perLine)
+        val named = FastScrollMath.sectionAt(sections, FastScrollMath.labelIndex(f, items, perLine))
+        assertEquals("R", sections[named].label)
+    }
+
+    @Test
+    fun should_nameEveryTicksOwnRun_when_theHandleSitsOnIt() {
+        // Many short sections on an 11-column grid: letters of 1–30 items,
+        // and a timeline whose months run under their years.
+        val letters = ArrayList<FastScrollSection>()
+        var start = 0
+        var size = 1
+        while (start < items) {
+            letters += FastScrollSection("L${letters.size}", start)
+            start += size
+            size = size % 30 + 7
+        }
+        val months = (0 until 80).map { m ->
+            FastScrollSection("M$m", startIndex = m * 12 + m % 5, tickLabel = "Y${m / 12}")
+        }
+        for (sections in listOf(letters, months)) {
+            val runs = FastScrollMath.tickRuns(sections)
+            for (tick in FastScrollMath.ticks(sections, perLine)) {
+                val f = FastScrollMath.tickFraction(tick.startIndex, items, perLine)
+                val named = FastScrollMath.sectionAt(sections, FastScrollMath.labelIndex(f, items, perLine))
+                val owner = FastScrollMath.sectionAt(sections, tick.startIndex)
+                assertEquals("tick ${tick.label} names ${sections[named].label}", runs[owner], runs[named])
+            }
+        }
+    }
+
+    @Test
+    fun should_numberRunsOfTheSameTickLabel_when_mappingSectionsToTicks() {
+        val sections = listOf(
+            FastScrollSection("Mar 2024", 0, "2024"),
+            FastScrollSection("Jan 2024", 4, "2024"),
+            FastScrollSection("Jul 2023", 9, "2023"),
+            FastScrollSection("Mar 2024", 12, "2024")
+        )
+
+        assertArrayEquals(intArrayOf(0, 0, 1, 2), FastScrollMath.tickRuns(sections))
+        assertEquals(0, FastScrollMath.tickRuns(emptyList()).size)
+    }
+
+    @Test
     fun should_keepBothEndsAndTheMinimumGap_when_thinningTicks() {
         val centers = FloatArray(21) { it * 5f } // 0, 5, …, 100
         val keep = FastScrollMath.visibleTicks(centers, minGap = 18f)
