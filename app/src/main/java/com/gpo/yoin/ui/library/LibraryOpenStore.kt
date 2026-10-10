@@ -22,9 +22,9 @@ enum class LibraryOpenKind { Artist, Album, Playlist }
  * When this profile last opened each artist, album and playlist from Library,
  * by the id Library lists it under: the half of Recents ("last opened") that
  * Yoin's own activity rows can't give Library.
- * - Apple Music opens a library album (`library:l.…`, as recently-added lists
- *   it) as its catalog album, and the page records its visit and plays under
- *   the catalog id, which Library can't match back.
+ * - Apple Music's library search lists albums by library id (`library:l.…`)
+ *   and opens them as their catalog albums, whose pages record visits and
+ *   plays under the catalog id, which Library can't match back.
  * - A playlist page records no visit at all (activity_events would put it in
  *   Home's Activities); only playing from it does.
  *

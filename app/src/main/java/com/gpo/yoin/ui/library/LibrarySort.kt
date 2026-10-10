@@ -115,8 +115,9 @@ class LibrarySorter(
      * artists, so here an artist takes the date of its newest album in
      * [albums] (by artist id, else by name): Recently added, and Recents'
      * fallback, then mix the kinds instead of trailing every artist after the
-     * dated albums and playlists. [albums] lists the newest of the library
-     * first, so an artist's newest album is in it whenever any of theirs is.
+     * dated albums and playlists. [albums] is the whole collection, or
+     * (Spotify) its newest 200, so an artist's newest album is in it whenever
+     * any of theirs is.
      */
     fun all(
         artists: List<Artist>,
