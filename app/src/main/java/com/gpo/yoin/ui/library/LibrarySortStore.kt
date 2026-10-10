@@ -4,9 +4,12 @@ import android.content.Context
 import androidx.core.content.edit
 
 /**
- * Each profile's chosen order per Library view. Kept on this device only: its
- * own SharedPreferences file, out of Room, the cloud sync and Auto Backup
- * (data_extraction_rules.xml lists only what it backs up).
+ * Each profile's chosen order per Library view. Kept on this device: its own
+ * SharedPreferences file, out of Room and the cloud sync. Auto Backup leaves it
+ * out on Android 12+ only (data_extraction_rules.xml lists only what it backs
+ * up); Android 8–11 read no rules (the manifest has no fullBackupContent) and
+ * back up every SharedPreferences file, this one too. Harmless: its keys are
+ * profile ids, and the database they name is backed up with it.
  */
 interface LibrarySortStore {
     /** The order last chosen for [view], or null when none was. */

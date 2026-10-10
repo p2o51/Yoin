@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.library
 
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.data.source.ServiceFeatures
@@ -106,7 +107,14 @@ class LibrarySorter(
     fun playlists(playlists: List<Playlist>, sort: LibrarySort): List<Playlist> =
         sorted(playlists.map(LibraryItem::PlaylistItem), sort).map { (it as LibraryItem.PlaylistItem).playlist }
 
-    /** The All view: the three kinds in one order. */
+    /**
+     * The All view: the three kinds in one order. No service dates its
+     * artists, so here an artist takes the date of its newest album in
+     * [albums] (by artist id, else by name): Recently added, and Recents'
+     * fallback, then mix the kinds instead of trailing every artist after the
+     * dated albums and playlists. [albums] lists the newest of the library
+     * first, so an artist's newest album is in it whenever any of theirs is.
+     */
     fun all(
         artists: List<Artist>,
         albums: List<Album>,
@@ -116,7 +124,8 @@ class LibrarySorter(
         artists.map(LibraryItem::ArtistItem) +
             albums.map(LibraryItem::AlbumItem) +
             playlists.map(LibraryItem::PlaylistItem),
-        sort
+        sort,
+        artistAddedAt = artistDatesFrom(albums)
     )
 
     private class Entry(
@@ -129,19 +138,25 @@ class LibrarySorter(
         val lastSeenMs: Long?
     )
 
-    private fun sorted(items: List<LibraryItem>, sort: LibrarySort): List<LibraryItem> {
+    private fun sorted(
+        items: List<LibraryItem>,
+        sort: LibrarySort,
+        artistAddedAt: (Artist) -> Long? = { null }
+    ): List<LibraryItem> {
         // A provider that lists one item twice would crash the grid's keys.
-        val entries = items.distinctBy(LibraryItem::key).mapIndexed(::entryOf)
+        val entries = items.distinctBy(LibraryItem::key).mapIndexed { position, item ->
+            entryOf(position, item, artistAddedAt)
+        }
         return entries.sortedWith(comparatorFor(sort)).map(Entry::item)
     }
 
-    private fun entryOf(position: Int, item: LibraryItem): Entry = when (item) {
+    private fun entryOf(position: Int, item: LibraryItem, artistAddedAt: (Artist) -> Long?): Entry = when (item) {
         is LibraryItem.ArtistItem -> Entry(
             item = item,
             position = position,
             name = sortName(item.artist.name),
             creator = sortName(item.artist.name),
-            addedAtMs = null,
+            addedAtMs = artistAddedAt(item.artist),
             lastSeenMs = recents.artists[item.artist.id.rawId]
         )
         is LibraryItem.AlbumItem -> Entry(
@@ -187,6 +202,21 @@ class LibrarySorter(
 
     private fun sortName(name: String): String = stripLeadingArticle(name.trim(), ignoredArticles)
 }
+
+/** Each artist's newest library date among [albums]: by the album's artist id, else by the artist's name. */
+private fun artistDatesFrom(albums: List<Album>): (Artist) -> Long? {
+    val byId = HashMap<MediaId, Long>()
+    val byName = HashMap<String, Long>()
+    albums.forEach { album ->
+        val addedAt = parseLibraryDate(album.libraryAddedAt) ?: return@forEach
+        album.artistId?.let { byId.merge(it, addedAt, ::maxOf) }
+        album.artist?.let(::artistNameKey)?.let { byName.merge(it, addedAt, ::maxOf) }
+    }
+    if (byId.isEmpty() && byName.isEmpty()) return { null }
+    return { artist -> byId[artist.id] ?: artistNameKey(artist.name)?.let(byName::get) }
+}
+
+private fun artistNameKey(name: String): String? = name.trim().lowercase(Locale.ROOT).takeIf(String::isNotEmpty)
 
 /**
  * The articles Subsonic servers skip by default (`ignoredArticles`,

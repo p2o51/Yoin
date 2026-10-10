@@ -89,6 +89,43 @@ class LibrarySorterTest {
         )
     }
 
+    @Test
+    fun should_dateAnArtistByItsNewestAlbum_when_allSortsByRecentlyAdded() {
+        val byId = artist("ar1", "Joined by id")
+        val byName = artist("ar2", "Named Only")
+        val noAlbums = artist("ar3", "No albums")
+        val albums = listOf(
+            album("newest", "Newest", added = "2024-01-01T00:00:00Z", artist = "Someone else"),
+            album("idNewer", "Id newer", added = "2023-01-01T00:00:00Z", artist = "Credited otherwise")
+                .copy(artistId = MediaId.subsonic("ar1")),
+            // No artist id (Apple's recently-added): the name, whatever its case and spacing.
+            album("mid", "Mid", added = "2022-01-01T00:00:00Z", artist = " named only "),
+            album("old", "Old", added = "2020-01-01T00:00:00Z", artist = "Someone")
+                .copy(artistId = MediaId.subsonic("ar1"))
+        )
+
+        val all = sorter().all(listOf(noAlbums, byName, byId), albums, emptyList(), LibrarySort.RecentlyAdded)
+
+        // Each artist sits with its newest album (a tie goes by name); one with none still trails.
+        assertEquals(
+            listOf(
+                "album:subsonic:newest",
+                "album:subsonic:idNewer",
+                "artist:subsonic:ar1",
+                "album:subsonic:mid",
+                "artist:subsonic:ar2",
+                "album:subsonic:old",
+                "artist:subsonic:ar3"
+            ),
+            all.map(LibraryItem::key)
+        )
+        // Only All borrows the albums' dates: the Artists view has no albums to read them from.
+        assertEquals(
+            listOf("ar1", "ar2", "ar3"),
+            sorter().artists(listOf(noAlbums, byName, byId), LibrarySort.Recents).map { it.id.rawId }
+        )
+    }
+
     // ── Recently added ──────────────────────────────────────────────────
 
     @Test

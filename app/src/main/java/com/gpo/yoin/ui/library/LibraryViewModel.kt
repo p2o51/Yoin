@@ -24,6 +24,8 @@ import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -57,6 +59,9 @@ class LibraryViewModel(
     private val onPlaylistMutated: () -> Unit = {},
     private val sortStore: LibrarySortStore = LibrarySortStore.InMemory(),
     private val recentsSource: LibraryRecentsSource = LibraryRecentsSource.None,
+    /** What was opened from Library, by the id Library lists it under ([recordOpened]). */
+    private val openStore: LibraryOpenStore = LibraryOpenStore.InMemory(),
+    private val clock: () -> Long = System::currentTimeMillis,
     /** Where the lists are sorted: off the main thread (tests pass their own dispatcher). */
     private val sortDispatcher: CoroutineDispatcher = Dispatchers.Default,
     /** A fresh name order for each sort pass: an ICU collator isn't thread-safe ([libraryNameOrder]). */
@@ -420,31 +425,40 @@ class LibraryViewModel(
     }
 
     /**
-     * All's lists side by side. One that fails leaves All without it (a
+     * All's lists side by side. Each joins All as soon as it arrives (the
+     * artists the cold start read are there at once), so the slowest list
+     * never holds the others back. One that fails leaves All without it (a
      * snackbar says so; its chip loads it again); only when none loads does
      * the view fail as a whole.
      */
     private suspend fun loadAll(isCurrent: () -> Boolean) {
         val holdsPlaylists = Capability.PLAYLISTS_READ in repository.currentCapabilities()
-        // Spotify: the synced cache as it is, so opening Library never sets
-        // off a sync (the cold start already refreshed it; each chip keeps its
-        // own freshness check). Stale playlists are read as their chip would.
-        val spotifyCache = if (isSpotifyProvider() && (cachedAlbums == null || cachedPlaylists == null)) {
+        val spotify = isSpotifyProvider()
+        publishLists()
+        // Spotify: the rows on hand or the synced cache as it is, never a
+        // freshness-checked read, so opening Library never sets off a sync
+        // (the cold start refreshed the cache when it was due). That holds for
+        // stale playlists too: a playlist write marks the whole cache stale,
+        // so reading them "fresh" here would sync every list. The chips then
+        // reuse these rows; only the Playlists chip, after a playlist write,
+        // reads its list fresh, as it always has.
+        val spotifyCache = if (spotify && (cachedAlbums == null || cachedPlaylists == null)) {
             attempt { repository.getSpotifyLocalSearchSnapshot() }.getOrNull()
         } else {
             null
         }
         val loads = coroutineScope {
-            val artists = async { attempt { cachedArtists ?: loadArtistsFlat() } }
-            val albums = async { attempt { cachedAlbums ?: spotifyCache?.albums ?: loadLibraryAlbums() } }
+            val artists = allPart(isCurrent, { cachedArtists ?: loadArtistsFlat() }) { cachedArtists = it }
+            val albums = allPart(isCurrent, { cachedAlbums ?: spotifyCache?.albums ?: loadLibraryAlbums() }) {
+                cachedAlbums = it
+            }
             val playlists = if (holdsPlaylists) {
-                async {
-                    attempt {
-                        currentPlaylists()
-                            ?: spotifyCache?.playlists?.takeUnless { playlistsStale }
-                            ?: loadPlaylists()
-                    }
+                val load: suspend () -> List<Playlist> = if (spotify) {
+                    { cachedPlaylists ?: spotifyCache?.playlists ?: loadPlaylists() }
+                } else {
+                    { currentPlaylists() ?: loadPlaylists() }
                 }
+                allPart(isCurrent, load) { cachedPlaylists = it }
             } else {
                 null
             }
@@ -452,9 +466,6 @@ class LibraryViewModel(
         }
         if (!isCurrent()) return
         val (artists, albums, playlists) = loads
-        artists.onSuccess { cachedArtists = it }
-        albums.onSuccess { cachedAlbums = it }
-        playlists?.onSuccess { cachedPlaylists = it }
         val failures = listOfNotNull(
             artists.exceptionOrNull()?.let { LibraryTab.Artists to it },
             albums.exceptionOrNull()?.let { LibraryTab.Albums to it },
@@ -465,6 +476,20 @@ class LibraryViewModel(
         publishLists()
         failures.firstOrNull()?.let { (kind, error) ->
             _messages.tryEmit(error.snackbarOr(kind.loadFailureRes(), "Failed to load ${kind.name}"))
+        }
+    }
+
+    /** One of All's lists, loading: kept and shown the moment it arrives, while the others are on their way. */
+    private fun <T> CoroutineScope.allPart(
+        isCurrent: () -> Boolean,
+        load: suspend () -> T,
+        keep: (T) -> Unit
+    ): Deferred<Result<T>> = async {
+        attempt(load).onSuccess { loaded ->
+            if (isCurrent()) {
+                keep(loaded)
+                publishLists()
+            }
         }
     }
 
@@ -492,6 +517,26 @@ class LibraryViewModel(
             LibraryTab.Favorites -> cachedFavorites != null
         }
         if (!loaded) selectTab(current.selectedTab)
+    }
+
+    /**
+     * [id] was opened from Library: Recents moves it up by the id Library
+     * lists it under, whatever the page it opens resolves it to (an Apple
+     * Music library album opens as its catalog album, and records its visit
+     * by that id), and for playlists, whose pages record no visit.
+     */
+    fun recordOpened(kind: LibraryOpenKind, id: String) {
+        val mediaId = MediaId.parseOrNull(id) ?: return
+        val profileId = repository.currentProfileId() ?: return
+        val at = clock()
+        viewModelScope.launch {
+            try {
+                openStore.recordOpened(profileId, mediaId.provider, kind, mediaId.rawId, at)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // Only an order hint: the page opens regardless.
+            }
+        }
     }
 
     /** Orders [view] by [sort] and remembers it for this profile. */
@@ -752,18 +797,24 @@ class LibraryViewModel(
             artists = inputs.artists?.let { sorter.artists(it, sortOf(LibraryTab.Artists)) },
             albums = inputs.albums?.let { sorter.albums(it, sortOf(LibraryTab.Albums)) },
             playlists = inputs.playlists?.let { sorter.playlists(it, sortOf(LibraryTab.Playlists)) },
-            // A list that failed is left out; never songs.
-            all = if (inputs.allSettled) {
-                sorter.all(
-                    artists = inputs.artists.orEmpty(),
-                    albums = inputs.albums.orEmpty(),
-                    playlists = if (inputs.allHoldsPlaylists) inputs.playlists.orEmpty() else emptyList(),
-                    sort = sortOf(LibraryTab.All)
-                )
-            } else {
-                null
-            }
+            all = allOf(sorter, inputs, sortOf(LibraryTab.All))
         )
+    }
+
+    /**
+     * All from whatever has loaded, never songs: a list still on its way, or
+     * one that failed, is left out, and one arriving later moves in on the
+     * grid's item springs. Null (the loading indicator) only while nothing
+     * has loaded; empty (the empty state) only once every list settled.
+     */
+    private fun allOf(sorter: LibrarySorter, inputs: LibraryListInputs, sort: LibrarySort): List<LibraryItem>? {
+        val all = sorter.all(
+            artists = inputs.artists.orEmpty(),
+            albums = inputs.albums.orEmpty(),
+            playlists = if (inputs.allHoldsPlaylists) inputs.playlists.orEmpty() else emptyList(),
+            sort = sort
+        )
+        return all.takeIf { inputs.allSettled || it.isNotEmpty() }
     }
 
     private fun LibraryUiState.Content.withSorted(sorted: SortedLibraryLists): LibraryUiState.Content = copy(
@@ -777,7 +828,10 @@ class LibraryViewModel(
     private fun LibraryUiState.Content.withLastSorted(): LibraryUiState.Content =
         lastSorted?.takeIf { it.generation == libraryDataGeneration }?.let { withSorted(it) } ?: this
 
-    /** This profile's Yoin records of what it opened and played, for Recents. */
+    /**
+     * This profile's Yoin records of what it opened and played, for Recents:
+     * the visit and play rows, and what was opened from Library itself.
+     */
     private fun observeRecents() {
         viewModelScope.launch {
             combine(repository.currentProfileIdFlow, repository.activeProviderId) { profileId, providerId ->
@@ -788,7 +842,11 @@ class LibraryViewModel(
                     if (profileId.isNullOrBlank() || providerId == null) {
                         flowOf(LibraryRecents.None)
                     } else {
-                        recentsSource.observe(profileId, providerId)
+                        combine(
+                            recentsSource.observe(profileId, providerId),
+                            openStore.observe(profileId, providerId),
+                            LibraryRecents::latestWith
+                        )
                     }
                 }
                 .distinctUntilChanged()
@@ -1214,13 +1272,20 @@ class LibraryViewModel(
     /**
      * A playlist changed elsewhere. The lists that show playlists (Playlists,
      * All) keep the old ones on screen until the fresh list replaces them;
-     * otherwise the next visit reads them again.
+     * otherwise the next visit reads them again. Spotify's All doesn't read
+     * them again: the write marked the synced cache stale, so a fresh read
+     * would sync the whole library (see [loadAll]); its rows stay, and the
+     * Playlists chip reads the list fresh, as it always has.
      */
     fun invalidatePlaylists() {
         playlistsStale = true
         val current = _uiState.value as? LibraryUiState.Content ?: return
-        if (current.selectedTab != LibraryTab.Playlists && current.selectedTab != LibraryTab.All) return
-        if (cachedPlaylists == null) return
+        val rereads = when (current.selectedTab) {
+            LibraryTab.Playlists -> true
+            LibraryTab.All -> !isSpotifyProvider()
+            else -> false
+        }
+        if (!rereads || cachedPlaylists == null) return
         val generation = libraryDataGeneration
         val profileId = repository.currentProfileId()
         viewModelScope.launch {
@@ -1340,7 +1405,8 @@ class LibraryViewModel(
                 repository = container.repository,
                 onPlaylistMutated = container::notifyPlaylistMutation,
                 sortStore = container.librarySortStore,
-                recentsSource = container.libraryRecentsSource
+                recentsSource = container.libraryRecentsSource,
+                openStore = container.libraryOpenStore
             ) as T
     }
 

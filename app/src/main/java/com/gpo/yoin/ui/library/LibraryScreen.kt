@@ -285,6 +285,25 @@ fun LibraryScreen(
     LaunchedEffect(isContent, shownTab) {
         if (isContent) viewModel.ensureSelectedTabLoaded()
     }
+    // What Library opens counts for Recents by the id Library lists it under.
+    val openArtist = remember(viewModel, onArtistClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Artist, id)
+            onArtistClick(id)
+        }
+    }
+    val openAlbum = remember(viewModel, onAlbumClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Album, id)
+            onAlbumClick(id)
+        }
+    }
+    val openPlaylist = remember(viewModel, onPlaylistClick) {
+        { id: String ->
+            viewModel.recordOpened(LibraryOpenKind.Playlist, id)
+            onPlaylistClick(id)
+        }
+    }
 
     LibraryContent(
         uiState = uiState,
@@ -302,9 +321,9 @@ fun LibraryScreen(
         onRetrySearch = viewModel::retrySearch,
         onReshuffleSongs = viewModel::reshuffleSongs,
         onNavigateToSettings = onNavigateToSettings,
-        onArtistClick = onArtistClick,
-        onAlbumClick = onAlbumClick,
-        onPlaylistClick = onPlaylistClick,
+        onArtistClick = openArtist,
+        onAlbumClick = openAlbum,
+        onPlaylistClick = openPlaylist,
         onSongClick = onSongClick,
         onFavoriteSongClick = onFavoriteSongClick,
         onSongsListClick = onSongsListClick,

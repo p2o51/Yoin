@@ -18,6 +18,20 @@ import org.junit.Test
 class LibraryRecentsTest {
 
     @Test
+    fun should_keepTheLaterTimeOfEach_when_twoRecordsAreMerged() {
+        val rows = LibraryRecents(albums = mapOf("al" to 100L, "only-rows" to 5L), artists = mapOf("ar" to 50L))
+        val opened = LibraryRecents(albums = mapOf("al" to 80L, "library:l.1" to 200L), playlists = mapOf("pl" to 70L))
+
+        val merged = rows.latestWith(opened)
+
+        assertEquals(mapOf("al" to 100L, "only-rows" to 5L, "library:l.1" to 200L), merged.albums)
+        assertEquals(mapOf("ar" to 50L), merged.artists)
+        assertEquals(mapOf("pl" to 70L), merged.playlists)
+        assertEquals(rows, rows.latestWith(LibraryRecents.None))
+        assertEquals(opened, LibraryRecents.None.latestWith(opened))
+    }
+
+    @Test
     fun should_keepLatestTimePerEntity_when_visitsPlaysAndHistoryOverlap() {
         val recents = libraryRecentsOf(
             provider = MediaId.PROVIDER_SPOTIFY,

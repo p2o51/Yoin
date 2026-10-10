@@ -22,9 +22,27 @@ data class LibraryRecents(
     val artists: Map<String, Long> = emptyMap(),
     val playlists: Map<String, Long> = emptyMap()
 ) {
+    /** Both records in one: the later time of each entity. */
+    fun latestWith(other: LibraryRecents): LibraryRecents = when {
+        other == None -> this
+        this == None -> other
+        else -> LibraryRecents(
+            albums = albums.latestWith(other.albums),
+            artists = artists.latestWith(other.artists),
+            playlists = playlists.latestWith(other.playlists)
+        )
+    }
+
     companion object {
         val None = LibraryRecents()
     }
+}
+
+private fun Map<String, Long>.latestWith(other: Map<String, Long>): Map<String, Long> {
+    if (other.isEmpty()) return this
+    val merged = HashMap(this)
+    other.forEach { (id, at) -> merged.merge(id, at, ::maxOf) }
+    return merged
 }
 
 /** [LibraryRecents] for one profile and provider, again whenever a visit or a play is recorded. */

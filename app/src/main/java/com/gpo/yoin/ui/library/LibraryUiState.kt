@@ -51,8 +51,8 @@ sealed interface LibraryUiState {
         val availableTabs: List<LibraryTab> = LibraryTab.Chips,
         /**
          * The All view: artists, albums and playlists mixed, in its sort's
-         * order — never songs. `null` until each of its lists has loaded or
-         * failed.
+         * order — never songs. Whatever has loaded so far: `null` while none
+         * of its lists has, empty only once each has loaded or failed.
          */
         val allItems: List<LibraryItem>? = null,
         /** Each view's current order ([LibrarySortStore], per profile). */

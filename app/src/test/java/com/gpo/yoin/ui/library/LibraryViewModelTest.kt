@@ -28,6 +28,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -668,7 +669,8 @@ class LibraryViewModelTest {
 
         val cold = viewModel.uiState.value as LibraryUiState.Content
         assertEquals(LibraryTab.All, cold.selectedTab)
-        assertNull(cold.allItems)
+        // What the cold start read shows at once: the artists.
+        assertEquals(listOf("artist:subsonic:ar"), cold.allItems.orEmpty().map(LibraryItem::key))
         // The cold start costs what it always did: the artists only.
         coVerify(exactly = 0) { repository.getAlbumList(any(), any(), any()) }
         coVerify(exactly = 0) { repository.getPlaylists() }
@@ -881,6 +883,170 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_keepSpotifysAllWithoutAFreshRead_when_aPlaylistChangesElsewhere() = runTest {
+        val repository = spotifyRepository()
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } returns spotifySnapshot()
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        // Now Playing adds a song to a playlist: the write marked the synced cache stale.
+        viewModel.invalidatePlaylists()
+        advanceUntilIdle()
+
+        // A fresh read would sync the whole library; All keeps its rows.
+        coVerify(exactly = 0) { repository.getPlaylists() }
+        assertTrue(
+            "playlist:spotify:pl" in (viewModel.uiState.value as LibraryUiState.Content).allItems.orEmpty()
+                .map(LibraryItem::key)
+        )
+
+        // The Playlists chip still reads the changed list fresh, as it always has.
+        viewModel.selectTab(LibraryTab.Playlists)
+        advanceUntilIdle()
+        coVerify(exactly = 1) { repository.getPlaylists() }
+    }
+
+    @Test
+    fun should_readSpotifysCachedPlaylists_when_aPlaylistChangedBeforeLibraryShowed() = runTest {
+        val repository = spotifyRepository()
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } returns spotifySnapshot()
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.invalidatePlaylists()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        assertTrue(
+            "playlist:spotify:pl" in (viewModel.uiState.value as LibraryUiState.Content).allItems.orEmpty()
+                .map(LibraryItem::key)
+        )
+        coVerify(exactly = 0) { repository.getPlaylists() }
+        coVerify(exactly = 0) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_rereadPlaylistsOnAll_when_aSubsonicPlaylistChanges() = runTest {
+        val repository = subsonicLibrary()
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        viewModel.invalidatePlaylists()
+        advanceUntilIdle()
+
+        // One request, no rate limit: All shows the changed list.
+        coVerify(exactly = 2) { repository.getPlaylists() }
+    }
+
+    @Test
+    fun should_showEachListAsItArrives_when_allLoads() = runTest {
+        val albums = CompletableDeferred<List<Album>>()
+        val playlists = CompletableDeferred<List<Playlist>>()
+        val repository = subsonicLibrary()
+        coEvery { repository.getAlbumList("newest", size = 500) } coAnswers { albums.await() }
+        coEvery { repository.getPlaylists() } coAnswers { playlists.await() }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        fun allKeys() = (viewModel.uiState.value as LibraryUiState.Content).allItems?.map(LibraryItem::key)
+        // The slow lists hold nothing back: the artists are there already.
+        assertEquals(listOf("artist:subsonic:ar"), allKeys())
+
+        playlists.complete(
+            listOf(Playlist(MediaId.subsonic("pl"), "Playlist", "me", null, null, null))
+        )
+        advanceUntilIdle()
+        assertEquals(setOf("artist:subsonic:ar", "playlist:subsonic:pl"), allKeys().orEmpty().toSet())
+
+        albums.complete(listOf(album("al", "Album")))
+        advanceUntilIdle()
+        assertEquals(
+            setOf("artist:subsonic:ar", "album:subsonic:al", "playlist:subsonic:pl"),
+            allKeys().orEmpty().toSet()
+        )
+        coVerify(exactly = 1) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_waitRatherThanShowEmpty_when_nothingHasArrivedYet() = runTest {
+        val albums = CompletableDeferred<List<Album>>()
+        val repository = repositoryFor(MediaId.PROVIDER_SUBSONIC, setOf(Capability.FAVORITES))
+        coEvery { repository.getAlbumList("newest", size = 500) } coAnswers { albums.await() }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        // No artists, albums on their way: the loading indicator, not "nothing here".
+        assertNull((viewModel.uiState.value as LibraryUiState.Content).allItems)
+
+        albums.complete(emptyList())
+        advanceUntilIdle()
+        assertEquals(emptyList<LibraryItem>(), (viewModel.uiState.value as LibraryUiState.Content).allItems)
+    }
+
+    @Test
+    fun should_moveALibraryAlbumUp_when_openedFromLibrary() = runTest {
+        // Apple Music lists recently-added albums by library id; the album page records its visit
+        // and plays under the catalog id it resolves to, which Library can't match.
+        val records = MutableStateFlow(LibraryRecents(albums = mapOf("1440000001" to 900L)))
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, setOf(Capability.LIBRARY_SONGS))
+        coEvery { repository.getAlbumList("newest", size = 500) } returns listOf(
+            appleAlbum("library:l.new", "New", added = "2024-01-01T00:00:00Z"),
+            appleAlbum("library:l.opened", "Opened", added = "2020-01-01T00:00:00Z")
+        )
+        val openStore = LibraryOpenStore.InMemory()
+        val viewModel = libraryViewModel(
+            repository,
+            recentsSource = { _, _ -> records },
+            openStore = openStore,
+            clock = { 1_000L }
+        )
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        fun albumIds() = (viewModel.uiState.value as LibraryUiState.Content).albums.orEmpty().map { it.id.rawId }
+        assertEquals(listOf("library:l.new", "library:l.opened"), albumIds())
+
+        viewModel.recordOpened(LibraryOpenKind.Album, "applemusic:library:l.opened")
+        advanceUntilIdle()
+
+        assertEquals(listOf("library:l.opened", "library:l.new"), albumIds())
+        assertEquals(
+            mapOf("library:l.opened" to 1_000L),
+            openStore.observe("test-profile", MediaId.PROVIDER_APPLE_MUSIC).first().albums
+        )
+    }
+
+    @Test
+    fun should_moveAPlaylistUp_when_openedFromLibrary() = runTest {
+        val repository = subsonicLibrary()
+        coEvery { repository.getPlaylists() } returns listOf(
+            Playlist(MediaId.subsonic("first"), "Alpha", "me", null, null, null),
+            Playlist(MediaId.subsonic("opened"), "Beta", "me", null, null, null)
+        )
+        val viewModel = libraryViewModel(repository, clock = { 5L })
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Playlists)
+        advanceUntilIdle()
+
+        // A playlist page records no visit of its own: opening it from Library is what counts.
+        viewModel.recordOpened(LibraryOpenKind.Playlist, "subsonic:opened")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("opened", "first"),
+            (viewModel.uiState.value as LibraryUiState.Content).playlists.orEmpty().map { it.id.rawId }
+        )
+    }
+
+    @Test
     fun should_offerOnlyWhatTheServiceCanSort_when_spotifyIsActive() = runTest {
         val repository = spotifyRepository()
         val viewModel = libraryViewModel(repository)
@@ -935,6 +1101,17 @@ class LibraryViewModelTest {
         )
     }
 
+    private fun spotifySnapshot() = SpotifyLibrarySyncCoordinator.SpotifyLocalSearchSnapshot(
+        artists = emptyList(),
+        albums = listOf(album("al", "Saved").copy(id = MediaId.spotify("al"))),
+        tracks = emptyList(),
+        playlists = listOf(Playlist(MediaId.spotify("pl"), "Mine", "me", null, null, null)),
+        starred = Starred()
+    )
+
+    private fun appleAlbum(rawId: String, name: String, added: String) =
+        album(rawId, name, added).copy(id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, rawId))
+
     private fun album(id: String, name: String, added: String? = null) = Album(
         id = MediaId.subsonic(id),
         name = name,
@@ -956,11 +1133,15 @@ class LibraryViewModelTest {
     private fun libraryViewModel(
         repository: YoinRepository,
         sortStore: LibrarySortStore = LibrarySortStore.InMemory(),
-        recentsSource: LibraryRecentsSource = LibraryRecentsSource.None
+        recentsSource: LibraryRecentsSource = LibraryRecentsSource.None,
+        openStore: LibraryOpenStore = LibraryOpenStore.InMemory(),
+        clock: () -> Long = { 0L }
     ): LibraryViewModel = LibraryViewModel(
         repository = repository,
         sortStore = sortStore,
         recentsSource = recentsSource,
+        openStore = openStore,
+        clock = clock,
         sortDispatcher = mainDispatcherRule.dispatcher,
         nameOrder = { String.CASE_INSENSITIVE_ORDER }
     )

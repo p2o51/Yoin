@@ -354,14 +354,15 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 
 - 分类浏览：歌手 / 专辑 / 歌曲 / 收藏。收藏标签只在「收藏」和「资料库」是两回事的服务上出现（Subsonic）。Spotify 的资料库本身就是收藏：喜欢一首歌就是把它加进 Liked Songs，专辑是保存的，歌手是关注的。所以 Spotify 下不显示收藏标签（2026-10-10 拍板），由 `ServiceFeatures.favoritesAreLibrary` 显式标记，不从能力组合推断。Apple Music 没有收藏能力，也不显示
 - 播放列表浏览在第二期加入（依赖播放列表 CRUD）
-- **All 和切换胶囊**（2026-10-10 Q12/Q13，Spotify Your Library 模型）：顶部一行胶囊「歌单 / 歌手 / 专辑 / 歌曲」，Subsonic 另有「收藏」。不开任何胶囊就是 **All**（默认）：歌单、歌手、专辑混在同一张网格里，歌手圆形、专辑和歌单方形（同歌手 / 专辑网格的格子，列数随宽度），不放歌曲。开着某个胶囊时，前面用空间弹簧展开一个 ✕；点 ✕ 或再点一次那个胶囊回到 All。选中状态在 ViewModel 里，切账号回到 All。Library 是根页面，系统返回不经过胶囊。冷启动只读歌手（和以前一样）；All 的专辑和歌单在 Library 上屏时才读，Spotify 读本地同步缓存，不触发同步
+- **All 和切换胶囊**（2026-10-10 Q12/Q13，Spotify Your Library 模型）：顶部一行胶囊「歌单 / 歌手 / 专辑 / 歌曲」，Subsonic 另有「收藏」。不开任何胶囊就是 **All**（默认）：歌单、歌手、专辑混在同一张网格里，歌手圆形、专辑和歌单方形（同歌手 / 专辑网格的格子，列数随宽度），不放歌曲。开着某个胶囊时，前面用空间弹簧展开一个 ✕；点 ✕ 或再点一次那个胶囊回到 All。选中状态在 ViewModel 里，切账号回到 All。Library 是根页面，系统返回不经过胶囊。冷启动只读歌手（和以前一样）；All 的专辑和歌单在 Library 上屏时才读，哪一类先到就先进网格（冷启动读到的歌手立刻就在），晚到的用条目弹簧挪进来，不等最慢的那一类；什么都还没到时才显示加载，全部到齐仍为空才显示空状态。Spotify 读本地同步缓存，不触发同步：专辑和歌单胶囊随后沿用 All 读到的这批，不再做新鲜度检查（被限流期间有意如此），要等冷启动按 TTL 同步、切账号或资料库变更才重读。改过歌单（加歌、新建、改名、删除）会把整个同步缓存标成过期，所以 Spotify 的 All 不为此重读（那会同步整个资料库），只有「歌单」胶囊和以前一样新鲜重读；Subsonic 和 Apple Music 的 All 照常重读歌单
 - **排序**（同上）：列表第一行，随列表滚走。左边是当前排序名加排序符号，点开是 YoinDropdownMenu，正在用的一项带勾；换排序时条目用 spatialSpring 移到新位置。只在已加载的集合里排，Spotify 每类仍最多 200 条
-  - Recents（最近）：Yoin 本地的访问和播放记录，按 profile + provider 取每个歌手、专辑、歌单最近一次的时间。来源是 activity_events 的 VISITED / PLAYED，加上 play_history 里每张专辑最后一次播放。没有记录的按 Recently added 排在后面，再没有日期的按名字。新设备没有记录时就等于 Recently added。歌单目前只有「从歌单播放」会留下记录，打开歌单页不记
+  - Recents（最近）：Yoin 本地的访问和播放记录，按 profile + provider 取每个歌手、专辑、歌单最近一次的时间。来源是 activity_events 的 VISITED / PLAYED，加上 play_history 里每张专辑最后一次播放。没有记录的按 Recently added 排在后面，再没有日期的按名字。新设备没有记录时就等于 Recently added。另外在 Library 里点开的歌手、专辑、歌单也记一笔，用 Library 列出它的那个 id，存在本机 SharedPreferences（`yoin_library_opens`，每个 profile × 服务保留最新 300 条）：Apple Music 的 recently-added 列的是资料库专辑 id（`library:l.…`），详情页按解析出的目录专辑 id 记访问和播放，Library 对不上，靠这一笔对上；歌单页本身不记访问（记进 activity_events 会出现在首页动态里），从 Library 点开的歌单靠这一笔进 Recents。仍然对不上的：从首页、搜索打开的歌单只有「从歌单播放」留下记录；Apple 资料库专辑从首页打开或在别处播放，记录是目录 id，Library 认不出
+  - All 里歌手没有入库时间（三家都不给），就取它在已加载专辑里最新一张的入库时间（先按专辑的歌手 id，没有 id 按名字），这样 Recently added 和 Recents 的兜底里歌手和专辑、歌单混排，而不是全部歌手排在最后。专辑按最近加入取前 500 张，歌手只要有专辑在里面，最新那张一定在。歌手视图不借专辑的时间
   - Recently added（最近添加）：各服务的入库时间 `libraryAddedAt`。Subsonic 专辑用 `created`、歌单用 `created`；Spotify 已存专辑用 `added_at`；Apple 资料库专辑和歌单用 `dateAdded`。Subsonic 的 `addedAt` 仍是收藏时间，留给首页 Recently Added
   - Alphabetical（字母顺序）：系统 ICU collator，跟随 app 语言。Subsonic 跳过开头的冠词（服务器默认的 The / El / La / Los / Las / Le / Les / Os / As / O / A）
   - Creator（创建者）：专辑按歌手，歌单按创建者，歌手按自己的名字
   - 每个视图只露出做得到的：All 和专辑四种都有；歌手只有 Recents 和 Alphabetical（三家都没有关注或入库时间）；歌单有 Recents、Recently added、Alphabetical，但 Spotify 的 `/me/playlists` 没有日期，所以 Spotify 的歌单没有 Recently added；歌曲和收藏没有排序行（Spotify 的歌曲就是 Liked Songs 的加入顺序）。由 `ServiceFeatures.albumsHaveLibraryDates` / `playlistsHaveLibraryDates` / `sortIgnoresArticles` 显式标记
-  - 偏好按 profile × 视图存在本机 SharedPreferences（`yoin_library_sort`），不进 Room、云同步和自动备份
+  - 偏好按 profile × 视图存在本机 SharedPreferences（`yoin_library_sort`），不进 Room 和云同步。自动备份只在 Android 12+ 排除它（data_extraction_rules.xml 只列要备份的）；Android 8–11 不读这份规则，manifest 也没有 fullBackupContent，所有 SharedPreferences 都会进备份，这份也一样（键是 profile id，恢复后跟着数据库一起，无害）
 - 普通点击底部 Library：进入当前 profile 的 Library，展示 saved artists / albums / playlists / songs。Spotify 下：
   - 歌曲 = Liked Songs，按加入时间倒序，新喜欢的在最上面；同一秒加入的几首按 Spotify 自己列出的顺序，不按标题；在别处取消喜欢，这一行淡出
   - 点一行以 Liked Songs 起播（`spotify:collection:tracks` + `offset.uri`）：Spotify 从这首往下播它自己的收藏，不动用户的队列
