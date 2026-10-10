@@ -41,10 +41,24 @@ class ArtworkRetryTest {
     }
 
     @Test
-    fun should_waitForSignal_when_responseIs404Or410OrUnknown() {
-        val awaitSignal = listOf(http(404), http(410), http(403), IllegalStateException("undecodable"))
+    fun should_waitForSignal_when_responseIs404Or410OrOther4xx() {
+        val awaitSignal = listOf(http(404), http(410), http(403), RuntimeException(http(400)))
         awaitSignal.forEach { error ->
             assertEquals(error.toString(), ArtworkFailureKind.AwaitSignal, ArtworkRetryPolicy.classify(error))
+            assertNull(ArtworkRetryState(requestSignal = 0L).failed(error).backoffMillis())
+        }
+    }
+
+    @Test
+    fun should_classifyAsUndecodable_when_bytesMadeNoImage() {
+        // Coil's BitmapFactory decoder, and anything else that is neither HTTP nor IO.
+        val undecodable = listOf(
+            IllegalStateException("BitmapFactory returned a null bitmap."),
+            IllegalArgumentException()
+        )
+        undecodable.forEach { error ->
+            assertEquals(error.toString(), ArtworkFailureKind.Undecodable, ArtworkRetryPolicy.classify(error))
+            assertNull(ArtworkRetryState(requestSignal = 0L).failed(error).backoffMillis())
         }
     }
 
@@ -79,7 +93,9 @@ class ArtworkRetryTest {
         val next = retry.await()
         assertTrue(next.requesting)
         assertEquals(1L, next.requestSignal)
-        assertEquals(3, next.backoffRetries)
+        // The recovery gets every backoff retry again.
+        assertEquals(0, next.backoffRetries)
+        assertEquals(3_000L, next.failed(http(503)).backoffMillis())
     }
 
     @Test
@@ -110,9 +126,23 @@ class ArtworkRetryTest {
         runCurrent()
         val next = retry.await()
         assertEquals(1_000L, currentTime)
-        // A signal retry leaves the backoff budget untouched.
         assertEquals(0, next.backoffRetries)
         assertEquals(1L, next.requestSignal)
+    }
+
+    @Test
+    fun should_restartTheBackoff_when_signalRetriesAfterSomeBackoffs() = runTest {
+        val signal = MutableStateFlow(0L)
+        val failed = ArtworkRetryState(requestSignal = 0L, backoffRetries = 2).failed(IOException())
+        assertEquals(60_000L, failed.backoffMillis())
+
+        val retry = async { awaitArtworkRetry(failed, signal) }
+        advanceTimeBy(5_000L)
+        signal.value = 1L
+        runCurrent()
+        val next = retry.await()
+        assertEquals(0, next.backoffRetries)
+        assertEquals(3_000L, next.failed(IOException()).backoffMillis())
     }
 
     @Test
@@ -153,5 +183,74 @@ class ArtworkRetryTest {
         assertTrue(fresh.requesting)
         assertFalse(fresh.fallbackUnder)
         assertNull(fresh.backoffMillis())
+    }
+
+    @Test
+    fun should_notRetry_when_registrationReplaysTheCurrentNetwork() {
+        val recovery = ArtworkNetworkRecovery(initialNetwork = "wifi")
+        assertFalse(recovery.onAvailable("wifi"))
+        assertFalse(recovery.onCapabilitiesChanged("wifi", validated = true))
+        assertFalse(recovery.onBlockedStatusChanged("wifi", blocked = false))
+        // Capability churn (bandwidth, signal) on a healthy network is not a recovery.
+        assertFalse(recovery.onCapabilitiesChanged("wifi", validated = true))
+    }
+
+    @Test
+    fun should_retry_when_firstNetworkArrivesAfterStartingOffline() {
+        val recovery = ArtworkNetworkRecovery<String>(initialNetwork = null)
+        assertTrue(recovery.onAvailable("wifi"))
+        // Its first capabilities follow at once; the arrival already retried.
+        assertFalse(recovery.onCapabilitiesChanged("wifi", validated = true))
+        assertFalse(recovery.onBlockedStatusChanged("wifi", blocked = false))
+    }
+
+    @Test
+    fun should_retry_when_defaultNetworkSwitches() {
+        val recovery = ArtworkNetworkRecovery(initialNetwork = "wifi")
+        assertFalse(recovery.onAvailable("wifi"))
+        assertTrue(recovery.onAvailable("cellular"))
+        assertFalse(recovery.onCapabilitiesChanged("cellular", validated = true))
+        assertTrue(recovery.onAvailable("wifi"))
+    }
+
+    @Test
+    fun should_retry_when_networkReturnsAfterBeingLost() {
+        val recovery = ArtworkNetworkRecovery(initialNetwork = "wifi")
+        recovery.onLost("cellular")
+        assertFalse(recovery.onAvailable("wifi"))
+        recovery.onLost("wifi")
+        assertTrue(recovery.onAvailable("wifi"))
+    }
+
+    @Test
+    fun should_retry_when_currentNetworkRegainsValidation() {
+        val recovery = ArtworkNetworkRecovery(initialNetwork = "wifi")
+        assertFalse(recovery.onCapabilitiesChanged("wifi", validated = true))
+        // Wi-Fi's uplink drops and comes back on the same network.
+        assertFalse(recovery.onCapabilitiesChanged("wifi", validated = false))
+        assertTrue(recovery.onCapabilitiesChanged("wifi", validated = true))
+        // Starting behind a captive portal, then signing in.
+        val portal = ArtworkNetworkRecovery(initialNetwork = "hotel")
+        assertFalse(portal.onCapabilitiesChanged("hotel", validated = false))
+        assertTrue(portal.onCapabilitiesChanged("hotel", validated = true))
+    }
+
+    @Test
+    fun should_retry_when_appTrafficIsUnblocked() {
+        val recovery = ArtworkNetworkRecovery(initialNetwork = "wifi")
+        assertFalse(recovery.onAvailable("wifi"))
+        // Started while blocked in the background, then let through in the foreground.
+        assertFalse(recovery.onBlockedStatusChanged("wifi", blocked = true))
+        assertTrue(recovery.onBlockedStatusChanged("wifi", blocked = false))
+        assertFalse(recovery.onBlockedStatusChanged("wifi", blocked = false))
+    }
+
+    @Test
+    fun should_ignoreCallbacks_when_theyNameAnotherNetwork() {
+        val recovery = ArtworkNetworkRecovery(initialNetwork = "wifi")
+        assertFalse(recovery.onCapabilitiesChanged("cellular", validated = false))
+        assertFalse(recovery.onCapabilitiesChanged("cellular", validated = true))
+        assertFalse(recovery.onBlockedStatusChanged("cellular", blocked = true))
+        assertFalse(recovery.onBlockedStatusChanged("cellular", blocked = false))
     }
 }

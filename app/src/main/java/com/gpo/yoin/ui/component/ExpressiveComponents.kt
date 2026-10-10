@@ -47,12 +47,15 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil3.SingletonImageLoader
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -193,6 +196,9 @@ internal fun ExpressiveSectionPanel(
     }
 }
 
+/** The type icon [ExpressiveMediaArtwork] shows with no artwork, or under a failed one. */
+internal const val ARTWORK_FALLBACK_TAG = "artworkFallback"
+
 @Composable
 internal fun ExpressiveMediaArtwork(
     model: String?,
@@ -250,7 +256,7 @@ internal fun ExpressiveMediaArtwork(
         } else {
             if (artworkModel == null || retry.fallbackUnder) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().testTag(ARTWORK_FALLBACK_TAG),
                     contentAlignment = Alignment.Center,
                 ) {
                     androidx.compose.material3.Icon(
@@ -276,7 +282,12 @@ internal fun ExpressiveMediaArtwork(
                 )
             } else if (artworkModel != null) {
                 val failed = retry
+                val context = LocalContext.current
                 LaunchedEffect(failed) {
+                    // Bytes that made no image must not be read back from the disk cache.
+                    if (failed.failure == ArtworkFailureKind.Undecodable) {
+                        forgetStoredArtwork(SingletonImageLoader.get(context), artworkModel)
+                    }
                     retry = awaitArtworkRetry(failed, ArtworkRetrySignal.generation)
                 }
             }

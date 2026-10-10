@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.util.Log
 import androidx.annotation.VisibleForTesting
@@ -15,6 +16,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
+import com.gpo.yoin.ui.component.ArtworkNetworkRecovery
 import com.gpo.yoin.ui.component.ArtworkRetrySignal
 import com.gpo.yoin.widget.WidgetRefresher
 
@@ -71,22 +73,36 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
     }
 
     /**
-     * Failed artwork retries when a default network becomes available: a cover
-     * that failed offline (Coil then asks only-if-cached and gets a 504) would
-     * otherwise wait for the app to come back to the foreground. Registering
-     * delivers the current network at once — that one is not a recovery.
+     * Failed artwork retries when the network recovers: a cover that failed
+     * offline (Coil then asks only-if-cached and gets a 504) would otherwise
+     * wait for the app to come back to the foreground. [ArtworkNetworkRecovery]
+     * decides which callbacks are a recovery; the replay of the network current
+     * at registration is not one.
      */
     private fun registerArtworkNetworkRetry() {
         val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
-        val initialNetwork = connectivity.activeNetwork
+        val recovery = ArtworkNetworkRecovery(connectivity.activeNetwork)
         val callback = object : ConnectivityManager.NetworkCallback() {
-            // Callbacks arrive one at a time on the connectivity thread.
-            private var first = true
-
             override fun onAvailable(network: Network) {
-                val initialDelivery = first && network == initialNetwork
-                first = false
-                if (!initialDelivery) ArtworkRetrySignal.bump()
+                retryArtworkIf(recovery.onAvailable(network))
+            }
+
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                retryArtworkIf(recovery.onCapabilitiesChanged(network, validated))
+            }
+
+            // API 29+; earlier releases never call it.
+            override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+                retryArtworkIf(recovery.onBlockedStatusChanged(network, blocked))
+            }
+
+            override fun onLost(network: Network) {
+                recovery.onLost(network)
+            }
+
+            private fun retryArtworkIf(recovered: Boolean) {
+                if (recovered) ArtworkRetrySignal.bump()
             }
         }
         // The foreground retry still covers a device that refuses the callback.
@@ -108,20 +124,18 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
      */
     private fun registerHostLifecycle() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-            private var startedCount = 0
+            private val started = StartedActivityCounter()
 
             override fun onActivityStarted(activity: Activity) {
-                if (startedCount == 0) {
+                if (started.onStarted()) {
                     container.playbackManager.onHostStart(activity)
                     container.cloudSync.onAppForeground()
                     ArtworkRetrySignal.bump()
                 }
-                startedCount++
             }
 
             override fun onActivityStopped(activity: Activity) {
-                startedCount--
-                if (startedCount == 0) {
+                if (started.onStopped()) {
                     container.playbackManager.onHostStop()
                     container.cloudSync.onAppBackground()
                 }
@@ -141,4 +155,19 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         @VisibleForTesting
         internal var containerOverrideForTests: AppContainer? = null
     }
+}
+
+/**
+ * Counts Yoin's started Activities across the whole stack, for
+ * [YoinApplication]'s host lifecycle: the first start brings the app to the
+ * foreground, the last stop sends it to the background.
+ */
+internal class StartedActivityCounter {
+    private var started = 0
+
+    /** True when this start brings the app to the foreground. */
+    fun onStarted(): Boolean = started++ == 0
+
+    /** True when this stop sends the app to the background. */
+    fun onStopped(): Boolean = --started == 0
 }
