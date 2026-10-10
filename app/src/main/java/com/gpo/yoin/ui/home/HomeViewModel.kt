@@ -180,6 +180,12 @@ class HomeViewModel(
     // target as the switch begins — so the read is usually in by then.
     private val snapshotReads = mutableMapOf<String, Deferred<HomeSnapshot?>>()
 
+    // The profile whose layout [homeLayout] holds, once its first read is in
+    // (set right after the layout, see [observeHomeLayout]): a snapshot paints
+    // in its own account's layout, not the default (or the outgoing
+    // account's) it would rearrange from a beat later.
+    private val layoutReadFor = MutableStateFlow<String?>(null)
+
     /**
      * Turns a source-relative cover id into the feed's URL (the activities and
      * the shelves resolve theirs as they compose). A new instance for each
@@ -190,24 +196,16 @@ class HomeViewModel(
         .map { newCoverArtUrlBuilder() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, newCoverArtUrlBuilder())
 
+    private val _homeLayout = MutableStateFlow(HomeLayout.Default)
+
     /**
      * The active profile's home layout (which sections show, in what order),
      * reconciled against the live section catalog. Orthogonal to [uiState]:
      * content loads the same regardless of layout, and the feed renders from
      * this. Falls back to [HomeLayout.Default] when no profile is active or the
-     * profile hasn't customized.
+     * profile hasn't customized. See [observeHomeLayout].
      */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val homeLayout: StateFlow<HomeLayout> =
-        activeProfileId
-            .flatMapLatest { profileId ->
-                if (profileId.isNullOrBlank()) {
-                    flowOf(HomeLayout.Default)
-                } else {
-                    homeLayoutStore.layoutFlow(profileId).map(HomeLayout::reconcile)
-                }
-            }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, HomeLayout.Default)
+    val homeLayout: StateFlow<HomeLayout> = _homeLayout.asStateFlow()
 
     // SharedPreferences isn't observable: [onEditSessionStarted] re-reads the
     // store into this after marking, which re-emits [unseenNewSections].
@@ -222,6 +220,7 @@ class HomeViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     init {
+        observeHomeLayout()
         // The constructor's Loading is what a cold start shows until the first Content.
         if (YoinPerf.enabled) YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
         // Off the main thread, ahead of the source: the profile id is restored
@@ -251,6 +250,30 @@ class HomeViewModel(
             } else {
                 homeLayoutStore.setLayout(profileId, next.toPrefs())
             }
+        }
+    }
+
+    /**
+     * Keep [homeLayout] on the active profile's persisted layout — and only
+     * then mark whose it is ([layoutReadFor]), so a snapshot waiting for it
+     * never paints in the one before ([paintableSnapshot]).
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeHomeLayout() {
+        viewModelScope.launch {
+            activeProfileId
+                .flatMapLatest { profileId ->
+                    if (profileId.isNullOrBlank()) {
+                        flowOf(profileId to HomeLayout.Default)
+                    } else {
+                        homeLayoutStore.layoutFlow(profileId)
+                            .map { prefs -> profileId to HomeLayout.reconcile(prefs) }
+                    }
+                }
+                .collect { (profileId, layout) ->
+                    _homeLayout.value = layout
+                    layoutReadFor.value = profileId
+                }
         }
     }
 
@@ -440,11 +463,21 @@ class HomeViewModel(
                         profileId?.let(snapshotReads::remove)?.cancel()
                     }
                     snapshot != null -> {
-                        emit(snapshot.second, profileId, perfSrc = "snapshot")
+                        val (snapshotScopeKey, feed) = snapshot
+                        // Nothing read yet: not written back as it is, and an
+                        // endpoint feed in it only holds until this process's
+                        // own endpoint read answers.
+                        snapshotOnlyScopes += snapshotScopeKey
+                        if (feed.activitiesFromRemote) {
+                            snapshotEndpointFeeds += snapshotScopeKey
+                        } else {
+                            snapshotEndpointFeeds -= snapshotScopeKey
+                        }
+                        emit(feed, profileId, perfSrc = "snapshot")
                         // Its own provider's scope: painted before the source
                         // is up, it is this scope's once a source of that
                         // provider arrives, and no other's.
-                        contentScopeKey = snapshot.first
+                        contentScopeKey = snapshotScopeKey
                     }
                     else -> {
                         emit(HomeUiState.Loading, profileId)
@@ -581,21 +614,28 @@ class HomeViewModel(
 
     /**
      * [profileId]'s snapshot as a feed to paint, with the scope it belongs to
-     * (its provider's), or null: no snapshot, a read slower than
-     * [SNAPSHOT_READ_WAIT_MS] (the load goes ahead with Loading), or one of
-     * another provider than [providerId] — the account's source disagrees, so
-     * it isn't this account's feed. With no source yet ([providerId] null) it
-     * paints on its own word and is checked when the source arrives: then
-     * only a source of its provider finds it up as this scope's content.
+     * (its provider's), or null: no snapshot, one of another provider than
+     * [providerId] — the account's source disagrees, so it isn't this
+     * account's feed — or a read that, with the account's layout, takes
+     * longer than [SNAPSHOT_READ_WAIT_MS] (the load goes ahead with Loading).
+     * It paints in that layout ([homeLayout]): drawn in the default's
+     * sections, it would rearrange as soon as the account's own lands. With
+     * no source yet ([providerId] null) it paints on its own word and is
+     * checked when the source arrives: then only a source of its provider
+     * finds it up as this scope's content.
      */
     private suspend fun paintableSnapshot(providerId: String?, profileId: String?): Pair<String, HomeUiState.Content>? {
         val id = profileId?.takeIf(String::isNotBlank) ?: return null
         readSnapshot(id)
         val read = snapshotReads[id] ?: return null
-        val snapshot = withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) { read.await() }
+        val snapshot = withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) {
+            read.await()
+                ?.takeIf { found -> providerId == null || found.provider == providerId }
+                ?.also { layoutReadFor.first { layoutProfileId -> layoutProfileId == id } }
+        }
         // Taken (a scope change cancelling this wait leaves it to the next load).
         snapshotReads.remove(id)
-        if (snapshot == null || (providerId != null && snapshot.provider != providerId)) return null
+        if (snapshot == null) return null
         val content = snapshot.feed.toHomeContent { key -> snapshotCoverUrl(key, snapshot.provider) }
         return homeScopeKey(snapshot.provider, id) to content
     }
@@ -625,17 +665,36 @@ class HomeViewModel(
     }
 
     /**
-     * Fresh content of [scopeKey] just went up: kept in memory for this
-     * process, and queued as [profileId]'s snapshot (written in the
-     * background, conflated and capped by the store). A feed read without a
-     * source names no provider, so it isn't written.
+     * Content of [scopeKey] just went up: kept in memory for this process,
+     * and queued as [profileId]'s snapshot (written in the background,
+     * conflated and capped by the store) — once something this process read
+     * is in it ([snapshotOnlyScopes]): the snapshot as painted, or with a
+     * played card taken off at most, is what is on disk already. A feed read
+     * without a source names no provider, so it isn't written.
      */
     private fun keep(scopeKey: String, providerId: String?, profileId: String?, content: HomeUiState.Content) {
         homeContentCache[scopeKey] = content
         val store = snapshotStore ?: return
+        if (scopeKey in snapshotOnlyScopes) return
         if (providerId == null || profileId.isNullOrBlank()) return
         store.save(profileId, providerId) { content.toSnapshotFeed() }
     }
+
+    /** A block read by this process just went into [scopeKey]'s content: from now on it is written back ([keep]). */
+    private fun markFresh(scopeKey: String) {
+        snapshotOnlyScopes -= scopeKey
+    }
+
+    /**
+     * Whether [content]'s Activities are Spotify's endpoint feed, which a
+     * local activity-log write leaves alone: this process's own (kept through
+     * a failed reload too, see [HomeLoad.activitiesFor]), or [scopeKey]'s
+     * snapshot's only while a load of that scope still waits on the endpoint.
+     */
+    private fun endpointFeedOwns(scopeKey: String, content: HomeUiState.Content): Boolean =
+        content.activitiesFromRemote &&
+            repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY &&
+            (scopeKey !in snapshotEndpointFeeds || activeLoad?.remoteFeedPending == scopeKey)
 
     /** A cover resolved for a card, with the storage key it came from (what a snapshot keeps). */
     private fun cardCover(ref: CoverRef?, subsonicFallback: MediaId? = null): Pair<String?, String?> {
@@ -723,6 +782,9 @@ class HomeViewModel(
         /** This load's scope while its signals aren't on screen yet ([observeMemorySignals] waits for them). */
         val signalsPending: String? get() = scopeKey.takeUnless { signalsPublished }
 
+        /** This load's scope while Spotify's endpoint hasn't answered it yet ([endpointFeedOwns]). */
+        val remoteFeedPending: String? get() = scopeKey.takeUnless { remoteFeedIn }
+
         suspend fun run() {
             activeLoad = this
             var failed = false
@@ -751,6 +813,7 @@ class HomeViewModel(
                 draft?.let { pending ->
                     if (matchesCurrentScope(providerId, profileId)) {
                         draft = null
+                        markFresh(scopeKey)
                         publish(pending, perfSrc = "disk")
                         settleSignals()
                     }
@@ -813,7 +876,7 @@ class HomeViewModel(
             signals = built
             signalsBuilt = true
             if (built != null) scopeSignals[scopeKey] = built
-            splice { latest ->
+            splice(fresh = built != null) { latest ->
                 // Unscoped / failed: keep the pill and memory 1×2 up.
                 val pill = built?.pill ?: latest.memoryPill
                 val memory = if (built != null) built.memoryCard else latest.memoryCard()
@@ -870,7 +933,7 @@ class HomeViewModel(
         private suspend fun spliceRemoteFeed(feed: List<ActivityEvent>?) {
             remoteFeed = feed
             remoteFeedIn = true
-            coroutineScope { spliceActivities(scope = this) { it } }
+            coroutineScope { spliceActivities(scope = this, fresh = feed != null) { it } }
         }
 
         /**
@@ -888,14 +951,19 @@ class HomeViewModel(
 
         /**
          * Splice the Activities this load now has (see [activitiesFor]) and
-         * what [also] derives from them. A new hero drops the footnote of the
-         * old one and resolves its own — on a cold detail cache a network
-         * read — then splices it in if that hero is still up. On Spotify that
-         * waits for the endpoint's answer ([footnotePending]).
+         * what [also] derives from them; [fresh]: a read just landed (not a
+         * failed endpoint read). A new hero drops the footnote of the old one
+         * and resolves its own — on a cold detail cache a network read — then
+         * splices it in if that hero is still up. On Spotify that waits for
+         * the endpoint's answer ([footnotePending]).
          */
-        private fun spliceActivities(scope: CoroutineScope, also: (HomeUiState.Content) -> HomeUiState.Content) {
+        private fun spliceActivities(
+            scope: CoroutineScope,
+            fresh: Boolean = true,
+            also: (HomeUiState.Content) -> HomeUiState.Content
+        ) {
             var heroToResolve: List<ActivityEvent>? = null
-            splice { latest ->
+            splice(fresh) { latest ->
                 val (activities, fromRemote) = activitiesFor(latest)
                 val heroChanged = !sameHero(activities, latest.activities)
                 if (heroChanged || footnotePending) heroToResolve = activities
@@ -916,7 +984,9 @@ class HomeViewModel(
             if (footnotePending) return
             scope.launch {
                 val footnote = loadActivityHeroFootnote(activities)
-                splice { latest ->
+                // Its hero's, not a block of the feed: onto a snapshot alone
+                // it doesn't make that snapshot new.
+                splice(fresh = false) { latest ->
                     if (!sameHero(latest.activities, activities)) {
                         latest
                     } else {
@@ -934,17 +1004,29 @@ class HomeViewModel(
         /**
          * Whose Activities go up: Spotify's endpoint feed once it has plays —
          * and, while it hasn't answered or when it fails, the endpoint feed
-         * already up stays (a local write never clobbers it). Otherwise the
-         * activity log, as read (until then, what's up).
+         * already up stays (a local write never clobbers it). The snapshot's
+         * endpoint feed only holds while the read is out: it is an earlier
+         * process's, maybe days old, so a failed read hands it to the
+         * activity log like a cold start without a snapshot. Otherwise the
+         * activity log, as read (until then, what's up). Activities read by
+         * this load are no longer the snapshot's ([snapshotEndpointFeeds]).
          */
         private fun activitiesFor(latest: HomeUiState.Content): Pair<List<ActivityEvent>, Boolean> {
             val endpoint = remoteFeed
+            val local = localActivities
+            val feedUpIsSnapshots = scopeKey in snapshotEndpointFeeds
             return when {
-                spotify && !endpoint.isNullOrEmpty() -> endpoint to true
-                spotify && latest.activitiesFromRemote && (!remoteFeedIn || endpoint == null) ->
-                    latest.activities to true
+                spotify && !endpoint.isNullOrEmpty() -> {
+                    snapshotEndpointFeeds -= scopeKey
+                    endpoint to true
+                }
+                spotify && latest.activitiesFromRemote &&
+                    (!remoteFeedIn || (endpoint == null && !feedUpIsSnapshots)) -> latest.activities to true
 
-                else -> (localActivities ?: latest.activities) to false
+                else -> {
+                    if (local != null) snapshotEndpointFeeds -= scopeKey
+                    (local ?: latest.activities) to false
+                }
             }
         }
 
@@ -969,10 +1051,14 @@ class HomeViewModel(
         /**
          * Apply [transform] to this scope's newest content — the draft until
          * the local tier opens it to the screen. Synchronous from read to
-         * publish, so splices landing together build on each other.
+         * publish, so splices landing together build on each other. [fresh]:
+         * it carries a block this load just read, so a snapshot it lands on
+         * is written back from now on ([markFresh]); a failed read's splice
+         * doesn't.
          */
-        private fun splice(transform: (HomeUiState.Content) -> HomeUiState.Content) {
+        private fun splice(fresh: Boolean = true, transform: (HomeUiState.Content) -> HomeUiState.Content) {
             if (!matchesCurrentScope(providerId, profileId)) return
+            if (fresh) markFresh(scopeKey)
             val pending = draft
             if (pending != null) {
                 draft = transform(pending)
@@ -997,6 +1083,8 @@ class HomeViewModel(
             val localTierEmpty = localActivities.isNullOrEmpty() && pools.isNullOrEmpty()
             if (!remoteFeedIn && localTierEmpty) return
             draft = null
+            // Built from this load's reads alone.
+            markFresh(scopeKey)
             publish(pending, perfSrc = "disk")
             settleSignals()
         }
@@ -1063,9 +1151,9 @@ class HomeViewModel(
                     // (scope missing / no recent plays) the feed must keep
                     // live-updating from local writes like every other provider.
                     // Otherwise a local activity-event write must not clobber the
-                    // endpoint feed.
-                    val keepEndpointFeed = currentContent.activitiesFromRemote &&
-                        repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
+                    // endpoint feed — a snapshot's only while the endpoint read
+                    // is out ([endpointFeedOwns]).
+                    val keepEndpointFeed = endpointFeedOwns(scopeKey, currentContent)
                     val effectiveActivities =
                         if (keepEndpointFeed) currentContent.activities else localActivities
                     // Only re-resolve the hero footnote when the hero actually
@@ -1088,11 +1176,7 @@ class HomeViewModel(
                     }
                     val latest = currentContent() ?: return@collectLatest
                     // The endpoint's feed landed while the footnote loaded: it owns Activities now.
-                    if (!keepEndpointFeed && latest.activitiesFromRemote &&
-                        repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
-                    ) {
-                        return@collectLatest
-                    }
+                    if (!keepEndpointFeed && endpointFeedOwns(scopeKey, latest)) return@collectLatest
                     val nextContent = if (footnote == null) {
                         latest.copy(
                             activities = effectiveActivities,
@@ -1108,6 +1192,15 @@ class HomeViewModel(
                             activityHeroMinutes = footnote.minutes,
                         )
                     }
+                    if (!keepEndpointFeed) {
+                        // The activity log as read now: a block of this
+                        // process's, no longer a snapshot's endpoint feed.
+                        snapshotEndpointFeeds -= scopeKey
+                        markFresh(scopeKey)
+                    }
+                    // Nothing moved (the endpoint feed kept, or the log as up):
+                    // no publish, and nothing to write back.
+                    if (nextContent == latest) return@collectLatest
                     keep(scopeKey, providerId, profileId, nextContent)
                     emit(nextContent, profileId)
                 }
@@ -1176,6 +1269,8 @@ class HomeViewModel(
                     // What's up now reflects this build's stamp, spliced in or already equal.
                     signals?.stamp?.let { built -> signalStamps[scopeKey] = built }
                     signals?.let { built -> scopeSignals[scopeKey] = built }
+                    // Read now: a snapshot it lands on is written back from here.
+                    if (signals != null) markFresh(scopeKey)
                     if (
                         nextGrid == latest.widgetGrid &&
                         refreshedPill == latest.memoryPill &&
@@ -1921,7 +2016,7 @@ class HomeViewModel(
 
         // How long a load with nothing up waits for its snapshot's read (a
         // small file, read since the VM or the switch began; usually in by
-        // then) before going ahead with Loading.
+        // then) and the account's layout before going ahead with Loading.
         private const val SNAPSHOT_READ_WAIT_MS = 400L
 
         // The pixel size Home resolves its cards' covers at (grid, Rediscover,
@@ -1930,6 +2025,22 @@ class HomeViewModel(
         private val MemoryDateFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("MMM d", Locale.US)
         private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
+
+        // What a scope's content up, or in [homeContentCache], still has of
+        // its snapshot — with the cache, as long as the process (a ViewModel
+        // made after the last one's Activity finished paints the cache).
+        // Scopes whose content is only their snapshot: nothing this process
+        // read has gone into it yet. [keep] writes none of them back — it
+        // would store the feed already on disk as new — until a block read
+        // now lands in it ([markFresh]).
+        private val snapshotOnlyScopes = mutableSetOf<String>()
+
+        // Scopes whose Activities are their snapshot's Spotify endpoint feed
+        // (an earlier process's recently-played): it holds the place while
+        // this process's endpoint read is out, never past a failed one — then
+        // the activity log takes over, live, as on a cold start without a
+        // snapshot ([HomeLoad.activitiesFor], [endpointFeedOwns]).
+        private val snapshotEndpointFeeds = mutableSetOf<String>()
 
         private fun homeScopeKey(providerId: String?, profileId: String?): String =
             "${providerId.orEmpty()}|${profileId.orEmpty()}"

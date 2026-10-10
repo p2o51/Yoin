@@ -122,6 +122,7 @@ import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeScreen
+import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
@@ -439,6 +440,14 @@ private fun YoinShell(
     val memoriesVisible by remember(memoriesReveal) { derivedStateOf { memoriesReveal.isVisible } }
     val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesVisible
     val shellScope = rememberCoroutineScope()
+    val homeSongTap = remember(shellScope) {
+        HomeSongTap(
+            scope = shellScope,
+            currentSource = { app.container.profileManager.activeSource.value },
+            awaitSource = { timeoutMs -> app.container.repository.awaitActiveSource(timeoutMs) },
+            play = { track, source -> app.container.playbackManager.playSingle(track = track, source = source) }
+        )
+    }
     // Home edit mode: the only writer of the Edit surface and its progress P.
     // Hoisted here so back, the bar and every exit trigger below reach it.
     val homeEdit = rememberHomeEditController(experienceSessionStore, homeViewModel)
@@ -994,14 +1003,8 @@ private fun YoinShell(
                                 onAlbumClick = navigateToAlbumFromShell,
                                 onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
                                 onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
-                                onSongClick = { song ->
-                                    app.container.profileManager.activeSource.value?.let { source ->
-                                        app.container.playbackManager.playSingle(
-                                            track = song,
-                                            source = source,
-                                        )
-                                    }
-                                },
+                                // Its snapshot can be up before the source: a tap then waits for it.
+                                onSongClick = homeSongTap::tap,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = shellAnimatedVisibilityScope,
                                 // Edge-split: the feed starts past the capsules (84dp)

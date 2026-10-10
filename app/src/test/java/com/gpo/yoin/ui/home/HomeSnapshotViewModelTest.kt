@@ -1,8 +1,10 @@
 package com.gpo.yoin.ui.home
 
 import com.gpo.yoin.data.home.HomeLayoutStore
+import com.gpo.yoin.data.home.HomeSectionPref
 import com.gpo.yoin.data.home.HomeSnapshotStore
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
@@ -13,6 +15,7 @@ import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.MemoryScoreKind
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
@@ -24,6 +27,8 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -176,20 +181,229 @@ class HomeSnapshotViewModelTest {
     @Test
     fun should_loadAsBeforeAndDeleteTheFile_when_theSnapshotIsCorrupt() = runTest {
         val profile = "snapshot-corrupt"
-        directory.mkdirs()
-        File(directory, "$profile.json").writeText("{\"version\":1,\"profileId\":\"$profile\",\"feed\":")
+        // A whole feed on disk, unreadable by one field: nothing of it may paint.
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val file = directory.listFiles().orEmpty().single()
+        val corrupt = file.readText().replace(Regex("\"savedAt\":\\d+"), "\"savedAt\":\"yesterday\"")
+        assertTrue(corrupt.contains("Snap playlist") && corrupt.contains("yesterday"))
+        file.writeText(corrupt)
         val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
         coEvery { repository.getPlaylists() } returns listOf(playlist("fresh-pl", "Fresh playlist"))
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("fresh-artist")))
         val seen = record(viewModel(repository, MutableStateFlow(profile), store()))
 
         advanceUntilIdle()
 
-        assertEquals(HomeUiState.Loading, seen.first())
-        assertEquals(listOf("Fresh playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        val painted = seen.filterIsInstance<HomeUiState.Content>()
+        assertTrue(painted.isNotEmpty())
+        assertTrue(painted.none { content -> content.playlists.any { it.name == "Snap playlist" } })
+        assertTrue(painted.none { content -> content.activities.any { it.entityId == "snap-artist" } })
+        assertEquals(listOf("fresh-artist"), painted.first().activities.map { it.entityId })
+        assertEquals(listOf("Fresh playlist"), painted.last().playlists.map { it.name })
         // The fresh feed replaced the unreadable file (the write runs in the background).
         advanceTimeBy(HomeSnapshotStore.SETTLE_MS + 10)
         runCurrent()
         assertEquals(listOf("Fresh playlist"), store().read(profile)?.feed?.playlists?.map { it.name })
+    }
+
+    @Test
+    fun should_notWriteTheSnapshotBack_when_onlyTheActivityLogHasArrived() = runTest {
+        // Spotify's snapshot holds an endpoint feed; the activity log emits at
+        // once, every other block (the endpoint too) is still out. Nothing
+        // read so far changes what is on disk, so nothing is rewritten — no
+        // new savedAt, and the 30 s write window stays free for the fresh feed.
+        val profile = "snapshot-spotify-no-rewrite"
+        seed(profile, MediaId.PROVIDER_SPOTIFY, spotifySnapshotFeed())
+        val onDisk = directory.listFiles().orEmpty().single().readText()
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SPOTIFY))
+        val never = CompletableDeferred<Nothing>()
+        // Live like Room's: its first emission comes through the debounce, onto the snapshot.
+        val log = MutableStateFlow(listOf(artistVisit("local-artist")))
+        every { repository.getRecentActivities(limit = any()) } returns log
+        coEvery { repository.getSpotifyRecentActivities(any()) } coAnswers { never.await() }
+        coEvery { repository.getCachedHomeGridPools(any()) } coAnswers { never.await() }
+        coEvery { repository.getCachedHomeGridPools(isNull()) } coAnswers { never.await() }
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } coAnswers { never.await() }
+        coEvery { repository.getStarred() } coAnswers { never.await() }
+        coEvery { repository.getPlaylists() } coAnswers { never.await() }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } coAnswers { never.await() }
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store())
+
+        runCurrent()
+        assertEquals(listOf("snap-remote"), activityIds(viewModel))
+        // The activity log's debounced emission, then a whole settle + write window.
+        advanceTimeBy(1_000 + HomeSnapshotStore.SETTLE_MS + HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + 10)
+        runCurrent()
+
+        // The endpoint feed holds while its read is out; the file is as it was.
+        assertEquals(listOf("snap-remote"), activityIds(viewModel))
+        assertEquals(onDisk, directory.listFiles().orEmpty().single().readText())
+    }
+
+    @Test
+    fun should_writeARediscoverRemovalOnlyWithAFreshBlock_when_aPlayLandsOnTheSnapshotAlone() = runTest {
+        // A play takes its card off the snapshot's shelf at once; written back
+        // only once a block read now is in the feed, the removal riding along.
+        val profile = "snapshot-rediscover-removal"
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed().copy(rediscover = listOf(rediscoverAlbum("al-redis"))))
+        val onDisk = directory.listFiles().orEmpty().single().readText()
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
+        val never = CompletableDeferred<Nothing>()
+        val playlists = CompletableDeferred<List<Playlist>>()
+        val plays = MutableStateFlow<PlayHistory?>(null)
+        every { repository.getRecentActivities(limit = any()) } returns flow { awaitCancellation() }
+        every { repository.observeMostRecentPlay() } returns plays
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } coAnswers { never.await() }
+        coEvery { repository.getStarred() } coAnswers { never.await() }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } coAnswers { never.await() }
+        coEvery { repository.getPlaylists() } coAnswers { playlists.await() }
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store())
+        runCurrent()
+        assertEquals(listOf("al-redis"), rediscoverIds(viewModel))
+
+        plays.value = albumPlay("al-redis", profile)
+        runCurrent()
+        assertTrue(rediscoverIds(viewModel).isEmpty())
+        advanceTimeBy(HomeSnapshotStore.SETTLE_MS + HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + 10)
+        runCurrent()
+        assertEquals(onDisk, directory.listFiles().orEmpty().single().readText())
+
+        playlists.complete(listOf(playlist("fresh-pl", "Fresh playlist")))
+        runCurrent()
+        advanceTimeBy(HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        val written = store().read(profile)?.feed
+        assertEquals(listOf("Fresh playlist"), written?.playlists?.map { it.name })
+        assertEquals(emptyList<Any>(), written?.rediscover.orEmpty())
+    }
+
+    @Test
+    fun should_handTheSnapshotsEndpointFeedToTheActivityLog_when_theEndpointReadFails() = runTest {
+        // An earlier process's recently-played (maybe days old) only holds
+        // while this process's read is out: rate-limited or offline, the
+        // activity log takes over and stays live, as without a snapshot.
+        val profile = "snapshot-spotify-endpoint-fails"
+        seed(profile, MediaId.PROVIDER_SPOTIFY, spotifySnapshotFeed())
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SPOTIFY))
+        val log = MutableStateFlow(listOf(artistVisit("local-artist")))
+        every { repository.getRecentActivities(limit = any()) } returns log
+        coEvery { repository.getSpotifyRecentActivities(any()) } throws IOException("429")
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store())
+
+        // The load's own answer, ahead of the activity log's debounced emission.
+        runCurrent()
+        val fallback = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(listOf("local-artist"), fallback.activities.map { it.entityId })
+        assertFalse(fallback.activitiesFromRemote)
+
+        // A play in Yoin goes into Activities, live.
+        log.value = listOf(artistVisit("played-now"), artistVisit("local-artist"))
+        advanceTimeBy(1_000 + 10)
+        runCurrent()
+        assertEquals(listOf("played-now", "local-artist"), activityIds(viewModel))
+
+        // And the next cold start's snapshot holds the activity log, not the old endpoint feed.
+        advanceTimeBy(HomeSnapshotStore.SETTLE_MS + HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + 10)
+        runCurrent()
+        val written = store().read(profile)?.feed
+        assertEquals(listOf("played-now", "local-artist"), written?.activities?.map { it.entityId })
+        assertEquals(false, written?.activitiesFromRemote)
+    }
+
+    @Test
+    fun should_holdTheSnapshotsEndpointFeedUntilTheEndpointAnswers_when_theActivityLogLandsFirst() = runTest {
+        val profile = "snapshot-spotify-endpoint-answers"
+        seed(profile, MediaId.PROVIDER_SPOTIFY, spotifySnapshotFeed())
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SPOTIFY))
+        val endpoint = CompletableDeferred<List<ActivityEvent>>()
+        var offline = false
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("local-artist")))
+        coEvery { repository.getSpotifyRecentActivities(any()) } coAnswers {
+            if (offline) throw IOException("offline") else endpoint.await()
+        }
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store())
+        val seen = record(viewModel)
+
+        advanceTimeBy(5_000)
+        runCurrent()
+        // The local tier is in; the snapshot's endpoint feed doesn't flash to it.
+        val beforeAnswer = seen.filterIsInstance<HomeUiState.Content>()
+        assertTrue(beforeAnswer.isNotEmpty())
+        assertTrue(beforeAnswer.all { content -> content.activities.map { it.entityId } == listOf("snap-remote") })
+
+        endpoint.complete(listOf(spotifyArtistVisit("fresh-remote")))
+        runCurrent()
+        val answered = seen.last() as HomeUiState.Content
+        assertEquals(listOf("fresh-remote"), answered.activities.map { it.entityId })
+        assertTrue(answered.activitiesFromRemote)
+
+        // This process's own endpoint feed: kept through a failed reload, as always.
+        offline = true
+        viewModel.refresh()
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertEquals(listOf("fresh-remote"), (seen.last() as HomeUiState.Content).activities.map { it.entityId })
+    }
+
+    @Test
+    fun should_paintTheSnapshotInItsAccountsLayout_when_theLayoutReadsAfterTheSnapshot() = runTest {
+        val profile = "snapshot-layout"
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val custom = HomeLayout.Default.toPrefs().reversed()
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
+        every { repository.getRecentActivities(limit = any()) } returns flow { awaitCancellation() }
+        val viewModel = viewModel(
+            repository,
+            MutableStateFlow(profile),
+            store(),
+            layouts = flow {
+                delay(SNAPSHOT_LAYOUT_DELAY_MS)
+                emit(custom)
+            }
+        )
+        // Each Content as it went up, with the layout Home drew it in.
+        val painted = mutableListOf<Pair<HomeUiState.Content, HomeLayout>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state ->
+                if (state is HomeUiState.Content) painted += state to viewModel.homeLayout.value
+            }
+        }
+
+        runCurrent()
+        // The snapshot is read; the layout isn't yet: nothing painted in the default one.
+        assertEquals(HomeUiState.Loading, viewModel.uiState.value)
+        assertTrue(painted.isEmpty())
+
+        advanceTimeBy(SNAPSHOT_LAYOUT_DELAY_MS + 1)
+        runCurrent()
+        assertEquals(listOf("Snap playlist"), painted.first().first.playlists.map { it.name })
+        assertTrue(painted.all { (_, layout) -> layout.sameSectionsAs(HomeLayout.reconcile(custom)) })
+    }
+
+    @Test
+    fun should_loadWithoutTheSnapshot_when_theLayoutReadOutlastsTheWait() = runTest {
+        val profile = "snapshot-layout-slow"
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
+        coEvery { repository.getPlaylists() } returns listOf(playlist("fresh-pl", "Fresh playlist"))
+        val seen = record(
+            viewModel(
+                repository,
+                MutableStateFlow(profile),
+                store(),
+                layouts = flow {
+                    delay(5_000)
+                    emit(null)
+                }
+            )
+        )
+
+        advanceUntilIdle()
+
+        val painted = seen.filterIsInstance<HomeUiState.Content>()
+        assertTrue(painted.isNotEmpty())
+        assertTrue(painted.none { content -> content.playlists.any { it.name == "Snap playlist" } })
+        assertEquals(listOf("Fresh playlist"), painted.last().playlists.map { it.name })
     }
 
     @Test
@@ -233,10 +447,15 @@ class HomeSnapshotViewModelTest {
     private fun activityIds(viewModel: HomeViewModel): List<String> =
         (viewModel.uiState.value as HomeUiState.Content).activities.map { it.entityId }
 
+    private fun rediscoverIds(viewModel: HomeViewModel): List<String> =
+        (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.albumId.rawId }
+
+    /** A store on the test's clock: a rewrite shows as a new savedAt. */
     private fun TestScope.store(): HomeSnapshotStore = HomeSnapshotStore(
         directory = { directory },
         scope = backgroundScope,
-        ioDispatcher = StandardTestDispatcher(testScheduler)
+        ioDispatcher = StandardTestDispatcher(testScheduler),
+        clock = { testScheduler.currentTime }
     )
 
     /** [profileId]'s snapshot on disk, written by a store of its own (an earlier process). */
@@ -257,12 +476,13 @@ class HomeSnapshotViewModelTest {
         repository: YoinRepository,
         profileId: MutableStateFlow<String?>,
         store: HomeSnapshotStore,
-        switching: MutableStateFlow<ProfileManager.SwitchState> = MutableStateFlow(ProfileManager.SwitchState.Idle)
+        switching: MutableStateFlow<ProfileManager.SwitchState> = MutableStateFlow(ProfileManager.SwitchState.Idle),
+        layouts: Flow<List<HomeSectionPref>?> = flowOf(null)
     ): HomeViewModel = HomeViewModel(
         repository = repository,
         activeProfileId = profileId,
-        homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { layouts ->
-            every { layouts.layoutFlow(any()) } returns flowOf(null)
+        homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
+            every { store.layoutFlow(any()) } returns layouts
         },
         switchingState = switching,
         snapshotStore = store
@@ -293,6 +513,13 @@ class HomeSnapshotViewModelTest {
         ),
         recentlyAddedAlbums = listOf(album("snap-added", addedAt = recently())),
         recentlyPlayed = listOf(album("snap-played")),
+        playlists = listOf(playlist("pl-snap", "Snap playlist"))
+    )
+
+    /** Spotify's feed as an earlier process left it: Activities from the recently-played endpoint. */
+    private fun spotifySnapshotFeed(): HomeUiState.Content = HomeUiState.Content(
+        activities = listOf(spotifyArtistVisit("snap-remote")),
+        activitiesFromRemote = true,
         playlists = listOf(playlist("pl-snap", "Snap playlist"))
     )
 
@@ -369,4 +596,42 @@ class HomeSnapshotViewModelTest {
         title = "Artist $rawId",
         subtitle = "Artist"
     )
+
+    private fun rediscoverAlbum(rawId: String): HomeRediscoverItem = HomeRediscoverItem(
+        albumId = MediaId.subsonic(rawId),
+        albumName = "Album $rawId",
+        artistName = "Artist",
+        coverArtUrl = subsonicCoverUrl(rawId),
+        score = 8f,
+        scoreText = "8.0",
+        scoreKind = MemoryScoreKind.ALBUM_RATING,
+        lastPlayedAt = 1_600_000_000_000L,
+        firstPlayedAt = 1_500_000_000_000L,
+        playCount = 7,
+        coverKey = rawId
+    )
+
+    /** A play of [albumId] from now on (Rediscover only acts on plays since it started watching). */
+    private fun albumPlay(albumId: String, profile: String): PlayHistory = PlayHistory(
+        id = 1,
+        songId = "song-of-$albumId",
+        profileId = profile,
+        provider = MediaId.PROVIDER_SUBSONIC,
+        title = "Song",
+        artist = "Artist",
+        album = "Album $albumId",
+        albumId = albumId,
+        coverArtId = null,
+        playedAt = System.currentTimeMillis() + 60_000L,
+        durationMs = 200_000L,
+        completedPercent = 0f
+    )
+
+    private fun spotifyArtistVisit(rawId: String): ActivityEvent =
+        artistVisit(rawId).copy(provider = MediaId.PROVIDER_SPOTIFY)
+
+    private companion object {
+        // Longer than a snapshot read, shorter than the wait for one.
+        const val SNAPSHOT_LAYOUT_DELAY_MS = 200L
+    }
 }
