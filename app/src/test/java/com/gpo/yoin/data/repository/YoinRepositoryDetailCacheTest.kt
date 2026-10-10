@@ -41,7 +41,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The detail read path: tap-time prefetch joins, and the disk copy stays off the caller's path. */
+/**
+ * The detail read path: tap-time prefetch joins, the disk copy stays off the caller's path, and an Apple Music
+ * library album resolved to its catalog album answers to the catalog id too.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class YoinRepositoryDetailCacheTest {
     private val library = mockk<MusicLibrary>()
@@ -219,6 +222,95 @@ class YoinRepositoryDetailCacheTest {
         coVerify(exactly = 2) { library.getPlaylist(PLAYLIST_ID) }
     }
 
+    @Test
+    fun should_answerTheCatalogIdFromCache_when_aLibraryAlbumResolvedToIt() = runTest {
+        val repository = repository()
+        val response = CompletableDeferred<Album>()
+        coEvery { library.getAlbum(LIBRARY_ALBUM_ID) } coAnswers { response.await() }
+
+        // The tap's prefetch and the page share one load of the library album …
+        repository.prefetchAlbum(LIBRARY_ALBUM_ID)
+        val page = async { repository.getAlbum(LIBRARY_ALBUM_ID) }
+        runCurrent()
+        // … which Apple Music resolves to its catalog album.
+        response.complete(resolvedAlbum())
+        assertEquals(CATALOG_ALBUM_ID, page.await()?.id)
+
+        // A second later Home's hero reads the visit, which names the catalog id: no second load.
+        currentTime += 1_000L
+        assertEquals(resolvedAlbum(), repository.getAlbum(CATALOG_ALBUM_ID))
+        coVerify(exactly = 1) { library.getAlbum(LIBRARY_ALBUM_ID) }
+        coVerify(exactly = 0) { library.getAlbum(CATALOG_ALBUM_ID) }
+    }
+
+    @Test
+    fun should_keepTheCatalogCopyOnDisk_when_aLibraryAlbumResolvedToIt() = runTest {
+        val dao = FakeDetailCacheDao()
+        coEvery { library.getAlbum(LIBRARY_ALBUM_ID) } returns resolvedAlbum()
+
+        repository(heldCodecStore(dao)).getAlbum(LIBRARY_ALBUM_ID)
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+        assertEquals(setOf(LIBRARY_ALBUM_ID.toString(), CATALOG_ALBUM_ID.toString()), dao.entityIds)
+
+        // After a restart (nothing in mem) the catalog id still opens without the network.
+        val restarted = repository(heldCodecStore(dao))
+        val read = async { restarted.getAlbum(CATALOG_ALBUM_ID) }
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+        assertEquals(resolvedAlbum(), read.await())
+        coVerify(exactly = 0) { library.getAlbum(CATALOG_ALBUM_ID) }
+    }
+
+    @Test
+    fun should_skipTheCatalogCopy_when_anEditDropsTheCatalogAlbumWhileTheLoadIsOut() = runTest {
+        val dao = FakeDetailCacheDao()
+        val repository = repository(heldCodecStore(dao))
+        val response = CompletableDeferred<Album>()
+        coEvery { library.getAlbum(LIBRARY_ALBUM_ID) } coAnswers { response.await() }
+        coEvery { library.getAlbum(CATALOG_ALBUM_ID) } returns resolvedAlbum().copy(name = "Album (Edited)")
+
+        val page = async { repository.getAlbum(LIBRARY_ALBUM_ID) }
+        runCurrent()
+        // An edit to one of the catalog album's songs drops the catalog id while the open is out …
+        repository.setFavorite(track().copy(id = CATALOG_TRACK_ID, albumId = CATALOG_ALBUM_ID), favorite = true)
+        runCurrent()
+        response.complete(resolvedAlbum())
+        assertEquals(CATALOG_ALBUM_ID, page.await()?.id)
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+
+        // … so the pre-edit album is kept under the library id only, and the catalog id loads afresh.
+        assertEquals(setOf(LIBRARY_ALBUM_ID.toString()), dao.entityIds)
+        assertEquals("Album (Edited)", repository.getAlbum(CATALOG_ALBUM_ID)?.name)
+        coVerify(exactly = 1) { library.getAlbum(CATALOG_ALBUM_ID) }
+    }
+
+    @Test
+    fun should_keepTheCatalogIdsOwnFetch_when_theLibraryAlbumOpensFromAnOlderDiskCopy() = runTest {
+        val dao = FakeDetailCacheDao()
+        // The library album's disk copy, an hour old: served as it is, no revalidate.
+        DetailCacheStore(dao, clock = { currentTime - HOUR_MS })
+            .writeAlbum(PROFILE, LIBRARY_ALBUM_ID.toString(), resolvedAlbum().copy(name = "Old"))
+        val repository = repository(heldCodecStore(dao))
+        coEvery { library.getAlbum(CATALOG_ALBUM_ID) } returns resolvedAlbum().copy(name = "New")
+
+        assertEquals("New", repository.getAlbum(CATALOG_ALBUM_ID)?.name)
+        val libraryOpen = async { repository.getAlbum(LIBRARY_ALBUM_ID) }
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+        assertEquals("Old", libraryOpen.await()?.name)
+
+        // The disk copy is never copied over the catalog id's newer fetch.
+        assertEquals("New", repository.getAlbum(CATALOG_ALBUM_ID)?.name)
+        coVerify(exactly = 1) { library.getAlbum(CATALOG_ALBUM_ID) }
+        coVerify(exactly = 0) { library.getAlbum(LIBRARY_ALBUM_ID) }
+    }
+
     private fun TestScope.repository(store: DetailCacheStore? = null) = YoinRepository(
         activeSource = MutableStateFlow(source),
         activeProfileId = MutableStateFlow(PROFILE),
@@ -258,6 +350,9 @@ class YoinRepositoryDetailCacheTest {
         genre = null
     )
 
+    /** What Apple Music returns for [LIBRARY_ALBUM_ID]: its catalog album. */
+    private fun resolvedAlbum() = album().copy(id = CATALOG_ALBUM_ID)
+
     private fun track() = Track(
         id = TRACK_ID,
         title = "Track",
@@ -288,6 +383,9 @@ class YoinRepositoryDetailCacheTest {
         val ALBUM_ID = MediaId(MediaId.PROVIDER_SUBSONIC, "al-1")
         val TRACK_ID = MediaId(MediaId.PROVIDER_SUBSONIC, "tr-1")
         val PLAYLIST_ID = MediaId(MediaId.PROVIDER_SUBSONIC, "pl-1")
+        val LIBRARY_ALBUM_ID = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:l.1")
+        val CATALOG_ALBUM_ID = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1440")
+        val CATALOG_TRACK_ID = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1441")
     }
 }
 
