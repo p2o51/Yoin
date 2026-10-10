@@ -2,7 +2,10 @@ package com.gpo.yoin
 
 import android.app.Activity
 import android.app.Application
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.contentcapture.ContentCaptureManager
@@ -12,6 +15,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
+import com.gpo.yoin.ui.component.ArtworkRetrySignal
 import com.gpo.yoin.widget.WidgetRefresher
 
 class YoinApplication : Application(), SingletonImageLoader.Factory {
@@ -44,6 +48,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         AppleMusicNativeMemoryPolicy.initialize(this)
         container = containerOverrideForTests ?: AppContainer(this)
         retireLegacyImageDiskCache(cacheDir)
+        registerArtworkNetworkRetry()
         registerHostLifecycle()
         registerActivityEmbeddingRules()
         if (containerOverrideForTests == null) WidgetRefresher.start(this, container)
@@ -66,12 +71,40 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
     }
 
     /**
+     * Failed artwork retries when a default network becomes available: a cover
+     * that failed offline (Coil then asks only-if-cached and gets a 504) would
+     * otherwise wait for the app to come back to the foreground. Registering
+     * delivers the current network at once — that one is not a recovery.
+     */
+    private fun registerArtworkNetworkRetry() {
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
+        val initialNetwork = connectivity.activeNetwork
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            // Callbacks arrive one at a time on the connectivity thread.
+            private var first = true
+
+            override fun onAvailable(network: Network) {
+                val initialDelivery = first && network == initialNetwork
+                first = false
+                if (!initialDelivery) ArtworkRetrySignal.bump()
+            }
+        }
+        // The foreground retry still covers a device that refuses the callback.
+        try {
+            connectivity.registerDefaultNetworkCallback(callback)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "No network callback for artwork retries", error)
+        }
+    }
+
+    /**
      * Drive the playback host lifecycle (Spotify App Remote warm-up) from the
      * whole activity stack instead of a single Activity. With detail pages as
      * separate Activities, individual hosts can pause or stop during handoffs;
      * counting started activities keeps the remote connected as long as ANY
      * Yoin Activity is foregrounded, and only tears it down when the last one
-     * stops (the app is actually backgrounded).
+     * stops (the app is actually backgrounded). Coming to the foreground also
+     * retries failed artwork.
      */
     private fun registerHostLifecycle() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
@@ -81,6 +114,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
                 if (startedCount == 0) {
                     container.playbackManager.onHostStart(activity)
                     container.cloudSync.onAppForeground()
+                    ArtworkRetrySignal.bump()
                 }
                 startedCount++
             }
@@ -102,6 +136,8 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
     }
 
     companion object {
+        private const val TAG = "YoinApplication"
+
         @VisibleForTesting
         internal var containerOverrideForTests: AppContainer? = null
     }
