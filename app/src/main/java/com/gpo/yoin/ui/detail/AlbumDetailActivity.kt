@@ -210,6 +210,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     },
                     onToggleStar = viewModel::toggleStar,
                     onRetry = viewModel::retry,
+                    onResumed = viewModel::onResumed,
                     onRenameMemoryTitle = viewModel::renameMemoryTitle,
                     onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
                     notedSongIds = notedSongIds,

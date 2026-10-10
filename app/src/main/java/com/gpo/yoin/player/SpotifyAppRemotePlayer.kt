@@ -27,6 +27,7 @@ import com.spotify.protocol.client.CallResult
 import com.spotify.protocol.client.PendingResult
 import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.Empty
+import com.spotify.protocol.types.LibraryState
 import com.spotify.protocol.types.PlayerContext
 import com.spotify.protocol.types.PlayerState
 import kotlinx.coroutines.CancellationException
@@ -34,8 +35,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -391,6 +395,28 @@ internal class SpotifyAppRemotePlayer(
     fun skipToQueueItem(index: Int) {
         if (index !in mirroredQueue.indices) return
         playQueue(mirroredQueue, index)
+    }
+
+    /**
+     * Spotify's own library state for [uri] — a track or an album, all
+     * UserApi accepts — read over App Remote's local IPC: no Web API request,
+     * so none of the rate-limit budget. Fails when App Remote isn't
+     * connected, the call errors, or no answer comes within
+     * [LIBRARY_STATE_TIMEOUT_MS]. Never connects, plays or touches the queue.
+     */
+    suspend fun libraryState(uri: String): Result<LibraryState> = withContext(Dispatchers.Main.immediate) {
+        val connected = remote?.takeIf { it.isConnected }
+            ?: return@withContext Result.failure(IllegalStateException("App Remote is not connected"))
+        try {
+            val state = withTimeout(LIBRARY_STATE_TIMEOUT_MS) { connected.userApi.getLibraryState(uri).awaitData() }
+            state?.let { Result.success(it) } ?: Result.failure(IllegalStateException("No library state for $uri"))
+        } catch (timeout: TimeoutCancellationException) {
+            Result.failure(timeout)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
     }
 
     private fun enqueueOperation(
@@ -851,6 +877,13 @@ internal class SpotifyAppRemotePlayer(
         const val FALLBACK_QUEUE_LIMIT = 10
 
         /**
+         * How long a library-state read waits for Spotify's answer. It is
+         * local IPC and normally answers in milliseconds; a CallResult a
+         * dropped connection stranded must not hold the heart check open.
+         */
+        const val LIBRARY_STATE_TIMEOUT_MS = 3_000L
+
+        /**
          * Gap between the failing connect and the silent retry. Long enough
          * for the SDK's auth flow to finish persisting consent, short enough
          * that the user doesn't perceive a visible hang. 1.2s empirically
@@ -989,6 +1022,13 @@ internal fun String?.normalizedSpotifyErrorMessage(): String? {
         .replace("\\\"", "\"")
         .trim()
         .ifBlank { null }
+}
+
+/** The call's data; null when Spotify answered without any. */
+private suspend fun <T> CallResult<T>.awaitData(): T? = suspendCancellableCoroutine { continuation ->
+    setResultCallback { data -> continuation.resume(data) }
+    setErrorCallback { throwable -> continuation.resumeWithException(throwable) }
+    continuation.invokeOnCancellation { cancel() }
 }
 
 private suspend fun CallResult<Empty>.awaitUnit() {

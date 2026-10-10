@@ -113,12 +113,17 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 | 符号 | 用在哪 |
 | --- | --- |
 | 翻译 `rememberTranslateSymbolPainter` | 歌词工具条的翻译键：翻译进行中「文」「A」绕圈换位，结束回到「文A」；进行中按键保持亮着 |
-| 收藏 `rememberFavoriteSymbolPainter` | Now Playing 的收藏键、专辑页曲目行的收藏键 |
+| 收藏 `rememberFavoriteSymbolPainter`（经 `FavoriteGlyphIcon`） | Now Playing 的收藏键、专辑页曲目行的收藏键；只有用户自己点的变化才跳，规则见下 |
 | 均衡器 `rememberEqualizerSymbolPainter` | 专辑页当前曲目：播放时跳，暂停后从两边往中间沉成点 |
 | 展开箭头 `rememberExpandSymbolPainter` | 设置的可展开项、Play ▾（横版和竖版）：铰链式先压平再翻过去，不转圈 |
 | 播放模式 `rememberPlayModeSymbolPainter` | Now Playing 的播放模式键 |
 
 - 动效档位跟随 `MotionProfile`：`AdaptiveReduced` 对应 `SymbolMotion.Reduced`，其余 `SymbolMotion.Default`（库的默认弹簧就是 M3 Expressive motion scheme），在 `YoinActivityRoot` 统一提供。系统「移除动画」时符号静止。
+- **收藏心形的两种变化（D4，2026-10-10 owner）**：Now Playing 的收藏键和专辑页曲目行都一样。
+  - **用户点的**（写入还在进行，或刚落地、仍在 60 秒宽限内）：照常由同一个 `rememberFavoriteSymbolPainter` 变化——点亮时填充长满、轮廓跳一下（beat），取消时只缩回填充。按钮自己的按压回弹也照旧。
+  - **其余一切变化**都是静默翻转：Spotify 晚到的确认（App Remote `getLibraryState` 或 Web API contains）、资料库同步、写入失败回退、换到下一首。`FavoriteGlyphIcon` 按 key 换一个新的 painter，它一出现就处在终态；新旧两层按 effects spring 交叉淡入，只有填充和颜色在变，不跳。专辑行的底色、描边、心形颜色也都走 effects spring。
+  - 实现：状态层是 `FavoriteGlyph(favorite, quietFlips)`，`quietFlips` 只在不是用户点的变化时 +1。仓库的 `FavoriteState.fromUser` 区分来源（`YoinRepository.observeFavoriteStates` 是心形唯一的读取入口）。没有改 yoin-symbols。
+  - 先出页面再确认：Spotify 的已保存镜像只有最新 200 首，所以页面先按已知状态显示，确认结果晚到时静默翻转。不加载中样式，不加文字。
 
 **播放模式**（一个按钮三个状态，点一下按顺序切换，默认列表循环）
 
@@ -534,3 +539,14 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 ### Apple Music profiles (2026-10-01)
 
 Apple Music connection creates a regular encrypted Profile; the previous validation authorization migrates once without automatically switching the active account. Its MusicSource supports library songs, albums, artists and read-only playlists, with distinct catalog and personal-library search scopes. MusicKit supplies DRM audio through a Media3 session shared by Now Playing and system controls. The separate library-add control uses the exact authenticated catalog-song → library relationship; it displays a stable checkmark only after membership is confirmed and preserves an unconfirmed HTTP 202 as pending. Membership never becomes a favorite heart. Unsupported favorite mutation, library removal, playlist editing, Cast and offline caching remain hidden. Imported tracks without a catalog playback ID are dimmed with a "?" badge on the cover whose tap expands the reason inline; they never enter the MusicKit queue. Since 2026-10-02 a library album opens as its full catalog album (Spotify parity): every catalog track is listed and the ones already in the user's library carry the check from `TrackLibraryButton`, which replaces the heart slot for Apple Music; tapping an unchecked row control adds that song. Library albums Apple cannot match to the catalog keep their library tracklist. Subscribed playback was verified on Pixel Tablet on 2026-09-29; these new search/library writes require their own current device verification, and reauthorization, deletion and Bluetooth hardware remain open.
+
+### Spotify 心形状态（2026-10-10，P4）
+
+Spotify 的「已喜欢」= Liked Songs（Yoin 的爱心就是它）。已保存镜像（`/me/tracks` 读最新 200 首，6-21 的决定不变）装不下主人约 3000 首的库，所以心形另有一层按账号隔离的状态：
+
+- **唯一读取入口**：`YoinRepository.observeFavoriteStates`（Now Playing 和专辑行都读它）。优先级：正在进行的写入 > 刚落地的本地写（60 秒宽限内） > 远端确认和镜像行（比时间戳，新的胜出；本地写在宽限之后也按「写入时间 + 60 秒」参加比较） > 曲目自带的 `isStarred`。取消喜欢记成明确的 false，队列里的旧副本翻不回来。只存在内存里，切账号清空，晚到的结果丢弃。
+- **Now Playing**：由 app 级单例 `PlaybackManager` 在当前曲目变化时查一次（warm-connect 接管也算），不放进各 Activity 的 Now Playing VM。先走 App Remote `UserApi.getLibraryState`（本机 IPC，不占 Web API 配额）；只有它在换歌时出错，且这首歌停留超过 0.8 秒，才回退到 Web API contains。之后的 PlayerState 事件（暂停、拖动、回到前台后的重连）至多每 30 秒重查一次，只走 App Remote，不发后台 Web API 请求。只查 `spotify:track:`，播客单集和本地文件跳过。
+- **专辑页**：页面先出，加载后批量查一次 `GET /v1/me/library/contains`（每批最多 40 个 URI，一批接一批，不并发）。页面回到前台时再查，同一首歌 30 秒内只问一次（专辑页和 Now Playing 共用这个节流）。
+- **限流**：contains 必须经过 `SpotifyRateLimitGate`，gate 关着就不查；失败和 429 都不重试。写操作仍走已验证的 `PUT/DELETE /v1/me/library`。
+- **三家**：Subsonic 的星标本来就在每个响应里，`favoriteStates` 用默认的「不支持」，行为不变；Apple Music 没有收藏能力，资料库成员状态照旧不显示成心形；只有 Spotify 实现了这次的查询。
+- 歌单页、搜索、Library 的行不画心形，这次不加查询。艺人页关注星的同类问题另行排期（App Remote 只支持 track 和 album，那里只能用 Web API）。

@@ -255,12 +255,20 @@ class YoinRepository(
      */
     private class DetailLoad<V>(val value: V?, val src: String, val fetchError: String? = null)
 
+    /**
+     * Favorite state learned beyond each track's own flag — the service's
+     * answers and Yoin's own landed writes — per account. Read only through
+     * [observeFavoriteStates]; declared before init, which clears it.
+     */
+    private val favoriteStateOverlay = FavoriteStateOverlay(clock)
+
     init {
         repositoryScope.launch {
             var lastProfileId: String? = activeProfileId.value
             activeProfileId.collect { profileId ->
                 if (profileId != lastProfileId) {
                     _favoriteOverrides.value = emptyMap()
+                    favoriteStateOverlay.clear()
                     albumDetailCache.clear()
                     artistDetailCache.clear()
                     playlistDetailCache.clear()
@@ -574,6 +582,12 @@ class YoinRepository(
                 // successful favorite, so we trust the mutation result alone.
                 source.writeActions().setFavorite(id, favorite).getOrThrow()
             }.onSuccess {
+                // The written state — an unlike too, as an explicit false — before
+                // the in-flight override goes, so the heart never falls back to a
+                // stale copy in between (a queue track still flagged liked).
+                if (activeProfileId.value == profileId) {
+                    favoriteStateOverlay.recordWrite(FavoriteStateOverlay.Key(profileId, id), favorite)
+                }
                 if (favorite) {
                     dao.updateTrackFavoriteState(
                         profileId = profileId,
@@ -1280,28 +1294,106 @@ class YoinRepository(
             }
         }
 
+    // ── Favorite state (the heart) ─────────────────────────────────────
+
     /**
-     * Reactive saved-state for a Spotify track from the library cache — the
-     * authoritative source for the Now Playing heart. Emits whenever the cache
-     * row changes (optimistic favorite write, sync, un-favorite delete), so the
-     * heart reflects the real Spotify library state and no longer reverts when
-     * the transient [favoriteOverrides] entry is cleared on network success.
-     *
-     * Emits `null` when the id isn't a cached Spotify track (non-Spotify, or
-     * the track simply isn't in the saved cache) so the caller can fall back to
-     * the playback track's own isStarred.
+     * The one read of a track's heart — Now Playing and the album rows both
+     * use it. The user's write in flight wins ([favoriteOverrides]); else the
+     * newest of what was learned for the active account: Yoin's own landed
+     * write (an unlike as an explicit false, held for
+     * [FAVORITE_WRITE_GRACE_MS] while Spotify catches up), the service's
+     * answer ([refreshFavoriteStates], [recordFavoriteState]) and Spotify's
+     * saved-tracks mirror row; else the track's own flag. Spotify's mirror
+     * holds only the newest 200 likes, so for an older one the answer is
+     * what turns the heart on. See [resolveFavoriteState].
      */
-    fun observeSpotifyFavorite(id: MediaId): Flow<Boolean?> {
-        if (id.provider != MediaId.PROVIDER_SPOTIFY) return flowOf(null)
+    fun observeFavoriteStates(tracks: List<Track>): Flow<Map<MediaId, FavoriteState>> {
+        val distinct = tracks.distinctBy(Track::id)
+        if (distinct.isEmpty()) return flowOf(emptyMap())
+        val mirroredIds = distinct.filter { it.id.provider == MediaId.PROVIDER_SPOTIFY }.map { it.id.rawId }
         return activeProfileId.flatMapLatest { profileId ->
-            if (profileId.isNullOrBlank()) {
-                flowOf(null)
+            val mirror = if (profileId.isNullOrBlank() || mirroredIds.isEmpty()) {
+                flowOf(emptyMap())
             } else {
-                database.spotifyLibraryCacheDao()
-                    .observeTrack(profileId, id.rawId)
-                    .map { it?.isSaved }
+                database.spotifyLibraryCacheDao().observeTracks(profileId, mirroredIds)
+                    .map { rows -> rows.associateBy { it.trackId } }
             }
+            combine(_favoriteOverrides, favoriteStateOverlay.entries, mirror) { overrides, learned, rows ->
+                distinct.associate { track ->
+                    val row = rows[track.id.rawId]?.takeIf { track.id.provider == MediaId.PROVIDER_SPOTIFY }
+                    track.id to resolveFavoriteState(
+                        baseline = track.isStarred,
+                        inFlight = overrides[track.id],
+                        entry = profileId?.let { learned[FavoriteStateOverlay.Key(it, track.id)] },
+                        mirrorSaved = row?.isSaved,
+                        mirrorAtMs = row?.cachedAt ?: 0L
+                    )
+                }
+            }
+        }.distinctUntilChanged()
+    }
+
+    /** [observeFavoriteStates] for one track. */
+    fun observeFavoriteState(track: Track): Flow<FavoriteState> = observeFavoriteStates(listOf(track))
+        .map { states -> states[track.id] ?: FavoriteState(track.isStarred) }
+        .distinctUntilChanged()
+
+    /**
+     * Asks the active service whether [tracks] are favorites now (Spotify:
+     * the Web API's contains, 40 tracks a request, one request after
+     * another). Each track at most once per [minIntervalMs], whoever asks —
+     * an album page and Now Playing don't both spend a request on it. Does
+     * nothing while Spotify's rate-limit gate is closed, nor for a service
+     * that can't be asked; a failure is not retried, and an answer landing
+     * after an account switch is dropped.
+     */
+    suspend fun refreshFavoriteStates(tracks: List<Track>, minIntervalMs: Long = FAVORITE_RECHECK_INTERVAL_MS) {
+        val source = activeSource.value ?: return
+        val profileId = activeProfileId.value ?: return
+        if (Capability.FAVORITES !in source.capabilities) return
+        if (source.id == MediaId.PROVIDER_SPOTIFY && spotifyRateLimitGate?.isBlocked(profileId) == true) return
+        val candidates = tracks.filter { it.id.provider == source.id }.distinctBy(Track::id)
+        if (candidates.isEmpty()) return
+        val claimed = favoriteStateOverlay
+            .claimAsks(candidates.map { FavoriteStateOverlay.Key(profileId, it.id) }, minIntervalMs)
+            .mapTo(HashSet()) { it.trackId }
+        val asked = candidates.filter { it.id in claimed }
+        if (asked.isEmpty()) return
+        val startedAtMs = clock()
+        val answer = try {
+            source.writeActions().favoriteStates(asked)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
         }
+        // A service that can't be asked (Subsonic: its tracks carry the exact star) asked nothing.
+        if (answer.exceptionOrNull() is UnsupportedOperationException) return
+        YoinPerf.mark(
+            "favorite.check",
+            "src" to "contains",
+            "n" to asked.size,
+            "ok" to answer.isSuccess,
+            "err" to answer.exceptionOrNull()?.javaClass?.simpleName,
+            "ms" to clock() - startedAtMs
+        )
+        if (activeSource.value !== source || activeProfileId.value != profileId) return
+        answer.getOrNull()?.forEach { (id, saved) ->
+            favoriteStateOverlay.recordRemote(FavoriteStateOverlay.Key(profileId, id), saved)
+        }
+    }
+
+    /**
+     * Records the service's answer for [trackId] on [profileId]'s account,
+     * learned some other way than [refreshFavoriteStates] — Now Playing's App
+     * Remote check, which PlaybackManager makes. Counts as an ask for the
+     * throttle. Dropped when that account is no longer the active one.
+     */
+    fun recordFavoriteState(profileId: String, trackId: MediaId, saved: Boolean) {
+        if (activeProfileId.value != profileId) return
+        val key = FavoriteStateOverlay.Key(profileId, trackId)
+        favoriteStateOverlay.markAsked(key)
+        favoriteStateOverlay.recordRemote(key, saved)
     }
 
     suspend fun getRatings(trackIds: Collection<MediaId>): Map<MediaId, LocalRating> {

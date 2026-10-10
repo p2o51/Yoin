@@ -64,12 +64,15 @@ interface SpotifyLibraryCacheDao {
     )
     suspend fun getTrack(profileId: String, trackId: String): SpotifyLibraryTrackCache?
 
-    /** Reactive saved-state for one track — drives the Now Playing heart. */
+    /**
+     * Reactive mirror rows for [trackIds] (those in the saved-tracks mirror) —
+     * one layer of the heart YoinRepository.observeFavoriteStates resolves.
+     */
     @Query(
         "SELECT * FROM spotify_library_track_cache " +
-            "WHERE profileId = :profileId AND trackId = :trackId LIMIT 1",
+            "WHERE profileId = :profileId AND trackId IN (:trackIds)"
     )
-    fun observeTrack(profileId: String, trackId: String): Flow<SpotifyLibraryTrackCache?>
+    fun observeTracks(profileId: String, trackIds: List<String>): Flow<List<SpotifyLibraryTrackCache>>
 
     @Query(
         "SELECT * FROM spotify_library_track_cache " +

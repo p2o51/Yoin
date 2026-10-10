@@ -198,6 +198,7 @@ internal fun AlbumPaneEntry(
         },
         onToggleStar = viewModel::toggleStar,
         onRetry = viewModel::retry,
+        onResumed = viewModel::onResumed,
         onRenameMemoryTitle = viewModel::renameMemoryTitle,
         onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
         notedSongIds = notedSongIds,

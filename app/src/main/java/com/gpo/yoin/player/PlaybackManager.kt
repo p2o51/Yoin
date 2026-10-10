@@ -22,6 +22,7 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.perf.YoinPerf
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
@@ -110,6 +111,28 @@ class PlaybackManager(
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
         onContext = ::onSpotifyPlayerContext,
+    )
+
+    /**
+     * The Spotify heart check, made here — once per track change, however
+     * many Now Playing hosts are open — and pushed into the repository's
+     * favorite state (this depends on the repository, never the reverse).
+     */
+    private val savedStateRefresher = SpotifySavedStateRefresher(
+        scope = scope,
+        clock = System::currentTimeMillis,
+        appRemoteState = ::appRemoteLibraryState,
+        sink = object : SpotifySavedStateSink {
+            override fun currentProfileId(): String? = repository.currentProfileId()
+
+            override fun recordAppRemoteState(profileId: String, trackId: MediaId, saved: Boolean) {
+                repository.recordFavoriteState(profileId, trackId, saved)
+            }
+
+            override suspend fun checkWithWebApi(track: Track) {
+                repository.refreshFavoriteStates(listOf(track))
+            }
+        }
     )
 
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -216,6 +239,7 @@ class PlaybackManager(
     fun disconnect() {
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
+        savedStateRefresher.reset()
         activeBackend = ActiveBackend.NONE
         requestedMedia3Source = null
         pendingSpotifyHandoff = false
@@ -818,6 +842,11 @@ class PlaybackManager(
                 }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
+                // Spotify's own state, adopted or Yoin-started alike: checks the
+                // heart on a track change, rechecks now and then on later events.
+                if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
+                    savedStateRefresher.onPlayerState(snapshot.currentTrack)
+                }
             }
 
             ConnectionPhase.Error -> {
@@ -1056,6 +1085,19 @@ class PlaybackManager(
         }.getOrNull(),
         android.os.Build.MODEL,
     )
+
+    /** App Remote's answer whether [uri] is in Liked Songs; null when it can't give one. */
+    private suspend fun appRemoteLibraryState(uri: String): Boolean? {
+        val perf = YoinPerf.begin("favorite.check")
+        val state = spotifyRemotePlayer.libraryState(uri)
+        YoinPerf.end(
+            perf,
+            "src" to "appRemote",
+            "ok" to state.isSuccess,
+            "err" to state.exceptionOrNull()?.javaClass?.simpleName
+        )
+        return state.getOrNull()?.isAdded
+    }
 
     /**
      * Spotify reported a new "playing from" context (album / playlist / …). When we're

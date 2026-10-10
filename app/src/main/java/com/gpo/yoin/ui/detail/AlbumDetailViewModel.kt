@@ -20,11 +20,13 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
+import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.component.FavoriteGlyph
 import com.gpo.yoin.ui.component.toUserMessage
 import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
 import kotlinx.coroutines.CancellationException
@@ -52,6 +54,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -79,6 +82,17 @@ class AlbumDetailViewModel(
 
     private var albumSongs: List<Track> = emptyList()
     private var loadedAlbum: Album? = null
+
+    /** The album's tracks as fetched: the baseline under each row's heart (YoinRepository.observeFavoriteStates). */
+    private val favoriteBase = MutableStateFlow<List<Track>>(emptyList())
+
+    /** Heart taps whose write is still out; the row shows one at once. Each tap is its own token. */
+    private val pendingFavoriteTaps = MutableStateFlow<Map<MediaId, PendingFavoriteTap>>(emptyMap())
+
+    private class PendingFavoriteTap(val favorite: Boolean)
+
+    /** Each row's heart as shown; its quiet flips count the changes nobody tapped (FavoriteGlyph). */
+    private val favoriteGlyphs = HashMap<MediaId, FavoriteGlyph>()
 
     /** The album's rating row as Room last reported it (its NeoDB dirty flags drive [neoDb]). */
     private var ratingRow: AlbumRating? = null
@@ -160,7 +174,7 @@ class AlbumDetailViewModel(
 
     init {
         loadAlbum()
-        observeFavoriteOverrides()
+        observeFavoriteStates()
         observeLibraryMembership()
     }
 
@@ -196,6 +210,8 @@ class AlbumDetailViewModel(
                 }
                 loadedAlbum = album
                 albumSongs = album.tracks.applyFavoriteOverrides(repository.favoriteOverrides.value)
+                favoriteGlyphs.clear()
+                albumSongs.forEach { track -> favoriteGlyphs[track.id] = FavoriteGlyph(track.isStarred) }
                 albumTrackIds.value = albumSongs.map(Track::id)
                 // The visit row feeds Home's activity and the widgets, not this page:
                 // Content doesn't wait on the Room insert.
@@ -216,6 +232,12 @@ class AlbumDetailViewModel(
                         .withLibraryMembership(repository.trackLibraryStates.first(), workingLibraryTrackIds.value),
                 )
                 markPerfContent(album.id.toString())
+
+                // The rows follow the favorite state from here on, and Spotify is
+                // asked about likes its 200-track mirror can't show: one batched
+                // check after the page is out, whose answer flips hearts quietly.
+                favoriteBase.value = album.tracks
+                launch { repository.refreshFavoriteStates(album.tracks) }
 
                 // 观察 album_ratings，把持久化状态 merge 回 Content —— 用户在
                 // 别处（Memory / 以后的 NeoDB 拉取）改了评分 / 评论时，打开
@@ -298,34 +320,59 @@ class AlbumDetailViewModel(
             addToLibrary(track)
             return
         }
-        val target = !track.isStarred
-        // Optimistic locally, then revert if the write fails — the favoriteOverrides
-        // observer can't revert (it bails when the override is cleared on failure).
-        setSongStarred(songId, target)
+        val target = !(favoriteGlyphs[track.id]?.favorite ?: track.isStarred)
+        // The row shows the tap at once (Subsonic's write only lands with the
+        // server's answer). When the write ends the repository's state takes
+        // over: the same heart once it landed, the old one back if it failed.
+        val tap = PendingFavoriteTap(target)
+        pendingFavoriteTaps.update { taps -> taps + (track.id to tap) }
         viewModelScope.launch {
-            repository.setFavorite(track, favorite = target)
-                .onFailure { setSongStarred(songId, !target) }
-        }
-    }
-
-    private fun setSongStarred(songId: String, starred: Boolean) {
-        albumSongs = albumSongs.map { track ->
-            if (track.id.toString() == songId) track.copy(isStarred = starred) else track
-        }
-        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
-        _uiState.value = current.copy(
-            songs = current.songs.map { song ->
-                if (song.id == songId) song.copy(isStarred = starred) else song
-            },
-        )
-    }
-
-    private fun observeFavoriteOverrides() {
-        viewModelScope.launch {
-            repository.favoriteOverrides.collectLatest { overrides ->
-                applyFavoriteOverrides(overrides)
+            try {
+                repository.setFavorite(track, favorite = target)
+            } finally {
+                pendingFavoriteTaps.update { taps -> if (taps[track.id] === tap) taps - track.id else taps }
             }
         }
+    }
+
+    /**
+     * The page is on screen again (its Activity or pane resumed): asks Spotify
+     * about the rows once more — a like made in the Spotify app meanwhile shows
+     * here. The repository asks about a track at most every 30 s.
+     */
+    fun onResumed() {
+        val tracks = favoriteBase.value.takeIf { it.isNotEmpty() } ?: return
+        viewModelScope.launch { repository.refreshFavoriteStates(tracks) }
+    }
+
+    /** Folds the repository's favorite state, the taps still out on top, into the rows. */
+    private fun observeFavoriteStates() {
+        viewModelScope.launch {
+            combine(
+                favoriteBase.flatMapLatest { tracks -> repository.observeFavoriteStates(tracks) },
+                pendingFavoriteTaps
+            ) { states, taps -> states to taps }
+                .collect { (states, taps) -> applyFavoriteStates(states, taps) }
+        }
+    }
+
+    private fun applyFavoriteStates(states: Map<MediaId, FavoriteState>, taps: Map<MediaId, PendingFavoriteTap>) {
+        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
+        albumSongs = albumSongs.map { track ->
+            val state = taps[track.id]?.let { tap -> FavoriteState(tap.favorite, fromUser = true) }
+                ?: states[track.id]
+                ?: return@map track
+            val glyph = (favoriteGlyphs[track.id] ?: FavoriteGlyph(track.isStarred))
+                .next(state.isStarred, state.fromUser)
+            favoriteGlyphs[track.id] = glyph
+            if (track.isStarred == glyph.favorite) track else track.copy(isStarred = glyph.favorite)
+        }
+        _uiState.value = current.copy(
+            songs = current.songs.map { song ->
+                val glyph = MediaId.parseOrNull(song.id)?.let(favoriteGlyphs::get) ?: return@map song
+                song.copy(isStarred = glyph.favorite, favoriteQuietFlips = glyph.quietFlips)
+            }
+        )
     }
 
     private fun addToLibrary(track: Track) {
@@ -363,20 +410,6 @@ class AlbumDetailViewModel(
         song.copy(
             libraryMembership = states[id] ?: LibraryMembership.Unknown,
             libraryActionInFlight = song.id in working,
-        )
-    }
-
-    private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
-        if (overrides.isEmpty()) return
-        albumSongs = albumSongs.applyFavoriteOverrides(overrides)
-
-        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
-        _uiState.value = current.copy(
-            songs = current.songs.map { song ->
-                val id = MediaId.parseOrNull(song.id)
-                val isStarred = id?.let(overrides::get) ?: return@map song
-                song.copy(isStarred = isStarred)
-            },
         )
     }
 

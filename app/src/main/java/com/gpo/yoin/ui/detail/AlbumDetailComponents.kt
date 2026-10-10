@@ -100,7 +100,8 @@ import com.gpo.yoin.data.integration.neodb.NeoDbShortCommentMax
 import com.gpo.yoin.data.integration.neodb.isNeoDbShortComment
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberEqualizerSymbolPainter
-import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
+import com.gpo.yoin.ui.component.FavoriteGlyph
+import com.gpo.yoin.ui.component.FavoriteGlyphIcon
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.RatingSlider
@@ -621,7 +622,7 @@ internal fun AlbumTrackRow(
                 onClick = { showUnavailableReason = !showUnavailableReason },
             )
             features.supportsFavorites -> AlbumCircleToggle(
-                active = song.isStarred,
+                heart = FavoriteGlyph(song.isStarred, song.favoriteQuietFlips),
                 accent = accent,
                 onToggle = onToggleStar,
             )
@@ -643,16 +644,30 @@ internal fun AlbumTrackRow(
 
 @Composable
 private fun AlbumCircleToggle(
-    active: Boolean,
+    // The row's heart; its quiet flips (a state nobody tapped) crossfade in without the beat.
+    heart: FavoriteGlyph,
     accent: Color,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val active = heart.favorite
     val haptics = rememberYoinHaptics()
     val container by animateColorAsState(
         targetValue = if (active) accent else Color.Transparent,
         animationSpec = YoinMotion.effectsSpring(),
         label = "trackToggleContainer",
+    )
+    // The ring and the heart's ink change on the same effects spring as the
+    // container, so a late confirmation is a pure colour-and-fill change.
+    val ring by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.outline.copy(alpha = if (active) 0f else 0.5f),
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "trackToggleRing",
+    )
+    val ink by animateColorAsState(
+        targetValue = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "trackToggleInk",
     )
     // Same heart pop as Now Playing's FavoriteButton (the two toggle the same
     // repository favorite): a short over-peak snap, then a spatial-spring
@@ -686,29 +701,16 @@ private fun AlbumCircleToggle(
                 }
                 .clip(CircleShape)
                 .background(container)
-                .then(
-                    if (!active) {
-                        Modifier.border(
-                            width = 1.5.dp,
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                            shape = CircleShape,
-                        )
-                    } else {
-                        Modifier
-                    },
-                ),
+                .border(width = 1.5.dp, color = ring, shape = CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                painter = rememberFavoriteSymbolPainter(favorite = active),
+            FavoriteGlyphIcon(
+                favorite = active,
+                quietFlips = heart.quietFlips,
                 contentDescription = stringResource(
                     if (active) R.string.detail_album_cd_remove_favorite else R.string.detail_album_cd_add_favorite,
                 ),
-                tint = if (active) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                tint = ink,
                 modifier = Modifier.size(16.dp),
             )
         }
