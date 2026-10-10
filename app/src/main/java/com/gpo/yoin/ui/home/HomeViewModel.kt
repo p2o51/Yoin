@@ -29,6 +29,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -186,11 +187,13 @@ class HomeViewModel(
     // account's) it would rearrange from a beat later.
     private val layoutReadFor = MutableStateFlow<String?>(null)
 
-    // Owner Q16: the artists the Activities bento seats (MediaId strings, as
-    // the feed reports them) and whether the feed's list is moving. Spotify
-    // portraits are asked for only while it rests ([fillActivityPortraits]).
+    // Owner Q16: the artists the Activities bento pictures (MediaId strings,
+    // as the feed reports them) and whether the feed rests — on screen,
+    // nothing over it, its list still. Spotify portraits are asked for only
+    // while it does ([fillActivityPortraits]); until the feed says so, it
+    // doesn't.
     private val shownActivityArtists = MutableStateFlow<List<String>>(emptyList())
-    private val feedScrolling = MutableStateFlow(false)
+    private val feedAtRest = MutableStateFlow(false)
 
     /**
      * Turns a source-relative cover id into the feed's URL (the activities and
@@ -240,14 +243,17 @@ class HomeViewModel(
         observeRediscoverRemovals()
     }
 
-    /** The feed reports the artists (MediaId strings) its Activities seat now. */
+    /** The feed reports the artists (MediaId strings) its Activities picture now. */
     fun onActivityArtistsShown(artistIds: List<String>) {
         shownActivityArtists.value = artistIds
     }
 
-    /** The feed's list started or stopped moving. */
-    fun onFeedScrollChanged(scrolling: Boolean) {
-        feedScrolling.value = scrolling
+    /**
+     * The feed came to rest (Home resumed, nothing over it, its list still)
+     * or left it: scrolled, covered, gone to the background or off screen.
+     */
+    fun onFeedAtRestChanged(atRest: Boolean) {
+        feedAtRest.value = atRest
     }
 
     /**
@@ -456,18 +462,24 @@ class HomeViewModel(
      * Owner Q16: Spotify's recently-played names artists without images; the
      * repository fills what the device has before the feed goes up, and
      * here, once [scope]'s load is done, Spotify is asked for the rest — the
-     * artists the bento seats in this process's endpoint feed, while the
-     * feed rests (still for [ACTIVITY_PORTRAIT_SETTLE_MS]), one request at a
-     * time, each waiting out a scroll, stopping at the rate limit. Each
-     * portrait splices in as it lands ([splicePortrait]). Runs until the
-     * scope moves or reloads (collectLatest cancels it); newly seated artists
-     * (a row preset, a wider window) are asked for as they come.
+     * artists the bento pictures in this process's endpoint feed, while the
+     * feed rests (on screen, uncovered, still, for
+     * [ACTIVITY_PORTRAIT_SETTLE_MS]), one request at a time, each waiting
+     * for the feed to rest again (and that long) when it has stopped resting,
+     * stopping at the rate limit. Each portrait splices in as it lands
+     * ([splicePortrait]). Runs until the scope moves or reloads
+     * (collectLatest cancels it); newly pictured artists (a row preset, a
+     * wider window) are asked for as they come. Only a service whose
+     * Activities name artists without portraits does this
+     * ([ServiceFeatures.activityArtistPortraits]: Spotify; Subsonic and
+     * Apple Music build theirs from local records, with covers).
      */
     @OptIn(FlowPreview::class)
     private suspend fun fillActivityPortraits(scope: HomeScope) {
-        if (scope.providerId != MediaId.PROVIDER_SPOTIFY || scope.profileId.isNullOrBlank()) return
+        if (!ServiceFeatureCatalog.forProvider(scope.providerId).activityArtistPortraits) return
+        if (scope.profileId.isNullOrBlank()) return
         val scopeKey = homeScopeKey(scope.providerId, scope.profileId)
-        combine(shownActivityArtists, feedScrolling) { shown, scrolling -> shown.takeUnless { scrolling } }
+        combine(shownActivityArtists, feedAtRest) { shown, atRest -> shown.takeIf { atRest } }
             .debounce(ACTIVITY_PORTRAIT_SETTLE_MS)
             .filterNotNull()
             .map { shown -> portraitCandidates(scope, scopeKey, shown) }
@@ -477,7 +489,7 @@ class HomeViewModel(
                 try {
                     repository.fillSpotifyActivityArtistPortraits(
                         artistIds = artistIds,
-                        awaitTurn = { feedScrolling.first { scrolling -> !scrolling } },
+                        awaitTurn = ::awaitFeedAtRest,
                         onPortrait = { artistId, url -> splicePortrait(scope, scopeKey, artistId, url) }
                     )
                 } catch (cancellation: CancellationException) {
@@ -486,6 +498,18 @@ class HomeViewModel(
                     // Not the feed's failure: the cards keep their stand-ins.
                 }
             }
+    }
+
+    /**
+     * A portrait request's turn: now while the feed rests; otherwise once it
+     * has rested again for [ACTIVITY_PORTRAIT_SETTLE_MS] — back from a
+     * scroll, a page over Home, the background — so a request never rides a
+     * return animation or another screen's reads.
+     */
+    @OptIn(FlowPreview::class)
+    private suspend fun awaitFeedAtRest() {
+        if (feedAtRest.value) return
+        feedAtRest.debounce(ACTIVITY_PORTRAIT_SETTLE_MS).first { atRest -> atRest }
     }
 
     /**

@@ -77,6 +77,17 @@ interface SpotifyLibraryCacheDao {
     )
     suspend fun getPendingTracks(profileId: String): List<SpotifyLibraryTrackCache>
 
+    /**
+     * The followed artists among [artistIds] (raw ids) for [profileId], any
+     * age. Only these carry Spotify's own portrait: the other rows are the
+     * artists of saved albums and Liked Songs, on an album's cover.
+     */
+    @Query(
+        "SELECT * FROM spotify_library_artist_cache " +
+            "WHERE profileId = :profileId AND isFollowed = 1 AND artistId IN (:artistIds)"
+    )
+    suspend fun getFollowedArtists(profileId: String, artistIds: List<String>): List<SpotifyLibraryArtistCache>
+
     @Upsert
     suspend fun upsertTrack(track: SpotifyLibraryTrackCache)
 

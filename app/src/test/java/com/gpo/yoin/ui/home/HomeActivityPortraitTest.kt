@@ -7,6 +7,7 @@ import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -16,6 +17,7 @@ import io.mockk.mockk
 import io.mockk.runs
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -24,14 +26,16 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 /**
- * Owner Q16 in Home: once a Spotify load is done and the feed rests, the
- * artists the Activities seat are asked for their portraits, and each one
- * splices into the endpoint feed as it lands.
+ * Owner Q16 in Home: once a Spotify load is done and the feed rests (on
+ * screen, nothing over it, its list still), the artists the Activities
+ * picture are asked for their portraits, and each one splices into the
+ * endpoint feed as it lands.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeActivityPortraitTest {
@@ -40,6 +44,7 @@ class HomeActivityPortraitTest {
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
 
     private val asked = mutableListOf<List<String>>()
+    private val requested = mutableListOf<String>()
 
     @Test
     fun should_spliceThePortrait_when_theFeedRests() = runTest {
@@ -48,6 +53,7 @@ class HomeActivityPortraitTest {
         advanceUntilIdle()
         assertEquals(ALBUM_COVER, artistCover(viewModel))
 
+        viewModel.onFeedAtRestChanged(true)
         viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
         advanceTimeBy(1_000)
         runCurrent()
@@ -63,22 +69,83 @@ class HomeActivityPortraitTest {
     }
 
     @Test
-    fun should_waitForTheListToStop_when_theFeedScrolls() = runTest {
+    fun should_waitForTheFeedToRest_when_itIsScrolled() = runTest {
         val repository = spotifyRepository(endpoint = { feed("artist-1") })
         val viewModel = homeViewModel(repository, "spotify-portrait-scrolls")
         advanceUntilIdle()
 
-        viewModel.onFeedScrollChanged(true)
+        viewModel.onFeedAtRestChanged(true)
+        viewModel.onFeedAtRestChanged(false)
         viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
         advanceTimeBy(10_000)
         runCurrent()
         assertTrue(asked.isEmpty())
         assertEquals(ALBUM_COVER, artistCover(viewModel))
 
-        viewModel.onFeedScrollChanged(false)
+        viewModel.onFeedAtRestChanged(true)
         advanceTimeBy(1_600)
         runCurrent()
         assertEquals(portraitOf("artist-1"), artistCover(viewModel))
+    }
+
+    @Test
+    fun should_notAsk_when_homeIsNotOnScreen() = runTest {
+        // Library, a detail page or Now Playing over Home, the background:
+        // the feed never says it rests.
+        val repository = spotifyRepository(endpoint = { feed("artist-1") })
+        val viewModel = homeViewModel(repository, "spotify-portrait-hidden")
+        advanceUntilIdle()
+
+        viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
+        advanceTimeBy(60_000)
+        runCurrent()
+
+        coVerify(exactly = 0) { repository.fillSpotifyActivityArtistPortraits(any(), any(), any()) }
+        assertEquals(ALBUM_COVER, artistCover(viewModel))
+
+        viewModel.onFeedAtRestChanged(true)
+        advanceTimeBy(1_600)
+        runCurrent()
+        assertEquals(portraitOf("artist-1"), artistCover(viewModel))
+    }
+
+    @Test
+    fun should_holdTheNextRequest_when_theFeedStopsRestingMidPass() = runTest {
+        val repository = spotifyRepository(endpoint = { feed("artist-1", "artist-2") })
+        val viewModel = homeViewModel(repository, "spotify-portrait-mid-pass")
+        advanceUntilIdle()
+
+        viewModel.onFeedAtRestChanged(true)
+        viewModel.onActivityArtistsShown(listOf("spotify:artist-1", "spotify:artist-2"))
+        advanceTimeBy(1_600)
+        runCurrent()
+        assertEquals(listOf("artist-1"), requested)
+
+        // A tap opens an artist page (or the list is flung) between two requests.
+        viewModel.onFeedAtRestChanged(false)
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertEquals(listOf("artist-1"), requested)
+
+        // Back on Home: the next request waits for the feed to rest a beat again.
+        viewModel.onFeedAtRestChanged(true)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(listOf("artist-1"), requested)
+        advanceTimeBy(600)
+        runCurrent()
+        assertEquals(listOf("artist-1", "artist-2"), requested)
+        assertEquals(portraitOf("artist-2"), artistCover(viewModel, "artist-2"))
+    }
+
+    @Test
+    fun should_lookUpActivityPortraitsOnlyOnSpotify_when_servicesAreCompared() {
+        // Subsonic and Apple Music build their Activities from local records,
+        // which carry their covers.
+        assertTrue(ServiceFeatureCatalog.spotify.activityArtistPortraits)
+        assertFalse(ServiceFeatureCatalog.subsonic.activityArtistPortraits)
+        assertFalse(ServiceFeatureCatalog.appleMusic.activityArtistPortraits)
+        assertFalse(ServiceFeatureCatalog.local.activityArtistPortraits)
     }
 
     @Test
@@ -87,6 +154,7 @@ class HomeActivityPortraitTest {
         val viewModel = homeViewModel(repository, "spotify-portrait-only-feed")
         advanceUntilIdle()
 
+        viewModel.onFeedAtRestChanged(true)
         viewModel.onActivityArtistsShown(listOf("subsonic:artist-1", "spotify:elsewhere", "spotify:artist-1"))
         advanceTimeBy(1_600)
         runCurrent()
@@ -102,6 +170,7 @@ class HomeActivityPortraitTest {
         val viewModel = homeViewModel(repository, "spotify-portrait-local")
         advanceUntilIdle()
 
+        viewModel.onFeedAtRestChanged(true)
         viewModel.onActivityArtistsShown(listOf("spotify:artist-1"))
         advanceTimeBy(5_000)
         runCurrent()
@@ -135,8 +204,11 @@ class HomeActivityPortraitTest {
             val awaitTurn = secondArg<suspend () -> Unit>()
             val onPortrait = thirdArg<(String, String) -> Unit>()
             asked += artistIds
-            artistIds.forEach { artistId ->
+            artistIds.forEachIndexed { index, artistId ->
+                // The repository's beat between two requests of a pass.
+                if (index > 0) delay(250)
                 awaitTurn()
+                requested += artistId
                 onPortrait(artistId, portraitOf(artistId))
             }
         }
@@ -151,13 +223,13 @@ class HomeActivityPortraitTest {
         }
     )
 
-    private fun artistCover(viewModel: HomeViewModel): String? =
+    private fun artistCover(viewModel: HomeViewModel, artistId: String = "artist-1"): String? =
         (viewModel.uiState.value as HomeUiState.Content).activities
-            .single { it.entityType == ActivityEntityType.ARTIST.name }
+            .single { it.entityType == ActivityEntityType.ARTIST.name && it.entityId == artistId }
             .coverArtId
 
-    /** One play as recently-played maps it: the album, then its artist on the album's cover. */
-    private fun feed(artistId: String): List<ActivityEvent> = listOf(
+    /** One play as recently-played maps it: the album, then its artists on the album's cover. */
+    private fun feed(vararg artistIds: String): List<ActivityEvent> = listOf(
         ActivityEvent(
             entityType = ActivityEntityType.ALBUM.name,
             actionType = ActivityActionType.PLAYED.name,
@@ -168,19 +240,20 @@ class HomeActivityPortraitTest {
             coverArtId = ALBUM_COVER,
             albumId = "album-1",
             timestamp = 2L
-        ),
+        )
+    ) + artistIds.map { artistId ->
         ActivityEvent(
             entityType = ActivityEntityType.ARTIST.name,
             actionType = ActivityActionType.PLAYED.name,
             entityId = artistId,
             provider = MediaId.PROVIDER_SPOTIFY,
-            title = "Artist",
+            title = "Artist $artistId",
             subtitle = "Artist",
             coverArtId = ALBUM_COVER,
             artistId = artistId,
             timestamp = 2L
         )
-    )
+    }
 
     private companion object {
         const val ALBUM_COVER = "https://i.scdn.co/image/album-1"

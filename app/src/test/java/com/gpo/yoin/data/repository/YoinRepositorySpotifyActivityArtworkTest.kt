@@ -158,6 +158,40 @@ class YoinRepositorySpotifyActivityArtworkTest {
     }
 
     @Test
+    fun should_askSpotify_when_theLibraryKnowsTheArtistOnlyFromSavedMusic() = runTest {
+        plays("liked-only", "lapsed")
+        // The library sync lists the artists of Liked Songs and saved albums
+        // too, unfollowed and on an album's cover: not a portrait.
+        database.spotifyLibraryCacheDao().insertArtists(
+            listOf("liked-only", "lapsed").map { artistId ->
+                SpotifyLibraryArtistCache(
+                    profileId = PROFILE,
+                    artistId = artistId,
+                    name = "Artist $artistId",
+                    albumCount = null,
+                    coverArtKey = SAVED_ALBUM_COVER,
+                    isFollowed = false,
+                    cachedAt = now
+                )
+            }
+        )
+        // A portrait asked for 31 days ago: past its month, still the best there is.
+        cache("lapsed", "https://i.scdn.co/image/old", ageMs = 31 * DAY_MS)
+
+        val feed = repository.getSpotifyRecentActivities(limit = 40)
+
+        assertEquals(
+            mapOf("liked-only" to albumCoverOf("liked-only"), "lapsed" to "https://i.scdn.co/image/old"),
+            feed.artistCovers()
+        )
+        assertEquals(
+            mapOf("liked-only" to portraitOf("liked-only"), "lapsed" to portraitOf("lapsed")),
+            fill("liked-only", "lapsed")
+        )
+        assertEquals(listOf("liked-only", "lapsed"), requested)
+    }
+
+    @Test
     fun should_showThePlaysAlbumCover_when_noPortraitIsKnown() = runTest {
         plays("unknown", "faceless")
         answers["faceless"] = { SpotifyArtistPortrait(name = "Faceless", url = null) }
@@ -335,6 +369,7 @@ class YoinRepositorySpotifyActivityArtworkTest {
         const val PROFILE = "spotify-activity-artwork"
         const val HOUR_MS = 60L * 60 * 1000
         const val DAY_MS = 24 * HOUR_MS
+        const val SAVED_ALBUM_COVER = "https://i.scdn.co/image/a-saved-album"
 
         fun portraitOf(artistId: String) = "https://i.scdn.co/image/portrait-$artistId"
 

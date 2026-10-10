@@ -225,6 +225,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
@@ -316,11 +317,11 @@ internal fun HomeEditorialContent(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
-    // The artists (MediaId strings) the Activities bento seats, and whether
-    // the list is moving: Home asks Spotify for those portraits only, and
-    // only while the feed rests (owner Q16).
+    // The artists (MediaId strings) the Activities bento pictures, and
+    // whether the feed rests (on screen, nothing over it, its list still):
+    // Home asks Spotify for those portraits only, and only then (owner Q16).
     onActivityArtistsShown: (List<String>) -> Unit = {},
-    onFeedScrollChanged: (Boolean) -> Unit = {},
+    onFeedAtRestChanged: (Boolean) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val haptics = rememberYoinHaptics()
@@ -428,12 +429,6 @@ internal fun HomeEditorialContent(
             }
         }
     }
-    val currentOnFeedScrollChanged by rememberUpdatedState(onFeedScrollChanged)
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling -> currentOnFeedScrollChanged(scrolling) }
-    }
-    // A feed that leaves mid-fling doesn't leave Home thinking it still moves.
-    DisposableEffect(listState) { onDispose { currentOnFeedScrollChanged(false) } }
     val currentOnActivityArtistsShown by rememberUpdatedState(onActivityArtistsShown)
     LaunchedEffect(listState, allowBackdropPalette) {
         if (allowBackdropPalette) return@LaunchedEffect
@@ -790,6 +785,22 @@ internal fun HomeEditorialContent(
             }
             .collect { motion.visible = it }
     }
+    // Owner Q16: the feed rests — Home resumed, nothing over it (Now Playing,
+    // the detail column, Memories) and its list still. Spotify's portraits
+    // are asked for only then; a feed that leaves composition (Library, a
+    // switch's Loading) no longer rests.
+    val currentOnFeedAtRestChanged by rememberUpdatedState(onFeedAtRestChanged)
+    LaunchedEffect(listState, memoriesRevealState, lifecycleOwner) {
+        lifecycleOwner.lifecycle.currentStateFlow
+            .combine(
+                snapshotFlow {
+                    !currentHomeCovered && !memoriesRevealState.isVisible && !listState.isScrollInProgress
+                }
+            ) { state, clear -> clear && state.isAtLeast(Lifecycle.State.RESUMED) }
+            .distinctUntilChanged()
+            .collect { atRest -> currentOnFeedAtRestChanged(atRest) }
+    }
+    DisposableEffect(listState) { onDispose { currentOnFeedAtRestChanged(false) } }
     // The seam followers ignore the scroll the anchor makes under the strips,
     // and the one that keeps a held block under the finger (HomePlateSpacingAnchor).
     LaunchedEffect(engine, seamFlow, spacingAnchor) {
@@ -1041,20 +1052,23 @@ internal fun HomeEditorialContent(
                                     val candidates = remember(bentoEntries, heroEntry) {
                                         bentoEntries.filterNot { it === heroEntry }
                                     }
-                                    // The artists this preset seats (the hero is
-                                    // never one): the portraits worth asking for.
+                                    // The artists this preset seats in a card with a
+                                    // picture (the hero is never one, a strip is text
+                                    // only): the portraits worth asking for.
                                     val activityPreset = layout.rowsOf(HomeSection.Activities)
-                                    val seatedArtistIds = remember(candidates, bentoSpec, heroEntry, activityPreset) {
-                                        val seated = activityPresetSupportingCount(
+                                    val picturedArtistIds = remember(candidates, bentoSpec, heroEntry, activityPreset) {
+                                        activityPresetPicturedEntries(
                                             spec = bentoSpec,
                                             hasHero = heroEntry != null,
                                             preset = activityPreset
-                                        )
-                                        candidates.take(seated).mapNotNull { entry ->
-                                            (entry.target as? HomeEntryTarget.Artist)?.artistId
+                                        ).mapNotNull { index ->
+                                            val target = candidates.getOrNull(index)?.target
+                                            (target as? HomeEntryTarget.Artist)?.artistId
                                         }
                                     }
-                                    LaunchedEffect(seatedArtistIds) { currentOnActivityArtistsShown(seatedArtistIds) }
+                                    LaunchedEffect(picturedArtistIds) {
+                                        currentOnActivityArtistsShown(picturedArtistIds)
+                                    }
                                     val bentoModifier = remember(firstReveal) {
                                         Modifier
                                             .fillMaxWidth()
@@ -1959,6 +1973,10 @@ internal fun rememberActivityCardColors(
         fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
         fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
         enabled = extractBackdropColors,
+        // A card's cover can change in place (a Spotify artist's portrait
+        // replacing the play's album cover, Q16): its wash springs from the
+        // old cover's colour to the new one's, not through the theme's.
+        holdUntilResolved = true
     )
     return ActivityCardColors(
         container = lerp(

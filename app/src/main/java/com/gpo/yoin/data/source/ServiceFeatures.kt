@@ -29,6 +29,10 @@ data class ServiceFeatures(
     val capabilities: Set<Capability>,
     val features: List<ServiceFeature>,
     val supportsYoinCast: Boolean = false,
+    // Home's Activities come from the service's own history, which names
+    // artists without portraits: Home looks them up (owner Q16). Off where
+    // the Activities are Yoin's local records, which carry their covers.
+    val activityArtistPortraits: Boolean = false,
     @param:StringRes @get:StringRes val saveLabel: Int = R.string.settings_feature_save_favorites,
     @param:StringRes @get:StringRes val removeLabel: Int = R.string.settings_feature_remove_favorites,
 ) {
@@ -95,6 +99,8 @@ object ServiceFeatureCatalog {
         saveLabel = R.string.settings_feature_save_spotify,
         removeLabel = R.string.settings_feature_remove_spotify,
         integrated = true,
+        // recently-played names each play's artists without images.
+        activityArtistPortraits = true,
         capabilities = setOf(
             Capability.FAVORITES,
             Capability.SEARCH,

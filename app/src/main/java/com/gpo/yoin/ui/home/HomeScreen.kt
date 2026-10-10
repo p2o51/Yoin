@@ -175,7 +175,7 @@ fun HomeScreen(
         animatedVisibilityScope = animatedVisibilityScope,
         modifier = modifier,
         onActivityArtistsShown = viewModel::onActivityArtistsShown,
-        onFeedScrollChanged = viewModel::onFeedScrollChanged,
+        onFeedAtRestChanged = viewModel::onFeedAtRestChanged,
     )
 }
 
@@ -212,9 +212,9 @@ fun HomeContent(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
-    // What the feed seats in Activities and whether it scrolls (owner Q16).
+    // What the feed pictures in Activities and whether it rests (owner Q16).
     onActivityArtistsShown: (List<String>) -> Unit = {},
-    onFeedScrollChanged: (Boolean) -> Unit = {},
+    onFeedAtRestChanged: (Boolean) -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -327,7 +327,7 @@ fun HomeContent(
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 modifier = Modifier.fillMaxSize(),
                                 onActivityArtistsShown = onActivityArtistsShown,
-                                onFeedScrollChanged = onFeedScrollChanged,
+                                onFeedAtRestChanged = onFeedAtRestChanged,
                             )
                         }
                     }

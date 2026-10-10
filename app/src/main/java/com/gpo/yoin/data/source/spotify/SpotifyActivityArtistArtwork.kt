@@ -192,12 +192,15 @@ class SpotifyActivityArtistArtwork(
             settled += artistId
         }
 
-        // The followed artists, as the library sync last read them.
+        // The followed artists, as the library sync last read them. Only
+        // those: the sync also lists the artists of saved albums and Liked
+        // Songs on an album's cover — no portrait, and no reason to leave
+        // the artist unasked.
         var wanted = missing().toHashSet()
         if (wanted.isNotEmpty()) {
-            libraryCache.getFreshArtists(profileId, minCachedAt = 0L).forEach { row ->
+            libraryCache.getFollowedArtists(profileId, wanted.toList()).forEach { row ->
                 val url = row.coverArtKey?.takeIf(::isUrl)
-                if (url != null && row.artistId in wanted) found(row.artistId, url)
+                if (url != null && row.isFollowed && row.artistId in wanted) found(row.artistId, url)
             }
         }
         // Artist pages visited, newest first (a visit records the portrait).
