@@ -2744,15 +2744,6 @@ class YoinRepository(
         return ArtistListening(stats.playCount, top)
     }
 
-    /** The user's own album ratings (album_ratings) for [albumIds], keyed by raw album id. */
-    suspend fun getAlbumRatings(albumIds: List<MediaId>): Map<String, Float> {
-        val profileId = activeProfileId.value ?: return emptyMap()
-        return albumIds.groupBy { it.provider }.flatMap { (provider, ids) ->
-            albumRatingDao.getAll(ids.map { it.rawId }, provider, profileId)
-                .map { it.albumId to it.rating }
-        }.toMap()
-    }
-
     suspend fun recordAlbumVisit(album: Album) {
         val profileId = activeProfileId.value ?: return
         // Fire-and-forget telemetry — a failed insert (disk full, locked DB) must

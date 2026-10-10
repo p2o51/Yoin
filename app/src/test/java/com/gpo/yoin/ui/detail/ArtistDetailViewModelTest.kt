@@ -9,7 +9,6 @@ import com.gpo.yoin.data.repository.ArtistListening
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -115,17 +114,6 @@ class ArtistDetailViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ArtistListeningSummary(playCount = 0, mostPlayed = emptyList()), content(viewModel).listening)
-    }
-
-    @Test
-    fun should_notReadAlbumRatings_when_thePersonalLayerLoads() = runTest {
-        coEvery { repository.getArtistListening(any(), any(), any(), any()) } returns ArtistListening(0, emptyList())
-
-        viewModel()
-        advanceUntilIdle()
-
-        // The Discography rows no longer show the user's album score.
-        coVerify(exactly = 0) { repository.getAlbumRatings(any()) }
     }
 
     @Test
