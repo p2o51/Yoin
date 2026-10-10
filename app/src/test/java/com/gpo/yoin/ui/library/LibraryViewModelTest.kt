@@ -575,6 +575,38 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_loadTheNewAccountOnce_when_theProfileSwitchesToAnAppleAccountWithMoreAdditions() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val profiles = MutableStateFlow("first")
+        every { repository.currentProfileId() } answers { profiles.value }
+        every { repository.currentProfileIdFlow } returns profiles
+        // As the repository builds it: the active profile's own count of additions this session.
+        val counts = MutableStateFlow(mapOf("first" to 0L, "second" to 3L))
+        every { repository.libraryRevision } returns
+            combine(profiles, counts) { profileId, byProfile -> byProfile[profileId] ?: 0L }.distinctUntilChanged()
+        val artistReads = mutableListOf<String>()
+        coEvery { repository.getArtists() } coAnswers {
+            artistReads += profiles.value
+            emptyList()
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        // Songs were added on the other account earlier: its count is higher, but nothing changed on it now.
+        profiles.value = "second"
+        advanceUntilIdle()
+        assertEquals(1, artistReads.count { it == "second" })
+        assertTrue(viewModel.uiState.value is LibraryUiState.Content)
+
+        // A song added on the new account still reaches Library.
+        counts.value = counts.value + ("second" to 4L)
+        advanceUntilIdle()
+        assertEquals(2, artistReads.count { it == "second" })
+    }
+
+    @Test
     fun should_hideFavoritesTab_when_serviceFavoritesAreItsLibrary() = runTest {
         val repository = spotifyRepository()
         val viewModel = libraryViewModel(repository)

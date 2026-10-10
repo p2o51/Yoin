@@ -1613,36 +1613,51 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * The library gained something through Yoin (an Apple Music song added,
+     * [YoinRepository.libraryRevision]): Library reads it again, its lists
+     * staying up when it is on screen ([rereadAfterLibraryChange]).
+     *
+     * Each profile's count is watched on its own, as
+     * [observeLibraryAlbumsRevision] does. Paired with the profile's flow, a
+     * switch could hand over the old profile's count with the new profile
+     * before the new count arrives, and a new count higher than the old (an
+     * account songs were added on earlier in the session) read as an
+     * addition: the new account's first load was cancelled and run again.
+     * Collected afresh as each profile becomes active, the count's first
+     * value is that profile's own, the baseline, and only a rise past it
+     * counts.
+     */
     private fun observeLibraryRevision() {
         viewModelScope.launch {
-            var previous: Pair<String?, Long>? = null
-            combine(repository.currentProfileIdFlow, repository.libraryRevision) { profileId, revision ->
-                profileId to revision
-            }.distinctUntilChanged().collectLatest { currentRevision ->
-                val (profileId, revision) = currentRevision
-                val needsRefresh = previous?.let { (previousProfileId, previousRevision) ->
-                    previousProfileId == profileId && revision > previousRevision
-                } == true
-                previous = currentRevision
-                if (!needsRefresh) return@collectLatest
-                if (profileId != repository.currentProfileId()) return@collectLatest
-
-                val current = _uiState.value as? LibraryUiState.Content
-                cancelDataLoads()
-                libraryDataGeneration += 1
-                if (current == null) {
-                    cachedArtists = null
-                    cachedAlbums = null
-                    albumsNextOffset = null
-                    albumsHeldBack = emptySet()
-                    forgetSongs()
-                    allSettled = false
-                    publishLists()
-                    loadInitialData()
-                } else {
-                    rereadAfterLibraryChange(current)
+            repository.currentProfileIdFlow.distinctUntilChanged().collectLatest { profileId ->
+                var seen: Long? = null
+                repository.libraryRevision.collectLatest { revision ->
+                    val rose = seen?.let { revision > it } == true
+                    if (seen == null || rose) seen = revision
+                    if (!rose || profileId != repository.currentProfileId()) return@collectLatest
+                    rereadForLibraryRevision()
                 }
             }
+        }
+    }
+
+    /** [observeLibraryRevision]'s reread: the lists on screen stay up, a Library not loaded yet loads. */
+    private fun rereadForLibraryRevision() {
+        val current = _uiState.value as? LibraryUiState.Content
+        cancelDataLoads()
+        libraryDataGeneration += 1
+        if (current == null) {
+            cachedArtists = null
+            cachedAlbums = null
+            albumsNextOffset = null
+            albumsHeldBack = emptySet()
+            forgetSongs()
+            allSettled = false
+            publishLists()
+            loadInitialData()
+        } else {
+            rereadAfterLibraryChange(current)
         }
     }
 
