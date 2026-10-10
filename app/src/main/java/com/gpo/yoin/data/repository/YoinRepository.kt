@@ -70,6 +70,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyActivityArtistArtwork
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
+import com.gpo.yoin.data.source.spotify.SpotifyPortraitPassEnd
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryArtistCache
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
@@ -2974,15 +2975,15 @@ class YoinRepository(
      * GET /artists/{id} at a time, each after [awaitTurn], stopping at a
      * closed rate-limit gate or the first 429 (see
      * [SpotifyActivityArtistArtwork]). Each portrait goes to [onPortrait] as
-     * it lands. Nothing to do off Spotify.
+     * it lands. Returns why the pass ended. Nothing to do off Spotify.
      */
     suspend fun fillSpotifyActivityArtistPortraits(
         artistIds: List<String>,
         awaitTurn: suspend () -> Unit,
         onPortrait: (artistId: String, url: String) -> Unit
-    ) {
-        val source = activeSource.value as? SpotifyMusicSource ?: return
-        spotifyActivityArtwork.fetchMissing(
+    ): SpotifyPortraitPassEnd {
+        val source = activeSource.value as? SpotifyMusicSource ?: return SpotifyPortraitPassEnd.Done
+        return spotifyActivityArtwork.fetchMissing(
             profileId = spotifyProfileId(source),
             artistIds = artistIds,
             fetch = source::getArtistPortrait,

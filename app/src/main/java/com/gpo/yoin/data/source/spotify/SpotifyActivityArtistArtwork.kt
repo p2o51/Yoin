@@ -22,6 +22,24 @@ import kotlinx.coroutines.sync.withLock
  */
 data class SpotifyArtistPortrait(val name: String?, val url: String?)
 
+/** Why a [SpotifyActivityArtistArtwork.fetchMissing] pass ended. */
+enum class SpotifyPortraitPassEnd(internal val label: String) {
+    /** Every artist that needed asking was asked (or none did). */
+    Done("done"),
+
+    /** The rate-limit gate was closed: nothing more was asked. */
+    Gate("gate"),
+
+    /** Spotify answered 429: no more passes for the profile in this process. */
+    RateLimited("429"),
+
+    /** A read failed (offline, a server error, an expired session): nothing was kept. */
+    Error("error");
+
+    /** Whether a later pass over the same artists may get further: the gate opens, a read may succeed. */
+    val retryable: Boolean get() = this == Gate || this == Error
+}
+
 /**
  * Portraits for the artists on Spotify's Home Activities (owner Q16).
  * recently-played names each play's artists without images, so an artist
@@ -86,7 +104,9 @@ class SpotifyActivityArtistArtwork(
      * [MAX_FETCHES_PER_PASS] of them — the most the Activities show) that the
      * device has no word on: one GET at a time, each after [awaitTurn]. Each
      * portrait found goes to [onPortrait] as it lands, on the caller's
-     * context. Returns when done or stopped (see the class).
+     * context. Returns why the pass ended, when done or stopped (see the
+     * class): a caller may run another over the same artists later only
+     * after a [SpotifyPortraitPassEnd.retryable] end.
      */
     suspend fun fetchMissing(
         profileId: String,
@@ -94,33 +114,34 @@ class SpotifyActivityArtistArtwork(
         fetch: suspend (artistId: String) -> SpotifyArtistPortrait,
         awaitTurn: suspend () -> Unit = {},
         onPortrait: (artistId: String, url: String) -> Unit
-    ) {
-        if (!mayRequest(profileId)) return
+    ): SpotifyPortraitPassEnd {
+        blocked(profileId)?.let { end -> return end }
         passLock.withLock {
             val shown = artistIds.distinct().take(MAX_FETCHES_PER_PASS)
-            if (shown.isEmpty()) return
+            if (shown.isEmpty()) return SpotifyPortraitPassEnd.Done
             purgeExpiredOnce(profileId)
             val settled = try {
                 lookUp(profileId, shown).settled
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
-                return
+                return SpotifyPortraitPassEnd.Error
             }
             val pass = Pass(shown = shown.size)
-            val stop = runPass(profileId, shown.filterNot { it in settled }, pass, fetch, awaitTurn, onPortrait)
+            val end = runPass(profileId, shown.filterNot { it in settled }, pass, fetch, awaitTurn, onPortrait)
             // Debug only (docs/perf/yoinperf-logging.md).
             YoinPerf.mark(
                 "home.portraits",
                 "shown" to pass.shown,
                 "asked" to pass.asked,
                 "found" to pass.found,
-                "stop" to stop
+                "stop" to end.label
             )
+            return end
         }
     }
 
-    /** One pass's requests over [pending]; returns why it ended: done | gate | 429 | error. */
+    /** One pass's requests over [pending]; returns why it ended. */
     private suspend fun runPass(
         profileId: String,
         pending: List<String>,
@@ -128,11 +149,11 @@ class SpotifyActivityArtistArtwork(
         fetch: suspend (artistId: String) -> SpotifyArtistPortrait,
         awaitTurn: suspend () -> Unit,
         onPortrait: (artistId: String, url: String) -> Unit
-    ): String {
+    ): SpotifyPortraitPassEnd {
         pending.forEachIndexed { index, artistId ->
             if (index > 0) delay(fetchSpacingMs)
             awaitTurn()
-            if (!mayRequest(profileId)) return "gate"
+            blocked(profileId)?.let { end -> return end }
             pass.asked++
             val portrait = try {
                 fetch(artistId)
@@ -140,11 +161,11 @@ class SpotifyActivityArtistArtwork(
                 throw cancellation
             } catch (_: SpotifyRateLimitException) {
                 rateLimitedProfiles += profileId
-                return "429"
+                return SpotifyPortraitPassEnd.RateLimited
             } catch (_: Exception) {
                 // Offline, a server error, an expired session: nothing is
                 // kept, and the next pass asks again.
-                return "error"
+                return SpotifyPortraitPassEnd.Error
             }
             keep(profileId, artistId, portrait)
             portrait.url?.let { url ->
@@ -152,7 +173,7 @@ class SpotifyActivityArtistArtwork(
                 onPortrait(artistId, url)
             }
         }
-        return "done"
+        return SpotifyPortraitPassEnd.Done
     }
 
     private class Pass(val shown: Int) {
@@ -160,8 +181,12 @@ class SpotifyActivityArtistArtwork(
         var found = 0
     }
 
-    private fun mayRequest(profileId: String): Boolean =
-        profileId !in rateLimitedProfiles && rateLimitGate?.isBlocked(profileId) != true
+    /** Why no request may go out for [profileId] now (a 429 this process, a closed gate), or null. */
+    private fun blocked(profileId: String): SpotifyPortraitPassEnd? = when {
+        profileId in rateLimitedProfiles -> SpotifyPortraitPassEnd.RateLimited
+        rateLimitGate?.isBlocked(profileId) == true -> SpotifyPortraitPassEnd.Gate
+        else -> null
+    }
 
     /**
      * What the device has on [artistIds]: [Lookup.portraits] to show, and
