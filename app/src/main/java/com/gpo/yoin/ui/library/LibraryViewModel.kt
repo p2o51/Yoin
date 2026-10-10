@@ -80,7 +80,9 @@ class LibraryViewModel(
      * [nameOrder] ([LibraryScrollIndex.icu]). Off device android.icu is a
      * stub: a pass that cannot index keeps the sorter's order, handle only.
      */
-    private val scrollIndex: () -> LibraryScrollIndex = { LibraryScrollIndex.icu() }
+    private val scrollIndex: () -> LibraryScrollIndex = { LibraryScrollIndex.icu() },
+    /** Albums past which a collection's read stops ([readAlbumBatches]; tests pass a small one). */
+    private val albumsReadCeiling: Int = ALBUMS_READ_CEILING
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -666,6 +668,11 @@ class LibraryViewModel(
      * Batches from [from] to the end of the collection, each merged into the
      * list as it lands (and added to [fresh], when given). False when a batch
      * failed, or the data moved on, and the read stopped there.
+     *
+     * The end is a batch short of full. Two guards stand in for a server that
+     * never sends one: a full batch with no album this read hadn't seen yet
+     * (a server that ignores `offset` and answers every request with the
+     * same albums) ends the read too, and so does [albumsReadCeiling].
      */
     private suspend fun readAlbumBatches(
         from: Int,
@@ -673,8 +680,14 @@ class LibraryViewModel(
         isCurrent: () -> Boolean
     ): Boolean {
         val query = libraryAlbumsQuery() ?: return true
+        val seen = fresh.orEmpty().mapTo(HashSet(), Album::id)
         var offset = from
         while (true) {
+            if (offset >= albumsReadCeiling) {
+                Log.w(TAG, "Library albums stopped at the $albumsReadCeiling-album ceiling")
+                albumsNextOffset = null
+                return true
+            }
             val batch = attempt {
                 repository.getAlbumList(query.type, size = query.batch, offset = offset)
             }.getOrElse { error ->
@@ -683,7 +696,11 @@ class LibraryViewModel(
             }
             if (!isCurrent()) return false
             offset += batch.size
-            val more = batch.size >= query.batch
+            val brought = batch.count { seen.add(it.id) } > 0
+            val more = batch.size >= query.batch && brought
+            if (batch.isNotEmpty() && !brought) {
+                Log.w(TAG, "Library albums at $offset repeat the ones read already; the collection counts as read")
+            }
             fresh?.addAll(batch)
             mergeAlbums(batch, nextOffset = offset.takeIf { more })
             if (!more) return true
@@ -1965,6 +1982,14 @@ class LibraryViewModel(
 
         /** Any list type but `newest` reads Apple Music's library albums ([libraryAlbumsQuery]). */
         private const val APPLE_LIBRARY_ALBUMS = "alphabeticalByName"
+
+        /**
+         * Albums past which Library stops reading a collection (200 Subsonic
+         * batches, 1,000 Apple Music pages), so a server that keeps answering
+         * with full batches of albums it never sent before can't keep the
+         * read going for good.
+         */
+        private const val ALBUMS_READ_CEILING = 100_000
 
         /** A list read whole in one go: Spotify's synced mirror holds at most 200. */
         private const val ALBUMS_READ_WHOLE = 500

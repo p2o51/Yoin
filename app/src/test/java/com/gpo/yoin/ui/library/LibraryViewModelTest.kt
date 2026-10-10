@@ -1793,6 +1793,47 @@ class LibraryViewModelTest {
         coVerify(exactly = 1) { repository.getAlbumList("newest", size = 500, offset = 0) }
     }
 
+    @Test
+    fun should_stopReading_when_aBatchBringsNothingNew() = runTest {
+        // A server that ignores offset: every request answers with the same newest 500.
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        coEvery { repository.getAlbumList("newest", size = 500, offset = any()) } returns numberedAlbums(0 until 500)
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        assertEquals(500, content(viewModel).albums.orEmpty().size)
+        // The first batch, then the background read's own first, then one with nothing it hadn't had: done.
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
+
+        // Read to its end: Library's next look asks for nothing more.
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_stopReading_when_theCollectionReachesTheCeiling() = runTest {
+        // Full batches of albums never sent before, however far the offset goes.
+        val repository = subsonicLibrary(albums = numberedAlbums(0 until 500))
+        coEvery { repository.getAlbumList("newest", size = 500, offset = any()) } coAnswers {
+            val offset = thirdArg<Int>()
+            numberedAlbums(offset until offset + 500)
+        }
+        val viewModel = libraryViewModel(repository, albumsReadCeiling = 1_500)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        assertEquals(1_500, content(viewModel).albums.orEmpty().size)
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        coVerify(exactly = 3) { repository.getAlbumList(any(), any(), any()) }
+    }
+
     // ── Fast scroller sections (U2) ─────────────────────────────────────
 
     @Test
@@ -2003,7 +2044,9 @@ class LibraryViewModelTest {
         sortStore: LibrarySortStore = LibrarySortStore.InMemory(),
         recentsSource: LibraryRecentsSource = LibraryRecentsSource.None,
         openStore: LibraryOpenStore = LibraryOpenStore.InMemory(),
-        clock: () -> Long = { 0L }
+        clock: () -> Long = { 0L },
+        // Production's ceiling.
+        albumsReadCeiling: Int = 100_000
     ): LibraryViewModel = LibraryViewModel(
         repository = repository,
         sortStore = sortStore,
@@ -2012,7 +2055,8 @@ class LibraryViewModelTest {
         clock = clock,
         sortDispatcher = mainDispatcherRule.dispatcher,
         nameOrder = { String.CASE_INSENSITIVE_ORDER },
-        scrollIndex = { JvmLibraryScrollIndex }
+        scrollIndex = { JvmLibraryScrollIndex },
+        albumsReadCeiling = albumsReadCeiling
     )
 
     private fun repositoryFor(
