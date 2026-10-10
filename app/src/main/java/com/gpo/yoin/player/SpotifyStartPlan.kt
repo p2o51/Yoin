@@ -38,7 +38,7 @@ internal sealed interface SpotifyStartAttempt {
  */
 internal const val SPOTIFY_LIKED_SONGS_CONTEXT_URI = "spotify:collection:tracks"
 
-/** Most URIs one `uris` start carries; the window keeps a little history for "previous". */
+/** Most URIs one `uris` start carries; the window keeps at least a little history for "previous" ([startWindow]). */
 internal const val SPOTIFY_START_MAX_URIS = 100
 internal const val SPOTIFY_START_HISTORY = 20
 

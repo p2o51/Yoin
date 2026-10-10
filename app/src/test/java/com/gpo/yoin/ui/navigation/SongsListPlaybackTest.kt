@@ -62,6 +62,25 @@ class SongsListPlaybackTest {
     }
 
     @Test
+    fun should_playTheWholeList_when_aShortListIsTappedNearItsEnd() {
+        // Subsonic's Songs tab is a random 50: none of it is cut away, whichever row is tapped.
+        val random = (0 until 50).map { song("s$it") }
+
+        container.playSongsList(random, startIndex = 40)
+
+        verify(exactly = 1) {
+            manager.play(
+                tracks = random,
+                startIndex = 40,
+                source = activeSource.value!!,
+                activityContext = ActivityContext.None,
+                shuffled = false,
+                explicitStart = true
+            )
+        }
+    }
+
+    @Test
     fun should_playNothing_when_noProfileIsActive() {
         activeSource.value = null
 

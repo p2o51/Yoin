@@ -7,7 +7,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** [startWindow] / [startWindowQueue]: at most 20 songs of history, 100 in all. */
+/** [startWindow] / [startWindowQueue]: 100 songs (or the whole list when shorter), 20 of them before the start where it can. */
 class StartWindowTest {
 
     private val long = (0 until 250).map(::song)
@@ -38,12 +38,12 @@ class StartWindowTest {
     }
 
     @Test
-    fun should_endWithTheList_when_startIsTheLastSong() {
+    fun should_reachFurtherBack_when_startIsNearTheEnd() {
         val queue = startWindowQueue(long, startIndex = 249)
 
-        // Twenty songs of history, never more: the window doesn't reach back to fill up to 100.
-        assertEquals((229 until 250).map { "s$it" }, queue.tracks.map { it.id.rawId })
-        assertEquals(20, queue.startIndex)
+        // The window doesn't shrink at the end of the list: it still holds 100.
+        assertEquals((150 until 250).map { "s$it" }, queue.tracks.map { it.id.rawId })
+        assertEquals(99, queue.startIndex)
         assertEquals("s249", queue.tracks[queue.startIndex].id.rawId)
     }
 
@@ -56,9 +56,19 @@ class StartWindowTest {
 
         assertEquals(short, fromStart.tracks)
         assertEquals(0, fromStart.startIndex)
-        // Past twenty songs in, the history before the window is dropped.
-        assertEquals(short.drop(39), fromEnd.tracks)
-        assertEquals(20, fromEnd.startIndex)
+        assertEquals(short, fromEnd.tracks)
+        assertEquals(59, fromEnd.startIndex)
+    }
+
+    @Test
+    fun should_keepAllFiftySongs_when_subsonicRandomListStartsNearItsEnd() {
+        // Subsonic's Songs tab is getRandomSongs(50): a late row still repeats and shuffles over all 50.
+        val random = long.take(50)
+
+        val queue = startWindowQueue(random, startIndex = 40)
+
+        assertEquals(random, queue.tracks)
+        assertEquals(40, queue.startIndex)
     }
 
     @Test
@@ -73,12 +83,14 @@ class StartWindowTest {
     }
 
     @Test
-    fun should_neverExceedTheSpotifyUriLimit_when_anyStartIsPicked() {
-        for (start in long.indices) {
-            val window = startWindow(long.size, start)
-            assertTrue(window.count() <= SPOTIFY_START_MAX_URIS)
-            assertTrue(start in window)
-            assertTrue(start - window.first <= SPOTIFY_START_HISTORY)
+    fun should_holdAFullWindowWithinTheSpotifyUriLimit_when_anyStartIsPicked() {
+        for (size in listOf(1, 50, 100, 101, 250)) {
+            for (start in 0 until size) {
+                val window = startWindow(size, start)
+                assertEquals(minOf(size, SPOTIFY_START_MAX_URIS), window.count())
+                assertTrue(start in window)
+                assertTrue(start - window.first >= minOf(start, SPOTIFY_START_HISTORY))
+            }
         }
     }
 
