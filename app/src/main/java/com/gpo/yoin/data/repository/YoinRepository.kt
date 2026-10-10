@@ -420,6 +420,17 @@ class YoinRepository(
         revisions[profileId] ?: 0L
     }.distinctUntilChanged()
 
+    private val libraryAlbumsRevisions = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /**
+     * Bumps, per profile, each time [setAlbumSaved] saved or removed an album
+     * on the active account, once the saved-albums mirror took the write:
+     * Library then re-reads its albums from that mirror, never the service.
+     */
+    val libraryAlbumsRevision: Flow<Long> = combine(activeProfileId, libraryAlbumsRevisions) { profileId, revisions ->
+        revisions[profileId] ?: 0L
+    }.distinctUntilChanged()
+
     /** Membership belongs to an account, even when two accounts share the same catalog ID. */
     val trackLibraryStates: Flow<Map<MediaId, LibraryMembership>> =
         combine(activeProfileId, libraryStates) { profileId, states ->
@@ -1666,7 +1677,8 @@ class YoinRepository(
      * returned for the page's snackbar. On success the write holds for the
      * grace and the saved-albums mirror takes it at once (a save files the
      * album at the top of Recently added), so nothing marks the library
-     * stale. Writes run one at a time, so the last tap wins.
+     * stale; Library re-reads its albums from the mirror
+     * ([libraryAlbumsRevision]). Writes run one at a time, so the last tap wins.
      */
     suspend fun setAlbumSaved(album: Album, saved: Boolean): Result<Unit> {
         // Bound once: a profile switch mid-write must not land it on another account.
@@ -1696,6 +1708,7 @@ class YoinRepository(
                                 ?.recordAlbumSaved(profileId, album, saved, addedAt = spotifyAddedAt(clock()))
                         }.onFailure { error -> if (error is CancellationException) throw error }
                     }
+                    libraryAlbumsRevisions.update { it + (profileId to ((it[profileId] ?: 0L) + 1L)) }
                 }
                 result
             } finally {

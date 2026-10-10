@@ -1203,6 +1203,85 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_dropAlbumFromAllAndAlbums_when_albumRemovedFromLibrary() = runTest {
+        val repository = spotifyRepository()
+        val albumsRevision = MutableStateFlow(0L)
+        every { repository.libraryAlbumsRevision } returns albumsRevision
+        val kept = album("kept", "Kept").copy(id = MediaId.spotify("kept"))
+        val removed = album("removed", "Removed").copy(id = MediaId.spotify("removed"))
+        var mirror = spotifySnapshot().copy(albums = listOf(kept, removed))
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers { mirror }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals(listOf("kept", "removed"), content(viewModel).albums.orEmpty().map { it.id.rawId }.sorted())
+
+        // Removed on its album page: the write dropped its mirror row, then told Library.
+        mirror = mirror.copy(albums = listOf(kept))
+        albumsRevision.value = 1L
+        advanceUntilIdle()
+
+        val state = content(viewModel)
+        assertEquals(listOf("kept"), state.albums.orEmpty().map { it.id.rawId })
+        assertFalse("album:spotify:removed" in state.allItems.orEmpty().map(LibraryItem::key))
+        // From the mirror alone: neither a service read nor a sync.
+        coVerify(exactly = 0) { repository.getAlbumList(any(), any(), any()) }
+        coVerify(exactly = 1) { repository.refreshSpotifyLibrary(any()) }
+    }
+
+    @Test
+    fun should_addAlbumToAllAndAlbums_when_albumSavedToLibrary() = runTest {
+        val repository = spotifyRepository()
+        val albumsRevision = MutableStateFlow(0L)
+        every { repository.libraryAlbumsRevision } returns albumsRevision
+        val saved = album("new", "New").copy(id = MediaId.spotify("new"), libraryAddedAt = "2026-10-10T08:00:00Z")
+        var mirror = spotifySnapshot()
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers { mirror }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        mirror = mirror.copy(albums = listOf(saved) + mirror.albums)
+        albumsRevision.value = 1L
+        advanceUntilIdle()
+
+        assertTrue("album:spotify:new" in content(viewModel).allItems.orEmpty().map(LibraryItem::key))
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals("new", content(viewModel).albums.orEmpty().first().id.rawId)
+    }
+
+    @Test
+    fun should_leaveRemovedAlbumOutOfLibrarySearch_when_albumRemovedOnItsPage() = runTest {
+        val repository = spotifyRepository()
+        val albumsRevision = MutableStateFlow(0L)
+        every { repository.libraryAlbumsRevision } returns albumsRevision
+        val first = album("one", "Saved One").copy(id = MediaId.spotify("one"))
+        val second = album("two", "Saved Two").copy(id = MediaId.spotify("two"))
+        var mirror = spotifySnapshot().copy(albums = listOf(first, second))
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } coAnswers { mirror }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        viewModel.search("Saved")
+        advanceUntilIdle()
+        val found = content(viewModel).searchResults?.albums.orEmpty().map { it.id.rawId }
+        assertEquals(setOf("one", "two"), found.toSet())
+
+        mirror = mirror.copy(albums = listOf(first))
+        albumsRevision.value = 1L
+        advanceUntilIdle()
+
+        // The search on screen runs again against the mirror, not the albums All loaded.
+        assertEquals(listOf("one"), content(viewModel).searchResults?.albums.orEmpty().map { it.id.rawId })
+    }
+
+    @Test
     fun should_keepSpotifysAllWithoutAFreshRead_when_aPlaylistChangesElsewhere() = runTest {
         val repository = spotifyRepository()
         coEvery { repository.getSpotifyLocalSearchSnapshot() } returns spotifySnapshot()
@@ -1593,6 +1672,7 @@ class LibraryViewModelTest {
         every { repository.currentProfileId() } returns "test-profile"
         every { repository.currentProfileIdFlow } returns flowOf("test-profile")
         every { repository.libraryRevision } returns flowOf(0L)
+        every { repository.libraryAlbumsRevision } returns flowOf(0L)
         coEvery { repository.getArtists() } returns emptyList()
     }
 

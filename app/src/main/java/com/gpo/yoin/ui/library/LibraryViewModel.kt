@@ -194,6 +194,7 @@ class LibraryViewModel(
         observeSearchLibraryMembership()
         observeProfileChanges()
         observeLibraryRevision()
+        observeLibraryAlbumsRevision()
     }
 
     fun refresh() = reloadLibrary(forceSpotifyRefresh = true)
@@ -1238,7 +1239,9 @@ class LibraryViewModel(
         val artists = snapshot.artists
             .plus(favorites.artists)
             .distinctBy(Artist::id)
-        val albums = (cachedAlbums ?: snapshot.albums)
+        // The mirror as it is now, not the albums Library loaded: an album
+        // removed on its page since then is gone from it.
+        val albums = snapshot.albums
             .plus(favorites.albums)
             .distinctBy(Album::id)
         val songs = snapshot.tracks.ifEmpty { favorites.tracks }
@@ -1330,6 +1333,48 @@ class LibraryViewModel(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * An album saved to the library or removed from it on its page (Spotify,
+     * [YoinRepository.setAlbumSaved]): the albums Library holds are read again
+     * from the saved-albums mirror the write already updated — no freshness
+     * check, so no sync — and All and Albums take the change on their item
+     * springs. A library search on screen runs again against the same mirror.
+     */
+    private fun observeLibraryAlbumsRevision() {
+        viewModelScope.launch {
+            var previous: Pair<String?, Long>? = null
+            combine(repository.currentProfileIdFlow, repository.libraryAlbumsRevision) { profileId, revision ->
+                profileId to revision
+            }.distinctUntilChanged().collectLatest { currentRevision ->
+                val (profileId, revision) = currentRevision
+                val changed = previous?.let { (previousProfileId, previousRevision) ->
+                    previousProfileId == profileId && revision > previousRevision
+                } == true
+                previous = currentRevision
+                if (!changed || profileId != repository.currentProfileId()) return@collectLatest
+                rereadSavedAlbums()
+            }
+        }
+    }
+
+    /** [observeLibraryAlbumsRevision]'s read: Spotify's mirror only, never the service. */
+    private suspend fun rereadSavedAlbums() {
+        if (!isSpotifyProvider()) return
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        val albums = attempt { repository.getSpotifyLocalSearchSnapshot()?.albums }.getOrNull() ?: return
+        if (!isDataLoadCurrent(generation, profileId)) return
+        // Only a list already loaded: a first visit reads the mirror itself (loadAll).
+        if (cachedAlbums != null) {
+            cachedAlbums = albums
+            publishLists()
+        }
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (current.searchQuery.isNotBlank() && current.searchScope == LibrarySearchScope.CurrentLibrary) {
+            retrySearch()
         }
     }
 
