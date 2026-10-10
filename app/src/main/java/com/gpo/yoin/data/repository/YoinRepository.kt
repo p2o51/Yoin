@@ -74,7 +74,6 @@ import com.gpo.yoin.perf.YoinPerf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -164,9 +163,11 @@ class YoinRepository(
 
     // Playlists revalidate on every open, but the copy a tap's own prefetch
     // fetched a moment ago IS that open's revalidation: for this long after a
-    // fetch the page takes it from mem instead of fetching the playlist twice
-    // (prefetchPlaylist). Long enough to cover an Activity start or a column's
-    // open spring, short enough that a later open always goes back online.
+    // network fetch the page takes it from mem instead of fetching the playlist
+    // twice (prefetchPlaylist). Only a fetched copy counts — an offline
+    // fallback's old one never does. Long enough to cover an Activity start or
+    // a column's open spring, short enough that a later open always goes back
+    // online.
     private val detailHandoffMs = 5_000L
 
     /** Size-bounded, TTL'd in-memory cache for one detail type. Thread-safe. */
@@ -175,7 +176,8 @@ class YoinRepository(
         private val ttlMs: Long,
         private val clock: () -> Long,
     ) {
-        private class Entry<V>(val value: V, val cachedAt: Long)
+        /** [fetched]: the value came from the network, not from disk or a fallback. */
+        private class Entry<V>(val value: V, val cachedAt: Long, val fetched: Boolean)
 
         private val lru = Collections.synchronizedMap(
             object : LinkedHashMap<String, Entry<V>>(maxSize, 0.75f, true) {
@@ -212,16 +214,21 @@ class YoinRepository(
             lru.remove(key)
         }
 
-        /** The entry when at most [maxAgeMs] old (null: the cache's own TTL). */
-        fun getFresh(key: String, maxAgeMs: Long? = null): V? {
+        fun getFresh(key: String): V? {
             val entry = lru[key] ?: return null
-            return entry.value.takeIf { clock() - entry.cachedAt <= (maxAgeMs ?: ttlMs) }
+            return entry.value.takeIf { clock() - entry.cachedAt <= ttlMs }
+        }
+
+        /** The entry when the network handed it over at most [maxAgeMs] ago. */
+        fun getFetchedWithin(key: String, maxAgeMs: Long): V? {
+            val entry = lru[key]?.takeIf { it.fetched } ?: return null
+            return entry.value.takeIf { clock() - entry.cachedAt <= maxAgeMs }
         }
 
         fun getStale(key: String): V? = lru[key]?.value
 
-        fun put(key: String, value: V) {
-            lru[key] = Entry(value, clock())
+        fun put(key: String, value: V, fetched: Boolean) {
+            lru[key] = Entry(value, clock(), fetched)
         }
 
         fun remove(key: String) {
@@ -937,9 +944,10 @@ class YoinRepository(
      * `diskFreshMs == 0` (playlists) means "always revalidate online": neither
      * the mem nor the disk fresh fast-path is trusted, so external edits aren't
      * masked; the caches then serve only as an offline fallback — save for a
-     * copy fetched within [detailHandoffMs] (a tap's own prefetch). For trusted
-     * (album/artist) entries a disk hit older than [detailRevalidateAfterMs]
-     * kicks off a background refresh (stale-while-revalidate).
+     * copy the network handed over within [detailHandoffMs] (a tap's own
+     * prefetch). For trusted (album/artist) entries a disk hit older than
+     * [detailRevalidateAfterMs] kicks off a background refresh
+     * (stale-while-revalidate).
      *
      * Debug builds time every call as `detail.load` ([kind] is only that
      * mark's label; docs/perf/yoinperf-logging.md).
@@ -956,7 +964,7 @@ class YoinRepository(
         val perf = YoinPerf.begin("detail.load")
         val profileId = activeProfileId.value
         val key = memKey(baseKey, profileId)
-        mem.getFresh(key, memServeMs(diskFreshMs))?.let {
+        memHit(mem, key, diskFreshMs)?.let {
             if (perf != null) YoinPerf.end(perf, "kind" to kind, "id" to baseKey, "src" to "mem")
             return it
         }
@@ -998,8 +1006,12 @@ class YoinRepository(
         return loaded.value
     }
 
-    /** How old a mem entry [loadCachedDetail] answers with: the cache's TTL, or the hand-off for playlists. */
-    private fun memServeMs(diskFreshMs: Long): Long? = if (diskFreshMs > 0L) null else detailHandoffMs
+    /**
+     * The mem entry [loadCachedDetail] answers with: any within the cache's TTL,
+     * or for playlists only a fetch within the hand-off ([detailHandoffMs]).
+     */
+    private fun <V : Any> memHit(mem: DetailMemoryCache<V>, key: String, diskFreshMs: Long): V? =
+        if (diskFreshMs > 0L) mem.getFresh(key) else mem.getFetchedWithin(key, detailHandoffMs)
 
     /**
      * The shared (single-flight) part of [loadCachedDetail]: disk-fresh →
@@ -1033,7 +1045,7 @@ class YoinRepository(
         val disk = if (diskFreshMs > 0L) diskRow() else null
         if (disk != null && clock() - disk.cachedAt <= diskFreshMs) {
             disk.value()?.let { value ->
-                if (canWriteBack()) mem.put(key, value)
+                if (canWriteBack()) mem.put(key, value, fetched = false)
                 if (clock() - disk.cachedAt > detailRevalidateAfterMs) {
                     revalidateDetail(mem, key, profileId, diskWrite, fetch)
                 }
@@ -1046,13 +1058,16 @@ class YoinRepository(
                 // and the key wasn't invalidated mid-flight — a stale write-back
                 // must not poison another account or overwrite a fresher edit.
                 if (canWriteBack()) {
-                    mem.put(key, value)
+                    mem.put(key, value, fetched = true)
                     persistDetail(profileId, value, diskWrite, ::canWriteBack)
                 }
             }
             DetailLoad(fetched, src = "net")
         } catch (e: Exception) {
-            val fallback = (disk ?: diskRow())?.value()?.also { if (canWriteBack()) mem.put(key, it) }
+            // Not `fetched`: a playlist's hand-off must never pass this old copy
+            // off as the open's revalidation.
+            val fallback = (disk ?: diskRow())?.value()
+                ?.also { if (canWriteBack()) mem.put(key, it, fetched = false) }
                 ?: mem.getStale(key) ?: throw e
             DetailLoad(fallback, src = "stale", fetchError = e.javaClass.simpleName)
         }
@@ -1089,7 +1104,7 @@ class YoinRepository(
         repositoryScope.launch {
             runCatching { fetch() }.getOrNull()?.let { value ->
                 if (stillCurrent()) {
-                    mem.put(key, value)
+                    mem.put(key, value, fetched = true)
                     if (profileId != null) runCatching { diskWrite(profileId, value, ::stillCurrent) }
                 }
             }
@@ -1124,12 +1139,10 @@ class YoinRepository(
      * carousel so each tap opens instantly, and every detail entry calls it the
      * moment the tap lands (ui/detail/DetailPrefetch.kt).
      *
-     * The load's single flight is registered before this returns: a page
-     * created right after (a column that is already open builds its ViewModel
-     * in the next frame) joins it instead of racing it with a second request.
+     * A page that loads the same id meanwhile shares this load's single flight,
+     * whichever of the two reaches it first: there is never a second request.
      */
-    fun prefetchAlbum(id: MediaId) =
-        prefetchDetail(albumDetailCache, id.toString(), detailDiskFreshMs) { getAlbum(id) }
+    fun prefetchAlbum(id: MediaId) = prefetchDetail(albumDetailCache, id.toString(), detailDiskFreshMs) { getAlbum(id) }
 
     fun prefetchArtist(id: MediaId) =
         prefetchDetail(artistDetailCache, id.toString(), detailDiskFreshMs) { getArtist(id) }
@@ -1143,11 +1156,8 @@ class YoinRepository(
         diskFreshMs: Long,
         load: suspend () -> V?,
     ) {
-        if (cache.getFresh(memKey(baseKey), memServeMs(diskFreshMs)) != null) return
-        // UNDISPATCHED: runs on the caller's thread up to the load's first
-        // suspension — its single-flight registration (no I/O: the flight itself
-        // runs on repositoryScope) — so the flight exists when this returns.
-        repositoryScope.launch(start = CoroutineStart.UNDISPATCHED) { runCatching { load() } }
+        if (memHit(cache, memKey(baseKey), diskFreshMs) != null) return
+        repositoryScope.launch { runCatching { load() } }
     }
 
     suspend fun createPlaylist(name: String, description: String? = null): Result<Playlist> =
