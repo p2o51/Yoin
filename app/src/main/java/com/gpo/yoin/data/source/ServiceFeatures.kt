@@ -99,6 +99,7 @@ object ServiceFeatureCatalog {
             Capability.FAVORITES,
             Capability.SEARCH,
             Capability.CATALOG_SEARCH,
+            Capability.SEARCH_PLAYLISTS,
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE,
@@ -149,6 +150,7 @@ object ServiceFeatureCatalog {
         capabilities = setOf(
             Capability.SEARCH,
             Capability.CATALOG_SEARCH,
+            Capability.SEARCH_PLAYLISTS,
             Capability.LIBRARY_ADD,
             Capability.LIBRARY_SONGS,
             Capability.PLAYLISTS_READ,

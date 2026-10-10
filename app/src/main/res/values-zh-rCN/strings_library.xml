@@ -47,6 +47,7 @@
     <string name="library_search_section_albums">专辑</string>
     <string name="library_search_section_songs">歌曲</string>
     <string name="library_search_section_playlists">歌单</string>
+    <string name="library_search_filter_all">全部</string>
     <string name="library_search_added">已加入资料库</string>
 
     <string name="library_error_load_library">无法加载资料库</string>

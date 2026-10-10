@@ -186,6 +186,7 @@ class LibraryViewModel(
                     canSearchSpotifyCatalog = canSearchSpotifyCatalog,
                     canSearchAppleMusicCatalog = canSearchCatalog(MediaId.PROVIDER_APPLE_MUSIC),
                     searchFocusRequestId = if (hasPendingSearchShortcut) nextSearchFocusRequestId() else 0L,
+                    availableSearchFilters = searchFiltersFor(capabilities, pendingScope),
                     availableTabs = visibleTabs(capabilities),
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
                     canReshuffleSongs = canReshuffleSongs(capabilities),
@@ -213,6 +214,10 @@ class LibraryViewModel(
                         isSearching = false,
                         searchScope = LibrarySearchScope.CurrentLibrary,
                         canSearchSpotifyCatalog = canSearchCatalog(MediaId.PROVIDER_SPOTIFY),
+                        availableSearchFilters = searchFiltersFor(
+                            repository.currentCapabilities(),
+                            LibrarySearchScope.CurrentLibrary
+                        ),
                         availableTabs = visibleTabs(repository.currentCapabilities()),
                         canCreatePlaylists = Capability.PLAYLISTS_WRITE in repository.currentCapabilities(),
                         canReshuffleSongs = canReshuffleSongs(repository.currentCapabilities()),
@@ -242,7 +247,7 @@ class LibraryViewModel(
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
                     canReshuffleSongs = canReshuffleSongs(capabilities),
                     canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
-                )
+                ).withSearchFilters(capabilities)
             }
         }
     }
@@ -393,10 +398,11 @@ class LibraryViewModel(
                 searchResults = null,
                 isSearching = false,
                 searchError = null,
+                searchFilter = LibrarySearchFilter.All,
                 // The shortcut id is a one-shot UI trigger. Leaving it set
                 // would reopen Search when Library remounts after Home.
                 searchFocusRequestId = 0L,
-            )
+            ).withSearchFilters(repository.currentCapabilities())
         }
     }
 
@@ -416,8 +422,9 @@ class LibraryViewModel(
             searchResults = null,
             isSearching = false,
             searchError = null,
+            searchFilter = LibrarySearchFilter.All,
             searchFocusRequestId = nextSearchFocusRequestId(),
-        )
+        ).withSearchFilters(repository.currentCapabilities())
     }
 
     fun selectSearchScope(scope: LibrarySearchScope) {
@@ -430,8 +437,19 @@ class LibraryViewModel(
             searchResults = null,
             isSearching = current.searchQuery.isNotBlank(),
             searchError = null,
-        )
+        ).withSearchFilters(repository.currentCapabilities())
         searchRequestFlow.value = LibrarySearchRequest(current.searchQuery, effectiveScope)
+    }
+
+    /**
+     * Lists one result type (or All again). Only what the search already
+     * returned is shown, so nothing is fetched; a type the provider can't
+     * search in this scope is ignored.
+     */
+    fun selectSearchFilter(filter: LibrarySearchFilter) {
+        updateContent {
+            if (filter == searchFilter || filter !in availableSearchFilters) this else copy(searchFilter = filter)
+        }
     }
 
     fun search(query: String) {
@@ -466,6 +484,7 @@ class LibraryViewModel(
                 searchResults = null,
                 isSearching = false,
                 searchError = null,
+                searchFilter = LibrarySearchFilter.All,
             )
         }
     }
@@ -566,6 +585,12 @@ class LibraryViewModel(
         _uiState.value = current.transform()
     }
 
+    /** Re-derives the type chips for this scope and drops a selected type they no longer offer. */
+    private fun LibraryUiState.Content.withSearchFilters(capabilities: Set<Capability>): LibraryUiState.Content {
+        val available = searchFiltersFor(capabilities, searchScope)
+        return copy(availableSearchFilters = available, searchFilter = searchFilter.normalisedTo(available))
+    }
+
     private fun observeFavoriteOverrides() {
         viewModelScope.launch {
             repository.favoriteOverrides.collectLatest { overrides ->
@@ -619,7 +644,7 @@ class LibraryViewModel(
                         searchResults = current.searchResults.takeUnless { scopeChanged },
                         isSearching = if (scopeChanged) false else current.isSearching,
                         searchError = current.searchError.takeUnless { scopeChanged },
-                    )
+                    ).withSearchFilters(capabilities)
                     if (current.searchQuery.isNotBlank() && scopeChanged) {
                         searchRequestFlow.value = LibrarySearchRequest(current.searchQuery, nextScope)
                     }
@@ -655,19 +680,14 @@ class LibraryViewModel(
         val songs = snapshot.tracks.ifEmpty { favorites.tracks }
         val playlists = cachedPlaylists ?: snapshot.playlists
 
+        // Every match, not a page: the All list keeps SEARCH_ALL_ROWS_PER_TYPE
+        // of each type (shownFor), a type filter shows the rest. The snapshot
+        // itself holds at most 200 of each type.
         return SearchResults(
-            artists = artists
-                .filter { artist -> artist.matches(needle) }
-                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
-            albums = albums
-                .filter { album -> album.matches(needle) }
-                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
-            tracks = songs
-                .filter { track -> track.matches(needle) }
-                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
-            playlists = playlists
-                .filter { playlist -> playlist.matches(needle) }
-                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
+            artists = artists.filter { artist -> artist.matches(needle) },
+            albums = albums.filter { album -> album.matches(needle) },
+            tracks = songs.filter { track -> track.matches(needle) },
+            playlists = playlists.filter { playlist -> playlist.matches(needle) },
         )
     }
 
@@ -997,7 +1017,6 @@ class LibraryViewModel(
         /** Max wait for the active [MusicSource] to resolve on a cold start
          *  before the first library load gives up (see [loadInitialData]). */
         private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
-        private const val LOCAL_SEARCH_LIMIT_PER_TYPE = 40
     }
 }
 

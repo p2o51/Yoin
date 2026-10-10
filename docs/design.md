@@ -357,6 +357,7 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 普通点击底部 Library：进入当前 profile 的 Library，展示 saved artists / albums / playlists / songs
 - Library 内普通搜索：默认 scope 为 Current Library，只搜索当前 profile 已保存内容
 - 长按底部 Library：支持目录搜索的 profile 打开搜索框并默认 scope 为该服务目录（Spotify：`Search Spotify`、Spotify / Library；Apple Music：`Search Apple Music`、Apple Music / Library）；Subsonic 打开 Current Library 搜索。Apple Music 的 Library scope 调用个人资料库搜索接口，歌曲标签读取已加入资料库的歌曲，不用随机歌曲代替
+- 搜索面的筛选（2026-10-10）：范围胶囊（服务目录 | 资料库，只在支持目录搜索的服务出现）和类型胶囊（全部 / 歌手 / 专辑 / 歌曲 / 歌单）放在同一行，中间一条 1dp `outlineVariant` 竖线；这一行全宽出血、可横滑，带滚动感知的边缘渐隐，静止时第一颗胶囊对齐结果列的左边线。类型胶囊只按能力出现，不看当前结果里有没有这一类：歌单要 `SEARCH_PLAYLISTS`（Spotify、Apple Music 声明，Subsonic 的 search3 没有歌单），资料库范围另外要 `PLAYLISTS_READ`。选了某一类只列出这次搜索已经拿到的那一类，不另发请求、不翻页、没有「加载更多」；「全部」每类最多 40 条，Spotify 资料库范围选了某一类就不再截断（上限是同步快照每类 200 条）。切换用 YoinMotion 淡入淡出，滚动位置按（查询，范围，类型）分别记住。收起搜索、长按快捷进入、回到 Library 首页都回到「全部」；Wide 分栏打开详情时连同查询一起保留；换范围或换服务后不再支持的类型回到「全部」。返回不拦截，仍由官方全屏 Search 一次收起
 - 右上角 ⚙️ 设置入口
 - 筛选胶囊与下方网格 / 列表的交界用潮线（2026-10-04 取代 10-01 的曲线 C 网点；2026-09-29 起已取代硬截断）：交界处不盖任何渐变、模糊或色带；两道页面底色的波浪以遮罩形式把内容从交界处挖掉，图形沉进水线，文字在水线以下 10dp 内淡完、不拆成点。曲线 C 的顶部网点在快速滑动时挤成密排圆盘和针孔，有密恐感，所以上面默认用潮线，下面保留网点场；用户可在 设置 › Motion › Scroll edge 换成原版网点或曲奇浪口（见「溶解」一节）。胶囊下的固定间距只留 4dp，网格顶部内边距 8dp
 - 五个标签的底部都接底部网点场：封面到栏上方 20dp 才开始碎，栏下和栏两侧是纯网点；文字照常从栏下穿过
