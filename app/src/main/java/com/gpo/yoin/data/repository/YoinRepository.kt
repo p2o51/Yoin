@@ -915,11 +915,16 @@ class YoinRepository(
                         isStarred = true
                     ).toSpotifyLibraryArtistCache(profileId, cachedAt = clock())
                 }
+            // Held over a library sync from now: one that read its lists
+            // before this write would otherwise rewrite the row away.
+            val ticket = spotifyLibrarySyncCoordinator
+                ?.holdArtistFollow(profileId, id.rawId, followed, row = filed?.takeIf { followed })
             filed?.let { row -> dao.upsertArtist(row) }
             _favoriteOverrides.value = _favoriteOverrides.value + (id to followed)
             source.writeActions().setArtistFollowed(id, followed)
                 .onSuccess { invalidateArtistDetail(id) }
                 .onFailure {
+                    ticket?.let { spotifyLibrarySyncCoordinator?.forgetArtistFollow(profileId, id.rawId, it) }
                     when {
                         existing != null -> dao.upsertArtist(existing)
                         filed != null -> dao.deleteArtist(profileId, id.rawId)

@@ -2,6 +2,7 @@ package com.gpo.yoin.data.source.spotify
 
 import androidx.room.withTransaction
 import com.gpo.yoin.data.local.SpotifyLibraryAlbumCache
+import com.gpo.yoin.data.local.SpotifyLibraryArtistCache
 import com.gpo.yoin.data.local.SpotifyLibraryCacheDao
 import com.gpo.yoin.data.local.SpotifyLibrarySyncMeta
 import com.gpo.yoin.data.local.YoinDatabase
@@ -32,6 +33,15 @@ class SpotifyLibrarySyncCoordinator(
 ) {
     private val mutex = Mutex()
     private val inFlight = mutableMapOf<String, Deferred<Result<Unit>>>()
+
+    // Album saves and artist follows written into the mirror through Yoin.
+    // A sync rewrites each table whole from lists it read before such a
+    // write (or too soon after it: Spotify's library writes are eventually
+    // consistent), so it lays them back over its rewrite until a list read
+    // after them agrees, or their grace is over — the tracks'
+    // pendingFavoriteAction, in memory since these tables have no column.
+    private val pendingAlbums = PendingMirrorWrites<SpotifyLibraryAlbumCache>(clock)
+    private val pendingArtists = PendingMirrorWrites<SpotifyLibraryArtistCache>(clock)
 
     private val dao: SpotifyLibraryCacheDao
         get() = database.spotifyLibraryCacheDao()
@@ -178,19 +188,39 @@ class SpotifyLibrarySyncCoordinator(
      * once rather than marking the whole library stale (a re-sync pages all
      * four lists): a save files [album] at the top of Recently added
      * ([addedAt], Spotify's own format) unless the mirror already had it; a
-     * removal drops its row. The next sync re-reads the list as usual.
+     * removal drops its row. The next sync re-reads the list as usual, and
+     * keeps this write over it while its list may not show it yet.
      */
     suspend fun recordAlbumSaved(profileId: String, album: Album, saved: Boolean, addedAt: String) {
         val albumId = album.id.rawId
         if (!saved) {
+            pendingAlbums.record(profileId, albumId, state = false, row = null)
             dao.deleteAlbum(profileId, albumId)
             return
         }
         val existing = dao.getAlbum(profileId, albumId)
-        dao.upsertAlbum(
-            existing?.copy(isSaved = true, cachedAt = clock())
-                ?: album.copy(isStarred = true).toSpotifyLibraryAlbumCache(profileId, clock(), addedAt)
-        )
+        val row = existing?.copy(isSaved = true, cachedAt = clock())
+            ?: album.copy(isStarred = true).toSpotifyLibraryAlbumCache(profileId, clock(), addedAt)
+        pendingAlbums.record(profileId, albumId, state = true, row = row)
+        dao.upsertAlbum(row)
+    }
+
+    /**
+     * An artist follow or unfollow about to be written through Yoin, before
+     * its row goes into the mirror ([row]: the row filed for a follow, null
+     * when none is): from now on a sync keeps it over its rewrite, as an
+     * album save. Returns the ticket [forgetArtistFollow] takes.
+     */
+    fun holdArtistFollow(
+        profileId: String,
+        artistId: String,
+        followed: Boolean,
+        row: SpotifyLibraryArtistCache?
+    ): Long = pendingArtists.record(profileId, artistId, state = followed, row = row)
+
+    /** The follow write [ticket] failed: no sync keeps it any more (call before putting the row back). */
+    fun forgetArtistFollow(profileId: String, artistId: String, ticket: Long) {
+        pendingArtists.forget(profileId, artistId, ticket)
     }
 
     private suspend fun syncFromRemote(profileId: String, source: MusicSource, force: Boolean) {
@@ -207,6 +237,9 @@ class SpotifyLibrarySyncCoordinator(
         // open's saved-tracks read on the same cold start) instead of paging
         // the list a second time beside it. Not while a like is unsettled —
         // that read may predate it — and not on a forced refresh.
+        // Taken before any list is read: writes after these are newer than the lists.
+        val albumsCheckpoint = pendingAlbums.checkpoint()
+        val artistsCheckpoint = pendingArtists.checkpoint()
         val isColdFirstSync = dao.getSyncMeta(profileId) == null
         val unsettledLikes = spotifySource?.hasUnsettledFavoriteWrites() == true
         if (force || !isColdFirstSync || unsettledLikes) {
@@ -219,10 +252,13 @@ class SpotifyLibrarySyncCoordinator(
         val library = source.library()
         val now = clock()
         val artistIndices = library.getArtists()
-        val artists = artistIndices.flatMap { index -> index.artists }
+        val artists = artistIndices.flatMap { index -> index.artists }.distinctBy { artist -> artist.id }
         val albums = library.getAlbumList(type = "alphabeticalByName", size = Int.MAX_VALUE)
+            .distinctBy { album -> album.id }
         val playlists = library.getPlaylists()
         val starred = library.getStarred()
+        val listedAlbumIds = albums.mapTo(HashSet()) { album -> album.id.rawId }
+        val listedArtists = artists.associateBy { artist -> artist.id.rawId }
 
         database.withTransaction {
             val pendingTracks = dao.getPendingTracks(profileId)
@@ -232,16 +268,25 @@ class SpotifyLibrarySyncCoordinator(
             dao.deleteArtistsForProfile(profileId)
             dao.deletePlaylistsForProfile(profileId)
 
-            dao.insertArtists(
-                artists
-                    .distinctBy { artist -> artist.id }
-                    .map { artist -> artist.toSpotifyLibraryArtistCache(profileId, now) },
-            )
-            dao.insertAlbums(
-                albums
-                    .distinctBy { album -> album.id }
-                    .map { album -> album.toSpotifyLibraryAlbumCache(profileId, now) },
-            )
+            dao.insertArtists(artists.map { artist -> artist.toSpotifyLibraryArtistCache(profileId, now) })
+            dao.insertAlbums(albums.map { album -> album.toSpotifyLibraryAlbumCache(profileId, now) })
+            // Yoin's own writes the lists may not show yet, back over them.
+            pendingAlbums.toLayBack(profileId, albumsCheckpoint).forEach { (albumId, write) ->
+                val listed = albumId in listedAlbumIds
+                when {
+                    write.state && !listed -> write.row?.let { row -> dao.upsertAlbum(row) }
+                    !write.state && listed -> dao.deleteAlbum(profileId, albumId)
+                }
+            }
+            pendingArtists.toLayBack(profileId, artistsCheckpoint).forEach { (artistId, write) ->
+                val listed = listedArtists[artistId]
+                when {
+                    listed != null && listed.isStarred != write.state -> dao.upsertArtist(
+                        listed.toSpotifyLibraryArtistCache(profileId, now).copy(isFollowed = write.state)
+                    )
+                    listed == null && write.state -> write.row?.let { row -> dao.upsertArtist(row) }
+                }
+            }
             dao.insertPlaylists(
                 playlists
                     .distinctBy { playlist -> playlist.id }
@@ -286,6 +331,11 @@ class SpotifyLibrarySyncCoordinator(
                     ) ?: fresh
                 },
             )
+        }
+        // The writes these lists show — or that Spotify had long enough to — are settled.
+        pendingAlbums.reconcile(profileId, albumsCheckpoint) { albumId -> albumId in listedAlbumIds }
+        pendingArtists.reconcile(profileId, artistsCheckpoint) { artistId ->
+            listedArtists[artistId]?.isStarred == true
         }
         rateLimitGate.clear(profileId)
     }
@@ -345,5 +395,66 @@ class SpotifyLibrarySyncCoordinator(
 
     companion object {
         const val DEFAULT_TTL_MS = 60L * 60L * 1_000L
+
+        /** How long a sync keeps a write through Yoin over lists that don't show it ([SavedTrackDelta]'s grace). */
+        const val PENDING_WRITE_GRACE_MS = SavedTrackDelta.DEFAULT_GRACE_MS
+    }
+}
+
+/**
+ * Writes through Yoin to one mirror table, per profile and raw id, as the
+ * mirror took them ([Write.state]: saved / followed; [Write.row]: the row
+ * filed, if any), in order. A sync lays back the ones its lists can't be
+ * trusted to show — written after its [checkpoint], or within the grace
+ * — and settles the ones a list read after them agrees with, or whose
+ * grace is over (then the lists are the truth).
+ */
+private class PendingMirrorWrites<R>(
+    private val clock: () -> Long,
+    private val graceMs: Long = SpotifyLibrarySyncCoordinator.PENDING_WRITE_GRACE_MS
+) {
+    class Write<R>(val state: Boolean, val row: R?, val sequence: Long, val writtenAtMs: Long)
+
+    private val lock = Any()
+    private val entries = HashMap<Pair<String, String>, Write<R>>()
+    private var sequence = 0L
+
+    /** Records a write; returns its sequence, its ticket for [forget]. */
+    fun record(profileId: String, id: String, state: Boolean, row: R?): Long = synchronized(lock) {
+        val ticket = ++sequence
+        entries[profileId to id] = Write(state, row, ticket, clock())
+        ticket
+    }
+
+    /** Drops the write [ticket] (a write since then stays). */
+    fun forget(profileId: String, id: String, ticket: Long) {
+        synchronized(lock) {
+            if (entries[profileId to id]?.sequence == ticket) entries.remove(profileId to id)
+        }
+    }
+
+    /** Taken before a sync reads its lists: writes up to it are older than the lists. */
+    fun checkpoint(): Long = synchronized(lock) { sequence }
+
+    /** [profileId]'s writes, by id, that lists read at [checkpoint] may not show. */
+    fun toLayBack(profileId: String, checkpoint: Long): List<Pair<String, Write<R>>> = synchronized(lock) {
+        val now = clock()
+        entries.mapNotNull { (key, write) ->
+            val (writeProfileId, id) = key
+            val unseen = write.sequence > checkpoint || now - write.writtenAtMs < graceMs
+            (id to write).takeIf { writeProfileId == profileId && unseen }
+        }
+    }
+
+    /** Settles [profileId]'s writes older than [checkpoint] that [listed] agrees with or whose grace is over. */
+    fun reconcile(profileId: String, checkpoint: Long, listed: (id: String) -> Boolean) {
+        synchronized(lock) {
+            val now = clock()
+            entries.entries.removeAll { (key, write) ->
+                key.first == profileId &&
+                    write.sequence <= checkpoint &&
+                    (listed(key.second) == write.state || now - write.writtenAtMs >= graceMs)
+            }
+        }
     }
 }

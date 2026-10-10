@@ -2,6 +2,7 @@ package com.gpo.yoin.data.source.spotify
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.gpo.yoin.data.local.SpotifyLibraryArtistCache
 import com.gpo.yoin.data.local.SpotifyLibraryTrackCache
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.Album
@@ -432,6 +433,145 @@ class SpotifyLibrarySyncCoordinatorTest {
         verify(exactly = 1) { spotifySource.invalidateLibraryCaches(keepRecentLoads = false) }
         verify(exactly = 0) { spotifySource.invalidateLibraryCaches(keepRecentLoads = true) }
     }
+
+    @Test
+    fun should_keepAnAlbumSavedThroughYoin_when_aSyncReadItsListsBeforeTheSave() = runTest {
+        seedRemoteLibrary()
+        val saved = album("album-new", "New Album")
+        // The save lands while the sync is reading: after its saved-albums list.
+        duringSyncRead {
+            coordinator.recordAlbumSaved("profile-a", saved, saved = true, addedAt = "2026-10-11T00:00:00Z")
+        }
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+
+        assertEquals(listOf("Album", "New Album"), coordinator.readAlbums("profile-a").map { it.name }.sorted())
+    }
+
+    @Test
+    fun should_notBringBackAnAlbumRemovedThroughYoin_when_aSyncReadItsListsBeforeTheRemoval() = runTest {
+        seedRemoteLibrary()
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+        duringSyncRead {
+            coordinator.recordAlbumSaved("profile-a", album("album-1", "Album"), saved = false, addedAt = "")
+        }
+
+        now += 1_000L
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+
+        assertTrue(coordinator.readAlbums("profile-a").isEmpty())
+    }
+
+    @Test
+    fun should_keepAFollowThroughYoin_when_aSyncReadItsListsBeforeTheFollow() = runTest {
+        seedRemoteLibrary()
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+        val dao = database.spotifyLibraryCacheDao()
+        val newcomer = artistRow("artist-new", "Newcomer", isFollowed = true)
+        duringSyncRead {
+            coordinator.holdArtistFollow("profile-a", "artist-new", followed = true, row = newcomer)
+            dao.upsertArtist(newcomer)
+            // An unfollow of the listed artist, too.
+            coordinator.holdArtistFollow("profile-a", "artist-1", followed = false, row = null)
+            dao.upsertArtist(requireNotNull(dao.getArtist("profile-a", "artist-1")).copy(isFollowed = false))
+        }
+
+        now += 1_000L
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+
+        assertEquals(listOf("Newcomer"), coordinator.readStarred("profile-a").artists.map { it.name })
+        assertEquals(false, dao.getArtist("profile-a", "artist-1")?.isFollowed)
+    }
+
+    @Test
+    fun should_letTheListsWin_when_aFollowWriteFailed() = runTest {
+        seedRemoteLibrary()
+        val dao = database.spotifyLibraryCacheDao()
+        val newcomer = artistRow("artist-new", "Newcomer", isFollowed = true)
+        duringSyncRead {
+            val ticket = coordinator.holdArtistFollow("profile-a", "artist-new", followed = true, row = newcomer)
+            dao.upsertArtist(newcomer)
+            // Refused: let go before the row is put back.
+            coordinator.forgetArtistFollow("profile-a", "artist-new", ticket)
+            dao.deleteArtist("profile-a", "artist-new")
+        }
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+
+        assertNull(dao.getArtist("profile-a", "artist-new"))
+        assertEquals(listOf("Taylor"), coordinator.readStarred("profile-a").artists.map { it.name })
+    }
+
+    @Test
+    fun should_settleTheWrite_when_aLaterSyncsListsShowIt() = runTest {
+        seedRemoteLibrary()
+        val saved = album("album-new", "New Album")
+        duringSyncRead {
+            coordinator.recordAlbumSaved("profile-a", saved, saved = true, addedAt = "2026-10-11T00:00:00Z")
+        }
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+
+        // The next sync's list has it: settled, and nothing is laid back any more.
+        coEvery { library.getStarred() } returns Starred()
+        coEvery { library.getAlbumList("alphabeticalByName", Int.MAX_VALUE) } returns listOf(saved)
+        now += 1_000L
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+        // Removed in Spotify later, past the grace: gone with the list.
+        coEvery { library.getAlbumList("alphabeticalByName", Int.MAX_VALUE) } returns emptyList()
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+
+        assertTrue(coordinator.readAlbums("profile-a").isEmpty())
+    }
+
+    @Test
+    fun should_letTheListsWin_when_theWritesGraceIsOver() = runTest {
+        seedRemoteLibrary()
+        val saved = album("album-new", "New Album")
+        coordinator.recordAlbumSaved("profile-a", saved, saved = true, addedAt = "2026-10-11T00:00:00Z")
+
+        // Spotify still doesn't list it a while later (undone elsewhere): the list is the truth.
+        now += SpotifyLibrarySyncCoordinator.PENDING_WRITE_GRACE_MS
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+
+        assertEquals(listOf("Album"), coordinator.readAlbums("profile-a").map { it.name })
+    }
+
+    /** Runs [write] as the sync reads its last list (the starred one), after the albums and artists. */
+    private fun duringSyncRead(write: suspend () -> Unit) {
+        val starred = Starred()
+        var ran = false
+        coEvery { library.getStarred() } coAnswers {
+            if (!ran) {
+                ran = true
+                write()
+            }
+            starred
+        }
+    }
+
+    private fun album(id: String, name: String) = Album(
+        id = MediaId.spotify(id),
+        name = name,
+        artist = "Artist",
+        artistId = null,
+        coverArt = null,
+        songCount = 1,
+        durationSec = null,
+        year = 2024,
+        genre = null,
+        tracks = emptyList(),
+        isStarred = true
+    )
+
+    private fun artistRow(id: String, name: String, isFollowed: Boolean) = SpotifyLibraryArtistCache(
+        profileId = "profile-a",
+        artistId = id,
+        name = name,
+        albumCount = null,
+        coverArtKey = null,
+        isFollowed = isFollowed,
+        cachedAt = now
+    )
 
     private fun emptySpotifySource(unsettledFavoriteWrites: Boolean): SpotifyMusicSource {
         val spotifySource = mockk<SpotifyMusicSource>(relaxed = true)
