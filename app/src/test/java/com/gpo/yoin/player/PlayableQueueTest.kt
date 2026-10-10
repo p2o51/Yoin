@@ -16,7 +16,7 @@ class PlayableQueueTest {
     fun should_skipUnplayableAppleImports_when_playingQueue() {
         val tracks = listOf(catalog("1"), import("a"), catalog("2"), import("b"), catalog("3"))
 
-        val queue = playableQueue(tracks, startIndex = 2)
+        val queue = playableQueue(tracks, startIndex = 2, explicitStart = true)
 
         assertEquals(listOf(catalog("1"), catalog("2"), catalog("3")), queue.tracks)
     }
@@ -25,7 +25,7 @@ class PlayableQueueTest {
     fun should_recomputeStartIndex_when_importsRemovedBeforeClickedTrack() {
         val tracks = listOf(import("a"), catalog("1"), import("b"), import("c"), catalog("2"), catalog("3"))
 
-        val queue = playableQueue(tracks, startIndex = 4)
+        val queue = playableQueue(tracks, startIndex = 4, explicitStart = true)
 
         assertEquals(1, queue.startIndex)
         assertEquals(catalog("2"), queue.tracks[queue.startIndex])
@@ -36,10 +36,51 @@ class PlayableQueueTest {
         // The import itself reaches the provider, which reports why it can't play.
         val tracks = listOf(catalog("1"), import("a"), catalog("2"))
 
-        val queue = playableQueue(tracks, startIndex = 1)
+        val queue = playableQueue(tracks, startIndex = 1, explicitStart = true)
 
         assertSame(tracks, queue.tracks)
         assertEquals(1, queue.startIndex)
+    }
+
+    @Test
+    fun should_startAtFirstPlayableSong_when_noSongPickedAndFirstIsAnImport() {
+        // Play / Shuffle: an album or playlist whose first (or shuffled-first) song is an import.
+        val tracks = listOf(import("a"), import("b"), catalog("1"), import("c"), catalog("2"))
+
+        val queue = playableQueue(tracks, startIndex = 0, explicitStart = false)
+
+        assertEquals(listOf(catalog("1"), catalog("2")), queue.tracks)
+        assertEquals(0, queue.startIndex)
+    }
+
+    @Test
+    fun should_startAtNextPlayableSong_when_noSongPickedAndStartIsAnImport() {
+        val tracks = listOf(catalog("1"), import("a"), catalog("2"), catalog("3"))
+
+        val queue = playableQueue(tracks, startIndex = 1, explicitStart = false)
+
+        assertEquals(catalog("2"), queue.tracks[queue.startIndex])
+    }
+
+    @Test
+    fun should_startAtLastPlayableSong_when_noSongPickedAndOnlyImportsFollow() {
+        val tracks = listOf(catalog("1"), catalog("2"), import("a"), import("b"))
+
+        val queue = playableQueue(tracks, startIndex = 2, explicitStart = false)
+
+        assertEquals(listOf(catalog("1"), catalog("2")), queue.tracks)
+        assertEquals(catalog("2"), queue.tracks[queue.startIndex])
+    }
+
+    @Test
+    fun should_keepTheQueueAsGiven_when_nothingIsPlayable() {
+        // Nothing to give way to: the provider's error says why.
+        val tracks = listOf(import("a"), import("b"))
+
+        val queue = playableQueue(tracks, startIndex = 0, explicitStart = false)
+
+        assertSame(tracks, queue.tracks)
+        assertEquals(0, queue.startIndex)
     }
 
     @Test
@@ -52,10 +93,12 @@ class PlayableQueueTest {
             track(MediaId.spotify("sp1"))
         )
 
-        val queue = playableQueue(tracks, startIndex = 3)
+        listOf(true, false).forEach { explicitStart ->
+            val queue = playableQueue(tracks, startIndex = 3, explicitStart = explicitStart)
 
-        assertSame(tracks, queue.tracks)
-        assertEquals(3, queue.startIndex)
+            assertSame(tracks, queue.tracks)
+            assertEquals(3, queue.startIndex)
+        }
     }
 
     private fun catalog(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "14408577$id"))

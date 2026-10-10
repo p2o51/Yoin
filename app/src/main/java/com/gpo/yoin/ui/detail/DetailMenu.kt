@@ -17,6 +17,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.YoinSymbols
@@ -128,7 +129,8 @@ internal fun rememberDetailMenu(
     return remember(container, link, provider, canAddToPlaylist) {
         fun queue(next: Boolean) {
             scope.launch {
-                val songs = latestTracks()
+                // addToQueue leaves Apple Music imports out: so does the count.
+                val songs = latestTracks().filterNot { it.isUnplayableAppleImport }
                 val source = container.profileManager.activeSource.value ?: return@launch
                 if (songs.isEmpty()) return@launch
                 container.playbackManager.addToQueue(songs, source, next)

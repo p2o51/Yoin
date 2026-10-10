@@ -104,7 +104,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 // ActivityContext. The cover is the playlist's OWN art —
                 // a track cover only when the playlist has none — so the Home
                 // activity card wears the playlist's face, not the first song's.
-                fun playFrom(startIndex: Int, shuffle: Boolean) {
+                // explicitStart = false for Play / Shuffle: they pick no song, so
+                // an Apple Music import first in line gives way to the next that plays.
+                fun playFrom(startIndex: Int, shuffle: Boolean, explicitStart: Boolean = true) {
                     val ordered = viewModel.getPlaylistSongs()
                     if (ordered.isEmpty()) return
                     val tracks = if (shuffle) ordered.shuffled() else ordered
@@ -124,6 +126,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                             source = source,
                             activityContext = activityContext,
                             shuffled = shuffle,
+                            explicitStart = explicitStart,
                         )
                     }
                 }
@@ -168,8 +171,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                         navSection = intent.detailOriginSection(),
                         enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                         barExitsOnBack = intent.detailBarExitsOnBack(),
-                        onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
-                        onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
+                        onPlayAllClick = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+                        onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
                         onSongClick = { songId ->
                             val index = viewModel.getPlaylistSongs()
                                 .indexOfFirst { it.id.toString() == songId }
