@@ -176,6 +176,7 @@ class SpotifyMusicSourceTest {
         assertEquals(1, history.await().size)
         assertEquals(listOf("a1"), shelf.await().map { it.id.rawId })
         assertEquals(1, requestsTo("/v1/me/player/recently-played"))
+        assertEquals(0, requestsTo("/v1/me/albums"))
 
         now += 31_000L
         source.getRecentlyPlayed(limit = 50)

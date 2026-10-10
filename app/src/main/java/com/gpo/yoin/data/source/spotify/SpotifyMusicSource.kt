@@ -88,14 +88,12 @@ class SpotifyMusicSource(
         }
 
         // recently-played tracks' albums, newest first, once each. Shares its
-        // one request with Home's Activities (getRecentlyPlayed).
-        override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> {
-            val savedAlbumIds = savedAlbumIds()
-            return recentlyPlayed()
-                .mapNotNull { play -> play.track?.album?.toAlbum(savedAlbumIds = savedAlbumIds) }
-                .distinctBy { it.id }
-                .take(size.coerceAtLeast(0))
-        }
+        // one request with Home's Activities (getRecentlyPlayed). The shelf
+        // shows no saved state, so the saved-albums list isn't read for it.
+        override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> = recentlyPlayed()
+            .mapNotNull { play -> play.track?.album?.toAlbum() }
+            .distinctBy { it.id }
+            .take(size.coerceAtLeast(0))
 
         override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
             val albums = savedAlbums()
