@@ -40,8 +40,6 @@ data class ArtistAlbum(
     val songCount: Int?,
     /** Provider-reported kind; null = unknown (never guessed from the track count). */
     val releaseType: ReleaseType? = null,
-    /** The user's own album rating (0–10), if they rated it. */
-    val userRating: Float? = null,
 )
 
 data class ArtistListeningSummary(

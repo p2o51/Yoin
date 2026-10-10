@@ -133,7 +133,6 @@ import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.TimeZone
 import kotlin.math.absoluteValue
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 // ---------------------------------------------------------------------------
@@ -1070,13 +1069,6 @@ internal fun albumNeoDbLabel(state: AlbumNeoDbSync, resources: Resources? = null
 // ---------------------------------------------------------------------------
 // Formatting helpers.
 // ---------------------------------------------------------------------------
-
-/** Album / track 0–10 score rendered as "d.d" (e.g. 7 → "7.0", 8.5 → "8.5"). */
-internal fun formatAlbumScore(rating: Float): String {
-    val roundedTenths = (rating.coerceIn(0f, 10f) * 10f).roundToInt()
-    if (roundedTenths >= 100) return "10"
-    return "%d.%d".format(roundedTenths / 10, roundedTenths % 10)
-}
 
 /**
  * Album-level "last play" → (dayLabel, time), e.g. ("Yesterday", "16:04").

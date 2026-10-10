@@ -120,8 +120,8 @@ class ArtistDetailActivity : ComponentActivity() {
                     }
                 }
 
-                // Ratings given on an album page (or plays made) while this page
-                // was covered show up when the user comes back to it.
+                // Plays made while this page was covered show up in Most Played
+                // when the user comes back to it.
                 LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshPersonal() }
 
                 // Now Playing is hosted IN THIS window: the pill opens it in

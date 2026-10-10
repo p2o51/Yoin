@@ -58,7 +58,6 @@ class DetailVisitRecordingTest {
         every { repository.observeAlbumRating(any()) } returns flowOf(null)
         every { repository.observeTracksWithNotes(any()) } returns flowOf(emptySet())
         every { repository.resolveCoverUrl(any(), any()) } returns null
-        coEvery { repository.getAlbumRatings(any()) } returns emptyMap()
         coEvery { repository.getArtistListening(any(), any(), any(), any()) } returns null
         // The Room insert never finishes (a long sync transaction holding the database, say).
         coEvery { repository.recordAlbumVisit(any()) } coAnswers { awaitCancellation() }
