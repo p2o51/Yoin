@@ -8,6 +8,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.ConnectionPhase
+import com.gpo.yoin.player.playableQueue
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -73,8 +74,16 @@ class WidgetPlayActivity : ComponentActivity() {
         }
         if (tracks.isEmpty()) return false
         val playback = container.playbackManager
-        val wanted = tracks.first().id
-        playback.play(tracks = tracks, startIndex = 0, source = source, activityContext = context)
+        // The widget picks no song: an Apple Music import first in line gives way to the next that plays, and
+        // that song is the one to wait for.
+        val wanted = playableQueue(tracks, startIndex = 0, explicitStart = false).let { it.tracks[it.startIndex].id }
+        playback.play(
+            tracks = tracks,
+            startIndex = 0,
+            source = source,
+            activityContext = context,
+            explicitStart = false
+        )
         // Stay (invisibly) until the REQUESTED track plays — Spotify needs this Activity as its App Remote host
         // meanwhile. Only states about that track count: something already playing (or an old error) must not
         // end the wait before the request lands. An error or a timeout falls back to the detail page.

@@ -106,7 +106,9 @@ class AlbumDetailActivity : ComponentActivity() {
                         .distinctUntilChanged()
                 }.collectAsState(initial = currentTrackIdSeed)
 
-                fun playFrom(startIndex: Int, shuffle: Boolean) {
+                // explicitStart = false for Play / Shuffle: they pick no song, so an
+                // Apple Music import first in line gives way to the next that plays.
+                fun playFrom(startIndex: Int, shuffle: Boolean, explicitStart: Boolean = true) {
                     val ordered = viewModel.getAlbumSongs()
                     if (ordered.isEmpty()) return
                     val tracks = if (shuffle) ordered.shuffled() else ordered
@@ -126,6 +128,7 @@ class AlbumDetailActivity : ComponentActivity() {
                             source = source,
                             activityContext = activityContext,
                             shuffled = shuffle,
+                            explicitStart = explicitStart,
                         )
                     }
                 }
@@ -219,8 +222,8 @@ class AlbumDetailActivity : ComponentActivity() {
                     onRateSheetClosed = viewModel::onRateSheetClosed,
                     onNeoDbRetry = viewModel::retryNeoDbSync,
                     onNeoDbSignIn = { startActivity(SettingsActivity.intent(this@AlbumDetailActivity, "neodb")) },
-                    onPlayAlbum = { playFrom(startIndex = 0, shuffle = false) },
-                    onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
+                    onPlayAlbum = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+                    onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
                     onShare = {
                         val content = uiState as? AlbumDetailUiState.Content
                         val title = if (content != null) {

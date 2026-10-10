@@ -3,6 +3,7 @@ package com.gpo.yoin.data.source.applemusic
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.PlaybackHandle
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient
@@ -215,6 +216,26 @@ class AppleMusicSourceTest {
         val failure = runCatching { source.handleFor(track) }.exceptionOrNull()
         assertTrue(failure is IllegalArgumentException)
         assertTrue(failure!!.message!!.contains("imported song"))
+        assertEquals(0, server.requestCount)
+    }
+
+    // PlaybackManager leaves isUnplayableAppleImport tracks out before MusicKit
+    // sees them: the predicate must name exactly the tracks handleFor refuses.
+    @Test fun should_refuseExactlyTheTracksMarkedUnplayable_when_resolvingPlayback() = runTest {
+        val parsed = listOf(
+            """{"id": "123", "type": "songs", "attributes": {"name": "Catalog"}}""",
+            """{"id": "i.matched", "type": "library-songs", "attributes": {"playParams": {"catalogId": "456"}}}""",
+            """{"id": "i.import", "type": "library-songs", "attributes": {"name": "Imported"}}"""
+        ).map { json -> AppleMusicSong.fromJson(Json.parseToJsonElement(json).jsonObject).toTrack() }
+        // A library id that carries its catalog id in extras only.
+        val extrasOnly = parsed.last().let { it.copy(extras = it.extras + (AppleMusicSong.EXTRA_CATALOG_ID to "789")) }
+        val tracks = parsed + extrasOnly
+
+        assertEquals(listOf(false, false, true, false), tracks.map { it.isUnplayableAppleImport })
+        tracks.forEach { track ->
+            val refused = runCatching { source.handleFor(track) }.isFailure
+            assertEquals(track.id.toString(), track.isUnplayableAppleImport, refused)
+        }
         assertEquals(0, server.requestCount)
     }
 

@@ -77,6 +77,7 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
+import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
@@ -1127,6 +1128,7 @@ private fun YoinShell(
                                     )
                                 }
                             },
+                            onSongsListClick = { _, queue, index -> app.container.playSongsList(queue, index) },
                             onAddSongToPlaylist = { song ->
                                 nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                             },
@@ -1541,6 +1543,15 @@ private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
 internal fun trackCoverArtId(track: Track): String? =
     CoverRef.toStorageKey(track.coverArt)
         ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
+
+/**
+ * A Library Songs row: the whole list plays on from the tapped song. Context
+ * None, not LikedSongs: Songs isn't Spotify's Liked order.
+ */
+internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
+    val source = profileManager.activeSource.value ?: return
+    playbackManager.play(queue, startIndex, source, ActivityContext.None)
+}
 
 internal fun canLaunchDetailFromShell(
     lifecycleState: Lifecycle.State,

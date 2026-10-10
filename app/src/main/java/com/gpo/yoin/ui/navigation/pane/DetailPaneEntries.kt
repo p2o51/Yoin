@@ -113,7 +113,9 @@ internal fun AlbumPaneEntry(
     }
     val content = uiState as? AlbumDetailUiState.Content
 
-    fun playFrom(startIndex: Int, shuffle: Boolean) {
+    // explicitStart = false for Play / Shuffle: they pick no song, so an Apple
+    // Music import first in line gives way to the next that plays.
+    fun playFrom(startIndex: Int, shuffle: Boolean, explicitStart: Boolean = true) {
         val ordered = viewModel.getAlbumSongs()
         if (ordered.isEmpty()) return
         val tracks = if (shuffle) ordered.shuffled() else ordered
@@ -133,6 +135,7 @@ internal fun AlbumPaneEntry(
                 source = source,
                 activityContext = activityContext,
                 shuffled = shuffle,
+                explicitStart = explicitStart,
             )
         }
     }
@@ -170,8 +173,8 @@ internal fun AlbumPaneEntry(
         actions = rememberPaneBarActions(
             playContainer = barScheme.primary,
             playContent = barScheme.onPrimary,
-            onPlay = { playFrom(startIndex = 0, shuffle = false) },
-            onShuffle = { playFrom(startIndex = 0, shuffle = true) },
+            onPlay = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+            onShuffle = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
             promotable = listOfNotNull(
                 artistId?.let { id ->
                     BarExtraAction(icon = YoinSymbols.Artist, label = goToArtist) { onOpenArtist(id) }
@@ -209,8 +212,8 @@ internal fun AlbumPaneEntry(
         onRateSheetClosed = viewModel::onRateSheetClosed,
         onNeoDbRetry = viewModel::retryNeoDbSync,
         onNeoDbSignIn = { context.startActivity(SettingsActivity.intent(context, "neodb")) },
-        onPlayAlbum = { playFrom(startIndex = 0, shuffle = false) },
-        onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
+        onPlayAlbum = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+        onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
         onShare = share,
         menu = menu,
         onOpenArtist = artistId?.let { id -> { onOpenArtist(id) } },
@@ -255,6 +258,9 @@ internal fun ArtistPaneEntry(
                     startIndex = 0,
                     source = source,
                     activityContext = ActivityContext.None,
+                    // Play / Shuffle pick no song: an Apple Music import first
+                    // in line gives way to the next that plays.
+                    explicitStart = false,
                 )
             }
         }
@@ -349,7 +355,9 @@ internal fun PlaylistPaneEntry(
         viewModel.deleted.collect { currentOnBack() }
     }
 
-    fun playFrom(startIndex: Int, shuffle: Boolean) {
+    // explicitStart = false for Play / Shuffle: they pick no song, so an Apple
+    // Music import first in line gives way to the next that plays.
+    fun playFrom(startIndex: Int, shuffle: Boolean, explicitStart: Boolean = true) {
         val ordered = viewModel.getPlaylistSongs()
         if (ordered.isEmpty()) return
         val tracks = if (shuffle) ordered.shuffled() else ordered
@@ -369,6 +377,7 @@ internal fun PlaylistPaneEntry(
                 source = source,
                 activityContext = activityContext,
                 shuffled = shuffle,
+                explicitStart = explicitStart,
             )
         }
     }
@@ -384,8 +393,8 @@ internal fun PlaylistPaneEntry(
         actions = rememberPaneBarActions(
             playContainer = scheme.primary,
             playContent = scheme.onPrimary,
-            onPlay = { playFrom(startIndex = 0, shuffle = false) },
-            onShuffle = { playFrom(startIndex = 0, shuffle = true) },
+            onPlay = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+            onShuffle = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
             promotable = listOf(
                 BarExtraAction(
                     icon = YoinSymbols.Share,
@@ -399,8 +408,8 @@ internal fun PlaylistPaneEntry(
     PlaylistDetailScreen(
         uiState = uiState,
         onBackClick = onBack,
-        onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
-        onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
+        onPlayAllClick = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+        onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
         onSongClick = { songId ->
             val index = viewModel.getPlaylistSongs()
                 .indexOfFirst { it.id.toString() == songId }
