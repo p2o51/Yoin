@@ -2,8 +2,13 @@ package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.profile.ProfileCredentials
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
@@ -49,11 +54,18 @@ class SpotifyApiClient(
     private val apiBaseUrl: HttpUrl = "https://${SpotifyAuthConfig.API_HOST}/".toHttpUrl(),
     private val rateLimitGate: SpotifyRateLimitGate? = null,
     private val rateLimitProfileId: String? = null,
+    /**
+     * How many HTTP calls this client runs at once. Calls go out through the
+     * blocking `execute()`, which OkHttp's Dispatcher (5 per host) does not
+     * limit, and pages are now fetched concurrently — this is the only cap.
+     */
+    maxConcurrentRequests: Int = MAX_CONCURRENT_REQUESTS,
 ) {
 
     @Volatile
     private var credentials: ProfileCredentials.Spotify = initialCredentials
     private val refreshMutex = Mutex()
+    private val requestPermits = Semaphore(maxConcurrentRequests)
 
     @Volatile
     private var cachedUserId: String? = null
@@ -131,18 +143,27 @@ class SpotifyApiClient(
         )
     }
 
+    /**
+     * The album's tracks. Pass the page `GET /albums/{id}` embeds as
+     * [firstPage]: when it has no `next` (most albums) this makes no request
+     * at all, otherwise only the pages after it are fetched.
+     */
     suspend fun getAlbumTracks(
         id: String,
+        firstPage: SpotifyPagingObject<SpotifyTrackObject>? = null,
         limit: Int = DEFAULT_TRACKS_LIMIT,
-    ): List<SpotifyTrackObject> = collectOffsetPages(
-        initialUrl = apiUrl("v1", "albums", id, "tracks")
-            .newBuilder()
-            .addQueryParameter("limit", PAGE_LIMIT.toString())
-            .build(),
+    ): List<SpotifyTrackObject> = collectOffsetPagesConcurrently(
+        firstPage = firstPage,
+        pageUrl = { offset ->
+            apiUrl("v1", "albums", id, "tracks")
+                .newBuilder()
+                .addQueryParameter("limit", PAGE_LIMIT.toString())
+                .addOffset(offset)
+                .build()
+        },
+        pageSize = PAGE_LIMIT,
         maxItems = limit,
         deserializer = SpotifyPagingObject.serializer(SpotifyTrackObject.serializer()),
-        items = { page -> page.items },
-        next = { page -> page.next },
     )
 
     suspend fun getArtist(id: String): SpotifyArtistObject = withContext(Dispatchers.IO) {
@@ -159,44 +180,62 @@ class SpotifyApiClient(
      * The artist's own releases. Since the February 2026 migration this
      * endpoint pages at most 10 items per request (a larger `limit` is
      * rejected), so the total is capped to keep an artist visit to a handful
-     * of requests. `appears_on` is left out on purpose: other artists'
-     * records inflated the count and aren't this artist's discography.
+     * of requests. The first page's `total` lets the rest go out together
+     * rather than one after another. `appears_on` is left out on purpose:
+     * other artists' records inflated the count and aren't this artist's
+     * discography.
      */
     suspend fun getArtistAlbums(
         id: String,
         limit: Int = ARTIST_ALBUMS_LIMIT,
-    ): List<SpotifySimplifiedAlbumObject> = collectOffsetPages(
-        initialUrl = apiUrl("v1", "artists", id, "albums")
-            .newBuilder()
-            .addQueryParameter("limit", ARTIST_ALBUMS_PAGE_LIMIT.toString())
-            .addQueryParameter("include_groups", "album,single,compilation")
-            .build(),
+    ): List<SpotifySimplifiedAlbumObject> = collectOffsetPagesConcurrently(
+        firstPage = null,
+        pageUrl = { offset ->
+            apiUrl("v1", "artists", id, "albums")
+                .newBuilder()
+                .addQueryParameter("limit", ARTIST_ALBUMS_PAGE_LIMIT.toString())
+                .addQueryParameter("include_groups", "album,single,compilation")
+                .addOffset(offset)
+                .build()
+        },
+        pageSize = ARTIST_ALBUMS_PAGE_LIMIT,
         maxItems = limit,
         deserializer = SpotifyPagingObject.serializer(SpotifySimplifiedAlbumObject.serializer()),
-        items = { page -> page.items },
-        next = { page -> page.next },
     )
 
     suspend fun getPlaylist(id: String): SpotifyPlaylistObject = withContext(Dispatchers.IO) {
         getDecoded(
-            url = apiUrl("v1", "playlists", id),
+            // Same entry types as getPlaylistItems, so the embedded first page matches its pages.
+            url = apiUrl("v1", "playlists", id)
+                .newBuilder()
+                .addQueryParameter("additional_types", "track")
+                .build(),
             deserializer = SpotifyPlaylistObject.serializer(),
         )
     }
 
+    /**
+     * The playlist's entries in playlist order (callers map positions from
+     * the list index). Pass the page `GET /playlists/{id}` embeds as
+     * [firstPage] so only the pages after it are fetched.
+     */
     suspend fun getPlaylistItems(
         id: String,
+        firstPage: SpotifyPagingObject<SpotifyPlaylistItemObject>? = null,
         limit: Int = DEFAULT_TRACKS_LIMIT,
-    ): List<SpotifyPlaylistItemObject> = collectOffsetPages(
-        initialUrl = apiUrl("v1", "playlists", id, "items")
-            .newBuilder()
-            .addQueryParameter("limit", PAGE_LIMIT.toString())
-            .addQueryParameter("additional_types", "track")
-            .build(),
+    ): List<SpotifyPlaylistItemObject> = collectOffsetPagesConcurrently(
+        firstPage = firstPage,
+        pageUrl = { offset ->
+            apiUrl("v1", "playlists", id, "items")
+                .newBuilder()
+                .addQueryParameter("limit", PAGE_LIMIT.toString())
+                .addQueryParameter("additional_types", "track")
+                .addOffset(offset)
+                .build()
+        },
+        pageSize = PAGE_LIMIT,
         maxItems = limit,
         deserializer = SpotifyPagingObject.serializer(SpotifyPlaylistItemObject.serializer()),
-        items = { page -> page.items },
-        next = { page -> page.next },
     )
 
     suspend fun search(
@@ -403,7 +442,7 @@ class SpotifyApiClient(
             .addQueryParameter("uris", uri)
             .build()
         ensureNotRateLimited(url.toString())
-        executeWithAuthRetry { accessToken ->
+        executeWithAuthRetry(url.toString()) { accessToken ->
             Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $accessToken")
@@ -453,7 +492,7 @@ class SpotifyApiClient(
     ): Response {
         ensureNotRateLimited(url.toString())
         val body: RequestBody = jsonBody?.toRequestBody(JSON_MEDIA_TYPE) ?: EMPTY_BODY
-        return executeWithAuthRetry { accessToken ->
+        return executeWithAuthRetry(url.toString()) { accessToken ->
             Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $accessToken")
@@ -481,6 +520,50 @@ class SpotifyApiClient(
         results.take(maxItems)
     }
 
+    /**
+     * Every item of an offset-paged list, up to [maxItems], in list order.
+     * The first page is [firstPage] when the caller already has it (Spotify
+     * embeds one in album and playlist objects), else it is fetched. A bare
+     * `{href, total}` without `limit` (what a playlist the user doesn't own
+     * carries) is not a page and is fetched too. The first page's `total`
+     * names every remaining page, so those are requested together by offset
+     * instead of one `next` link at a time; each request still waits for a
+     * [requestPermits] slot. Without a `total` the `next` links are followed
+     * in turn.
+     */
+    private suspend fun <T> collectOffsetPagesConcurrently(
+        firstPage: SpotifyPagingObject<T>?,
+        pageUrl: (offset: Int) -> HttpUrl,
+        pageSize: Int,
+        maxItems: Int,
+        deserializer: KSerializer<SpotifyPagingObject<T>>
+    ): List<T> = withContext(Dispatchers.IO) {
+        val first = firstPage?.takeIf { page -> page.limit != null || page.items.isNotEmpty() }
+            ?: getDecoded(pageUrl(0), deserializer)
+        val next = first.next?.toHttpUrlOrNull()
+        if (next == null || first.items.size >= maxItems) return@withContext first.items.take(maxItems)
+        val total = first.total
+            ?: return@withContext first.items + collectOffsetPages(
+                initialUrl = next,
+                maxItems = maxItems - first.items.size,
+                deserializer = deserializer,
+                items = { page -> page.items },
+                next = { page -> page.next }
+            )
+        // Continue where `next` points (the embedded page may be sized
+        // differently from [pageSize]), so positions stay contiguous.
+        val start = next.queryParameter("offset")?.toIntOrNull() ?: first.items.size
+        val rest = coroutineScope {
+            (start until minOf(total, maxItems) step pageSize)
+                .map { offset -> async { getDecoded(pageUrl(offset), deserializer).items } }
+                .awaitAll()
+        }
+        (first.items + rest.flatten()).take(maxItems)
+    }
+
+    private fun HttpUrl.Builder.addOffset(offset: Int): HttpUrl.Builder =
+        if (offset > 0) addQueryParameter("offset", offset.toString()) else this
+
     private suspend fun <T> collectCursorPages(
         initialUrl: HttpUrl,
         maxItems: Int,
@@ -503,7 +586,7 @@ class SpotifyApiClient(
         deserializer: KSerializer<T>,
     ): T {
         ensureNotRateLimited(url.toString())
-        val response = executeWithAuthRetry { accessToken ->
+        val response = executeWithAuthRetry(url.toString()) { accessToken ->
             val req = Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $accessToken")
@@ -559,15 +642,29 @@ class SpotifyApiClient(
      * Runs [block] with the current (possibly refreshed) access token. On a
      * 401 response, force-refreshes the credentials and retries once. The
      * second response is returned verbatim whether it's another 401 or not.
+     *
+     * Each HTTP call holds one [requestPermits] slot while it executes — the
+     * call alone, never a token refresh or a multi-page read, so nothing
+     * waits for a slot while holding one.
      */
-    private suspend fun executeWithAuthRetry(block: (accessToken: String) -> Response): Response {
+    private suspend fun executeWithAuthRetry(endpoint: String, block: (accessToken: String) -> Response): Response {
         ensureFreshCredentials()
-        val first = block(credentials.accessToken)
+        val first = executeWithPermit(endpoint) { block(credentials.accessToken) }
         if (first.code != HTTP_UNAUTHORIZED) return first
         first.close()
         forceRefresh()
-        return block(credentials.accessToken)
+        return executeWithPermit(endpoint) { block(credentials.accessToken) }
     }
+
+    /**
+     * Checks the rate-limit gate again once the slot is held: a call queued
+     * behind one that drew a 429 must not go out after the gate closed.
+     */
+    private suspend fun executeWithPermit(endpoint: String, call: () -> Response): Response =
+        requestPermits.withPermit {
+            ensureNotRateLimited(endpoint)
+            call()
+        }
 
     private suspend fun ensureFreshCredentials() = coalescedRefresh(force = false)
 
@@ -623,6 +720,7 @@ class SpotifyApiClient(
         private const val DEFAULT_RETRY_AFTER_SECONDS = 5L
         private const val MAX_RETRY_AFTER_SECONDS = 24L * 60L * 60L
         private const val REFRESH_BUFFER_MS = 60_000L
+        private const val MAX_CONCURRENT_REQUESTS = 4
         private const val PAGE_LIMIT = 50
         private const val ARTIST_ALBUMS_PAGE_LIMIT = 10
         private const val ARTIST_ALBUMS_LIMIT = 60

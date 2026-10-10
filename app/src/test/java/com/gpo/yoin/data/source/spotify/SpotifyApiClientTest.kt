@@ -1,6 +1,8 @@
 package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.profile.ProfileCredentials
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -442,7 +444,64 @@ class SpotifyApiClientTest {
         assertEquals(0, revokeCallbacks)
     }
 
+    @Test
+    fun should_limitConcurrency_when_manyPagesRequested() = runTest {
+        val inFlight = AtomicInteger()
+        val peak = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val running = inFlight.incrementAndGet()
+                peak.accumulateAndGet(running) { a, b -> maxOf(a, b) }
+                Thread.sleep(150)
+                inFlight.decrementAndGet()
+                val offset = request.requestUrl?.queryParameter("offset")?.toInt() ?: 0
+                return MockResponse().setResponseCode(200)
+                    .setBody(playlistItemsPage(offset = offset, size = 50, total = 300))
+            }
+        }
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        val items = client.getPlaylistItems("pl1")
+
+        assertEquals(300, items.size)
+        // First page, then the other five side by side — never more than four at once.
+        assertEquals(6, server.requestCount)
+        assertTrue("peak ${peak.get()}", peak.get() in 2..4)
+    }
+
+    @Test
+    fun should_preserveOrder_when_artistAlbumPagesFetchedConcurrently() = runTest {
+        val offsets = CopyOnWriteArrayList<Int>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val offset = request.requestUrl?.queryParameter("offset")?.toInt() ?: 0
+                offsets += offset
+                // Later pages answer first.
+                Thread.sleep(((30 - offset) * 10L).coerceAtLeast(0L))
+                val items = (offset until minOf(offset + 10, 35))
+                    .joinToString(",") { """{"id":"a$it","name":"a$it"}""" }
+                val next = server.url("/v1/artists/ar1/albums?offset=${offset + 10}&limit=10")
+                    .takeIf { offset + 10 < 35 }
+                return MockResponse().setResponseCode(200)
+                    .setBody("""{"items":[$items],"next":${next?.let { "\"$it\"" }},"total":35}""")
+            }
+        }
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        val albums = client.getArtistAlbums("ar1")
+
+        assertEquals((0 until 35).map { "a$it" }, albums.map { it.id })
+        assertEquals(listOf(0, 10, 20, 30), offsets.sorted())
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
+
+    private fun playlistItemsPage(offset: Int, size: Int, total: Int): String {
+        val end = minOf(offset + size, total)
+        val items = (offset until end).joinToString(",") { """{"track":{"id":"t$it","name":"T$it"}}""" }
+        val next = server.url("/v1/playlists/pl1/items?offset=$end&limit=$size").takeIf { end < total }
+        return """{"items":[$items],"next":${next?.let { "\"$it\"" }},"total":$total}"""
+    }
 
     private fun newClient(
         initialCredentials: ProfileCredentials.Spotify,
