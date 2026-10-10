@@ -121,8 +121,8 @@ class AppleMusicSource(
         val recent = type == "newest"
         val requestPath = if (recent) listOf("v1", "me", "library", "recently-added") else path("albums")
         // The catalog relationship lets a library album open as the full catalog album.
-        val query = if (recent) {
-            emptyMap()
+        var query = if (recent) {
+            RecentlyAddedPageQuery
         } else {
             mapOf("include" to "catalog", "limit" to "100", "offset" to offset.coerceAtLeast(0).toString())
         }
@@ -131,7 +131,15 @@ class AppleMusicSource(
         val skip = if (recent) offset.coerceAtLeast(0) else 0
         var next: String? = null
         do {
-            val response = page(requestPath, query, next)
+            val response = try {
+                page(requestPath, query, next)
+            } catch (error: AppleMusicApiException) {
+                // recently-added does not document its page size: if Apple refuses ours, page at its default.
+                val refused = (error.failure as? AppleMusicApiFailure.Http)?.status == 400
+                if (!recent || next != null || query.isEmpty() || !refused) throw error
+                query = emptyMap()
+                page(requestPath, query, null)
+            }
             albums += response.resources().filter { it.text("type") in setOf("albums", "library-albums") }.map(::album)
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
@@ -504,3 +512,10 @@ private const val RecentPlayedMaxPages = 5
 
 /** Apple's largest page for library collections and the artist albums relationship (default 25). */
 private val PageLimitQuery = mapOf("limit" to "100")
+
+/**
+ * recently-added pages 10 at a time by default, so filling Library › Albums took ~15 serial
+ * requests. Its page limit is undocumented: ask for 25, and [getAlbumList] falls back to Apple's
+ * default page if the size is refused.
+ */
+private val RecentlyAddedPageQuery = mapOf("limit" to "25")

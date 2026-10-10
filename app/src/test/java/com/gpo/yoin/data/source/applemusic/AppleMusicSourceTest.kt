@@ -463,6 +463,33 @@ class AppleMusicSourceTest {
         assertEquals(listOf("100"), server.takeRequest().requestUrl!!.queryParameterValues("limit"))
     }
 
+    @Test fun should_askForLargerPages_when_readingRecentlyAddedAlbums() = runTest {
+        reply(
+            """{
+              "data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}],
+              "next":"/v1/me/library/recently-added?offset=25"
+            }"""
+        )
+        reply("""{"data":[{"id":"l.2","type":"library-albums","attributes":{"name":"Two"}}]}""")
+        val albums = source.getAlbumList("newest", size = 10, offset = 0)
+        assertEquals(listOf("library:l.1", "library:l.2"), albums.map { it.id.rawId })
+        val first = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/library/recently-added", first.encodedPath)
+        assertEquals("25", first.queryParameter("limit"))
+        val second = server.takeRequest().requestUrl!!
+        assertEquals("25", second.queryParameter("offset"))
+        assertEquals(listOf("25"), second.queryParameterValues("limit"))
+    }
+
+    @Test fun should_fallBackToDefaultPages_when_recentlyAddedRefusesThePageSize() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        reply("""{"data":[{"id":"l.1","type":"library-albums","attributes":{"name":"One"}}]}""")
+        val albums = source.getAlbumList("newest", size = 10, offset = 0)
+        assertEquals(listOf("library:l.1"), albums.map { it.id.rawId })
+        assertEquals("25", server.takeRequest().requestUrl!!.queryParameter("limit"))
+        assertEquals(null, server.takeRequest().requestUrl!!.queryParameter("limit"))
+    }
+
     @Test fun should_roundTripAppleCredentials_withProviderDiscriminator() {
         val credentials = ProfileCredentials.AppleMusic("https://token.test/token", "user")
         val codec = PlaintextProfileCredentialsCodec()
