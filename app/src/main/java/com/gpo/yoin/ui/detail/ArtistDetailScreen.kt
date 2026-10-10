@@ -569,13 +569,23 @@ private fun ArtistBody(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 40.dp),
-                    horizontalArrangement = Arrangement.spacedBy(48.dp),
                 ) {
-                    if (mostPlayedVisible) {
+                    // Arrives with the personal layer; widens in, carrying its
+                    // 48dp gap, so the discography narrows with it instead of
+                    // jumping.
+                    AnimatedVisibility(
+                        visible = mostPlayedVisible,
+                        enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                            YoinMotion.expandHorizontally(role = YoinMotionRole.Expressive),
+                        exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
+                            YoinMotion.shrinkHorizontally(role = YoinMotionRole.Expressive),
+                    ) {
                         ArtistMostPlayed(
                             listening = content.listening,
                             onClick = onMostPlayedClick,
-                            modifier = Modifier.width(ArtistDesktopMostPlayedWidth),
+                            modifier = Modifier
+                                .padding(end = 48.dp)
+                                .width(ArtistDesktopMostPlayedWidth),
                         )
                     }
                     ArtistDiscography(
@@ -655,7 +665,14 @@ private fun ArtistLandscapeHero(
             ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
         }
         Column(modifier = Modifier.weight(1f)) {
-            if (content.listening?.mostPlayed?.isNotEmpty() == true) {
+            // Arrives with the personal layer; grows in instead of popping.
+            AnimatedVisibility(
+                visible = content.listening?.mostPlayed?.isNotEmpty() == true,
+                enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                    expandVertically(animationSpec = YoinMotion.spatialSpring()),
+                exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
+                    shrinkVertically(animationSpec = YoinMotion.spatialSpring()),
+            ) {
                 ArtistMostPlayed(
                     listening = content.listening,
                     onClick = onMostPlayedClick,
