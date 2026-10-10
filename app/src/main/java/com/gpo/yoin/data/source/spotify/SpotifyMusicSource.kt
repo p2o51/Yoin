@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -113,10 +114,10 @@ class SpotifyMusicSource(
         // No savedAlbumIds(): neither the album page nor anything else reads
         // an album's own saved state from here — it cost up to 4 pages cold.
         override suspend fun getAlbum(id: MediaId): Album? = withSpotifyId(id) { rawId ->
-            coroutineScope {
+            supervisorScope {
                 val savedTrackIds = async { savedTrackIds() }
                 val album = orNullIfNotFound { apiClient.getAlbum(rawId) }
-                    ?: return@coroutineScope cancelAndReturnNull()
+                    ?: return@supervisorScope cancelAndReturnNull()
                 // The album object embeds its first page of tracks: usually all of them.
                 val tracks = apiClient.getAlbumTracks(rawId, firstPage = album.tracks)
                 album.toAlbum(
@@ -133,11 +134,11 @@ class SpotifyMusicSource(
         // no savedAlbumIds(); the artist, its releases and the follow list
         // are read side by side.
         override suspend fun getArtist(id: MediaId): ArtistDetail? = withSpotifyId(id) { rawId ->
-            coroutineScope {
+            supervisorScope {
                 val followedArtistIds = async { followedArtistIds() }
                 val releases = async { apiClient.getArtistAlbums(rawId) }
                 val artist = orNullIfNotFound { apiClient.getArtist(rawId) }
-                    ?: return@coroutineScope cancelAndReturnNull()
+                    ?: return@supervisorScope cancelAndReturnNull()
                 val albums = releases.await()
                     .distinctBy(SpotifySimplifiedAlbumObject::id)
                     .map { it.toAlbum() }
@@ -157,13 +158,13 @@ class SpotifyMusicSource(
         }
 
         override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
-            coroutineScope {
+            supervisorScope {
                 val savedTrackIds = async { savedTrackIds() }
                 val meId = async { apiClient.getCurrentUserId() }
                 val playlist = orNullIfNotFound { apiClient.getPlaylist(rawId) }
                 if (playlist == null) {
                     playlistTrackOffsetsById.remove(rawId)
-                    return@coroutineScope cancelAndReturnNull()
+                    return@supervisorScope cancelAndReturnNull()
                 }
                 // Starts from the first page the playlist object embeds, when it does.
                 val indexedTracks = apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
@@ -548,7 +549,12 @@ class SpotifyMusicSource(
         if (error.isSpotifyNotFound()) null else throw error
     }
 
-    /** Stops the reads started beside a lookup that found nothing. */
+    /**
+     * Stops the reads started beside a lookup that found nothing. Detail
+     * reads run them in a supervisorScope, so one that fails anyway (a
+     * missing artist's releases 404 too) doesn't turn the null into its
+     * error: a side read's failure only surfaces where it is awaited.
+     */
     private fun CoroutineScope.cancelAndReturnNull(): Nothing? {
         coroutineContext.cancelChildren()
         return null

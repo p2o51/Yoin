@@ -14,6 +14,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -209,6 +210,60 @@ class SpotifyMusicSourceTest {
         assertEquals(listOf("2"), itemRequests.map { it.requestUrl?.queryParameter("offset") })
     }
 
+    @Test
+    fun should_returnNull_when_artistAndItsReleasesNotFound() = runTest {
+        // The lookup answers first and the cancelled releases read fails after it...
+        routes["/v1/artists/gone"] = { notFound() }
+        routes["/v1/artists/gone/albums"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        // ...or the releases read fails while the lookup is still out.
+        routes["/v1/artists/gone2"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        routes["/v1/artists/gone2/albums"] = { notFound() }
+        val source = newSource()
+
+        assertNull(source.library().getArtist(MediaId.spotify("gone")))
+        assertNull(source.library().getArtist(MediaId.spotify("gone2")))
+    }
+
+    @Test
+    fun should_returnNull_when_albumNotFoundAndSavedTracksFail() = runTest {
+        routes["/v1/albums/gone"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        routes["/v1/me/tracks"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        assertNull(source.library().getAlbum(MediaId.spotify("gone")))
+    }
+
+    @Test
+    fun should_returnNull_when_playlistNotFoundAndProfileReadFails() = runTest {
+        routes["/v1/playlists/gone"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        routes["/v1/me"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        assertNull(source.library().getPlaylist(MediaId.spotify("gone")))
+    }
+
+    @Test
+    fun should_fail_when_artistFoundButReleasesFail() = runTest {
+        routes["/v1/artists/r1/albums"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        val error = runCatching { source.library().getArtist(MediaId.spotify("r1")) }.exceptionOrNull()
+
+        assertEquals(500, (error as? SpotifyAuthException)?.code)
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun newSource(): SpotifyMusicSource {
@@ -239,6 +294,8 @@ class SpotifyMusicSourceTest {
     private fun requestsTo(path: String): Int = requests.count { it.requestUrl?.encodedPath == path }
 
     private fun ok(body: String) = MockResponse().setResponseCode(200).setBody(body)
+
+    private fun notFound() = MockResponse().setResponseCode(404).setBody("""{"error":{"status":404}}""")
 
     private fun track(id: String, album: String? = null): String {
         val albumJson = album?.let { ""","album":{"id":"$it","name":"Album $it"}""" }.orEmpty()
