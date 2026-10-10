@@ -1396,7 +1396,7 @@ class LibraryViewModelTest {
         // page records its visit and plays under the id it resolves to, which Library can't match.
         val records = MutableStateFlow(LibraryRecents(albums = mapOf("1440000001" to 900L)))
         val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, setOf(Capability.LIBRARY_SONGS))
-        coEvery { repository.getAlbumList("alphabeticalByName", size = 500, offset = 0) } returns listOf(
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } returns listOf(
             appleAlbum("library:l.new", "New", added = "2024-01-01T00:00:00Z"),
             appleAlbum("library:l.opened", "Opened", added = "2020-01-01T00:00:00Z")
         )
@@ -1505,19 +1505,44 @@ class LibraryViewModelTest {
     @Test
     fun should_readAppleMusicsLibraryAlbums_when_appleMusicIsActive() = runTest {
         val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
-        val first = numberedAlbums(0 until 500, provider = MediaId.PROVIDER_APPLE_MUSIC)
-        val rest = numberedAlbums(500 until 503, provider = MediaId.PROVIDER_APPLE_MUSIC)
-        coEvery { repository.getAlbumList("alphabeticalByName", size = 500, offset = 0) } returns first
-        coEvery { repository.getAlbumList("alphabeticalByName", size = 500, offset = 500) } returns rest
+        val first = numberedAlbums(0 until 100, provider = MediaId.PROVIDER_APPLE_MUSIC)
+        val rest = numberedAlbums(100 until 103, provider = MediaId.PROVIDER_APPLE_MUSIC)
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } returns first
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 100) } returns rest
         val viewModel = libraryViewModel(repository)
         advanceUntilIdle()
 
         viewModel.selectTab(LibraryTab.Albums)
         advanceUntilIdle()
 
-        assertEquals(503, content(viewModel).albums.orEmpty().size)
+        assertEquals(103, content(viewModel).albums.orEmpty().size)
         // The library's albums, not the recently-added window.
         coVerify(exactly = 0) { repository.getAlbumList("newest", any(), any()) }
+    }
+
+    @Test
+    fun should_showAppleMusicsAlbumsAPageAtATime_when_allLoads() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val secondPage = CompletableDeferred<List<Album>>()
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } returns
+            numberedAlbums(0 until 100, provider = MediaId.PROVIDER_APPLE_MUSIC)
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 100) } coAnswers {
+            secondPage.await()
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+        // One request in: the first page is in All while the next is on its way.
+        fun albumsInAll() = content(viewModel).allItems?.count { it is LibraryItem.AlbumItem }
+        assertEquals(100, albumsInAll())
+
+        secondPage.complete(numberedAlbums(100 until 130, provider = MediaId.PROVIDER_APPLE_MUSIC))
+        advanceUntilIdle()
+        // Merged in where it belongs; All never went back to its loading indicator.
+        assertEquals(130, albumsInAll())
+        coVerify(exactly = 2) { repository.getAlbumList(any(), any(), any()) }
     }
 
     @Test

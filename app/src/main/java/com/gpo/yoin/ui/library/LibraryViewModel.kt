@@ -1756,8 +1756,11 @@ class LibraryViewModel(
         /** Subsonic's `getAlbumList2` ceiling for one request. */
         private const val SUBSONIC_ALBUMS_BATCH = 500
 
-        /** Apple Music library albums per read: the source's 100-album pages, five at a time. */
-        private const val APPLE_ALBUMS_BATCH = 500
+        /**
+         * Apple Music library albums per read: one of the source's 100-album
+         * pages, so All shows the first after one request, not five.
+         */
+        private const val APPLE_ALBUMS_BATCH = 100
 
         /** Any list type but `newest` reads Apple Music's library albums ([libraryAlbumsQuery]). */
         private const val APPLE_LIBRARY_ALBUMS = "alphabeticalByName"
