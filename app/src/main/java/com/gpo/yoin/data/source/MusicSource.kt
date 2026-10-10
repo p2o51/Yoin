@@ -63,6 +63,9 @@ enum class Capability {
     FAVORITES,
     SEARCH,
     CATALOG_SEARCH,
+
+    /** Search results can hold playlists: the search surface offers its Playlists chip. */
+    SEARCH_PLAYLISTS,
     LIBRARY_ADD,
     LIBRARY_SONGS,
     RANDOM_SONGS,

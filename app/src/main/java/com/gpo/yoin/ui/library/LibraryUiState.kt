@@ -42,6 +42,14 @@ sealed interface LibraryUiState {
         val canSearchAppleMusicCatalog: Boolean = false,
         val searchFocusRequestId: Long = 0L,
         /**
+         * The result type the search surface lists. Back to All whenever the
+         * search is cleared or reopened, and normalised against
+         * [availableSearchFilters] on every scope or capability change.
+         */
+        val searchFilter: LibrarySearchFilter = LibrarySearchFilter.All,
+        /** Type chips for the active provider and [searchScope] ([searchFiltersFor]). */
+        val availableSearchFilters: List<LibrarySearchFilter> = LibrarySearchFilter.entries,
+        /**
          * The chips the active source supports ([LibraryTab.All] is never
          * one: it is no chip at all). When the provider lacks
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_READ] the Playlists
