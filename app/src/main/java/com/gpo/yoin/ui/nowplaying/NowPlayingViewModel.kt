@@ -311,18 +311,35 @@ class NowPlayingViewModel(
     // user's write, Spotify's answer, the saved-tracks mirror, the track's own
     // flag — see YoinRepository.observeFavoriteStates), folded into a glyph.
     // A change the user didn't tap (Spotify confirming a like late, the next
-    // track) is a quiet flip: it crossfades instead of beating. The checks
-    // themselves are PlaybackManager's, once per track for every host.
+    // track) is a quiet flip: it crossfades instead of beating. What caused
+    // the change decides, not where the value came from: the next track is
+    // quiet even when its state is the user's own earlier write (Subsonic
+    // keeps that override for the session, Spotify for the write's grace).
+    // The checks themselves are PlaybackManager's, once per track for every host.
     private val favoriteFlow: Flow<FavoriteGlyph> = playbackManager.playbackState
         .map { it.currentTrack }
         .distinctUntilChanged { old, new -> old?.id == new?.id && old?.isStarred == new?.isStarred }
         .flatMapLatest { track ->
-            if (track == null) flowOf(FavoriteState(isStarred = false)) else repository.observeFavoriteState(track)
+            val states = if (track == null) {
+                flowOf(FavoriteState(isStarred = false))
+            } else {
+                repository.observeFavoriteState(track)
+            }
+            states.map { state -> track?.id to state }
         }
-        .runningFold(null as FavoriteGlyph?) { glyph, state ->
-            glyph?.next(state.isStarred, state.fromUser) ?: FavoriteGlyph(state.isStarred)
+        .runningFold(null as TrackHeart?) { shown, (trackId, state) ->
+            val glyph = if (shown == null) {
+                FavoriteGlyph(state.isStarred)
+            } else {
+                shown.glyph.next(state.isStarred, fromUser = state.fromUser && trackId == shown.trackId)
+            }
+            TrackHeart(trackId, glyph)
         }
         .filterNotNull()
+        .map { it.glyph }
+
+    /** The heart as last shown, and the track it was shown for. */
+    private class TrackHeart(val trackId: MediaId?, val glyph: FavoriteGlyph)
 
     private val libraryMembershipFlow = currentSongId.flatMapLatest { songId ->
         if (songId == null) flowOf(null to LibraryMembership.Unknown)

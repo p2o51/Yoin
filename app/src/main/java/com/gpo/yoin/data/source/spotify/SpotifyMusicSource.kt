@@ -19,6 +19,7 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import java.util.concurrent.ConcurrentHashMap
@@ -225,19 +226,25 @@ class SpotifyMusicSource(
     private val writeActions = object : MusicWriteActions {
         // Asked of Spotify, since the saved-tracks list stops at 200. One
         // contains read per 40 tracks, one after another. Episodes and local
-        // files App Remote reported have no track id to ask about.
+        // files App Remote reported have no track id to ask about. A batch
+        // failing after others answered (a 429) keeps their answers.
         override suspend fun favoriteStates(tracks: List<Track>): Result<Map<MediaId, Boolean>> {
             val asked = tracks
                 .mapNotNull { track -> spotifyTrackUriOrNull(track)?.let { uri -> track.id to uri } }
                 .distinctBy { (id, _) -> id }
             if (asked.isEmpty()) return Result.success(emptyMap())
+            val answered = LinkedHashMap<MediaId, Boolean>()
             return try {
-                val saved = apiClient.libraryContains(asked.map { (_, uri) -> uri })
-                Result.success(asked.mapIndexed { index, (id, _) -> id to saved[index] }.toMap())
+                apiClient.libraryContains(asked.map { (_, uri) -> uri }) { from, saved ->
+                    saved.forEachIndexed { offset, isSaved -> answered[asked[from + offset].first] = isSaved }
+                }
+                Result.success(answered.toMap())
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                Result.failure(error)
+                Result.failure(
+                    if (answered.isEmpty()) error else FavoriteStatesIncompleteException(answered.toMap(), error)
+                )
             }
         }
 

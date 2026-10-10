@@ -62,7 +62,7 @@
 | 事件 | 字段 | 打在哪 | 含义 |
 | --- | --- | --- | --- |
 | `favorite.check` | `src=appRemote` `ok` [`err`] `ms` | `PlaybackManager.appRemoteLibraryState` | Now Playing 换歌（或节流后的重查）时问 App Remote `getLibraryState`。本机 IPC，没有对应的 `http` 行。`ok=false err=IllegalStateException` 多半是 App Remote 没连上。 |
-| `favorite.check` | `src=contains` `n` `ok` [`err`] `ms` | `YoinRepository.refreshFavoriteStates` | 一次 Web API contains 查询：专辑页加载或回到前台，或者 Now Playing 的 App Remote 出错后的回退。`n` 是这次问的曲目数（每 40 个一个请求，`http` 行里能看到 `/v1/me/library/contains`）。限流门关着或 30 秒内问过的曲目不发请求，也不打这一行；Subsonic 不打。 |
+| `favorite.check` | `src=contains` `n` `ok` [`err`] [`answered`] `ms` | `YoinRepository.refreshFavoriteStates` | 一次 Web API contains 查询：专辑页加载或回到前台，或者 Now Playing 的 App Remote 出错后的回退。`n` 是这次问的曲目数（每 40 个一个请求，`http` 行里能看到 `/v1/me/library/contains`）。中途某一批失败（比如 429）时 `answered` 是前面几批已经答到、照样记下的曲目数。限流门关着或 30 秒内问过的曲目不发请求，也不打这一行；Subsonic 不打。 |
 
 - 验收时看：连续听歌一小时，`src=contains` 的次数应当接近 0（App Remote 正常时 Now Playing 不走 Web API）；打开一张专辑最多一行 `src=contains`。
 

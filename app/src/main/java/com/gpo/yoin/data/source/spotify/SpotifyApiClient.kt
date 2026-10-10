@@ -311,8 +311,15 @@ class SpotifyApiClient(
      * goes out one batch after another, never side by side; the first
      * failure (a 429 among them) ends the read, with no retry. A closed
      * rate-limit gate fails it before any request.
+     *
+     * [onBatch] gets each batch's answers as they land — `from` is the index
+     * in [uris] of the batch's first URI — so what the batches before a
+     * failure learned isn't thrown away with it.
      */
-    suspend fun libraryContains(uris: List<String>): List<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun libraryContains(
+        uris: List<String>,
+        onBatch: (from: Int, saved: List<Boolean>) -> Unit = { _, _ -> }
+    ): List<Boolean> = withContext(Dispatchers.IO) {
         val saved = ArrayList<Boolean>(uris.size)
         for (batch in uris.chunked(LIBRARY_CONTAINS_BATCH)) {
             // Colons percent-encoded, commas left as the list separator: the reference's own form.
@@ -325,6 +332,7 @@ class SpotifyApiClient(
             check(answer.size == batch.size) {
                 "Spotify answered ${answer.size} library states for ${batch.size} URIs"
             }
+            onBatch(saved.size, answer)
             saved += answer
         }
         saved

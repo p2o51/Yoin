@@ -3,6 +3,7 @@ package com.gpo.yoin.data.source.spotify
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.profile.ProfileCredentials
+import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -20,7 +21,7 @@ import org.junit.Test
  * `GET /v1/me/library/contains` (P4): the Liked Songs check for tracks the
  * 200-track saved list can't show. At most 40 URIs a request, one request
  * after another, answers in the order asked; a closed rate-limit gate sends
- * nothing and a 429 ends the read.
+ * nothing and a 429 ends the read, keeping what the requests before it learned.
  */
 class SpotifyLibraryContainsTest {
 
@@ -92,31 +93,54 @@ class SpotifyLibraryContainsTest {
             if (calls == 2) MockResponse().setResponseCode(429).addHeader("Retry-After", "30") else ok(uris)
         }
 
+        val uris = (0 until 120).map { "spotify:track:id$it" }
+        val delivered = mutableListOf<Pair<Int, List<Boolean>>>()
+
         val error = runCatching {
-            client(gate).libraryContains((0 until 120).map { "spotify:track:id$it" })
+            client(gate).libraryContains(uris) { from, saved -> delivered += from to saved }
         }.exceptionOrNull()
 
         assertTrue(error is SpotifyRateLimitException)
         // The first batch, the 429; never the third, never the second again.
         assertEquals(2, server.requestCount)
         assertTrue(gate.isBlocked(PROFILE))
+        // What the first request learned still reached the caller.
+        assertEquals(listOf(0 to uris.take(40).map(::liked)), delivered)
+    }
+
+    @Test
+    fun should_keepTheEarlierBatchesAnswers_when_aLaterBatchIsRateLimited() = runTest {
+        var calls = 0
+        val ok = answer
+        answer = { uris ->
+            calls++
+            if (calls == 2) MockResponse().setResponseCode(429).addHeader("Retry-After", "30") else ok(uris)
+        }
+        val tracks = (0 until 85).map { track("id$it") }
+
+        val error = source().writeActions().favoriteStates(tracks).exceptionOrNull()
+
+        assertTrue(error is FavoriteStatesIncompleteException)
+        val incomplete = error as FavoriteStatesIncompleteException
+        assertTrue(incomplete.cause is SpotifyRateLimitException)
+        assertEquals(tracks.take(40).associate { it.id to liked("spotify:track:${it.id.rawId}") }, incomplete.answered)
+        // The answered batch and the 429; the third batch is never asked.
+        assertEquals(listOf(40, 40), asked.map { it.size })
+    }
+
+    @Test
+    fun should_failPlainly_when_theFirstBatchIsRateLimited() = runTest {
+        answer = { MockResponse().setResponseCode(429).addHeader("Retry-After", "30") }
+
+        val error = source().writeActions().favoriteStates(listOf(track("id1"))).exceptionOrNull()
+
+        // Nothing was answered: no partial answer to carry.
+        assertTrue(error is SpotifyRateLimitException)
     }
 
     @Test
     fun should_askOnlyAboutTracks_when_sourceChecksFavorites() = runTest {
-        val httpClient = OkHttpClient()
-        val baseUrl = server.url("/")
-        val source = SpotifyMusicSource(
-            // The source's client reads the real clock: a token that never expires.
-            initialCredentials = spotifyTestCredentials("t1", "r1", expiresAtEpochMs = Long.MAX_VALUE / 2),
-            clientIdProvider = { "test-client" },
-            onCredentialsPersisted = {},
-            httpClient = httpClient,
-            authService = SpotifyAuthService(httpClient = httpClient, authBaseUrl = baseUrl, apiBaseUrl = baseUrl),
-            profileId = PROFILE,
-            apiBaseUrl = baseUrl,
-            clock = { SPOTIFY_TEST_BASE_EPOCH }
-        )
+        val source = source()
         val tracks = listOf(
             track("id2"),
             track("id3"),
@@ -134,6 +158,22 @@ class SpotifyLibraryContainsTest {
     }
 
     private fun liked(uri: String): Boolean = uri.last().digitToIntOrNull()?.let { it % 2 == 0 } ?: false
+
+    private fun source(): SpotifyMusicSource {
+        val httpClient = OkHttpClient()
+        val baseUrl = server.url("/")
+        return SpotifyMusicSource(
+            // The source's client reads the real clock: a token that never expires.
+            initialCredentials = spotifyTestCredentials("t1", "r1", expiresAtEpochMs = Long.MAX_VALUE / 2),
+            clientIdProvider = { "test-client" },
+            onCredentialsPersisted = {},
+            httpClient = httpClient,
+            authService = SpotifyAuthService(httpClient = httpClient, authBaseUrl = baseUrl, apiBaseUrl = baseUrl),
+            profileId = PROFILE,
+            apiBaseUrl = baseUrl,
+            clock = { SPOTIFY_TEST_BASE_EPOCH }
+        )
+    }
 
     private fun client(gate: SpotifyRateLimitGate? = null): SpotifyApiClient {
         val httpClient = OkHttpClient()

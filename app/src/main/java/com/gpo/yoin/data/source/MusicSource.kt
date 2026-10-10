@@ -138,7 +138,9 @@ interface MusicWriteActions {
      * at 200 of a library that can hold thousands). Tracks the service can't
      * be asked about are left out of the map. Gated by
      * [Capability.FAVORITES] like [setFavorite]; services whose tracks already
-     * carry their exact state (Subsonic) keep this default.
+     * carry their exact state (Subsonic) keep this default. A read asked in
+     * parts that fails after some answered fails with
+     * [FavoriteStatesIncompleteException], which carries those answers.
      */
     suspend fun favoriteStates(tracks: List<Track>): Result<Map<MediaId, Boolean>> =
         Result.failure(UnsupportedOperationException("Favorite lookup is unavailable"))

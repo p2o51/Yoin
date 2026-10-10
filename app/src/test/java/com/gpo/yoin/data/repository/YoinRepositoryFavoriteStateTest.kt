@@ -9,10 +9,12 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.every
@@ -39,8 +41,8 @@ import org.robolectric.RobolectricTestRunner
  * The repository's favorite-state overlay (P4) end to end: Spotify's answer
  * turns on a like the 200-track mirror can't show, a landed write holds for
  * the grace, an unlike stays an explicit false, a track is asked about once
- * per interval, a closed rate-limit gate asks nothing, and nothing crosses an
- * account switch.
+ * per interval, a closed rate-limit gate asks nothing, a read stopped part
+ * way keeps what it learned, and nothing crosses an account switch.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -121,6 +123,18 @@ class YoinRepositoryFavoriteStateTest {
     }
 
     @Test
+    fun should_stopCountingAsTheUsersTap_when_theWritesGraceIsOver() = runTest {
+        val track = track("t1", isStarred = false)
+        repository.setFavorite(track, favorite = true)
+        assertEquals(FavoriteState(isStarred = true, fromUser = true), heart(track))
+
+        now += FAVORITE_WRITE_GRACE_MS
+
+        // Still liked, but a later read (Now Playing coming back to it) is no tap to beat for.
+        assertEquals(FavoriteState(isStarred = true, fromUser = false), heart(track))
+    }
+
+    @Test
     fun should_holdTheLikeForTheGrace_when_spotifyHasNotAppliedItYet() = runTest {
         val track = track("t1", isStarred = false)
         repository.setFavorite(track, favorite = true)
@@ -168,6 +182,24 @@ class YoinRepositoryFavoriteStateTest {
         repository.refreshFavoriteStates(listOf(oldLike))
 
         assertEquals(0, writeActions.lookups.size)
+    }
+
+    @Test
+    fun should_keepTheAnsweredTracks_when_aLaterBatchIsRateLimited() = runTest {
+        val unanswered = track("unanswered", isStarred = false)
+        writeActions.failure = FavoriteStatesIncompleteException(
+            answered = mapOf(oldLike.id to true),
+            cause = SpotifyRateLimitException(retryAfterSeconds = 30, endpoint = "me/library/contains")
+        )
+
+        repository.refreshFavoriteStates(listOf(oldLike, unanswered))
+
+        assertEquals(FavoriteState(isStarred = true), heart(oldLike))
+        assertEquals(FavoriteState(isStarred = false), heart(unanswered))
+        // The failure isn't retried: the unanswered track stays asked for the interval.
+        writeActions.failure = null
+        repository.refreshFavoriteStates(listOf(unanswered))
+        assertEquals(1, writeActions.lookups.size)
     }
 
     @Test
@@ -237,11 +269,13 @@ class YoinRepositoryFavoriteStateTest {
 
     private class FakeWriteActions : MusicWriteActions {
         var answer: Map<MediaId, Boolean> = emptyMap()
+        var failure: Exception? = null
         var pending: CompletableDeferred<Map<MediaId, Boolean>>? = null
         val lookups = mutableListOf<List<MediaId>>()
 
         override suspend fun favoriteStates(tracks: List<Track>): Result<Map<MediaId, Boolean>> {
             lookups += tracks.map(Track::id)
+            failure?.let { return Result.failure(it) }
             val states = pending?.await() ?: answer
             return Result.success(states.filterKeys { id -> tracks.any { it.id == id } })
         }

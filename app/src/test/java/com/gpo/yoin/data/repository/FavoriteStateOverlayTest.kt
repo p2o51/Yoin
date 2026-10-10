@@ -7,8 +7,9 @@ import org.junit.Test
 
 /**
  * The heart's merge rules (P4): a write in flight wins; a landed write holds
- * for the grace; past it the newest of the service's answer, the write and
- * the mirror row wins; the track's own flag only when nothing else is known.
+ * for the grace, and only within it counts as the user's; past it the newest
+ * of the service's answer, the write and the mirror row wins; the track's own
+ * flag only when nothing else is known.
  */
 class FavoriteStateOverlayTest {
 
@@ -51,7 +52,18 @@ class FavoriteStateOverlayTest {
         overlay.recordWrite(key, saved = false)
         now += 5 * FAVORITE_WRITE_GRACE_MS
 
-        assertEquals(FavoriteState(isStarred = false, fromUser = true), resolve(baseline = true))
+        // Long past the grace it still holds, but no longer as the user's tap.
+        assertEquals(FavoriteState(isStarred = false, fromUser = false), resolve(baseline = true))
+    }
+
+    @Test
+    fun should_stopCountingAsTheUsersWrite_when_theGraceIsOver() {
+        overlay.recordWrite(key, saved = true)
+
+        now += FAVORITE_WRITE_GRACE_MS - 1
+        assertEquals(FavoriteState(isStarred = true, fromUser = true), resolve(baseline = false))
+        now += 1
+        assertEquals(FavoriteState(isStarred = true, fromUser = false), resolve(baseline = false))
     }
 
     @Test
@@ -112,5 +124,5 @@ class FavoriteStateOverlayTest {
         mirrorSaved: Boolean? = null,
         mirrorAtMs: Long = 0L,
         entry: FavoriteStateOverlay.Entry? = overlay.entries.value[key]
-    ): FavoriteState = resolveFavoriteState(baseline, inFlight, entry, mirrorSaved, mirrorAtMs)
+    ): FavoriteState = resolveFavoriteState(baseline, inFlight, entry, mirrorSaved, mirrorAtMs, nowMs = now)
 }

@@ -20,9 +20,11 @@ const val FAVORITE_WRITE_GRACE_MS = SavedTrackDelta.DEFAULT_GRACE_MS
 
 /**
  * A track's heart as the UI shows it. [fromUser]: the value is the user's own
- * write, in flight or landed, so a change to it answers a tap (the heart may
- * beat); any other change — the service's answer, a library sync, another
- * track — is a quiet one.
+ * write, in flight or landed within [FAVORITE_WRITE_GRACE_MS], so a change to
+ * it answers a tap (the heart may beat); any other change — the service's
+ * answer, a library sync, a failed write rolling back — is a quiet one. Which
+ * track is shown is the reader's business: a host that moves to another track
+ * (Now Playing) treats that change as quiet whatever this says.
  */
 data class FavoriteState(val isStarred: Boolean, val fromUser: Boolean = false)
 
@@ -115,13 +117,14 @@ internal class FavoriteStateOverlay(
 }
 
 /**
- * The heart shown for a track. The user's write in flight wins. Otherwise
- * the newest of what Yoin learned: a write that landed (dated [graceMs] after
- * it, so an answer from inside that window — which may predate Spotify
- * applying it — never undoes it), the service's answer ([entry]), and the
- * saved-tracks mirror row ([mirrorSaved], written at [mirrorAtMs]). With none
- * of those, the track's own flag ([baseline]). An unlike is a written false,
- * so it holds even where the track's copy still says liked.
+ * The heart shown for a track at [nowMs]. The user's write in flight wins.
+ * Otherwise the newest of what Yoin learned: a write that landed (dated
+ * [graceMs] after it, so an answer from inside that window — which may
+ * predate Spotify applying it — never undoes it), the service's answer
+ * ([entry]), and the saved-tracks mirror row ([mirrorSaved], written at
+ * [mirrorAtMs]). With none of those, the track's own flag ([baseline]). An
+ * unlike is a written false, so it holds even where the track's copy still
+ * says liked; it counts as the user's only while the grace lasts.
  */
 internal fun resolveFavoriteState(
     baseline: Boolean,
@@ -129,14 +132,15 @@ internal fun resolveFavoriteState(
     entry: FavoriteStateOverlay.Entry?,
     mirrorSaved: Boolean?,
     mirrorAtMs: Long,
+    nowMs: Long,
     graceMs: Long = FAVORITE_WRITE_GRACE_MS
 ): FavoriteState {
     if (inFlight != null) return FavoriteState(inFlight, fromUser = true)
     var best: FavoriteState? = null
     var bestAtMs = Long.MIN_VALUE
     entry?.written?.let { written ->
-        best = FavoriteState(written, fromUser = true)
         bestAtMs = entry.writtenAtMs + graceMs
+        best = FavoriteState(written, fromUser = nowMs < bestAtMs)
     }
     entry?.remote?.let { remote ->
         if (entry.remoteAtMs > bestAtMs) {

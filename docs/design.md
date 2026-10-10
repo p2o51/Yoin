@@ -122,7 +122,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - **收藏心形的两种变化（D4，2026-10-10 owner）**：Now Playing 的收藏键和专辑页曲目行都一样。
   - **用户点的**（写入还在进行，或刚落地、仍在 60 秒宽限内）：照常由同一个 `rememberFavoriteSymbolPainter` 变化——点亮时填充长满、轮廓跳一下（beat），取消时只缩回填充。按钮自己的按压回弹也照旧。
   - **其余一切变化**都是静默翻转：Spotify 晚到的确认（App Remote `getLibraryState` 或 Web API contains）、资料库同步、写入失败回退、换到下一首。`FavoriteGlyphIcon` 按 key 换一个新的 painter，它一出现就处在终态；新旧两层按 effects spring 交叉淡入，只有填充和颜色在变，不跳。专辑行的底色、描边、心形颜色也都走 effects spring。
-  - 实现：状态层是 `FavoriteGlyph(favorite, quietFlips)`，`quietFlips` 只在不是用户点的变化时 +1。仓库的 `FavoriteState.fromUser` 区分来源（`YoinRepository.observeFavoriteStates` 是心形唯一的读取入口）。没有改 yoin-symbols。
+  - 实现：状态层是 `FavoriteGlyph(favorite, quietFlips)`，`quietFlips` 只在不是用户点的变化时 +1。仓库的 `FavoriteState.fromUser` 标出用户自己的写入，过了 60 秒宽限就不再算（`YoinRepository.observeFavoriteStates` 是这两处心形的读取入口）。看的是「什么引起了变化」而不只是「值从哪来」：Now Playing 按曲目 id 判断，换了一首，第一个值一律静默，哪怕它是用户先前点出来的状态（Subsonic 的覆盖整个会话都在，Spotify 的在宽限内）。没有改 yoin-symbols。
   - 先出页面再确认：Spotify 的已保存镜像只有最新 200 首，所以页面先按已知状态显示，确认结果晚到时静默翻转。不加载中样式，不加文字。
 
 **播放模式**（一个按钮三个状态，点一下按顺序切换，默认列表循环）
@@ -544,9 +544,13 @@ Apple Music connection creates a regular encrypted Profile; the previous validat
 
 Spotify 的「已喜欢」= Liked Songs（Yoin 的爱心就是它）。已保存镜像（`/me/tracks` 读最新 200 首，6-21 的决定不变）装不下主人约 3000 首的库，所以心形另有一层按账号隔离的状态：
 
-- **唯一读取入口**：`YoinRepository.observeFavoriteStates`（Now Playing 和专辑行都读它）。优先级：正在进行的写入 > 刚落地的本地写（60 秒宽限内） > 远端确认和镜像行（比时间戳，新的胜出；本地写在宽限之后也按「写入时间 + 60 秒」参加比较） > 曲目自带的 `isStarred`。取消喜欢记成明确的 false，队列里的旧副本翻不回来。只存在内存里，切账号清空，晚到的结果丢弃。
+- **读取入口**：`YoinRepository.observeFavoriteStates`（Now Playing 和专辑行的心形都读它）。通知栏快捷按钮（`SessionQuickActions`）和 Library 仍直接读 `favoriteOverrides` 加曲目自带标记：下面这层状态只有 Spotify 会写入，而快捷按钮只挂在 Subsonic 和 Apple Music 的媒体会话上，Library 的行也不画心形，所以两者看到的一致。优先级：正在进行的写入 > 刚落地的本地写（60 秒宽限内） > 远端确认和镜像行（比时间戳，新的胜出；本地写在宽限之后也按「写入时间 + 60 秒」参加比较） > 曲目自带的 `isStarred`。取消喜欢记成明确的 false，队列里的旧副本翻不回来。只存在内存里，切账号清空，晚到的结果丢弃。
 - **Now Playing**：由 app 级单例 `PlaybackManager` 在当前曲目变化时查一次（warm-connect 接管也算），不放进各 Activity 的 Now Playing VM。先走 App Remote `UserApi.getLibraryState`（本机 IPC，不占 Web API 配额）；只有它在换歌时出错，且这首歌停留超过 0.8 秒，才回退到 Web API contains。之后的 PlayerState 事件（暂停、拖动、回到前台后的重连）至多每 30 秒重查一次，只走 App Remote，不发后台 Web API 请求。只查 `spotify:track:`，播客单集和本地文件跳过。
 - **专辑页**：页面先出，加载后批量查一次 `GET /v1/me/library/contains`（每批最多 40 个 URI，一批接一批，不并发）。页面回到前台时再查，同一首歌 30 秒内只问一次（专辑页和 Now Playing 共用这个节流）。
-- **限流**：contains 必须经过 `SpotifyRateLimitGate`，gate 关着就不查；失败和 429 都不重试。写操作仍走已验证的 `PUT/DELETE /v1/me/library`。
-- **三家**：Subsonic 的星标本来就在每个响应里，`favoriteStates` 用默认的「不支持」，行为不变；Apple Music 没有收藏能力，资料库成员状态照旧不显示成心形；只有 Spotify 实现了这次的查询。
+- **限流**：contains 必须经过 `SpotifyRateLimitGate`，gate 关着就不查；失败和 429 都不重试。多批查询中途某一批失败时，前面几批的答案照样记下（`FavoriteStatesIncompleteException` 带回），没答到的曲目照常在 30 秒内算「问过」。写操作仍走已验证的 `PUT/DELETE /v1/me/library`。
+- **三家**：Subsonic 的星标本来就在每个响应里，`favoriteStates` 用默认的「不支持」，行为不变；Apple Music 没有收藏能力，资料库成员状态照旧不显示成心形；只有 Spotify 实现了这次的查询。`favoriteStates` 不是新的界面能力，所以没有另设 `Capability`：门控沿用 `FAVORITES`，Subsonic 由默认的「不支持」挡住，不发请求。
+- **已知局限**（待 Q17 真机探针确认 `getLibraryState` 的语义之后再定）：
+  - App Remote 答的是 Spotify 应用当前登录的账号。Yoin 里配了两个 Spotify 账号、而当前账号不是 Spotify 应用登录的那个时，答案会记到当前账号下。
+  - 镜像行的时间戳是同步写库的时间，不是读 `/me/tracks` 的时间：同步前几秒内的 App Remote 答复可能被它盖过，下一次检查时纠正。
+  - 在通知栏或别的设备上点的喜欢，要等下一次 PlayerState 事件（距上次检查至少 30 秒）才会反映；没有窗口聚焦或定时触发。
 - 歌单页、搜索、Library 的行不画心形，这次不加查询。艺人页关注星的同类问题另行排期（App Remote 只支持 track 和 album，那里只能用 Web API）。

@@ -62,6 +62,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
@@ -1319,6 +1320,7 @@ class YoinRepository(
                     .map { rows -> rows.associateBy { it.trackId } }
             }
             combine(_favoriteOverrides, favoriteStateOverlay.entries, mirror) { overrides, learned, rows ->
+                val nowMs = clock()
                 distinct.associate { track ->
                     val row = rows[track.id.rawId]?.takeIf { track.id.provider == MediaId.PROVIDER_SPOTIFY }
                     track.id to resolveFavoriteState(
@@ -1326,7 +1328,8 @@ class YoinRepository(
                         inFlight = overrides[track.id],
                         entry = profileId?.let { learned[FavoriteStateOverlay.Key(it, track.id)] },
                         mirrorSaved = row?.isSaved,
-                        mirrorAtMs = row?.cachedAt ?: 0L
+                        mirrorAtMs = row?.cachedAt ?: 0L,
+                        nowMs = nowMs
                     )
                 }
             }
@@ -1344,8 +1347,10 @@ class YoinRepository(
      * another). Each track at most once per [minIntervalMs], whoever asks —
      * an album page and Now Playing don't both spend a request on it. Does
      * nothing while Spotify's rate-limit gate is closed, nor for a service
-     * that can't be asked; a failure is not retried, and an answer landing
-     * after an account switch is dropped.
+     * that can't be asked; a failure is not retried — the tracks it left
+     * unanswered stay asked for the interval — but the answers of the
+     * requests before it are kept. An answer landing after an account switch
+     * is dropped.
      */
     suspend fun refreshFavoriteStates(tracks: List<Track>, minIntervalMs: Long = FAVORITE_RECHECK_INTERVAL_MS) {
         val source = activeSource.value ?: return
@@ -1367,18 +1372,23 @@ class YoinRepository(
         } catch (error: Exception) {
             Result.failure(error)
         }
+        val failure = answer.exceptionOrNull()
         // A service that can't be asked (Subsonic: its tracks carry the exact star) asked nothing.
-        if (answer.exceptionOrNull() is UnsupportedOperationException) return
+        if (failure is UnsupportedOperationException) return
+        // A read that stopped part way (a 429 on a later batch) keeps what its earlier requests learned.
+        val incomplete = failure as? FavoriteStatesIncompleteException
+        val answered = answer.getOrNull() ?: incomplete?.answered.orEmpty()
         YoinPerf.mark(
             "favorite.check",
             "src" to "contains",
             "n" to asked.size,
             "ok" to answer.isSuccess,
-            "err" to answer.exceptionOrNull()?.javaClass?.simpleName,
+            "err" to (incomplete?.cause ?: failure)?.javaClass?.simpleName,
+            "answered" to incomplete?.answered?.size,
             "ms" to clock() - startedAtMs
         )
         if (activeSource.value !== source || activeProfileId.value != profileId) return
-        answer.getOrNull()?.forEach { (id, saved) ->
+        answered.forEach { (id, saved) ->
             favoriteStateOverlay.recordRemote(FavoriteStateOverlay.Key(profileId, id), saved)
         }
     }

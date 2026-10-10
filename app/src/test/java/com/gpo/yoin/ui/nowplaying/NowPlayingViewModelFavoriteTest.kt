@@ -85,6 +85,37 @@ class NowPlayingViewModelFavoriteTest {
     }
 
     @Test
+    fun should_flipQuietly_when_theNextTrackHoldsTheUsersEarlierLike() = runTest {
+        // Liked through Yoin earlier: its state still reads as the user's (Subsonic keeps the
+        // override for the session, Spotify for the write's grace), but nobody tapped it now.
+        hearts.getValue(second.id).value = FavoriteState(isStarred = true, fromUser = true)
+        val viewModel = viewModel()
+
+        playback.value = playing(second)
+        runCurrent()
+
+        assertEquals(true to 1, heart(viewModel))
+    }
+
+    @Test
+    fun should_flipQuietly_when_skippingBackToATrackJustLiked() = runTest {
+        val viewModel = viewModel()
+        hearts.getValue(first.id).value = FavoriteState(isStarred = true, fromUser = true)
+        runCurrent()
+        assertEquals(true to 0, heart(viewModel))
+        hearts.getValue(second.id).value = FavoriteState(isStarred = false)
+
+        // On to an unliked track and back, inside the like's grace.
+        playback.value = playing(second)
+        runCurrent()
+        assertEquals(false to 1, heart(viewModel))
+        playback.value = playing(first)
+        runCurrent()
+
+        assertEquals(true to 2, heart(viewModel))
+    }
+
+    @Test
     fun should_neverAskSpotify_when_theTrackChanges() = runTest {
         viewModel()
 
