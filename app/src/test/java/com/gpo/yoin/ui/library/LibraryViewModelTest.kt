@@ -478,6 +478,66 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_dropAlbumNoLongerInLibrary_when_rereadCompletes() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val revision = MutableStateFlow(0L)
+        every { repository.libraryRevision } returns revision
+        val kept = appleAlbum("library:l.kept", "Kept", added = "2020-01-01T00:00:00Z")
+        val gone = appleAlbum("library:l.gone", "Gone", added = "2021-01-01T00:00:00Z")
+        val added = appleAlbum("library:l.added", "Added", added = "2026-10-10T00:00:00Z")
+        var library = listOf(gone, kept)
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } coAnswers { library }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        // A song added elsewhere brought its album in; another album left the library meanwhile.
+        library = listOf(added, kept)
+        revision.value = 1L
+        advanceUntilIdle()
+
+        // The whole collection read again: it replaces the list, so the album gone from the library leaves.
+        val inAll = content(viewModel).allItems.orEmpty().filterIsInstance<LibraryItem.AlbumItem>().map { it.album.id }
+        assertEquals(listOf(added.id, kept.id), inAll)
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals(listOf(added.id, kept.id), content(viewModel).albums.orEmpty().map(Album::id))
+    }
+
+    @Test
+    fun should_keepMergedAlbums_when_rereadFailsMidway() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        val revision = MutableStateFlow(0L)
+        every { repository.libraryRevision } returns revision
+        val firstPage = appleNumbered(0 until 100)
+        val tail = appleAlbum("library:l.tail", "Tail", added = "2020-01-01T00:00:00Z")
+        val added = appleAlbum("library:l.added", "Added", added = "2026-10-10T00:00:00Z")
+        var rereading = false
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 0) } coAnswers {
+            if (rereading) appleNumbered(0 until 99) + added else firstPage
+        }
+        coEvery { repository.getAlbumList("alphabeticalByName", size = 100, offset = 100) } coAnswers {
+            if (rereading) error("Apple Music unavailable") else listOf(tail)
+        }
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+        assertEquals(101, content(viewModel).albums.orEmpty().size)
+
+        rereading = true
+        revision.value = 1L
+        advanceUntilIdle()
+
+        // The read stopped at its second page: the albums it didn't get to again stay, the new one is in.
+        assertEquals(
+            (firstPage + tail + added).map(Album::id).toSet(),
+            content(viewModel).albums.orEmpty().map(Album::id).toSet()
+        )
+    }
+
+    @Test
     fun should_reloadNewAccountsSongs_when_profilesShareRevisionAndNewAdditionIsConfirmed() = runTest {
         val repository = repositoryFor(
             MediaId.PROVIDER_APPLE_MUSIC,
