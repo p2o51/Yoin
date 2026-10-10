@@ -16,7 +16,6 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -47,6 +46,20 @@ class NowPlayingViewModelFavoriteTest {
         second.id to MutableStateFlow(FavoriteState(true))
     )
     private val repository = mockk<YoinRepository>(relaxed = true)
+
+    @Test
+    fun should_showTheKnownStateFirst_when_thePlayingTracksOwnFlagIsStale() = runTest {
+        // The queue's copy of the track says not liked; the saved-tracks mirror says liked.
+        hearts.getValue(first.id).value = FavoriteState(isStarred = true)
+        val shown = mutableListOf<Pair<Boolean, Int>>()
+
+        viewModel { state ->
+            if (state is NowPlayingUiState.Playing) shown += state.isStarred to state.favoriteQuietFlips
+        }
+
+        // Unlike an album row, the heart is never drawn from the track's flag: nothing to catch up on.
+        assertEquals(listOf(true to 0), shown.distinct())
+    }
 
     @Test
     fun should_flipQuietly_when_spotifyConfirmsALikeLate() = runTest {
@@ -173,7 +186,7 @@ class NowPlayingViewModelFavoriteTest {
     private fun answer(isStarred: Boolean, atMs: Long) =
         FavoriteState(isStarred = isStarred, fromAnswer = true, answeredAtMs = atMs)
 
-    private fun TestScope.viewModel(): NowPlayingViewModel {
+    private fun TestScope.viewModel(onState: (NowPlayingUiState) -> Unit = {}): NowPlayingViewModel {
         val manager = mockk<PlaybackManager>(relaxed = true)
         every { manager.playbackState } returns playback
         every { manager.currentActivityContext } returns MutableStateFlow<ActivityContext>(ActivityContext.None)
@@ -184,7 +197,7 @@ class NowPlayingViewModelFavoriteTest {
         every { repository.observeLibraryMembership(any()) } returns flowOf(LibraryMembership.Unknown)
         every { repository.resolveCoverUrl(any()) } returns null
         val viewModel = NowPlayingViewModel(manager, repository, mockk<CastManager>(relaxed = true))
-        backgroundScope.launch { viewModel.uiState.collect() }
+        backgroundScope.launch { viewModel.uiState.collect { state -> onState(state) } }
         runCurrent()
         return viewModel
     }

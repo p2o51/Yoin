@@ -28,10 +28,12 @@ import com.gpo.yoin.ui.theme.YoinTheme
  * answers that came in late and flipped the heart — Spotify confirming a like
  * after the page is up, or saying it was unliked elsewhere — each of which
  * [FavoriteGlyphIcon] crossfades in quietly instead of letting the symbol
- * beat. Every other change keeps [quietFlips], so the same symbol animates
- * it as ever (the fill grows and the outline beats): a tap, a failed write
- * rolling back, a library sync, another track. [answeredAtMs]: the newest
- * answer shown so far, which tells one coming in from one fallen back to.
+ * beat — and so does an album row's first known state correcting the flag
+ * the page drew it from ([settle]). Every other change keeps [quietFlips],
+ * so the same symbol animates it as ever (the fill grows and the outline
+ * beats): a tap, a failed write rolling back, a library sync, another track.
+ * [answeredAtMs]: the newest answer seen so far, which tells one coming in
+ * from one fallen back to.
  */
 @Immutable
 data class FavoriteGlyph(val favorite: Boolean, val quietFlips: Int = 0, val answeredAtMs: Long = 0L) {
@@ -42,6 +44,23 @@ data class FavoriteGlyph(val favorite: Boolean, val quietFlips: Int = 0, val ans
             state.isStarred == favorite -> this
             lateAnswer -> copy(favorite = state.isStarred, quietFlips = quietFlips + 1)
             else -> copy(favorite = state.isStarred)
+        }
+        return if (state.answeredAtMs > shown.answeredAtMs) shown.copy(answeredAtMs = state.answeredAtMs) else shown
+    }
+
+    /**
+     * This glyph, drawn before anything was known about the heart (an album
+     * page's rows start from the album's own flags, which may be a cached
+     * copy days old), meeting the first state Yoin knows of it — the
+     * saved-tracks mirror, an answer, a write. That is the page catching up,
+     * not a change anyone made now, so a flip is quiet, as a late answer's;
+     * every state after it goes through [next].
+     */
+    fun settle(state: FavoriteState): FavoriteGlyph {
+        val shown = if (state.isStarred == favorite) {
+            this
+        } else {
+            copy(favorite = state.isStarred, quietFlips = quietFlips + 1)
         }
         return if (state.answeredAtMs > shown.answeredAtMs) shown.copy(answeredAtMs = state.answeredAtMs) else shown
     }

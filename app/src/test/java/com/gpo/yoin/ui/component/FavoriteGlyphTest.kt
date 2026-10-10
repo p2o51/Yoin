@@ -64,6 +64,22 @@ class FavoriteGlyphTest {
         assertSame(glyph, glyph.next(FavoriteState(true, fromUser = true)))
         assertSame(glyph, glyph.next(answer(true, atMs = 4L)))
         assertSame(glyph, glyph.forTrack(answer(true, atMs = 4L)))
+        assertSame(glyph, glyph.settle(FavoriteState(true)))
+    }
+
+    @Test
+    fun should_countAQuietFlip_when_theFirstKnownStateCorrectsTheSeed() {
+        // Drawn from a cached album's flag; the saved-tracks mirror, not an answer, says liked.
+        val mirrored = FavoriteGlyph(favorite = false).settle(FavoriteState(true))
+        val written = FavoriteGlyph(favorite = true).settle(FavoriteState(false, fromUser = true))
+
+        assertEquals(FavoriteGlyph(favorite = true, quietFlips = 1), mirrored)
+        assertEquals(FavoriteGlyph(favorite = false, quietFlips = 1), written)
+        // Its answers count from there: falling back to the one it settled on isn't late.
+        val answered = FavoriteGlyph(favorite = false).settle(answer(false, atMs = 3L))
+        assertEquals(FavoriteGlyph(favorite = false, answeredAtMs = 3L), answered)
+        val tapped = answered.next(FavoriteState(true, fromUser = true, answeredAtMs = 3L))
+        assertEquals(0, tapped.next(answer(false, atMs = 3L)).quietFlips)
     }
 
     private fun answer(isStarred: Boolean, atMs: Long) =

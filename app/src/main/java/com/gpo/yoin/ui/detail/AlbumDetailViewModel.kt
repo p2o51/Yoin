@@ -93,8 +93,19 @@ class AlbumDetailViewModel(
 
     private class PendingFavoriteTap(val favorite: Boolean)
 
-    /** Each row's heart as shown; its quiet flips count Spotify's late answers (FavoriteGlyph). */
+    /**
+     * Each row's heart as shown; its quiet flips count Spotify's late answers
+     * and the page catching up with what Yoin knew as it opened (FavoriteGlyph).
+     */
     private val favoriteGlyphs = HashMap<MediaId, FavoriteGlyph>()
+
+    /**
+     * Rows whose heart has met the repository's state since the page drew it
+     * from the album's own flags (a cached album's may be days old). The
+     * first state a row gets settles it quietly ([FavoriteGlyph.settle]);
+     * a tap before that leaves nothing to settle.
+     */
+    private val favoriteSettledRows = HashSet<MediaId>()
 
     /** The album's rating row as Room last reported it (its NeoDB dirty flags drive [neoDb]). */
     private var ratingRow: AlbumRating? = null
@@ -213,6 +224,7 @@ class AlbumDetailViewModel(
                 loadedAlbum = album
                 albumSongs = album.tracks.applyFavoriteOverrides(repository.favoriteOverrides.value)
                 favoriteGlyphs.clear()
+                favoriteSettledRows.clear()
                 albumSongs.forEach { track -> favoriteGlyphs[track.id] = FavoriteGlyph(track.isStarred) }
                 albumTrackIds.value = albumSongs.map(Track::id)
                 // The visit row feeds Home's activity and the widgets, not this page:
@@ -235,8 +247,9 @@ class AlbumDetailViewModel(
                 )
                 markPerfContent(album.id.toString())
 
-                // The rows follow the favorite state from here on, and Spotify is
-                // asked about likes its 200-track mirror can't show: one batched
+                // The rows follow the favorite state from here on — its first
+                // read flips a heart drawn from a stale flag quietly — and Spotify
+                // is asked about likes its 200-track mirror can't show: one batched
                 // check after the page is out, whose answer flips hearts quietly.
                 // The album's own saved state (the ▾ menu's library row) rides
                 // the same check when its saved-albums mirror doesn't have it.
@@ -406,14 +419,15 @@ class AlbumDetailViewModel(
             // A tap carries the newest answer the repository has, so one that
             // comes in while the write is out is seen as it lands: a failed
             // write falling back to it is the rollback, not a late answer.
-            val state = taps[track.id]
-                ?.let { tap ->
-                    FavoriteState(tap.favorite, fromUser = true, answeredAtMs = states[track.id]?.answeredAtMs ?: 0L)
-                }
+            val tap = taps[track.id]
+            val answeredAtMs = states[track.id]?.answeredAtMs ?: 0L
+            val state = tap?.let { FavoriteState(it.favorite, fromUser = true, answeredAtMs = answeredAtMs) }
                 ?: states[track.id]
                 ?: return@map track
-            val glyph = (favoriteGlyphs[track.id] ?: FavoriteGlyph(track.isStarred))
-                .next(state)
+            val shown = favoriteGlyphs[track.id] ?: FavoriteGlyph(track.isStarred)
+            // The row's first state from the repository: quiet where it corrects the page's seed.
+            val settling = favoriteSettledRows.add(track.id) && tap == null
+            val glyph = if (settling) shown.settle(state) else shown.next(state)
             favoriteGlyphs[track.id] = glyph
             if (track.isStarred == glyph.favorite) track else track.copy(isStarred = glyph.favorite)
         }

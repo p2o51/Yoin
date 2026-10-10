@@ -643,7 +643,8 @@ internal fun AlbumTrackRow(
 
 @Composable
 private fun AlbumCircleToggle(
-    // The row's heart; its quiet flips (Spotify's late answers that flipped it) crossfade in without the beat.
+    // The row's heart; its quiet flips (Spotify's late answers that flipped it, the
+    // page's first read correcting the album's own flag) crossfade in without the beat.
     heart: FavoriteGlyph,
     accent: Color,
     onToggle: () -> Unit,

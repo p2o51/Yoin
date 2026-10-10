@@ -16,6 +16,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -85,6 +86,56 @@ class AlbumDetailViewModelFavoriteTest {
         assertEquals(false to 0, row(viewModel, second))
         // The play queue's copies follow the hearts.
         assertEquals(listOf(true, false), viewModel.getAlbumSongs().map(Track::isStarred))
+    }
+
+    @Test
+    fun should_flipQuietly_when_theFirstKnownStateCorrectsACachedAlbum() = runTest {
+        // The album came from the disk cache, t1 not liked in it; the saved-tracks mirror knows better.
+        states.value = states.value + (first.id to FavoriteState(true))
+        val viewModel = viewModel()
+        runCurrent()
+
+        // The page catching up with what Yoin knew: quiet, as a late answer.
+        assertEquals(true to 1, row(viewModel, first))
+        assertEquals(false to 0, row(viewModel, second))
+
+        // From then on a library sync animates as ever.
+        states.value = states.value + (first.id to FavoriteState(false))
+        runCurrent()
+        assertEquals(false to 1, row(viewModel, first))
+    }
+
+    @Test
+    fun should_animate_when_aLibrarySyncFlipsARowAfterItsFirstKnownState() = runTest {
+        val viewModel = viewModel()
+        runCurrent()
+
+        states.value = states.value + (second.id to FavoriteState(true))
+        runCurrent()
+
+        assertEquals(true to 0, row(viewModel, second))
+    }
+
+    @Test
+    fun should_animateTheTapAndItsFallBack_when_theTapComesBeforeTheFirstKnownState() = runTest {
+        val late = MutableSharedFlow<Map<MediaId, FavoriteState>>(replay = 1)
+        every { repository.observeFavoriteStates(any()) } returns late
+        val write = CompletableDeferred<Result<Unit>>()
+        coEvery { repository.setFavorite(second, true) } coAnswers { write.await() }
+        val viewModel = viewModel()
+        runCurrent()
+
+        viewModel.toggleStar(second.id.toString())
+        runCurrent()
+        late.emit(mapOf(first.id to FavoriteState(false), second.id to FavoriteState(true, fromUser = true)))
+        runCurrent()
+        assertEquals(true to 0, row(viewModel, second))
+
+        write.complete(Result.failure(IllegalStateException("offline")))
+        late.emit(mapOf(first.id to FavoriteState(false), second.id to FavoriteState(false)))
+        runCurrent()
+        // The user's tap and its rollback, not the page catching up.
+        assertEquals(false to 0, row(viewModel, second))
     }
 
     @Test
