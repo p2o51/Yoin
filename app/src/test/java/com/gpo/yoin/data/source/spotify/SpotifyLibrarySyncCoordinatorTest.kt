@@ -524,6 +524,50 @@ class SpotifyLibrarySyncCoordinatorTest {
     }
 
     @Test
+    fun should_dateMirrorRowsByWhenTheirListsWereRead_when_aSyncUsesEarlierReads() = runTest {
+        // A cold start's first sync takes the lists prime() read before it; the sync ends later.
+        seedRemoteLibrary()
+        val spotifySource = spotifySourceOver(library)
+        coEvery { spotifySource.warmLibraryCaches() } coAnswers {
+            now = 13_000L
+            SpotifyLibraryReadTimes(
+                savedTracksMs = 4_000L,
+                savedAlbumsMs = 4_100L,
+                playlistsMs = 4_200L,
+                followedArtistsMs = 4_300L
+            )
+        }
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        val dao = database.spotifyLibraryCacheDao()
+        // An answer Yoin got about a track at 5 000 is newer than the list: the row mustn't outrank it.
+        assertEquals(4_000L, dao.getTrack("profile-a", "track-1")?.cachedAt)
+        assertEquals(4_100L, dao.getAlbum("profile-a", "album-1")?.cachedAt)
+        assertEquals(listOf(4_200L), dao.getFreshPlaylists("profile-a", 0L).map { it.cachedAt })
+        assertEquals(listOf(4_300L), dao.getFreshArtists("profile-a", 0L).map { it.cachedAt })
+        // The sync itself counts from its end, as before: no earlier re-sync.
+        assertEquals(13_000L, dao.getSyncMeta("profile-a")?.cachedAt)
+    }
+
+    @Test
+    fun should_dateMirrorRowsByTheSyncsStart_when_theReadTimesAreUnknown() = runTest {
+        seedRemoteLibrary()
+        val spotifySource = spotifySourceOver(library)
+        coEvery { spotifySource.warmLibraryCaches() } coAnswers {
+            now = 13_000L
+            SpotifyLibraryReadTimes(savedTracksMs = 0L, savedAlbumsMs = 0L, playlistsMs = 0L, followedArtistsMs = 0L)
+        }
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        // The earliest the lists can be from in this sync, not when it ended.
+        val dao = database.spotifyLibraryCacheDao()
+        assertEquals(10_000L, dao.getTrack("profile-a", "track-1")?.cachedAt)
+        assertEquals(10_000L, dao.getAlbum("profile-a", "album-1")?.cachedAt)
+    }
+
+    @Test
     fun should_letTheListsWin_when_theWritesGraceIsOver() = runTest {
         seedRemoteLibrary()
         val saved = album("album-new", "New Album")
@@ -572,6 +616,16 @@ class SpotifyLibrarySyncCoordinatorTest {
         isFollowed = isFollowed,
         cachedAt = now
     )
+
+    /** A Spotify source whose lists are [lists], with no write waiting to settle. */
+    private fun spotifySourceOver(lists: MusicLibrary): SpotifyMusicSource {
+        val spotifySource = mockk<SpotifyMusicSource>(relaxed = true)
+        every { spotifySource.id } returns MediaId.PROVIDER_SPOTIFY
+        every { spotifySource.library() } returns lists
+        every { spotifySource.profileId } returns "profile-a"
+        every { spotifySource.hasUnsettledFavoriteWrites() } returns false
+        return spotifySource
+    }
 
     private fun emptySpotifySource(unsettledFavoriteWrites: Boolean): SpotifyMusicSource {
         val spotifySource = mockk<SpotifyMusicSource>(relaxed = true)

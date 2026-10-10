@@ -15,6 +15,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.spotify.SpotifyLibraryReadTimes
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
@@ -69,7 +70,8 @@ class YoinRepositorySpotifyMirrorWritesTest {
         every { spotify.writeActions() } returns writes
         every { spotify.hasUnsettledFavoriteWrites() } returns false
         every { spotify.invalidateLibraryCaches(any()) } just runs
-        coEvery { spotify.warmLibraryCaches() } just runs
+        // The lists are read as the sync warms them.
+        coEvery { spotify.warmLibraryCaches() } answers { SpotifyLibraryReadTimes(now, now, now, now) }
         coEvery { library.getArtists() } returns listOf(
             ArtistIndex(name = "A", artists = listOf(artist("arca", "Arca")))
         )

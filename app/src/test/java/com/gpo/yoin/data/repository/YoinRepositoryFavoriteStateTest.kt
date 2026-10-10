@@ -7,16 +7,19 @@ import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.spotify.SpotifyLibraryReadTimes
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.testutil.MainDispatcherRule
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
@@ -60,6 +63,7 @@ class YoinRepositoryFavoriteStateTest {
     private var now = 1_760_000_000_000L
     private val gate = SpotifyRateLimitGate(clock = { now })
     private lateinit var repository: YoinRepository
+    private lateinit var coordinator: SpotifyLibrarySyncCoordinator
 
     private val oldLike = track("old-like", isStarred = false)
 
@@ -92,7 +96,7 @@ class YoinRepositoryFavoriteStateTest {
                 rateLimitGate = gate,
                 scope = CoroutineScope(SupervisorJob()),
                 clock = { now }
-            ),
+            ).also { coordinator = it },
             spotifyRateLimitGate = gate,
             // The account-switch clear runs at once.
             repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
@@ -162,6 +166,34 @@ class YoinRepositoryFavoriteStateTest {
         database.spotifyLibraryCacheDao().upsertTrack(mirrorRow(oldLike.id.rawId, cachedAt = now))
 
         assertEquals(FavoriteState(isStarred = true, answeredAtMs = answeredAt), heart(oldLike))
+    }
+
+    @Test
+    fun should_keepAnAnswerNewerThanTheList_when_aSyncWritesTheMirrorFromAnEarlierRead() = runTest {
+        // prime() read the saved tracks (t1 liked) at listReadAt; App Remote
+        // then said t1 was unliked in Spotify; the cold start's first sync
+        // writes the mirror from that earlier read after both.
+        val listReadAt = now
+        val liked = track("t1", isStarred = true)
+        val lists = mockk<MusicLibrary>(relaxed = true)
+        coEvery { lists.getArtists() } returns emptyList()
+        coEvery { lists.getAlbumList("alphabeticalByName", Int.MAX_VALUE) } returns emptyList()
+        coEvery { lists.getPlaylists() } returns emptyList()
+        coEvery { lists.getStarred() } returns Starred(tracks = listOf(liked))
+        every { source.library() } returns lists
+        every { source.hasUnsettledFavoriteWrites() } returns false
+        coEvery { source.warmLibraryCaches() } returns
+            SpotifyLibraryReadTimes(listReadAt, listReadAt, listReadAt, listReadAt)
+        now += 2_000L
+        repository.recordFavoriteState(PROFILE, liked.id, saved = false)
+        val answered = answer(isStarred = false, atMs = now)
+
+        now += 2_000L
+        assertTrue(coordinator.refreshLibrary(PROFILE, source).isSuccess)
+
+        // The mirror row stands on the list read before the answer: the answer still shows.
+        assertEquals(listReadAt, database.spotifyLibraryCacheDao().getTrack(PROFILE, "t1")?.cachedAt)
+        assertEquals(answered, heart(liked))
     }
 
     @Test

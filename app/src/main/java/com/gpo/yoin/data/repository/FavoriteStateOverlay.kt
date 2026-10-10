@@ -130,8 +130,11 @@ internal class FavoriteStateOverlay(
  * Otherwise the newest of what Yoin learned: a write that landed (dated
  * [graceMs] after it, so an answer from inside that window — which may
  * predate Spotify applying it — never undoes it), the service's answer
- * ([entry]), and the saved-tracks mirror row ([mirrorSaved], written at
- * [mirrorAtMs]). With none of those, the track's own flag ([baseline]). An
+ * ([entry]), and the saved-tracks mirror row ([mirrorSaved], dated
+ * [mirrorAtMs]: when the list it came from was read, so an answer that came
+ * in after that read outranks a sync that wrote the row later —
+ * SpotifyLibrarySyncCoordinator). With none of those, the track's own flag
+ * ([baseline]). An
  * unlike is a written false, so it holds even where the track's copy still
  * says liked; it counts as the user's only while the grace lasts.
  */

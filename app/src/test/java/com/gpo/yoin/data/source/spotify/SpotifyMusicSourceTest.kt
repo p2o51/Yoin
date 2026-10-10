@@ -184,6 +184,26 @@ class SpotifyMusicSourceTest {
     }
 
     @Test
+    fun should_tellWhenEachListWasRead_when_aResyncLandsOnAReadInFlight() = runTest {
+        val savedTracksRequests = savedTracksBehindLatch()
+        val source = newSource()
+        val openedAt = now
+
+        val album = async(Dispatchers.IO) { source.library().getAlbum(MediaId.spotify("a1")) }
+        assertTrue(savedTracksRequests.started.await(5, TimeUnit.SECONDS))
+        now += 3_000L
+        source.invalidateLibraryCaches(keepRecentLoads = true)
+        val warm = async(Dispatchers.IO) { source.warmLibraryCaches() }
+        savedTracksRequests.release.countDown()
+        album.await()
+        val readTimes = warm.await()
+
+        // The saved tracks are the album open's read, from before the re-sync; the playlists its own.
+        assertEquals(openedAt, readTimes.savedTracksMs)
+        assertEquals(openedAt + 3_000L, readTimes.playlistsMs)
+    }
+
+    @Test
     fun should_readSavedTracksAgain_when_invalidateDropsTheReadInFlight() = runTest {
         val savedTracksRequests = savedTracksBehindLatch()
         val source = newSource()

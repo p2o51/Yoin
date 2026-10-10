@@ -240,6 +240,8 @@ class SpotifyLibrarySyncCoordinator(
         // Taken before any list is read: writes after these are newer than the lists.
         val albumsCheckpoint = pendingAlbums.checkpoint()
         val artistsCheckpoint = pendingArtists.checkpoint()
+        // The earliest a list this sync reads itself can be from.
+        val syncStartedAtMs = clock()
         val isColdFirstSync = dao.getSyncMeta(profileId) == null
         val unsettledLikes = spotifySource?.hasUnsettledFavoriteWrites() == true
         if (force || !isColdFirstSync || unsettledLikes) {
@@ -248,9 +250,24 @@ class SpotifyLibrarySyncCoordinator(
         // Warm the four independent library resources concurrently before the
         // derived reads below (which share those caches and would otherwise
         // serialise four round-trips). Already-warm caches return instantly.
-        spotifySource?.warmLibraryCaches()
+        val readTimes = spotifySource?.warmLibraryCaches()
         val library = source.library()
         val now = clock()
+
+        // Each mirror row is dated by when its list was read, not when the
+        // sync wrote it: a list prime() read before a cold start's first
+        // sync, or a read already out that a re-sync joined, is older than
+        // now, and an answer about a track or album Yoin got in between (App
+        // Remote, contains — FavoriteStateOverlay, on the same clock) must
+        // outrank it (resolveLearnedFavoriteState). Not known: the sync's
+        // start, the earliest this sync's own reads can be from.
+        fun readAt(readStartedAtMs: Long?): Long =
+            readStartedAtMs?.takeIf { it > 0L }?.coerceAtMost(now) ?: syncStartedAtMs
+
+        val tracksReadAtMs = readAt(readTimes?.savedTracksMs)
+        val albumsReadAtMs = readAt(readTimes?.savedAlbumsMs)
+        val playlistsReadAtMs = readAt(readTimes?.playlistsMs)
+        val artistsReadAtMs = readAt(readTimes?.followedArtistsMs)
         val artistIndices = library.getArtists()
         val artists = artistIndices.flatMap { index -> index.artists }.distinctBy { artist -> artist.id }
         val albums = library.getAlbumList(type = "alphabeticalByName", size = Int.MAX_VALUE)
@@ -268,8 +285,8 @@ class SpotifyLibrarySyncCoordinator(
             dao.deleteArtistsForProfile(profileId)
             dao.deletePlaylistsForProfile(profileId)
 
-            dao.insertArtists(artists.map { artist -> artist.toSpotifyLibraryArtistCache(profileId, now) })
-            dao.insertAlbums(albums.map { album -> album.toSpotifyLibraryAlbumCache(profileId, now) })
+            dao.insertArtists(artists.map { artist -> artist.toSpotifyLibraryArtistCache(profileId, artistsReadAtMs) })
+            dao.insertAlbums(albums.map { album -> album.toSpotifyLibraryAlbumCache(profileId, albumsReadAtMs) })
             // Yoin's own writes the lists may not show yet, back over them.
             pendingAlbums.toLayBack(profileId, albumsCheckpoint).forEach { (albumId, write) ->
                 val listed = albumId in listedAlbumIds
@@ -282,7 +299,7 @@ class SpotifyLibrarySyncCoordinator(
                 val listed = listedArtists[artistId]
                 when {
                     listed != null && listed.isStarred != write.state -> dao.upsertArtist(
-                        listed.toSpotifyLibraryArtistCache(profileId, now).copy(isFollowed = write.state)
+                        listed.toSpotifyLibraryArtistCache(profileId, artistsReadAtMs).copy(isFollowed = write.state)
                     )
                     listed == null && write.state -> write.row?.let { row -> dao.upsertArtist(row) }
                 }
@@ -290,12 +307,12 @@ class SpotifyLibrarySyncCoordinator(
             dao.insertPlaylists(
                 playlists
                     .distinctBy { playlist -> playlist.id }
-                    .map { playlist -> playlist.toSpotifyLibraryPlaylistCache(profileId, now) },
+                    .map { playlist -> playlist.toSpotifyLibraryPlaylistCache(profileId, playlistsReadAtMs) },
             )
             dao.insertTracks(
                 starred.tracks
                     .distinctBy { track -> track.id }
-                    .map { track -> track.toSpotifyLibraryTrackCache(profileId, now) },
+                    .map { track -> track.toSpotifyLibraryTrackCache(profileId, tracksReadAtMs) },
             )
             if (pendingTracks.isNotEmpty()) {
                 val freshByTrackId = starred.tracks
@@ -304,7 +321,7 @@ class SpotifyLibrarySyncCoordinator(
                 val mergedPending = pendingTracks.map { pending ->
                     val fresh = freshByTrackId[pending.trackId]
                     if (fresh != null) {
-                        fresh.toSpotifyLibraryTrackCache(profileId, now).copy(
+                        fresh.toSpotifyLibraryTrackCache(profileId, tracksReadAtMs).copy(
                             isSaved = pending.isSaved,
                             pendingFavoriteAction = pending.pendingFavoriteAction,
                             lastSyncError = pending.lastSyncError,

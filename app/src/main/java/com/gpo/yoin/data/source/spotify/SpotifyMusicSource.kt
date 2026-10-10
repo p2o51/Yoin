@@ -34,6 +34,18 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 
+/**
+ * When the requests behind the cached library lists started, by list, on
+ * the source's clock ([SpotifyMusicSource.warmLibraryCaches]): what Spotify
+ * said at that moment, which is what a row written from the list stands on.
+ */
+data class SpotifyLibraryReadTimes(
+    val savedTracksMs: Long,
+    val savedAlbumsMs: Long,
+    val playlistsMs: Long,
+    val followedArtistsMs: Long
+)
+
 class SpotifyMusicSource(
     initialCredentials: ProfileCredentials.Spotify,
     clientIdProvider: () -> String,
@@ -481,25 +493,33 @@ class SpotifyMusicSource(
         is CoverRef.SourceRelative -> null
     }
 
-    private suspend fun savedTracks(): List<SpotifySavedTrackObject> = savedTracksCache.get {
+    private suspend fun savedTracks(): List<SpotifySavedTrackObject> = savedTracksRead().value
+
+    private suspend fun savedTracksRead(): ReadValue<List<SpotifySavedTrackObject>> = savedTracksCache.read {
         val readCheckpoint = savedTrackDelta.checkpoint()
         apiClient.getSavedTracks().also { saved ->
             savedTrackDelta.reconcile(saved.mapNotNullTo(HashSet()) { it.track?.id }, readCheckpoint)
         }
     }
 
-    private suspend fun savedAlbums(): List<SpotifySavedAlbumObject> = savedAlbumsCache.get {
+    private suspend fun savedAlbums(): List<SpotifySavedAlbumObject> = savedAlbumsRead().value
+
+    private suspend fun savedAlbumsRead(): ReadValue<List<SpotifySavedAlbumObject>> = savedAlbumsCache.read {
         val readCheckpoint = savedAlbumDelta.checkpoint()
         apiClient.getSavedAlbums().also { saved ->
             savedAlbumDelta.reconcile(saved.mapNotNullTo(HashSet()) { it.album?.id }, readCheckpoint)
         }
     }
 
-    private suspend fun currentUserPlaylists(): List<SpotifyPlaylistObject> =
-        playlistsCache.get { apiClient.getCurrentUserPlaylists() }
+    private suspend fun currentUserPlaylists(): List<SpotifyPlaylistObject> = currentUserPlaylistsRead().value
 
-    private suspend fun followedArtists(): List<SpotifyArtistObject> =
-        followedArtistsCache.get { apiClient.getFollowedArtists() }
+    private suspend fun currentUserPlaylistsRead(): ReadValue<List<SpotifyPlaylistObject>> =
+        playlistsCache.read { apiClient.getCurrentUserPlaylists() }
+
+    private suspend fun followedArtists(): List<SpotifyArtistObject> = followedArtistsRead().value
+
+    private suspend fun followedArtistsRead(): ReadValue<List<SpotifyArtistObject>> =
+        followedArtistsCache.read { apiClient.getFollowedArtists() }
 
     private suspend fun recentlyPlayed(): List<SpotifyPlayHistoryObject> =
         recentlyPlayedCache.get { apiClient.getRecentlyPlayed(limit = RECENTLY_PLAYED_LIMIT) }
@@ -538,16 +558,20 @@ class SpotifyMusicSource(
      * safe — and it turns a cold full sync from four serial round-trips into
      * roughly one. Already-warm caches (e.g. from [prime]) return instantly.
      * Call before the derived [library] reads so they hit warm caches.
+     * Returns when the read behind each list started — for a warm cache,
+     * its earlier read, and for a read already out, that one's start.
      */
-    suspend fun warmLibraryCaches(): Unit = coroutineScope {
-        val tracks = async { savedTracks() }
-        val albums = async { savedAlbums() }
-        val playlists = async { currentUserPlaylists() }
-        val artists = async { followedArtists() }
-        tracks.await()
-        albums.await()
-        playlists.await()
-        artists.await()
+    suspend fun warmLibraryCaches(): SpotifyLibraryReadTimes = coroutineScope {
+        val tracks = async { savedTracksRead() }
+        val albums = async { savedAlbumsRead() }
+        val playlists = async { currentUserPlaylistsRead() }
+        val artists = async { followedArtistsRead() }
+        SpotifyLibraryReadTimes(
+            savedTracksMs = tracks.await().readStartedAtMs,
+            savedAlbumsMs = albums.await().readStartedAtMs,
+            playlistsMs = playlists.await().readStartedAtMs,
+            followedArtistsMs = artists.await().readStartedAtMs
+        )
     }
 
     private suspend fun savedTrackIds(): Set<String> {
