@@ -10,7 +10,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,12 +37,12 @@ import com.gpo.yoin.ui.detail.PlaylistDetailScreen
 import com.gpo.yoin.ui.detail.PlaylistDetailUiState
 import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
 import com.gpo.yoin.ui.detail.detailShareText
+import com.gpo.yoin.ui.detail.playArtist
 import com.gpo.yoin.ui.detail.rememberDetailMenu
 import com.gpo.yoin.ui.detail.rememberDetailWebLink
 import com.gpo.yoin.ui.navigation.trackCoverArtId
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
-import kotlinx.coroutines.launch
 
 /*
  * The detail column's entries: the SAME page composables the detail
@@ -238,7 +237,6 @@ internal fun ArtistPaneEntry(
     onMessage: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val viewModel: ArtistDetailViewModel = viewModel(
         factory = ArtistDetailViewModel.Factory(route.artistId, app.container),
     )
@@ -249,24 +247,6 @@ internal fun ArtistPaneEntry(
     // when it is the top entry again — the window page's ON_RESUME refresh.
     LaunchedEffect(isTop) { if (isTop) viewModel.refreshPersonal() }
 
-    fun playArtist(shuffle: Boolean) {
-        scope.launch {
-            // Already in play order: Shuffle's order is drawn before its albums load.
-            val ordered = viewModel.getPlayTracks(shuffle)
-            if (ordered.isEmpty()) return@launch
-            app.container.profileManager.activeSource.value?.let { source ->
-                app.container.playbackManager.play(
-                    tracks = ordered,
-                    startIndex = 0,
-                    source = source,
-                    activityContext = viewModel.playbackContext(),
-                    // Play / Shuffle pick no song: an Apple Music import first
-                    // in line gives way to the next that plays.
-                    explicitStart = false,
-                )
-            }
-        }
-    }
     fun playMostPlayed(startIndex: Int) {
         val tracks = viewModel.getMostPlayedTracks()
         if (tracks.isEmpty()) return
@@ -301,8 +281,8 @@ internal fun ArtistPaneEntry(
         actions = rememberPaneBarActions(
             playContainer = scheme.primary,
             playContent = scheme.onPrimary,
-            onPlay = { playArtist(shuffle = false) },
-            onShuffle = { playArtist(shuffle = true) },
+            onPlay = { viewModel.playArtist(app.container, shuffle = false) },
+            onShuffle = { viewModel.playArtist(app.container, shuffle = true) },
             promotable = listOf(
                 BarExtraAction(
                     icon = YoinSymbols.Share,
@@ -320,8 +300,8 @@ internal fun ArtistPaneEntry(
         onAlbumClick = onOpenAlbum,
         onRetry = viewModel::retry,
         onToggleFollow = viewModel::toggleFollow,
-        onPlay = { playArtist(shuffle = false) },
-        onShuffle = { playArtist(shuffle = true) },
+        onPlay = { viewModel.playArtist(app.container, shuffle = false) },
+        onShuffle = { viewModel.playArtist(app.container, shuffle = true) },
         menu = menu,
         onMostPlayedClick = { index -> playMostPlayed(index) },
         onShare = share,

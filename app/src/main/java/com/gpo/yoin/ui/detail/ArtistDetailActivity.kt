@@ -11,7 +11,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -35,7 +34,6 @@ import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
-import kotlinx.coroutines.launch
 
 /**
  * Standalone Activity for an artist detail page. Opening an album from here
@@ -77,32 +75,12 @@ class ArtistDetailActivity : ComponentActivity() {
             YoinActivityRoot {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
-                val scope = rememberCoroutineScope()
                 val viewModel: ArtistDetailViewModel = viewModel(
                     factory = ArtistDetailViewModel.Factory(artistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
-
-                fun playArtist(shuffle: Boolean) {
-                    scope.launch {
-                        // Already in play order: Shuffle's order is drawn before its albums load.
-                        val ordered = viewModel.getPlayTracks(shuffle)
-                        if (ordered.isEmpty()) return@launch
-                        app.container.profileManager.activeSource.value?.let { source ->
-                            app.container.playbackManager.play(
-                                tracks = ordered,
-                                startIndex = 0,
-                                source = source,
-                                activityContext = viewModel.playbackContext(),
-                                // Play / Shuffle pick no song: an Apple Music import
-                                // first in line gives way to the next that plays.
-                                explicitStart = false,
-                            )
-                        }
-                    }
-                }
 
                 // A "Most Played" row plays the user's own most-played songs
                 // from that row on (the list the page shows, in its order).
@@ -182,8 +160,8 @@ class ArtistDetailActivity : ComponentActivity() {
                     },
                     onRetry = viewModel::retry,
                     onToggleFollow = viewModel::toggleFollow,
-                    onPlay = { playArtist(shuffle = false) },
-                    onShuffle = { playArtist(shuffle = true) },
+                    onPlay = { viewModel.playArtist(app.container, shuffle = false) },
+                    onShuffle = { viewModel.playArtist(app.container, shuffle = true) },
                     menu = menu,
                     onMostPlayedClick = { index -> playMostPlayed(index) },
                     onShare = {

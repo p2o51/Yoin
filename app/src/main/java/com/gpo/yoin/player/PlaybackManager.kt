@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -70,6 +71,9 @@ class PlaybackManager(
     // driven by Media3 itself, not this StateFlow.
     private var hostStarted = false
     private var connectJob: Job? = null
+
+    // The one start still reading its queue ([playWhenLoaded]): any newer start cancels it.
+    private var loadingStart: Job? = null
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
     private var lastRecordedTrackId: MediaId? = null
     private val _currentActivityContext = MutableStateFlow<ActivityContext>(ActivityContext.None)
@@ -249,6 +253,8 @@ class PlaybackManager(
     }
 
     fun disconnect() {
+        // A queue read for the outgoing account never starts on the next one.
+        cancelLoadingStart()
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
         savedStateRefresher.reset()
@@ -290,6 +296,58 @@ class PlaybackManager(
         explicitStart: Boolean = true,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        // The user chose this: a queue still being read must not take over when it lands.
+        cancelLoadingStart()
+        startPlayable(tracks, startIndex, source, activityContext, shuffled, explicitStart)
+    }
+
+    /**
+     * Starts the queue [load] reads, from its first track, on [source] with
+     * [activityContext] — a start whose tracks must be read first (an
+     * artist's Play or Shuffle reads every release). The read runs here, not
+     * in the page that asked, so a page recreated by a rotation, or a Wide
+     * column handed to a window page, doesn't drop the tap. A newer start —
+     * [play], another of these, an account switch ([disconnect]) — cancels
+     * it ([loadingStart]); an empty or failed read starts nothing.
+     */
+    fun playWhenLoaded(
+        source: MusicSource,
+        activityContext: ActivityContext = ActivityContext.None,
+        explicitStart: Boolean = true,
+        load: suspend () -> List<Track>
+    ) {
+        cancelLoadingStart()
+        loadingStart = scope.launch {
+            val tracks = try {
+                load()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                Log.w(TAG, "queue read failed; nothing started", error)
+                emptyList()
+            }
+            // Superseded while the read was landing: the newer start stands.
+            ensureActive()
+            loadingStart = null
+            if (tracks.isNotEmpty()) {
+                startPlayable(tracks, 0, source, activityContext, shuffled = false, explicitStart = explicitStart)
+            }
+        }
+    }
+
+    private fun cancelLoadingStart() {
+        loadingStart?.cancel()
+        loadingStart = null
+    }
+
+    private fun startPlayable(
+        tracks: List<Track>,
+        startIndex: Int,
+        source: MusicSource,
+        activityContext: ActivityContext,
+        shuffled: Boolean,
+        explicitStart: Boolean
+    ) {
         val queue = playableQueue(tracks, startIndex, explicitStart = explicitStart && !shuffled)
         startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled)
     }

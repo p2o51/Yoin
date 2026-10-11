@@ -258,6 +258,27 @@ class ArtistDetailViewModel(
 }
 
 /**
+ * The artist page's Play ([shuffle] false) or Shuffle, in a window or the
+ * Wide column alike. [com.gpo.yoin.player.PlaybackManager] reads the queue
+ * ([ArtistDetailViewModel.getPlayTracks]) and starts it, so a rotation that
+ * rebuilds the page while the releases load doesn't drop the tap, and a play
+ * started meanwhile isn't overtaken when the reads land.
+ */
+internal fun ArtistDetailViewModel.playArtist(container: AppContainer, shuffle: Boolean) {
+    val source = container.profileManager.activeSource.value ?: return
+    container.playbackManager.playWhenLoaded(
+        source = source,
+        activityContext = playbackContext(),
+        // Play / Shuffle pick no song: an Apple Music import first in line
+        // gives way to the next that plays.
+        explicitStart = false
+    ) {
+        // Already in play order: Shuffle's order is drawn before its albums load.
+        getPlayTracks(shuffle)
+    }
+}
+
+/**
  * An artist's releases newest first, whatever order the provider lists them
  * in: Spotify sorts them, Subsonic and Apple Music pass the server's order on
  * (Navidrome lists an artist's albums oldest first). A release without a year
