@@ -191,6 +191,14 @@ private const val BubbleGoneBelow = 0.01f
 /** News waits this long after the launch reveal lands. */
 private const val MemoryBubbleNewsDelayMs = 450L
 
+/**
+ * News that had to wait for Home to be readable waits this long more, readable
+ * and untouched: a free-form or split window comes into focus under the tap
+ * that clicked it, which is likely opening something — the news, spoken then,
+ * would be tucked away at once, told to no one.
+ */
+internal const val MEMORY_BUBBLE_NEWS_SETTLE_MS = 300L
+
 internal val LocalMemoryBubbleIdleMs = staticCompositionLocalOf { MemoryBubbleIdleMs }
 internal val LocalMemoryBubbleDwellMs = staticCompositionLocalOf { MemoryBubbleDwellMs }
 
@@ -763,6 +771,8 @@ internal fun MemoryBubbleOverlay(
 
     // News: once the launch reveal has landed and it can be read (every time
     // Home resumes with news still untold), speak — and remember it was said.
+    // Waiting for it to be readable, it must stay so, untouched, a beat first
+    // (MEMORY_BUBBLE_NEWS_SETTLE_MS).
     LaunchedEffect(pill?.scope, pill?.newsKey, store) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             val news = currentPill ?: return@repeatOnLifecycle
@@ -775,7 +785,9 @@ internal fun MemoryBubbleOverlay(
             }
             snapshotFlow { currentReveal() >= 1f }.first { it }
             delay(MemoryBubbleNewsDelayMs)
-            snapshotFlow { canSpeak() }.first { it }
+            if (!canSpeak()) {
+                awaitMemoryBubbleIdle(snapshotFlow { canSpeak() }, controller.touches, MEMORY_BUBBLE_NEWS_SETTLE_MS)
+            }
             cue(MemoryBubbleCue.News)
             store.markSeen(news.scope, news.newsKey)
         }

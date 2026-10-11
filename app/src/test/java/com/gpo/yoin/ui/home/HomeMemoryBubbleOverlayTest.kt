@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.WindowInfo
@@ -47,6 +50,7 @@ class HomeMemoryBubbleOverlayTest {
     private val controller = MemoryBubbleController()
     private lateinit var shell: MemoryBubbleShell
     private val opened = mutableListOf<Long>()
+    private val store = InMemoryMemoryBubbleSeenStore()
 
     private val pill = HomeMemoryPill(
         latest = HomeMemoryPill.Latest(
@@ -66,14 +70,14 @@ class HomeMemoryBubbleOverlayTest {
 
     private val speaking: Boolean get() = rule.runOnIdle { controller.onBubbleTap != null }
 
-    private fun setHome() {
+    private fun setHome(window: WindowInfo = FocusedWindow) {
         owner.registry.currentState = Lifecycle.State.RESUMED
         rule.mainClock.autoAdvance = false
         rule.setContent {
             CompositionLocalProvider(
                 LocalLifecycleOwner provides owner,
-                LocalWindowInfo provides FocusedWindow,
-                LocalMemoryBubbleSeenStore provides InMemoryMemoryBubbleSeenStore()
+                LocalWindowInfo provides window,
+                LocalMemoryBubbleSeenStore provides store
             ) {
                 shell = rememberMemoryBubbleShell()
                 CompositionLocalProvider(LocalMemoryBubbleShell provides shell) {
@@ -125,6 +129,15 @@ class HomeMemoryBubbleOverlayTest {
     private fun advance(ms: Long) {
         rule.mainClock.advanceTimeBy(ms)
         rule.waitForIdle()
+    }
+
+    /** [advance], a frame at a time: what changes between frames is seen on the next. */
+    private fun frames(ms: Long) {
+        var left = ms
+        while (left > 0L) {
+            advance(FRAME_MS)
+            left -= FRAME_MS
+        }
     }
 
     @Test
@@ -206,6 +219,41 @@ class HomeMemoryBubbleOverlayTest {
     }
 
     @Test
+    fun should_keepTheNewsUntold_when_theTapThatFocusesTheWindowOpensSomething() {
+        // A free-form window beside another, which has the focus: the news waits for it.
+        val window = FocusableWindow()
+        setHome(window)
+        advance(2_000L)
+        assertFalse(speaking)
+
+        // A tap on an album card: the press lands, the focus follows, the card opens a
+        // detail page (Home pauses) before the news would have had a beat to be read.
+        rule.runOnIdle { window.focused = true }
+        frames(MEMORY_BUBBLE_NEWS_SETTLE_MS / 3)
+        rule.runOnIdle { owner.registry.currentState = Lifecycle.State.STARTED }
+        frames(1_000L)
+
+        assertFalse(speaking)
+        assertEquals(null, store.lastSeen(pill.scope))
+    }
+
+    @Test
+    fun should_tellTheNews_when_theWindowStaysFocusedABeat() {
+        val window = FocusableWindow()
+        setHome(window)
+        advance(2_000L)
+
+        rule.runOnIdle { window.focused = true }
+        frames(MEMORY_BUBBLE_NEWS_SETTLE_MS - 2 * FRAME_MS)
+        assertFalse(speaking)
+        // The settle, and the frame that brings the bubble's first one.
+        frames(4 * FRAME_MS)
+
+        assertTrue(speaking)
+        assertEquals(pill.newsKey, store.lastSeen(pill.scope))
+    }
+
+    @Test
     fun should_freeTheReminder_when_theAppStopsWithLibraryShowing() {
         owner.registry.currentState = Lifecycle.State.RESUMED
         // Home isn't composed (Library is showing): the shell resets on its own.
@@ -232,8 +280,15 @@ class HomeMemoryBubbleOverlayTest {
         override val isWindowFocused: Boolean get() = true
     }
 
+    private class FocusableWindow : WindowInfo {
+        var focused by mutableStateOf(false)
+
+        override val isWindowFocused: Boolean get() = focused
+    }
+
     private companion object {
         const val HOME = "home"
         const val BAR = "bar"
+        const val FRAME_MS = 16L
     }
 }
