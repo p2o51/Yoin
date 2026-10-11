@@ -192,7 +192,7 @@ class ConnectGuideActivity : ComponentActivity() {
     private fun pipParams(): PictureInPictureParams {
         // The same three places every step, so › never moves; Apple's are blank (it has nothing to tap, and an
         // empty list would let the system put Yoin's own playback buttons there).
-        val actions = fitGuideActionSlots(guideActionSlots(kind, step), maxNumPictureInPictureActions).map(::action)
+        val actions = guideRemoteActions(this, kind, step, maxNumPictureInPictureActions)
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(4, 3))
             .setActions(actions)
@@ -212,25 +212,7 @@ class ConnectGuideActivity : ComponentActivity() {
         return builder.build()
     }
 
-    private fun action(slot: GuideActionSlot): RemoteAction {
-        val command = slot.command.name
-        val intent = Intent(ACTION_GUIDE).setPackage(packageName).putExtra(EXTRA_COMMAND, command)
-        val pending = PendingIntent.getBroadcast(
-            this,
-            command.hashCode(),
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val text = getString(slot.label)
-        return RemoteAction(Icon.createWithResource(this, slot.command.icon), text, text, pending).apply {
-            // Off: the system draws it at its own disabled alpha (0.54) and ignores taps; the place stays.
-            isEnabled = slot.enabled
-        }
-    }
-
     private companion object {
-        const val ACTION_GUIDE = "com.gpo.yoin.action.CONNECT_GUIDE"
-        const val EXTRA_COMMAND = "command"
         const val STATE_STEP = "step"
         const val STATE_HANDED_OFF = "handedOff"
         const val EnterDelayMs = 450L
@@ -239,6 +221,34 @@ class ConnectGuideActivity : ComponentActivity() {
 }
 
 private const val EXTRA_KIND = "kind"
+
+/** The broadcast the guide window's actions send to the open guide, with its [GuideCommand] name in [EXTRA_COMMAND]. */
+internal const val ACTION_GUIDE = "com.gpo.yoin.action.CONNECT_GUIDE"
+internal const val EXTRA_COMMAND = "command"
+
+/**
+ * The guide window's actions on [step] as handed to the system: [guideActionSlots] fitted to its limit [max], one
+ * [RemoteAction] per place. A greyed place has isEnabled off, which the system draws at its own disabled alpha (0.54)
+ * and ignores taps on, so the place stays; a live one broadcasts its [GuideCommand] to the open guide.
+ */
+internal fun guideRemoteActions(context: Context, kind: GuideKind, step: Int, max: Int): List<RemoteAction> =
+    fitGuideActionSlots(guideActionSlots(kind, step), max).map { remoteAction(context, it) }
+
+private fun remoteAction(context: Context, slot: GuideActionSlot): RemoteAction {
+    val command = slot.command.name
+    val intent = Intent(ACTION_GUIDE).setPackage(context.packageName).putExtra(EXTRA_COMMAND, command)
+    val pending = PendingIntent.getBroadcast(
+        context,
+        command.hashCode(),
+        intent,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    // The system's menu reads only the content description aloud: a blank place has none, so TalkBack skips it.
+    val text = slot.label?.let(context::getString).orEmpty()
+    return RemoteAction(Icon.createWithResource(context, slot.command.icon), text, text, pending).apply {
+        isEnabled = slot.enabled
+    }
+}
 
 /**
  * Yoin's side of the floating guides: open one, wait until it's in the corner, steer it, close it. One guide at

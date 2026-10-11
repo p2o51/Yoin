@@ -109,6 +109,8 @@ class ConnectGuideTest {
             assertEquals(GUIDE_ACTION_SLOT_COUNT, slots.size)
             assertTrue(slots.all { it.command == GuideCommand.None && !it.enabled })
             assertTrue(slots.all { it.command.icon == R.drawable.ic_guide_blank })
+            // Blank to TalkBack too: nothing for it to read out.
+            assertTrue(slots.all { it.label == null })
             assertTrue(fitGuideActionSlots(slots, max = 3).isNotEmpty())
         }
     }
@@ -122,15 +124,29 @@ class ConnectGuideTest {
     }
 
     @Test
-    fun should_dropPreviousFirstButKeepTheLiveAction_when_systemTakesFewerActions() {
-        val middle = guideActionSlots(GuideKind.Spotify, 3)
-        assertEquals(middle.takeLast(2), fitGuideActionSlots(middle, max = 2))
+    fun should_dropPreviousFirstAndKeepNextLast_when_systemTakesFewerActions() {
+        (1..2).forEach { max ->
+            SpotifyGuideSteps.indices.forEach { step ->
+                val slots = guideActionSlots(GuideKind.Spotify, step)
+                val fitted = fitGuideActionSlots(slots, max)
+                // Places are only cut from the left, never swapped: › stays the last place, as it is with three.
+                assertEquals(slots.takeLast(max), fitted)
+                assertEquals(GuideCommand.Next, fitted.last().command)
+            }
+        }
         val last = guideActionSlots(GuideKind.Spotify, SpotifyGuideSteps.lastIndex)
         val lastInTwo = fitGuideActionSlots(last, max = 2).map { it.command }
         assertEquals(listOf(GuideCommand.Return, GuideCommand.Next), lastInTwo)
-        // Room for one: back to Yoin, not the greyed ›.
-        assertEquals(listOf(GuideCommand.Return), fitGuideActionSlots(last, max = 1).map { it.command })
-        val firstInOne = fitGuideActionSlots(guideActionSlots(GuideKind.Spotify, 0), max = 1).map { it.command }
-        assertEquals(listOf(GuideCommand.Next), firstInOne)
+    }
+
+    @Test
+    fun should_keepTheGreyedNextRatherThanReturn_when_systemTakesOneActionOnTheLastStep() {
+        // Owner 2026-10-11: tapping on where › was stops at the last step and never closes the guide. With room
+        // for one place that place is ›, greyed; the system's expand button is still the way back to Yoin.
+        val fitted = fitGuideActionSlots(guideActionSlots(GuideKind.Spotify, SpotifyGuideSteps.lastIndex), max = 1)
+        assertEquals(1, fitted.size)
+        assertEquals(GuideCommand.Next, fitted.single().command)
+        assertFalse(fitted.single().enabled)
+        assertTrue(fitted.none { it.command == GuideCommand.Return })
     }
 }
