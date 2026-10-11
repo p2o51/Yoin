@@ -79,7 +79,9 @@ import com.gpo.yoin.perf.YoinPerf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -1467,25 +1469,63 @@ class YoinRepository(
 
     // ── Rating (local-first, best-effort server sync) ──────────────────
 
-    suspend fun setRating(trackId: MediaId, rating: Float) {
-        val profileId = activeProfileId.value ?: return
+    // Stores land in call order; provider pushes go out one at a time.
+    private val ratingStores = Mutex()
+    private val ratingPushes = Mutex()
+
+    /** Per track and profile, the newest rating stored whose push hasn't run yet ([pushRating]). */
+    private val newestRatings = ConcurrentHashMap<RatingKey, LocalRating>()
+
+    /**
+     * Rates [trackId] on [repositoryScope], not in the caller's: stored at
+     * once (local-first, in call order), then pushed to the provider, so a
+     * window that closes meanwhile drops neither. A store never waits on a
+     * push still out; pushes go one at a time, and one that a newer rating
+     * of the same track overtook while it waited is skipped. The job is the
+     * whole write, push included.
+     */
+    fun setRating(trackId: MediaId, rating: Float): Job = repositoryScope.launch(start = CoroutineStart.UNDISPATCHED) {
+        val pending = storeRating(trackId, rating) ?: return@launch
+        pushRating(pending)
+    }
+
+    private suspend fun storeRating(trackId: MediaId, rating: Float): LocalRating? {
+        val profileId = activeProfileId.value ?: return null
         val localRating = rating.coerceIn(0f, 10f)
-        val serverRating = (localRating / 2f).roundToInt().coerceIn(0, 5)
         val pending = LocalRating(
             profileId = profileId,
             songId = trackId.rawId,
             provider = trackId.provider,
             rating = localRating,
-            serverRating = serverRating,
+            serverRating = (localRating / 2f).roundToInt().coerceIn(0, 5),
             needsSync = true,
         )
-        database.localRatingDao().upsert(pending)
-        val source = activeSource.value ?: return
-        if (source.id != trackId.provider) return
-        source.writeActions().setRating(trackId, serverRating).onSuccess {
-            // Not an upsert of this write's row: a newer rating stored while
-            // this call was out must not be rolled back to this one.
-            database.localRatingDao().markSynced(trackId.rawId, trackId.provider, profileId, localRating)
+        ratingStores.withLock {
+            database.localRatingDao().upsert(pending)
+            newestRatings[RatingKey(pending)] = pending
+        }
+        return pending
+    }
+
+    private suspend fun pushRating(pending: LocalRating) {
+        ratingPushes.withLock {
+            val key = RatingKey(pending)
+            // Overtaken while it waited: the newer rating's own push carries it.
+            if (newestRatings[key] !== pending) return
+            try {
+                if (activeProfileId.value != pending.profileId) return
+                val source = activeSource.value ?: return
+                if (source.id != pending.provider) return
+                val trackId = MediaId(pending.provider, pending.songId)
+                source.writeActions().setRating(trackId, pending.serverRating).onSuccess {
+                    // Not an upsert of this write's row: a newer rating stored while
+                    // this call was out must not be rolled back to this one.
+                    database.localRatingDao()
+                        .markSynced(pending.songId, pending.provider, pending.profileId, pending.rating)
+                }
+            } finally {
+                newestRatings.remove(key, pending)
+            }
         }
     }
 
@@ -3314,6 +3354,11 @@ private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEv
 }
 
 private val lyricTranslationCacheJson = Json
+
+/** A track rating's row key ([com.gpo.yoin.data.local.LocalRating]'s primary key). */
+private data class RatingKey(val profileId: String, val provider: String, val songId: String) {
+    constructor(rating: LocalRating) : this(rating.profileId, rating.provider, rating.songId)
+}
 
 private data class ProviderTranslation(
     val providerName: String,

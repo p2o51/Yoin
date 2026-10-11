@@ -11,11 +11,10 @@ import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
-import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -28,9 +27,10 @@ import org.junit.Test
 
 /**
  * Now Playing's rating writes ([NowPlayingViewModel.setRating]): one per
- * press, and they land in the order they were made. A second press while
- * the first one's provider call is out waits for it instead of racing it,
- * so the provider and the stored rating end on the newest value.
+ * press, handed to the repository as it is made. Nothing in this window's
+ * scope stands between a press and its store, so a provider call still out
+ * never holds a newer rating back and closing the window drops none
+ * (ordering and the provider push: YoinRepositoryTest).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class NowPlayingViewModelRatingTest {
@@ -40,28 +40,22 @@ class NowPlayingViewModelRatingTest {
     private val song = track("tr-1116")
     private val repository = mockk<YoinRepository>(relaxed = true)
 
-    /** Each rating write as it starts, and the gate that holds the first one at the provider. */
+    /** Each rating handed to the repository, in order. */
     private val writes = mutableListOf<Float>()
-    private val firstAnswer = CompletableDeferred<Unit>()
 
     @Test
-    fun should_writeInCommitOrder_when_aSecondPressLandsWhileTheFirstIsOut() = runTest {
-        coEvery { repository.setRating(song.id, any()) } coAnswers {
+    fun should_handEachPressToTheRepositoryAtOnce_when_theFirstWriteIsStillOut() = runTest {
+        // The first write's job never completes: its provider call is still out.
+        every { repository.setRating(song.id, any()) } answers {
             writes += secondArg<Float>()
-            if (writes.size == 1) firstAnswer.await()
+            Job()
         }
         val viewModel = viewModel()
 
         viewModel.setRating(3.0f)
-        runCurrent()
         viewModel.setRating(7.7f)
-        runCurrent()
-        // The newer press waits: nothing overtakes the write still out.
-        assertEquals(listOf(3.0f), writes)
 
-        firstAnswer.complete(Unit)
-        runCurrent()
-
+        // No runCurrent: neither press waited on this window's scope or on the first write.
         assertEquals(listOf(3.0f, 7.7f), writes)
     }
 
