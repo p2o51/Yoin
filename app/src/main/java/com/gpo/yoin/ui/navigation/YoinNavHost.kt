@@ -125,8 +125,11 @@ import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
+import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
+import com.gpo.yoin.ui.home.rememberMemoryBubbleShell
+import com.gpo.yoin.ui.home.reportMemoryBubbleShellPresses
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
@@ -234,7 +237,12 @@ fun YoinNavHost(
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        // Home's Memories bubble hears every press in the window — the bar,
+        // the Now Playing pill, the snackbars all sit outside Home — and keeps
+        // its once-per-foreground reminder above the shell's section switch.
+        val memoryBubbleShell = rememberMemoryBubbleShell()
+
+        Box(modifier = Modifier.fillMaxSize().reportMemoryBubbleShellPresses(memoryBubbleShell)) {
             NavDisplay(
                 backStack = backStack,
                 modifier = Modifier.fillMaxSize(),
@@ -276,46 +284,50 @@ fun YoinNavHost(
                             factory = MemoriesViewModel.Factory(app.container),
                         )
 
-                        YoinShell(
-                            app = app,
-                            homeViewModel = homeViewModel,
-                            libraryViewModel = libraryViewModel,
-                            memoriesViewModel = memoriesViewModel,
-                            nowPlayingViewModel = nowPlayingViewModel,
-                            // Detail pages are now separate Activities — launch
-                            // them so back navigation plays the device-native
-                            // cross-Activity predictive back. sharedTransitionKey
-                            // is no longer used (no cross-page shared element).
-                            // launchDetailFromShell delays the incoming
-                            // window's fade so the shell bar's nav→split
-                            // morph plays first (detail_bar_handoff_enter).
-                            onNavigateToSettings = { focusSection ->
-                                context.startActivity(SettingsActivity.intent(context, focusSection))
-                            },
-                            onNavigateToAlbum = { albumId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    AlbumDetailActivity.intent(context, albumId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            onNavigateToArtist = { artistId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    ArtistDetailActivity.intent(context, artistId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            onNavigateToPlaylist = { playlistId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    PlaylistDetailActivity.intent(context, playlistId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            sharedTransitionScope = sharedTransitionScope,
-                            shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
-                        )
+                        // Home's Memories bubble: every press in the window and the
+                        // once-per-foreground reminder (LocalMemoryBubbleShell).
+                        CompositionLocalProvider(LocalMemoryBubbleShell provides memoryBubbleShell) {
+                            YoinShell(
+                                app = app,
+                                homeViewModel = homeViewModel,
+                                libraryViewModel = libraryViewModel,
+                                memoriesViewModel = memoriesViewModel,
+                                nowPlayingViewModel = nowPlayingViewModel,
+                                // Detail pages are now separate Activities — launch
+                                // them so back navigation plays the device-native
+                                // cross-Activity predictive back. sharedTransitionKey
+                                // is no longer used (no cross-page shared element).
+                                // launchDetailFromShell delays the incoming
+                                // window's fade so the shell bar's nav→split
+                                // morph plays first (detail_bar_handoff_enter).
+                                onNavigateToSettings = { focusSection ->
+                                    context.startActivity(SettingsActivity.intent(context, focusSection))
+                                },
+                                onNavigateToAlbum = { albumId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        AlbumDetailActivity.intent(context, albumId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                onNavigateToArtist = { artistId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        ArtistDetailActivity.intent(context, artistId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                onNavigateToPlaylist = { playlistId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        PlaylistDetailActivity.intent(context, playlistId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                sharedTransitionScope = sharedTransitionScope,
+                                shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
+                            )
+                        }
                     }
                 },
             )
