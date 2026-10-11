@@ -80,7 +80,6 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.landing.guide.AppleMusicSignInWithGuide
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
-import com.gpo.yoin.ui.landing.guide.GuideKind
 import com.gpo.yoin.ui.landing.guide.signingCertificateSha1
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationViewModel
@@ -388,7 +387,7 @@ internal fun SpotifyConnectScene(
                 onClick = {
                     guideOpened = true
                     focusManager.clearFocus()
-                    context.startActivity(ConnectGuide.intent(context, GuideKind.Spotify))
+                    ConnectGuide.openSpotify(context)
                 },
                 modifier = Modifier.padding(top = 8.dp),
             ) {
