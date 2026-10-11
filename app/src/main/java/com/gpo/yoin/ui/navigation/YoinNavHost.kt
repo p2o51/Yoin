@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -841,10 +842,11 @@ private fun YoinShell(
     // Home's account switcher. A switch begun there that fails puts Home's
     // feed back on its own (HomeViewModel) and says so here, once.
     val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
+    val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
     LaunchedEffect(accountSwitcher) {
         accountSwitcher.switchFailures.collect {
             snackbarHostState.showSnackbar(
-                message = shellContext.getString(R.string.settings_switch_failed),
+                message = switchFailedMessage,
                 duration = SnackbarDuration.Short
             )
         }
