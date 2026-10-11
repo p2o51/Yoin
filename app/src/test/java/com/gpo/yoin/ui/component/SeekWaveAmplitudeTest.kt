@@ -5,7 +5,9 @@ import org.junit.Test
 
 /**
  * The scrubber's wave amplitude is a step on play state alone (owner 10-10):
- * a full wave while playing, flat while paused, never shaped by progress.
+ * a full wave while playing, flat while paused. This only pins the step's two
+ * values. Whether the drawn wave really ignores progress (no flat first 10% or
+ * last 5%) is guarded by WaveProgressBarAmplitudeTest, which measures the ink.
  */
 class SeekWaveAmplitudeTest {
 

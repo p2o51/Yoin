@@ -25,8 +25,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -44,6 +46,7 @@ import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 
 private val SeekTouchHeight = 18.dp
@@ -51,10 +54,10 @@ private val SeekWaveLength = 24.dp
 internal const val SeekWaveAmplitudeScale = 0.28f
 
 // M3E's own amplitude easing (WavyProgressIndicatorKt's Increasing/
-// DecreasingAmplitudeAnimationSpec: tween 500ms), plus a few frames of slack
-// before the recheck re-sends the final target.
-private const val M3E_AMPLITUDE_TWEEN_MS = 500L
-private const val AMPLITUDE_RECHECK_SLACK_MS = 50L
+// DecreasingAmplitudeAnimationSpec: tween 500ms at 1x), plus a few frames of
+// slack before the recheck re-sends the final target.
+private const val M3E_AMPLITUDE_TWEEN_NANOS = 500_000_000L
+private const val AMPLITUDE_RECHECK_SLACK_NANOS = 50_000_000L
 
 /**
  * The amplitude fraction the scrubber hands M3E's wavy indicator: a step on
@@ -62,6 +65,27 @@ private const val AMPLITUDE_RECHECK_SLACK_MS = 50L
  * stretch over a song's first 10% or last 5%.
  */
 internal fun seekWaveAmplitude(isPlaying: Boolean): Float = if (isPlaying) SeekWaveAmplitudeScale else 0f
+
+/**
+ * Suspends until an amplitude tween M3E starts now has finished, timed the
+ * way that tween is timed: frames of this composition's frame clock, against
+ * a length stretched by the animator duration scale (re-read every frame, as
+ * Compose's own animations do). A wall-clock delay is wrong twice over: at a
+ * 2x or 5x animator scale the tween outlasts it, and while
+ * CoveredWindowAnimationGate pauses a covered window's frame clock (Now
+ * Playing under a detail page) the tween stands still while the delay runs
+ * out. Either way the recheck lands inside the tween and is dropped too.
+ * Waiting on frames only asks for frame callbacks; it draws nothing, and the
+ * tween is asking for the same frames anyway.
+ */
+private suspend fun awaitM3eAmplitudeTween() {
+    val start = withFrameNanos { it }
+    do {
+        val elapsedNanos = withFrameNanos { it } - start
+        val scale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
+        val waitNanos = (M3E_AMPLITUDE_TWEEN_NANOS * scale).toLong() + AMPLITUDE_RECHECK_SLACK_NANOS
+    } while (elapsedNanos < waitNanos)
+}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -204,10 +228,12 @@ fun WaveProgressBar(
     // paused bar has nothing else that rebuilds M3E's draw cache. So once
     // the tween has had time to finish, amplitudeRecheck is bumped: the
     // amplitude lambda reads it inside M3E's observed cache block, the cache
-    // rebuilds, and M3E receives the final target once more.
+    // rebuilds, and M3E receives the final target once more. "Had time" is
+    // counted on the tween's own clock (awaitM3eAmplitudeTween), never on
+    // the wall clock.
     val amplitudeRecheck = remember { mutableIntStateOf(0) }
     LaunchedEffect(isPlaying) {
-        delay(M3E_AMPLITUDE_TWEEN_MS + AMPLITUDE_RECHECK_SLACK_MS)
+        awaitM3eAmplitudeTween()
         amplitudeRecheck.intValue++
     }
     val waveAmplitude: (Float) -> Float = remember {
