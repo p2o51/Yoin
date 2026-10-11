@@ -1,9 +1,16 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.runtime.Composition
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ExperimentalComposeRuntimeApi
+import androidx.compose.runtime.RecomposeScope
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.currentComposer
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.tooling.CompositionObserver
+import androidx.compose.runtime.tooling.ObservableComposition
+import androidx.compose.runtime.tooling.setObserver
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -82,6 +89,10 @@ class HomeAccountSwitcherHostTest {
     private var homeCompositions = 0
     private var chrome: HomeAccountChrome? = null
 
+    // The window's composition: what recomposes anywhere in it (HomeContent's own
+    // body, its lazy rows, the card's window), not only the host's content lambda.
+    private var composition: Composition? = null
+
     @After
     fun tearDown() {
         collector.cancel()
@@ -90,6 +101,7 @@ class HomeAccountSwitcherHostTest {
     private fun setHome() {
         collector.launch { switcher.switchFailures.collect { failures += it } }
         rule.setContent {
+            composition = currentComposer.composition
             YoinTheme {
                 HomeAccountSwitcherHost(
                     accountSwitcher = switcher,
@@ -248,16 +260,46 @@ class HomeAccountSwitcherHostTest {
         // The header avatar's onGloballyPositioned, frame after frame of a
         // scroll (or a pull to Memories) with the header still on the page.
         var last: Rect? = null
-        repeat(SCROLL_FRAMES) { step ->
-            val moved = Rect(Offset(24f, 120f - step * 9f), Size(32f, 32f))
-            rule.runOnIdle { requireNotNull(chrome).onAnchor(moved) }
-            rule.waitForIdle()
-            last = moved
+        val recomposed = recomposedScopesDuring {
+            repeat(SCROLL_FRAMES) { step ->
+                val moved = Rect(Offset(24f, 120f - step * 9f), Size(32f, 32f))
+                rule.runOnIdle { requireNotNull(chrome).onAnchor(moved) }
+                rule.waitForIdle()
+                last = moved
+            }
         }
 
         assertEquals(settled, homeCompositions)
+        // Nor anything inside Home: a read of the anchor in HomeContent's own body
+        // (or deeper) would recompose its scope without touching the host's lambda.
+        assertEquals(0, recomposed)
         // Still there for what reads it outside composition (the stand-in's snapshotFlow).
         assertEquals(last, requireNotNull(chrome).anchor())
+    }
+
+    /** How many recompose scopes recompose, anywhere in [composition], while [block] runs. */
+    @OptIn(ExperimentalComposeRuntimeApi::class)
+    private fun recomposedScopesDuring(block: () -> Unit): Int {
+        var entered = 0
+        val observer = object : CompositionObserver {
+            override fun onBeginComposition(composition: ObservableComposition) = Unit
+            override fun onScopeEnter(scope: RecomposeScope) {
+                entered++
+            }
+            override fun onReadInScope(scope: RecomposeScope, value: Any) = Unit
+            override fun onScopeExit(scope: RecomposeScope) = Unit
+            override fun onEndComposition(composition: ObservableComposition) = Unit
+            override fun onScopeInvalidated(scope: RecomposeScope, value: Any?) = Unit
+            override fun onScopeDisposed(scope: RecomposeScope) = Unit
+        }
+        // Subcompositions (lazy rows, the card's window) follow their parent's observer.
+        val handle = rule.runOnIdle { requireNotNull(requireNotNull(composition).setObserver(observer)) }
+        try {
+            block()
+        } finally {
+            rule.runOnIdle { handle.dispose() }
+        }
+        return entered
     }
 
     private fun feedOf(profileId: String) = HomeUiState.Content(
