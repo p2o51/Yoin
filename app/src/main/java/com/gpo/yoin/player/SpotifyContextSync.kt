@@ -25,7 +25,10 @@ import com.gpo.yoin.data.repository.ActivityContext
  *   from it — the album or playlist it last named on this connection, else none. A song with the
  *   title and artist of one in Yoin's queue is that song (a copy Spotify relinked: another
  *   market's, under another id); one Spotify relinked otherwise still plays from the album or
- *   playlist Spotify names, so Yoin's label stays.
+ *   playlist Spotify names, so Yoin's label stays;
+ * - Yoin's Liked Songs starts Spotify's whole collection but mirrors only a window of it: a liked
+ *   song past the window, while Spotify still says it plays the collection (`spotify:collection:
+ *   tracks`, `spotify:user:<id>:collection`), is still Yoin's start, not a move.
  */
 internal class SpotifyContextSync {
 
@@ -63,13 +66,15 @@ internal class SpotifyContextSync {
             if (!confirmed) {
                 confirmed = true
                 // Said before the start landed: about what Spotify played before, unless it
-                // already names Yoin's own album or playlist.
-                if (deriveSpotifyActivityContext(reported)?.namesSameAs(yoin) != true) reported = null
+                // already names Yoin's own album, playlist or Liked Songs.
+                if (!reported.names(yoin)) reported = null
             }
             return null
         }
         // A song from before the start, still playing while the start lands.
         if (!confirmed) return null
+        // Past Yoin's window of Liked Songs, still in the collection Yoin started.
+        if (yoin is ActivityContext.LikedSongs && reported.names(yoin)) return null
         followSpotify()
         val next = deriveSpotifyActivityContext(reported) ?: ActivityContext.None
         return next.takeUnless { it.namesSameAs(current) }
@@ -86,6 +91,32 @@ internal class SpotifyContextSync {
         }
         return next.takeUnless { it.namesSameAs(current) }
     }
+}
+
+/**
+ * Spotify's report names [yoin]: the same album or playlist, or (Yoin's Liked Songs) the user's
+ * collection, which Spotify calls by more than one uri.
+ */
+private fun SpotifyPlaybackContext?.names(yoin: ActivityContext): Boolean =
+    deriveSpotifyActivityContext(this)?.namesSameAs(yoin) == true ||
+        (yoin is ActivityContext.LikedSongs && isSpotifyLikedSongsUri(this?.uri))
+
+/**
+ * Spotify's Liked Songs collection: `spotify:collection:tracks` (what Yoin starts), and the forms
+ * Spotify reports back, `spotify:collection`, `spotify:user:<id>:collection` and
+ * `spotify:user:<id>:collection:tracks`. Not a collection's other shelves (episodes, an artist's
+ * liked songs).
+ */
+internal fun isSpotifyLikedSongsUri(uri: String?): Boolean {
+    val parts = uri?.trim()?.split(':') ?: return false
+    if (parts.firstOrNull() != "spotify") return false
+    val rest = if (parts.getOrNull(1) == "user") {
+        if (parts.getOrNull(2).isNullOrBlank()) return false
+        parts.drop(3)
+    } else {
+        parts.drop(1)
+    }
+    return rest == listOf("collection") || rest == listOf("collection", "tracks")
 }
 
 /** The same song: the same id, or (a relinked copy) the same title and artist. */

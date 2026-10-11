@@ -146,6 +146,21 @@ class PlaybackManagerSpotifyContextTest {
     }
 
     @Test
+    fun should_keepAndRecordLikedSongs_when_spotifyPlaysALikedSongOutsideYoinsWindow() = runTest {
+        val likedSongs = ActivityContext.LikedSongs()
+        play(likedSongs, startIndex = 1)
+        state(tracks[1])
+        reportContext(SpotifyPlaybackContext(uri = "spotify:user:me:collection", title = "Liked Songs"))
+
+        // Shuffle: the next liked song is past the window of 100 Yoin handed Spotify.
+        state(liked, isPlaying = true)
+        runCurrent()
+
+        assertEquals(likedSongs, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(liked, any(), any(), likedSongs) }
+    }
+
+    @Test
     fun should_dropTheAlbumBeforeRecordingThePlay_when_spotifyMovedOnWhileYoinWasInTheBackground() = runTest {
         play(album, startIndex = 1)
         state(tracks[1])

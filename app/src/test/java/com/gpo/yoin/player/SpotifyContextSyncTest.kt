@@ -4,7 +4,9 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -23,6 +25,7 @@ class SpotifyContextSyncTest {
         coverArtId = "https://i.scdn.co/image/al1"
     )
     private val artist = ActivityContext.Artist(artistId = MediaId.spotify("ar1").toString(), artistName = "TUIDE")
+    private val likedSongs = ActivityContext.LikedSongs()
 
     private val queue = (1..5).map { track("t$it") }
     private val before = track("before")
@@ -240,6 +243,88 @@ class SpotifyContextSyncTest {
         state(elsewhere)
 
         assertEquals(ActivityContext.Album(albumId = "spotify:al1", albumName = "TUNE & PLAY"), shown)
+    }
+
+    @Test
+    fun should_keepYoinsLikedSongs_when_spotifyPlaysALikedSongPastYoinsWindow() {
+        startAndConfirm(likedSongs)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+
+        // Shuffle (or ~80 songs on): a liked song outside the 100 Yoin handed Spotify.
+        state(elsewhere)
+        assertEquals(likedSongs, shown)
+
+        context(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs"))
+        state(track("elsewhere-2"))
+        context(report("", ""))
+        state(queue[2])
+        assertEquals(likedSongs, shown)
+    }
+
+    @Test
+    fun should_keepYoinsLikedSongs_when_spotifyWasAlreadyInTheCollectionBeforeTheStart() {
+        start(likedSongs)
+        // Spotify was on Liked Songs already: its context doesn't change, so this is its only word.
+        state(before)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+        state(queue[0])
+
+        state(elsewhere)
+
+        assertEquals(likedSongs, shown)
+    }
+
+    @Test
+    fun should_handLikedSongsToSpotify_when_itMovesToAnotherContext() {
+        startAndConfirm(likedSongs)
+        context(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs"))
+
+        // The user picks an album in the Spotify app; its song arrives before its context.
+        state(elsewhere)
+        context(report("spotify:album:al2", "Other"))
+        state(track("elsewhere-2"))
+
+        assertEquals(ActivityContext.Album(albumId = "spotify:al2", albumName = "Other"), shown)
+    }
+
+    @Test
+    fun should_followSpotify_when_aSongPastTheWindowPlaysWithNoWordOfTheCollection() {
+        startAndConfirm(likedSongs)
+        context(report("spotify:artist:ar1", "Radio"))
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_keepAlbumsApartFromLikedSongs_when_spotifyReportsTheCollection() {
+        startAndConfirm(album)
+        context(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs"))
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_recogniseEveryFormOfTheCollection_when_readingALikedSongsUri() {
+        listOf(
+            SPOTIFY_LIKED_SONGS_CONTEXT_URI,
+            "spotify:collection",
+            "spotify:user:me:collection",
+            "spotify:user:31abc:collection:tracks",
+            " spotify:user:me:collection "
+        ).forEach { uri -> assertTrue(uri, isSpotifyLikedSongsUri(uri)) }
+        listOf(
+            null,
+            "",
+            "spotify:user::collection",
+            "spotify:user:me:collection:artist:ar1",
+            "spotify:collection:your-episodes",
+            "spotify:playlist:collection",
+            "spotify:album:al1"
+        ).forEach { uri -> assertFalse("$uri", isSpotifyLikedSongsUri(uri)) }
     }
 
     @Test
