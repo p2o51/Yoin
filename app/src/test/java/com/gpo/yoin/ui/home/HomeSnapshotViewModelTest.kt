@@ -33,6 +33,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -626,6 +627,50 @@ class HomeSnapshotViewModelTest {
     }
 
     @Test
+    fun should_paintTheSnapshotInItsLayout_when_theObservedLayoutLandsAfterTheWait() = runTest {
+        // A cold start's main thread is busy with its first frames: Room's
+        // observed layout reaches it late (QA: ~230 ms past the wait, every
+        // cold start with the source up). The layout read beside the snapshot
+        // is in at once, so the snapshot paints in it — no Loading, no feed
+        // built from the local tier alone.
+        assumeTrue(YoinPerf.enabled)
+        val profile = "snapshot-layout-observed-late"
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val custom = HomeLayout.Default.toPrefs().reversed()
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
+        every { repository.getRecentActivities(limit = any()) } returns flow { awaitCancellation() }
+        val viewModel = viewModel(
+            repository,
+            MutableStateFlow(profile),
+            store(),
+            layouts = flow {
+                delay(5_000)
+                emit(custom)
+            },
+            layoutRead = { custom }
+        )
+        val painted = mutableListOf<Pair<HomeUiState.Content, HomeLayout>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state ->
+                if (state is HomeUiState.Content) painted += state to viewModel.homeLayout.value
+            }
+        }
+
+        val paints = perfLines {
+            runCurrent()
+        }.filter { line -> line.startsWith("home.snapshot.paint ") }
+
+        assertEquals(listOf("Snap playlist"), painted.first().first.playlists.map { it.name })
+        assertTrue(painted.all { (_, layout) -> layout.sameSectionsAs(HomeLayout.reconcile(custom)) })
+        assertEquals(listOf("paint"), paints.map { line -> line.substringAfter("result=").substringBefore(' ') })
+
+        // The observed layout lands, the same: nothing moves.
+        advanceTimeBy(5_001)
+        runCurrent()
+        assertTrue(viewModel.homeLayout.value.sameSectionsAs(HomeLayout.reconcile(custom)))
+    }
+
+    @Test
     fun should_paintTheIncomingAccountsSnapshot_when_aSwitchCommits() = runTest {
         val outgoing = "snapshot-switch-a"
         val incoming = "snapshot-switch-b"
@@ -664,7 +709,12 @@ class HomeSnapshotViewModelTest {
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /** The result of each Home load that ended while [block] ran (its debug `home.refresh` mark), in order. */
-    private inline fun homeLoadResults(block: () -> Unit): List<String> {
+    private inline fun homeLoadResults(block: () -> Unit): List<String> = perfLines(block)
+        .filter { line -> line.startsWith("home.refresh ") }
+        .map { line -> line.substringAfter(" result=").substringBefore(' ') }
+
+    /** Every debug YoinPerf line written while [block] ran, in order. */
+    private inline fun perfLines(block: () -> Unit): List<String> {
         val lines = mutableListOf<String>()
         val sink = YoinPerf.sink
         YoinPerf.sink = { line -> synchronized(lines) { lines += line } }
@@ -674,8 +724,6 @@ class HomeSnapshotViewModelTest {
             YoinPerf.sink = sink
         }
         return synchronized(lines) { lines.toList() }
-            .filter { line -> line.startsWith("home.refresh ") }
-            .map { line -> line.substringAfter(" result=").substringBefore(' ') }
     }
 
     private fun activityIds(viewModel: HomeViewModel): List<String> =
@@ -706,22 +754,30 @@ class HomeSnapshotViewModelTest {
         return seen
     }
 
-    private fun viewModel(
+    /**
+     * [layouts] is the account's layout as Home observes it (Room's flow);
+     * [layoutRead] the same row read once, beside the snapshot — by default
+     * the observed flow's first value, as Room answers both from one row.
+     */
+    private fun TestScope.viewModel(
         repository: YoinRepository,
         profileId: MutableStateFlow<String?>,
         store: HomeSnapshotStore,
         switching: MutableStateFlow<ProfileManager.SwitchState> = MutableStateFlow(ProfileManager.SwitchState.Idle),
         layouts: Flow<List<HomeSectionPref>?> = flowOf(null),
-        revision: MutableStateFlow<Long> = MutableStateFlow(0L)
+        revision: MutableStateFlow<Long> = MutableStateFlow(0L),
+        layoutRead: suspend () -> List<HomeSectionPref>? = { layouts.first() }
     ): HomeViewModel = HomeViewModel(
         repository = repository,
         activeProfileId = profileId,
         homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
             every { store.layoutFlow(any()) } returns layouts
+            coEvery { store.readLayout(any()) } coAnswers { layoutRead() }
         },
         configurationRevision = revision,
         switchingState = switching,
-        snapshotStore = store
+        snapshotStore = store,
+        ioDispatcher = StandardTestDispatcher(testScheduler)
     )
 
     /** A feed of every block, its covers as a Subsonic id and a URL. */

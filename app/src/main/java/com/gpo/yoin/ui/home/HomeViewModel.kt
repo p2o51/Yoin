@@ -45,9 +45,11 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -103,7 +105,9 @@ class HomeViewModel(
     // Each account's last feed on disk (P2 PR3, owner Q14a): painted when
     // nothing of a scope is up yet, then replaced by the fresh load. Null =
     // none (previews, tests).
-    private val snapshotStore: HomeSnapshotStore? = null
+    private val snapshotStore: HomeSnapshotStore? = null,
+    // Where a snapshot and its account's layout are read ([readSnapshot]).
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -180,13 +184,14 @@ class HomeViewModel(
     // Snapshot reads in flight or done, per profile id, each taken by the
     // first load of that profile that has nothing up ([paintableSnapshot]).
     // Started early — the active profile's as this VM is created, a switch's
-    // target as the switch begins — so the read is usually in by then.
-    private val snapshotReads = mutableMapOf<String, Deferred<HomeSnapshot?>>()
+    // target as the switch begins — so the read is usually in by then. Each
+    // carries the account's layout, read beside it ([readSnapshot]).
+    private val snapshotReads = mutableMapOf<String, Deferred<SnapshotRead?>>()
 
     // The profile whose layout [homeLayout] holds, once its first read is in
-    // (set right after the layout, see [observeHomeLayout]): a snapshot paints
-    // in its own account's layout, not the default (or the outgoing
-    // account's) it would rearrange from a beat later.
+    // (set right after the layout, see [observeHomeLayout] and [adoptLayout]):
+    // a feed paints in its own account's layout, not the default (or the
+    // outgoing account's) it would rearrange from a beat later.
     private val layoutReadFor = MutableStateFlow<String?>(null)
 
     // Owner Q16: the artists the Activities bento pictures (MediaId strings,
@@ -279,8 +284,10 @@ class HomeViewModel(
 
     /**
      * Keep [homeLayout] on the active profile's persisted layout — and only
-     * then mark whose it is ([layoutReadFor]), so a snapshot waiting for it
-     * never paints in the one before ([paintableSnapshot]).
+     * then mark whose it is ([layoutReadFor]). A snapshot brings its
+     * account's layout along ([paintableSnapshot]), read off the main thread
+     * beside it: this observed flow reaches the main thread in several hops,
+     * too late for a cold start's paint.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeHomeLayout() {
@@ -787,13 +794,29 @@ class HomeViewModel(
 
     // ── Snapshot (P2 PR3) ────────────────────────────────────────────────
 
-    /** Start reading [profileId]'s snapshot unless a read is already out or in. */
+    /**
+     * Start reading [profileId]'s snapshot, and the account's layout beside
+     * it, unless a read is already out or in. Off the main thread from start
+     * to end: its answer reaches the main thread in one hop, so a cold
+     * start's first frames, busy there, can't run [paintableSnapshot]'s wait
+     * out on a read that was in long before (the layout used to come through
+     * Room's observed flow and the main thread, and often lost that race).
+     */
     private fun readSnapshot(profileId: String) {
         val store = snapshotStore ?: return
         if (profileId in snapshotReads) return
-        snapshotReads[profileId] = viewModelScope.async {
+        snapshotReads[profileId] = viewModelScope.async(ioDispatcher) {
             try {
-                store.read(profileId)
+                coroutineScope {
+                    val layout = async { readLayoutOrDefault(profileId) }
+                    val snapshot = store.read(profileId)
+                    if (snapshot == null) {
+                        layout.cancel()
+                        null
+                    } else {
+                        SnapshotRead(snapshot, layout.await())
+                    }
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
@@ -802,32 +825,61 @@ class HomeViewModel(
         }
     }
 
+    /** [profileId]'s layout read once; one that can't be read is the default, as [observeHomeLayout] would show. */
+    private suspend fun readLayoutOrDefault(profileId: String): HomeLayout = try {
+        HomeLayout.reconcile(homeLayoutStore.readLayout(profileId))
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        HomeLayout.Default
+    }
+
     /**
      * [profileId]'s snapshot as a feed to paint, with the scope it belongs to
      * (its provider's), or null: no snapshot, one of another provider than
      * [providerId] — the account's source disagrees, so it isn't this
-     * account's feed — or a read that, with the account's layout, takes
-     * longer than [SNAPSHOT_READ_WAIT_MS] (the load goes ahead with Loading).
-     * It paints in that layout ([homeLayout]): drawn in the default's
-     * sections, it would rearrange as soon as the account's own lands. With
-     * no source yet ([providerId] null) it paints on its own word and is
-     * checked when the source arrives: then only a source of its provider
-     * finds it up as this scope's content.
+     * account's feed — or a read that, with the account's layout, isn't in
+     * within [SNAPSHOT_READ_WAIT_MS] (the load goes ahead with Loading). It
+     * paints in that layout, put up first ([adoptLayout]): drawn in the
+     * default's sections, it would rearrange as soon as the account's own
+     * lands. With no source yet ([providerId] null) it paints on its own word
+     * and is checked when the source arrives: then only a source of its
+     * provider finds it up as this scope's content.
      */
     private suspend fun paintableSnapshot(providerId: String?, profileId: String?): Pair<String, HomeUiState.Content>? {
         val id = profileId?.takeIf(String::isNotBlank) ?: return null
         readSnapshot(id)
         val read = snapshotReads[id] ?: return null
-        val snapshot = withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) {
-            read.await()
-                ?.takeIf { found -> providerId == null || found.provider == providerId }
-                ?.also { layoutReadFor.first { layoutProfileId -> layoutProfileId == id } }
-        }
+        val found = withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) { read.await() }
         // Taken (a scope change cancelling this wait leaves it to the next load).
         snapshotReads.remove(id)
-        if (snapshot == null) return null
+        if (!read.isCompleted) read.cancel()
+        val paintable = found?.takeIf { providerId == null || it.snapshot.provider == providerId }
+        if (YoinPerf.enabled) {
+            val result = when {
+                paintable != null -> "paint"
+                found != null -> "provider"
+                read.isCancelled -> "late"
+                else -> "none"
+            }
+            YoinPerf.mark("home.snapshot.paint", "result" to result)
+        }
+        if (paintable == null) return null
+        val snapshot = paintable.snapshot
+        adoptLayout(id, paintable.layout)
         val content = snapshot.feed.toHomeContent { key -> snapshotCoverUrl(key, snapshot.provider) }
         return homeScopeKey(snapshot.provider, id) to content
+    }
+
+    /**
+     * Put [profileId]'s [layout] up ahead of a feed of that account — unless
+     * Home already holds that account's own, observed ([observeHomeLayout]),
+     * which is at least as new.
+     */
+    private fun adoptLayout(profileId: String, layout: HomeLayout) {
+        if (layoutReadFor.value == profileId) return
+        _homeLayout.value = layout
+        layoutReadFor.value = profileId
     }
 
     /**
@@ -2220,8 +2272,9 @@ class HomeViewModel(
         private val ACTIVITY_PORTRAIT_RETRY_DELAYS_MS = longArrayOf(60_000L, 5L * 60_000L, 30L * 60_000L)
 
         // How long a load with nothing up waits for its snapshot's read (a
-        // small file, read since the VM or the switch began; usually in by
-        // then) and the account's layout before going ahead with Loading.
+        // small file and the account's layout row, read off the main thread
+        // since the VM or the switch began; usually in by then) before going
+        // ahead with Loading.
         private const val SNAPSHOT_READ_WAIT_MS = 400L
 
         // The pixel size Home resolves its cards' covers at (grid, Rediscover,
@@ -2283,6 +2336,9 @@ private fun ActivityEvent.spotifyArtistRawId(): String? =
     } else {
         null
     }
+
+/** A snapshot as read for painting, with its account's layout read beside it. */
+private class SnapshotRead(val snapshot: HomeSnapshot, val layout: HomeLayout)
 
 /** What Home's content belongs to: the active profile and its source's provider (null until built). */
 private data class HomeScope(val providerId: String?, val profileId: String?) {
