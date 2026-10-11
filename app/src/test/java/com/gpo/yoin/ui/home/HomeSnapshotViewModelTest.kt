@@ -304,6 +304,56 @@ class HomeSnapshotViewModelTest {
     }
 
     @Test
+    fun should_putTheLocalTierUpWithTheBlocksThatBeatIt_when_theAccountsFeedBuildsOnTheSourcelessOne() = runTest {
+        // QA FC-2: after Reconnect, Recently Played and Recently Added landed
+        // ahead of the local tier and went up under the sourceless feed's
+        // empty Activities card; when Activities grew they slid down through
+        // it. They now wait off screen for the local tier and go up with it.
+        val profile = "no-snapshot-no-source-ordered"
+        val provider = MutableStateFlow<String?>(null)
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns MutableStateFlow(true)
+        every { repository.getRecentActivities(limit = any()) } returns flow {
+            if (provider.value != null) delay(LOCAL_TIER_DELAY_MS)
+            emit(if (provider.value == null) emptyList() else listOf(artistVisit("fresh-artist")))
+        }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } answers {
+            if (provider.value == null) throw IOException("No profile configured")
+            listOf(album("fresh-played"))
+        }
+        coEvery { repository.getStarred() } answers {
+            if (provider.value == null) throw IOException("No profile configured")
+            Starred(albums = listOf(album("fresh-added", addedAt = recently())))
+        }
+        coEvery { repository.getPlaylists() } coAnswers {
+            if (provider.value == null) throw IOException("No profile configured")
+            delay(3_000)
+            listOf(playlist("fresh-pl", "Fresh playlist"))
+        }
+        val seen = record(viewModel(repository, MutableStateFlow(profile), store()))
+        advanceTimeBy(30_000)
+        runCurrent()
+        val sourceless = seen.last() as HomeUiState.Content
+        assertTrue(sourceless.activities.isEmpty() && sourceless.recentlyPlayed.isEmpty())
+
+        provider.value = MediaId.PROVIDER_SUBSONIC
+        advanceUntilIdle()
+
+        val built = seen.dropWhile { state -> state !== sourceless }.drop(1).filterIsInstance<HomeUiState.Content>()
+        assertTrue(built.isNotEmpty())
+        // No block went up before Activities had its own.
+        assertTrue(built.none { content -> content.activities.isEmpty() && content.recentlyPlayed.isNotEmpty() })
+        val first = built.first()
+        assertEquals(listOf("fresh-artist"), first.activities.map { it.entityId })
+        assertEquals(listOf("fresh-played"), first.recentlyPlayed.map { it.id.rawId })
+        assertEquals(listOf("fresh-added"), first.recentlyAddedAlbums.map { it.id.rawId })
+        assertTrue(first.playlists.isEmpty())
+        // The slow block splices in place later.
+        assertEquals(listOf("Fresh playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        assertTrue(seen.dropWhile { state -> state !== sourceless }.none { it is HomeUiState.Loading })
+    }
+
+    @Test
     fun should_loadTheAccountOnce_when_aRetrysSourceComesWithItsConfigurationTick() = runTest {
         // Reconnect publishes the source, then ticks the configuration
         // revision for Library and the rest (as a switch does): Home loads
@@ -1004,5 +1054,8 @@ class HomeSnapshotViewModelTest {
     private companion object {
         // Longer than a snapshot read, shorter than the wait for one.
         const val SNAPSHOT_LAYOUT_DELAY_MS = 200L
+
+        // A local tier slower than the network blocks (Room busy behind the source's arrival).
+        const val LOCAL_TIER_DELAY_MS = 500L
     }
 }

@@ -600,6 +600,8 @@ class HomeViewModel(
         loadedSource = repository.activeSourceIdentity()
         val signalTicksBeforeLoad = signalTickCount
         val perf = YoinPerf.begin("home.refresh")
+        // The load builds on the feed read without a source, off screen (see the branch below).
+        var buildsOnSourceless = false
         try {
             if (contentOf(scopeKey) == null) {
                 val cachedHomeContent = homeContentCache[scopeKey]
@@ -636,9 +638,14 @@ class HomeViewModel(
                         // (its credentials couldn't be read and no snapshot
                         // was there to keep: a restore onto a new phone), and
                         // the source has come (Reconnect, the credentials
-                        // entered again). It stays as a snapshot would, and
-                        // the load splices into it block by block: the header
-                        // stays, no Loading between. It names no provider, so
+                        // entered again). It stays up as a snapshot would —
+                        // the header stays, no Loading between — and the load
+                        // builds on it off screen until its local tier is in,
+                        // then puts that up with every block that beat it, in
+                        // one go: blocks spliced in ahead of Activities would
+                        // be laid out under its empty card and slide down
+                        // through the bento as it grows (QA FC-2). Later
+                        // blocks splice in place. It names no provider, so
                         // nothing of it is written back until a block lands.
                         snapshotOnlyScopes += scopeKey
                         snapshotEndpointFeeds -= scopeKey
@@ -646,6 +653,7 @@ class HomeViewModel(
                         unreadBlocks[scopeKey] =
                             unreadBlocks[homeScopeKey(null, profileId)] ?: HomeNetworkBlock.entries.toSet()
                         contentScopeKey = scopeKey
+                        buildsOnSourceless = true
                     }
                     else -> {
                         emit(HomeUiState.Loading, profileId)
@@ -688,7 +696,9 @@ class HomeViewModel(
                     throw NoActiveSourceException()
                 }
             }
-            val load = HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad)
+            // Its covers resolved above, now that the source is in.
+            val seed = if (buildsOnSourceless) contentOf(scopeKey) else null
+            val load = HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad, seed = seed)
             load.run()
             if (perf != null) {
                 val result = if (matchesCurrentScope(providerId, profileId)) "ok" else "superseded"
@@ -1009,22 +1019,25 @@ class HomeViewModel(
         private val scopeKey: String,
         private val providerId: String?,
         private val profileId: String?,
-        private val signalTicksBeforeLoad: Int
+        private val signalTicksBeforeLoad: Int,
+        // The account's feed read without a source, up as this scope's: the
+        // draft starts from it (it stays on screen meanwhile) instead of empty.
+        private val seed: HomeUiState.Content? = null
     ) {
         private val spotify = providerId == MediaId.PROVIDER_SPOTIFY && !profileId.isNullOrBlank()
 
-        // The feed being built while nothing of this scope is up; null once
-        // it is (from the start on a same-scope reload or a cache paint).
-        private var draft: HomeUiState.Content? =
-            if (contentOf(scopeKey) == null) {
-                HomeUiState.Content(activities = emptyList(), ownerProfileId = profileId)
-            } else {
-                null
-            }
+        // The feed being built while nothing of this scope is up — or only
+        // the feed read without a source ([seed]); null once the local tier
+        // has opened it (from the start on a same-scope reload or a cache paint).
+        private var draft: HomeUiState.Content? = when {
+            seed != null -> seed
+            contentOf(scopeKey) == null -> HomeUiState.Content(activities = emptyList(), ownerProfileId = profileId)
+            else -> null
+        }
 
         init {
             // Built from nothing: each network block is unread until its read lands.
-            if (draft != null) unreadBlocks[scopeKey] = HomeNetworkBlock.entries.toSet()
+            if (draft != null && seed == null) unreadBlocks[scopeKey] = HomeNetworkBlock.entries.toSet()
         }
 
         /** This load's network reads that failed (Recently Added, Recently Played, Your Playlists, Spotify's feed). */
@@ -1104,6 +1117,13 @@ class HomeViewModel(
                 throw cancellation
             } catch (e: Exception) {
                 failed = true
+                // Built on the feed up: the blocks that landed before the
+                // local tier failed go up rather than with the load.
+                val pending = draft
+                if (seed != null && pending != null && pending !== seed && matchesCurrentScope(providerId, profileId)) {
+                    draft = null
+                    publish(pending, perfSrc = null)
+                }
                 throw e
             } finally {
                 if (activeLoad === this) activeLoad = null

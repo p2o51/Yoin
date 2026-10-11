@@ -494,11 +494,16 @@ internal fun HomeEditorialContent(
     // against the loading spinner is a reveal nobody sees.
     val firstReveal = rememberStagedReveal(
         key = "home-feed",
-        // A resolved Memories pill counts too: on a profile with nothing in
-        // the feed yet, it is the one thing to reveal.
-        ready = activityEntries.isNotEmpty() || widgetGrid.isNotEmpty() ||
-            recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
-            rediscover.isNotEmpty() || memoryPill != null,
+        ready = homeFeedHasSomethingToReveal(
+            hasActivityEntries = activityEntries.isNotEmpty(),
+            widgetGrid = widgetGrid,
+            recentlyAddedTracks = recentlyAddedTracks,
+            recentlyAddedAlbums = recentlyAddedAlbums,
+            rediscover = rediscover,
+            recentlyPlayed = recentlyPlayed,
+            playlists = playlists,
+            memoryPill = memoryPill
+        ),
     )
     // Rediscover's "Not played in Yoin for …" is read against the moment its
     // list arrived; day-scale copy doesn't need a ticking clock.
@@ -2807,6 +2812,29 @@ internal fun HomeEmptyCard(
         }
     }
 }
+
+/**
+ * Whether the feed has anything for its cold-start reveal ("home-feed") to
+ * show: the reveal holds every block's beat at 0 until it does. Every block
+ * that rides a beat counts — a feed with only Recently Played or Your
+ * Playlists in (a profile with nothing else yet, or those landing first)
+ * would otherwise keep them drawn at alpha 0 until something else came. A
+ * resolved Memories pill counts too: on a profile with nothing in the feed
+ * yet, it is the one thing to reveal.
+ */
+internal fun homeFeedHasSomethingToReveal(
+    hasActivityEntries: Boolean,
+    widgetGrid: List<HomeWidgetCard>,
+    recentlyAddedTracks: List<Track>,
+    recentlyAddedAlbums: List<Album>,
+    rediscover: List<HomeRediscoverItem>,
+    recentlyPlayed: List<Album>,
+    playlists: List<LibraryPlaylist>,
+    memoryPill: HomeMemoryPill?
+): Boolean = hasActivityEntries || widgetGrid.isNotEmpty() ||
+    recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
+    rediscover.isNotEmpty() || recentlyPlayed.isNotEmpty() || playlists.isNotEmpty() ||
+    memoryPill != null
 
 internal fun dedupeActivitiesForHome(
     activities: List<ActivityEvent>,
