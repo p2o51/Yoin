@@ -323,7 +323,12 @@ internal data class HomeAccountChrome(
     val account: ProfileCard?,
     /** Opens the switcher's card, out of the header avatar. */
     val onOpen: () -> Unit,
-    /** The switcher's window is up: the avatar is up there, as the card or its flight. */
+    /**
+     * The switcher's window has the header's avatar: up there, as the card or
+     * its flight. From the window's first frames (its twin of the avatar on
+     * the header's own) until it hands the avatar back, two frames before the
+     * window goes — never while neither shows it.
+     */
     val windowUp: Boolean,
     /** The header reports where its avatar is (window px)… */
     val onAnchor: (Rect) -> Unit,
@@ -377,6 +382,9 @@ internal fun HomeAccountSwitcherHost(
     // Shown = the dialog window exists; open = its card is in (it animates out before the window goes).
     var switcherShown by rememberSaveable { mutableStateOf(false) }
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
+    // The window has the header's avatar ([HomeAccountChrome.windowUp]): a
+    // beat after it is shown, until a beat before it goes.
+    var avatarUp by remember { mutableStateOf(false) }
     var accountAnchor by remember { mutableStateOf<Rect?>(null) }
     // A switch closes the card from the picked row's avatar (window px).
     var switchFrom by remember { mutableStateOf<Rect?>(null) }
@@ -417,10 +425,15 @@ internal fun HomeAccountSwitcherHost(
                     action()
                 }
             },
-            onDismissed = { landedInHeader ->
+            onAvatarTaken = { avatarUp = true },
+            onAvatarHandedBack = { landedInHeader ->
+                landed = landedInHeader
+                avatarUp = false
+            },
+            onDismissed = {
+                avatarUp = false
                 switcherShown = false
                 switchFrom = null
-                landed = landedInHeader
             },
             onSwitch = { card, avatar ->
                 // An account that can't be used right now is recovered in Settings.
@@ -464,7 +477,7 @@ internal fun HomeAccountSwitcherHost(
         HomeAccountChrome(
             account = displayAccount,
             onOpen = onOpen,
-            windowUp = switcherShown,
+            windowUp = switcherShown && avatarUp,
             onAnchor = onAnchor,
             anchor = anchor,
             switchPending = pendingTarget != null,
@@ -932,7 +945,13 @@ internal fun HomeAccountSwitcherDialog(
     // waits — as through a switch — while [reconnecting].
     needsReconnect: Boolean = false,
     reconnecting: Boolean = false,
-    onReconnect: () -> Unit = {}
+    onReconnect: () -> Unit = {},
+    // The header's avatar changes hands with this window's twin of it, never
+    // leaving its spot bare: taken once the window's first frames (the twin
+    // on the header's) are drawn, handed back — told whether an avatar flew
+    // into the header — two frames before [onDismissed] takes the window away.
+    onAvatarTaken: () -> Unit = {},
+    onAvatarHandedBack: (landedInHeader: Boolean) -> Unit = {}
 ) {
     // The card closes the way it opened: the profile it opened under holds
     // until the window goes. It can flip while the card is up — Home's
@@ -950,6 +969,8 @@ internal fun HomeAccountSwitcherDialog(
     var bigAvatarBounds by remember { mutableStateOf(Rect.Zero) }
     val dismissed by rememberUpdatedState(onDismissed)
     val cardHome by rememberUpdatedState(onCardHome)
+    val avatarTaken by rememberUpdatedState(onAvatarTaken)
+    val avatarHandedBack by rememberUpdatedState(onAvatarHandedBack)
     val switchFrom by rememberUpdatedState(closeFrom)
     val switchInto by rememberUpdatedState(closeInto)
     val currentAnchor by rememberUpdatedState(anchor)
@@ -991,6 +1012,10 @@ internal fun HomeAccountSwitcherDialog(
                 snapshotFlow { cardBounds }.first { !it.isEmpty }
                 withFrameNanos {}
                 withFrameNanos {}
+                // Those frames have the avatar's twin on the header's own: the
+                // header's steps aside now, not as the window was asked for (that
+                // left its spot bare until the window drew).
+                avatarTaken()
             } else if (stillSwitching()) {
                 // The picked row turns selected first, on the effects spring its
                 // colour takes, so the tap reads as a choice before the card goes.
@@ -1024,6 +1049,12 @@ internal fun HomeAccountSwitcherDialog(
                 // A flight that is still following the header's spot gets there first.
                 if (flightRow != null) snapshotFlow { landing.isRunning }.first { !it }
                 if (!home) cardHome()
+                // The avatar goes back to the header (or Home's stand-in) under
+                // this window's twin of it, at rest on the same spot, and the
+                // window goes once Home's has drawn it: no frame without it.
+                avatarHandedBack(!reduced)
+                withFrameNanos {}
+                withFrameNanos {}
                 dismissed(!reduced)
             }
         }
@@ -1042,6 +1073,7 @@ internal fun HomeAccountSwitcherDialog(
     val scrim = MaterialTheme.colorScheme.scrim
     val density = LocalDensity.current
     val cardCorner = with(density) { HomeAccountCardCorner.toPx() }
+    val bigAvatarPx = with(density) { HomeAccountBigAvatar.toPx() }
     val flying by remember { derivedStateOf { progress.value < 1f || progress.isRunning } }
 
     // System back previews the card in the AOSP pose (scale toward 0.9, toward the
@@ -1181,8 +1213,11 @@ internal fun HomeAccountSwitcherDialog(
                         rowRing = into.provider.serviceIdentity.hue.tone().container,
                         headerRing = surface
                     )
-                } else if (flying && active != null && !bigAvatarBounds.isEmpty && !reduced) {
-                    // The avatar's flight, from the header to the big avatar.
+                } else if (flying && active != null && !reduced) {
+                    // The avatar's flight, from the header to the big avatar —
+                    // on the header's spot from the window's first frame, the
+                    // big avatar laid out or not: the header's twin is up there
+                    // before the header's own steps aside.
                     val identity = active.provider.serviceIdentity
                     AccountAvatar(
                         monogram = monogramOf(active.title, stringResource(identity.nameRes)),
@@ -1199,11 +1234,13 @@ internal fun HomeAccountSwitcherDialog(
                             .graphicsLayer {
                                 val p = progress.value
                                 val start = from()
-                                val r = lerpRect(start, bigAvatarBounds, p)
+                                // Not laid out yet: no flight to make, it waits where it starts.
+                                val big = bigAvatarBounds
+                                val r = if (big.isEmpty) start else lerpRect(start, big, p)
                                 transformOrigin = TransformOrigin(0f, 0f)
                                 translationX = r.left
                                 translationY = r.top
-                                val scale = r.width / bigAvatarBounds.width
+                                val scale = r.width / (if (big.isEmpty) bigAvatarPx else big.width)
                                 scaleX = scale
                                 scaleY = scale
                             },
