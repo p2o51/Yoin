@@ -502,11 +502,14 @@ private fun SubsonicConnectGroup(
     onSave: (String, String, String) -> Unit,
 ) {
     val form = state.subsonic
-    // Keyed on `loaded` so an edit form picks up the stored values once they
-    // arrive instead of keeping the empty first frame.
-    var serverUrl by rememberSaveable(form.loaded) { mutableStateOf(form.initialUrl) }
-    var username by rememberSaveable(form.loaded) { mutableStateOf(form.initialUsername) }
-    var password by rememberSaveable(form.loaded) { mutableStateOf(form.initialPassword) }
+    // Keyed on the stored values too, not only on `loaded`: an edit form
+    // takes them in as they arrive, whatever its first frame said (a loaded
+    // empty form, or none) — never keeps that frame's empty fields. They are
+    // set once, by the read; typing, a test and a failed save leave them be.
+    val stored = arrayOf<Any>(form.loaded, form.initialUrl, form.initialUsername, form.initialPassword)
+    var serverUrl by rememberSaveable(*stored) { mutableStateOf(form.initialUrl) }
+    var username by rememberSaveable(*stored) { mutableStateOf(form.initialUsername) }
+    var password by rememberSaveable(*stored) { mutableStateOf(form.initialPassword) }
     val filled = serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
     val canSubmit = filled && !form.isBusy && form.loaded && state.canAddProfile
 
