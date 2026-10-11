@@ -142,6 +142,7 @@ import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.withPacedFrames
 import kotlin.math.roundToInt
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -976,55 +977,63 @@ internal fun HomeAccountSwitcherDialog(
 
     // Still a switch: it hasn't failed (or been turned away) since the tap.
     fun stillSwitching(): Boolean = switchFrom != null && switchInto.let { it != null && it.id != active?.id }
+    // Paced: the card's springs land on busy frames — a switch's first ones,
+    // the next feed coming in, a Reconnect's source going out to every screen
+    // — and a late frame holds them where they were instead of showing them
+    // already settled (a cut). Same springs, every step of them drawn.
     LaunchedEffect(visible) {
-        if (visible) {
-            flightRow = null
-            // The dialog's window takes a few frames to come up: start once the
-            // card is laid out and two frames have drawn, or the spring would be
-            // nearly done before anything is on screen.
-            snapshotFlow { cardBounds }.first { !it.isEmpty }
-            withFrameNanos {}
-            withFrameNanos {}
-        } else if (stillSwitching()) {
-            // The picked row turns selected first, on the effects spring its
-            // colour takes, so the tap reads as a choice before the card goes.
-            selectionBeat.snapTo(0f)
-            coroutineScope {
-                val beat = launch { selectionBeat.animateTo(1f, effects) }
-                snapshotFlow { selectionBeat.value }.first { it >= SWITCH_SELECTION_BEAT }
-                beat.cancel()
+        withPacedFrames {
+            if (visible) {
+                flightRow = null
+                // The dialog's window takes a few frames to come up: start once the
+                // card is laid out and two frames have drawn, or the spring would be
+                // nearly done before anything is on screen.
+                snapshotFlow { cardBounds }.first { !it.isEmpty }
+                withFrameNanos {}
+                withFrameNanos {}
+            } else if (stillSwitching()) {
+                // The picked row turns selected first, on the effects spring its
+                // colour takes, so the tap reads as a choice before the card goes.
+                selectionBeat.snapTo(0f)
+                coroutineScope {
+                    val beat = launch { selectionBeat.animateTo(1f, effects) }
+                    snapshotFlow { selectionBeat.value }.first { it >= SWITCH_SELECTION_BEAT }
+                    beat.cancel()
+                }
+                // Still a switch: the row's avatar goes up. Otherwise the card
+                // closes like any other close.
+                val into = switchInto
+                val from = switchFrom
+                if (stillSwitching() && into != null && from != null && !reduced) {
+                    takeOff = from.translate(-origin.x, -origin.y)
+                    landing.snapTo(from().center)
+                    flightRow = into.id
+                }
             }
-            // Still a switch: the row's avatar goes up. Otherwise the card
-            // closes like any other close.
-            val into = switchInto
-            val from = switchFrom
-            if (stillSwitching() && into != null && from != null && !reduced) {
-                takeOff = from.translate(-origin.x, -origin.y)
-                landing.snapTo(from().center)
-                flightRow = into.id
+            // Reduced motion: no flight — the card fades where it sits.
+            // [onCardHome] fires as soon as the card is visibly back in the avatar; the spring's
+            // invisible tail still settles before [onDismissed] removes the window.
+            var home = false
+            progress.animateTo(if (visible) 1f else 0f, if (reduced) effects else spatial) {
+                if (!visible && !home && value <= CardHomeProgress) {
+                    home = true
+                    cardHome()
+                }
             }
-        }
-        // Reduced motion: no flight — the card fades where it sits.
-        // [onCardHome] fires as soon as the card is visibly back in the avatar; the spring's
-        // invisible tail still settles before [onDismissed] removes the window.
-        var home = false
-        progress.animateTo(if (visible) 1f else 0f, if (reduced) effects else spatial) {
-            if (!visible && !home && value <= CardHomeProgress) {
-                home = true
-                cardHome()
+            if (!visible) {
+                // A flight that is still following the header's spot gets there first.
+                if (flightRow != null) snapshotFlow { landing.isRunning }.first { !it }
+                if (!home) cardHome()
+                dismissed(!reduced)
             }
-        }
-        if (!visible) {
-            // A flight that is still following the header's spot gets there first.
-            if (flightRow != null) snapshotFlow { landing.isRunning }.first { !it }
-            if (!home) cardHome()
-            dismissed(!reduced)
         }
     }
     LaunchedEffect(flightRow) {
         if (flightRow == null) return@LaunchedEffect
-        snapshotFlow { from().center }.collectLatest { spot ->
-            if (spot != landing.targetValue) landing.animateTo(spot, landingSpec)
+        withPacedFrames {
+            snapshotFlow { from().center }.collectLatest { spot ->
+                if (spot != landing.targetValue) landing.animateTo(spot, landingSpec)
+            }
         }
     }
     // Once a switch is pending, a Reconnect is running, or the card is going: nothing on it starts anything.
