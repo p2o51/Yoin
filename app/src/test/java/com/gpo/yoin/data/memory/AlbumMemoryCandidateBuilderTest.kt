@@ -772,6 +772,38 @@ class AlbumMemoryCandidateBuilderTest {
     }
 
     @Test
+    fun should_buildOneCandidateByTheRawId_when_aPlayEventNamesTheAlbumByItsFullId() = runTest {
+        // A play started on the album page or a memory records the album by its full id.
+        val fullId = MediaId.subsonic("album-1").toString()
+        stubBase(album = album(trackCount = 10))
+        coEvery {
+            activityEventDao.getRecentAlbumEvents("profile-a", MediaId.PROVIDER_SUBSONIC, any())
+        } returns listOf(
+            ActivityEvent(
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = fullId,
+                profileId = "profile-a",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                title = "Album One",
+                subtitle = "Artist One",
+                timestamp = 9_000L
+            )
+        )
+        coEvery { library.getAlbum(MediaId(MediaId.PROVIDER_SUBSONIC, fullId)) } returns null
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        val pool = builder().build(limit = 6, includeIneligible = true)
+
+        assertEquals(listOf("album-1"), pool.map(AlbumMemoryCandidate::albumId))
+        assertEquals(9_000L, pool.single().lastPlayedAt)
+        // Never fetched by an id the source can't serve.
+        coVerify(exactly = 0) { library.getAlbum(MediaId(MediaId.PROVIDER_SUBSONIC, fullId)) }
+    }
+
+    @Test
     fun should_addNothing_when_trackSignalReadFails() = runTest {
         stubBase(album = album(trackCount = 10), albumRatings = listOf(reviewedAlbum()))
         coEvery { localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a") } returns emptyList()
