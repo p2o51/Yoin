@@ -835,7 +835,6 @@ class LibraryViewModel(
         updateContent { copy(songsMore = more) }
     }
 
-    /** Songs as if never read: the next visit starts again from the top. */
     /**
      * The service's own library songs, its first [LIBRARY_SONGS_SIZE]. Where
      * Songs lists them by title ([com.gpo.yoin.data.source.ServiceFeatures.songsByTitle],
@@ -851,6 +850,7 @@ class LibraryViewModel(
         return withContext(sortDispatcher) { librarySongsByTitle(songs, nameOrder(), articles) }
     }
 
+    /** Songs as if never read: the next visit starts again from the top. */
     private fun forgetSongs() {
         cachedSongs = null
         songsPager = null
