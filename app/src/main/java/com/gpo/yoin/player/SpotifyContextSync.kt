@@ -67,9 +67,13 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
     val awaitingReport: Boolean
         get() = takeoverPending
 
-    /** The song Spotify plays now may be recorded under the context shown. */
+    /**
+     * The song Spotify plays now may be recorded under the context shown: not while a Yoin start
+     * is unconfirmed (the song Spotify played before the start isn't one of the album or artist
+     * Yoin started), nor while a song outside Yoin's queue waits for Spotify's word.
+     */
     val settled: Boolean
-        get() = !takeoverPending
+        get() = yoinContext == null || confirmed && !takeoverPending
 
     /** A Yoin play set [context] and handed Spotify (or a local player) its queue. */
     fun onYoinStart(context: ActivityContext) {

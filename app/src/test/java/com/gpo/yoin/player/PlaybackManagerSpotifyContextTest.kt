@@ -254,6 +254,38 @@ class PlaybackManagerSpotifyContextTest {
     }
 
     @Test
+    fun should_notRecordTheSongBeforeTheStart_when_aColdConnectReportsItPlaying() = runTest {
+        play(album, startIndex = 1)
+
+        // Spotify was playing a song of its own when the user tapped the album.
+        state(before, isPlaying = true)
+        runCurrent()
+        coVerify(exactly = 0) { repository.recordPlay(before, any(), any(), any()) }
+
+        state(tracks[1], isPlaying = true)
+        runCurrent()
+        coVerify(exactly = 1) { repository.recordPlay(tracks[1], any(), any(), album) }
+        coVerify(exactly = 0) { repository.recordPlay(before, any(), any(), any()) }
+    }
+
+    @Test
+    fun should_recordUnderSpotifysContext_when_anUnconfirmedStartGivesWay() = runTest {
+        play(artist, startIndex = 0)
+        state(before, isPlaying = true)
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:old", title = "Old"))
+        val next = track("before-2")
+        state(next, isPlaying = true)
+        val third = track("before-3")
+        state(third, isPlaying = true)
+        runCurrent()
+
+        val old = ActivityContext.Album(albumId = "spotify:old", albumName = "Old")
+        coVerify(exactly = 1) { repository.recordPlay(third, any(), any(), old) }
+        coVerify(exactly = 0) { repository.recordPlay(before, any(), any(), any()) }
+        coVerify(exactly = 0) { repository.recordPlay(next, any(), any(), any()) }
+    }
+
+    @Test
     fun should_followSpotify_when_aWarmConnectAdoptsPlaybackStartedOutsideYoin() = runTest {
         reportContext(SpotifyPlaybackContext(uri = "spotify:playlist:pl1", title = "Mix"))
         state(liked)

@@ -860,8 +860,11 @@ class PlaybackManager(
                     disconnectLocalController(resetState = false)
                     activeBackend = ActiveBackend.SPOTIFY_REMOTE
                 }
-                // Before the play is recorded: a song Spotify moved on to (outside Yoin's
-                // queue) must not count as a play of the album or artist Yoin started.
+                // Before the play is recorded, so it is filed under the right context: once
+                // Spotify has played a song of a Yoin start's queue, a song outside it hands
+                // the context to Spotify (after a reconnect, once Spotify says where it is).
+                // Until then nothing is recorded ([SpotifyContextSync.settled]): the song
+                // Spotify played before the start isn't one of the album or artist Yoin started.
                 if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
                     spotifyContextSync.onPlayerState(
                         current = _currentActivityContext.value,

@@ -340,6 +340,27 @@ class SpotifyContextSyncTest {
     }
 
     @Test
+    fun should_holdPlaysBack_when_theStartIsUnconfirmed() {
+        start(album)
+        assertFalse(sync.settled)
+        state(before)
+        assertFalse(sync.settled)
+
+        state(queue[0])
+
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_letPlaysBeRecorded_when_followingSpotify() {
+        start(album)
+
+        sync.followSpotify()
+
+        assertTrue(sync.settled)
+    }
+
+    @Test
     fun should_keepWaiting_when_theStartIsSlowToLand() {
         start(artist)
         state(before)
