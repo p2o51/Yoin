@@ -5,6 +5,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.ArtistListening
 import com.gpo.yoin.data.repository.YoinRepository
@@ -151,6 +152,54 @@ class ArtistDetailViewModelTest {
         assertEquals(ARTIST_ID, MediaId.parse(context.artistId))
     }
 
+    @Test
+    fun should_listReleasesNewestFirst_when_theSourceListsThemOldestFirst() = runTest {
+        // Navidrome's order: oldest first, an undated release among them.
+        coEvery { repository.getArtist(any()) } returns artist().copy(
+            albums = listOf(
+                album("al-2000", year = 2000),
+                album("al-undated", year = null),
+                album("al-2007a", year = 2007),
+                album("al-2007b", year = 2007),
+                album("al-2017", year = 2017)
+            )
+        )
+
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        // "Latest" tags the first row, and the year column follows the same order.
+        assertEquals(
+            listOf(
+                "subsonic:al-2017",
+                "subsonic:al-2007a",
+                "subsonic:al-2007b",
+                "subsonic:al-2000",
+                "subsonic:al-undated"
+            ),
+            content(viewModel).albums.map { it.id }
+        )
+    }
+
+    @Test
+    fun should_queueTheNewestReleaseFirst_when_playStartsFromAnOldestFirstSource() = runTest {
+        coEvery { repository.getArtist(any()) } returns artist().copy(
+            albums = listOf(album("al-079", year = 1979), album("al-081", year = 1980))
+        )
+        coEvery { repository.getAlbum(any()) } answers {
+            val id = firstArg<MediaId>()
+            album(id.rawId, year = null).copy(tracks = listOf(track("${id.rawId}-1"), track("${id.rawId}-2")))
+        }
+
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("al-081-1", "al-081-2", "al-079-1", "al-079-2"),
+            viewModel.getPlayTracks(shuffle = false).map { it.id.rawId }
+        )
+    }
+
     private fun viewModel() = ArtistDetailViewModel(ARTIST_ID.toString(), repository)
 
     private fun content(viewModel: ArtistDetailViewModel) = viewModel.uiState.value as ArtistDetailUiState.Content
@@ -163,7 +212,22 @@ class ArtistDetailViewModelTest {
         albums = listOf(album("al-1", year = 2024), album("al-2", year = 2019))
     )
 
-    private fun album(rawId: String, year: Int) = Album(
+    private fun track(rawId: String) = Track(
+        id = MediaId.subsonic(rawId),
+        title = "Track $rawId",
+        artist = "Artist",
+        artistId = ARTIST_ID,
+        album = null,
+        albumId = null,
+        coverArt = null,
+        durationSec = 180,
+        trackNumber = null,
+        year = null,
+        genre = null,
+        userRating = null
+    )
+
+    private fun album(rawId: String, year: Int?) = Album(
         id = MediaId.subsonic(rawId),
         name = "Album $rawId",
         artist = "Artist",
