@@ -817,10 +817,11 @@ internal fun WidgetBackdropArtwork(
         if (kind == WidgetShapeKind.Album) {
             // On the cover's own footprint (pressed with it), its disc half
             // over the top edge at the end corner: inside the backdrop, so a
-            // seam's dissolve layer never cuts it. Ink = the JBI score rule.
+            // seam's dissolve layer never cuts it. Ink = the JBI score rule
+            // once the palette is read (albumMemoryMarkInk).
             AlbumMemoryMarkSticker(
                 mark = memoryMark,
-                ink = if (isSystemInDarkTheme()) backdropColors.accentColor else backdropColors.baseColor,
+                backdrop = backdropColors,
                 modifier = Modifier
                     .fillMaxSize(WidgetArtworkFraction)
                     .align(Alignment.BottomEnd)

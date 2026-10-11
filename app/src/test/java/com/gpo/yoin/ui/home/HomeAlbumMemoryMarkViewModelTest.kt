@@ -120,13 +120,66 @@ class HomeAlbumMemoryMarkViewModelTest {
         assertEquals(before, marksOf(viewModel))
     }
 
+    @Test
+    fun should_markAppleRecentlyPlayedCovers_when_theyComeWithTheirCatalogIds() = runTest {
+        val apple = MediaId.PROVIDER_APPLE_MUSIC
+        val repository = repository(provider = apple)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            // Rated where the album page keeps it: under the catalog id it opens as.
+            candidate("1440857781", albumRating = 8f, provider = apple),
+            // An imported album Apple can't match is rated under its library id.
+            candidate("library:l.imported", notes = 2, provider = apple)
+        )
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns listOf(
+            album(MediaId(apple, "1440857781")),
+            album(MediaId(apple, "library:l.imported")),
+            album(MediaId(apple, "library:l.unrated"))
+        )
+
+        val viewModel = homeViewModel(repository)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        val marks = content.albumMemoryMarks
+        assertEquals(
+            listOf(
+                HomeAlbumMemoryMark(MemoryScoreKind.ALBUM_RATING, "8.0", 0),
+                HomeAlbumMemoryMark(MemoryScoreKind.NONE, null, 2),
+                null
+            ),
+            content.recentlyPlayed.map { album -> album.albumMemoryMark(marks) }
+        )
+    }
+
+    @Test
+    fun should_markSpotifyCovers_when_theirRawIdsAreMarked() = runTest {
+        val spotify = MediaId.PROVIDER_SPOTIFY
+        val repository = repository(provider = spotify)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            candidate("6dVIqQ8qmQ5GBnJ9shOYGE", average = 7.5f, ratedTracks = 4, provider = spotify)
+        )
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns listOf(
+            album(MediaId.spotify("6dVIqQ8qmQ5GBnJ9shOYGE")),
+            album(MediaId.spotify("1ATL5GLyefJaxhQzSPVrLX"))
+        )
+
+        val viewModel = homeViewModel(repository)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(
+            listOf(HomeAlbumMemoryMark(MemoryScoreKind.AVERAGE_TRACK_RATING, "7.5", 0), null),
+            content.recentlyPlayed.map { album -> album.albumMemoryMark(content.albumMemoryMarks) }
+        )
+    }
+
     private fun marksOf(viewModel: HomeViewModel): Map<String, HomeAlbumMemoryMark> =
         (viewModel.uiState.value as HomeUiState.Content).albumMemoryMarks
 
-    private fun repository(stamp: Flow<Long> = flowOf()): YoinRepository {
+    private fun repository(stamp: Flow<Long> = flowOf(), provider: String = MediaId.PROVIDER_SUBSONIC): YoinRepository {
         val repository = mockk<YoinRepository>(relaxed = true)
-        every { repository.currentProviderId() } returns MediaId.PROVIDER_SUBSONIC
-        every { repository.activeProviderId } returns flowOf(MediaId.PROVIDER_SUBSONIC)
+        every { repository.currentProviderId() } returns provider
+        every { repository.activeProviderId } returns flowOf(provider)
         every { repository.currentCapabilities() } returns emptySet()
         every { repository.getRecentActivities(limit = any()) } returns flowOf(emptyList<ActivityEvent>())
         every { repository.observeMemorySignalStamp() } returns stamp
@@ -165,9 +218,11 @@ class HomeAlbumMemoryMarkViewModelTest {
             cachedAt = 1L
         )
 
-    private fun subsonicAlbum(rawId: String): Album = Album(
-        id = MediaId.subsonic(rawId),
-        name = "Album $rawId",
+    private fun subsonicAlbum(rawId: String): Album = album(MediaId.subsonic(rawId))
+
+    private fun album(id: MediaId): Album = Album(
+        id = id,
+        name = "Album ${id.rawId}",
         artist = "Artist",
         artistId = null,
         coverArt = null,
@@ -188,10 +243,11 @@ class HomeAlbumMemoryMarkViewModelTest {
         ratedTracks: Int = if (average != null) 1 else 0,
         notes: Int = 0,
         review: Boolean = false,
-        eligible: Boolean = false
+        eligible: Boolean = false,
+        provider: String = MediaId.PROVIDER_SUBSONIC
     ): AlbumMemoryCandidate = AlbumMemoryCandidate(
         profileId = PROFILE,
-        provider = MediaId.PROVIDER_SUBSONIC,
+        provider = provider,
         albumId = albumId,
         albumName = "Album $albumId",
         artistName = "Artist",

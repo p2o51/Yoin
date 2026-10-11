@@ -47,9 +47,10 @@ class HomeAlbumMemoryMarkTest {
     fun should_keyMarksByRawAlbumId_when_thePoolMixesStoredForms() {
         val marks = homeAlbumMemoryMarks(
             listOf(
-                // A legacy row keeps the provider prefix; the first build of an album wins.
+                // The build's own order: the raw candidate (plays, rated tracks, song notes)
+                // ahead of the legacy provider:raw album rating row, which read no tracks.
+                candidate("legacy", average = 5f, ratedTracks = 2, notes = 3),
                 candidate("subsonic:legacy", albumRating = 8f),
-                candidate("legacy", average = 5f, ratedTracks = 2),
                 candidate("noted", notes = 1),
                 candidate("bare"),
                 candidate("")
@@ -57,10 +58,68 @@ class HomeAlbumMemoryMarkTest {
         )
 
         assertEquals(setOf("legacy", "noted"), marks.keys)
-        assertEquals(MemoryScoreKind.ALBUM_RATING, marks.getValue("legacy").kind)
-        assertEquals("8.0", marks.getValue("legacy").scoreText)
+        // Your album rating outranks the track average, and the notes stay counted.
+        assertEquals(HomeAlbumMemoryMark(MemoryScoreKind.ALBUM_RATING, "8.0", 3), marks.getValue("legacy"))
         assertEquals(MemoryScoreKind.NONE, marks.getValue("noted").kind)
         assertEquals(1, marks.getValue("noted").noteCount)
+    }
+
+    @Test
+    fun should_keepTheStrongerMark_when_anAlbumComesBackTwice() {
+        val marks = homeAlbumMemoryMarks(
+            listOf(
+                // Same kind twice: the earlier (stronger in the build's order) score stays.
+                candidate("twice", average = 7f, ratedTracks = 4),
+                candidate("subsonic:twice", average = 6f, ratedTracks = 1, notes = 2),
+                // Notes alone never cover a score that came first.
+                candidate("scored", albumRating = 9f),
+                candidate("subsonic:scored", notes = 4)
+            )
+        )
+
+        assertEquals(HomeAlbumMemoryMark(MemoryScoreKind.AVERAGE_TRACK_RATING, "7.0", 2), marks.getValue("twice"))
+        assertEquals(HomeAlbumMemoryMark(MemoryScoreKind.ALBUM_RATING, "9.0", 4), marks.getValue("scored"))
+    }
+
+    @Test
+    fun should_matchSpotifyCovers_when_theirRawIdsAreMarked() {
+        val rawId = "6dVIqQ8qmQ5GBnJ9shOYGE"
+        val marks = homeAlbumMemoryMarks(
+            listOf(candidate(rawId, albumRating = 8f, provider = MediaId.PROVIDER_SPOTIFY))
+        )
+        val card = albumCard(MediaId.spotify(rawId))
+
+        assertEquals(setOf(rawId), marks.keys)
+        assertEquals(marks.getValue(rawId), card.albumMemoryMark(marks))
+        assertEquals(marks.getValue(rawId), album(MediaId.spotify(rawId)).albumMemoryMark(marks))
+    }
+
+    @Test
+    fun should_matchAppleCovers_when_theirCatalogOrLibraryIdsAreMarked() {
+        val apple = MediaId.PROVIDER_APPLE_MUSIC
+        val marks = homeAlbumMemoryMarks(
+            listOf(
+                // A catalog album (ratings are kept under the id the album opens as).
+                candidate("1440857781", albumRating = 9f, provider = apple),
+                // An imported album Apple can't match keeps its library id, colon and all.
+                candidate("library:l.imported", notes = 2, provider = apple),
+                // A legacy row of the catalog album: only the owning provider's prefix goes.
+                candidate("applemusic:1440857781", notes = 1, provider = apple)
+            )
+        )
+
+        assertEquals(setOf("1440857781", "library:l.imported"), marks.keys)
+        assertEquals(
+            HomeAlbumMemoryMark(MemoryScoreKind.ALBUM_RATING, "9.0", 1),
+            album(MediaId(apple, "1440857781")).albumMemoryMark(marks)
+        )
+        assertEquals(marks.getValue("1440857781"), albumCard(MediaId(apple, "1440857781")).albumMemoryMark(marks))
+        assertEquals(
+            marks.getValue("library:l.imported"),
+            albumCard(MediaId(apple, "library:l.imported")).albumMemoryMark(marks)
+        )
+        // A library album that came without its catalog id doesn't borrow the catalog album's mark.
+        assertNull(album(MediaId(apple, "library:l.1440857781")).albumMemoryMark(marks))
     }
 
     @Test
@@ -110,18 +169,22 @@ class HomeAlbumMemoryMarkTest {
         assertNull(album("x1").albumMemoryMark(emptyMap()))
     }
 
-    private fun albumCard(rawId: String): HomeWidgetCard = HomeWidgetCard(
-        stableId = "grid-album:subsonic:$rawId",
+    private fun albumCard(rawId: String): HomeWidgetCard = albumCard(MediaId.subsonic(rawId))
+
+    private fun albumCard(id: MediaId): HomeWidgetCard = HomeWidgetCard(
+        stableId = "grid-album:$id",
         entityType = MemoryEntityType.ALBUM,
-        title = "Album $rawId",
+        title = "Album ${id.rawId}",
         subtitle = "",
         coverArtUrl = null,
-        target = HomeWidgetTarget.AlbumDetail(MediaId.subsonic(rawId).toString())
+        target = HomeWidgetTarget.AlbumDetail(id.toString())
     )
 
-    private fun album(rawId: String): Album = Album(
-        id = MediaId.spotify(rawId),
-        name = "Album $rawId",
+    private fun album(rawId: String): Album = album(MediaId.spotify(rawId))
+
+    private fun album(id: MediaId): Album = Album(
+        id = id,
+        name = "Album ${id.rawId}",
         artist = "Artist",
         artistId = null,
         coverArt = null,
@@ -152,10 +215,11 @@ class HomeAlbumMemoryMarkTest {
         average: Float? = null,
         ratedTracks: Int = if (average != null) 1 else 0,
         notes: Int = 0,
-        review: Boolean = false
+        review: Boolean = false,
+        provider: String = MediaId.PROVIDER_SUBSONIC
     ): AlbumMemoryCandidate = AlbumMemoryCandidate(
         profileId = "p",
-        provider = MediaId.PROVIDER_SUBSONIC,
+        provider = provider,
         albumId = albumId,
         albumName = "Album $albumId",
         artistName = "Artist",

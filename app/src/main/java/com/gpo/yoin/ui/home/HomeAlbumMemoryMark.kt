@@ -5,6 +5,7 @@ package com.gpo.yoin.ui.home
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -14,12 +15,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -28,6 +31,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.ui.component.ExpressiveBackdropColors
 import com.gpo.yoin.ui.component.dashedOutline
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
@@ -82,18 +86,36 @@ internal fun albumMemoryMarkOf(candidate: AlbumMemoryCandidate): HomeAlbumMemory
 /**
  * Raw album id → its mark, for every album in [pool] (the memory signals'
  * candidate build, ineligible albums included) that has one. Legacy
- * `provider:`-prefixed ids are stripped; the first candidate of an album wins
- * (the build is strongest-first).
+ * `provider:`-prefixed ids are stripped. One album can come back as two
+ * candidates — a legacy `provider:raw` album rating row and the raw id its
+ * plays seed — and the build's order doesn't put the rated one first (the
+ * raw one has the plays and the rated tracks), so the two merge: the
+ * stronger kind with its own score, and the most notes either counted.
  */
 internal fun homeAlbumMemoryMarks(pool: List<AlbumMemoryCandidate>): Map<String, HomeAlbumMemoryMark> {
     val marks = LinkedHashMap<String, HomeAlbumMemoryMark>()
     pool.forEach { candidate ->
         val rawId = MediaId.storedRawId(candidate.provider, candidate.albumId)
-        if (rawId.isBlank() || rawId in marks) return@forEach
-        albumMemoryMarkOf(candidate)?.let { mark -> marks[rawId] = mark }
+        if (rawId.isBlank()) return@forEach
+        val mark = albumMemoryMarkOf(candidate) ?: return@forEach
+        marks[rawId] = marks[rawId]?.mergedWith(mark) ?: mark
     }
     return marks
 }
+
+/** Two candidates of one album: the stronger kind (the earlier one on a tie) and the larger note count. */
+private fun HomeAlbumMemoryMark.mergedWith(other: HomeAlbumMemoryMark): HomeAlbumMemoryMark {
+    val stronger = if (other.kind.markStrength > kind.markStrength) other else this
+    return stronger.copy(noteCount = maxOf(noteCount, other.noteCount))
+}
+
+/** Your album rating outranks your track average, which outranks notes alone. */
+private val MemoryScoreKind.markStrength: Int
+    get() = when (this) {
+        MemoryScoreKind.ALBUM_RATING -> 2
+        MemoryScoreKind.AVERAGE_TRACK_RATING -> 1
+        MemoryScoreKind.NONE -> 0
+    }
 
 /**
  * The mark a Jump Back In card wears: plain (1×1) album covers only. Songs,
@@ -122,19 +144,24 @@ private val AlbumMemoryMarkGap = 1.5.dp
 internal val AlbumMemoryMarkLift = AlbumMemoryMarkBacking / 2
 
 /**
- * The sticker for [mark] in [ink] (the cover palette's: accent in dark, base
- * in light — the JBI score rule). Nothing is laid out for a cover that never
- * had a mark. A mark landing after the cover fades in on the effects spring;
- * one that goes leaves as itself; a change of kind inks in or out (fill,
- * line, dashes) on the same spring.
+ * The sticker for [mark], inked from its cover's [backdrop] colours
+ * ([albumMemoryMarkInk]). Nothing is laid out for a cover that never had a
+ * mark. A mark landing after the cover fades in on the effects spring; one
+ * that goes leaves as itself; a change of kind inks in or out (fill, line,
+ * dashes) on the same spring.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun AlbumMemoryMarkSticker(mark: HomeAlbumMemoryMark?, ink: Color, modifier: Modifier = Modifier) {
+internal fun AlbumMemoryMarkSticker(
+    mark: HomeAlbumMemoryMark?,
+    backdrop: ExpressiveBackdropColors,
+    modifier: Modifier = Modifier
+) {
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val effects = if (reduced) snap() else YoinMotion.effectsSpring<Float>()
     val appear = animateFloatAsState(if (mark != null) 1f else 0f, effects, label = "albumMemoryMarkAppear")
     val shown = rememberLastNonNull(mark) ?: return
+    val ink = albumMemoryMarkInk(backdrop)
     val kind = shown.kind
     val fill = animateFloatAsState(
         targetValue = if (kind == MemoryScoreKind.ALBUM_RATING) 1f else 0f,
@@ -186,6 +213,28 @@ internal fun AlbumMemoryMarkSticker(mark: HomeAlbumMemoryMark?, ink: Color, modi
                 )
         )
     }
+}
+
+/**
+ * The sticker's ink. Once the cover's palette is read: its accent in dark,
+ * its base in light (the JBI score rule). Until then (Home's warm-up, a
+ * fling, a cover that has none) the Memories pill's own fallback ink —
+ * tertiary in dark, secondary in light — not the backdrop's pale container
+ * fallbacks, which all but vanish on the page-coloured disc. The hand-off
+ * rides the effects spring, as the palette's own colours do (a colour, so
+ * reduced motion keeps it too).
+ */
+@Composable
+internal fun albumMemoryMarkInk(backdrop: ExpressiveBackdropColors): Color {
+    val dark = isSystemInDarkTheme()
+    val palette = if (dark) backdrop.accentColor else backdrop.baseColor
+    val theme = if (dark) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary
+    val read by animateFloatAsState(
+        targetValue = if (backdrop.isResolvedFromPalette) 1f else 0f,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "albumMemoryMarkInk"
+    )
+    return lerp(theme, palette, read)
 }
 
 /** TalkBack for a mark: "Your rating 9.0, 3 notes" / "Track average 8.4" / "2 notes". */
