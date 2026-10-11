@@ -860,11 +860,15 @@ class PlaybackManager(
                     disconnectLocalController(resetState = false)
                     activeBackend = ActiveBackend.SPOTIFY_REMOTE
                 }
-                // Before the play is recorded, so it is filed under the right context: once
+                // Before the play is recorded, so it is filed under the right context. Once
                 // Spotify has played a song of a Yoin start's queue, a song outside it hands
                 // the context to Spotify (after a reconnect, once Spotify says where it is).
-                // Until then nothing is recorded ([SpotifyContextSync.settled]): the song
-                // Spotify played before the start isn't one of the album or artist Yoin started.
+                // Before that, one only does so once the start has plainly given way
+                // ([SPOTIFY_START_CONFIRM_TIMEOUT_MS] after one was first heard, or the
+                // [SPOTIFY_START_OVERRIDE_SONGS]th one). A play is recorded only once the context
+                // is settled ([SpotifyContextSync.settled]), so the song Spotify played before
+                // the start isn't filed under the album or artist Yoin started. The full rules
+                // are [SpotifyContextSync]'s.
                 if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
                     spotifyContextSync.onPlayerState(
                         current = _currentActivityContext.value,
@@ -949,7 +953,9 @@ class PlaybackManager(
     /**
      * Records [state]'s song once, while it plays, under the context shown. A song Spotify
      * plays waits while that context isn't settled ([SpotifyContextSync.settled]); it is
-     * recorded when it is ([onSpotifyPlayerContext], [awaitSpotifyReportIfAsked]).
+     * recorded when it is, if it still plays: on Spotify's next PlayerState
+     * ([publishRemoteState]) or report ([onSpotifyPlayerContext]), or once the wait for
+     * that report runs out ([awaitSpotifyReportIfAsked]).
      */
     private fun recordPlayIfDue(state: PlaybackState) {
         val track = state.currentTrack ?: return
@@ -1192,11 +1198,16 @@ class PlaybackManager(
      * Playing shows "Playing from X" instead of a bare "Now Playing".
      *
      * A context play() set (RICH: with cover/artist) is kept while Spotify plays Yoin's
-     * queue: nothing Spotify reports counts before it plays a song of that queue (a cold
-     * connect first reports what played BEFORE the start; this covers the whole hand-off),
-     * and no context, an empty or blank uri, or one Yoin can't name (a `uris` start, an
-     * artist page's list) never replaces it. A song outside the queue hands the context to
-     * Spotify ([publishRemoteState]). The rules are [SpotifyContextSync]'s.
+     * queue, and no context, an empty or blank uri, or one Yoin can't name (a `uris` start,
+     * an artist page's list) never replaces it. Until Spotify plays a song of that queue
+     * its reports don't count (a cold connect first reports what played BEFORE the start),
+     * unless the start has plainly given way: a song outside the queue
+     * [SPOTIFY_START_CONFIRM_TIMEOUT_MS] after one was first heard, or the
+     * [SPOTIFY_START_OVERRIDE_SONGS]th one, hands the context to Spotify, as any song
+     * outside it does once the start is confirmed ([publishRemoteState]). A song is
+     * recorded once its context is settled ([SpotifyContextSync.settled]); one held back
+     * goes on record here when this report settles it. The full rules are
+     * [SpotifyContextSync]'s.
      */
     private fun onSpotifyPlayerContext(context: SpotifyPlaybackContext?) {
         Log.d(TAG, "Spotify player context: uri=${context?.uri} title=${context?.title}")
