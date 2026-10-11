@@ -38,6 +38,7 @@
 | --- | --- | --- | --- |
 | `home.loading` | `ms_since_process_start` | `HomeViewModel` 构造（init）时一次；之后每次 `emit` 从非 Loading 退回 Loading 时 | 冷启动时 Home 从 VM 创建起就停在 Loading，直到 `home.content`。 |
 | `home.content` | `ms_since_process_start` `sections=` `src=mem\|disk\|snapshot` | `HomeViewModel.emit` 第一次发出 Content | `sections` 是非空区块数（Activities、Jump Back In 网格、Recently Added、Rediscover、Recently Played、Your Playlists，最多 6）。`src=mem`：进程内缓存（同进程里重建 VM）；`snapshot`：这个账号存在磁盘上的上次首页快照（`HomeSnapshotStore`，冷启动或本进程第一次进这个账号；source 还没建好时也先画，Subsonic 封面等 source 好了再淡入）；`disk`：本地层（所有 provider：动态记录、候选池、笔记卡；先到的其它区块一起带上）。之后的区块各自拼进来（拼在快照上也一样），不再打这条。每个 VM 只打一次。 |
+| `home.visible` | `ms_since_process_start` `commit=` | `HomeScreen.kt` 的 `HomePerfVisibleEffect`（`HomeContent` 里，每个 Home 的保存状态只打一次） | Home 第一次把内容画出来（入场 alpha 过了 0）的那一帧提交完成的时间（`registerFrameCommitCallback`，API 29+；`commit=false`：握手失败或超时，时间不可信）。`home.content` 是 VM 发布的时刻，两者之间是 feed 的第一次组合 + 布局（冷启动时一帧很长）和入场第一帧；冷启动「多久看到内容」看这条。 |
 | `home.snapshot` | `result=hit\|miss\|corrupt\|version\|profile\|error` `bytes=` [`age_s`] `ms=` | `HomeSnapshotStore.read`（IO 线程；VM 创建时读当前账号的，切账号开始时读目标账号的） | 读一次快照文件的耗时。`hit`：读到了，`age_s` 是快照写入至今的秒数；`miss`：没有文件；`corrupt` / `version`（格式版本不对）/ `profile`（文件不是这个账号的）：读不了，文件已删，按没有处理；`error`：IO 失败。读到了也可能不画：和账号的 source 不是同一个 provider 时丢弃（source 建好前已经画了的，这时退回 Loading，再打一条 `home.loading`）；快照和这个账号的首页布局在 IO 线程上一起读（布局是一次性查询，不走 Room 的观察流），两者从读起 400ms 内没到齐就照常 Loading。画没画看下一条 `home.snapshot.paint`。 |
 | `home.snapshot.paint` | `result=paint\|late\|none\|provider` | `HomeViewModel.paintableSnapshot`（冷启动或切账号时，这个账号还没有内容在屏上、要决定画不画快照时，一次） | `paint`：画了（紧跟一条 `home.content src=snapshot`，或这个 VM 已经打过 `home.content` 时没有）；`late`：快照加布局 400ms 内没读完，照常 Loading；`none`：没有快照或读不了；`provider`：快照是别的 provider 的，不画。 |
 | `home.snapshot.save` | `result=ok\|same\|deleted\|error` `bytes=` `ms=` | `HomeSnapshotStore.write`（后台） | fresh 内容发布后写快照：同一账号先等 2s 让分层发布落定，只写最新一份；写完至少隔 30s 才写下一次。`same`：和上次写的一样，没写；`deleted`：账号已删，没写。只画了快照、还没有 fresh 内容时不写（播放把 Rediscover 卡拿掉也不算 fresh，等下一个新读到的区块一起写）。快照没画上、从空白开始的那次加载（冷启动快照迟了、没有快照），Recently Added / Recently Played / Your Playlists 在读到之前（还在路上或读失败）照磁盘上同一 provider 的旧快照写，所以慢网、服务器挂了、凭据被拒都不会把快照缩成只有本地层的两块；磁盘上没有快照时照原样写。 |
@@ -205,13 +206,18 @@ for i, (name, f) in enumerate(events):
     print("{} {} via={} src={} load_ms={} click→load={} click→content={} click→visible={}".format(*row))
 ```
 
-Home 冷启动：`home.content` 的 `ms_since_process_start` 就是「进程起来到 Home 有内容」；
-和 `home.loading`（VM 创建）的差就是 Home 停在 Loading 的时长。有快照时它是 `src=snapshot`，
-fresh 内容什么时候拼完看紧跟的 `home.refresh`（`result=ok` 那条的 `ms`）。
+Home 冷启动：`home.content` 的 `ms_since_process_start` 就是「进程起来到 Home 有内容」（VM 发布）；
+它和 `home.loading`（VM 创建）的差就是 Home 停在 Loading 的时长。有快照时它是 `src=snapshot`，
+fresh 内容什么时候拼完看紧跟的 `home.refresh`（`result=ok` 那条的 `ms`）。`home.visible` 的
+`ms_since_process_start` 是「第一帧内容真正画出来」，它和 `home.content` 之差是 feed 第一次组合、布局
+和入场第一帧的耗时（debug 包里这一帧明显更长，见下面「已知的近似」）。
 
 ## 已知的近似和空白
 
-- `detail.visible` 见上表：是「Content 开始上屏」，不是动画结束。
+- `detail.visible` 见上表：是「Content 开始上屏」，不是动画结束。`home.visible` 同理：入场 alpha
+  刚过 0 的那一帧，不是完全不透明。
+- 打点只在 debug 包里有，而 debug 包可调试、没有 R8、没有 baseline profile，Compose 第一次组合要慢好几倍：
+  `home.content` → `home.visible` 的绝对值只在同一种包之间比较，不能直接当 release 的数字。
 - `detail.load` 的 `src=err` 也包括调用方被取消（离开页面），`err=JobCancellationException`。
 - stale-while-revalidate 的后台刷新不打 `detail.load`，只能从 `http` 行看到。
 - 分列模式下右列从无到有展开时，详情页（连同它的 VM）要等展开弹簧落定

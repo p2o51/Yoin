@@ -4,9 +4,14 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalAccessorScope
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ProvidedValue
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.gpo.yoin.symbols.LocalSymbolMotion
+import com.gpo.yoin.symbols.SymbolMotion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +22,31 @@ enum class MotionProfile {
     AdaptiveReduced,
 }
 
-val LocalMotionProfile = staticCompositionLocalOf { MotionProfile.Full }
+/**
+ * The app's motion tier. Dynamic, not static: it flips at runtime (Home's
+ * loading pressure comes and goes on every cold start and account switch),
+ * and a static local's flip recomposes the whole app under its provider —
+ * the feed that just composed included — where this recomposes only what
+ * reads it. Provide it with [motionProfileValues].
+ */
+val LocalMotionProfile = compositionLocalOf { MotionProfile.Full }
+
+/**
+ * [profile] as [LocalMotionProfile], with Yoin Symbols' motion following it
+ * (AdaptiveReduced → [SymbolMotion.Reduced], else [SymbolMotion.Default];
+ * design.md). The library's [LocalSymbolMotion] is a static local: provided
+ * as a value it would recompose the whole tree on every flip, so it is
+ * computed from the dynamic profile where it is read instead.
+ */
+fun motionProfileValues(profile: MotionProfile): Array<ProvidedValue<*>> = arrayOf(
+    LocalMotionProfile provides profile,
+    LocalSymbolMotion providesComputed SymbolMotionOfProfile
+)
+
+// One instance: the computed value's holder is reused while it is the same lambda.
+private val SymbolMotionOfProfile: CompositionLocalAccessorScope.() -> SymbolMotion = {
+    if (LocalMotionProfile.currentValue == MotionProfile.AdaptiveReduced) SymbolMotion.Reduced else SymbolMotion.Default
+}
 
 val LocalMotionCapabilityProvider = staticCompositionLocalOf {
     MotionCapabilityProvider(lowRamDevice = false)
