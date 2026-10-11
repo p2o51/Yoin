@@ -50,6 +50,8 @@ class PlaybackManager(
     private val repository: YoinRepository,
     private val castManager: CastManager? = null,
     spotifyClientIdProvider: () -> String,
+    /** What [SpotifyContextSync] times an unconfirmed Spotify start by (a test passes its virtual clock). */
+    spotifyContextClock: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private enum class ActiveBackend {
         NONE,
@@ -75,7 +77,7 @@ class PlaybackManager(
 
     // Keeps [_currentActivityContext] the one a Yoin play set while Spotify plays that queue,
     // else follows what Spotify reports. See [onSpotifyPlayerContext] and [publishRemoteState].
-    private val spotifyContextSync = SpotifyContextSync()
+    private val spotifyContextSync = SpotifyContextSync(clock = spotifyContextClock)
 
     // Gives up on Spotify's fresh PlayerContext after a reconnect ([SpotifyContextSync.onReportOverdue]).
     private var spotifyReportGraceJob: Job? = null

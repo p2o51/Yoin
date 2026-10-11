@@ -58,7 +58,9 @@ class PlaybackManagerSpotifyContextTest {
             context = mockk<Context>(relaxed = true),
             repository = repository,
             castManager = null,
-            spotifyClientIdProvider = { "test-client" }
+            spotifyClientIdProvider = { "test-client" },
+            // runTest's clock: advanceTimeBy moves the unconfirmed start's wait along too.
+            spotifyContextClock = { mainDispatcherRule.dispatcher.scheduler.currentTime }
         )
     }
 
@@ -283,6 +285,106 @@ class PlaybackManagerSpotifyContextTest {
         coVerify(exactly = 1) { repository.recordPlay(third, any(), any(), old) }
         coVerify(exactly = 0) { repository.recordPlay(before, any(), any(), any()) }
         coVerify(exactly = 0) { repository.recordPlay(next, any(), any(), any()) }
+    }
+
+    @Test
+    fun should_followSpotifyAndRecordUnderItsContext_when_anUnconfirmedStartHasNotLandedByTheTimeout() = runTest {
+        play(artist, startIndex = 0)
+        // Spotify plays on, heard first now; the start never lands (or was overridden unheard).
+        state(before, isPlaying = true)
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:old", title = "Old"))
+        advanceTimeBy(SPOTIFY_START_CONFIRM_TIMEOUT_MS - 1)
+        val next = track("before-2")
+        state(next, isPlaying = true)
+        runCurrent()
+        assertEquals(artist, manager.currentActivityContext.value)
+        coVerify(exactly = 0) { repository.recordPlay(next, any(), any(), any()) }
+
+        // The same song reported again (a seek, a pause and resume): only the wait has run out.
+        advanceTimeBy(1)
+        state(next, isPlaying = true)
+        runCurrent()
+
+        val old = ActivityContext.Album(albumId = "spotify:old", albumName = "Old")
+        assertEquals(old, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(next, any(), any(), old) }
+        coVerify(exactly = 0) { repository.recordPlay(next, any(), any(), artist) }
+        coVerify(exactly = 0) { repository.recordPlay(before, any(), any(), any()) }
+    }
+
+    @Test
+    fun should_waitForTheNextConnectionsWord_when_theConnectionDropsAgainWhileAHandOverWaits() = runTest {
+        play(album, startIndex = 1)
+        state(tracks[1])
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al1", title = "TUNE & PLAY"))
+
+        disconnected()
+        state(liked, isPlaying = true)
+        runCurrent()
+        // Dropped again before Spotify said where it is: that connection's wait is off.
+        disconnected()
+        advanceTimeBy(2 * SPOTIFY_CONTEXT_REPORT_GRACE_MS)
+        runCurrent()
+        assertEquals(album, manager.currentActivityContext.value)
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), any()) }
+
+        // The next connection asks again, and Spotify's word there decides.
+        state(liked, isPlaying = true)
+        runCurrent()
+        assertEquals(album, manager.currentActivityContext.value)
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), any()) }
+        val other = ActivityContext.Album(albumId = "spotify:al2", albumName = "Other")
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al2", title = "Other"))
+        runCurrent()
+
+        assertEquals(other, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(liked, any(), any(), other) }
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), album) }
+    }
+
+    @Test
+    fun should_giveTheNextConnectionAFreshWait_when_theConnectionDropsAgainWhileAHandOverWaits() = runTest {
+        play(album, startIndex = 1)
+        state(tracks[1])
+
+        disconnected()
+        state(liked, isPlaying = true)
+        advanceTimeBy(SPOTIFY_CONTEXT_REPORT_GRACE_MS - 1)
+        runCurrent()
+        disconnected()
+
+        // Back on a new connection, still no word: the wait counts from this connection's song.
+        state(liked, isPlaying = true)
+        advanceTimeBy(SPOTIFY_CONTEXT_REPORT_GRACE_MS - 1)
+        runCurrent()
+        assertEquals(album, manager.currentActivityContext.value)
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), any()) }
+
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(ActivityContext.None, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(liked, any(), any(), ActivityContext.None) }
+    }
+
+    @Test
+    fun should_keepTheNewStartsContext_when_anEarlierHandOversWaitRunsOutAfterIt() = runTest {
+        play(album, startIndex = 1)
+        state(tracks[1])
+        disconnected()
+        state(liked, isPlaying = true)
+        runCurrent()
+
+        // A new Yoin play while the hand-over still waits for Spotify's word.
+        play(artist, startIndex = 0)
+        advanceTimeBy(2 * SPOTIFY_CONTEXT_REPORT_GRACE_MS)
+        runCurrent()
+        assertEquals(artist, manager.currentActivityContext.value)
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), any()) }
+
+        state(tracks[0], isPlaying = true)
+        runCurrent()
+        assertEquals(artist, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(tracks[0], any(), any(), artist) }
     }
 
     @Test
