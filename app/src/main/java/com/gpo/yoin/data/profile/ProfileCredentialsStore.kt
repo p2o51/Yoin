@@ -36,4 +36,11 @@ interface ProfileCredentialsStore {
     fun read(profileId: String): ProfileCredentials?
 
     fun delete(profileId: String)
+
+    /**
+     * Every profile id this store holds anything for — a secret, or what a
+     * write cut short left beside it — whether or not a profile row still
+     * names it. [ProfileManager]'s startup sweep deletes those no row names.
+     */
+    fun storedProfileIds(): Set<String>
 }

@@ -165,6 +165,8 @@ class ProfileManagerSwitchTest {
         }
 
         override fun delete(profileId: String) = inner.delete(profileId)
+
+        override fun storedProfileIds(): Set<String> = inner.storedProfileIds()
     }
 
     private class InMemoryProfileDao : ProfileDao {
