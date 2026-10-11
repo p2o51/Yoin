@@ -74,7 +74,9 @@ internal fun buildYoinImageLoader(context: Context): ImageLoader {
  *
  * Its key: a Subsonic url is stored under [SubsonicCacheKey] instead of
  * itself, so a cover one process stored is found by the next (the url carries
- * a salt drawn per process). Any other url keeps Coil's key, the url.
+ * a salt drawn per process). Any other url keeps Coil's key, the url. The
+ * price: a restart no longer refetches a stored cover (see
+ * [SuccessOnlyCacheStrategy] on staleness).
  *
  * Bytes that made no image: Coil stores a body before it decodes it, and
  * serves a stored entry without asking the network, so the next request for
@@ -119,6 +121,14 @@ internal class ImageDiskCacheInterceptor(private val diskCache: () -> DiskCache?
  * read back — the request goes to the network instead. Coil's fetcher already
  * rejects a stored non-2xx code before [read] is asked; a stored 2xx that is
  * not an image only this strategy keeps out.
+ *
+ * A showable entry is served as stored, never revalidated: Coil's default
+ * read returns the stored response whatever its age or headers. A Subsonic
+ * cover keeps one key across processes ([SubsonicCacheKey]), so a cover its
+ * server replaces under the same id shows the stored bytes until the disk
+ * cache evicts them or the app's storage is cleared. Navidrome's cover ids
+ * carry an update stamp and move on their own; Gonic's, Airsonic's and LMS's
+ * do not.
  */
 @OptIn(ExperimentalCoilApi::class)
 internal object SuccessOnlyCacheStrategy : CacheStrategy {
