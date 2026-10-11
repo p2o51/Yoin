@@ -37,7 +37,7 @@ class PlaybackManagerLoadingStartTest {
         every { it.currentProviderId() } returns MediaId.PROVIDER_SUBSONIC
     }
 
-    /** Every track the manager began a start with, in order. Resolving fails, so nothing else runs. */
+    /** Every track the manager began resolving (a start's, or a queued batch's first), in order. Resolving fails, so nothing else runs. */
     private val started = mutableListOf<Track>()
 
     private val playback = object : MusicPlayback {
@@ -123,6 +123,75 @@ class PlaybackManagerLoadingStartTest {
 
         assertEquals(emptyList<Track>(), started)
         assertEquals(ActivityContext.None, manager.currentActivityContext.value)
+    }
+
+    @Test
+    fun should_dropTheReadQueue_when_aQueueItemIsPickedWhileItLoads() {
+        val reads = CompletableDeferred<List<Track>>()
+        manager.playWhenLoaded(source = source, activityContext = artist) { reads.await() }
+
+        // A later song of the current queue, picked in the queue sheet.
+        manager.skipToQueueItem(3)
+        reads.complete(listOf(track("fires-1")))
+
+        assertEquals(emptyList<Track>(), started)
+        assertEquals(ActivityContext.None, manager.currentActivityContext.value)
+    }
+
+    @Test
+    fun should_dropTheReadQueue_when_theQueueIsClearedWhileItLoads() {
+        val reads = CompletableDeferred<List<Track>>()
+        manager.playWhenLoaded(source = source, activityContext = artist) { reads.await() }
+
+        manager.clearQueue()
+        reads.complete(listOf(track("fires-1")))
+
+        assertEquals(emptyList<Track>(), started)
+        assertEquals(ActivityContext.None, manager.currentActivityContext.value)
+    }
+
+    @Test
+    fun should_queueTheSongs_when_theReadLandsAfterThePageThatAskedIsGone() {
+        val reads = CompletableDeferred<List<Track>>()
+        val queued = mutableListOf<Int>()
+        // The page whose ▾ Add to queue asked: a rotation disposes it, and its scope, mid-read.
+        val page = CoroutineScope(mainDispatcherRule.dispatcher)
+        page.launch {
+            manager.queueWhenLoaded(source = source, next = false, load = { reads.await() }) { queued += it }
+        }
+        page.cancel()
+        assertEquals(emptyList<Int>(), queued)
+
+        reads.complete(listOf(track("fires-1"), track("fires-2")))
+
+        // Queued (its first song resolved for the queue), confirmed with its count; nothing restarted.
+        assertEquals(listOf(2), queued)
+        assertEquals(listOf(track("fires-1")), started)
+        assertEquals(ActivityContext.None, manager.currentActivityContext.value)
+    }
+
+    @Test
+    fun should_queueNothing_when_theAccountSwitchesWhileItLoads() {
+        val reads = CompletableDeferred<List<Track>>()
+        val queued = mutableListOf<Int>()
+        manager.queueWhenLoaded(source = source, next = true, load = { reads.await() }) { queued += it }
+
+        manager.disconnect()
+        reads.complete(listOf(track("fires-1")))
+
+        assertEquals(emptyList<Int>(), queued)
+        assertEquals(emptyList<Track>(), started)
+    }
+
+    @Test
+    fun should_queueNothing_when_theReadComesBackEmptyOrFails() {
+        val queued = mutableListOf<Int>()
+
+        manager.queueWhenLoaded(source = source, next = false, load = { emptyList() }) { queued += it }
+        manager.queueWhenLoaded(source = source, next = false, load = { error("offline") }) { queued += it }
+
+        assertEquals(emptyList<Int>(), queued)
+        assertEquals(emptyList<Track>(), started)
     }
 
     @Test

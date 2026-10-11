@@ -32,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -64,6 +65,9 @@ class PlaybackManager(
     private var controllerUsesMusicKit = false
     private var requestedMedia3Source: MusicSource? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // The ▾ queue actions still reading their songs ([queueWhenLoaded]): an account switch cancels them.
+    private val queueReads = SupervisorJob(scope.coroutineContext[Job])
     private var positionUpdateJob: Job? = null
     // True while any Yoin Activity is started (driven by YoinApplication's
     // host lifecycle). Gates the 250ms position ticker: nothing consumes
@@ -253,8 +257,9 @@ class PlaybackManager(
     }
 
     fun disconnect() {
-        // A queue read for the outgoing account never starts on the next one.
+        // A queue read for the outgoing account never starts, or queues, on the next one.
         cancelLoadingStart()
+        queueReads.cancelChildren()
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
         savedStateRefresher.reset()
@@ -307,8 +312,9 @@ class PlaybackManager(
      * artist's Play or Shuffle reads every release). The read runs here, not
      * in the page that asked, so a page recreated by a rotation, or a Wide
      * column handed to a window page, doesn't drop the tap. A newer start —
-     * [play], another of these, an account switch ([disconnect]) — cancels
-     * it ([loadingStart]); an empty or failed read starts nothing.
+     * [play], another of these, a pick in the queue ([skipToQueueItem]),
+     * [clearQueue], an account switch ([disconnect]) — cancels it
+     * ([loadingStart]); an empty or failed read starts nothing.
      */
     fun playWhenLoaded(
         source: MusicSource,
@@ -318,14 +324,7 @@ class PlaybackManager(
     ) {
         cancelLoadingStart()
         loadingStart = scope.launch {
-            val tracks = try {
-                load()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (error: Exception) {
-                Log.w(TAG, "queue read failed; nothing started", error)
-                emptyList()
-            }
+            val tracks = readQueue(load)
             // Superseded while the read was landing: the newer start stands.
             ensureActive()
             loadingStart = null
@@ -333,6 +332,39 @@ class PlaybackManager(
                 startPlayable(tracks, 0, source, activityContext, shuffled = false, explicitStart = explicitStart)
             }
         }
+    }
+
+    /**
+     * Queues the tracks [load] reads ([addToQueue]; [next] for Play next): a
+     * detail page's ▾ Play next / Add to queue, whose songs may have to be
+     * read first (an artist's every release). As in [playWhenLoaded], the
+     * read runs here, so a rotation or a Wide column closing mid-read still
+     * queues; an account switch ([disconnect]) drops it. [onQueued] gets how
+     * many songs went in (Apple Music imports MusicKit can't play are left
+     * out, as [addToQueue] leaves them); an empty or failed read queues
+     * nothing and calls nothing.
+     */
+    fun queueWhenLoaded(
+        source: MusicSource,
+        next: Boolean,
+        load: suspend () -> List<Track>,
+        onQueued: (count: Int) -> Unit
+    ) {
+        scope.launch(queueReads) {
+            val songs = readQueue(load).filterNot { it.isUnplayableAppleImport }
+            if (songs.isEmpty()) return@launch
+            addToQueue(songs, source, next)
+            onQueued(songs.size)
+        }
+    }
+
+    private suspend fun readQueue(load: suspend () -> List<Track>): List<Track> = try {
+        load()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (error: Exception) {
+        Log.w(TAG, "queue read failed; nothing started or queued", error)
+        emptyList()
     }
 
     private fun cancelLoadingStart() {
@@ -618,6 +650,8 @@ class PlaybackManager(
     private fun MediaItem.isUserQueued(): Boolean = mediaMetadata.extras?.getBoolean(EXTRA_USER_QUEUED, false) == true
 
     fun clearQueue() {
+        // The user emptied the queue: one still being read must not refill it.
+        cancelLoadingStart()
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.clearQueue()
             else -> executeOrQueue { it.clearMediaItems() }
@@ -625,6 +659,8 @@ class PlaybackManager(
     }
 
     fun skipToQueueItem(index: Int) {
+        // A song picked in the queue is a newer start: a queue still being read must not replace it.
+        cancelLoadingStart()
         lastRecordedTrackId = null
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> {

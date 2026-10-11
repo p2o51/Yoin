@@ -22,7 +22,6 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.YoinSymbols
@@ -134,9 +133,10 @@ internal fun queuedMessage(count: Int, next: Boolean, resources: Resources? = nu
 
 /**
  * The ▾ actions on a page whose songs are [tracks] (read when a row is
- * tapped, so they are the page's current list): queue them — Play next is
- * left out on Spotify, whose one queue already plays before the context
- * resumes — hand their ids to [onAddToPlaylist] (the window's add-to-playlist
+ * tapped, so they are the page's current list): queue them through the
+ * player, which reads them ([com.gpo.yoin.player.PlaybackManager.queueWhenLoaded]),
+ * so a page rebuilt mid-read still queues — Play next is left out on
+ * Spotify, whose one queue already plays before the context resumes — hand their ids to [onAddToPlaylist] (the window's add-to-playlist
  * sheet; only where the provider writes playlists), and open [link] in the
  * provider's app. [onMessage] confirms on the window's snackbar. An album
  * page whose service saves albums passes [inLibrary] (null: no row) and
@@ -164,13 +164,12 @@ internal fun rememberDetailMenu(
         Capability.PLAYLISTS_WRITE in container.repository.currentCapabilities()
     return remember(container, link, provider, canAddToPlaylist, inLibrary) {
         fun queue(next: Boolean) {
-            scope.launch {
-                // addToQueue leaves Apple Music imports out: so does the count.
-                val songs = latestTracks().filterNot { it.isUnplayableAppleImport }
-                val source = container.profileManager.activeSource.value ?: return@launch
-                if (songs.isEmpty()) return@launch
-                container.playbackManager.addToQueue(songs, source, next)
-                latestOnMessage(queuedMessage(songs.size, next, resources))
+            val source = container.profileManager.activeSource.value ?: return
+            // The player reads and queues, not this composition: a rotation, or the
+            // Wide column closing, while an artist's releases load still queues them.
+            // The count leaves Apple Music imports out, as the queue does.
+            container.playbackManager.queueWhenLoaded(source, next, load = { latestTracks() }) { count ->
+                latestOnMessage(queuedMessage(count, next, resources))
             }
         }
         DetailMenu(
