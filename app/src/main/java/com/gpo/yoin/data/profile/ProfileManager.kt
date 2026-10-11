@@ -245,10 +245,14 @@ class ProfileManager(
     }
 
     /**
-     * Switch the active profile, priming its [MusicSource] (ping +
-     * provider-owned warm-up via [MusicSource.prime]) before resolving.
-     * Subscribers of [switchingState] see the full progression so UI can show
-     * a loading overlay that blocks on real work.
+     * Switch the active profile: its [MusicSource] built and its server
+     * asked once ([SwitchState.Stage.Connecting]: a ping), then the
+     * provider-owned warm-up ([SwitchState.Stage.Priming]: [MusicSource.prime])
+     * before resolving. Subscribers of [switchingState] see the full
+     * progression so UI can show a loading overlay that blocks on real work.
+     * The source is built off the main thread — the target's credentials are
+     * a file and a Keystore decrypt, its client a Retrofit stack — so a
+     * switch begun from a tap never holds that tap's frames.
      */
     suspend fun switchTo(id: String) {
         if (_switchingState.value is SwitchState.Switching) return
@@ -263,13 +267,14 @@ class ProfileManager(
             onSwitchPrepare()
 
             _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Connecting)
-            newSource = buildSource(target)
+            newSource = withContext(Dispatchers.IO) { buildSource(target) }
                 ?: throw IllegalStateException("Profile ${target.displayName} has invalid credentials")
-
-            _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Priming)
             withTimeoutOrNull(PING_TIMEOUT_MS) { newSource.library().ping() }
                 ?: throw IllegalStateException("Server did not respond within ${PING_TIMEOUT_MS / 1000}s")
-            // Provider-specific warm-up; cold cache is not a fatal switch error.
+
+            // The server answered: what's left is the warm-up. Provider-specific;
+            // a cold cache is not a fatal switch error.
+            _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Priming)
             runCatching {
                 withTimeoutOrNull(PRIME_TIMEOUT_MS) { newSource.prime() }
             }
@@ -575,7 +580,16 @@ class ProfileManager(
 
         data class Error(val profileId: String, val message: String) : SwitchState
 
-        enum class Stage { Preparing, Connecting, Priming }
+        enum class Stage {
+            /** The outgoing account's playback is let go. */
+            Preparing,
+
+            /** The target's source is built and its server asked (a ping). */
+            Connecting,
+
+            /** The server answered: the provider's own warm-up ([MusicSource.prime]). */
+            Priming
+        }
     }
 
     companion object {
