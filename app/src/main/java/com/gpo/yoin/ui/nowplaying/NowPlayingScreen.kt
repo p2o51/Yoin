@@ -3942,7 +3942,7 @@ private fun DockedHeaderText(
             text = when (state.activityContext) {
                 is ActivityContext.Album -> stringResource(R.string.np_dock_playing_from_album)
                 is ActivityContext.Playlist -> stringResource(R.string.np_dock_playing_from_playlist)
-                is ActivityContext.Artist,
+                is ActivityContext.Artist -> stringResource(R.string.np_dock_playing_from_artist)
                 is ActivityContext.LikedSongs,
                 ActivityContext.None,
                 -> stringResource(R.string.np_dock_now_playing)
@@ -4831,8 +4831,7 @@ private fun PlayingFromLabel(
             clickAction = { onPlaylistClick(activityContext.playlistId) }
         }
         is ActivityContext.Artist -> {
-            // No "from artist" string of its own: the queue's "Playing from", in this label's caps.
-            kindLabel = stringResource(R.string.cmp_queue_playing_from).uppercase()
+            kindLabel = stringResource(R.string.np_from_artist)
             nameLabel = activityContext.artistName
             clickAction = { onArtistClick(activityContext.artistId) }
         }
