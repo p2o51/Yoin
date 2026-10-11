@@ -31,9 +31,8 @@ internal enum class ArtworkFailureKind {
     /**
      * IOException (not ImageDecoder's, see [Undecodable]) or HTTP 5xx — 504
      * included, which is what Coil's only-if-cached request answers while the
-     * device is offline. Retried on a
-     * backoff while the artwork stays composed, and on every signal; a signal
-     * also starts the backoff over.
+     * device is offline. Retried on a backoff while the artwork stays
+     * composed, and on every signal; a signal also starts the backoff over.
      */
     Transient,
 
