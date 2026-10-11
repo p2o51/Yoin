@@ -1890,12 +1890,16 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun should_addEachPageAsItLands_when_theViewSortsInTheOrderPagesCome() = runTest {
+    fun should_holdLaterApplePages_when_albumsSortAlphabetically() = runTest {
+        // Apple's "alphabetical" isn't Library's A–Z: on the tablet page 16 of 17 brought 張懸's "A City",
+        // which Library sorts into the first row, pushing the whole grid down (LIB-30). Pages after the
+        // first wait for the read to end under every sort (owner, R1).
+        val aCity = appleAlbum("library:l.acity", "A City", added = "2020-01-01T00:00:00Z")
         applePagedAlbums(
             0 to CompletableDeferred(appleNumbered(0 until 100)),
-            100 to CompletableDeferred(appleNumbered(100 until 200)),
+            100 to CompletableDeferred(appleNumbered(100 until 199) + aCity),
             200 to CompletableDeferred()
-        ) {
+        ) { pages ->
             val store = LibrarySortStore.InMemory()
             store.setSort("test-profile", LibraryTab.Albums, LibrarySort.Alphabetical)
             val viewModel = libraryViewModel(this, sortStore = store)
@@ -1903,11 +1907,16 @@ class LibraryViewModelTest {
             viewModel.selectTab(LibraryTab.Albums)
             advanceUntilIdle()
 
-            // A–Z, as Apple Music sends them: the second page extends the list's end while the third is on its way.
-            assertEquals(
-                appleNumbered(0 until 200).map { it.id },
-                content(viewModel).albums.orEmpty().map(Album::id)
-            )
+            // The second page is in and the third on its way: the grid on screen holds still, All too.
+            assertEquals(appleNumbered(0 until 100).map { it.id }, content(viewModel).albums.orEmpty().map(Album::id))
+            assertTrue(content(viewModel).allItems.orEmpty().none { it.key == "album:${aCity.id}" })
+
+            // The read ends: everything joins at once, in Library's A–Z.
+            pages.getValue(200).complete(appleNumbered(200 until 230))
+            advanceUntilIdle()
+            val albums = content(viewModel).albums.orEmpty()
+            assertEquals(230, albums.size)
+            assertEquals(aCity.id, albums.first().id)
         }
     }
 
@@ -1952,10 +1961,13 @@ class LibraryViewModelTest {
             advanceUntilIdle()
             assertEquals(200, albums())
 
-            // Now in the order the pages come, the next one joins as it lands.
+            // Apple's pages come in none of Library's orders, A–Z included: the next one waits for the end.
             pages.getValue(200).complete(appleNumbered(200 until 300))
             advanceUntilIdle()
-            assertEquals(300, albums())
+            assertEquals(200, albums())
+            pages.getValue(300).complete(appleNumbered(300 until 310))
+            advanceUntilIdle()
+            assertEquals(310, albums())
         }
     }
 
