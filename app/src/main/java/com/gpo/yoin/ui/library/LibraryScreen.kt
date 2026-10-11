@@ -590,6 +590,8 @@ private fun LibraryContentBody(
     val artistsGridState = rememberLazyGridState()
     val albumsGridState = rememberLazyGridState()
     val songsListState = rememberLazyListState()
+    // Songs' first row as last shown, beside its state: a new like at the head lands in sight.
+    val songsHead = remember { LibraryListHead() }
     val playlistsListState = rememberLazyListState()
     val favoritesListState = rememberLazyListState()
 
@@ -891,6 +893,7 @@ private fun LibraryContentBody(
                             LibraryTab.Songs -> SongsTabContent(
                                 songs = state.songs,
                                 listState = songsListState,
+                                head = songsHead,
                                 activeSongId = activeSongId,
                                 isPlaying = isPlaying,
                                 playbackSignal = playbackSignal,
@@ -1686,6 +1689,7 @@ private fun LazyListScope.librarySortRow(spec: LibrarySortRowSpec) {
 private fun SongsTabContent(
     songs: List<Track>?,
     listState: LazyListState,
+    head: LibraryListHead,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
@@ -1706,6 +1710,7 @@ private fun SongsTabContent(
     }
     val scope = rememberCoroutineScope()
     LoadMoreSongsEffect(listState = listState, more = more, songCount = songs.size, onLoadMore = onLoadMore)
+    KeepListTopForANewHead(listState, headKey = songs.firstOrNull()?.id, last = head)
     Column(modifier = modifier.fillMaxSize()) {
         // The tab is a random 50-song sample, not the whole library — say so,
         // and offer a reshuffle (the only way to redraw; favorite toggles
