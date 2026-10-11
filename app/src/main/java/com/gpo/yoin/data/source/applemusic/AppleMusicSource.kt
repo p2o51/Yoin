@@ -60,7 +60,9 @@ class AppleMusicSource(
 
     @Volatile var playbackDeveloperToken: String = ""
         private set
-    private var storefront: String? = null
+
+    @Volatile private var storefront: String? = null
+    private val storefrontMutex = Mutex()
 
     // Apple answered recent/played's catalog include with a 400: later reads leave it out.
     @Volatile private var recentPlayedRefusesCatalog = false
@@ -70,7 +72,17 @@ class AppleMusicSource(
     suspend fun refreshPlaybackToken() {
         playbackDeveloperToken = tokenProvider.token()
     }
-    private suspend fun storefront(): String = storefront ?: api.storefront().also { storefront = it }
+
+    /**
+     * The account's storefront, read once per source. Every catalog request needs it, and a source that goes
+     * live without it (a delete's hand-off, a cold start: neither runs [ping]) used to send one storefront
+     * request per album its Home refresh read, 46 at once, which Apple answered with 429s. The first caller
+     * reads it and the rest wait for that answer; a failed read leaves it unread for the next caller.
+     */
+    private suspend fun storefront(): String = storefront ?: storefrontMutex.withLock {
+        storefront ?: api.storefront().also { storefront = it }
+    }
+
     override fun library() = this
     override fun metadata() = this
     override fun writeActions() = this

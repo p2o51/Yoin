@@ -12,12 +12,21 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.WebLinkKind
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -707,6 +716,46 @@ class AppleMusicSourceTest {
         assertEquals(AppleMusicApiFailure.RateLimited, (error as AppleMusicApiException).failure)
         // Not a refused include: no second request.
         assertEquals(1, server.requestCount)
+    }
+
+    @Test fun should_readTheStorefrontOnce_when_manyCatalogReadsStartTogether() = runTest {
+        // A source that went live without a ping (a delete's hand-off): Home's refresh opens many albums at once.
+        val storefrontReads = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "/v1/me/storefront" -> {
+                    storefrontReads.incrementAndGet()
+                    // Slow enough that every caller asks before the first answer is in.
+                    MockResponse().setBody("""{"data":[{"id":"jp"}]}""").setBodyDelay(300, TimeUnit.MILLISECONDS)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+
+        val links = withContext(Dispatchers.Default) {
+            List(8) { index -> async { source.webUrl(WebLinkKind.Album, MediaId("applemusic", "12$index")) } }
+                .awaitAll()
+        }
+
+        assertEquals(List(8) { "https://music.apple.com/jp/album/12$it" }, links)
+        assertEquals(1, storefrontReads.get())
+    }
+
+    @Test fun should_readTheStorefrontAgain_when_theFirstReadFailed() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500))
+        reply("""{"data":[{"id":"jp"}]}""")
+
+        assertNull(source.webUrl(WebLinkKind.Album, MediaId("applemusic", "123")))
+        assertEquals(
+            "https://music.apple.com/jp/album/123",
+            source.webUrl(WebLinkKind.Album, MediaId("applemusic", "123"))
+        )
+        // Kept once it answered: the next catalog link asks no more.
+        assertEquals(
+            "https://music.apple.com/jp/album/456",
+            source.webUrl(WebLinkKind.Album, MediaId("applemusic", "456"))
+        )
+        assertEquals(2, server.requestCount)
     }
 
     @Test fun should_roundTripAppleCredentials_withProviderDiscriminator() {
