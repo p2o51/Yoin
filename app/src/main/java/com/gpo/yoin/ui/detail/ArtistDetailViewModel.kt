@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.SPOTIFY_START_MAX_URIS
@@ -164,6 +165,12 @@ class ArtistDetailViewModel(
     fun getMostPlayedTracks(): List<Track> = mostPlayedTracks
 
     /**
+     * What Play, Shuffle and a Most Played row play from: this artist, so Now
+     * Playing and the queue say so. None until the artist has loaded.
+     */
+    fun playbackContext(): ActivityContext = loadedArtist?.toPlaybackActivityContext() ?: ActivityContext.None
+
+    /**
      * Follow / unfollow the artist via the real follow endpoint (NOT setFavorite,
      * which is the saved-tracks like). Optimistic locally, reverted if the write
      * fails — the override observer can't revert (it bails when the override
@@ -245,3 +252,15 @@ class ArtistDetailViewModel(
             ArtistDetailViewModel(artistId, container.repository) as T
     }
 }
+
+/**
+ * The artist as a play's "playing from" context. The id is the full [MediaId]
+ * string (Now Playing's label opens this page with it); the cover is a storage
+ * key, as the artist's visit row stores it. Spotify still starts the list as a
+ * plain `uris` list ([com.gpo.yoin.player.spotifyStartAttempts]).
+ */
+internal fun ArtistDetail.toPlaybackActivityContext(): ActivityContext.Artist = ActivityContext.Artist(
+    artistId = id.toString(),
+    artistName = name,
+    coverArtId = CoverRef.toStorageKey(coverArt)
+)

@@ -23,7 +23,6 @@ import com.gpo.yoin.R
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
-import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.perf.YoinPerf
@@ -96,7 +95,7 @@ class ArtistDetailActivity : ComponentActivity() {
                                 tracks = ordered,
                                 startIndex = 0,
                                 source = source,
-                                activityContext = ActivityContext.None,
+                                activityContext = viewModel.playbackContext(),
                                 // Play / Shuffle pick no song: an Apple Music import
                                 // first in line gives way to the next that plays.
                                 explicitStart = false,
@@ -115,7 +114,7 @@ class ArtistDetailActivity : ComponentActivity() {
                             tracks = tracks,
                             startIndex = startIndex.coerceIn(0, tracks.lastIndex),
                             source = source,
-                            activityContext = ActivityContext.None,
+                            activityContext = viewModel.playbackContext(),
                         )
                     }
                 }

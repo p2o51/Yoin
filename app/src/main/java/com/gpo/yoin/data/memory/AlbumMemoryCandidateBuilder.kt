@@ -82,7 +82,11 @@ class AlbumMemoryCandidateBuilder(
                 }
         }
         albumEvents.forEach { event ->
-            seeds.getOrPut(event.entityId) { AlbumMemorySeed(albumId = event.entityId) }
+            // A play's event names the album by its full id (the play's context: album page,
+            // a memory), a visit's by the raw one, as play history does. One album, one seed:
+            // a `provider:raw` seed would be fetched by an id the source can't serve, every build.
+            val albumId = MediaId.storedRawId(provider, event.entityId)
+            seeds.getOrPut(albumId) { AlbumMemorySeed(albumId = albumId) }
                 .apply {
                     albumName = albumName ?: event.title.takeIf(String::isNotBlank)
                     artistName = artistName ?: event.subtitle.takeIf(String::isNotBlank)

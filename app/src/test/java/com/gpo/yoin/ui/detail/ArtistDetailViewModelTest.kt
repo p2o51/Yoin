@@ -5,6 +5,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.ArtistListening
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.testutil.MainDispatcherRule
@@ -134,6 +135,20 @@ class ArtistDetailViewModelTest {
         assertEquals(1, listening.playCount)
         assertEquals(listOf("subsonic:s1"), listening.mostPlayed.map { it.id })
         assertEquals(listOf(MediaId.subsonic("s1")), viewModel.getMostPlayedTracks().map { it.id })
+    }
+
+    @Test
+    fun should_playFromTheArtist_when_theArtistHasLoaded() = runTest {
+        coEvery { repository.getArtist(any()) } returns artist().copy(coverArt = CoverRef.SourceRelative("ar-1-art"))
+
+        val viewModel = viewModel()
+        assertEquals(ActivityContext.None, viewModel.playbackContext())
+        advanceUntilIdle()
+
+        val context = viewModel.playbackContext() as ActivityContext.Artist
+        assertEquals(ActivityContext.Artist("subsonic:ar-1", artistName = "Artist", coverArtId = "ar-1-art"), context)
+        // Now Playing's label opens the artist page with this id.
+        assertEquals(ARTIST_ID, MediaId.parse(context.artistId))
     }
 
     private fun viewModel() = ArtistDetailViewModel(ARTIST_ID.toString(), repository)

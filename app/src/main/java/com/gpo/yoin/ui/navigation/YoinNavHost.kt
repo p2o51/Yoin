@@ -139,6 +139,7 @@ import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.rememberMemoriesHomeBehind
 import com.gpo.yoin.ui.memories.rememberMemoriesHostPose
+import com.gpo.yoin.ui.memories.toPlaybackActivityContext
 import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
@@ -1540,33 +1541,6 @@ private fun SpotifyConnectFailure.shouldOpenSpotifySettings(): Boolean = when (t
     SpotifyConnectFailure.SpotifyAppMissing -> false
     SpotifyConnectFailure.PremiumRequired -> false
     is SpotifyConnectFailure.TransportFailure -> false
-}
-
-private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
-    val firstSong = playbackSongs.firstOrNull()
-    val coverArtId = playbackSongs.firstNotNullOfOrNull(::trackCoverArtId)
-
-    return when (entityType) {
-        MemoryEntityType.ALBUM -> ActivityContext.Album(
-            albumId = entityId,
-            albumName = title,
-            artistName = firstSong?.artist,
-            artistId = firstSong?.artistId?.rawId,
-            coverArtId = coverArtId ?: entityId,
-        )
-
-        MemoryEntityType.PLAYLIST -> ActivityContext.Playlist(
-            playlistId = entityId,
-            playlistName = title,
-            // Prefer the playlist's own art. The memory's cover is a resolved
-            // URL — a valid storage key on Spotify only; Subsonic resolved
-            // URLs embed a rotating token, so those keep the track fallback.
-            coverArtId = coverArtUrl.takeIf { entityProvider == MediaId.PROVIDER_SPOTIFY }
-                ?: coverArtId,
-        )
-
-        MemoryEntityType.SONG -> ActivityContext.None
-    }
 }
 
 /**
