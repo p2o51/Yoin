@@ -1147,6 +1147,63 @@ class LibraryViewModelTest {
         assertEquals(listOf(followed, fromSavedAlbum), state.searchResults?.artists)
     }
 
+    @Test
+    fun should_notMatchAnItem_when_onlyItsSpotifyIdContainsTheQuery() = runTest {
+        // Device QA: "e" listed Umami and SS26 through their ids alone.
+        val repository = spotifyRepository()
+        val umami = spotifyTrack("0Ah0SFYWvEU9yYEJmbQNX7").copy(title = "Umami", artist = "Kiku", album = "Ukiyo")
+        val named = spotifyTrack("named").copy(title = "Hello", artist = "Kiku", album = "Ukiyo")
+        val ss26 = album("x", "SS26").copy(id = MediaId.spotify("0g8FizeHVo2cG7qxBfmckf"), artist = "Wavy")
+        val artist = Artist(MediaId.spotify("1dfeR4HaWDbWqFHLkxsg1d"), "Kiku", null, null)
+        val playlist = Playlist(MediaId.spotify("37i9dQZF1DXcBWIGoYBM5M"), "Mix", "Saki", null, null, null)
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } returns
+            SpotifyLibrarySyncCoordinator.SpotifyLocalSearchSnapshot(
+                artists = listOf(artist),
+                albums = listOf(ss26),
+                tracks = listOf(umami, named),
+                playlists = listOf(playlist),
+                starred = Starred()
+            )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.search("e")
+        advanceUntilIdle()
+
+        val results = content(viewModel).searchResults
+        assertEquals(listOf(named), results?.tracks)
+        assertEquals(emptyList<Album>(), results?.albums)
+        assertEquals(emptyList<Artist>(), results?.artists)
+        assertEquals(emptyList<Playlist>(), results?.playlists)
+    }
+
+    @Test
+    fun should_matchAnAccentedTitle_when_theQueryHasNoAccents() = runTest {
+        val repository = spotifyRepository()
+        val accented = spotifyTrack("t1").copy(
+            title = "Thiên Đường Với Người Thương",
+            artist = "Đông Nhi",
+            album = null
+        )
+        val other = spotifyTrack("t2").copy(title = "Moon", artist = "Kiku", album = null)
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } returns
+            SpotifyLibrarySyncCoordinator.SpotifyLocalSearchSnapshot(
+                artists = emptyList(),
+                albums = emptyList(),
+                tracks = listOf(accented, other),
+                playlists = emptyList(),
+                starred = Starred()
+            )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        for (query in listOf("e", "thien duong", "THIÊN", "dong nhi", "nguoi thuong")) {
+            viewModel.search(query)
+            advanceUntilIdle()
+            assertEquals(query, listOf(accented), content(viewModel).searchResults?.tracks)
+        }
+    }
+
     // ── All, chips and sorts (Q12/Q13) ───────────────────────────────────
 
     @Test
