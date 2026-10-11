@@ -2,18 +2,25 @@ package com.gpo.yoin
 
 import android.content.Context
 import coil3.ImageLoader
+import coil3.Uri
 import coil3.annotation.ExperimentalCoilApi
 import coil3.disk.DiskCache
+import coil3.intercept.Interceptor
 import coil3.network.CacheStrategy
 import coil3.network.NetworkRequest
 import coil3.network.NetworkResponse
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.ErrorResult
+import coil3.request.ImageResult
 import coil3.request.Options
 import com.gpo.yoin.perf.YoinPerfImages
+import com.gpo.yoin.ui.component.ArtworkFailureKind
+import com.gpo.yoin.ui.component.ArtworkRetryPolicy
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 
@@ -35,25 +42,57 @@ internal const val LEGACY_IMAGE_DISK_CACHE_DIRECTORY = "coil3_disk_cache"
  * clamped to 10–250 MB — and only its directory moves.
  */
 @OptIn(ExperimentalCoilApi::class)
-internal fun buildYoinImageLoader(context: Context): ImageLoader = ImageLoader.Builder(context)
-    .components {
-        add(
-            OkHttpNetworkFetcherFactory(
-                // Its own client with OkHttp's default timeouts. Not the Spotify or
-                // Subsonic client: both carry an OkHttp HTTP cache, which would store
-                // every image a second time beside Coil's disk cache.
-                callFactory = { OkHttpClient() },
-                cacheStrategy = { SuccessOnlyCacheStrategy }
-            )
-        )
-    }
-    .diskCache {
+internal fun buildYoinImageLoader(context: Context): ImageLoader {
+    val diskCache = lazy {
         DiskCache.Builder()
             .directory(File(context.cacheDir, IMAGE_DISK_CACHE_DIRECTORY).toOkioPath())
             .build()
     }
-    .apply { YoinPerfImages.listenerFactory()?.let(::eventListenerFactory) }
-    .build()
+    return ImageLoader.Builder(context)
+        .components {
+            add(ImageDiskCacheInterceptor { diskCache.value })
+            add(
+                OkHttpNetworkFetcherFactory(
+                    // Its own client with OkHttp's default timeouts. Not the Spotify or
+                    // Subsonic client: both carry an OkHttp HTTP cache, which would store
+                    // every image a second time beside Coil's disk cache.
+                    callFactory = { OkHttpClient() },
+                    cacheStrategy = { SuccessOnlyCacheStrategy }
+                )
+            )
+        }
+        .diskCache { diskCache.value }
+        .apply { YoinPerfImages.listenerFactory()?.let(::eventListenerFactory) }
+        .build()
+}
+
+/**
+ * Keeps bytes that made no image out of [diskCache], for every request the
+ * loader runs — the artwork, the palette reads, Now Playing, the widgets.
+ * Coil stores a body before it decodes it, and serves a stored entry without
+ * asking the network, so the next request for that url, this one's retry or
+ * a sibling's read, would decode the same bytes again. On an
+ * [ArtworkFailureKind.Undecodable] failure the entry goes before the result
+ * is returned; any other failure leaves it alone.
+ */
+internal class ImageDiskCacheInterceptor(private val diskCache: () -> DiskCache?) : Interceptor {
+    override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
+        val request = chain.request
+        val key = request.diskCacheKey ?: networkUrlOf(request.data) ?: return chain.proceed()
+        val result = chain.proceed()
+        if (result is ErrorResult && ArtworkRetryPolicy.classify(result.throwable) == ArtworkFailureKind.Undecodable) {
+            withContext(Dispatchers.IO) { diskCache()?.remove(key) }
+        }
+        return result
+    }
+
+    /** The key Coil stores a network url under when the request names none: the url itself. */
+    private fun networkUrlOf(data: Any): String? = when (data) {
+        is String -> data
+        is Uri -> data.toString()
+        else -> null
+    }?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+}
 
 /**
  * Caches only what can be shown again: a 2xx that carries an image, or a 304

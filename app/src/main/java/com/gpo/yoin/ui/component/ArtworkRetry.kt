@@ -3,16 +3,13 @@ package com.gpo.yoin.ui.component
 import android.graphics.ImageDecoder
 import android.os.Build
 import androidx.annotation.RequiresApi
-import coil3.ImageLoader
 import coil3.network.HttpException
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -48,8 +45,9 @@ internal enum class ArtworkFailureKind {
      * cache, but made no image — BitmapFactory's null bitmap, or
      * ImageDecoder's DecodeException, which is an IOException but reads only
      * bytes already on the device (Coil hands it the disk-cache file, never
-     * the network stream). The stored copy is dropped before the retry
-     * ([forgetStoredArtwork]); only a signal retries it.
+     * the network stream). The app's loader drops the stored copy as the
+     * load fails (ImageDiskCacheInterceptor), whichever request read it; only
+     * a signal retries it.
      */
     Undecodable
 }
@@ -130,15 +128,6 @@ internal suspend fun awaitArtworkRetry(state: ArtworkRetryState, signal: StateFl
         withTimeoutOrNull(backoff) { signal.first { state.signalledBy(it) } } != null
     }
     return state.retried(signal = signal.value, byBackoff = !signalled)
-}
-
-/**
- * Drops [url]'s copy in [imageLoader]'s disk cache — the key Coil stores a
- * plain url request under — so a retry after an [ArtworkFailureKind.Undecodable]
- * failure reads the network instead of the same bytes again.
- */
-internal suspend fun forgetStoredArtwork(imageLoader: ImageLoader, url: String) {
-    withContext(Dispatchers.IO) { imageLoader.diskCache?.remove(url) }
 }
 
 /**

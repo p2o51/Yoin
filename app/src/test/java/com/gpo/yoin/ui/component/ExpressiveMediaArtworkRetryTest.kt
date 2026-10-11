@@ -23,6 +23,7 @@ import coil3.network.HttpException
 import coil3.network.NetworkResponse
 import coil3.request.ErrorResult
 import coil3.request.SuccessResult
+import com.gpo.yoin.ImageDiskCacheInterceptor
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.testutil.imageDecoderFailure
 import com.gpo.yoin.testutil.undecodableImageBytes
@@ -58,11 +59,15 @@ class ExpressiveMediaArtworkRetryTest {
     private var originalLoader: ImageLoader? = null
     private var loader: ImageLoader? = null
 
-    /** Every request is answered by [outcome] for its 1-based attempt: an error, or null for a cover. */
+    /**
+     * Every request is answered by [outcome] for its 1-based attempt: an error, or null for a cover.
+     * The app loader's [ImageDiskCacheInterceptor] sits in front, as it does on the device.
+     */
     private fun answerWith(diskCache: DiskCache? = null, outcome: (attempt: Int) -> Throwable?) {
         val context = ApplicationProvider.getApplicationContext<Context>()
         originalLoader = SingletonImageLoader.get(context)
         loader = ImageLoader.Builder(context).memoryCache(null).diskCache(diskCache).components {
+            add(ImageDiskCacheInterceptor { diskCache })
             add(
                 Interceptor { chain ->
                     val error = outcome(attempts.incrementAndGet())

@@ -49,7 +49,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -61,7 +60,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.SingletonImageLoader
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -301,13 +299,10 @@ internal fun ExpressiveMediaArtwork(
                     onRevealed = { if (retry.fallbackUnder) retry = retry.revealed() },
                 )
             } else if (artworkModel != null) {
+                // Bytes that made no image are already gone from the disk cache:
+                // the app's loader drops them as the load fails (ImageDiskCacheInterceptor).
                 val failed = retry
-                val context = LocalContext.current
                 LaunchedEffect(failed) {
-                    // Bytes that made no image must not be read back from the disk cache.
-                    if (failed.failure == ArtworkFailureKind.Undecodable) {
-                        forgetStoredArtwork(SingletonImageLoader.get(context), artworkModel)
-                    }
                     retry = awaitArtworkRetry(failed, ArtworkRetrySignal.generation)
                 }
             }

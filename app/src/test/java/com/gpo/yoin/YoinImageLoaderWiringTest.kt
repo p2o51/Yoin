@@ -7,10 +7,12 @@ import coil3.network.HttpException
 import coil3.request.CachePolicy
 import coil3.request.ErrorResult
 import coil3.request.ImageRequest
+import com.gpo.yoin.testutil.pngBytes
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -19,9 +21,14 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
 
-/** The app's loader as built — its disk cache directory and its cache strategy — not the strategy alone. */
+/**
+ * The app's loader as built — its disk cache directory and its cache strategy — not the strategy alone.
+ * Native graphics: Coil decodes a stored body with ImageDecoder, which the legacy shadows cannot run.
+ */
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class YoinImageLoaderWiringTest {
 
     private val context = ApplicationProvider.getApplicationContext<Context>()
@@ -52,11 +59,12 @@ class YoinImageLoaderWiringTest {
     fun should_notStoreErrorResponses_when_loadingThroughTheAppLoader() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(404))
         server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json").setBody("{}"))
-        server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "image/png").setBody("cover"))
+        val cover = Buffer().write(pngBytes())
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "image/png").setBody(cover))
         val url = server.url("/cover.png").toString()
         val diskCache = checkNotNull(loader.diskCache)
 
-        // Robolectric's BitmapFactory decodes any bytes; keep each load off the memory cache.
+        // A real image: the loader drops a stored body that does not decode. Keep each load off the memory cache.
         fun load() = ImageRequest.Builder(context).data(url).memoryCachePolicy(CachePolicy.DISABLED).build()
 
         val missing = loader.execute(load()) as ErrorResult
