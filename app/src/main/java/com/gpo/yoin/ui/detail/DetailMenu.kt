@@ -114,6 +114,16 @@ internal fun openInLabel(link: String?, resources: Resources? = null): String? =
 /** What Share sends: the page's [title], with its [link] on the next line when it has one. */
 internal fun detailShareText(title: String, link: String?): String = if (link == null) title else "$title\n$link"
 
+/**
+ * What a ▾ queue action hands the queue from a page's [tracks]: all but the
+ * Apple Music songs MusicKit can't play, which addToQueue leaves out (so the
+ * count does too). Null while the page has no songs, and the tap says nothing;
+ * a page of nothing but those still says so ("Added 0 songs to the queue"),
+ * where its tap used to do nothing without a word.
+ */
+internal fun queueableSongs(tracks: List<Track>): List<Track>? =
+    if (tracks.isEmpty()) null else tracks.filterNot { it.isUnplayableAppleImport }
+
 /** The snackbar line after a page's songs were queued. */
 internal fun queuedMessage(count: Int, next: Boolean, resources: Resources? = null): String {
     if (resources == null) {
@@ -165,11 +175,9 @@ internal fun rememberDetailMenu(
     return remember(container, link, provider, canAddToPlaylist, inLibrary) {
         fun queue(next: Boolean) {
             scope.launch {
-                // addToQueue leaves Apple Music imports out: so does the count.
-                val songs = latestTracks().filterNot { it.isUnplayableAppleImport }
+                val songs = queueableSongs(latestTracks()) ?: return@launch
                 val source = container.profileManager.activeSource.value ?: return@launch
-                if (songs.isEmpty()) return@launch
-                container.playbackManager.addToQueue(songs, source, next)
+                if (songs.isNotEmpty()) container.playbackManager.addToQueue(songs, source, next)
                 latestOnMessage(queuedMessage(songs.size, next, resources))
             }
         }

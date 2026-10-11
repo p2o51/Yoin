@@ -190,7 +190,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
   - **合体形态**（2026-10-02，Wide 整窗开着详情列时，适配原则 2「一窗一栏」）：同一条栏横跨两列、上限放宽到 720 —— [Home][Library][正在播放 pill 伸缩][Play ▾][随机播放]，导航在 shell 列那侧、页面的 Play 在详情列那侧、pill 跨过分隔线；前往歌手 / 分享收进 ▾。列开合的 spring 同时驱动栏的姿态；NP 侧栏打开时 pill 折起、栏缩到正好包住剩下的键
 - 页面用 `LocalShellChromeInsets` 给 Button Group 让位（底部两种形态留栏高，分离式留左侧 84dp + 右侧挖孔）
 - 被拿出来单独放的动作一律从 ▾ 菜单里去掉，不重复
-- **详情页 ▾ 菜单的功能（2026-10-05 owner F1「split button 里那些功能的实装」）**：Shuffle play 之后依次是 Play next（Spotify 不显示——它只有一个队列，本来就排在 context 前面）、Add to queue、Add to playlist（只在服务能写歌单时出现，打开 NP 的加入歌单面板）、Open in Spotify / Open in Apple Music（有公开链接时），再后面是可被拿出来的 Go to artist / Share。专辑页对整张专辑、艺人页对艺人全部曲目（艺人页不给 Add to playlist）。Share 发「标题 + 链接」，链接来自 `MusicMetadata.webUrl`（Spotify open.spotify.com；Apple Music 只对目录 id，带账号 storefront；Subsonic 没有，只发标题）。入队后 snackbar 一行「Added 12 songs to the queue」/「12 songs will play next」。窗口页和 Wide 详情列共用 `ui/detail/DetailMenu.kt`
+- **详情页 ▾ 菜单的功能（2026-10-05 owner F1「split button 里那些功能的实装」）**：Shuffle play 之后依次是 Play next（Spotify 不显示——它只有一个队列，本来就排在 context 前面）、Add to queue、Add to playlist（只在服务能写歌单时出现，打开 NP 的加入歌单面板）、Open in Spotify / Open in Apple Music（有公开链接时），再后面是可被拿出来的 Go to artist / Share。专辑页对整张专辑、艺人页对艺人全部曲目（艺人页不给 Add to playlist）。Share 发「标题 + 链接」，链接来自 `MusicMetadata.webUrl`（Spotify open.spotify.com；Apple Music 只对目录 id，带账号 storefront；Subsonic 没有，只发标题）。入队后 snackbar 一行「Added 12 songs to the queue」/「12 songs will play next」；Apple Music 里 MusicKit 播不了的歌（导入的、店面里没有目录版本的）不进队列，也不算进这个数，整页都是这种歌时同样回一行「Added 0 songs to the queue」，不再点了没反应（2026-10-12 真机 PLY-30）。窗口页和 Wide 详情列共用 `ui/detail/DetailMenu.kt`
 
 ### 🌱 首次引导（Landing，2026-10-09 定稿，原型 artifact PQQMmjTG9SHaoESTaWftEG v3）
 
