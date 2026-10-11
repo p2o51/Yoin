@@ -1,27 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- REVIEW: 候选：首页 | 主页 | Home -->
     <string name="mem_topbar_home">首页</string>
-    <!-- REVIEW: 候选：首页 | 主页 | Home -->
     <string name="mem_cd_home">首页</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories；首页 | 主页 | Home -->
-    <string name="mem_cd_close_home">关闭回忆，回到首页</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_topbar_memories">回忆</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_cd_topbar">回忆</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_cd_topbar_heard">回忆，%1$s</string>
-    <string name="mem_topbar_last_heard">上次听到 %1$s</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_cd_show_memory">显示这条回忆</string>
-    <string name="mem_cd_close_diary">关闭日记，回到卡片</string>
+    <string name="mem_cd_close_home">关闭 Memories，返回首页</string>
+    <string name="mem_topbar_memories">Memories</string>
+    <string name="mem_cd_topbar">Memories</string>
+    <string name="mem_cd_topbar_heard">Memories，%1$s</string>
+    <string name="mem_topbar_last_heard">上次收听于 %1$s</string>
+    <string name="mem_cd_show_memory">展示此条 Memories</string>
+    <string name="mem_cd_close_diary">关闭日记，返回卡片</string>
     <string name="mem_cd_bar_album">%1$s，%2$s</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_pane_memory">回忆，%1$s</string>
+    <string name="mem_pane_memory">Memories，%1$s</string>
     <string name="mem_pane_diary">日记，%1$s</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_cd_page">回忆 %1$d / %2$d：%3$s</string>
+    <string name="mem_cd_page">Memories 第 %1$d / %2$d 张：%3$s</string>
     <string name="mem_card_diary">日记</string>
     <string name="mem_cd_open_diary">打开日记</string>
     <string name="mem_card_go_album">前往专辑</string>
@@ -30,15 +21,15 @@
     <string name="mem_album_fallback">专辑</string>
     <string name="mem_card_excerpt_quote">“%1$s”</string>
     <string name="mem_review_today">今天</string>
-    <string name="mem_review_yours">你的乐评</string>
+    <string name="mem_review_yours">你的专辑评价</string>
     <string name="mem_note_yours">你的笔记</string>
-    <string name="mem_cd_review_field">你的乐评</string>
-    <string name="mem_cd_write_review">写乐评</string>
-    <string name="mem_cd_write_review_action">写乐评</string>
-    <string name="mem_review_placeholder">写</string>
+    <string name="mem_cd_review_field">你的专辑评价</string>
+    <string name="mem_cd_write_review">写专辑评价</string>
+    <string name="mem_cd_write_review_action">写专辑评价</string>
+    <string name="mem_review_placeholder">写下专辑评价</string>
     <string name="mem_review_cancel">取消</string>
     <string name="mem_cd_discard_draft">放弃草稿</string>
-    <string name="mem_cd_save_review">保存乐评</string>
+    <string name="mem_cd_save_review">保存专辑评价</string>
     <string name="mem_cd_review_save">保存</string>
     <string name="mem_review_save">保存</string>
     <string name="mem_cd_edit_title">编辑标题</string>
@@ -55,15 +46,13 @@
     <string name="mem_neodb_synced">已同步到 NeoDB</string>
     <string name="mem_neodb_failed">无法同步到 NeoDB</string>
     <string name="mem_retry">重试</string>
-    <string name="mem_snackbar_neodb_signin">先登录 NeoDB，才能推送评分和乐评。</string>
+    <string name="mem_snackbar_neodb_signin">先登录 NeoDB，才能同步评分和专辑评价。</string>
     <string name="mem_snackbar_neodb_signin_action">登录</string>
-    <string name="mem_snackbar_save_review">乐评没保存。草稿还在。</string>
-    <string name="mem_snackbar_save_title">标题没保存。</string>
+    <string name="mem_snackbar_save_review">无法保存专辑评价，你的草稿已被保存。</string>
+    <string name="mem_snackbar_save_title">无法保存标题。</string>
     <string name="mem_snackbar_sync">无法同步到 NeoDB</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_empty_title">还没有回忆</string>
-    <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
-    <string name="mem_error_load">回忆加载失败</string>
+    <string name="mem_empty_title">暂无 Memories 记录</string>
+    <string name="mem_error_load">Memories 加载失败</string>
     <string name="mem_emblem_unrated">未评分</string>
     <string name="mem_cd_emblem_unrated">未评分</string>
     <string name="mem_cd_emblem_album">专辑评分 %1$s</string>
