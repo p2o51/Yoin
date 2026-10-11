@@ -457,6 +457,10 @@ internal class MemoryBubbleController {
     internal var freeStartInWindow by mutableFloatStateOf(Float.NaN)
     internal var freeEndInWindow by mutableFloatStateOf(Float.NaN)
 
+    /** The header row's span in WINDOW x ([memoryBubblePage]): the page's content; NaN = not placed yet. */
+    internal var pageStartInWindow by mutableFloatStateOf(Float.NaN)
+    internal var pageEndInWindow by mutableFloatStateOf(Float.NaN)
+
     /** The overlay's own window position (last placement), to bring the header into its space while measuring. */
     internal var overlayXInWindow by mutableFloatStateOf(Float.NaN)
     internal var overlayYInWindow by mutableFloatStateOf(Float.NaN)
@@ -601,6 +605,24 @@ internal fun Modifier.memoryBubbleFreeSpan(controller: MemoryBubbleController?):
         }
     }
 
+/**
+ * Put on the header's row: it spans the page's content, and the arrow takes
+ * its centre. At rest that is the window's too; but a detail column re-tiers
+ * Home at the tap, before the column takes any width, and the feed's frame
+ * then runs start-aligned in the still-wide container (feedFrameInsets). The
+ * window's centre falls outside the header's free span there, so an arrow
+ * centred on the window would cut to its fallback beside the title and back;
+ * on the page it moves with the frame's own spring.
+ */
+internal fun Modifier.memoryBubblePage(controller: MemoryBubbleController?): Modifier {
+    if (controller == null) return this
+    return onPlaced { coordinates ->
+        val x = coordinates.positionInWindow().x
+        controller.pageStartInWindow = x
+        controller.pageEndInWindow = x + coordinates.size.width
+    }
+}
+
 // ── Where the arrow goes ───────────────────────────────────────────────
 
 /**
@@ -608,13 +630,13 @@ internal fun Modifier.memoryBubbleFreeSpan(controller: MemoryBubbleController?):
  * camera cutout. The bubble's body runs from the header's title ([titleLeft])
  * to [reach] past the arrow, with at least [minLeft] left of it, and ends
  * before Settings ([freeEnd]): so the arrow goes under the cutout when that
- * leaves the bubble room, else the page's centre when that does, else as far
- * left as the bubble allows (a corner punch-hole, or a page without the
- * cutout over it).
+ * leaves the bubble room, else the page's centre ([pageCentre]) when that
+ * does, else as far left as the bubble allows (a corner punch-hole, or a page
+ * without the cutout over it).
  */
 internal fun memoryArrowCenterX(
     cutoutCenterX: Float?,
-    width: Float,
+    pageCentre: Float,
     titleLeft: Float,
     freeEnd: Float,
     minLeft: Float,
@@ -622,8 +644,7 @@ internal fun memoryArrowCenterX(
 ): Pair<Float, Boolean> {
     fun fits(x: Float) = x - minLeft >= titleLeft && x + reach <= freeEnd
     cutoutCenterX?.takeIf(::fits)?.let { return it to true }
-    val centre = width / 2f
-    if (fits(centre)) return centre to false
+    if (fits(pageCentre)) return pageCentre to false
     return (titleLeft + minLeft) to false
 }
 
@@ -903,7 +924,8 @@ internal fun MemoryBubbleOverlay(
         },
         content = {
             MemoryArrow(
-                speaking = { controller.unroll.value },
+                // Coming home from a flight, it is the arrow at rest again.
+                speaking = { controller.unroll.value * (1f - memoryArrowHomecoming(controller.flyAway.value)) },
                 hintProgress = hintProgress,
                 scrolledPx = scrolledPx,
                 editProgress = editProgress,
@@ -936,10 +958,10 @@ internal fun MemoryBubbleOverlay(
         val touch = ArrowTouchSize.roundToPx()
         val arrow = measurables.first { it.layoutId == BubbleSlot.Arrow }.measure(Constraints.fixed(touch, touch))
         val margin = BubbleEdgeMargin.toPx()
-        // The header's title and its span before Settings, and the cutout,
-        // brought into this overlay's space (window positions from the last
-        // placement; they only move when the page's width does, and a write
-        // re-measures).
+        // The header's title, its span before Settings and the page it heads,
+        // and the cutout, brought into this overlay's space (window positions
+        // from the last placement; they only move when the page's width
+        // does, and a write re-measures).
         val overlayX = controller.overlayXInWindow.takeIf { !it.isNaN() } ?: 0f
         val overlayY = controller.overlayYInWindow.takeIf { !it.isNaN() } ?: 0f
         val titleLeft = controller.titleLeftInWindow.takeIf { !it.isNaN() }?.minus(overlayX)
@@ -949,10 +971,13 @@ internal fun MemoryBubbleOverlay(
         val titleHeight = controller.titleHeight.takeIf { !it.isNaN() } ?: TitleFallbackHeight.toPx()
         val freeEnd = controller.freeEndInWindow.takeIf { !it.isNaN() }?.minus(overlayX)
             ?.coerceAtMost(width - margin) ?: (width - margin)
+        val pageStart = controller.pageStartInWindow
+        val pageEnd = controller.pageEndInWindow
+        val pageCentre = if (pageStart.isNaN() || pageEnd.isNaN()) width / 2f else (pageStart + pageEnd) / 2f - overlayX
         val reach = BubbleReach.toPx()
         val (arrowX, underCutout) = memoryArrowCenterX(
             cutoutCenterX = cutout?.let { it.center.x - overlayX },
-            width = width.toFloat(),
+            pageCentre = pageCentre,
             titleLeft = titleLeft,
             freeEnd = freeEnd,
             minLeft = BubbleMinLeft.toPx(),
@@ -973,7 +998,8 @@ internal fun MemoryBubbleOverlay(
         val markPx = BubbleMarkSize.roundToPx()
         val markHalf = markPx / 2f
         // Flying away, it keeps the place it left from (flightGeometry).
-        val geometry = controller.flightGeometry ?: MemoryBubbleGeometry(
+        val flight = controller.flightGeometry
+        val geometry = flight ?: MemoryBubbleGeometry(
             body = headerBody,
             tailX = arrowX,
             tailTop = arrowCenterY - BubbleTipAboveChevron.toPx(),
@@ -1010,8 +1036,18 @@ internal fun MemoryBubbleOverlay(
             content?.placeWithLayer(contentX, contentY) {
                 flyIntoTip(controller.flyAway.value, Offset(geometry.tailX - contentX, geometry.tailTop - contentY))
             }
-            val arrowLeft = (arrowX - touch / 2f).roundToInt()
-            val arrowTop = (arrowCenterY - touch / 2f).roundToInt()
+            // The chevron sits in the tail: flying, it stays where the bubble
+            // left it while any of the bubble is seen, then comes home to
+            // where the header puts it now as the flight lands.
+            val home = Offset(arrowX, arrowCenterY)
+            val chevron = if (flight == null) {
+                home
+            } else {
+                val left = Offset(flight.tailX, flight.tailTop + BubbleTipAboveChevron.toPx())
+                lerp(left, home, memoryArrowHomecoming(controller.flyAway.value))
+            }
+            val arrowLeft = (chevron.x - touch / 2f).roundToInt()
+            val arrowTop = (chevron.y - touch / 2f).roundToInt()
             controller.arrowBounds = Rect(
                 arrowLeft.toFloat(),
                 arrowTop.toFloat(),
@@ -1113,8 +1149,20 @@ internal suspend fun MemoryBubbleController.settle(speaking: Boolean, reduced: B
 private const val FlyShrink = 0.75f
 private val FlyLift = 20.dp
 
+/** Flying away, it fades from this far into the flight and is gone by this far. */
+private const val FLY_FADE_FROM = 0.35f
+private const val FLY_GONE_AT = 0.9f
+
 /** How much of the bubble is still seen [fly] into its flight: it fades over the second half. */
-internal fun memoryBubbleFlightAlpha(fly: Float): Float = 1f - smoothstep(0.35f, 0.9f, fly)
+internal fun memoryBubbleFlightAlpha(fly: Float): Float = 1f - smoothstep(FLY_FADE_FROM, FLY_GONE_AT, fly)
+
+/**
+ * How far the chevron is on its way home [fly] into the flight: 0 while any of
+ * the bubble is seen — it stays in the tail it sat in — and 1 as it lands, at
+ * the place (and the resting ink) the header gives it now. Home may have
+ * moved it meanwhile: a detail column re-lays the header out under the tap.
+ */
+internal fun memoryArrowHomecoming(fly: Float): Float = smoothstep(FLY_GONE_AT, 1f, fly)
 
 /**
  * Flying away into the arrow on [fly]: shrinks toward the tail's tip at [tip]
