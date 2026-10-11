@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -52,12 +54,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -162,7 +171,12 @@ fun PlaylistDetailScreen(
     // path as the Album & Artist pages); animated so the resolve doesn't pop.
     val coverScheme = rememberCoverColorScheme(content?.coverArtUrl)
     val headerScheme = coverScheme ?: MaterialTheme.colorScheme
-    val titleColor by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
+    val titleColorState =
+        animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
+    val titleColor by titleColorState
+    // The rows' note markers read it while drawing: the colour spring repaints
+    // them instead of recomposing the track list every frame.
+    val rowAccent: () -> Color = remember(titleColorState) { { titleColorState.value } }
     // Stacked-V layers, back to front.
     val stackBack by animateColorAsState(headerScheme.tertiary, YoinMotion.effectsSpring(), label = "playlistStackBack")
     val stackMiddle by animateColorAsState(headerScheme.secondary, YoinMotion.effectsSpring(), label = "playlistStackMiddle")
@@ -268,7 +282,7 @@ fun PlaylistDetailScreen(
                                     PlaylistDetailContent(
                                         content = state,
                                         stackColors = stackColors,
-                                        rowMarks = PlaylistRowMarks(notedSongIds, accent = titleColor),
+                                        rowMarks = PlaylistRowMarks(notedSongIds, accent = rowAccent),
                                         onSongClick = onSongClick,
                                     )
                             }
@@ -980,12 +994,13 @@ private fun PlaylistTrackCredit(artist: String, album: String) {
 /**
  * What the rows mark beyond the song itself: the songs carrying a note (MediaId
  * strings, [PlaylistSong.id]'s form) and the page accent their note marker is
- * tinted with (the cover scheme's primary, as the album rows' accent).
+ * tinted with (the cover scheme's primary, as the album rows' accent). The
+ * accent is read while drawing, so its colour spring never recomposes a row.
  */
 @Immutable
 internal data class PlaylistRowMarks(
     val notedSongIds: Set<String>,
-    val accent: Color
+    val accent: () -> Color
 )
 
 /**
@@ -997,7 +1012,7 @@ internal data class PlaylistRowMarks(
 private fun PlaylistTrackRow(
     song: PlaylistSong,
     hasNote: Boolean,
-    accent: Color,
+    accent: () -> Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1033,10 +1048,7 @@ private fun PlaylistTrackRow(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // Title + the album row's note marker (AlbumTrackRow).
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = song.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -1045,14 +1057,7 @@ private fun PlaylistTrackRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (hasNote) {
-                    Icon(
-                        imageVector = YoinSymbols.Note,
-                        contentDescription = stringResource(R.string.detail_album_cd_has_note),
-                        tint = accent.copy(alpha = 0.8f),
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
+                PlaylistNoteMarker(visible = hasNote, accent = accent)
             }
             PlaylistTrackCredit(artist = song.artist, album = song.album)
         }
@@ -1064,6 +1069,47 @@ private fun PlaylistTrackRow(
                 modifier = Modifier.seamFade(),
             )
         }
+    }
+}
+
+/**
+ * The album row's note marker (12dp [YoinSymbols.Note], [accent] at 0.8, 6dp
+ * after the title). The noted set is read once the rows are up, so a note can
+ * land on a row already on screen: the marker then unfolds from the title's
+ * end and fades in on the motion springs, and the title's ellipsis eases
+ * over rather than jumping; a note deleted folds it away the same way. A row
+ * that has never had a note composes nothing here.
+ */
+@Suppress("ktlint:standard:function-naming") // Composables are PascalCase
+@Composable
+private fun PlaylistNoteMarker(visible: Boolean, accent: () -> Color) {
+    val shown = remember { MutableTransitionState(visible) }
+    shown.targetState = visible
+    if (!shown.currentState && !shown.targetState) return
+    AnimatedVisibility(
+        visibleState = shown,
+        enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Standard, expandFrom = Alignment.Start) +
+            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard, shrinkTowards = Alignment.Start) +
+            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+        label = "playlistNoteMarker"
+    ) {
+        val symbol = rememberVectorPainter(YoinSymbols.Note)
+        val description = stringResource(R.string.detail_album_cd_has_note)
+        Box(
+            modifier = Modifier
+                .padding(start = 6.dp)
+                .size(12.dp)
+                .semantics {
+                    contentDescription = description
+                    role = Role.Image
+                }
+                .drawBehind {
+                    with(symbol) {
+                        draw(size, colorFilter = ColorFilter.tint(accent().copy(alpha = 0.8f)))
+                    }
+                }
+        )
     }
 }
 
