@@ -209,7 +209,7 @@ class AccountSwitcherViewModelTest {
     }
 
     @Test
-    fun should_clearTheDotAndOpenNoPage_when_theRetryFixesTheAccount() = runTest {
+    fun should_clearTheDotAndCloseTheCardWithoutAPage_when_theRetryFixesTheAccount() = runTest {
         needsReconnect.value = true
         val retry = CompletableDeferred<Unit>()
         coEvery { profiles.retryActiveSource() } coAnswers {
@@ -219,7 +219,7 @@ class AccountSwitcherViewModelTest {
             true
         }
         val vm = viewModel()
-        val pages = subscribe(vm)
+        val outcomes = subscribe(vm)
 
         assertTrue(vm.reconnect())
         // Under way: the card waits, as through a switch.
@@ -230,7 +230,8 @@ class AccountSwitcherViewModelTest {
 
         assertFalse(vm.reconnecting.value)
         assertFalse(vm.needsReconnect.value)
-        assertTrue(pages.isEmpty())
+        // The card goes back into the avatar; no page.
+        assertEquals(listOf(ReconnectOutcome.Fixed), outcomes)
         // Not a switch: the account stays the one in use.
         coVerify(exactly = 0) { profiles.switchTo(any()) }
         assertEquals("a", active.value)
@@ -241,12 +242,12 @@ class AccountSwitcherViewModelTest {
         needsReconnect.value = true
         coEvery { profiles.retryActiveSource() } returns false
         val vm = viewModel()
-        val pages = subscribe(vm)
+        val outcomes = subscribe(vm)
 
         vm.reconnect()
         runCurrent()
 
-        assertEquals(listOf("a"), pages.map { it.id })
+        assertEquals(listOf("a"), outcomes.map { (it as ReconnectOutcome.OpenPage).account.id })
         assertTrue(vm.needsReconnect.value)
         assertFalse(vm.reconnecting.value)
     }
@@ -260,12 +261,12 @@ class AccountSwitcherViewModelTest {
             false
         }
         val vm = viewModel()
-        val pages = subscribe(vm)
+        val outcomes = subscribe(vm)
 
         vm.reconnect()
         runCurrent()
 
-        assertTrue(pages.isEmpty())
+        assertTrue(outcomes.isEmpty())
         assertFalse(vm.reconnecting.value)
     }
 
@@ -301,14 +302,14 @@ class AccountSwitcherViewModelTest {
         coVerify(exactly = 0) { profiles.retryActiveSource() }
     }
 
-    /** Subscribes as Home does (the cards and the signal), and collects the pages Reconnect opens. */
-    private fun TestScope.subscribe(vm: AccountSwitcherViewModel): List<ProfileCard> {
-        val pages = mutableListOf<ProfileCard>()
+    /** Subscribes as Home does (the cards and the signal), and collects how each Reconnect ended. */
+    private fun TestScope.subscribe(vm: AccountSwitcherViewModel): List<ReconnectOutcome> {
+        val outcomes = mutableListOf<ReconnectOutcome>()
         val eager = UnconfinedTestDispatcher(testScheduler)
         backgroundScope.launch(eager) { vm.cards.collect {} }
         backgroundScope.launch(eager) { vm.needsReconnect.collect {} }
-        backgroundScope.launch(eager) { vm.reconnectPages.collect { pages += it } }
-        return pages
+        backgroundScope.launch(eager) { vm.reconnectOutcomes.collect { outcomes += it } }
+        return outcomes
     }
 
     private fun cardsWithActive(id: String) = listOf("a", "b", "c").map { profileId ->

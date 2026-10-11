@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
@@ -191,17 +192,17 @@ class AccountSwitcherViewModel internal constructor(
     private val retrying = MutableStateFlow(false)
     val reconnecting: StateFlow<Boolean> = retrying.asStateFlow()
 
-    // The account a Reconnect couldn't fix: its own page is the way on.
-    private val accountPages = Channel<ProfileCard>(Channel.CONFLATED)
-    val reconnectPages: Flow<ProfileCard> = accountPages.receiveAsFlow()
+    // How each Reconnect begun here ended, for the card to answer.
+    private val outcomes = Channel<ReconnectOutcome>(Channel.CONFLATED)
+    internal val reconnectOutcomes: Flow<ReconnectOutcome> = outcomes.receiveAsFlow()
 
     /**
      * Reconnect the account in use: one more try at its source, without
-     * switching (a local read and a ping). Fixed: the dot goes, and Home's
-     * feed loads as it does when a source comes in. Not fixed, and the
-     * account still in use: [reconnectPages] gets it. False when nothing
-     * starts: a Reconnect or a switch begun here is under way, or there is
-     * no account.
+     * switching (a local read and a ping). Fixed: the dot goes, Home's feed
+     * loads as it does when a source comes in, and [reconnectOutcomes] says
+     * [ReconnectOutcome.Fixed]. Not fixed, and the account still in use: it
+     * gets [ReconnectOutcome.OpenPage]. False when nothing starts: a
+     * Reconnect or a switch begun here is under way, or there is no account.
      */
     fun reconnect(): Boolean {
         if (retrying.value || pending.value != null) return false
@@ -212,7 +213,10 @@ class AccountSwitcherViewModel internal constructor(
                 val fixed = profiles.retryActiveSource()
                 // Another account in use by now (switched in Settings): not this one's page.
                 val stillInUse = profiles.activeProfileId.value.let { it == null || it == account.id }
-                if (!fixed && stillInUse) accountPages.trySend(account)
+                when {
+                    fixed -> outcomes.trySend(ReconnectOutcome.Fixed)
+                    stillInUse -> outcomes.trySend(ReconnectOutcome.OpenPage(account))
+                }
             } finally {
                 retrying.value = false
             }
@@ -266,6 +270,15 @@ class AccountSwitcherViewModel internal constructor(
             return AccountSwitcherViewModel(profiles, profileCardsFlow(container), profiles.activeNeedsReconnect) as T
         }
     }
+}
+
+/** How a Reconnect begun from Home's switcher ended ([AccountSwitcherViewModel.reconnect]). */
+internal sealed interface ReconnectOutcome {
+    /** The account works again: the card goes back into the avatar, which wears no dot now. */
+    data object Fixed : ReconnectOutcome
+
+    /** Not fixed, and still the account in use: once the card is back in the avatar, [account]'s own page. */
+    data class OpenPage(val account: ProfileCard) : ReconnectOutcome
 }
 
 /** How a switch begun from Home's switcher ended ([switchFromHome]). */
@@ -337,9 +350,9 @@ internal data class HomeAccountChrome(
  * keeps its Settings gear.
  *
  * An account in use that needs its owner ([AccountSwitcherViewModel.needsReconnect])
- * wears a dot in the header and gets Reconnect on the card; a Reconnect the
- * retry can't fix opens the account's own page ([onOpenAccountPage]) once the
- * card is back in the avatar.
+ * wears a dot in the header and gets Reconnect on the card; the card goes
+ * back into the avatar when a Reconnect ends — then, if the retry couldn't
+ * fix it, the account's own page opens ([onOpenAccountPage]).
  */
 @Suppress("ktlint:standard:function-naming") // a Composable
 @Composable
@@ -374,13 +387,20 @@ internal fun HomeAccountSwitcherHost(
         afterSwitcherDismissed = action
         switcherOpen = false
     }
-    // A Reconnect the retry couldn't fix: the account's own page, once the
-    // card is back in the avatar. A card closed meanwhile (back, a tap
-    // outside) leaves it at that: the dot is still there to come back by.
+    // A Reconnect that fixed the account: the card goes back into the
+    // avatar (T7's spring), and Home under it shows the dot gone and the
+    // feed coming in. One the retry couldn't fix: the account's own page,
+    // once the card is back in the avatar. A card closed meanwhile (back, a
+    // tap outside) leaves it at that: the dot, if still needed, is there to
+    // come back by.
     val openAccountPage by rememberUpdatedState(onOpenAccountPage)
     LaunchedEffect(accountSwitcher) {
-        accountSwitcher?.reconnectPages?.collect { account ->
-            if (switcherOpen) closeSwitcherThen { openAccountPage(account) }
+        accountSwitcher?.reconnectOutcomes?.collect { outcome ->
+            if (!switcherOpen) return@collect
+            when (outcome) {
+                ReconnectOutcome.Fixed -> switcherOpen = false
+                is ReconnectOutcome.OpenPage -> closeSwitcherThen { openAccountPage(outcome.account) }
+            }
         }
     }
     if (switcherShown && accountSwitcher != null) {
@@ -519,13 +539,17 @@ internal fun HomeAccountButton(
                     .onGloballyPositioned { onAvatarPositioned(it.unclippedBoundsInWindow()) }
                     .graphicsLayer { alpha = if (hidden) 0f else 1f },
             )
-            // Steps aside with the avatar while the card or a switch has it,
-            // and springs back once the avatar is home.
-            HomeAccountReconnectDot(
-                visible = needsReconnect && !hidden,
-                ringColor = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier.align(Alignment.TopEnd)
-            )
+            // Hidden with the avatar, in the same frame, while the card or a
+            // switch's stand-in has it — not left behind springing away on its
+            // own — and back with it, as it is, once the avatar is home. Only
+            // the account's own change springs it in or out.
+            if (!hidden) {
+                HomeAccountReconnectDot(
+                    visible = needsReconnect,
+                    ringColor = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.align(Alignment.TopEnd)
+                )
+            }
         }
     }
 }
@@ -534,15 +558,18 @@ internal fun HomeAccountButton(
  * The account needs its owner (owner 2026-10-11): M3's small badge — 6dp, in
  * the error colour — on a ring of the header's colour, at the avatar's
  * top-end corner. No text. Comes and goes with scale on the spatial spring
- * and alpha on the effects spring; TalkBack hears it with the avatar.
+ * and alpha on the effects spring; TalkBack hears it with the avatar. It
+ * starts as [visible] says (no entrance when it comes back with the avatar).
  */
 @Suppress("ktlint:standard:function-naming") // a Composable
 @Composable
 private fun HomeAccountReconnectDot(visible: Boolean, ringColor: Color, modifier: Modifier = Modifier) {
     val role = LocalYoinMotionRole.current
     val label = stringResource(R.string.home_account_reconnect_needed)
+    val shown = remember { MutableTransitionState(visible) }
+    shown.targetState = visible
     AnimatedVisibility(
-        visible = visible,
+        visibleState = shown,
         modifier = modifier,
         enter = YoinMotion.fadeIn(role) + YoinMotion.scaleIn(role, initialScale = 0f),
         exit = YoinMotion.fadeOut(role) + YoinMotion.scaleOut(role, targetScale = 0f)

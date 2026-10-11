@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -19,8 +20,10 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -31,8 +34,10 @@ import org.robolectric.annotation.Config
 /**
  * Home's side of an account in use that needs its owner (owner 2026-10-11):
  * the header avatar wears a dot only then, and springs it away (no cut) once
- * the account works; the card offers Reconnect only then; a Reconnect the
- * retry can't fix opens the account's page once the card is back in the avatar.
+ * the account works; the dot goes with the avatar while the card or a switch
+ * has it; the card offers Reconnect only then, goes back into the avatar when
+ * the retry fixes it, and opens the account's page once it is back in the
+ * avatar when the retry can't.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "w412dp-h900dp")
@@ -46,6 +51,9 @@ class HomeAccountReconnectTest {
     private val cards = MutableStateFlow(accounts())
     private val needsReconnect = MutableStateFlow(false)
     private var retryFixes = false
+
+    // A switch ProfileManager runs: held open for the whole test.
+    private val switchEnds = CompletableDeferred<Unit>()
     private val profiles = mockk<ProfileManager>().also { manager ->
         every { manager.activeProfileId } returns active
         every { manager.switchingState } returns state
@@ -53,9 +61,16 @@ class HomeAccountReconnectTest {
             if (retryFixes) needsReconnect.value = false
             retryFixes
         }
+        coEvery { manager.switchTo(any()) } coAnswers {
+            state.value = ProfileManager.SwitchState.Switching(firstArg(), ProfileManager.SwitchState.Stage.Priming)
+            switchEnds.await()
+        }
     }
     private val switcher = AccountSwitcherViewModel(profiles, cards, needsReconnect)
     private val pagesOpened = mutableListOf<String>()
+
+    // What the host last handed the header.
+    private var chrome: HomeAccountChrome? = null
 
     private fun dot() = rule.onNodeWithTag(HOME_ACCOUNT_RECONNECT_DOT_TAG, useUnmergedTree = true)
 
@@ -73,14 +88,15 @@ class HomeAccountReconnectTest {
                     onNavigateToSettings = {},
                     onEditHome = {},
                     onOpenAccountPage = { account -> pagesOpened += account.id }
-                ) { chrome ->
-                    val account = chrome.account ?: return@HomeAccountSwitcherHost
+                ) { handed ->
+                    SideEffect { chrome = handed }
+                    val account = handed.account ?: return@HomeAccountSwitcherHost
                     HomeAccountButton(
                         card = account,
-                        onClick = chrome.onOpen,
-                        hidden = chrome.windowUp,
-                        onAvatarPositioned = chrome.onAnchor,
-                        needsReconnect = chrome.needsReconnect
+                        onClick = handed.onOpen,
+                        hidden = handed.windowUp,
+                        onAvatarPositioned = handed.onAnchor,
+                        needsReconnect = handed.needsReconnect
                     )
                 }
             }
@@ -156,7 +172,7 @@ class HomeAccountReconnectTest {
     }
 
     @Test
-    fun should_dropReconnectAndOpenNoPage_when_theRetryFixesTheAccount() {
+    fun should_closeTheCardIntoTheAvatarWithoutTheDotOrAPage_when_theRetryFixesTheAccount() {
         needsReconnect.value = true
         retryFixes = true
         setHome()
@@ -166,10 +182,58 @@ class HomeAccountReconnectTest {
         rule.waitForIdle()
 
         coVerify(exactly = 1) { profiles.retryActiveSource() }
-        reconnectButton().assertDoesNotExist()
+        // The card went back into the avatar, which wears no dot now.
+        rule.onNode(isDialog()).assertDoesNotExist()
+        headerAvatar().assertExists()
+        dot().assertDoesNotExist()
         assertTrue(pagesOpened.isEmpty())
-        // The card stays up; the dot is gone for when it closes.
-        rule.onNode(isDialog()).assertExists()
+    }
+
+    @Test
+    fun should_hideTheDotWithTheAvatar_when_theCardIsOpen() {
+        needsReconnect.value = true
+        setHome()
+        dot().assertExists()
+
+        rule.mainClock.autoAdvance = false
+        headerAvatar().performClick()
+        // Frame by frame until the card's window is up (the tap lands a frame or two on).
+        var frames = 0
+        while (chrome?.windowUp != true && frames++ < MAX_FRAMES) {
+            rule.mainClock.advanceTimeByFrame()
+            rule.waitForIdle()
+        }
+
+        // The avatar is the card now: its dot went with it, in the same frame
+        // (not left on the header springing away on its own).
+        assertTrue(chrome!!.windowUp)
+        dot().assertDoesNotExist()
+
+        // Closed: back with the avatar, as it was.
+        rule.mainClock.autoAdvance = true
+        rule.onNode(hasContentDescription("Close") and hasAnyAncestor(isDialog())).performClick()
+        rule.waitForIdle()
+        rule.onNode(isDialog()).assertDoesNotExist()
+        dot().assertExists()
+    }
+
+    @Test
+    fun should_showNoDotOnTheTarget_when_aSwitchBegunFromTheCardIsUnderWay() {
+        needsReconnect.value = true
+        setHome()
+        openCard()
+
+        rule.onNodeWithTag(homeAccountRowTag("b"), useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+
+        // The card's window has gone; B is in the header while the switch
+        // runs, and the dot (A's) isn't on it.
+        rule.onNode(isDialog()).assertDoesNotExist()
+        assertEquals("b", chrome!!.account?.id)
+        assertTrue(chrome!!.switchPending)
+        assertFalse(chrome!!.needsReconnect)
+        rule.onNodeWithContentDescription("Account: Spotify").assertExists()
+        dot().assertDoesNotExist()
     }
 
     @Test
@@ -205,4 +269,8 @@ class HomeAccountReconnectTest {
             avatarShape = 1
         )
     )
+
+    private companion object {
+        const val MAX_FRAMES = 10
+    }
 }
