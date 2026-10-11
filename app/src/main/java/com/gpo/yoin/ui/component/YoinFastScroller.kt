@@ -399,30 +399,51 @@ internal object FastScrollMath {
     }
 
     /**
-     * Which ticks fit, given their centres (ascending) and the minimum gap
-     * between two drawn ticks: top-down greedy, then the last tick wins its
-     * place back from the ones crowding it, so both ends stay labelled.
+     * Where each tick's centre sits on a track [extentPx] long whose first
+     * tick sits [offsetPx] down: the place the handle's centre has when the
+     * bubble first names that tick's run.
      */
-    fun visibleTicks(centers: FloatArray, minGap: Float): BooleanArray {
-        val keep = BooleanArray(centers.size)
-        if (centers.isEmpty()) return keep
-        var lastKept = centers[0]
-        keep[0] = true
-        for (i in 1 until centers.size) {
-            if (centers[i] - lastKept >= minGap) {
-                keep[i] = true
-                lastKept = centers[i]
-            }
-        }
+    fun tickCenters(
+        ticks: List<FastScrollTick>,
+        itemCount: Int,
+        itemsPerLine: Int,
+        extentPx: Float,
+        offsetPx: Float
+    ): FloatArray = FloatArray(ticks.size) {
+        tickFraction(ticks[it].startIndex, itemCount, itemsPerLine) * extentPx + offsetPx
+    }
+
+    /**
+     * Where each tick's label is drawn, given the ticks' centres (ascending)
+     * and the least gap between two labels; NaN for a tick left unlabelled.
+     *
+     * Top-down, a label crowded by the one above moves down to the gap — at
+     * most [minGap] below its own centre, and never past the next tick's
+     * centre, so it stays on its own run's stretch of the track and dropping
+     * the handle on it still lands in that run. With no room left there it
+     * goes unlabelled. So a run that spans [minGap] of the track keeps its
+     * label whatever crowds it from above — a long run never loses it to a
+     * short neighbour (a year of 350 albums to one of 20) — except where the
+     * last label needs the room: both ends keep their own places, the first
+     * label never moves and the ones between leave the last its gap.
+     */
+    fun placeTicks(centers: FloatArray, minGap: Float): FloatArray {
+        val places = FloatArray(centers.size) { Float.NaN }
+        if (centers.isEmpty()) return places
+        places[0] = centers[0]
         val end = centers.lastIndex
-        if (end > 0 && !keep[end]) {
-            keep[end] = true
-            for (i in end - 1 downTo 1) {
-                if (centers[end] - centers[i] >= minGap) break
-                keep[i] = false
+        if (end == 0) return places
+        val lowest = centers[end] - minGap
+        var above = centers[0]
+        for (i in 1 until end) {
+            val y = max(centers[i], above + minGap)
+            if (y < centers[i + 1] && y <= lowest) {
+                places[i] = y
+                above = y
             }
         }
-        return keep
+        places[end] = centers[end]
+        return places
     }
 
     /**
@@ -937,7 +958,8 @@ private fun FastScrollThumb(held: Boolean, modifier: Modifier = Modifier) {
 }
 
 /**
- * The unfolded column: every tick at its section's place on the track,
+ * The unfolded column: every tick on its run's stretch of the track, at its
+ * own place unless the label above crowds it ([FastScrollMath.placeTicks]),
  * thinned so neighbours keep [TickMinGap]; the tick of the current section
  * (or the nearest drawn one before it) in primary.
  */
@@ -954,20 +976,18 @@ private fun FastScrollTickColumn(
     val style = MaterialTheme.typography.labelMedium.withTabularFigures()
     val currentStyle = style.copy(fontWeight = FontWeight.SemiBold)
     val density = LocalDensity.current
-    // Centres on the track the handle's centre travels; the column is
+    // Labels on the track the handle's centre travels; the column is
     // exactly the track's height (the scroller measures it so).
-    val centers = remember(ticks, itemCount, itemsPerLine, trackHeightPx, density) {
+    val places = remember(ticks, itemCount, itemsPerLine, trackHeightPx, density) {
         val touch = with(density) { ThumbTouchHeight.toPx() }
         val extent = (trackHeightPx - touch).coerceAtLeast(0f)
-        FloatArray(ticks.size) {
-            FastScrollMath.tickFraction(ticks[it].startIndex, itemCount, itemsPerLine) * extent + touch / 2f
-        }
-    }
-    val keep = remember(centers, density) {
-        FastScrollMath.visibleTicks(centers, with(density) { TickMinGap.toPx() })
+        FastScrollMath.placeTicks(
+            centers = FastScrollMath.tickCenters(ticks, itemCount, itemsPerLine, extent, touch / 2f),
+            minGap = with(density) { TickMinGap.toPx() }
+        )
     }
     var current = -1
-    ticks.forEachIndexed { i, tick -> if (keep[i] && tick.startIndex <= currentIndex) current = i }
+    ticks.forEachIndexed { i, tick -> if (!places[i].isNaN() && tick.startIndex <= currentIndex) current = i }
     Layout(
         modifier = modifier.background(colors.surfaceContainerHigh, MaterialTheme.shapes.extraLarge),
         content = {
@@ -987,8 +1007,8 @@ private fun FastScrollTickColumn(
         val width = (placeables.maxOfOrNull { it.width } ?: 0) + padding * 2
         layout(width, height) {
             placeables.forEachIndexed { i, placeable ->
-                if (!keep[i]) return@forEachIndexed
-                val y = (centers[i] - placeable.height / 2f).roundToInt()
+                if (places[i].isNaN()) return@forEachIndexed
+                val y = (places[i] - placeable.height / 2f).roundToInt()
                     .coerceIn(0, max(0, height - placeable.height))
                 placeable.placeRelative((width - placeable.width) / 2, y)
             }
