@@ -78,7 +78,7 @@ class AppleMusicAlbumAlignmentTest {
         )
         val catalog = requests.getValue("/v1/catalog/jp/albums/900")
         assertEquals("artists,library", catalog.requestUrl!!.queryParameter("include"))
-        assertEquals("albums,artists", catalog.requestUrl!!.queryParameter("include[songs]"))
+        assertEquals("albums,artists,library", catalog.requestUrl!!.queryParameter("include[songs]"))
         assertEquals("user", catalog.getHeader("Music-User-Token"))
         val libraryTracks = requests.getValue("/v1/me/library/albums/l.1/tracks")
         assertEquals("catalog", libraryTracks.requestUrl!!.queryParameter("include"))
@@ -156,7 +156,7 @@ class AppleMusicAlbumAlignmentTest {
         server.takeRequest()
         val catalog = server.takeRequest().requestUrl!!
         assertEquals("artists,library", catalog.queryParameter("include"))
-        assertEquals("albums,artists", catalog.queryParameter("include[songs]"))
+        assertEquals("albums,artists,library", catalog.queryParameter("include[songs]"))
         assertEquals(2, server.requestCount)
     }
 
@@ -230,7 +230,7 @@ class AppleMusicAlbumAlignmentTest {
         assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
         val albumReads = List(5) { server.takeRequest().requestUrl!! }
             .filter { it.encodedPath == "/v1/catalog/jp/albums/900" }
-        assertEquals(listOf("albums,artists", null), albumReads.map { it.queryParameter("include[songs]") })
+        assertEquals(listOf("albums,artists,library", null), albumReads.map { it.queryParameter("include[songs]") })
         assertEquals(listOf("artists,library", "artists,library"), albumReads.map { it.queryParameter("include") })
         assertEquals(5, server.requestCount)
     }
@@ -403,7 +403,7 @@ class AppleMusicAlbumAlignmentTest {
         // The library tracklist read with the library album marks the rows: it is not asked for again.
         assertEquals(1, urls.count { it.encodedPath == "/v1/me/library/albums/l.1/tracks" })
         assertEquals(
-            listOf("albums,artists", null),
+            listOf("albums,artists,library", null),
             urls.filter { it.encodedPath == "/v1/catalog/jp/albums/900" }.map { it.queryParameter("include[songs]") }
         )
         assertEquals(1, urls.count { it.encodedPath == "/v1/catalog/jp/albums/900/tracks" })
@@ -468,6 +468,88 @@ class AppleMusicAlbumAlignmentTest {
         assertEquals(3, server.requestCount)
     }
 
+    @Test fun should_markEachRowByItsOwnLibrarySong_when_albumNamesNoLibraryCopy() = runTest {
+        // POP DELIVERY (2026-10-11): the library holds one of its songs, yet Apple left the album's `library`
+        // relationship out. Each song's own `library` relationship still says which one.
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(
+                catalogAlbum(
+                    "900",
+                    tracks = embedded(song("10", library = ""), song("11", library = "i.5"), song("12", library = "")),
+                    libraryAnswered = false
+                )
+            )
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        val byId = album.tracks.associateBy { it.id.rawId }
+        assertEquals("i.5", byId.getValue("11").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertNull(byId.getValue("10").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertNull(byId.getValue("12").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+        // One read: the rows' membership came with the album, as its songs' own relationship.
+        val read = List(2) { server.takeRequest().requestUrl!! }
+            .single { it.encodedPath == "/v1/catalog/jp/albums/900" }
+        assertEquals("albums,artists,library", read.queryParameter("include[songs]"))
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_leaveRowsUnconfirmed_when_neitherTheAlbumNorItsSongsAnswerForTheLibrary() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(
+                catalogAlbum("900", tracks = embedded(song("10"), song("11")), libraryAnswered = false)
+            )
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        // Nothing proves the songs aren't in the library: unknown, never "not added".
+        assertEquals(listOf("false", "false"), album.tracks.map { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] })
+        assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_ID) })
+    }
+
+    @Test fun should_letTheUsersCopyMarkTheRest_when_onlySomeSongsAnswerForTheLibrary() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to body(
+                catalogAlbum("900", libraryId = "l.9", tracks = embedded(song("10", library = ""), song("11")))
+            ),
+            "/v1/me/library/albums/l.9/tracks" to body(librarySongs("i.5" to "11"))
+        )
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        val byId = album.tracks.associateBy { it.id.rawId }
+        assertNull(byId.getValue("10").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertEquals("i.5", byId.getValue("11").extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertTrue(album.tracks.all { it.extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" })
+    }
+
+    @Test fun should_askNoMoreForTheSongsLibrary_when_appleRefusesItWithA400() = runTest {
+        route(
+            "/v1/me/storefront" to body(storefront()),
+            "/v1/catalog/jp/albums/900" to MockResponse().setResponseCode(400),
+            "/v1/catalog/jp/albums/900" to body(catalogAlbum("900")),
+            "/v1/catalog/jp/albums/900/tracks" to body(catalogSongs("10")),
+            "/v1/catalog/jp/albums/901" to body(catalogAlbum("901", tracks = embedded(song("10"))))
+        )
+
+        source.getAlbum(MediaId("applemusic", "900"))
+        val next = source.getAlbum(MediaId("applemusic", "901"))!!
+
+        // The next album is read in one request again, as before the songs' library was asked for.
+        assertEquals(listOf("10"), next.tracks.map { it.id.rawId })
+        val reads = List(server.requestCount) { server.takeRequest().requestUrl!! }
+            .filter { it.encodedPath.startsWith("/v1/catalog/jp/albums/90") && !it.encodedPath.endsWith("/tracks") }
+        assertEquals(
+            listOf("albums,artists,library", null, "albums,artists"),
+            reads.map { it.queryParameter("include[songs]") }
+        )
+    }
+
     @Test fun should_fetchLibraryCopy_when_catalogAlbumIsInLibrary() = runTest {
         route(
             "/v1/me/storefront" to body(storefront()),
@@ -508,7 +590,7 @@ class AppleMusicAlbumAlignmentTest {
             albumReads.map { it.requestUrl!!.queryParameter("include") }
         )
         assertEquals(
-            listOf("albums,artists", null, null),
+            listOf("albums,artists,library", null, null),
             albumReads.map { it.requestUrl!!.queryParameter("include[songs]") }
         )
         assertNull(albumReads.last().getHeader("Music-User-Token"))
@@ -684,24 +766,47 @@ class AppleMusicAlbumAlignmentTest {
  "relationships":{"catalog":{"data":[${catalogId?.let { """{"id":"$it","type":"albums"}""" } ?: ""}]}}}]}
 """
 
-    /** [tracks] is the album's `tracks` relationship as Apple embeds it; without it the album embeds none. */
-    private fun catalogAlbum(id: String, libraryId: String? = null, tracks: String? = null) = """
+    /**
+     * [tracks] is the album's `tracks` relationship as Apple embeds it; without it the album embeds none.
+     * Without [libraryAnswered] the album comes with no `library` relationship at all.
+     */
+    private fun catalogAlbum(
+        id: String,
+        libraryId: String? = null,
+        tracks: String? = null,
+        libraryAnswered: Boolean = true
+    ): String {
+        val copy = libraryId?.let { """{"id":"$it","type":"library-albums"}""" } ?: ""
+        val library = if (libraryAnswered) ""","library":{"data":[$copy]}""" else ""
+        return """
 {"data":[{"id":"$id","type":"albums","attributes":{"name":"Album","artistName":"Artist","trackCount":3},
  "relationships":{
-   "artists":{"data":[{"id":"7","type":"artists"}]},
-   "library":{"data":[${libraryId?.let { """{"id":"$it","type":"library-albums"}""" } ?: ""}]}${tracks?.let { ""","tracks":$it""" } ?: ""}
+   "artists":{"data":[{"id":"7","type":"artists"}]}$library${tracks?.let { ""","tracks":$it""" } ?: ""}
  }}]}
 """
+    }
 
     private fun embedded(vararg tracks: String, next: String? = null): String {
         val nextLink = next?.let { ""","next":"$it"""" } ?: ""
         return """{"href":"/v1/catalog/jp/albums/900/tracks","data":[${tracks.joinToString(",")}]$nextLink}"""
     }
 
-    /** A catalog song of album 900 with its album and artist relationships, as include[songs] asks for. */
-    private fun song(id: String, artistId: String = "7", relationships: Boolean = true): String {
+    /**
+     * A catalog song of album 900 with its album and artist relationships, as include[songs] asks for.
+     * [library] is its own `library` relationship: the library song's id, "" for none, null when left out.
+     */
+    private fun song(
+        id: String,
+        artistId: String = "7",
+        relationships: Boolean = true,
+        library: String? = null
+    ): String {
+        val own = library?.let { librarySong ->
+            val data = if (librarySong.isEmpty()) "" else """{"id":"$librarySong","type":"library-songs"}"""
+            ""","library":{"data":[$data]}"""
+        } ?: ""
         val related = """,
- "relationships":{"albums":{"data":[{"id":"900","type":"albums"}]},"artists":{"data":[{"id":"$artistId","type":"artists"}]}}"""
+ "relationships":{"albums":{"data":[{"id":"900","type":"albums"}]},"artists":{"data":[{"id":"$artistId","type":"artists"}]}$own}"""
         val attributes = """"attributes":{"name":"Song $id","durationInMillis":1000}"""
         return """{"id":"$id","type":"songs",$attributes${if (relationships) related else ""}}"""
     }

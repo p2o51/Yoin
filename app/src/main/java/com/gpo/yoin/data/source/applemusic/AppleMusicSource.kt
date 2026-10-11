@@ -66,6 +66,9 @@ class AppleMusicSource(
 
     // Apple answered recent/played's catalog include with a 400: later reads leave it out.
     @Volatile private var recentPlayedRefusesCatalog = false
+
+    // Apple answered a catalog album's include[songs]=…,library with a 400: later albums leave `library` out.
+    @Volatile private var albumSongsRefuseLibrary = false
     private val libraryMutationMutex = Mutex()
     private val pendingLibraryAdds = ConcurrentHashMap.newKeySet<String>()
 
@@ -243,10 +246,14 @@ class AppleMusicSource(
         // `library` is the user's copy of this catalog album; it needs the Music User Token.
         var libraryKnown = true
         var tracklistRead: TracklistRead? = null
+        val query = if (albumSongsRefuseLibrary) CatalogAlbumWithSongsQuery else CatalogAlbumWithSongLibraryQuery
         val response = try {
-            page(path, CatalogAlbumWithSongsQuery, personal = true)
+            page(path, query, personal = true)
         } catch (error: AppleMusicApiException) {
             if (error.failsCatalogToo()) throw error
+            // Refused with a 400, the songs' `library` costs this album its one-request read, not the next one's.
+            val refused = (error.failure as? AppleMusicApiFailure.Http)?.status == 400
+            if (query === CatalogAlbumWithSongLibraryQuery && refused) albumSongsRefuseLibrary = true
             // Nothing read below asks for the songs' relationships, so the tracklist is a request of its own:
             // start it now instead of after the album.
             tracklistRead = async { attempt { catalogTracks(path) } }
@@ -284,13 +291,22 @@ class AppleMusicSource(
             if (error !is AppleMusicApiException || error.failsCatalogToo()) throw error
             libraryTracksRead = false
         }
+        // A row whose song came with its own `library` relationship knows its membership already
+        // (AppleMusicSong.libraryChecked). The others go by the user's copy: its tracklist when one was read,
+        // or none at all when Apple answered the album's `library` relationship naming no copy. Apple can also
+        // leave that relationship out while the library holds a copy (POP DELIVERY, whose copy has one song,
+        // 2026-10-11): that says nothing, so those rows stay unconfirmed ("false"), never all "not added".
+        val copyKnown = libraryTracksRead &&
+            (libraryCopyTracks != null || libraryKnown && resource.answers("library"))
         val tracks = catalogRead.await().getOrThrow().songTracks()
             .distinctBy { it.id }
             .map { track ->
                 val extras = track.extras.toMutableMap()
                 libraryIdsByCatalogId[track.id.rawId]?.let { extras[AppleMusicSong.EXTRA_LIBRARY_ID] = it }
-                if (libraryTracksRead && (libraryKnown || libraryCopyTracks != null)) {
-                    extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "true"
+                when {
+                    extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" -> Unit
+                    copyKnown -> extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "true"
+                    libraryKnown && libraryTracksRead -> extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "false"
                 }
                 track.copy(
                     albumId = track.albumId ?: id,
@@ -579,6 +595,10 @@ class AppleMusicSource(
         private fun JsonObject.related(name: String) =
             get("relationships")?.jsonObject?.get(name)?.jsonObject?.resources().orEmpty()
 
+        /** Whether the response carries the [name] relationship's answer, even an empty one. */
+        private fun JsonObject.answers(name: String): Boolean =
+            ((get("relationships") as? JsonObject)?.get(name) as? JsonObject)?.get("data") is JsonArray
+
         /**
          * The album's whole tracklist as its own response embeds it (Albums `tracks` includes objects, 300 at
          * most), or null when the tracklist must be read on its own: the relationship has a `next` page, is
@@ -697,6 +717,15 @@ private val CatalogAlbumQuery = mapOf("include" to "artists,library")
  * album's `tracks` arrive as the tracklist request would return them, and that request is skipped.
  */
 private val CatalogAlbumWithSongsQuery = CatalogAlbumQuery + ("include[songs]" to SongRelationshipsInclude)
+
+/**
+ * [CatalogAlbumWithSongsQuery] with each song's `library` relationship too: the row's own membership,
+ * whatever the album's `library` relationship says (Apple can leave that out while the library holds a
+ * copy of some of its songs). Navigation targets only need [SongRelationships], so a song that comes
+ * without `library` still counts as complete.
+ */
+private val CatalogAlbumWithSongLibraryQuery =
+    CatalogAlbumQuery + ("include[songs]" to "$SongRelationshipsInclude,library")
 
 /**
  * recently-added pages 10 at a time by default, so filling Library › Albums took ~15 serial

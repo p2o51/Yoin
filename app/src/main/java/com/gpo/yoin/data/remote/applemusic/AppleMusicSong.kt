@@ -30,7 +30,12 @@ data class AppleMusicSong(
      * pulled, or one from another storefront). MusicKit drops such an id from a queue without a
      * word, so a start index past it lands that many songs further on.
      */
-    val catalogUnavailable: Boolean = false
+    val catalogUnavailable: Boolean = false,
+    /**
+     * A catalog song that came with its own `library` relationship (the request included it), so
+     * [libraryId] says whether it is in the user's library: present, it is; absent, it isn't.
+     */
+    val libraryChecked: Boolean = false
 ) {
     fun toTrack(): Track = Track(
         id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, catalogId ?: "library:$resourceId"),
@@ -51,6 +56,7 @@ data class AppleMusicSong(
             libraryId?.let { put(EXTRA_LIBRARY_ID, it) }
             catalogId?.let { put(EXTRA_CATALOG_ID, it) }
             if (catalogUnavailable) put(EXTRA_CATALOG_UNAVAILABLE, "true")
+            if (libraryChecked) put(EXTRA_LIBRARY_CHECKED, "true")
         }
     )
 
@@ -61,7 +67,12 @@ data class AppleMusicSong(
         /** [catalogUnavailable]: the song can't play, though its catalog id still names it. */
         const val EXTRA_CATALOG_UNAVAILABLE = "appleMusicCatalogUnavailable"
 
-        /** Present when the album load resolved the user's library, so a missing library id means "not added". */
+        /**
+         * "true" when the album load confirmed the row's library membership (the song's own `library`
+         * relationship, or the user's copy of the album), so a missing library id means "not added".
+         * "false" when the load could ask but nothing answered for the row: unknown, not "not added".
+         * Absent from rows loaded without the user's library (and from albums cached before it was).
+         */
         const val EXTRA_LIBRARY_CHECKED = "appleMusicLibraryChecked"
 
         fun fromJson(resource: JsonObject): AppleMusicSong {
@@ -73,8 +84,9 @@ data class AppleMusicSong(
             val catalogRelationship = resource["relationships"]?.jsonObject?.get("catalog")?.jsonObject
                 ?.get("data") as? JsonArray
             val catalog = catalogRelationship?.firstOrNull()?.jsonObject
-            val library = resource["relationships"]?.jsonObject?.get("library")?.jsonObject
-                ?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
+            val libraryRelationship = resource["relationships"]?.jsonObject?.get("library")?.jsonObject
+                ?.get("data") as? JsonArray
+            val library = libraryRelationship?.firstOrNull()?.jsonObject
             return AppleMusicSong(
                 resourceId = id,
                 libraryId = if (type == "library-songs") id else {
@@ -94,7 +106,8 @@ data class AppleMusicSong(
                 trackNumber = attributes?.get("trackNumber")?.jsonPrimitive?.intOrNull,
                 albumId = relatedId(resource, "albums") ?: catalog?.let { relatedId(it, "albums") },
                 artistId = relatedId(resource, "artists") ?: catalog?.let { relatedId(it, "artists") },
-                catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true
+                catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true,
+                libraryChecked = type == "songs" && libraryRelationship != null
             )
         }
 
