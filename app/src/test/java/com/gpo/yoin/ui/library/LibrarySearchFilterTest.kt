@@ -156,6 +156,24 @@ class LibrarySearchFilterTest {
         assertSame(list, memory.listState("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.All))
     }
 
+    @Test
+    fun should_keepEachGridsAnchorBesideItsState_when_theSearchComesBack() {
+        val memory = LibrarySearchScrollMemory()
+        val albums = memory.gridAnchor("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums)
+        val artists = memory.gridAnchor("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Artists)
+
+        // The surface's content left composition and came back: same query.
+        assertSame(albums, memory.gridAnchor("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums))
+        assertNotSame(albums, artists)
+
+        // Another query, or the search ended: they go with the states.
+        memory.gridState("qu", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums)
+        assertNotSame(albums, memory.gridAnchor("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums))
+        val again = memory.gridAnchor("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums)
+        memory.onSearchQuery("")
+        assertNotSame(again, memory.gridAnchor("q", LibrarySearchScope.CurrentLibrary, LibrarySearchFilter.Albums))
+    }
+
     // ── ViewModel write points ────────────────────────────────────────
 
     @Test

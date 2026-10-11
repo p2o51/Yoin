@@ -200,34 +200,6 @@ private fun libraryGridCells(): GridCells {
     }
 }
 
-/**
- * The shell pane narrows when a split opens and widens again when it closes,
- * so a grid's column count changes under the user. LazyGrid then re-anchors
- * on the first item of the row holding its first visible item, drifting up to
- * a row on every narrow ↔ wide trip. This remembers the item the user scrolled
- * to (index changes seen while a scroll is in progress — relayouts happen
- * outside one) and brings its row back to the top after each width change.
- * A fast-scroller jump is no scroll: it moves the returned anchor itself
- * ([LibraryGridFastScroller]).
- */
-@Composable
-private fun KeepGridAnchorAcrossWidthChanges(state: LazyGridState): LibraryGridAnchor {
-    val anchor = remember(state) { LibraryGridAnchor(state.firstVisibleItemIndex) }
-    LaunchedEffect(state) {
-        launch {
-            snapshotFlow { state.firstVisibleItemIndex }
-                .collect { index -> if (state.isScrollInProgress) anchor.index = index }
-        }
-        var lastWidth = 0
-        snapshotFlow { state.layoutInfo.viewportSize.width }
-            .collect { width ->
-                if (lastWidth > 0 && width > 0 && width != lastWidth) state.scrollToItem(anchor.index)
-                lastWidth = width
-            }
-    }
-    return anchor
-}
-
 // Landscape handset cell (LibLandscape: ~100–108dp → 6 columns at 844).
 private val LibraryGridLandscapeMinSize = 100.dp
 
@@ -2398,6 +2370,7 @@ private fun SearchResultsContent(
                 SearchResultsGrid(
                     results = shown,
                     gridState = scrollMemory.gridState(resultsQuery, resultsScope, shownFilter),
+                    anchor = scrollMemory.gridAnchor(resultsQuery, resultsScope, shownFilter),
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
                     coverArtUrlBuilder = coverArtUrlBuilder
@@ -2657,12 +2630,15 @@ private fun SearchSongRow(
 private fun SearchResultsGrid(
     results: SearchResults,
     gridState: LazyGridState,
+    anchor: LibraryGridAnchor,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier
 ) {
-    KeepGridAnchorAcrossWidthChanges(gridState)
+    // The surface morphs to its pill and back through every width: the grid
+    // comes back exactly where it was left (a result opened in a Wide column).
+    KeepGridAnchorAcrossWidthChanges(gridState, anchor, exact = true)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyVerticalGrid(
         columns = libraryGridCells(),

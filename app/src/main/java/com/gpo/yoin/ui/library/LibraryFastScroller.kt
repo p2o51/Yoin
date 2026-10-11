@@ -29,15 +29,6 @@ internal const val LIBRARY_VIEW_TAG = "library.view"
 private val LibraryScrollerTopInset = 8.dp
 
 /**
- * The item a Library grid brings back to its top after a width change
- * (KeepGridAnchorAcrossWidthChanges, as a lazy index). A scroll records it
- * as it goes; a fast-scroller jump moves the list without scrolling it, so
- * the jump sets it itself ([libraryJumpAnchor]). Plain, not state: only the
- * width-change effect reads it.
- */
-internal class LibraryGridAnchor(var index: Int)
-
-/**
  * The anchor for a jump to lazy index [jumped], the first item of a row
  * (leading full-span rows counted, [leadingItems]): the section that starts
  * on that row — the one the bubble names there, the last — else the row

@@ -70,6 +70,7 @@ internal class LibrarySearchScrollMemory {
     private var query: String? = null
     private val lists = HashMap<Pair<LibrarySearchScope, LibrarySearchFilter>, LazyListState>()
     private val grids = HashMap<Pair<LibrarySearchScope, LibrarySearchFilter>, LazyGridState>()
+    private val gridAnchors = HashMap<Pair<LibrarySearchScope, LibrarySearchFilter>, LibraryGridAnchor>()
 
     fun listState(query: String, scope: LibrarySearchScope, filter: LibrarySearchFilter): LazyListState {
         forgetOtherQueries(query)
@@ -82,6 +83,16 @@ internal class LibrarySearchScrollMemory {
     }
 
     /**
+     * Where [gridState]'s grid was left, kept beside it: the search's grids
+     * pass through every width as the surface morphs to its pill and back,
+     * and the surface's content leaves composition in between.
+     */
+    fun gridAnchor(query: String, scope: LibrarySearchScope, filter: LibrarySearchFilter): LibraryGridAnchor {
+        forgetOtherQueries(query)
+        return gridAnchors.getOrPut(scope to filter) { LibraryGridAnchor(0) }
+    }
+
+    /**
      * Follows the typed query. Blank means the search ended: cleared,
      * collapsed, a search shortcut or Library home. A Wide detail column
      * keeps the query on collapse, so the positions stay for the way back.
@@ -91,6 +102,7 @@ internal class LibrarySearchScrollMemory {
         this.query = null
         lists.clear()
         grids.clear()
+        gridAnchors.clear()
     }
 
     private fun forgetOtherQueries(query: String) {
@@ -98,5 +110,6 @@ internal class LibrarySearchScrollMemory {
         this.query = query
         lists.clear()
         grids.clear()
+        gridAnchors.clear()
     }
 }
