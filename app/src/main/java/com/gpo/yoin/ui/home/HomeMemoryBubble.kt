@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.home
 import android.content.Context
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -83,6 +84,7 @@ import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberTopCutoutBounds
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.smoothstep
+import com.gpo.yoin.ui.experience.withSteadyFrames
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.delay
@@ -481,6 +483,13 @@ internal class MemoryBubbleController {
 
     /** Where everything lands, written in the overlay's placement; read in draw. */
     internal var geometry by mutableStateOf<MemoryBubbleGeometry?>(null)
+
+    /**
+     * Flying away, the place it left from: it flies into the arrow it left,
+     * whatever Home lays out meanwhile (a detail column opening re-lays the
+     * header under the same tap). Null = not flying; the header places it.
+     */
+    internal var flightGeometry by mutableStateOf<MemoryBubbleGeometry?>(null)
 }
 
 /**
@@ -849,47 +858,15 @@ internal fun MemoryBubbleOverlay(
     }
 
     val speaking = reason != null
-    // Out with the Expressive bounce; back in without one.
-    val outSpring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
-    val inSpring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    // Flying away is a trip, not a snap: the slow spatial spring, no bounce.
-    val flySpring = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    // Out with the Expressive bounce; back in without one. Flying away is a
+    // trip, not a snap: the slow spatial spring, no bounce.
+    val springs = MemoryBubbleSprings(
+        out = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+        back = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        fly = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard)
+    )
     LaunchedEffect(speaking, reduced) {
-        val target = if (speaking) 1f else 0f
-        when {
-            reduced -> Unit
-            speaking -> {
-                // Caught flying away: start over from the title.
-                if (controller.flyAway.value > 0f) {
-                    controller.unroll.snapTo(0f)
-                    controller.markIn.snapTo(0f)
-                    controller.flyAway.snapTo(0f)
-                }
-                // The mark squeezes in and blooms, holds a beat beside the
-                // title, then rolls off with the bubble unrolling behind it.
-                if (controller.unroll.value <= 0f) {
-                    controller.markIn.animateTo(1f, outSpring)
-                    delay(MarkHoldMs)
-                } else {
-                    // Caught mid-tuck: straight back out.
-                    launch { controller.markIn.animateTo(1f, outSpring) }
-                }
-                controller.unroll.animateTo(1f, outSpring)
-            }
-            // Spoken: it flies off into the arrow and the title comes back.
-            controller.unroll.value >= FlyAwayFrom -> controller.flyAway.animateTo(1f, flySpring)
-            // Still only the mark beside the title: it folds away.
-            else -> {
-                controller.unroll.animateTo(0f, inSpring)
-                controller.markIn.animateTo(0f, inSpring)
-            }
-        }
-        // Land exactly: a spring settles within its visibility threshold,
-        // and a bubble left at 0.004 would linger as a ghost. (Flown away,
-        // the reset is invisible: the title already reads as at rest.)
-        controller.unroll.snapTo(target)
-        controller.markIn.snapTo(target)
-        controller.flyAway.snapTo(0f)
+        controller.settle(speaking = speaking, reduced = reduced, springs = springs)
     }
     val composedBubble by remember {
         derivedStateOf {
@@ -991,18 +968,23 @@ internal fun MemoryBubbleOverlay(
         // under the title's, or lower if the tail needs the room.
         val bodyRight = arrowX + reach
         val bodyLeft = maxOf(titleLeft, bodyRight - BubbleMaxWidth.toPx())
-        val tailTop = arrowCenterY - BubbleTipAboveChevron.toPx()
         val bodyTop = maxOf(titleTop, arrowCenterY + BubbleChevronAboveBody.toPx())
-        val body = Rect(bodyLeft, bodyTop, bodyRight, bodyTop + BubbleBodyHeight.toPx())
+        val headerBody = Rect(bodyLeft, bodyTop, bodyRight, bodyTop + BubbleBodyHeight.toPx())
         val markPx = BubbleMarkSize.roundToPx()
         val markHalf = markPx / 2f
-        val geometry = MemoryBubbleGeometry(
-            body = body,
+        // Flying away, it keeps the place it left from (flightGeometry).
+        val geometry = controller.flightGeometry ?: MemoryBubbleGeometry(
+            body = headerBody,
             tailX = arrowX,
-            tailTop = tailTop,
+            tailTop = arrowCenterY - BubbleTipAboveChevron.toPx(),
             markStart = Offset(titleLeft + markHalf, titleTop + titleHeight / 2f),
-            markEnd = Offset(body.right - BubbleMarkCornerInsetX.toPx(), body.bottom - BubbleMarkCornerInsetY.toPx()),
+            markEnd = Offset(
+                headerBody.right - BubbleMarkCornerInsetX.toPx(),
+                headerBody.bottom - BubbleMarkCornerInsetY.toPx()
+            )
         )
+        val body = geometry.body
+        val tailTop = geometry.tailTop
         val inset = BubbleCoverInset.toPx()
         val surface = measurables.firstOrNull { it.layoutId == BubbleSlot.Surface }
             ?.measure(Constraints.fixed(width, height))
@@ -1059,13 +1041,84 @@ internal fun MemoryBubbleOverlay(
 /** Tucked from this far unrolled it flies away; less, the mark just folds back. */
 private const val FlyAwayFrom = 0.5f
 
+/** The bubble's springs: [out] as it speaks, [back] folding away, [fly] flying off into the arrow. */
+@Immutable
+internal class MemoryBubbleSprings(
+    val out: FiniteAnimationSpec<Float>,
+    val back: FiniteAnimationSpec<Float>,
+    val fly: FiniteAnimationSpec<Float>
+)
+
+/**
+ * Moves the bubble to where [speaking] puts it: out from the title, or —
+ * spoken — off into the arrow it left from ([MemoryBubbleController.flightGeometry]),
+ * or folded back beside the title. All of it on steady frames: the tap that
+ * tucks it may also open a detail column, whose first frames re-lay Home out
+ * and come late — by the wall clock the whole flight would fall between two
+ * of them and read as a cut.
+ */
+internal suspend fun MemoryBubbleController.settle(speaking: Boolean, reduced: Boolean, springs: MemoryBubbleSprings) {
+    val target = if (speaking) 1f else 0f
+    var departure: MemoryBubbleGeometry? = null
+    try {
+        withSteadyFrames {
+            when {
+                reduced -> Unit
+                speaking -> {
+                    // Caught flying away: start over from the title.
+                    if (flyAway.value > 0f) {
+                        flightGeometry = null
+                        unroll.snapTo(0f)
+                        markIn.snapTo(0f)
+                        flyAway.snapTo(0f)
+                    }
+                    // The mark squeezes in and blooms, holds a beat beside the
+                    // title, then rolls off with the bubble unrolling behind it.
+                    if (unroll.value <= 0f) {
+                        markIn.animateTo(1f, springs.out)
+                        delay(MarkHoldMs)
+                    } else {
+                        // Caught mid-tuck: straight back out.
+                        launch { markIn.animateTo(1f, springs.out) }
+                    }
+                    unroll.animateTo(1f, springs.out)
+                }
+                // Spoken: it flies off into the arrow and the title comes back.
+                unroll.value >= FlyAwayFrom -> {
+                    departure = geometry
+                    flightGeometry = departure
+                    flyAway.animateTo(1f, springs.fly)
+                }
+                // Still only the mark beside the title: it folds away.
+                else -> {
+                    unroll.animateTo(0f, springs.back)
+                    markIn.animateTo(0f, springs.back)
+                }
+            }
+        }
+        // Land exactly: a spring settles within its visibility threshold,
+        // and a bubble left at 0.004 would linger as a ghost. (Flown away,
+        // the reset is invisible: the title already reads as at rest.)
+        unroll.snapTo(target)
+        markIn.snapTo(target)
+        flyAway.snapTo(0f)
+    } finally {
+        // Landed, or cut short (called back, the app gone to the
+        // background): the header places it again.
+        if (departure != null && flightGeometry === departure) flightGeometry = null
+    }
+}
+
 /** Flying away, it shrinks to this (about the tail's tip) and lifts this far. */
 private const val FlyShrink = 0.75f
 private val FlyLift = 20.dp
 
+/** How much of the bubble is still seen [fly] into its flight: it fades over the second half. */
+internal fun memoryBubbleFlightAlpha(fly: Float): Float = 1f - smoothstep(0.35f, 0.9f, fly)
+
 /**
  * Flying away into the arrow on [fly]: shrinks toward the tail's tip at [tip]
- * (in this layer's own space), lifts, and fades out over the second half.
+ * (in this layer's own space), lifts, and fades out ([memoryBubbleFlightAlpha]).
  */
 private fun GraphicsLayerScope.flyIntoTip(fly: Float, tip: Offset) {
     if (fly <= 0f || size.width <= 0f || size.height <= 0f) return
@@ -1074,7 +1127,7 @@ private fun GraphicsLayerScope.flyIntoTip(fly: Float, tip: Offset) {
     scaleY *= scale
     transformOrigin = TransformOrigin(tip.x / size.width, tip.y / size.height)
     translationY -= FlyLift.toPx() * fly
-    alpha *= 1f - smoothstep(0.35f, 0.9f, fly)
+    alpha *= memoryBubbleFlightAlpha(fly)
 }
 
 /** The mark rests beside the title this long before it rolls off. */

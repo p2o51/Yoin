@@ -27,6 +27,7 @@ import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -153,6 +154,36 @@ class HomeMemoryBubbleOverlayTest {
         // On the flyAway spring, not a cut: it is on its way into the arrow.
         advance(32L)
         assertTrue(rule.runOnIdle { controller.flyAway.value > 0f })
+    }
+
+    @Test
+    fun should_flyIntoTheArrowItLeft_when_homeReLaysOutMidFlight() {
+        setHome()
+        untilSaidInFull()
+        val departure = rule.runOnIdle { controller.geometry }
+        rule.onNodeWithTag(BAR).performTouchInput { click() }
+        frames(2 * FRAME_MS)
+        assertTrue(rule.runOnIdle { controller.flyAway.value > 0f })
+
+        // A Wide detail column opens under the same tap: Home re-lays its
+        // header out for the narrower column.
+        rule.runOnIdle {
+            controller.titleLeftInWindow = 60f
+            controller.freeStartInWindow = 160f
+            controller.freeEndInWindow = 250f
+        }
+        frames(2 * FRAME_MS)
+        rule.runOnIdle {
+            assertTrue(controller.flyAway.value > 0f)
+            assertEquals(departure, controller.geometry)
+        }
+
+        // Landed: the header places it again, where the header now is.
+        frames(1_000L)
+        rule.runOnIdle {
+            assertEquals(0f, controller.flyAway.value)
+            assertNotEquals(departure, controller.geometry)
+        }
     }
 
     @Test
