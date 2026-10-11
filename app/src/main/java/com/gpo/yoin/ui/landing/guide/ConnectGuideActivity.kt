@@ -317,11 +317,11 @@ private fun remoteAction(context: Context, slot: GuideActionSlot): RemoteAction 
  */
 @Suppress("DEPRECATION") // MODE_BACKGROUND_ACTIVITY_START_ALLOWED: the only mode before ALLOW_IF_VISIBLE (36).
 private fun creatorMayStartOptions(): Bundle? {
-    val sdk = Build.VERSION.SDK_INT
-    val mode = when {
-        sdk >= Build.VERSION_CODES.BAKLAVA -> ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
-        sdk >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-        else -> return null
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+    } else {
+        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
     }
     return ActivityOptions.makeBasic().setPendingIntentCreatorBackgroundActivityStartMode(mode).toBundle()
 }
