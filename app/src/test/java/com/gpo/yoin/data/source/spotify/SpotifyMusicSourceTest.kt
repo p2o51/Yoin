@@ -212,6 +212,50 @@ class SpotifyMusicSourceTest {
     }
 
     @Test
+    fun should_readTheListsSideBySide_when_priming() = runTest {
+        val started = CountDownLatch(3)
+        val release = CountDownLatch(1)
+        fun answerOnRelease(body: String): () -> MockResponse = {
+            started.countDown()
+            release.await(5, TimeUnit.SECONDS)
+            ok(body)
+        }
+        routes["/v1/me/albums"] = answerOnRelease("""{"items":[],"next":null,"total":0}""")
+        routes["/v1/me/following"] = answerOnRelease("""{"artists":{"items":[],"next":null}}""")
+        routes["/v1/me/tracks"] = answerOnRelease(savedTrackPage(listOf("t1")))
+        val source = newSource()
+
+        val primed = async(Dispatchers.IO) { source.prime() }
+        // Every list's first page is out before any of them answers.
+        val allOut = started.await(5, TimeUnit.SECONDS)
+        release.countDown()
+        primed.await()
+
+        assertTrue(allOut)
+        // The same requests as one after another: one per list page, no playlists.
+        assertEquals(
+            listOf("/v1/me/albums", "/v1/me/following", "/v1/me/tracks"),
+            requests.mapNotNull { it.requestUrl?.encodedPath }.sorted()
+        )
+    }
+
+    @Test
+    fun should_keepTheOtherListsWarm_when_oneFailsWhilePriming() = runTest {
+        routes["/v1/me/albums"] = { MockResponse().setResponseCode(500) }
+        savedTracks("t1")
+        val source = newSource()
+
+        source.prime()
+        val album = source.library().getAlbum(MediaId.spotify("a1"))
+
+        assertTrue(album!!.tracks.single { it.id.rawId == "t1" }.isStarred)
+        assertEquals(1, requestsTo("/v1/me/tracks"))
+        assertEquals(1, requestsTo("/v1/me/following"))
+        // A failed list isn't read again within the prime.
+        assertEquals(1, requestsTo("/v1/me/albums"))
+    }
+
+    @Test
     fun should_keepFavoriteDelta_when_cacheNotRefreshedYet() = runTest {
         val source = newSource()
         assertFalse(starredOf(source, "t1"))

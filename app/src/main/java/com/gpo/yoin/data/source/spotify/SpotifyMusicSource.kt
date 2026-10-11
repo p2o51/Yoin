@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -403,9 +404,21 @@ class SpotifyMusicSource(
     override fun writeActions(): MusicWriteActions = writeActions
     override fun playback(): MusicPlayback = playback
 
+    /**
+     * Warms the lists a switch to this account used to read through
+     * getAlbumList and getArtists — saved albums, followed artists and saved
+     * tracks — side by side rather than one after another (~7.7 s on device,
+     * just under ProfileManager's 8 s prime timeout). The same requests: each
+     * list still pages in turn and stops at its first failure, and every page
+     * waits for a read slot and the rate-limit gate. A list that fails leaves
+     * the others warm.
+     */
     override suspend fun prime() {
-        runCatching { library.getAlbumList(type = "recent", size = 20, offset = 0) }
-        runCatching { library.getArtists() }
+        coroutineScope {
+            launch { runCatching { savedAlbumsRead() } }
+            launch { runCatching { followedArtistsRead() } }
+            launch { runCatching { savedTracksRead() } }
+        }
     }
 
     /**
