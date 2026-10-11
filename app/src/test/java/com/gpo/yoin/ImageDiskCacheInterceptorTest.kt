@@ -11,8 +11,13 @@ import coil3.network.HttpException
 import coil3.network.NetworkResponse
 import coil3.request.ErrorResult
 import coil3.request.ImageRequest
+import coil3.request.ImageResult
 import coil3.request.SuccessResult
+import coil3.size.Size
 import java.io.IOException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okio.Path.Companion.toOkioPath
 import org.junit.After
@@ -57,6 +62,36 @@ class ImageDiskCacheInterceptorTest {
         val (diskCache, loader) = storedCopyFailingWith(IllegalStateException("BitmapFactory returned a null bitmap."))
         loader.execute(ImageRequest.Builder(context).data(url).build())
         assertNull(diskCache.openSnapshot(url))
+    }
+
+    @Test
+    fun should_dropTheStoredCopy_when_requestIsCancelledAsItFails() = runBlocking {
+        val diskCache = DiskCache.Builder().directory(temp.newFolder().toOkioPath()).maxSizeBytes(1_000_000L).build()
+        diskCache.openEditor(url)!!.apply { diskCache.fileSystem.write(data) { writeUtf8("stored") } }.commit()
+        val request = ImageRequest.Builder(context).data(url).build()
+        val failure = IllegalStateException("BitmapFactory returned a null bitmap.")
+
+        // Scrolled off, a widget's timeout, a skip: the request's job goes as the decode fails.
+        launch { ImageDiskCacheInterceptor { diskCache }.intercept(CancelledAsItFails(request, failure)) }.join()
+
+        assertNull(diskCache.openSnapshot(url))
+    }
+
+    /** A chain whose request fails with [failure] while its job is being cancelled. */
+    private class CancelledAsItFails(
+        override val request: ImageRequest,
+        private val failure: Throwable
+    ) : Interceptor.Chain {
+        override val size: Size = Size.ORIGINAL
+
+        override fun withRequest(request: ImageRequest): Interceptor.Chain = CancelledAsItFails(request, failure)
+
+        override fun withSize(size: Size): Interceptor.Chain = this
+
+        override suspend fun proceed(): ImageResult {
+            currentCoroutineContext().job.cancel()
+            return ErrorResult(null, request, failure)
+        }
     }
 
     @Test

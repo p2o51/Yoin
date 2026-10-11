@@ -20,6 +20,7 @@ import com.gpo.yoin.ui.component.ArtworkRetryPolicy
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -95,7 +96,10 @@ internal class ImageDiskCacheInterceptor(private val diskCache: () -> DiskCache?
         }
         val result = keyed.proceed()
         if (result is ErrorResult && ArtworkRetryPolicy.classify(result.throwable) == ArtworkFailureKind.Undecodable) {
-            withContext(Dispatchers.IO) { diskCache()?.remove(key) }
+            // Even when the request is cancelled as it fails (scrolled off, a widget's
+            // timeout, a skip): a cancellable hop would skip the removal, and the bytes
+            // would stay under a key that outlives the process.
+            withContext(NonCancellable + Dispatchers.IO) { diskCache()?.remove(key) }
         }
         return result
     }
