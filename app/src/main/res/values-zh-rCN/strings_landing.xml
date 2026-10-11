@@ -88,6 +88,7 @@
     <string name="guide_then_client_id">最后：复制 Client ID</string>
     <string name="guide_action_prev">上一步</string>
     <string name="guide_action_next">下一步</string>
+    <string name="guide_action_copy">复制</string>
     <string name="guide_action_copy_first">复制第一个地址</string>
     <string name="guide_action_copy_second">复制第二个地址</string>
     <string name="guide_action_copy_package">复制包名</string>
