@@ -577,7 +577,8 @@ class HomeViewModel(
      * Load [scope] and publish it. Loading shows only when there is nothing
      * of this scope to show: its content stays up through a same-scope reload,
      * the in-memory cache paints at once, and else the account's snapshot
-     * does ([paintableSnapshot]). Then [HomeLoad] puts the local tier up and
+     * does ([paintableSnapshot]), or the account's feed read without its
+     * source ([sourcelessFeedUp]). Then [HomeLoad] puts the local tier up and
      * splices every slower block into it as it lands — onto the snapshot too,
      * so it is replaced block by block, a block whose read fails keeping what
      * the snapshot showed.
@@ -618,6 +619,19 @@ class HomeViewModel(
                         // provider arrives, and no other's.
                         contentScopeKey = snapshotScopeKey
                     }
+                    sourcelessFeedUp(providerId, profileId) -> {
+                        // The account's feed read without its source is up
+                        // (its credentials couldn't be read and no snapshot
+                        // was there to keep: a restore onto a new phone), and
+                        // the source has come (Reconnect, the credentials
+                        // entered again). It stays as a snapshot would, and
+                        // the load splices into it block by block: the header
+                        // stays, no Loading between. It names no provider, so
+                        // nothing of it is written back until a block lands.
+                        snapshotOnlyScopes += scopeKey
+                        snapshotEndpointFeeds -= scopeKey
+                        contentScopeKey = scopeKey
+                    }
                     else -> {
                         emit(HomeUiState.Loading, profileId)
                         contentScopeKey = scopeKey
@@ -652,7 +666,8 @@ class HomeViewModel(
                 // Reconnect (ProfileManager.activeNeedsReconnect, owner
                 // 2026-10-11) try its source once more, then open its page to
                 // re-enter its credentials. A source built either way moves
-                // the scope, and that load replaces the snapshot block by block.
+                // the scope, and that load replaces the snapshot block by block
+                // (with no snapshot, the feed read without a source, likewise).
                 if (sourcelessLoadWouldReplace(scopeKey)) {
                     if (!settledWithoutSource) noSourceComing.first { sourceless -> sourceless }
                     throw NoActiveSourceException()
@@ -695,6 +710,14 @@ class HomeViewModel(
     /** The content up (or queued while editing) when it belongs to [scopeKey]. */
     private fun contentOf(scopeKey: String): HomeUiState.Content? =
         currentContent()?.takeIf { contentScopeKey == scopeKey }
+
+    /**
+     * Whether the feed up is [profileId]'s read without a source, now that a
+     * source of [providerId] has come for it: what that load splices into.
+     */
+    private fun sourcelessFeedUp(providerId: String?, profileId: String?): Boolean = providerId != null &&
+        !profileId.isNullOrBlank() &&
+        contentOf(homeScopeKey(null, profileId)) != null
 
     /**
      * Whether a sourceless load of [scopeKey] would put its feed over another

@@ -274,6 +274,90 @@ class HomeSnapshotViewModelTest {
     }
 
     @Test
+    fun should_spliceOntoTheSourcelessFeedWithoutLoading_when_theAccountsSourceComesWithNoSnapshot() = runTest {
+        // A restore onto a new phone: neither the credentials nor the snapshot
+        // came along (the snapshot lives in noBackupFilesDir). Home settles on
+        // the feed read without a source; Reconnect or the credentials
+        // re-entered builds the source, and the account's feed splices into
+        // what is up — the header stays, no Loading in between.
+        val profile = "no-snapshot-no-source-fixed"
+        val provider = MutableStateFlow<String?>(null)
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns MutableStateFlow(true)
+        coEvery { repository.getPlaylists() } answers {
+            if (provider.value == null) throw IOException("No profile configured")
+            listOf(playlist("fresh-pl", "Fresh playlist"))
+        }
+        val seen = record(viewModel(repository, MutableStateFlow(profile), store()))
+        advanceTimeBy(30_000)
+        runCurrent()
+        val sourceless = seen.last() as HomeUiState.Content
+        assertTrue(sourceless.playlists.isEmpty())
+
+        provider.value = MediaId.PROVIDER_SUBSONIC
+        advanceUntilIdle()
+
+        assertEquals(listOf("Fresh playlist"), (seen.last() as HomeUiState.Content).playlists.map { it.name })
+        val afterSourceless = seen.dropWhile { state -> state !== sourceless }
+        assertTrue(afterSourceless.none { state -> state is HomeUiState.Loading || state is HomeUiState.Error })
+    }
+
+    @Test
+    fun should_loadTheAccountOnce_when_aRetrysSourceComesWithItsConfigurationTick() = runTest {
+        // Reconnect publishes the source, then ticks the configuration
+        // revision for Library and the rest (as a switch does): Home loads
+        // the account once, on its scope, not again on the tick.
+        val profile = "no-source-retry-tick"
+        val provider = MutableStateFlow<String?>(null)
+        val revision = MutableStateFlow(0L)
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns MutableStateFlow(true)
+        var sourcedReads = 0
+        coEvery { repository.getPlaylists() } answers {
+            if (provider.value == null) throw IOException("No profile configured")
+            sourcedReads++
+            listOf(playlist("fresh-pl", "Fresh playlist"))
+        }
+        record(viewModel(repository, MutableStateFlow(profile), store(), revision = revision))
+        advanceTimeBy(30_000)
+        runCurrent()
+
+        provider.value = MediaId.PROVIDER_SUBSONIC
+        revision.value = 1L
+        advanceUntilIdle()
+
+        assertEquals(1, sourcedReads)
+    }
+
+    @Test
+    fun should_writeTheFeedBackOnceABlockLands_when_itSplicedOntoTheSourcelessFeed() = runTest {
+        // The feed read without a source names no provider: it is never
+        // written as the account's snapshot, and the account's own feed
+        // spliced onto it is, once a block of it is in.
+        val profile = "no-snapshot-no-source-written"
+        val provider = MutableStateFlow<String?>(null)
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns MutableStateFlow(true)
+        coEvery { repository.getPlaylists() } answers {
+            if (provider.value == null) throw IOException("No profile configured")
+            listOf(playlist("fresh-pl", "Fresh playlist"))
+        }
+        record(viewModel(repository, MutableStateFlow(profile), store()))
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertEquals(null, store().read(profile))
+
+        provider.value = MediaId.PROVIDER_SUBSONIC
+        advanceUntilIdle()
+        advanceTimeBy(HomeSnapshotStore.SETTLE_MS + HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + 10)
+        runCurrent()
+
+        val written = store().read(profile)
+        assertEquals(MediaId.PROVIDER_SUBSONIC, written?.provider)
+        assertEquals(listOf(MediaId.subsonic("fresh-pl").toString()), written?.feed?.playlists?.map { it.id })
+    }
+
+    @Test
     fun should_endTheHold_when_profileManagerSettlesWithoutASourceAfterTheBound() = runTest {
         assumeTrue(YoinPerf.enabled)
         // The source was still being built past Home's bound, then none came.
@@ -627,13 +711,15 @@ class HomeSnapshotViewModelTest {
         profileId: MutableStateFlow<String?>,
         store: HomeSnapshotStore,
         switching: MutableStateFlow<ProfileManager.SwitchState> = MutableStateFlow(ProfileManager.SwitchState.Idle),
-        layouts: Flow<List<HomeSectionPref>?> = flowOf(null)
+        layouts: Flow<List<HomeSectionPref>?> = flowOf(null),
+        revision: MutableStateFlow<Long> = MutableStateFlow(0L)
     ): HomeViewModel = HomeViewModel(
         repository = repository,
         activeProfileId = profileId,
         homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
             every { store.layoutFlow(any()) } returns layouts
         },
+        configurationRevision = revision,
         switchingState = switching,
         snapshotStore = store
     )
