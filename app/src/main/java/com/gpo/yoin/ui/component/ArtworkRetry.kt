@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.component
 
+import android.graphics.ImageDecoder
+import android.os.Build
+import androidx.annotation.RequiresApi
 import coil3.ImageLoader
 import coil3.network.HttpException
 import java.io.IOException
@@ -29,8 +32,9 @@ internal object ArtworkRetrySignal {
 
 internal enum class ArtworkFailureKind {
     /**
-     * IOException or HTTP 5xx — 504 included, which is what Coil's
-     * only-if-cached request answers while the device is offline. Retried on a
+     * IOException (not ImageDecoder's, see [Undecodable]) or HTTP 5xx — 504
+     * included, which is what Coil's only-if-cached request answers while the
+     * device is offline. Retried on a
      * backoff while the artwork stays composed, and on every signal; a signal
      * also starts the backoff over.
      */
@@ -41,7 +45,10 @@ internal enum class ArtworkFailureKind {
 
     /**
      * Everything else: the bytes came back, from the network or the disk
-     * cache, but made no image. The stored copy is dropped before the retry
+     * cache, but made no image — BitmapFactory's null bitmap, or
+     * ImageDecoder's DecodeException, which is an IOException but reads only
+     * bytes already on the device (Coil hands it the disk-cache file, never
+     * the network stream). The stored copy is dropped before the retry
      * ([forgetStoredArtwork]); only a signal retries it.
      */
     Undecodable
@@ -57,10 +64,19 @@ internal object ArtworkRetryPolicy {
         return when {
             http != null ->
                 if (http.response.code in 500..599) ArtworkFailureKind.Transient else ArtworkFailureKind.AwaitSignal
+            causes.any(::isImageDecoderFailure) -> ArtworkFailureKind.Undecodable
             causes.any { it is IOException } -> ArtworkFailureKind.Transient
             else -> ArtworkFailureKind.Undecodable
         }
     }
+
+    private fun isImageDecoderFailure(error: Throwable): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && ImageDecoderFailure.matches(error)
+}
+
+@RequiresApi(Build.VERSION_CODES.P)
+private object ImageDecoderFailure {
+    fun matches(error: Throwable): Boolean = error is ImageDecoder.DecodeException
 }
 
 /**

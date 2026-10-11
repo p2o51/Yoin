@@ -24,6 +24,8 @@ import coil3.network.NetworkResponse
 import coil3.request.ErrorResult
 import coil3.request.SuccessResult
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.testutil.imageDecoderFailure
+import com.gpo.yoin.testutil.undecodableImageBytes
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
@@ -37,6 +39,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * A failed [ExpressiveMediaArtwork] asks again: on a backoff for transient errors, on the signal for 404
@@ -206,15 +209,25 @@ class ExpressiveMediaArtworkRetryTest {
 
     @Test
     fun should_dropTheStoredCopy_when_coverDidNotDecode() {
+        // Coil's BitmapFactory decoder (API 26-28, and any body it reads off the network).
+        assertDropsTheStoredCopyAndWaitsForASignal(IllegalStateException("BitmapFactory returned a null bitmap."))
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun should_dropTheStoredCopy_when_imageDecoderRejectsTheCover() {
+        // API 29+: Coil decodes the stored file with ImageDecoder, whose failure is an IOException.
+        assertDropsTheStoredCopyAndWaitsForASignal(imageDecoderFailure())
+    }
+
+    private fun assertDropsTheStoredCopyAndWaitsForASignal(decodeFailure: Throwable) {
         val url = "https://images.example/cover.jpg"
         val diskCache = DiskCache.Builder().directory(temp.newFolder().toOkioPath()).maxSizeBytes(1_000_000L).build()
-        // What a 200 error body would leave behind: bytes under the cover's url that make no image.
+        // What a 200 image/jpeg body that is no image leaves behind: bytes under the cover's url.
         diskCache.openEditor(url)!!.apply {
-            diskCache.fileSystem.write(data) { writeUtf8("{\"subsonic-response\":{\"status\":\"failed\"}}") }
+            diskCache.fileSystem.write(data) { write(undecodableImageBytes()) }
         }.commit()
-        answerWith(diskCache) { attempt ->
-            if (attempt == 1) IllegalStateException("BitmapFactory returned a null bitmap.") else null
-        }
+        answerWith(diskCache) { attempt -> if (attempt == 1) decodeFailure else null }
         showArtwork()
         awaitAttempts(1)
 
