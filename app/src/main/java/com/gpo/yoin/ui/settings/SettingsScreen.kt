@@ -1401,13 +1401,19 @@ private fun FeaturePageRow(
  * A row that can be the open one in the two-pane list (Pixel): open, it takes
  * the detail pane's colour and rounds all its corners, detaching from its
  * neighbours — colour on the effects spring, corners on the spatial spring.
- * Its group item must be `paintsOwnSegment`.
+ * Its group item must be `paintsOwnSegment`. [selectedColor]: where the open
+ * row is no pane's — Home's account card, where the picked account takes its
+ * service's colour, as the account in use does here.
  */
 @Composable
-private fun SelectableSegment(selected: Boolean, content: @Composable () -> Unit) {
+internal fun SelectableSegment(
+    selected: Boolean,
+    selectedColor: Color = settingsSurfaces().rowSelected,
+    content: @Composable () -> Unit
+) {
     val surfaces = settingsSurfaces()
     val container by animateColorAsState(
-        targetValue = if (selected) surfaces.rowSelected else surfaces.row,
+        targetValue = if (selected) selectedColor else surfaces.row,
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "segmentSelection",
     )
@@ -1425,7 +1431,7 @@ private fun SelectableSegment(selected: Boolean, content: @Composable () -> Unit
 }
 
 /** The colour behind the current row (for badges that ring-cut against it). */
-private val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
+internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
 enum class SettingsFeature { Gemini, NeoDb, ScrollEdge }
