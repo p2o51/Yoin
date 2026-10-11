@@ -671,6 +671,79 @@ class HomeSnapshotViewModelTest {
     }
 
     @Test
+    fun should_keepTheSnapshotsNetworkBlocksOnDisk_when_aLoadThatMissedItsPaintCannotReadThem() = runTest {
+        // QA P-8b-2 / P9a-4: the server down (or refusing the credentials)
+        // on a cold start whose snapshot didn't paint. The load builds its
+        // feed from nothing: the local tier goes up, every network block
+        // fails. What goes to disk is the local tier over the snapshot's
+        // network blocks — never the 2-section feed alone.
+        assumeTrue(YoinPerf.enabled)
+        val profile = "snapshot-unpainted-server-down"
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("fresh-artist")))
+        coEvery { repository.getStarred() } throws IOException("Subsonic error 40")
+        coEvery { repository.getPlaylists() } throws IOException("Subsonic error 40")
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } throws IOException("Subsonic error 40")
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store(), layouts = lateLayout())
+
+        val loads = perfLines {
+            advanceTimeBy(6_000)
+            runCurrent()
+        }.filter { line -> line.startsWith("home.refresh ") }
+        advanceTimeBy(HomeSnapshotStore.SETTLE_MS + HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + 10)
+        runCurrent()
+
+        val shown = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(listOf("fresh-artist"), shown.activities.map { it.entityId })
+        assertTrue(shown.playlists.isEmpty())
+        val written = store().read(profile)?.feed
+        assertEquals(listOf("fresh-artist"), written?.activities?.map { it.entityId })
+        assertEquals(listOf("Snap playlist"), written?.playlists?.map { it.name })
+        assertEquals(listOf(MediaId.subsonic("snap-played").toString()), written?.recentlyPlayed?.map { it.id })
+        assertEquals(listOf(MediaId.subsonic("snap-added").toString()), written?.recentlyAddedAlbums?.map { it.id })
+        // The load ran (its blocks keep what is up), and says three of its reads failed.
+        assertEquals(1, loads.size)
+        assertTrue(loads.single(), loads.single().contains(" result=ok ") && loads.single().contains(" failed=3 "))
+    }
+
+    @Test
+    fun should_writeTheSnapshotsNetworkBlocks_when_theyAreStillOutAtTheFirstWrite() = runTest {
+        // QA P-8a-3: a slow network. The local tier of a load built from
+        // nothing goes up and is written 2 s later with every network read
+        // still out; the 30 s gap after that write held the full feed back.
+        // The write keeps the snapshot's network blocks until they land.
+        val profile = "snapshot-unpainted-slow-network"
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
+        val starred = CompletableDeferred<Starred>()
+        val playlists = CompletableDeferred<List<Playlist>>()
+        val played = CompletableDeferred<List<Album>>()
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("fresh-artist")))
+        coEvery { repository.getStarred() } coAnswers { starred.await() }
+        coEvery { repository.getPlaylists() } coAnswers { playlists.await() }
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } coAnswers { played.await() }
+        viewModel(repository, MutableStateFlow(profile), store(), layouts = lateLayout())
+
+        advanceTimeBy(1_000 + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        val first = store().read(profile)?.feed
+        assertEquals(listOf("fresh-artist"), first?.activities?.map { it.entityId })
+        assertEquals(listOf("Snap playlist"), first?.playlists?.map { it.name })
+        assertEquals(listOf(MediaId.subsonic("snap-played").toString()), first?.recentlyPlayed?.map { it.id })
+
+        starred.complete(Starred(albums = listOf(album("fresh-added", addedAt = recently()))))
+        playlists.complete(listOf(playlist("fresh-pl", "Fresh playlist")))
+        played.complete(listOf(album("fresh-played")))
+        advanceTimeBy(HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        val next = store().read(profile)?.feed
+        assertEquals(listOf("Fresh playlist"), next?.playlists?.map { it.name })
+        assertEquals(listOf(MediaId.subsonic("fresh-played").toString()), next?.recentlyPlayed?.map { it.id })
+        assertEquals(listOf(MediaId.subsonic("fresh-added").toString()), next?.recentlyAddedAlbums?.map { it.id })
+    }
+
+    @Test
     fun should_paintTheIncomingAccountsSnapshot_when_aSwitchCommits() = runTest {
         val outgoing = "snapshot-switch-a"
         val incoming = "snapshot-switch-b"
@@ -745,6 +818,12 @@ class HomeSnapshotViewModelTest {
         store().save(profileId, provider) { feed.toSnapshotFeed() }
         advanceTimeBy(HomeSnapshotStore.SETTLE_MS + 1)
         runCurrent()
+    }
+
+    /** The account's layout landing past the snapshot's wait: the load goes ahead from nothing. */
+    private fun lateLayout(): Flow<List<HomeSectionPref>?> = flow {
+        delay(5_000)
+        emit(null)
     }
 
     /** Every state [viewModel] publishes, in order. */

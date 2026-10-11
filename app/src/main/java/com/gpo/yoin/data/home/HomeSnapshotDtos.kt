@@ -49,6 +49,34 @@ internal data class HomeFeedDto(
     val playlists: List<PlaylistDto> = emptyList()
 )
 
+/**
+ * The feed's blocks read over the network, each of which a feed can lack
+ * because no read filled it yet — out, or failed — rather than because it is
+ * empty ([HomeSnapshotStore.save]'s `unread`).
+ */
+internal enum class HomeNetworkBlock {
+    RecentlyAdded,
+    RecentlyPlayed,
+    Playlists
+}
+
+/** This feed with each of [blocks] taken from [previous] (the file it replaces), as far as that has them. */
+internal fun HomeFeedDto.keepingFrom(previous: HomeFeedDto?, blocks: Set<HomeNetworkBlock>): HomeFeedDto {
+    if (previous == null || blocks.isEmpty()) return this
+    var kept = this
+    for (block in blocks) {
+        kept = when (block) {
+            HomeNetworkBlock.RecentlyAdded -> kept.copy(
+                recentlyAddedTracks = previous.recentlyAddedTracks,
+                recentlyAddedAlbums = previous.recentlyAddedAlbums
+            )
+            HomeNetworkBlock.RecentlyPlayed -> kept.copy(recentlyPlayed = previous.recentlyPlayed)
+            HomeNetworkBlock.Playlists -> kept.copy(playlists = previous.playlists)
+        }
+    }
+    return kept
+}
+
 /** An activity-log row as the feed shows it ([ActivityEvent]; its cover id is already a storage key). */
 @Serializable
 internal data class HomeActivityDto(

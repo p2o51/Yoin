@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.home.HomeLayoutStore
+import com.gpo.yoin.data.home.HomeNetworkBlock
 import com.gpo.yoin.data.home.HomeSnapshot
 import com.gpo.yoin.data.home.HomeSnapshotStore
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -617,6 +618,8 @@ class HomeViewModel(
                         // endpoint feed in it only holds until this process's
                         // own endpoint read answers.
                         snapshotOnlyScopes += snapshotScopeKey
+                        // Every block holds what the snapshot read.
+                        unreadBlocks -= snapshotScopeKey
                         if (feed.activitiesFromRemote) {
                             snapshotEndpointFeeds += snapshotScopeKey
                         } else {
@@ -639,6 +642,9 @@ class HomeViewModel(
                         // nothing of it is written back until a block lands.
                         snapshotOnlyScopes += scopeKey
                         snapshotEndpointFeeds -= scopeKey
+                        // Its network blocks were never read: none could be.
+                        unreadBlocks[scopeKey] =
+                            unreadBlocks[homeScopeKey(null, profileId)] ?: HomeNetworkBlock.entries.toSet()
                         contentScopeKey = scopeKey
                     }
                     else -> {
@@ -682,10 +688,12 @@ class HomeViewModel(
                     throw NoActiveSourceException()
                 }
             }
-            HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad).run()
+            val load = HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad)
+            load.run()
             if (perf != null) {
                 val result = if (matchesCurrentScope(providerId, profileId)) "ok" else "superseded"
-                YoinPerf.end(perf, "provider" to providerId, "result" to result)
+                // A block whose read failed doesn't fail the load (it keeps what is up).
+                YoinPerf.end(perf, "provider" to providerId, "result" to result, "failed" to load.failedBlocks)
             }
         } catch (cancellation: CancellationException) {
             // The scope moved on (or a refresh restarted it) mid-load.
@@ -934,14 +942,15 @@ class HomeViewModel(
      * conflated and capped by the store) — once something this process read
      * is in it ([snapshotOnlyScopes]): the snapshot as painted, or with a
      * played card taken off at most, is what is on disk already. A feed read
-     * without a source names no provider, so it isn't written.
+     * without a source names no provider, so it isn't written. Its network
+     * blocks no read has filled yet ([unreadBlocks]) keep what the file has.
      */
     private fun keep(scopeKey: String, providerId: String?, profileId: String?, content: HomeUiState.Content) {
         homeContentCache[scopeKey] = content
         val store = snapshotStore ?: return
         if (scopeKey in snapshotOnlyScopes) return
         if (providerId == null || profileId.isNullOrBlank()) return
-        store.save(profileId, providerId) { content.toSnapshotFeed() }
+        store.save(profileId, providerId, unread = unreadBlocks[scopeKey].orEmpty()) { content.toSnapshotFeed() }
     }
 
     /** A block read by this process just went into [scopeKey]'s content: from now on it is written back ([keep]). */
@@ -1012,6 +1021,15 @@ class HomeViewModel(
             } else {
                 null
             }
+
+        init {
+            // Built from nothing: each network block is unread until its read lands.
+            if (draft != null) unreadBlocks[scopeKey] = HomeNetworkBlock.entries.toSet()
+        }
+
+        /** This load's network reads that failed (Recently Added, Recently Played, Your Playlists, Spotify's feed). */
+        var failedBlocks = 0
+            private set
 
         private var localTierIn = false
 
@@ -1168,8 +1186,8 @@ class HomeViewModel(
         }
 
         private fun spliceRecentlyAdded(read: Result<RecentlyAdded>) {
-            val added = read.getOrNull() ?: return
-            splice { latest ->
+            val added = read.getOrNull() ?: return failed()
+            splice(filled = HomeNetworkBlock.RecentlyAdded) { latest ->
                 latest.copy(
                     recentlyAddedTracks = added.tracks,
                     recentlyAddedAlbums = added.albums,
@@ -1185,17 +1203,27 @@ class HomeViewModel(
         }
 
         private fun splicePlaylists(read: Result<List<Playlist>>) {
-            val playlists = read.getOrNull() ?: return
-            splice { latest -> latest.copy(playlists = playlists.distinctBy { it.id }.take(HOME_PLAYLIST_LIMIT)) }
+            val playlists = read.getOrNull() ?: return failed()
+            splice(filled = HomeNetworkBlock.Playlists) { latest ->
+                latest.copy(playlists = playlists.distinctBy { it.id }.take(HOME_PLAYLIST_LIMIT))
+            }
         }
 
         private fun spliceRecentlyPlayed(read: Result<List<Album>>) {
-            val albums = read.getOrNull()?.distinctBy { it.id } ?: return
+            val albums = read.getOrNull()?.distinctBy { it.id } ?: return failed()
             recentlyPlayedRead = albums
-            splice { latest -> latest.copy(recentlyPlayed = albums.notShownIn(latest.activities)) }
+            splice(filled = HomeNetworkBlock.RecentlyPlayed) { latest ->
+                latest.copy(recentlyPlayed = albums.notShownIn(latest.activities))
+            }
+        }
+
+        /** A network read of this load failed: what is up stays (debug: counted in `home.refresh`). */
+        private fun failed() {
+            failedBlocks++
         }
 
         private suspend fun spliceRemoteFeed(feed: List<ActivityEvent>?) {
+            if (feed == null) failed()
             remoteFeed = feed
             remoteFeedIn = true
             coroutineScope { spliceActivities(scope = this, fresh = feed != null) { it } }
@@ -1319,18 +1347,25 @@ class HomeViewModel(
          * publish, so splices landing together build on each other. [fresh]:
          * it carries a block this load just read, so a snapshot it lands on
          * is written back from now on ([markFresh]); a failed read's splice
-         * doesn't.
+         * doesn't. [filled]: the network block it brings, read now — no longer
+         * one the content lacks ([unreadBlocks]).
          */
-        private fun splice(fresh: Boolean = true, transform: (HomeUiState.Content) -> HomeUiState.Content) {
+        private fun splice(
+            fresh: Boolean = true,
+            filled: HomeNetworkBlock? = null,
+            transform: (HomeUiState.Content) -> HomeUiState.Content
+        ) {
             if (!matchesCurrentScope(providerId, profileId)) return
             if (fresh) markFresh(scopeKey)
             val pending = draft
             if (pending != null) {
+                filled?.let(::markFilled)
                 draft = transform(pending)
                 openIfReady()
                 return
             }
             val latest = contentOf(scopeKey) ?: return
+            filled?.let(::markFilled)
             val next = transform(latest)
             if (next != latest) publish(next, perfSrc = null)
             settleSignals()
@@ -1352,6 +1387,10 @@ class HomeViewModel(
             markFresh(scopeKey)
             publish(pending, perfSrc = "disk")
             settleSignals()
+        }
+
+        private fun markFilled(block: HomeNetworkBlock) {
+            unreadBlocks[scopeKey]?.let { unread -> unreadBlocks[scopeKey] = unread - block }
         }
 
         private fun publish(content: HomeUiState.Content, perfSrc: String?) {
@@ -2326,6 +2365,15 @@ class HomeViewModel(
         // the activity log takes over, live, as on a cold start without a
         // snapshot ([HomeLoad.activitiesFor], [endpointFeedOwns]).
         private val snapshotEndpointFeeds = mutableSetOf<String>()
+
+        // Per scope, the network blocks of its content up (or in
+        // [homeContentCache]) that no read has filled: a load that started
+        // with nothing up — no snapshot painted, no cache — builds its feed
+        // from nothing, and until each block's read lands (or when it fails)
+        // that block is empty for want of a read, not empty. [keep] writes
+        // them as the file on disk has them: a slow network, a server down or
+        // refused credentials never shrink the snapshot to the local tier.
+        private val unreadBlocks = mutableMapOf<String, Set<HomeNetworkBlock>>()
 
         private fun homeScopeKey(providerId: String?, profileId: String?): String =
             "${providerId.orEmpty()}|${profileId.orEmpty()}"

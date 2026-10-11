@@ -85,7 +85,7 @@ class HomeSnapshotStore(
     // their snapshot back (profile ids are never reused).
     private val deleted = HashSet<String>()
 
-    private class PendingWrite(val provider: String, val feed: () -> HomeFeedDto)
+    private class PendingWrite(val provider: String, val unread: Set<HomeNetworkBlock>, val feed: () -> HomeFeedDto)
 
     /** [profileId]'s snapshot, or null when there is none or it can't be read (then it is deleted). */
     suspend fun read(profileId: String): HomeSnapshot? = withContext(ioDispatcher) {
@@ -131,11 +131,22 @@ class HomeSnapshotStore(
      * runs (off the caller's thread). Conflated: the latest call wins. The
      * first write waits [settleMs] for a burst to settle; after a write the
      * next lands no sooner than [minWriteIntervalMs] later.
+     *
+     * [unread]: blocks no read has filled in this feed yet — still out, or
+     * failed, on a feed built from nothing (a cold start that couldn't paint
+     * its snapshot). Each keeps what the file on disk has, when that is the
+     * same provider's: a feed short of what was read before never replaces
+     * it (a slow network, a server down, credentials refused).
      */
-    internal fun save(profileId: String, provider: String, feed: () -> HomeFeedDto) {
+    internal fun save(
+        profileId: String,
+        provider: String,
+        unread: Set<HomeNetworkBlock> = emptySet(),
+        feed: () -> HomeFeedDto
+    ) {
         synchronized(lock) {
             if (profileId in deleted) return
-            pending[profileId] = PendingWrite(provider, feed)
+            pending[profileId] = PendingWrite(provider, unread, feed)
             if (profileId in writers) return
             val writer = scope.launch(ioDispatcher) { drain(profileId) }
             writers[profileId] = writer
@@ -185,7 +196,12 @@ class HomeSnapshotStore(
         var result = "error"
         var bytes = 0
         try {
-            val feed = next.feed()
+            val built = next.feed()
+            val feed = if (next.unread.isEmpty()) {
+                built
+            } else {
+                built.keepingFrom(onDisk(profileId, next.provider), next.unread)
+            }
             val unchanged = synchronized(lock) { written[profileId] == next.provider to feed }
             if (unchanged) {
                 result = "same"
@@ -222,6 +238,22 @@ class HomeSnapshotStore(
         } finally {
             YoinPerf.end(perf, "result" to result, "bytes" to bytes)
         }
+    }
+
+    /** [profileId]'s feed on disk when it is [provider]'s: as this process last wrote it, else as read now. */
+    private suspend fun onDisk(profileId: String, provider: String): HomeFeedDto? {
+        synchronized(lock) { written[profileId] }?.let { (writtenProvider, feed) ->
+            return feed.takeIf { writtenProvider == provider }
+        }
+        return fileMutex.withLock {
+            val file = fileFor(profileId)
+            val text = try {
+                if (file.exists()) file.readText() else null
+            } catch (_: IOException) {
+                null
+            }
+            (text?.let { decode(it, profileId) } as? Decoded.Ok)?.snapshot
+        }?.takeIf { it.provider == provider }?.feed
     }
 
     private fun decode(text: String, profileId: String): Decoded = try {
