@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.ui.platform.AccessibilityManager
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,7 +29,7 @@ class HomeMemoryBubbleTurnTest {
         val fullySaid = MutableStateFlow(false)
         var gone = false
         backgroundScope.launch {
-            awaitMemoryBubbleDwell(fullySaid, dwellMs = MemoryBubbleDwellMs)
+            awaitMemoryBubbleDwell(fullySaid, held = MutableStateFlow(false), dwellMs = MemoryBubbleDwellMs)
             gone = true
         }
         // Still unrolling: the clock hasn't started, however long that takes.
@@ -46,11 +47,54 @@ class HomeMemoryBubbleTurnTest {
 
     @Test
     fun should_startTheDwell_when_fullyOutAndAtRest() {
-        assertFalse(memoryBubbleFullySaid(unroll = 0.6f, unrolling = true))
+        assertFalse(fullySaid(unroll = 0.6f, unrolling = true))
         // The Expressive spring overshoots past 1 on its way in.
-        assertFalse(memoryBubbleFullySaid(unroll = 1.04f, unrolling = true))
-        assertFalse(memoryBubbleFullySaid(unroll = 0.98f, unrolling = false))
-        assertTrue(memoryBubbleFullySaid(unroll = 1f, unrolling = false))
+        assertFalse(fullySaid(unroll = 1.04f, unrolling = true))
+        assertFalse(fullySaid(unroll = 0.98f, unrolling = false))
+        assertTrue(fullySaid(unroll = 1f, unrolling = false))
+    }
+
+    @Test
+    fun should_notStartTheDwell_when_calledBackWhileFlyingAway() {
+        // Flying off, unroll stays at 1 and at rest — only flyAway moves.
+        assertFalse(fullySaid(unroll = 1f, unrolling = false, flyAway = 0.4f, flyingAway = true))
+        // Cancelled mid-flight, before the overlay starts it over from the title.
+        assertFalse(fullySaid(unroll = 1f, unrolling = false, flyAway = 0.4f, flyingAway = false))
+        assertFalse(fullySaid(unroll = 1f, unrolling = false, flyAway = 0f, flyingAway = true))
+    }
+
+    @Test
+    fun should_waitForTheRelease_when_theDwellEndsUnderAFinger() = runTest {
+        val held = MutableStateFlow(false)
+        var gone = false
+        backgroundScope.launch {
+            awaitMemoryBubbleDwell(MutableStateFlow(true), held, dwellMs = MemoryBubbleDwellMs)
+            gone = true
+        }
+        step(MemoryBubbleDwellMs - 100L)
+        // A finger comes down on the bubble just before the dwell ends.
+        held.value = true
+        step(10_000L)
+        assertFalse(gone)
+        held.value = false
+        step(0L)
+        assertTrue(gone)
+    }
+
+    // ---- How long it holds ----
+
+    @Test
+    fun should_holdSixSeconds_when_noAccessibilityTimeoutIsSet() {
+        assertEquals(6_000L, memoryBubbleDwellMs(MemoryBubbleDwellMs, accessibility = null))
+        assertEquals(6_000L, memoryBubbleDwellMs(MemoryBubbleDwellMs, FakeAccessibility(userTimeoutMs = 0L)))
+    }
+
+    @Test
+    fun should_holdLonger_when_theAccessibilityTimeoutAsksForIt() {
+        val accessibility = FakeAccessibility(userTimeoutMs = 60_000L)
+        assertEquals(60_000L, memoryBubbleDwellMs(MemoryBubbleDwellMs, accessibility))
+        // Asked as what it is: a picture, words, and a control.
+        assertEquals(Triple(true, true, true), accessibility.asked)
     }
 
     // ---- The background puts it away ----
@@ -93,8 +137,15 @@ class HomeMemoryBubbleTurnTest {
         assertTrue(memoryBubbleWindowReadable(Lifecycle.State.RESUMED, focused = true))
         // The account card's dialog, the notification shade.
         assertFalse(memoryBubbleWindowReadable(Lifecycle.State.RESUMED, focused = false))
-        // Under a detail page (translucent: Home only pauses).
+    }
+
+    @Test
+    fun should_keepQuiet_when_homeIsOnlyStarted() {
+        // Under a detail page (translucent: Home only pauses) — even if the
+        // window still reports focus for a moment.
+        assertFalse(memoryBubbleWindowReadable(Lifecycle.State.STARTED, focused = true))
         assertFalse(memoryBubbleWindowReadable(Lifecycle.State.STARTED, focused = false))
+        assertFalse(memoryBubbleWindowReadable(Lifecycle.State.CREATED, focused = true))
     }
 
     // ---- The bar counts as touching the screen ----
@@ -147,6 +198,24 @@ class HomeMemoryBubbleTurnTest {
         assertFalse(elapsed)
         step(1L)
         assertTrue(elapsed)
+    }
+
+    private fun fullySaid(unroll: Float, unrolling: Boolean, flyAway: Float = 0f, flyingAway: Boolean = false) =
+        memoryBubbleFullySaid(unroll = unroll, unrolling = unrolling, flyAway = flyAway, flyingAway = flyingAway)
+
+    /** The system's "Time to take action": never shorter than asked. */
+    private class FakeAccessibility(private val userTimeoutMs: Long) : AccessibilityManager {
+        var asked: Triple<Boolean, Boolean, Boolean>? = null
+
+        override fun calculateRecommendedTimeoutMillis(
+            originalTimeoutMillis: Long,
+            containsIcons: Boolean,
+            containsText: Boolean,
+            containsControls: Boolean
+        ): Long {
+            asked = Triple(containsIcons, containsText, containsControls)
+            return maxOf(originalTimeoutMillis, userTimeoutMs)
+        }
     }
 
     /** Moves the virtual clock [ms] on and runs whatever is due then. */

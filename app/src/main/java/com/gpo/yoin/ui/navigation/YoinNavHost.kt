@@ -237,7 +237,12 @@ fun YoinNavHost(
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        // Home's Memories bubble hears every press in the window — the bar,
+        // the Now Playing pill, the snackbars all sit outside Home — and keeps
+        // its once-per-foreground reminder above the shell's section switch.
+        val memoryBubbleShell = rememberMemoryBubbleShell()
+
+        Box(modifier = Modifier.fillMaxSize().reportMemoryBubbleShellPresses(memoryBubbleShell)) {
             NavDisplay(
                 backStack = backStack,
                 modifier = Modifier.fillMaxSize(),
@@ -279,46 +284,50 @@ fun YoinNavHost(
                             factory = MemoriesViewModel.Factory(app.container),
                         )
 
-                        YoinShell(
-                            app = app,
-                            homeViewModel = homeViewModel,
-                            libraryViewModel = libraryViewModel,
-                            memoriesViewModel = memoriesViewModel,
-                            nowPlayingViewModel = nowPlayingViewModel,
-                            // Detail pages are now separate Activities — launch
-                            // them so back navigation plays the device-native
-                            // cross-Activity predictive back. sharedTransitionKey
-                            // is no longer used (no cross-page shared element).
-                            // launchDetailFromShell delays the incoming
-                            // window's fade so the shell bar's nav→split
-                            // morph plays first (detail_bar_handoff_enter).
-                            onNavigateToSettings = { focusSection ->
-                                context.startActivity(SettingsActivity.intent(context, focusSection))
-                            },
-                            onNavigateToAlbum = { albumId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    AlbumDetailActivity.intent(context, albumId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            onNavigateToArtist = { artistId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    ArtistDetailActivity.intent(context, artistId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            onNavigateToPlaylist = { playlistId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    PlaylistDetailActivity.intent(context, playlistId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            sharedTransitionScope = sharedTransitionScope,
-                            shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
-                        )
+                        // Home's Memories bubble: every press in the window and the
+                        // once-per-foreground reminder (LocalMemoryBubbleShell).
+                        CompositionLocalProvider(LocalMemoryBubbleShell provides memoryBubbleShell) {
+                            YoinShell(
+                                app = app,
+                                homeViewModel = homeViewModel,
+                                libraryViewModel = libraryViewModel,
+                                memoriesViewModel = memoriesViewModel,
+                                nowPlayingViewModel = nowPlayingViewModel,
+                                // Detail pages are now separate Activities — launch
+                                // them so back navigation plays the device-native
+                                // cross-Activity predictive back. sharedTransitionKey
+                                // is no longer used (no cross-page shared element).
+                                // launchDetailFromShell delays the incoming
+                                // window's fade so the shell bar's nav→split
+                                // morph plays first (detail_bar_handoff_enter).
+                                onNavigateToSettings = { focusSection ->
+                                    context.startActivity(SettingsActivity.intent(context, focusSection))
+                                },
+                                onNavigateToAlbum = { albumId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        AlbumDetailActivity.intent(context, albumId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                onNavigateToArtist = { artistId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        ArtistDetailActivity.intent(context, artistId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                onNavigateToPlaylist = { playlistId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        PlaylistDetailActivity.intent(context, playlistId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                sharedTransitionScope = sharedTransitionScope,
+                                shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
+                            )
+                        }
                     }
                 },
             )
@@ -897,15 +906,10 @@ private fun YoinShell(
         }
     }
 
-    // Home's Memories bubble hears every press in the shell — the bar and the
-    // Now Playing pill sit outside Home — and keeps its once-per-foreground
-    // reminder above the section switch.
-    val memoryBubbleShell = rememberMemoryBubbleShell()
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .reportMemoryBubbleShellPresses(memoryBubbleShell),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         // The columns region: everything beside the Now Playing panel. The
         // shell column takes what the detail column (gutter + page) leaves,
@@ -944,7 +948,6 @@ private fun YoinShell(
         CompositionLocalProvider(
             LocalYoinWindowInfo provides columnWindowInfos.shell.value,
             LocalPaneWidthInMotion provides paneWidthInMotion,
-            LocalMemoryBubbleShell provides memoryBubbleShell,
         ) {
             AnimatedContent<YoinSection>(
                 targetState = selectedSection,

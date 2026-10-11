@@ -51,6 +51,8 @@ import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.AccessibilityManager
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -305,14 +307,38 @@ internal fun MemoryBubbleTurn.after(cue: MemoryBubbleCue): MemoryBubbleTurn = wh
     MemoryBubbleCue.Backgrounded -> MemoryBubbleTurn()
 }
 
-/** The dwell starts once it has said it all: the bubble fully out and its spring at rest. */
-internal fun memoryBubbleFullySaid(unroll: Float, unrolling: Boolean): Boolean = unroll >= 1f && !unrolling
+/**
+ * The dwell starts once it has said it all: the bubble fully out, its spring
+ * at rest — and not flying away. Flying off, the bubble keeps [unroll] at 1
+ * (only flyAway moves), so a bubble called back mid-flight would otherwise
+ * start its clock before it has even bloomed again.
+ */
+internal fun memoryBubbleFullySaid(unroll: Float, unrolling: Boolean, flyAway: Float, flyingAway: Boolean): Boolean =
+    unroll >= 1f && !unrolling && flyAway <= 0f && !flyingAway
 
-/** Waits until it has said it all ([fullySaid]), then holds it [dwellMs]: it goes after that. */
-internal suspend fun awaitMemoryBubbleDwell(fullySaid: Flow<Boolean>, dwellMs: Long) {
+/**
+ * Waits until it has said it all ([fullySaid]), then holds it [dwellMs] — and
+ * never leaves from under a finger: while [held] (a press on the bubble or the
+ * arrow, not yet let go) it waits for the release.
+ */
+internal suspend fun awaitMemoryBubbleDwell(fullySaid: Flow<Boolean>, held: Flow<Boolean>, dwellMs: Long) {
     fullySaid.first { it }
     delay(dwellMs)
+    held.first { !it }
 }
+
+/**
+ * How long it holds for this user: [dwellMs], or longer when the system's
+ * accessibility timeout ("Time to take action") asks for it — the bubble is
+ * a control that goes away on its own, so it honours that like a snackbar.
+ */
+internal fun memoryBubbleDwellMs(dwellMs: Long, accessibility: AccessibilityManager?): Long =
+    accessibility?.calculateRecommendedTimeoutMillis(
+        dwellMs,
+        containsIcons = true,
+        containsText = true,
+        containsControls = true
+    ) ?: dwellMs
 
 /**
  * Returns once Home has stayed [readable] and untouched for [idleMs] straight:
@@ -337,24 +363,27 @@ internal fun memoryBubbleWindowReadable(state: Lifecycle.State, focused: Boolean
     focused && state.isAtLeast(Lifecycle.State.RESUMED)
 
 /**
- * A press the shell's root saw first: Home's root saw it too if the down
+ * A press the window's root reported: Home's root saw it too if the down
  * times match — Home deals with those (a tap on the bubble is not a tuck) —
  * else it landed outside Home (the bar, the Now Playing pill) and counts as
- * a touch (owner 2026-10-11: 碰底栏也算碰屏).
+ * a touch (owner 2026-10-11: 碰底栏也算碰屏). The root reports on the Final
+ * pass, after every Initial pass inside, so Home's [MemoryBubbleController.lastDownAt]
+ * is already written whenever (and on whatever dispatcher) this is asked.
  */
 internal fun isShellOnlyPress(shellDownAt: Long, homeDownAt: Long): Boolean = shellDownAt != homeDownAt
 
 /**
  * The shell's half of the bubble, one per window, above the section switch
- * (a trip to Library and back keeps it): every press anywhere in the shell —
- * the bar and the Now Playing pill are not inside Home — and whether the
- * bubble has spoken since the app came to the foreground. YoinNavHost
- * provides it ([LocalMemoryBubbleShell]); without one (the debug harness,
- * previews) the overlay keeps its own and only Home's presses count.
+ * (a trip to Library and back keeps it): every press anywhere in the window —
+ * the bar, the Now Playing pill and the snackbars are not inside Home — and
+ * whether the bubble has spoken since the app came to the foreground.
+ * YoinNavHost makes it, reports its root's presses into it and provides it
+ * ([LocalMemoryBubbleShell]); without one (the debug harness, previews) the
+ * overlay keeps its own and only Home's presses count.
  */
 @Stable
 internal class MemoryBubbleShell {
-    /** Each press's down time, as the shell's root sees it — ahead of everything inside. */
+    /** Each press's down time, as the window's root sees it — after Home's own watcher has. */
     internal val presses = MutableSharedFlow<Long>(extraBufferCapacity = 1)
 
     internal var spokeThisForeground: Boolean = false
@@ -370,10 +399,14 @@ internal fun rememberMemoryBubbleShell(): MemoryBubbleShell {
     return shell
 }
 
-/** Put on the shell's root: reports every press to [shell] (Initial pass, consuming nothing). */
+/**
+ * Put on the window's root: reports every press to [shell], consuming
+ * nothing. On the Final pass — consumed or not — so Home's root (Initial
+ * pass) has always recorded a press of its own first ([isShellOnlyPress]).
+ */
 internal fun Modifier.reportMemoryBubbleShellPresses(shell: MemoryBubbleShell): Modifier = pointerInput(shell) {
     awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
         shell.presses.tryEmit(down.uptimeMillis)
     }
 }
@@ -391,6 +424,9 @@ internal class MemoryBubbleController {
 
     /** The last press Home's root saw, by its down time: the shell's report of it is not news ([isShellOnlyPress]). */
     internal var lastDownAt: Long = Long.MIN_VALUE
+
+    /** A finger is down on the bubble or the arrow, not yet let go: the dwell waits for it. */
+    internal var held by mutableStateOf(false)
 
     /** The bubble's and the arrow's bounds in the overlay's (= Home root's) space, written in placement. */
     internal var bubbleBounds: Rect = Rect.Zero
@@ -469,20 +505,28 @@ internal fun Modifier.watchMemoryBubbleTouches(controller: MemoryBubbleControlle
                     }
                     down.consume()
                     val slop = viewConfiguration.touchSlop
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Final)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-                        if (!change.pressed) {
-                            if ((change.position - down.position).getDistance() <= slop) {
-                                change.consume()
-                                tap()
+                    // Held, the bubble doesn't leave from under the finger
+                    // (the dwell waits); let go — tap, drag or cancel — and
+                    // it's free again.
+                    controller.held = true
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                            if (!change.pressed) {
+                                if ((change.position - down.position).getDistance() <= slop) {
+                                    change.consume()
+                                    tap()
+                                }
+                                return@awaitEachGesture
                             }
-                            return@awaitEachGesture
+                            if ((change.position - down.position).getDistance() > slop) {
+                                controller.touches.tryEmit(Unit)
+                                return@awaitEachGesture
+                            }
                         }
-                        if ((change.position - down.position).getDistance() > slop) {
-                            controller.touches.tryEmit(Unit)
-                            return@awaitEachGesture
-                        }
+                    } finally {
+                        controller.held = false
                     }
                 }
             }
@@ -685,6 +729,7 @@ internal fun MemoryBubbleOverlay(
     val store = LocalMemoryBubbleSeenStore.current ?: remember(context) { SharedPrefsMemoryBubbleSeenStore(context) }
     val idleMs = LocalMemoryBubbleIdleMs.current
     val dwellMs = LocalMemoryBubbleDwellMs.current
+    val accessibility = LocalAccessibilityManager.current
     // The shell's presses and the once-per-foreground reminder; on its own
     // (the debug harness, previews) it keeps a holder of its own.
     val shell = LocalMemoryBubbleShell.current ?: remember { MemoryBubbleShell() }
@@ -749,11 +794,19 @@ internal fun MemoryBubbleOverlay(
             }
         }
     }
-    // Said in full, it holds dwellMs and flies back into the arrow on its own.
+    // Said in full, it holds dwellMs (longer if the accessibility timeout asks)
+    // and flies back into the arrow on its own — never from under a finger.
     LaunchedEffect(reason, dwellMs) {
         if (reason == null) return@LaunchedEffect
-        val fullySaid = snapshotFlow { memoryBubbleFullySaid(controller.unroll.value, controller.unroll.isRunning) }
-        awaitMemoryBubbleDwell(fullySaid, dwellMs)
+        val fullySaid = snapshotFlow {
+            memoryBubbleFullySaid(
+                unroll = controller.unroll.value,
+                unrolling = controller.unroll.isRunning,
+                flyAway = controller.flyAway.value,
+                flyingAway = controller.flyAway.isRunning
+            )
+        }
+        awaitMemoryBubbleDwell(fullySaid, snapshotFlow { controller.held }, memoryBubbleDwellMs(dwellMs, accessibility))
         cue(MemoryBubbleCue.DwellOver)
     }
     // Any touch elsewhere (the bar's too), a pull toward Memories, the feed
