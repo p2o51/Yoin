@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
     <string name="library_title">资料库</string>
     <string name="library_cd_settings">设置</string>
     <string name="library_cd_settings_header">设置</string>
@@ -10,23 +9,21 @@
 
     <string name="library_search_placeholder_spotify">搜索 Spotify</string>
     <string name="library_search_placeholder_apple_music">搜索 Apple Music</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
     <string name="library_search_placeholder_library">搜索资料库</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
     <string name="library_search_scope_library">资料库</string>
 
-    <string name="library_tab_artists">歌手</string>
+    <string name="library_tab_artists">艺术家</string>
     <string name="library_tab_albums">专辑</string>
     <string name="library_tab_songs">歌曲</string>
     <string name="library_tab_playlists">歌单</string>
     <string name="library_tab_favorites">收藏</string>
 
-    <string name="library_empty_artists">没有找到歌手</string>
-    <string name="library_empty_albums">没有找到专辑</string>
-    <string name="library_empty_songs">没有找到歌曲</string>
-    <string name="library_empty_playlists">没有歌单</string>
-    <string name="library_empty_favorites">还没有收藏</string>
-    <string name="library_empty_search">没有找到结果</string>
+    <string name="library_empty_artists">未找到艺术家</string>
+    <string name="library_empty_albums">未找到专辑</string>
+    <string name="library_empty_songs">未找到歌曲</string>
+    <string name="library_empty_playlists">暂无歌单</string>
+    <string name="library_empty_favorites">暂无收藏</string>
+    <string name="library_empty_search">未找到匹配结果</string>
 
     <string name="library_error_retry">重试</string>
     <string name="library_error_settings">设置</string>
@@ -40,28 +37,28 @@
     <string name="library_playlist_cancel">取消</string>
     <string name="library_playlist_fallback">歌单</string>
 
-    <string name="library_favorites_section_artists">歌手</string>
+    <string name="library_favorites_section_artists">艺术家</string>
     <string name="library_favorites_section_albums">专辑</string>
     <string name="library_favorites_section_songs">歌曲</string>
-    <string name="library_search_section_artists">歌手</string>
+    <string name="library_search_section_artists">艺术家</string>
     <string name="library_search_section_albums">专辑</string>
     <string name="library_search_section_songs">歌曲</string>
     <string name="library_search_section_playlists">歌单</string>
     <string name="library_search_added">已加入资料库</string>
 
-    <string name="library_error_load_library">无法加载资料库</string>
-    <string name="library_error_load_tab_artists">无法加载歌手</string>
-    <string name="library_error_load_tab_albums">无法加载专辑</string>
-    <string name="library_error_load_tab_songs">无法加载歌曲</string>
-    <string name="library_error_load_tab_playlists">无法加载歌单</string>
-    <string name="library_error_load_tab_favorites">无法加载收藏</string>
-    <string name="library_error_reshuffle">无法换一批</string>
+    <string name="library_error_load_library">资料库加载失败</string>
+    <string name="library_error_load_tab_artists">艺术家加载失败</string>
+    <string name="library_error_load_tab_albums">专辑加载失败</string>
+    <string name="library_error_load_tab_songs">歌曲加载失败</string>
+    <string name="library_error_load_tab_playlists">歌单加载失败</string>
+    <string name="library_error_load_tab_favorites">收藏加载失败</string>
+    <string name="library_error_reshuffle">换不动了，再试一次看看。</string>
     <string name="library_error_search_snackbar">搜索失败</string>
     <string name="library_error_search">搜索失败。</string>
     <string name="library_feedback_added">已加入资料库</string>
     <string name="library_feedback_apple_music_pending">等待 Apple Music</string>
     <string name="library_action_check">查看</string>
-    <string name="library_error_add_song">无法把这首歌加入资料库。</string>
+    <string name="library_error_add_song">无法将此歌曲加入资料库。</string>
     <string name="library_playlist_created">已创建“%1$s”</string>
     <string name="library_playlist_create_failed">无法创建“%1$s”</string>
 
