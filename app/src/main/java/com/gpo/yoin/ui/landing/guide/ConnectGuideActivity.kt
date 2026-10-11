@@ -44,8 +44,9 @@ import kotlin.math.roundToInt
  * a moment, shrinks into the corner, and only then does the other side open beneath it.
  *
  * - [GuideKind.Spotify]: opens Spotify for Developers in the browser. The window's own actions (tap it to show
- *   them) are previous, copy the step's value (redirect URIs, this install's package name and SHA-1), next —
- *   and on the last step, back to Yoin, which reads the Client ID the user copied.
+ *   them) are three fixed places: previous, copy the step's value (redirect URIs, this install's package name and
+ *   SHA-1), next — on the last step the middle is back to Yoin, which reads the Client ID the user copied
+ *   ([guideActionSlots]).
  * - [GuideKind.AppleMusic] (owner 2026-10-10): Yoin opens Apple's sign-in itself once the window is in the
  *   corner ([ConnectGuide.openAndAwaitReady]); the window follows the attempts — a try that didn't take turns
  *   it to "once more", a connection closes it.
@@ -71,10 +72,10 @@ class ConnectGuideActivity : ComponentActivity() {
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getStringExtra(EXTRA_COMMAND)) {
-                COMMAND_PREV -> moveTo(step - 1)
-                COMMAND_NEXT -> moveTo(step + 1)
-                COMMAND_COPY -> copyStepValue()
-                COMMAND_RETURN -> returnToYoin()
+                GuideCommand.Prev.name -> moveTo(step - 1)
+                GuideCommand.Next.name -> moveTo(step + 1)
+                GuideCommand.Copy.name -> copyStepValue()
+                GuideCommand.Return.name -> returnToYoin()
             }
         }
     }
@@ -189,22 +190,9 @@ class ConnectGuideActivity : ComponentActivity() {
     }
 
     private fun pipParams(): PictureInPictureParams {
-        val current = steps[step]
-        val max = maxNumPictureInPictureActions.coerceAtLeast(1)
-        // Apple's sign-in is Yoin's to drive: the window only shows where things stand, no actions.
-        val actions = if (kind == GuideKind.AppleMusic) {
-            emptyList()
-        } else {
-            buildList {
-                if (step > 0) add(action(COMMAND_PREV, R.drawable.ic_guide_prev, R.string.guide_action_prev))
-                current.copies?.let { add(action(COMMAND_COPY, R.drawable.ic_guide_copy, it.actionLabel)) }
-                if (step < steps.lastIndex) {
-                    add(action(COMMAND_NEXT, R.drawable.ic_guide_next, R.string.guide_action_next))
-                } else {
-                    add(action(COMMAND_RETURN, R.drawable.ic_guide_return, R.string.guide_action_back))
-                }
-            }.takeLast(max)
-        }
+        // The same three places every step, so › never moves; Apple's are blank (it has nothing to tap, and an
+        // empty list would let the system put Yoin's own playback buttons there).
+        val actions = fitGuideActionSlots(guideActionSlots(kind, step), maxNumPictureInPictureActions).map(::action)
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(4, 3))
             .setActions(actions)
@@ -224,7 +212,8 @@ class ConnectGuideActivity : ComponentActivity() {
         return builder.build()
     }
 
-    private fun action(command: String, icon: Int, label: Int): RemoteAction {
+    private fun action(slot: GuideActionSlot): RemoteAction {
+        val command = slot.command.name
         val intent = Intent(ACTION_GUIDE).setPackage(packageName).putExtra(EXTRA_COMMAND, command)
         val pending = PendingIntent.getBroadcast(
             this,
@@ -232,17 +221,16 @@ class ConnectGuideActivity : ComponentActivity() {
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val text = getString(label)
-        return RemoteAction(Icon.createWithResource(this, icon), text, text, pending)
+        val text = getString(slot.label)
+        return RemoteAction(Icon.createWithResource(this, slot.command.icon), text, text, pending).apply {
+            // Off: the system draws it at its own disabled alpha (0.54) and ignores taps; the place stays.
+            isEnabled = slot.enabled
+        }
     }
 
     private companion object {
         const val ACTION_GUIDE = "com.gpo.yoin.action.CONNECT_GUIDE"
         const val EXTRA_COMMAND = "command"
-        const val COMMAND_PREV = "prev"
-        const val COMMAND_NEXT = "next"
-        const val COMMAND_COPY = "copy"
-        const val COMMAND_RETURN = "return"
         const val STATE_STEP = "step"
         const val STATE_HANDED_OFF = "handedOff"
         const val EnterDelayMs = 450L
