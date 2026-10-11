@@ -9,6 +9,7 @@ import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 
@@ -171,45 +173,65 @@ class ProfileManager(
      * Home's Reconnect: one more try at the account in use, without
      * switching. With no source, its credentials are read again; if they read
      * (and don't need the owner anyway), its source is built and pinged, and
-     * published only once the server has answered and only if the account is
-     * still the one in use with no source — a switch or an edit meanwhile
-     * wins. A source that is up is left alone. Local reads and one ping: no
-     * more. True when the account needs nothing from its owner afterwards —
-     * [activeNeedsReconnect] already says so when this returns; false: its
-     * page is the way on.
+     * published unless the service turned the credentials down
+     * ([refusesCredentials]) — a server that doesn't answer (offline, a
+     * timeout) gets the source all the same, as a cold start would, and Home
+     * and Library tell their own network errors. Published only if the
+     * account is still the one in use with no source — a switch or an edit
+     * meanwhile wins — and then fanned out as a switch is ([onSwitchCommit]:
+     * Library, Memories and the widgets read again; Home already reloads on
+     * its scope). A source that is up is left alone. Local reads and one
+     * ping, off the main thread: no more. True when the account needs
+     * nothing from its owner afterwards — [activeNeedsReconnect] already
+     * says so when this returns; false: its page is the way on.
      */
     suspend fun retryActiveSource(): Boolean {
         val profile = getActiveProfileSnapshot() ?: return false
         if (_activeSource.value == null && _switchingState.value !is SwitchState.Switching) {
-            val credentials = decodeCredentials(profile)
-            if (credentials != null && !credentials.needsReconnect()) {
-                val source = buildSource(profile, credentials)
-                var published = false
-                try {
-                    val answered = try {
-                        withTimeoutOrNull(PING_TIMEOUT_MS) { source.library().ping() } == true
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (_: Exception) {
-                        false
-                    }
-                    published = answered &&
-                        getActiveProfileSnapshot()?.id == profile.id &&
-                        _activeSource.compareAndSet(null, source)
-                } finally {
-                    if (!published) source.dispose()
-                }
-            }
+            if (withContext(Dispatchers.IO) { publishRetriedSource(profile) }) onSwitchCommit()
         }
         // Read again: the cards follow, and the answer is the one Home shows.
         _credentialsRevision.update { revision -> revision + 1 }
-        val needs = accountNeedsReconnect(
-            getActiveProfileSnapshot(),
-            sourceUp = _activeSource.value != null,
-            settled = activeSourceBuilds.value == 0
-        )
+        val needs = withContext(Dispatchers.IO) {
+            accountNeedsReconnect(
+                getActiveProfileSnapshot(),
+                sourceUp = _activeSource.value != null,
+                settled = activeSourceBuilds.value == 0
+            )
+        }
         _activeNeedsReconnect.value = needs
         return !needs
+    }
+
+    /**
+     * [retryActiveSource]'s build: [profile]'s source from its credentials
+     * read again, pinged, and published as the active one unless the service
+     * turned the credentials down or the account in use has moved on (or got
+     * a source) meanwhile. True when it was published; a source that wasn't
+     * is disposed.
+     */
+    private suspend fun publishRetriedSource(profile: Profile): Boolean {
+        val credentials = decodeCredentials(profile)
+        if (credentials == null || credentials.needsReconnect()) return false
+        val source = buildSource(profile, credentials)
+        var published = false
+        try {
+            val refused = try {
+                // A timeout (null) is a server that didn't answer, not a refusal.
+                withTimeoutOrNull(PING_TIMEOUT_MS) { source.library().ping() }
+                false
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                error.refusesCredentials()
+            }
+            published = !refused &&
+                getActiveProfileSnapshot()?.id == profile.id &&
+                _activeSource.compareAndSet(null, source)
+        } finally {
+            if (!published) source.dispose()
+        }
+        return published
     }
 
     /** Runs [block], which builds the active profile's source, with [activeSourceSettled] held down. */

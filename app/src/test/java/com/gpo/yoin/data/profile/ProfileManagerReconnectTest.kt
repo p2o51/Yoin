@@ -2,7 +2,13 @@ package com.gpo.yoin.data.profile
 
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.ProfileDao
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
+import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
+import com.gpo.yoin.data.source.spotify.SpotifyAuthException
+import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -10,9 +16,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import okhttp3.mockwebserver.MockResponse
@@ -60,12 +69,65 @@ class ProfileManagerReconnectTest {
         val profileDao = InMemoryProfileDao().apply { upsert(unreadableRow()) }
         val manager = manager(scope, profileDao = profileDao, activeId = RESTORED)
 
-        // Still being built: not known yet, so no dot.
-        assertFalse(manager.activeNeedsReconnect.value)
-
         scope.advanceUntilIdle()
 
         // Settled with no source: its credentials couldn't be read.
+        assertNull(manager.activeSource.value)
+        assertTrue(manager.activeNeedsReconnect.value)
+        scope.cancelChildren()
+    }
+
+    @Test
+    fun should_needNoReconnectYet_when_theLaunchBuildIsStillUnderWay() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val profileDao = InMemoryProfileDao().apply { upsert(unreadableRow()) }
+        // The launch build waits on its read of the account in use.
+        profileDao.holdReads = CompletableDeferred()
+        val manager = manager(scope, profileDao = profileDao, activeId = RESTORED)
+
+        scope.runCurrent()
+
+        // The account is known, its source isn't yet: no dot (a cold start never blinks one).
+        assertEquals(RESTORED, manager.activeProfile.value?.id)
+        assertFalse(manager.activeSourceSettled.first())
+        assertFalse(manager.activeNeedsReconnect.value)
+
+        profileDao.holdReads?.complete(Unit)
+        scope.advanceUntilIdle()
+
+        // Built without a source: now it is known.
+        assertNull(manager.activeSource.value)
+        assertTrue(manager.activeNeedsReconnect.value)
+        scope.cancelChildren()
+    }
+
+    @Test
+    fun should_needNoReconnectYet_when_aDeleteHandsOverToAnAccountWhoseBuildIsUnderWay() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val store = InMemoryProfileCredentialsStore()
+        val profileDao = InMemoryProfileDao().apply {
+            upsert(readableRow(IN_USE, store))
+            upsert(unreadableRow())
+        }
+        val manager = manager(scope, profileDao = profileDao, activeId = IN_USE, store = store)
+        scope.advanceUntilIdle()
+        assertNotNull(manager.activeSource.value)
+        assertFalse(manager.activeNeedsReconnect.value)
+
+        // Delete the account in use: the hand-over to the next one waits on its read.
+        profileDao.holdReads = CompletableDeferred()
+        scope.launch { manager.delete(IN_USE) }
+        scope.runCurrent()
+
+        assertEquals(RESTORED, manager.activeProfile.value?.id)
+        assertNull(manager.activeSource.value)
+        assertFalse(manager.activeSourceSettled.first())
+        assertFalse(manager.activeNeedsReconnect.value)
+
+        profileDao.holdReads?.complete(Unit)
+        scope.advanceUntilIdle()
+
+        // The next account's credentials couldn't be read: now it needs its owner.
         assertNull(manager.activeSource.value)
         assertTrue(manager.activeNeedsReconnect.value)
         scope.cancelChildren()
@@ -171,8 +233,36 @@ class ProfileManagerReconnectTest {
         assertEquals("/rest/ping.view", server.takeRequest().requestUrl?.encodedPath)
         // One ping, nothing else.
         assertEquals(1, server.requestCount)
+        // Fanned out once, as a switch is: Library, Memories and the widgets read again.
+        assertEquals(1, commits)
         scope.advanceUntilIdle()
         assertFalse(manager.activeNeedsReconnect.value)
+        scope.cancelChildren()
+    }
+
+    @Test
+    fun should_publishTheSourceAsAColdStartWould_when_theCredentialsReadButTheServerDoesNotAnswer() = runTest {
+        // The server's down (or the phone offline): nothing listens there.
+        val gone = MockWebServer().apply { start() }
+        val unreachable = gone.url("/").toString()
+        gone.shutdown()
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val store = LockableCredentialsStore()
+        val profileDao = InMemoryProfileDao().apply { upsert(unreadableRow()) }
+        store.inner.write(RESTORED, subsonic(unreachable))
+        val manager = manager(scope, profileDao = profileDao, activeId = RESTORED, store = store)
+        scope.advanceUntilIdle()
+        assertTrue(manager.activeNeedsReconnect.value)
+
+        store.locked = false
+        val fixed = withContext(Dispatchers.Default) { manager.retryActiveSource() }
+
+        // The credentials are fine: no page to re-enter them. Home and Library
+        // tell their own network errors, as after a cold start offline.
+        assertTrue(fixed)
+        assertNotNull(manager.activeSource.value)
+        assertFalse(manager.activeNeedsReconnect.value)
+        assertEquals(1, commits)
         scope.cancelChildren()
     }
 
@@ -192,6 +282,7 @@ class ProfileManagerReconnectTest {
         assertTrue(manager.activeNeedsReconnect.value)
         assertNull(manager.activeSource.value)
         assertEquals(0, server.requestCount)
+        assertEquals(0, commits)
         scope.cancelChildren()
     }
 
@@ -213,6 +304,8 @@ class ProfileManagerReconnectTest {
         assertFalse(fixed)
         assertNull(manager.activeSource.value)
         assertTrue(manager.activeNeedsReconnect.value)
+        // Nothing changed for Library and the rest.
+        assertEquals(0, commits)
         scope.cancelChildren()
     }
 
@@ -231,8 +324,32 @@ class ProfileManagerReconnectTest {
         assertFalse(fixed)
         assertSame(source, manager.activeSource.value)
         assertTrue(manager.activeNeedsReconnect.value)
+        assertEquals(0, commits)
         scope.cancelChildren()
     }
+
+    @Test
+    fun should_refuseCredentials_when_theServiceTurnsThemDown() {
+        assertTrue(SubsonicException(code = 40, message = "Wrong username or password").refusesCredentials())
+        assertTrue(SubsonicException(code = 41, message = "Token authentication not supported").refusesCredentials())
+        val revoked = SpotifyAuthException(code = 400, message = "refresh", oauthError = "invalid_grant")
+        assertTrue(revoked.refusesCredentials())
+        assertTrue(SpotifyAuthException(code = 401, message = "me").refusesCredentials())
+        assertTrue(AppleMusicApiException(AppleMusicApiFailure.UserAuthorizationRequired).refusesCredentials())
+        assertTrue(AppleMusicApiException(AppleMusicApiFailure.AccessDenied).refusesCredentials())
+    }
+
+    @Test
+    fun should_notRefuseCredentials_when_theServerJustDoesNotAnswer() {
+        assertFalse(IOException("unreachable").refusesCredentials())
+        assertFalse(SubsonicException(code = 0, message = "Generic error").refusesCredentials())
+        assertFalse(SpotifyAuthException(code = 503, message = "me").refusesCredentials())
+        assertFalse(AppleMusicApiException(AppleMusicApiFailure.Http(500)).refusesCredentials())
+        assertFalse(AppleMusicApiException(AppleMusicApiFailure.RateLimited).refusesCredentials())
+    }
+
+    // ProfileManager's onSwitchCommit (AppContainer: notifyMusicConfigurationChanged), counted.
+    private var commits = 0
 
     private fun manager(
         scope: CoroutineScope,
@@ -244,8 +361,21 @@ class ProfileManagerReconnectTest {
         activeIdStore = InMemoryActiveIdStore().apply { write(activeId) },
         credentialsStore = store,
         legacyCodec = PlaintextProfileCredentialsCodec(),
-        scope = scope
+        scope = scope,
+        onSwitchCommit = { commits++ }
     )
+
+    /** A row whose credentials [store] reads (a Subsonic account on a server nobody asks). */
+    private fun readableRow(id: String, store: ProfileCredentialsStore): Profile {
+        store.write(id, subsonic("https://music.example.test"))
+        return Profile(
+            id = id,
+            provider = "subsonic",
+            displayName = id,
+            credentialsJson = ProfileManager.STORE_MARKER_V1,
+            createdAt = 0L
+        )
+    }
 
     private fun unreadableRow() = Profile(
         id = RESTORED,
@@ -293,9 +423,18 @@ class ProfileManagerReconnectTest {
         private val byId = linkedMapOf<String, Profile>()
         private val flow = MutableStateFlow<List<Profile>>(emptyList())
 
+        /** While set and not complete, one-shot reads wait on it (a build of the active source, held). */
+        var holdReads: CompletableDeferred<Unit>? = null
+
         override fun observeAll(): Flow<List<Profile>> = flow.asStateFlow()
-        override suspend fun getAll(): List<Profile> = byId.values.toList()
-        override suspend fun getById(id: String): Profile? = byId[id]
+        override suspend fun getAll(): List<Profile> {
+            holdReads?.await()
+            return byId.values.toList()
+        }
+        override suspend fun getById(id: String): Profile? {
+            holdReads?.await()
+            return byId[id]
+        }
         override suspend fun count(): Int = byId.size
         override suspend fun upsert(profile: Profile) {
             byId[profile.id] = profile
@@ -321,6 +460,7 @@ class ProfileManagerReconnectTest {
 
     private companion object {
         const val RESTORED = "restored"
+        const val IN_USE = "in-use"
         const val PING_OK = """{"subsonic-response":{"status":"ok","version":"1.16.1"}}"""
         const val PING_WRONG_PASSWORD = """{"subsonic-response":{"status":"failed","version":"1.16.1",""" +
             """"error":{"code":40,"message":"Wrong username or password"}}}"""
