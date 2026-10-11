@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_scroll_edge_intro">滚动内容碰到页面顶部固定栏时的样子，比如资料库的筛选栏、专辑页的标题栏。</string>
-    <string name="settings_scroll_edge_tide_desc">封面和文字在边缘沉进两道柔和的波浪，快速滑动时也很安静。</string>
-    <string name="settings_scroll_edge_dots_desc">封面经过顶栏时碎成细密的网点。Yoin 最早的样子。</string>
-    <string name="settings_scroll_edge_cookie_desc">每张封面的上缘变成曲奇形的波浪，离开时慢慢卷成柔和的尖。</string>
-    <string name="settings_scroll_edge_foot">底栏和状态栏在每种样式下都一样。</string>
+    <string name="settings_scroll_edge_intro">页面向上滚动时内容穿过顶栏的样式，例如资料库筛选栏或专辑页标题栏。</string>
+    <string name="settings_scroll_edge_tide_desc">封面与文字沉入边缘的两道微澜。即便快速滑动，界面也足够克制。</string>
+    <string name="settings_scroll_edge_dots_desc">封面掠过顶栏时碎成细密的半色调网点。Yoin 最初的模样。</string>
+    <string name="settings_scroll_edge_cookie_desc">封面顶缘化作圆齿波浪，滑出时渐变为柔和的软尖。</string>
+    <string name="settings_scroll_edge_foot">底栏与状态栏在各种样式下表现一致。</string>
     <string name="settings_scroll_edge_default">默认</string>
-    <string name="settings_about_welcome_guide">重新引导</string>
-    <string name="settings_about_welcome_guide_summary">账号、主页和滚动边缘</string>
+    <string name="settings_about_welcome_guide">新手指引</string>
+    <string name="settings_about_welcome_guide_summary">账号、首页与顶部滚动边缘</string>
 </resources>
