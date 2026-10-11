@@ -179,7 +179,27 @@ class YoinRepositoryTest {
 
         assertEquals(trackId, writeActions.lastRatedTrackId)
         assertEquals(4, writeActions.lastServerRating)
-        coVerify(exactly = 2) { localRatingDao.upsert(any()) }
+        // Stored first, still to sync; the provider's answer only clears the flag of that same rating.
+        coVerify(exactly = 1) {
+            localRatingDao.upsert(
+                match { it.songId == "song-1" && it.rating == 7.4f && it.serverRating == 4 && it.needsSync }
+            )
+        }
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 7.4f)
+        }
+    }
+
+    @Test
+    fun should_leaveTheRatingToSync_when_theProviderRefusesTheWrite() = runTest {
+        val trackId = MediaId.subsonic("song-1")
+        writeActions.setRatingResult = Result.failure(IllegalStateException("offline"))
+        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+
+        repository.setRating(trackId, 7.4f)
+
+        coVerify(exactly = 1) { localRatingDao.upsert(match { it.rating == 7.4f && it.needsSync }) }
+        coVerify(exactly = 0) { localRatingDao.markSynced(any(), any(), any(), any()) }
     }
 
     @Test

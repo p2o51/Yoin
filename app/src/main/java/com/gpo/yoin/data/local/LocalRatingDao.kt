@@ -77,6 +77,17 @@ interface LocalRatingDao {
     @Upsert
     suspend fun upsert(rating: LocalRating)
 
+    /**
+     * The provider took [rating]: clear the row's needsSync — only while the
+     * row still holds that rating. A newer rating written meanwhile keeps its
+     * value and its flag; a late answer about an older one never rolls it back.
+     */
+    @Query(
+        "UPDATE local_ratings SET needsSync = 0 " +
+            "WHERE profileId = :profileId AND songId = :songId AND provider = :provider AND rating = :rating"
+    )
+    suspend fun markSynced(songId: String, provider: String, profileId: String, rating: Float): Int
+
     @Query("DELETE FROM local_ratings")
     suspend fun deleteAll()
 }

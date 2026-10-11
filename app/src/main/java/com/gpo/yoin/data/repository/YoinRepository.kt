@@ -1483,7 +1483,9 @@ class YoinRepository(
         val source = activeSource.value ?: return
         if (source.id != trackId.provider) return
         source.writeActions().setRating(trackId, serverRating).onSuccess {
-            database.localRatingDao().upsert(pending.copy(needsSync = false))
+            // Not an upsert of this write's row: a newer rating stored while
+            // this call was out must not be rolled back to this one.
+            database.localRatingDao().markSynced(trackId.rawId, trackId.provider, profileId, localRating)
         }
     }
 
