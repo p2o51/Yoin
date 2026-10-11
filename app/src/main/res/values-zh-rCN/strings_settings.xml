@@ -4,7 +4,7 @@
     <string name="settings_feature_support_available">可用</string>
     <string name="settings_feature_support_partial">有限</string>
     <string name="settings_feature_support_local">由 Yoin 提供</string>
-    <string name="settings_feature_support_not_implemented">Yoin 还没有</string>
+    <string name="settings_feature_support_not_implemented">Yoin 暂未支持</string>
     <string name="settings_feature_support_unavailable">服务未提供</string>
     <string name="settings_feature_support_unverified">未验证</string>
 
@@ -16,58 +16,54 @@
     <string name="settings_feature_remove_spotify">从 Spotify 喜欢的歌曲中移除</string>
 
     <string name="settings_feature_subsonic_playback_title">播放</string>
-    <string name="settings_feature_subsonic_playback_body">在 Yoin 里从你的服务器串流，支持后台和系统播放控制。</string>
+    <string name="settings_feature_subsonic_playback_body">在 Yoin 中自你的服务器串流，支持后台和系统播放控制。</string>
     <string name="settings_feature_subsonic_favorites_title">收藏</string>
     <string name="settings_feature_subsonic_favorites_body">心形标记会在你的服务器上收藏或取消收藏。</string>
-    <string name="settings_feature_subsonic_playlists_title">播放列表</string>
-    <string name="settings_feature_subsonic_playlists_body">浏览并编辑可写的播放列表。权限和可用操作取决于你的服务器。</string>
+    <string name="settings_feature_subsonic_playlists_title">歌单</string>
+    <string name="settings_feature_subsonic_playlists_body">浏览并编辑可写的歌单。权限与可用操作取决于你的服务器。</string>
     <string name="settings_feature_subsonic_lyrics_title">歌词</string>
-    <string name="settings_feature_subsonic_lyrics_body">有服务器歌词时使用，也会用 Yoin 的其他歌词来源。不保证能匹配上。</string>
-    <string name="settings_feature_subsonic_ratings_title">评分和笔记</string>
-    <string name="settings_feature_subsonic_ratings_body">按账号分别保存。歌曲评分也会同步到支持评分的服务器。</string>
+    <string name="settings_feature_subsonic_lyrics_body">优先使用服务器歌词，辅以 Yoin 补充歌词源。不保证完全匹配。</string>
+    <string name="settings_feature_subsonic_ratings_title">评分与笔记</string>
+    <string name="settings_feature_subsonic_ratings_body">按账号分别保存。曲目评分也会同步至支持评分的服务器。</string>
     <string name="settings_feature_subsonic_quality_title">音质</string>
-    <string name="settings_feature_subsonic_quality_body">由你的服务器提供串流，可能会转码。原始文件格式不能说明当前输出。</string>
-    <string name="settings_feature_subsonic_devices_title">设备和缓存</string>
-    <string name="settings_feature_subsonic_devices_body">Yoin 支持 Cast 和自动播放缓存。缓存不是可管理的离线下载库。</string>
+    <string name="settings_feature_subsonic_quality_body">由你的服务器提供串流，可能会转码。原始文件格式不能代表当前输出。</string>
+    <string name="settings_feature_subsonic_devices_title">设备与缓存</string>
+    <string name="settings_feature_subsonic_devices_body">Yoin 支持投播和自动播放缓存。缓存并非可管理的离线下载库。</string>
 
     <string name="settings_feature_spotify_playback_title">播放</string>
-    <string name="settings_feature_spotify_playback_body">需要 Spotify 应用和 Premium。音频和系统播放控制由 Spotify 负责，Yoin 远程控制播放。</string>
+    <string name="settings_feature_spotify_playback_body">需要 Spotify 应用与 Premium。音频与系统播放控制由 Spotify 负责，Yoin 远程控制播放。</string>
     <string name="settings_feature_spotify_saved_title">已保存的音乐</string>
-    <string name="settings_feature_spotify_saved_body">心形标记会把歌曲加入或移出 Spotify 喜欢的歌曲。</string>
-    <string name="settings_feature_spotify_playlists_title">播放列表</string>
-    <string name="settings_feature_spotify_playlists_body">浏览播放列表，并编辑你能修改的那些。在 Yoin 里移除你的播放列表，会在 Spotify 上取消关注。</string>
+    <string name="settings_feature_spotify_saved_body">心形标记会将歌曲加入或移出 Spotify 喜欢的歌曲。</string>
+    <string name="settings_feature_spotify_playlists_title">歌单</string>
+    <string name="settings_feature_spotify_playlists_body">浏览歌单，并编辑可写歌单。在 Yoin 中移除你的歌单会在 Spotify 上取消关注。</string>
     <string name="settings_feature_spotify_lyrics_title">歌词</string>
-    <string name="settings_feature_spotify_lyrics_body">Yoin 使用其他歌词来源。此集成无法使用 Spotify 官方歌词，匹配结果可能不同。</string>
-    <string name="settings_feature_spotify_ratings_title">评分和笔记</string>
-    <string name="settings_feature_spotify_ratings_body">按 Yoin 账号分别保存。评分不会同步到 Spotify。</string>
+    <string name="settings_feature_spotify_lyrics_body">Yoin 使用补充歌词源。此集成无法获取 Spotify 官方歌词，匹配结果可能存在差异。</string>
+    <string name="settings_feature_spotify_ratings_title">评分与笔记</string>
+    <string name="settings_feature_spotify_ratings_body">按 Yoin 账号分别保存。评分不会同步至 Spotify。</string>
     <string name="settings_feature_spotify_quality_title">音质</string>
     <string name="settings_feature_spotify_quality_body">在 Spotify 中管理。Yoin 无法选择或确认当前串流的音质。</string>
-    <string name="settings_feature_spotify_devices_title">设备和缓存</string>
-    <string name="settings_feature_spotify_devices_body">播放目标用 Spotify Connect。Yoin 的 Cast 和音频缓存不适用于 Spotify，下载请在 Spotify 中管理。</string>
+    <string name="settings_feature_spotify_devices_title">设备与缓存</string>
+    <string name="settings_feature_spotify_devices_body">播放目标使用 Spotify Connect。Yoin 的投播和音频缓存不适用于 Spotify，下载请在 Spotify 中管理。</string>
 
     <string name="settings_feature_apple_playback_title">播放</string>
-    <string name="settings_feature_apple_playback_body">MusicKit 在 Yoin 里播放目录歌曲，支持后台和系统控制。没有目录匹配的导入歌曲需要在 Apple Music 中播放。</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
-    <string name="settings_feature_apple_library_title">资料库和搜索</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
-    <string name="settings_feature_apple_library_body">浏览资料库中的歌曲、专辑、艺人和播放列表。可搜索你的资料库或 Apple Music 目录。</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
+    <string name="settings_feature_apple_playback_body">MusicKit 在 Yoin 中播放目录歌曲，支持后台与系统控制。无目录匹配的导入歌曲需在 Apple Music 中播放。</string>
+    <string name="settings_feature_apple_library_title">资料库与搜索</string>
+    <string name="settings_feature_apple_library_body">浏览资料库中的歌曲、专辑、艺术家和歌单。可搜索你的资料库或 Apple Music 目录。</string>
     <string name="settings_feature_apple_add_title">加入资料库</string>
-    <string name="settings_feature_apple_add_body">把目录歌曲加入你的资料库。Yoin 确认已加入后才显示对勾。资料库成员和收藏是两回事。</string>
-    <string name="settings_feature_apple_playlists_title">播放列表</string>
-    <string name="settings_feature_apple_playlists_body">浏览并播放播放列表。编辑请到 Apple Music。</string>
-    <string name="settings_feature_apple_lyrics_title">歌词、评分和笔记</string>
-    <string name="settings_feature_apple_lyrics_body">Yoin 的其他歌词来源、本地评分和笔记。不含 Apple 官方歌词。</string>
+    <string name="settings_feature_apple_add_body">将目录歌曲加入你的资料库。Yoin 确认已加入后才显示对勾。资料库收录与收藏是两回事。</string>
+    <string name="settings_feature_apple_playlists_title">歌单</string>
+    <string name="settings_feature_apple_playlists_body">浏览并播放歌单。编辑请前往 Apple Music。</string>
+    <string name="settings_feature_apple_lyrics_title">歌词、评分与笔记</string>
+    <string name="settings_feature_apple_lyrics_body">Yoin 的补充歌词源、本地评分与笔记。不含 Apple 官方歌词。</string>
     <string name="settings_feature_apple_quality_title">音质</string>
-    <string name="settings_feature_apple_quality_body">串流由 MusicKit 管理。Yoin 不确认无损或空间音频输出。</string>
-    <string name="settings_feature_apple_offline_title">离线和设备</string>
-    <string name="settings_feature_apple_offline_body">Apple Music 无法使用 Yoin 的 Cast 和音频缓存。</string>
+    <string name="settings_feature_apple_quality_body">串流由 MusicKit 管理。Yoin 无法确认无损或空间音频输出。</string>
+    <string name="settings_feature_apple_offline_title">离线与设备</string>
+    <string name="settings_feature_apple_offline_body">Apple Music 无法使用 Yoin 的投播和音频缓存。</string>
 
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
     <string name="settings_feature_local_library_title">本地资料库</string>
-    <string name="settings_feature_local_library_body">Yoin 还不能浏览或导入本地文件。</string>
+    <string name="settings_feature_local_library_body">Yoin 暂未支持浏览或导入本地文件。</string>
     <string name="settings_feature_unknown_title">服务功能</string>
-    <string name="settings_feature_unknown_body">没有此服务已验证的功能信息。</string>
+    <string name="settings_feature_unknown_body">暂无此服务已验证的功能信息。</string>
 
     <string name="settings_title">设置</string>
     <string name="settings_section_features">功能</string>
@@ -78,7 +74,7 @@
     <string name="settings_section_accounts">账号</string>
     <string name="settings_accounts_count">%1$d / %2$d</string>
     <string name="settings_accounts_add">添加账号</string>
-    <string name="settings_accounts_empty_title">没有账号</string>
+    <string name="settings_accounts_empty_title">暂无账号</string>
     <string name="settings_accounts_add_short">添加</string>
     <string name="settings_accounts_use">使用此账号</string>
     <string name="settings_accounts_manage">管理</string>
@@ -90,33 +86,31 @@
     <string name="settings_cd_switch_account">切换到此账号</string>
     <string name="settings_account_in_use">使用中</string>
     <string name="settings_account_reconnect">重新连接</string>
-    <string name="settings_account_credentials_missing">缺少凭据</string>
+    <string name="settings_account_credentials_missing">缺少登录凭据</string>
     <string name="settings_spotify_no_client_id">无 Client ID</string>
     <string name="settings_spotify_install">安装 Spotify</string>
     <string name="settings_spotify_premium_required">需要 Premium</string>
     <string name="settings_spotify_restore_sign_in">恢复登录</string>
     <string name="settings_add_sheet_title">添加账号</string>
-    <string name="settings_provider_subsonic_summary">Navidrome、Airsonic 和其他服务器</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
+    <string name="settings_provider_subsonic_summary">Navidrome、Airsonic 等自建服务器</string>
     <string name="settings_provider_spotify_summary">你的 Spotify 资料库</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
-    <string name="settings_provider_apple_summary">你的 Apple Music 资料库和目录</string>
+    <string name="settings_provider_apple_summary">你的 Apple Music 资料库与目录</string>
     <string name="settings_provider_badge_preview">预览</string>
-    <string name="settings_provider_local_summary">以后再来</string>
-    <string name="settings_placeholder">没有选中的账号</string>
+    <string name="settings_provider_local_summary">还在路上</string>
+    <string name="settings_placeholder">未选择账号</string>
 
     <string name="settings_gemini_title">AI 功能</string>
     <string name="settings_gemini_title_page">AI 功能</string>
-    <string name="settings_gemini_summary_empty">歌曲信息、Ask Gemini 和翻译</string>
+    <string name="settings_gemini_summary_empty">歌曲档案、问 Gemini 与翻译</string>
     <string name="settings_gemini_summary_set">%1$s</string>
     <string name="settings_gemini_key_label">Gemini API 密钥</string>
     <string name="settings_gemini_answer_in">用 %1$s 回答</string>
     <string name="settings_gemini_save_key">保存密钥</string>
 
-    <string name="settings_neodb_summary_on">专辑评分和评论会同步</string>
-    <string name="settings_neodb_summary_off">同步专辑评分和评论</string>
-    <string name="settings_neodb_summary_on_page">专辑评分和评论会同步</string>
-    <string name="settings_neodb_summary_off_page">同步专辑评分和评论</string>
+    <string name="settings_neodb_summary_on">专辑评分与评价会同步</string>
+    <string name="settings_neodb_summary_off">同步专辑评分与评价</string>
+    <string name="settings_neodb_summary_on_page">专辑评分与评价会同步</string>
+    <string name="settings_neodb_summary_off_page">同步专辑评分与评价</string>
     <string name="settings_neodb_instance_label">实例</string>
     <string name="settings_neodb_sign_in">登录</string>
     <string name="settings_neodb_sign_in_again">重新登录</string>
@@ -127,10 +121,10 @@
     <string name="settings_neodb_save_token">保存令牌</string>
     <string name="settings_neodb_invalid_url">NeoDB 网址无效。需要包含有效主机。</string>
 
-    <string name="settings_motion_scroll_edge">滚动边缘</string>
-    <string name="settings_motion_tide_line">潮汐线</string>
-    <string name="settings_motion_dots">圆点</string>
-    <string name="settings_motion_cookie_wave">曲奇波浪</string>
+    <string name="settings_motion_scroll_edge">顶部滚动边缘</string>
+    <string name="settings_motion_tide_line">潮线</string>
+    <string name="settings_motion_dots">网点</string>
+    <string name="settings_motion_cookie_wave">曲奇浪口</string>
     <string name="settings_storage_cache">播放缓存</string>
     <string name="settings_storage_clear">清除</string>
     <string name="settings_cache_empty">空</string>
@@ -147,14 +141,14 @@
     <string name="settings_switch_failed">无法切换账号</string>
     <string name="settings_switch_ok">好</string>
     <string name="settings_remove_title">移除这个账号？</string>
-    <string name="settings_remove_body">“%1$s” 会从 Yoin 移除。你的评分、笔记和历史会留下。</string>
+    <string name="settings_remove_body">“%1$s” 将从 Yoin 移除。你的评分、笔记和历史仍会保留。</string>
     <string name="settings_remove_confirm">移除</string>
     <string name="settings_remove_cancel">取消</string>
 
     <string name="settings_cd_collapse">收起</string>
     <string name="settings_cd_expand">展开</string>
-    <string name="settings_cd_hide">隐藏%1$s</string>
-    <string name="settings_cd_show">显示%1$s</string>
+    <string name="settings_cd_hide">隐藏 %1$s</string>
+    <string name="settings_cd_show">显示 %1$s</string>
 
     <string name="settings_intro_subsonic_tagline">Navidrome、Airsonic、Gonic、OpenSubsonic</string>
     <string name="settings_intro_subsonic_play_title">播放</string>
@@ -163,14 +157,13 @@
     <string name="settings_intro_subsonic_favorites_body">评分</string>
     <string name="settings_intro_subsonic_playlists_title">歌单</string>
     <string name="settings_intro_subsonic_playlists_body">歌词、笔记</string>
-    <string name="settings_intro_subsonic_cast_title">投屏</string>
+    <string name="settings_intro_subsonic_cast_title">投播</string>
     <string name="settings_intro_subsonic_cast_body">离线缓存</string>
     <string name="settings_intro_subsonic_need">服务器地址、用户名、密码</string>
 
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
     <string name="settings_intro_spotify_tagline">资料库、播放</string>
     <string name="settings_intro_spotify_saved_title">资料库</string>
-    <string name="settings_intro_spotify_saved_body">歌单、专辑、艺人</string>
+    <string name="settings_intro_spotify_saved_body">歌单、专辑、艺术家</string>
     <string name="settings_intro_spotify_hearts_title">喜欢的歌曲</string>
     <string name="settings_intro_spotify_hearts_body">收藏</string>
     <string name="settings_intro_spotify_connect_body">音箱</string>
@@ -179,7 +172,6 @@
     <string name="settings_intro_spotify_need_premium">Spotify Premium</string>
     <string name="settings_intro_spotify_need_app">Spotify 应用</string>
 
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
     <string name="settings_intro_apple_tagline">资料库、目录</string>
     <string name="settings_intro_apple_badge">预览</string>
     <string name="settings_intro_apple_search_title">搜索</string>
@@ -189,14 +181,14 @@
     <string name="settings_intro_apple_need_sub">Apple Music 订阅</string>
     <string name="settings_intro_apple_need_token">开发者令牌服务</string>
 
-    <string name="settings_setup_section_what_you_get">你会得到</string>
-    <string name="settings_setup_section_need">你需要</string>
+    <string name="settings_setup_section_what_you_get">包含内容</string>
+    <string name="settings_setup_section_need">你需要准备</string>
     <string name="settings_setup_section_server">服务器</string>
     <string name="settings_setup_section_connect">连接</string>
     <string name="settings_setup_section_connect_spotify">连接</string>
     <string name="settings_setup_section_account">账号</string>
     <string name="settings_setup_section_account_spotify">账号</string>
-    <string name="settings_setup_password_missing">没有密码</string>
+    <string name="settings_setup_password_missing">缺少密码</string>
     <string name="settings_setup_address_label">服务器地址</string>
     <string name="settings_setup_username_label">用户名</string>
     <string name="settings_setup_username_placeholder">你的用户名</string>
@@ -207,20 +199,20 @@
     <string name="settings_setup_test">测试</string>
     <string name="settings_setup_save">保存</string>
     <string name="settings_setup_connect">连接</string>
-    <string name="settings_setup_reaching">正在联系你的服务器…</string>
+    <string name="settings_setup_reaching">正在连接服务器…</string>
     <string name="settings_setup_connecting">正在连接…</string>
     <string name="settings_setup_reachable">已找到服务器</string>
-    <string name="settings_setup_address_required">需要服务器地址</string>
-    <string name="settings_setup_username_required">需要用户名</string>
-    <string name="settings_setup_password_required">需要密码</string>
-    <string name="settings_setup_save_failed">无法保存</string>
+    <string name="settings_setup_address_required">请填写服务器地址</string>
+    <string name="settings_setup_username_required">请填写用户名</string>
+    <string name="settings_setup_password_required">请填写密码</string>
+    <string name="settings_setup_save_failed">保存失败</string>
     <string name="settings_setup_account_limit">账号已达上限</string>
     <string name="settings_setup_spotify_account_limit">账号已达上限</string>
     <string name="settings_setup_server_error">服务器返回了错误</string>
     <string name="settings_setup_http_blocked">需要 https</string>
     <string name="settings_setup_check_address">地址无效</string>
     <string name="settings_setup_unreachable">无法连接服务器</string>
-    <string name="settings_setup_spotify_need_client">请先在下面添加 Client ID。</string>
+    <string name="settings_setup_spotify_need_client">请先在下方添加 Client ID。</string>
     <string name="settings_setup_spotify_need_client_error">请先添加 Spotify Client ID</string>
     <string name="settings_setup_spotify_reconnect_body">重新登录以继续使用此账号。</string>
     <string name="settings_setup_spotify_connected">已连接。重新登录可切换 Spotify 账号。</string>
@@ -244,8 +236,7 @@
     <string name="settings_apple_status_connected_profiles">已连接</string>
     <string name="settings_apple_status_need_service">设置开发者令牌服务以连接。</string>
     <string name="settings_apple_status_authorize">在 Apple Music 中完成授权。</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
-    <string name="settings_apple_auth_start">把你的 Apple Music 资料库和播放连接到 Yoin。</string>
+    <string name="settings_apple_auth_start">将你的 Apple Music 资料库与播放连接至 Yoin。</string>
     <string name="settings_apple_status_no_token">无法连接</string>
     <string name="settings_apple_status_cancelled">无法连接</string>
     <string name="settings_apple_status_subscription">无法连接</string>
@@ -257,25 +248,25 @@
 
     <string name="settings_sync_title">云同步</string>
     <string name="settings_sync_title_bar">云同步</string>
-    <string name="settings_sync_lead">同步笔记、评分和翻译</string>
-    <string name="settings_sync_reset_on_device">云同步已关闭，Drive 数据已在 %1$s 上删除。再次开启会从这台设备重新开始。</string>
-    <string name="settings_sync_reset_other_device">云同步已关闭，Drive 数据已在另一台设备上删除。再次开启会从这台设备重新开始。</string>
-    <string name="settings_sync_section_what_you_get">你会得到</string>
-    <string name="settings_sync_benefit_notes">笔记和评分</string>
+    <string name="settings_sync_lead">同步笔记、评分与歌词翻译</string>
+    <string name="settings_sync_reset_on_device">云同步已关闭，Drive 数据已在 %1$s 上删除。再次开启会从此设备重新开始。</string>
+    <string name="settings_sync_reset_other_device">云同步已关闭，Drive 数据已在另一台设备上删除。再次开启会从此设备重新开始。</string>
+    <string name="settings_sync_section_what_you_get">包含内容</string>
+    <string name="settings_sync_benefit_notes">笔记与评分</string>
     <string name="settings_sync_benefit_translations">歌词翻译</string>
-    <string name="settings_sync_benefit_settings">你的设置</string>
-    <string name="settings_sync_benefit_offline">离线</string>
-    <string name="settings_sync_section_good_to_know">说明</string>
-    <string name="settings_sync_know_drive">存在你自己的 Google Drive 里，一个隐藏的 Yoin 文件夹。只有 Yoin 能打开。由你的 Google 账号保护，不是端到端加密，并计入你的存储空间。</string>
-    <string name="settings_sync_know_secrets">密码、登录状态和 API 密钥不会离开这台设备。服务器地址和用户名会同步，方便重新连接。</string>
-    <string name="settings_sync_know_history">收听记录留在每台设备上。</string>
-    <string name="settings_sync_play_update">更新 Google Play 服务才能使用云同步。</string>
-    <string name="settings_sync_play_missing">云同步需要 Google Play 服务，这台设备没有。</string>
-    <string name="settings_sync_unavailable">此版本的 Yoin 无法使用云同步。</string>
+    <string name="settings_sync_benefit_settings">你的偏好设置</string>
+    <string name="settings_sync_benefit_offline">离线支持</string>
+    <string name="settings_sync_section_good_to_know">须知事项</string>
+    <string name="settings_sync_know_drive">存放在你 Google Drive 的 Yoin 专属隐藏目录，仅 Yoin 可访问。受 Google 账号保护而非端到端加密，会占用网盘配额。</string>
+    <string name="settings_sync_know_secrets">密码、登录凭据和 API 密钥永不离开此设备。服务器地址与用户名会同步以加快重新连接。</string>
+    <string name="settings_sync_know_history">收听记录仅保留在本机各设备。</string>
+    <string name="settings_sync_play_update">需更新 Google Play 服务以使用云同步。</string>
+    <string name="settings_sync_play_missing">云同步需要 Google Play 服务，此设备缺少该组件。</string>
+    <string name="settings_sync_unavailable">当前版本的 Yoin 暂不支持云同步。</string>
     <string name="settings_sync_waiting_retry">正在等待 Google…</string>
     <string name="settings_sync_try_again">重试</string>
     <string name="settings_sync_waiting_turn_on">正在等待 Google…</string>
-    <string name="settings_sync_turn_on">用 Google 开启</string>
+    <string name="settings_sync_turn_on">通过 Google 开启</string>
     <string name="settings_sync_cert_unknown">未知</string>
     <string name="settings_cd_copy_build">复制版本详情</string>
     <string name="settings_sync_clip_label">Yoin 版本详情</string>
@@ -292,10 +283,10 @@
     <string name="settings_sync_turn_off_short">关闭</string>
     <string name="settings_sync_google_account">Google 账号</string>
     <string name="settings_sync_section_accounts">账号</string>
-    <string name="settings_sync_section_cloud_only">在你的 Drive 里，不在这台设备上</string>
+    <string name="settings_sync_section_cloud_only">仅在你的 Drive 中，未保存在此设备</string>
     <string name="settings_sync_section_devices">设备</string>
-    <string name="settings_sync_turn_off_title">在这台设备上关闭</string>
-    <string name="settings_sync_turn_off_summary">数据会留在这里和你的 Drive 里。其他设备继续同步。</string>
+    <string name="settings_sync_turn_off_title">在此设备上关闭</string>
+    <string name="settings_sync_turn_off_summary">数据仍会保留在此处和你的 Drive 中。其他设备继续同步。</string>
     <string name="settings_sync_delete_title">删除云端数据…</string>
     <string name="settings_sync_deleting">正在删除…</string>
     <string name="settings_cd_sync_now">立即同步</string>
@@ -306,67 +297,66 @@
     <string name="settings_sync_account_not_synced">未同步</string>
     <string name="settings_sync_account_changed">已暂停</string>
     <string name="settings_sync_start_syncing">开始同步</string>
-    <string name="settings_sync_keep_before">继续按以前的方式同步</string>
-    <string name="settings_sync_start_fresh">重新开始</string>
-    <string name="settings_sync_link_to">关联到 %1$s</string>
+    <string name="settings_sync_keep_before">继续按原有方式同步</string>
+    <string name="settings_sync_start_fresh">全新同步</string>
+    <string name="settings_sync_link_to">关联至 %1$s</string>
     <string name="settings_sync_link_menu">关联…</string>
     <string name="settings_sync_link_from">%1$s，来自 %2$s</string>
     <string name="settings_sync_link">关联</string>
     <string name="settings_sync_add">添加</string>
-    <string name="settings_sync_this_device">这台设备</string>
-    <string name="settings_sync_device_last_synced">上次同步 %1$s</string>
+    <string name="settings_sync_this_device">此设备</string>
+    <string name="settings_sync_device_last_synced">上次同步于 %1$s</string>
     <string name="settings_sync_device_never">尚未同步</string>
     <string name="settings_cd_device_options">%1$s 的更多选项</string>
     <string name="settings_sync_remove_device_menu">从同步中移除</string>
     <string name="settings_sync_what_title">同步内容</string>
-    <string name="settings_sync_what_summary">笔记、评分、译文和部分设置</string>
+    <string name="settings_sync_what_summary">笔记、评分、译文与偏好设置</string>
     <string name="settings_sync_what_syncs">会同步</string>
     <string name="settings_sync_what_notes">歌曲笔记</string>
-    <string name="settings_sync_what_ratings">歌曲和专辑评分、专辑评论</string>
-    <!-- REVIEW: 候选：首页 | 主页 | Home -->
+    <string name="settings_sync_what_ratings">歌曲和专辑评分、专辑评价</string>
     <string name="settings_sync_what_home">首页布局</string>
     <string name="settings_sync_what_translations">歌词译文</string>
-    <string name="settings_sync_what_settings">翻译语言、Spotify Client ID 和滚动边缘样式</string>
+    <string name="settings_sync_what_settings">翻译语言、Spotify Client ID 和顶部滚动边缘样式</string>
     <string name="settings_sync_what_accounts">账号名称、服务器地址</string>
-    <string name="settings_sync_what_stays">留在这台设备</string>
+    <string name="settings_sync_what_stays">留在此设备</string>
     <string name="settings_sync_what_history">收听记录</string>
-    <string name="settings_sync_what_secrets">密码、登录状态和 API 密钥</string>
-    <string name="settings_sync_what_caches">缓存和下载</string>
+    <string name="settings_sync_what_secrets">密码、登录凭据和 API 密钥</string>
+    <string name="settings_sync_what_caches">缓存与下载</string>
     <string name="settings_sync_delete_dialog_title">删除云端数据？</string>
-    <string name="settings_sync_delete_dialog_body">删除你的 Google Drive 里所有设备的 Yoin 数据，并在这些设备上关闭同步。这台设备上的数据会留下。</string>
+    <string name="settings_sync_delete_dialog_body">删除你 Google Drive 中所有设备的 Yoin 数据，并在各设备上关闭同步。此设备上的数据将保留。</string>
     <string name="settings_sync_delete_confirm">删除</string>
     <string name="settings_sync_delete_cancel">取消</string>
-    <string name="settings_sync_fresh_title">以此账号重新开始？</string>
-    <string name="settings_sync_fresh_body">“%1$s” 现在登录的是另一个账号。它以前同步的笔记和评分会从这台设备移除，之后按新账号同步。你的 Drive 和其他设备仍保留旧的。</string>
-    <string name="settings_sync_fresh_confirm">重新开始</string>
+    <string name="settings_sync_fresh_title">以此账号全新同步？</string>
+    <string name="settings_sync_fresh_body">“%1$s” 已切到新账号。此设备上旧账号同步的笔记和评分将被清除，之后仅同步新账号数据；Drive 云端和其他设备依然保留原有记录。</string>
+    <string name="settings_sync_fresh_confirm">全新同步</string>
     <string name="settings_sync_fresh_cancel">取消</string>
     <string name="settings_sync_remove_device_title">将 %1$s 从同步中移除？</string>
-    <string name="settings_sync_remove_device_body">删除你的 Google Drive 里这台设备的副本。如果它仍在同步，下次同步时会再次上传。</string>
+    <string name="settings_sync_remove_device_body">删除你的 Google Drive 中此设备的副本。若该设备仍在同步，下次同步时将重新上传。</string>
     <string name="settings_sync_remove_device_confirm">移除</string>
     <string name="settings_sync_remove_device_cancel">取消</string>
     <string name="settings_sync_review_summary">%1$s</string>
-    <string name="settings_sync_review_restore">在这里恢复</string>
+    <string name="settings_sync_review_restore">在此设备恢复</string>
     <string name="settings_sync_review_delete_all">在所有设备上删除</string>
-    <string name="settings_sync_deleted">已从你的 Google Drive 删除 Yoin 的数据</string>
-    <string name="settings_sync_delete_failed">无法删除云端数据。请检查连接后重试。</string>
+    <string name="settings_sync_deleted">已从你的 Google Drive 删除 Yoin 数据</string>
+    <string name="settings_sync_delete_failed">无法删除云端数据。请检查网络后重试。</string>
     <string name="settings_sync_turn_on_failed">无法连接 Google。请稍后再试。</string>
 
     <string name="settings_sync_relative_just_now">刚刚</string>
     <string name="settings_sync_relative_yesterday">昨天</string>
-    <string name="settings_sync_summary_off">关</string>
-    <string name="settings_sync_summary_play_update">需要更新 Google Play 服务</string>
-    <string name="settings_sync_summary_play_missing">需要 Google Play 服务</string>
-    <string name="settings_sync_summary_misconfigured">此版本不可用</string>
+    <string name="settings_sync_summary_off">关闭</string>
+    <string name="settings_sync_summary_play_update">需更新 Google Play 服务</string>
+    <string name="settings_sync_summary_play_missing">缺少 Google Play 服务</string>
+    <string name="settings_sync_summary_misconfigured">当前版本不支持</string>
     <string name="settings_sync_summary_reset_on">已在 %1$s 上关闭</string>
     <string name="settings_sync_summary_reset_other">已在另一台设备上关闭</string>
     <string name="settings_sync_summary_syncing">正在同步…</string>
     <string name="settings_sync_summary_pending">有更改待上传</string>
     <string name="settings_sync_summary_pending_offline">有更改待上传</string>
-    <string name="settings_sync_summary_synced">已同步 %1$s</string>
-    <string name="settings_sync_summary_on">开</string>
+    <string name="settings_sync_summary_synced">已同步于 %1$s</string>
+    <string name="settings_sync_summary_on">开启</string>
     <string name="settings_sync_summary_offline">离线</string>
     <string name="settings_sync_summary_reauth">重新连接 Google</string>
-    <string name="settings_sync_summary_storage">Google 存储空间已满</string>
+    <string name="settings_sync_summary_storage">Google 网盘空间告罄</string>
     <string name="settings_sync_summary_copy_removed">Drive 副本已删除</string>
     <string name="settings_sync_summary_update">更新 Yoin</string>
     <string name="settings_sync_summary_needs_review_status">待处理</string>
@@ -376,15 +366,15 @@
     <string name="settings_sync_status_pending">有更改待上传</string>
     <string name="settings_sync_status_up_to_date">已是最新</string>
     <string name="settings_sync_status_not_yet">尚未同步</string>
-    <string name="settings_sync_status_last_synced">上次同步 %1$s</string>
-    <string name="settings_sync_status_offline">连不上 Google</string>
+    <string name="settings_sync_status_last_synced">上次同步于 %1$s</string>
+    <string name="settings_sync_status_offline">无法连接 Google</string>
     <string name="settings_sync_status_paused">已暂停</string>
-    <string name="settings_sync_status_storage">Google 存储空间已满</string>
-    <string name="settings_sync_status_review">需要你处理</string>
+    <string name="settings_sync_status_storage">Google 网盘空间告罄</string>
+    <string name="settings_sync_status_review">需要你确认</string>
     <string name="settings_sync_status_removed">Drive 副本已删除</string>
     <string name="settings_sync_status_update">更新 Yoin</string>
     <string name="settings_sync_status_error">无法同步</string>
-    <string name="settings_sync_status_off">关</string>
+    <string name="settings_sync_status_off">关闭</string>
 
     <plurals name="settings_sync_relative_minutes">
         <item quantity="other">%1$d 分钟前</item>
@@ -399,15 +389,15 @@
         <item quantity="other">%1$d 条笔记</item>
     </plurals>
     <plurals name="settings_sync_summary_needs_review">
-        <item quantity="other">%1$d 条笔记不见了</item>
+        <item quantity="other">%1$d 条笔记已遗失</item>
     </plurals>
     <plurals name="settings_sync_review_row_title">
-        <item quantity="other">%1$d 条笔记在这台设备上不见了</item>
+        <item quantity="other">%1$d 条笔记在此设备上已遗失</item>
     </plurals>
     <plurals name="settings_sync_review_dialog_title">
-        <item quantity="other">%1$d 条笔记不见了</item>
+        <item quantity="other">%1$d 条笔记已遗失</item>
     </plurals>
     <plurals name="settings_sync_review_dialog_body">
-        <item quantity="other">已在这台设备上从 %1$s 移除。在这里恢复，或在所有设备上删除。</item>
+        <item quantity="other">已在此设备上从 %1$s 移除。可在此恢复，或在所有设备上删除。</item>
     </plurals>
 </resources>
