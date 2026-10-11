@@ -73,9 +73,9 @@ class PlaybackManager(
     private val _currentActivityContext = MutableStateFlow<ActivityContext>(ActivityContext.None)
     val currentActivityContext: StateFlow<ActivityContext> = _currentActivityContext.asStateFlow()
 
-    // True while [_currentActivityContext] is the one a Yoin play set, not one read from
-    // Spotify (adopted playback, or a context Spotify moved to). See [onSpotifyPlayerContext].
-    private var activityContextFromYoin: Boolean = false
+    // Keeps [_currentActivityContext] the one a Yoin play set while Spotify plays that queue,
+    // else follows what Spotify reports. See [onSpotifyPlayerContext] and [publishRemoteState].
+    private val spotifyContextSync = SpotifyContextSync()
 
     // Last context Spotify reported it's playing FROM (album / playlist / …). Used to
     // label externally-started playback. See [onSpotifyPlayerContext].
@@ -299,7 +299,7 @@ class PlaybackManager(
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         lastRecordedTrackId = null
         _currentActivityContext.value = activityContext
-        activityContextFromYoin = true
+        spotifyContextSync.onYoinStart(activityContext)
         lastKnownDurationSecById = tracks
             .mapNotNull { track -> track.durationSec?.let { track.id to it } }
             .toMap()
@@ -786,6 +786,11 @@ class PlaybackManager(
     }
 
     private fun publishRemoteState(snapshot: SpotifyRemoteSnapshot) {
+        if (snapshot.connectionPhase == ConnectionPhase.Idle || snapshot.connectionPhase == ConnectionPhase.Error) {
+            // Spotify may move on while the connection is down: what it last said it plays
+            // from no longer vouches for the songs it reports when it's back.
+            spotifyContextSync.onDisconnected()
+        }
         if (activeBackend != ActiveBackend.SPOTIFY_REMOTE && !pendingSpotifyHandoff) {
             // Warm-connect adoption: if we're idle, the active profile is
             // Spotify, and Spotify just pushed a real PlayerState (the
@@ -806,7 +811,7 @@ class PlaybackManager(
             // [onSpotifyPlayerContext] keeps it in sync as the external context changes.
             _currentActivityContext.value =
                 deriveSpotifyActivityContext(lastSpotifyContext) ?: ActivityContext.None
-            activityContextFromYoin = false
+            spotifyContextSync.followSpotify()
         }
         // Re-pin the position anchor on every real snapshot — any seek /
         // pause / resume / track change re-syncs to Spotify's authoritative
@@ -848,6 +853,15 @@ class PlaybackManager(
                     preserveLocalUiDuringSpotifyHandoff = false
                     disconnectLocalController(resetState = false)
                     activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                }
+                // Before the play is recorded: a song Spotify moved on to (outside Yoin's
+                // queue) must not count as a play of the album or artist Yoin started.
+                if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
+                    spotifyContextSync.onPlayerState(
+                        current = _currentActivityContext.value,
+                        track = snapshot.currentTrack,
+                        queue = snapshot.queue
+                    )?.let { _currentActivityContext.value = it }
                 }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
@@ -1158,23 +1172,18 @@ class PlaybackManager(
      * playing externally-started Spotify content, derive an [ActivityContext] so Now
      * Playing shows "Playing from X" instead of a bare "Now Playing".
      *
-     * Skipped while a local play() is handing off to Spotify (pendingSpotifyHandoff):
-     * play() already set a RICH context (with cover/artist) and we keep it. After the
-     * hand-off that context stays until Spotify names a different album or playlist:
-     * no context, an empty or blank uri, or one Yoin can't name (a `uris` start, an
-     * artist page's list) never replaces it ([reconcileSpotifyContext]).
+     * A context play() set (RICH: with cover/artist) is kept while Spotify plays Yoin's
+     * queue: nothing Spotify reports counts before it plays a song of that queue (a cold
+     * connect first reports what played BEFORE the start; this covers the whole hand-off),
+     * and no context, an empty or blank uri, or one Yoin can't name (a `uris` start, an
+     * artist page's list) never replaces it. A song outside the queue hands the context to
+     * Spotify ([publishRemoteState]). The rules are [SpotifyContextSync]'s.
      */
     private fun onSpotifyPlayerContext(context: SpotifyPlaybackContext?) {
         Log.d(TAG, "Spotify player context: uri=${context?.uri} title=${context?.title}")
         lastSpotifyContext = context
-        if (pendingSpotifyHandoff) return
-        val next = reconcileSpotifyContext(
-            current = _currentActivityContext.value,
-            startedInYoin = activityContextFromYoin,
-            reported = context
-        ) ?: return
-        _currentActivityContext.value = next
-        activityContextFromYoin = false
+        spotifyContextSync.onReported(_currentActivityContext.value, context)
+            ?.let { _currentActivityContext.value = it }
     }
 
     private fun selectMedia3Source(source: MusicSource) {

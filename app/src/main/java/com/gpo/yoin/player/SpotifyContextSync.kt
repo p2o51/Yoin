@@ -1,29 +1,99 @@
 package com.gpo.yoin.player
 
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 
 /**
- * What the "playing from" context becomes when Spotify reports [reported]; null keeps [current].
+ * Keeps the "playing from" context in step with what App Remote reports (its PlayerState and
+ * PlayerContext subscriptions). Each call returns the context to show, or null to keep the
+ * current one. Owned by [PlaybackManager]; main thread.
  *
- * [startedInYoin] says [current] is the context a Yoin play set (album / playlist / artist page,
- * a memory, …), not one read from Spotify. Spotify knows nothing about where such a queue came
- * from whenever it was started as a plain `uris` list (an artist page always is; an album or
- * playlist whose context start failed falls back to it), so what it reports then — no context,
- * an empty or blank uri, or one Yoin can't name — is no news and leaves Yoin's context alone.
- * Only a context Yoin can name, and a different one, replaces it: Spotify has moved on.
+ * A context a Yoin play set (album / playlist / artist page, a memory, …) names the queue Yoin
+ * handed Spotify, and it stands while Spotify plays that queue. Spotify knows nothing about where
+ * such a queue came from whenever it started as a plain `uris` list (an artist page always does;
+ * an album or playlist whose context start failed falls back to it), so what it reports then — no
+ * context, an empty or blank uri, one Yoin can't name — is no news and never replaces Yoin's.
  *
- * A context read from Spotify (adopted, externally started playback) follows Spotify as before:
- * the named context, or none.
+ * Until Spotify plays a song of Yoin's queue the start is unconfirmed: the first PlayerState and
+ * PlayerContext a cold connect delivers describe what Spotify played BEFORE the start, so nothing
+ * Spotify reports counts yet. Once confirmed:
+ * - an album or playlist Spotify names, and a different one, is shown; an unnamed report while
+ *   Spotify is still on Yoin's queue brings Yoin's back, so a stale name doesn't stick;
+ * - a song outside Yoin's queue means Spotify moved on (the user took over in the Spotify app, or
+ *   it played on past the list): from then on the context follows Spotify, as for playback adopted
+ *   from it — the album or playlist it last named on this connection, else none. A song with the
+ *   title and artist of one in Yoin's queue is that song (a copy Spotify relinked: another
+ *   market's, under another id); one Spotify relinked otherwise still plays from the album or
+ *   playlist Spotify names, so Yoin's label stays.
  */
-internal fun reconcileSpotifyContext(
-    current: ActivityContext,
-    startedInYoin: Boolean,
-    reported: SpotifyPlaybackContext?
-): ActivityContext? {
-    val named = deriveSpotifyActivityContext(reported)
-        ?: return if (startedInYoin || current == ActivityContext.None) null else ActivityContext.None
-    return named.takeUnless { spotifyContextUri(current) == spotifyContextUri(named) }
+internal class SpotifyContextSync {
+
+    /** The context a Yoin play set, while Spotify plays its queue; null while following Spotify. */
+    private var yoinContext: ActivityContext? = null
+
+    /** Spotify has played a song of Yoin's queue since the start. */
+    private var confirmed = false
+
+    /** What Spotify last said it plays from, on this connection; null once it drops. */
+    private var reported: SpotifyPlaybackContext? = null
+
+    /** A Yoin play set [context] and handed Spotify (or a local player) its queue. */
+    fun onYoinStart(context: ActivityContext) {
+        yoinContext = context
+        confirmed = false
+    }
+
+    /** Playback Spotify started on its own was adopted: its context is Spotify's to name. */
+    fun followSpotify() {
+        yoinContext = null
+        confirmed = false
+    }
+
+    /** The App Remote connection dropped (host stopped, an error): Spotify may move on unheard. */
+    fun onDisconnected() {
+        reported = null
+    }
+
+    /** Spotify reported playing [track] while Yoin mirrors [queue] for it. */
+    fun onPlayerState(current: ActivityContext, track: Track?, queue: List<Track>): ActivityContext? {
+        val yoin = yoinContext ?: return null
+        track ?: return null
+        if (queue.any { queued -> queued.isSameSongAs(track) }) {
+            if (!confirmed) {
+                confirmed = true
+                // Said before the start landed: about what Spotify played before, unless it
+                // already names Yoin's own album or playlist.
+                if (deriveSpotifyActivityContext(reported)?.namesSameAs(yoin) != true) reported = null
+            }
+            return null
+        }
+        // A song from before the start, still playing while the start lands.
+        if (!confirmed) return null
+        followSpotify()
+        val next = deriveSpotifyActivityContext(reported) ?: ActivityContext.None
+        return next.takeUnless { it.namesSameAs(current) }
+    }
+
+    /** Spotify reported playing from [context] (App Remote's PlayerContext). */
+    fun onReported(current: ActivityContext, context: SpotifyPlaybackContext?): ActivityContext? {
+        reported = context
+        val yoin = yoinContext
+        val next = when {
+            yoin == null -> deriveSpotifyActivityContext(context) ?: ActivityContext.None
+            !confirmed -> return null
+            else -> deriveSpotifyActivityContext(context)?.takeUnless { it.namesSameAs(yoin) } ?: yoin
+        }
+        return next.takeUnless { it.namesSameAs(current) }
+    }
+}
+
+/** The same song: the same id, or (a relinked copy) the same title and artist. */
+private fun Track.isSameSongAs(other: Track): Boolean {
+    if (id == other.id) return true
+    val title = title?.takeIf { it.isNotBlank() } ?: return false
+    val artist = artist?.takeIf { it.isNotBlank() } ?: return false
+    return title.equals(other.title, ignoreCase = true) && artist.equals(other.artist, ignoreCase = true)
 }
 
 /** Map a Spotify "playing from" context to an [ActivityContext]; null if unrecognised. */
@@ -42,6 +112,13 @@ internal fun deriveSpotifyActivityContext(context: SpotifyPlaybackContext?): Act
         else -> null
     }
 }
+
+/**
+ * Same context: equal, or the same Spotify album or playlist (Spotify's own reading of Yoin's
+ * album carries a bare title; Yoin's keeps its artist and cover).
+ */
+private fun ActivityContext.namesSameAs(other: ActivityContext): Boolean =
+    this == other || spotifyContextUri(this)?.let { it == spotifyContextUri(other) } == true
 
 /** URI of the Spotify album / playlist an [ActivityContext] names, to compare against Spotify's. */
 private fun spotifyContextUri(context: ActivityContext): String? = when (context) {
