@@ -47,7 +47,7 @@ class HomeAccountSwitcherMotionTest {
                         cards = cards,
                         onRequestClose = { visible = false },
                         onDismissed = { dismissed = true },
-                        onSwitch = {},
+                        onSwitch = { _, _ -> },
                         onManageAccounts = {},
                         onAddAccount = {},
                         onOpenSettings = {},
