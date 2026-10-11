@@ -409,6 +409,10 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
   - **状态优先级**和心形一样（`YoinRepository.observeAlbumSaved`，返回 `AlbumSavedState`：不支持 / 未知 / 已保存 / 未保存）：写入中 > 60 秒宽限内刚落地的本地写 > 远端答复和镜像行（比时间戳）> 未知。只在内存里，切账号清空（回到未知，等这页再问）。
   - **Library 当场跟上**（2026-10-11 评审修复）：写入落地、镜像更新之后，仓库按 profile 发一次 `libraryAlbumsRevision`。Library 收到后只从镜像重读专辑（`getSpotifyLocalSearchSnapshot`，不做新鲜度检查、不触发同步、不发请求），All 和 Albums 里保存的专辑用条目弹簧进场，移出的淡出；资料库范围的搜索也以镜像为准，屏幕上有资料库搜索时重跑一次，移出的专辑不再留在结果里。没有借 `libraryRevision`：那会让 Library 整库重读，Spotify 读前查新鲜度，超过 1 小时就整库重同步（最多 16 页），限流期间不允许。Home 的 Recently added 仍要等它下次读取才看到。
 
+### 🎼 歌单详情
+
+- **曲目行的笔记标记（2026-10-11，T4）**：有笔记的曲目在行标题后面挂和专辑曲目行一样的笔记小图标（12dp `YoinSymbols.Note`，页面 accent 色、0.8 透明度，TalkBack 读 "Has note"）。独立的歌单 Activity 和同窗分列的详情列都一样；笔记写入后实时出现。Hero 里的流动标题不加标记（刻意的设计）。歌单本身没有 Memory。
+
 ### ⚙️ 设置（从主页或 Library 进入）
 
 - 服务器配置（Subsonic/Navidrome 地址、认证）
