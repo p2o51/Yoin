@@ -130,20 +130,21 @@ class SpotifyMusicSource(
             return mapped.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
         }
 
-        // No savedAlbumIds(): neither the album page nor anything else reads
-        // an album's own saved state from here — it cost up to 4 pages cold.
+        // The album's own requests only. Its tracks' likes are the ones the
+        // saved-tracks list on hand holds ([knownSavedTrackIds]): the page's
+        // hearts come from YoinRepository.observeFavoriteStates (the synced
+        // mirror, then contains after the page is out), so waiting for a
+        // cold list — up to 4 pages after a process start — only held the
+        // page back, and its failure failed the open. No savedAlbumIds()
+        // either: nothing reads an album's own saved state from here.
         override suspend fun getAlbum(id: MediaId): Album? = withSpotifyId(id) { rawId ->
-            supervisorScope {
-                val savedTrackIds = async { savedTrackIds() }
-                val album = orNullIfNotFound { apiClient.getAlbum(rawId) }
-                    ?: return@supervisorScope cancelAndReturnNull()
-                // The album object embeds its first page of tracks: usually all of them.
-                val tracks = apiClient.getAlbumTracks(rawId, firstPage = album.tracks)
-                album.toAlbum(
-                    savedTrackIds = savedTrackIds.await(),
-                    tracksOverride = tracks,
-                )
-            }
+            val album = orNullIfNotFound { apiClient.getAlbum(rawId) } ?: return@withSpotifyId null
+            // The album object embeds its first page of tracks: usually all of them.
+            val tracks = apiClient.getAlbumTracks(rawId, firstPage = album.tracks)
+            album.toAlbum(
+                savedTrackIds = knownSavedTrackIds(),
+                tracksOverride = tracks,
+            )
         }
 
         override suspend fun getArtists(): List<ArtistIndex> =
@@ -178,9 +179,9 @@ class SpotifyMusicSource(
                 }
         }
 
+        // Likes as on hand, like getAlbum: the playlist page draws no hearts.
         override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
             supervisorScope {
-                val savedTrackIds = async { savedTrackIds() }
                 val meId = async { apiClient.getCurrentUserId() }
                 val playlist = orNullIfNotFound { apiClient.getPlaylist(rawId) }
                 if (playlist == null) {
@@ -189,7 +190,7 @@ class SpotifyMusicSource(
                 }
                 // Starts from the first page the playlist object embeds, when it does.
                 val indexedTracks = apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
-                    .toTracksWithPlaylistOffsets(savedTrackIds = savedTrackIds.await())
+                    .toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
                 playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
                 playlist.toPlaylist(
                     tracks = indexedTracks.map { it.second },
@@ -232,11 +233,15 @@ class SpotifyMusicSource(
         // holds the likes written since the last sync. A list of the source's
         // own would page /me/tracks again and miss those likes.
 
+        // The one search request. Its rows show no saved or followed marks,
+        // so they are the ones on hand: reading the three lists cold first
+        // paged /me/tracks, /me/albums and /me/following in turn (12 requests)
+        // before any result showed, and one of them failing failed the search.
         override suspend fun search(query: String): SearchResults =
             apiClient.search(query = query).toSearchResults(
-                savedTrackIds = savedTrackIds(),
-                savedAlbumIds = savedAlbumIds(),
-                followedArtistIds = followedArtistIds(),
+                savedTrackIds = knownSavedTrackIds(),
+                savedAlbumIds = knownSavedAlbumIds(),
+                followedArtistIds = knownFollowedArtistIds(),
             )
     }
 
@@ -538,8 +543,8 @@ class SpotifyMusicSource(
      *
      * [keepRecentLoads]: a list read already out that started within
      * [LIBRARY_LOAD_JOIN_WINDOW_MS] is kept and joined rather than read again
-     * beside it — a TTL re-sync landing on the saved-tracks read an album
-     * open just started. Only when no write can predate those reads: a
+     * beside it — a TTL re-sync landing on a read of the same list started
+     * moments before. Only when no write can predate those reads: a
      * playlist or follow write drops its list's read in flight as it lands,
      * but a like is only laid over the list, so not while one is unsettled.
      */
@@ -586,6 +591,20 @@ class SpotifyMusicSource(
 
     private suspend fun followedArtistIds(): Set<String> =
         followedArtists().mapTo(linkedSetOf(), SpotifyArtistObject::id)
+
+    // The *Ids() above without a request: the lists this process already
+    // read (a library sync, a profile switch's prime), with the writes made
+    // through this source laid over them; with no list read yet, those writes.
+    private fun knownSavedTrackIds(): Set<String> = savedTrackDelta.applyTo(
+        savedTracksCache.peek()?.mapNotNullTo(linkedSetOf()) { savedTrack -> savedTrack.track?.id }.orEmpty()
+    )
+
+    private fun knownSavedAlbumIds(): Set<String> = savedAlbumDelta.applyTo(
+        savedAlbumsCache.peek()?.mapNotNullTo(linkedSetOf()) { savedAlbum -> savedAlbum.album?.id }.orEmpty()
+    )
+
+    private fun knownFollowedArtistIds(): Set<String> =
+        followedArtistsCache.peek()?.mapTo(linkedSetOf(), SpotifyArtistObject::id).orEmpty()
 
     private suspend fun libraryArtists(): List<com.gpo.yoin.data.model.Artist> {
         val followed = followedArtists()

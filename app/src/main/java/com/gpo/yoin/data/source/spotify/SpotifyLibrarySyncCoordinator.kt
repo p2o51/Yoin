@@ -233,9 +233,10 @@ class SpotifyLibrarySyncCoordinator(
         // written since that warm-up: the starred tracks stored below come from
         // the saved-tracks list, and the warm one predates the like.
         //
-        // A TTL re-sync joins a list read that started moments ago (an album
-        // open's saved-tracks read on the same cold start) instead of paging
-        // the list a second time beside it. Not while a like is unsettled —
+        // A TTL re-sync joins a list read that started moments ago instead of
+        // paging the list a second time beside it (an album, playlist or
+        // search open no longer starts one: they take the lists on hand).
+        // Not while a like is unsettled —
         // that read may predate it — and not on a forced refresh.
         // Taken before any list is read: writes after these are newer than the lists.
         val albumsCheckpoint = pendingAlbums.checkpoint()
