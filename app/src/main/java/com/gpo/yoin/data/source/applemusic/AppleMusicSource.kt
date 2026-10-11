@@ -67,7 +67,8 @@ class AppleMusicSource(
     // Apple answered recent/played's catalog include with a 400: later reads leave it out.
     @Volatile private var recentPlayedRefusesCatalog = false
 
-    // Apple answered a catalog album's include[songs]=…,library with a 400: later albums leave `library` out.
+    // Apple answered a catalog album's include[songs]=…,library with a 400 and the same read without the songs'
+    // `library` with the album: later albums leave it out.
     @Volatile private var albumSongsRefuseLibrary = false
     private val libraryMutationMutex = Mutex()
     private val pendingLibraryAdds = ConcurrentHashMap.newKeySet<String>()
@@ -251,17 +252,33 @@ class AppleMusicSource(
             page(path, query, personal = true)
         } catch (error: AppleMusicApiException) {
             if (error.failsCatalogToo()) throw error
-            // Refused with a 400, the songs' `library` costs this album its one-request read, not the next one's.
+            var failure = error
+            // A 400 may be Apple refusing the songs' `library`, or one of the 400s the reads below were built
+            // for: the album's own `library` lookup, or the songs' albums and artists. Only the same read without
+            // the songs' `library` tells them apart, and only its answer stops later albums asking for it.
             val refused = (error.failure as? AppleMusicApiFailure.Http)?.status == 400
-            if (query === CatalogAlbumWithSongLibraryQuery && refused) albumSongsRefuseLibrary = true
-            // Nothing read below asks for the songs' relationships, so the tracklist is a request of its own:
-            // start it now instead of after the album.
-            tracklistRead = async { attempt { catalogTracks(path) } }
-            personalAlbumWithoutSongs(path, error) ?: run {
-                // Membership only marks rows. Apple fails this personal lookup with 400, and with 500 for catalog
-                // albums it serves fine without it (207192046 from search, 2026-10-09): open the album unmarked.
-                libraryKnown = false
-                page(path, mapOf("include" to "artists"))
+            val withoutSongsLibrary = if (query === CatalogAlbumWithSongLibraryQuery && refused) {
+                try {
+                    page(path, CatalogAlbumWithSongsQuery, personal = true).also { albumSongsRefuseLibrary = true }
+                } catch (retryError: AppleMusicApiException) {
+                    if (retryError.failsCatalogToo()) throw retryError
+                    failure = retryError
+                    null
+                }
+            } else {
+                null
+            }
+            withoutSongsLibrary ?: run {
+                // Nothing read below asks for the songs' relationships, so the tracklist is a request of its
+                // own: start it now instead of after the album.
+                tracklistRead = async { attempt { catalogTracks(path) } }
+                personalAlbumWithoutSongs(path, failure) ?: run {
+                    // Membership only marks rows. Apple fails this personal lookup with 400, and with 500 for
+                    // catalog albums it serves fine without it (207192046 from search, 2026-10-09): open the
+                    // album unmarked.
+                    libraryKnown = false
+                    page(path, mapOf("include" to "artists"))
+                }
             }
         }
         val resource = response.resources().firstOrNull() ?: run {
