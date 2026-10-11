@@ -304,6 +304,7 @@ class HomeViewModel(
                 .collect { (profileId, layout) ->
                     _homeLayout.value = layout
                     layoutReadFor.value = profileId
+                    if (!profileId.isNullOrBlank()) homeLayoutCache[profileId] = layout
                 }
         }
     }
@@ -604,6 +605,7 @@ class HomeViewModel(
                 val snapshot = if (cachedHomeContent == null) paintableSnapshot(providerId, profileId) else null
                 when {
                     cachedHomeContent != null -> {
+                        awaitOwnLayout(profileId)
                         emit(cachedHomeContent, profileId, perfSrc = "mem")
                         contentScopeKey = scopeKey
                         // This process's own feed is newer than any snapshot.
@@ -880,6 +882,26 @@ class HomeViewModel(
         if (layoutReadFor.value == profileId) return
         _homeLayout.value = layout
         layoutReadFor.value = profileId
+        homeLayoutCache[profileId] = layout
+    }
+
+    /**
+     * Before [profileId]'s feed from this process's cache paints (an account
+     * switched back to): put that account's own layout up first. Painted in
+     * the outgoing account's sections, the feed would rearrange as soon as
+     * its own landed — sections springing through each other. This process
+     * has usually seen it ([homeLayoutCache]); else its first read is waited
+     * for, as long as a snapshot's read at most.
+     */
+    private suspend fun awaitOwnLayout(profileId: String?) {
+        val id = profileId?.takeIf(String::isNotBlank) ?: return
+        if (layoutReadFor.value == id) return
+        val seen = homeLayoutCache[id]
+        if (seen != null) {
+            adoptLayout(id, seen)
+            return
+        }
+        withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) { layoutReadFor.first { layoutProfileId -> layoutProfileId == id } }
     }
 
     /**
@@ -2283,6 +2305,11 @@ class HomeViewModel(
         private val MemoryDateFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("MMM d", Locale.US)
         private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
+
+        // Each account's home layout as last read in this process, per
+        // profile id: a feed painted from [homeContentCache] goes up in its
+        // own account's layout at once ([awaitOwnLayout]).
+        private val homeLayoutCache = mutableMapOf<String, HomeLayout>()
 
         // What a scope's content up, or in [homeContentCache], still has of
         // its snapshot — with the cache, as long as the process (a ViewModel

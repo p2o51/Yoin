@@ -45,7 +45,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -2166,6 +2168,61 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun should_paintTheCachedFeedInItsOwnLayout_when_switchingBackToAnAccountInTheProcess() = runTest {
+        // QA P9b-3: back to an account this process already loaded, its feed
+        // painted from the cache in the outgoing account's sections, then its
+        // own layout landed and the sections sprang through each other. Now
+        // the account's own layout is up before its feed.
+        val first = "subsonic-cache-layout-a"
+        val second = "subsonic-cache-layout-b"
+        val firstLayout = HomeLayout.Default.toPrefs().reversed()
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>(first)
+        val switching = MutableStateFlow<ProfileManager.SwitchState>(ProfileManager.SwitchState.Idle)
+        val repository = scopedRepository(first, provider)
+        val layouts = mockk<HomeLayoutStore>(relaxed = true).also { store ->
+            // Room's answer for the account's own row reaches Home a beat after its feed.
+            every { store.layoutFlow(first) } returns flow {
+                delay(LATE_LAYOUT_MS)
+                emit(firstLayout)
+            }
+            every { store.layoutFlow(second) } returns flowOf(null)
+        }
+        val viewModel = HomeViewModel(
+            repository = repository,
+            activeProfileId = profileId,
+            homeLayoutStore = layouts,
+            switchingState = switching
+        )
+        val painted = mutableListOf<Pair<HomeUiState.Content, HomeLayout>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state ->
+                if (state is HomeUiState.Content) painted += state to viewModel.homeLayout.value
+            }
+        }
+        advanceUntilIdle()
+
+        switching.value = ProfileManager.SwitchState.Switching(second, ProfileManager.SwitchState.Stage.Priming)
+        runCurrent()
+        profileId.value = second
+        switching.value = ProfileManager.SwitchState.Idle
+        advanceUntilIdle()
+        assertEquals(second, painted.last().first.ownerProfileId)
+
+        painted.clear()
+        switching.value = ProfileManager.SwitchState.Switching(first, ProfileManager.SwitchState.Stage.Priming)
+        runCurrent()
+        profileId.value = first
+        switching.value = ProfileManager.SwitchState.Idle
+        runCurrent()
+        // The cached feed is up at once, in its own sections.
+        assertEquals(first, painted.first().first.ownerProfileId)
+        advanceUntilIdle()
+        assertTrue(painted.isNotEmpty())
+        assertTrue(painted.all { (_, layout) -> layout.sameSectionsAs(HomeLayout.reconcile(firstLayout)) })
+    }
+
+    @Test
     fun should_keepJbiCovers_when_aReloadCannotReadThePools() = runTest {
         // A reload whose pool reads fail keeps the covers up, and doesn't take
         // the failure for "no fresh pools": no rotation (no network) on it.
@@ -2599,6 +2656,9 @@ class HomeViewModelTest {
         // Rediscover's fixed clock.
         const val NOW = 1_800_000_000_000L
         const val DAY = 24L * 60 * 60 * 1000
+
+        // An account's layout read landing a beat after its feed.
+        const val LATE_LAYOUT_MS = 150L
     }
 
     private fun savedTrack(rawId: String, addedAt: String): Track = Track(
