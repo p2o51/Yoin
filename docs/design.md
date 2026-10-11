@@ -324,7 +324,14 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 收藏按钮（心形图标，位于评分条下方）
 - 歌词同步显示区域（位于控制区上方，逐行高亮）
 - **底部操作胶囊 (Pills)**：设备投射（Chromecast/Sonos）、播放队列、笔记等次级入口
-- **播放队列（2026-10-06 owner Q1：独立的 Queue 按钮 + 底部弹层，UX 照 Spotify，UI 好看一点、不复杂，`QueueSheet`）**：顶上「Playing from · 专辑 / 歌单名」（没有来源时写 Queue），然后三段：Now playing（当前这首，主色 + 跳动的均衡器）、Next in queue（用户 Play next / Add to queue 加进来的，右侧 Clear）、Next from: 专辑名（其余的，按真实播放顺序，随机时也是）。播过的不显示。点一行即播那首。行高固定 64dp：48dp 封面 + 标题 / 歌手 + 右侧拖动把手；按住把手拖动只在本段内换顺序（行抬起到 surfaceContainerHighest，邻行用空间弹簧让位，松手那一帧直接换成新顺序，不回弹再滑）；向左滑移除（errorContainer + 删除图标）。Add to queue 按 Spotify 语义排在「你已经加的」之后、专辑剩余之前，Play next 紧跟当前这首。能力随后端：Subsonic 全部可改；Apple Music 只能移除（MusicKit 不支持移动）；Spotify 只读（App Remote 不能改用户队列）；随机播放时不能拖动（列表顺序不是播放顺序）。条目的稳定 id 和「用户加的」标记存在 MediaItem extras 里。原型里的「NP 内 Queue 页签」方案已被否（16:9 屏会被挡、不能左右滑）。
+- **播放队列（2026-10-06 owner Q1：独立的 Queue 按钮 + 底部弹层，UX 照 Spotify，UI 好看一点、不复杂，`QueueSheet`）**：顶上「Playing from · 专辑 / 歌单 / 歌手名」（没有来源时写 Queue；歌手见下条 T6），然后三段：Now playing（当前这首，主色 + 跳动的均衡器）、Next in queue（用户 Play next / Add to queue 加进来的，右侧 Clear）、Next from: 专辑 / 歌单 / 歌手名（其余的，按真实播放顺序，随机时也是；三种来源各用自己的字符串）。播过的不显示。点一行即播那首。行高固定 64dp：48dp 封面 + 标题 / 歌手 + 右侧拖动把手；按住把手拖动只在本段内换顺序（行抬起到 surfaceContainerHighest，邻行用空间弹簧让位，松手那一帧直接换成新顺序，不回弹再滑）；向左滑移除（errorContainer + 删除图标）。Add to queue 按 Spotify 语义排在「你已经加的」之后、专辑剩余之前，Play next 紧跟当前这首。能力随后端：Subsonic 全部可改；Apple Music 只能移除（MusicKit 不支持移动）；Spotify 只读（App Remote 不能改用户队列）；随机播放时不能拖动（列表顺序不是播放顺序）。条目的稳定 id 和「用户加的」标记存在 MediaItem extras 里。原型里的「NP 内 Queue 页签」方案已被否（16:9 屏会被挡、不能左右滑）。
+- **「Playing from」的来源（2026-10-11 owner 拍板，T6）**：
+  - **歌手页**：Play / Shuffle / Most Played 起播都带歌手上下文（`ActivityContext.Artist`）。NP 页头的两种状态（完整页头和停靠页头）都写 PLAYING FROM ARTIST / 来自歌手 + 歌手名，队列顶上是歌手名，「Next from」用歌手自己的字符串（`cmp_queue_next_from_artist`）。Spotify 仍按 `uris` 列表起播：Spotify 的歌手上下文是歌手电台，不是 Yoin 列出的顺序。
+  - **首页的单曲卡保持只播这一首**，不带来源。Memories 起播的专辑、歌单用完整的 MediaId（`provider:rawId`），歌手用 `MediaId.toString()`，不用裸 id。
+  - **Yoin 设定的来源不被 Spotify 的空话盖掉**（`SpotifyContextSync`）：Yoin 起播时设的来源（专辑 / 歌单 / 歌手 / Liked Songs / 记忆）代表交给 Spotify 的那份队列，Spotify 播这份队列期间一直显示它。Spotify 报来的上下文为空、uri 为空或空白、或是 Yoin 认不出的（`uris` 起播本来就没有上下文；歌手电台；Yoin 起播的不是 Liked Songs 时的收藏），都不算数，绝不覆盖 Yoin 的。原始 uri 和 title 打 `Log.d`。
+  - **起播确认**：Spotify 还没播到 Yoin 队列里的歌之前，它报的一切都不算（冷连接先报的是起播前在放的东西），这期间也不记播放。Spotify 显然已经走开时才放手：在这条连接上第一次听到 Spotify 15 秒后、又来一首队列外的歌，或者已是第 3 首队列外的歌（起播在后台被用户在 Spotify 里盖掉，或者根本没落地），来源改为跟随 Spotify。
+  - **确认之后**：Spotify 报出另一个专辑或歌单，就显示它；还在 Yoin 队列里时报来的空话，把 Yoin 的来源带回来。放到 Yoin 队列以外的歌，表示 Spotify 走开了（用户在 Spotify 里接手，或播过了列表），此后来源跟随 Spotify：它这条连接上最后报的专辑或歌单，没有就是无。同名同歌手的歌算同一首（Spotify 换了市场版本、换了 id）；Spotify 仍报着 Yoin 的专辑或歌单时，标签保持 Yoin 那份带封面的。Liked Songs 只交给 Spotify 点中那首前后最多 100 首，但起播的是整个收藏：Spotify 报 `spotify:collection:tracks`、`spotify:user:<id>:collection` 这类收藏上下文时，算作 Yoin 的 Liked Songs，播出这 100 首也不算走开。
+  - **断线重连**：断线期间 Spotify 可能已经换了内容，所以旧的上报作废。重连后 PlayerState 先于 PlayerContext 到达，队列外的歌要等 Spotify 新报的上下文（最多 2 秒）再决定交不交接：还是 Yoin 的专辑、歌单（300 首以上的歌单随机播到 Yoin 没镜像的部分）或收藏，就保留 Yoin 的来源；这首歌等来源定下来再记播放。
 - **背景**：两个暗色调的微妙渐变（渐变过渡极其平滑，几乎感觉是纯色）+ 实时音频可视化（与背景融为一体，有呼吸感）
 - **退出**：下滑手势 / 系统返回键（适配 Android 14+ Predictive Back，缩回时有连贯的预览动画）
 - **断点**（2026-09-30，`NowPlayingPresentation`）：
