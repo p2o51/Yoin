@@ -229,6 +229,43 @@ class AppleMusicSourceTest {
         assertEquals(0, server.requestCount)
     }
 
+    @Test fun should_refuseWithTheImportMessage_when_anImportComesWithAnEmptyCatalog() = runTest {
+        // Library › Songs includes `catalog`, which Apple answers empty for an import as well.
+        val track = AppleMusicSong.fromJson(
+            Json.parseToJsonElement(
+                """{"id": "i.import", "type": "library-songs", "attributes": {"name": "Imported"},
+                 "relationships": {"catalog": {"data": []}}}"""
+            ).jsonObject
+        ).toTrack()
+        // A row an earlier build marked both ways is still refused as the import it is.
+        val marked = track.copy(extras = track.extras + (AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE to "true"))
+
+        assertNull(track.extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE])
+        assertTrue(track.isUnplayableAppleImport)
+        listOf(track, marked).forEach { row ->
+            val failure = runCatching { source.handleFor(row) }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure!!.message!!.contains("imported song"))
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun should_refuseWithoutTextOfItsOwn_when_theStorefrontHasNoCatalogSong() = runTest {
+        // The refusal adds no English-only line: PlaybackManager shows its localized "Unable to play this song".
+        val pulled = AppleMusicSong.fromJson(
+            Json.parseToJsonElement(
+                """{"id": "i.pulled", "type": "library-songs", "attributes": {"playParams": {"catalogId": "321"}},
+                 "relationships": {"catalog": {"data": []}}}"""
+            ).jsonObject
+        ).toTrack()
+
+        val failure = runCatching { source.handleFor(pulled) }.exceptionOrNull()
+
+        assertEquals("true", pulled.extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE])
+        assertTrue(failure is IllegalArgumentException)
+        assertNull(failure!!.message)
+    }
+
     // PlaybackManager leaves isUnplayableAppleImport tracks out before MusicKit
     // sees them: the predicate must name exactly the tracks handleFor refuses.
     @Test fun should_refuseExactlyTheTracksMarkedUnplayable_when_resolvingPlayback() = runTest {

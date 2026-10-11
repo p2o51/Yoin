@@ -1,6 +1,7 @@
 package com.gpo.yoin.player
 
 import android.content.Context
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Track
@@ -50,10 +51,11 @@ class PlaybackManagerAppleImportTest {
         runBlocking { runCatching { apple.handleFor(import("any")) } }.exceptionOrNull()?.message.orEmpty()
     }
 
-    /** What the real source says when handed a song its storefront has no catalog song for. */
-    private val pulledError: String by lazy {
-        runBlocking { runCatching { apple.handleFor(pulled("any")) } }.exceptionOrNull()?.message.orEmpty()
-    }
+    /**
+     * What the manager shows for a song its storefront has no catalog song for: its own localized line, since
+     * the real source refuses it without text.
+     */
+    private val playFailed = "Unable to play this song"
 
     /** Every track the manager asked the source to resolve, in order. */
     private val resolved = mutableListOf<Track>()
@@ -73,7 +75,9 @@ class PlaybackManagerAppleImportTest {
     // Lazy: the manager's scope runs on Main, which the rule installs only once a test starts.
     private val manager by lazy {
         PlaybackManager(
-            context = mockk<Context>(relaxed = true),
+            context = mockk<Context>(relaxed = true).also {
+                every { it.getString(R.string.player_play_failed) } returns playFailed
+            },
             repository = repository,
             castManager = null,
             spotifyClientIdProvider = { "test-client" }
@@ -129,7 +133,7 @@ class PlaybackManagerAppleImportTest {
         )
 
         assertEquals(listOf(tapped, catalog("1"), tapped, catalog("3")), resolved)
-        assertNotEquals(pulledError, manager.playbackState.value.connectionErrorMessage)
+        assertNotEquals(playFailed, manager.playbackState.value.connectionErrorMessage)
     }
 
     @Test
@@ -139,10 +143,23 @@ class PlaybackManagerAppleImportTest {
         manager.play(listOf(catalog("1"), tapped, catalog("2")), startIndex = 1, source = source)
 
         val state = manager.playbackState.value
-        assertTrue(pulledError.isNotEmpty())
         assertEquals(ConnectionPhase.Error, state.connectionPhase)
-        assertEquals(pulledError, state.connectionErrorMessage)
+        assertEquals(playFailed, state.connectionErrorMessage)
         // Nothing else was started in its place.
+        assertEquals(listOf(tapped), resolved)
+    }
+
+    @Test
+    fun should_reportTheImportError_when_tappedImportIsAlsoMarkedUnavailable() {
+        // An import row an earlier build of the Songs read marked as missing from the storefront too.
+        val tapped = import("a").copy(extras = mapOf("appleMusicCatalogUnavailable" to "true"))
+        assertTrue(importError.isNotEmpty())
+
+        manager.play(listOf(catalog("1"), tapped, catalog("2")), startIndex = 1, source = source)
+
+        val state = manager.playbackState.value
+        assertEquals(ConnectionPhase.Error, state.connectionPhase)
+        assertEquals(importError, state.connectionErrorMessage)
         assertEquals(listOf(tapped), resolved)
     }
 

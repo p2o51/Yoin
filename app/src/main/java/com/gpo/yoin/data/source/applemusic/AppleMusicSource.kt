@@ -585,12 +585,11 @@ class AppleMusicSource(
     ): Result<String?> = unsupported()
     override suspend fun handleFor(track: Track): PlaybackHandle {
         require(track.id.provider == id)
-        // Handed over anyway, MusicKit would drop the id and start a song further on.
-        require(track.extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE] != "true") {
-            "This song has no Apple Music catalog version in your storefront."
-        }
         val catalogId = track.extras["appleMusicCatalogId"] ?: track.id.rawId.takeIf { it.matches(Regex("[0-9]+")) }
         requireNotNull(catalogId) { "This imported song has no Apple Music catalog version. Play it in Apple Music." }
+        // Handed over anyway, MusicKit would drop the id and start a song further on. The refusal carries no
+        // text of its own, so PlaybackManager shows its localized "Unable to play this song" for it.
+        if (track.extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE] == "true") throw IllegalArgumentException()
         return PlaybackHandle.ExternalController(PlaybackHandle.ControllerType.APPLE_MUSIC_KIT, catalogId)
     }
 

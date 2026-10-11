@@ -25,10 +25,11 @@ data class AppleMusicSong(
     val albumId: MediaId? = null,
     val artistId: MediaId? = null,
     /**
-     * A library song whose `catalog` relationship Apple answered with no catalog song: the
-     * storefront has none, whatever catalog id its play parameters still name (a song since
+     * A library song whose `catalog` relationship Apple answered with no catalog song while its
+     * play parameters still name a catalog id: the storefront has none for it (a song since
      * pulled, or one from another storefront). MusicKit drops such an id from a queue without a
-     * word, so a start index past it lands that many songs further on.
+     * word, so a start index past it lands that many songs further on. An import, which names no
+     * catalog id, is never this.
      */
     val catalogUnavailable: Boolean = false,
     /**
@@ -87,17 +88,18 @@ data class AppleMusicSong(
             val libraryRelationship = resource["relationships"]?.jsonObject?.get("library")?.jsonObject
                 ?.get("data") as? JsonArray
             val library = libraryRelationship?.firstOrNull()?.jsonObject
+            val catalogId = if (type == "songs") {
+                id
+            } else {
+                catalog?.string("id")
+                    ?: attributes?.get("playParams")?.jsonObject?.string("catalogId")
+            }
             return AppleMusicSong(
                 resourceId = id,
                 libraryId = if (type == "library-songs") id else {
                     library?.takeIf { it.string("type") == "library-songs" }?.string("id")
                 },
-                catalogId = if (type == "songs") {
-                    id
-                } else {
-                    catalog?.string("id")
-                        ?: attributes?.get("playParams")?.jsonObject?.string("catalogId")
-                },
+                catalogId = catalogId,
                 title = attributes?.string("name"),
                 artist = attributes?.string("artistName"),
                 album = attributes?.string("albumName"),
@@ -106,7 +108,9 @@ data class AppleMusicSong(
                 trackNumber = attributes?.get("trackNumber")?.jsonPrimitive?.intOrNull,
                 albumId = relatedId(resource, "albums") ?: catalog?.let { relatedId(it, "albums") },
                 artistId = relatedId(resource, "artists") ?: catalog?.let { relatedId(it, "artists") },
-                catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true,
+                // An import answers the relationship empty as well, but names no catalog id: it stays an import.
+                catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true &&
+                    catalogId != null,
                 libraryChecked = type == "songs" && libraryRelationship != null
             )
         }
