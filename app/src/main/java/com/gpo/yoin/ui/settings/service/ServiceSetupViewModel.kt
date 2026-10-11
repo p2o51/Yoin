@@ -68,7 +68,8 @@ class ServiceSetupViewModel(
             accountIssue = when (status) {
                 SpotifyProviderStatus.SpotifyAppMissing -> UiText.Res(R.string.settings_spotify_install)
                 SpotifyProviderStatus.NoPremium -> UiText.Res(R.string.settings_spotify_premium_required)
-                is SpotifyProviderStatus.AuthFailure -> UiText.Res(R.string.settings_account_reconnect)
+                // The Spotify app's own sign-in, not Yoin's: not "Reconnect".
+                is SpotifyProviderStatus.AuthFailure -> UiText.Res(R.string.settings_spotify_app_sign_in)
                 else -> null
             },
             needsReconnect = needsReconnect,

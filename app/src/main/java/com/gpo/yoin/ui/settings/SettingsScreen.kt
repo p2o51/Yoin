@@ -1737,13 +1737,15 @@ private fun formatBytes(bytes: Long, resources: android.content.res.Resources): 
     else -> resources.getString(R.string.settings_cache_gb, bytes / 1_073_741_824.0)
 }
 
+/** An account card's [ProfileCard.unavailableReason] in the app's language (Settings' pill, Home's switcher rows). */
 @Composable
-private fun accountIssueLabel(reason: String): String = when (reason) {
+internal fun accountIssueLabel(reason: String): String = when (reason) {
     "No Client ID" -> stringResource(R.string.settings_spotify_no_client_id)
     "Install Spotify" -> stringResource(R.string.settings_spotify_install)
     "Premium required" -> stringResource(R.string.settings_spotify_premium_required)
     "Reconnect" -> stringResource(R.string.settings_account_reconnect)
     "Restore sign-in" -> stringResource(R.string.settings_spotify_restore_sign_in)
+    "Sign in to Spotify app" -> stringResource(R.string.settings_spotify_app_sign_in)
     "Credentials missing" -> stringResource(R.string.settings_account_credentials_missing)
     else -> reason
 }

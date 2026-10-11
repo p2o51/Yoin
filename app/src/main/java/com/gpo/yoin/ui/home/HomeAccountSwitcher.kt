@@ -128,6 +128,7 @@ import com.gpo.yoin.ui.settings.SelectableSegment
 import com.gpo.yoin.ui.settings.ServiceLine
 import com.gpo.yoin.ui.settings.SettingsItem
 import com.gpo.yoin.ui.settings.SettingsSegments
+import com.gpo.yoin.ui.settings.accountIssueLabel
 import com.gpo.yoin.ui.settings.face
 import com.gpo.yoin.ui.settings.monogramOf
 import com.gpo.yoin.ui.settings.profileCardsFlow
@@ -1437,7 +1438,8 @@ private fun AccountRow(
             val reason = card.unavailableReason
             if (reason != null) {
                 Text(
-                    text = reason,
+                    // In the app's language, as Settings' pill says it.
+                    text = accountIssueLabel(reason),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     maxLines = 1,

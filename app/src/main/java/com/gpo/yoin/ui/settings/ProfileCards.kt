@@ -8,14 +8,20 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.profile.needsReconnect
 import java.net.URI
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 
 // The account cards Settings lists and Home's account switcher shows: one
 // mapping from a profile to its card (name, service line, avatar shape and
 // picture, and why it can't be used right now), so the two never disagree.
 
-/** The accounts as cards, active one marked, avatar shapes distinct. */
+/**
+ * The accounts as cards, active one marked, avatar shapes distinct. Mapped
+ * off the main thread: each card reads its account's stored credentials (a
+ * file and a Keystore decrypt), and every Reconnect reads them all again.
+ */
 internal fun profileCardsFlow(container: AppContainer): Flow<List<ProfileCard>> = combine(
     container.profileManager.profiles,
     container.profileAvatarStore.urls,
@@ -35,7 +41,7 @@ internal fun profileCardsFlow(container: AppContainer): Flow<List<ProfileCard>> 
             avatarShape = avatarShapes[it.id] ?: 0,
         ).copy(photoUrl = avatarUrls[it.id])
     }
-}
+}.flowOn(Dispatchers.IO)
 
 internal fun Profile.toProfileCard(
     profileManager: ProfileManager,
@@ -44,8 +50,9 @@ internal fun Profile.toProfileCard(
     avatarShape: Int,
 ): ProfileCard {
     val provider = ProviderKind.fromKeyOrSubsonic(provider)
-    // Read once: the card's name and whether the account needs its owner.
-    val credentials = profileManager.decodeCredentials(this)
+    // Read once, and only for the services whose card says something from
+    // them (Subsonic's name, either's "needs its owner"): not Apple Music's.
+    val credentials by lazy(LazyThreadSafetyMode.NONE) { profileManager.decodeCredentials(this) }
     // Subsonic: lead with the username, the server's host goes on the
     // service line ("Subsonic · host"). Other services have no "where".
     val subsonic = if (provider == ProviderKind.SUBSONIC) {
