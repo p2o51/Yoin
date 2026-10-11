@@ -355,7 +355,14 @@ class LibraryViewModel(
                     publishLists()
                 } else {
                     _uiState.value = LibraryUiState.Error(
-                        e.uiTextOr(UiText.Res(R.string.library_error_load_library)),
+                        if (repository.currentProviderId() == null && repository.activeNeedsReconnect.value) {
+                            // An account whose source isn't coming (its credentials
+                            // couldn't be read): what Home's dot says, not the
+                            // repository's "No profile configured".
+                            UiText.Res(R.string.home_account_reconnect_needed)
+                        } else {
+                            e.uiTextOr(UiText.Res(R.string.library_error_load_library))
+                        },
                     )
                 }
             }
