@@ -60,13 +60,22 @@ internal object WidgetData {
         if (!container.awaitActiveSource()) return emptyList()
         val repository = container.repository
         val events = runCatching { repository.getRecentActivities(limit * 3).first() }.getOrDefault(emptyList())
-        // Real plays lead (that is what "keep listening" resumes); visits only fill the gaps.
-        val ordered = events.filter { it.actionType == ActivityActionType.PLAYED.name } +
-            events.filter { it.actionType != ActivityActionType.PLAYED.name }
-        return ordered
+        return keepListeningOrder(events)
             .mapNotNull { it.toPlayItem(container) }
             .distinctBy { it.id }
             .take(limit)
+    }
+
+    /**
+     * Real plays of an album or playlist lead (that is what "keep listening" resumes); visits only
+     * fill the gaps, and so do an artist's plays: the button opens an artist's page, it has no
+     * queue to resume. Newest first within each, as [events] come.
+     */
+    internal fun keepListeningOrder(events: List<ActivityEvent>): List<ActivityEvent> {
+        val (resumable, rest) = events.partition { event ->
+            event.actionType == ActivityActionType.PLAYED.name && event.entityType != ActivityEntityType.ARTIST.name
+        }
+        return resumable + rest
     }
 
     private fun ActivityEvent.toPlayItem(container: AppContainer): PlayItem? {
