@@ -1906,10 +1906,13 @@ private fun PlaylistsTabContent(
                     showCreateDialog = true
                 },
                 expanded = fabVisible,
+                // The label row is hidden from accessibility (M3 keeps the
+                // name steady whether it is expanded or not): the icon names
+                // the button, in both states.
                 icon = {
                     Icon(
                         imageVector = YoinSymbols.Add,
-                        contentDescription = null,
+                        contentDescription = stringResource(R.string.library_playlist_fab),
                     )
                 },
                 text = { Text(stringResource(R.string.library_playlist_fab)) },
