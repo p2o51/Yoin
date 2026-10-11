@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing.guide
 
+import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
@@ -75,7 +76,6 @@ class ConnectGuideActivity : ComponentActivity() {
                 GuideCommand.Prev.name -> moveTo(step - 1)
                 GuideCommand.Next.name -> moveTo(step + 1)
                 GuideCommand.Copy.name -> copyStepValue()
-                GuideCommand.Return.name -> returnToYoin()
             }
         }
     }
@@ -108,6 +108,13 @@ class ConnectGuideActivity : ComponentActivity() {
                 },
             )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // "Back to Yoin" (the window's own action) needs nothing here: the system expands the window, and onResume
+        // returns from full screen.
     }
 
     override fun onResume() {
@@ -181,6 +188,7 @@ class ConnectGuideActivity : ComponentActivity() {
         }
     }
 
+    /** From full screen only: a window that only floats may not start Yoin, and finishing would strand the user. */
     private fun returnToYoin() {
         val main = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
@@ -226,28 +234,60 @@ private const val EXTRA_KIND = "kind"
 internal const val ACTION_GUIDE = "com.gpo.yoin.action.CONNECT_GUIDE"
 internal const val EXTRA_COMMAND = "command"
 
+/** The guide window launched again by its own "back to Yoin" ([guideReturnIntent]). */
+internal const val ACTION_GUIDE_RETURN = "com.gpo.yoin.action.CONNECT_GUIDE_RETURN"
+
+internal fun Intent.isGuideReturn(): Boolean = action == ACTION_GUIDE_RETURN
+
+/**
+ * "Back to Yoin" launches the guide window itself again rather than Yoin: the system answers a launch of its
+ * floating task by expanding it, and once it is full screen the window may start Yoin (onResume).
+ * Yoin can't come forward from the floating window (a broadcast, then a start): Android 17 doesn't count a pinned
+ * window as visible and blocks that start. The expanding launch needs no such right, so it works either way.
+ */
+internal fun guideReturnIntent(context: Context): Intent = Intent(context, ConnectGuideActivity::class.java)
+    .setAction(ACTION_GUIDE_RETURN)
+    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
 /**
  * The guide window's actions on [step] as handed to the system: [guideActionSlots] fitted to its limit [max], one
  * [RemoteAction] per place. A greyed place has isEnabled off, which the system draws at its own disabled alpha (0.54)
- * and ignores taps on, so the place stays; a live one broadcasts its [GuideCommand] to the open guide.
+ * and ignores taps on, so the place stays; a live one broadcasts its [GuideCommand] to the open guide, except
+ * "back to Yoin", which launches the window again ([guideReturnIntent]).
  */
 internal fun guideRemoteActions(context: Context, kind: GuideKind, step: Int, max: Int): List<RemoteAction> =
     fitGuideActionSlots(guideActionSlots(kind, step), max).map { remoteAction(context, it) }
 
 private fun remoteAction(context: Context, slot: GuideActionSlot): RemoteAction {
     val command = slot.command.name
-    val intent = Intent(ACTION_GUIDE).setPackage(context.packageName).putExtra(EXTRA_COMMAND, command)
-    val pending = PendingIntent.getBroadcast(
-        context,
-        command.hashCode(),
-        intent,
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
+    val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    val pending = if (slot.command == GuideCommand.Return) {
+        val options = creatorMayStartOptions()
+        PendingIntent.getActivity(context, command.hashCode(), guideReturnIntent(context), flags, options)
+    } else {
+        val intent = Intent(ACTION_GUIDE).setPackage(context.packageName).putExtra(EXTRA_COMMAND, command)
+        PendingIntent.getBroadcast(context, command.hashCode(), intent, flags)
+    }
     // The system's menu reads only the content description aloud: a blank place has none, so TalkBack skips it.
     val text = slot.label?.let(context::getString).orEmpty()
     return RemoteAction(Icon.createWithResource(context, slot.command.icon), text, text, pending).apply {
         isEnabled = slot.enabled
     }
+}
+
+/**
+ * A PendingIntent's creator lends it its own right to start activities only when it opts in (Android 15 on). Yoin
+ * opts in where it has that right, i.e. while visible: up to Android 16 the floating window counts as visible.
+ */
+@Suppress("DEPRECATION") // MODE_BACKGROUND_ACTIVITY_START_ALLOWED: the only mode before ALLOW_IF_VISIBLE (36).
+private fun creatorMayStartOptions(): Bundle? {
+    val sdk = Build.VERSION.SDK_INT
+    val mode = when {
+        sdk >= Build.VERSION_CODES.BAKLAVA -> ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+        sdk >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+        else -> return null
+    }
+    return ActivityOptions.makeBasic().setPendingIntentCreatorBackgroundActivityStartMode(mode).toBundle()
 }
 
 /**
