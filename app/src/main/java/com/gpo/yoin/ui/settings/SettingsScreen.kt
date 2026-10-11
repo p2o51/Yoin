@@ -155,33 +155,35 @@ fun SettingsScreen(
     // List-detail (SettingsTablet, 断点交接 §7): in an Activity Embedding split
     // the account pages open in the right pane; the list marks the open one.
     val listDetail = rememberIsActivityEmbedded()
-    var openAccountId by rememberSaveable { mutableStateOf<String?>(null) }
-    var openFeature by rememberSaveable { mutableStateOf<SettingsFeature?>(null) }
-    var cloudSyncOpen by rememberSaveable { mutableStateOf(false) }
+    // A page that replaces the one in the pane answers for that one after its
+    // own launch: each launcher's mark waits for its last page (OpenPageMark).
+    val accountMark = rememberSaveable(saver = OpenPageMark.saver<String>()) { OpenPageMark() }
+    val featureMark = rememberSaveable(saver = OpenPageMark.saver<SettingsFeature>()) { OpenPageMark() }
+    val cloudSyncMark = rememberSaveable(saver = OpenPageMark.saver<Boolean>()) { OpenPageMark() }
     // The setup page hands back the id of a newly added account; the switch
     // runs here so it survives that page finishing.
     val serviceSetupLauncher = rememberLauncherForActivityResult(ServiceSetupContract()) { activateId ->
-        openAccountId = null
+        accountMark.answered()
         activateId?.let(viewModel::switchToProfile)
     }
     val openService: (ServiceSetupRequest) -> Unit = { request ->
-        openFeature = null
-        cloudSyncOpen = false
-        openAccountId = request.profileId
+        featureMark.clear()
+        cloudSyncMark.clear()
+        accountMark.opened(request.profileId)
         serviceSetupLauncher.launch(request)
     }
     val featureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        openFeature = null
+        featureMark.answered()
     }
     val context = LocalContext.current
     val openFeaturePage: (SettingsFeature) -> Unit = { feature ->
-        openAccountId = null
-        cloudSyncOpen = false
-        openFeature = feature
+        accountMark.clear()
+        cloudSyncMark.clear()
+        featureMark.opened(feature)
         featureLauncher.launch(SettingsFeatureActivity.intent(context, feature))
     }
     val cloudSyncLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        cloudSyncOpen = false
+        cloudSyncMark.answered()
     }
 
     LaunchedEffect(viewModel) {
@@ -237,21 +239,21 @@ fun SettingsScreen(
         onClearNeoDbToken = viewModel::clearNeoDbToken,
         onClearCache = viewModel::clearCache,
         listDetail = listDetail,
-        openAccountId = openAccountId,
-        openFeature = openFeature,
+        openAccountId = accountMark.open,
+        openFeature = featureMark.open,
         onOpenFeature = openFeaturePage,
         cloudSyncRow = {
             CloudSyncSettingsRow(
                 showChevron = listDetail,
                 onClick = {
-                    openAccountId = null
-                    openFeature = null
-                    cloudSyncOpen = true
+                    accountMark.clear()
+                    featureMark.clear()
+                    cloudSyncMark.opened(true)
                     cloudSyncLauncher.launch(CloudSyncActivity.intent(context))
                 },
             )
         },
-        cloudSyncSelected = cloudSyncOpen,
+        cloudSyncSelected = cloudSyncMark.open == true,
         modifier = modifier,
     )
 }
