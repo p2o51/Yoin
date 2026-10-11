@@ -1648,7 +1648,7 @@ private data class BentoContent(
 private const val ActivityBentoUnitsMaxEntries = 16
 
 /** The widest XL bento (a fourth row of up to four more) — the hero is still found in the first [ActivityBentoUnitsMaxEntries]. */
-private const val ActivityBentoUnitsXlEntries = 20
+internal const val ActivityBentoUnitsXlEntries = 20
 
 /** The phone pipeline's cap (hero + 3 supporting from the top 6), and XL's (hero + 5 from the top 8). */
 private const val ActivityBentoPhoneEntries = 6
@@ -2849,6 +2849,19 @@ internal fun selectHomeActivities(
     activities: List<ActivityEvent>,
 ): List<ActivityEvent> = dedupeActivitiesForHome(activities)
     .filterNot { it.entityType == ActivityEntityType.SONG.name }
+
+/**
+ * The albums the Activities bento can show as an album card — its hero or a
+ * supporting card — by raw id: the album entries among those the widest
+ * bento seats from ([ActivityBentoUnitsXlEntries]; the ViewModel can't tell
+ * the width, so it counts them all). Recently Played leaves these out. A
+ * song's play never earns a card, and a playlist's or an artist's card shows
+ * that playlist or artist, not the album its play came from.
+ */
+internal fun homeActivityAlbumCards(activities: List<ActivityEvent>): Set<String> = selectHomeActivities(activities)
+    .take(ActivityBentoUnitsXlEntries)
+    .filter { it.entityType == ActivityEntityType.ALBUM.name }
+    .mapTo(HashSet()) { activity -> activityEntityRawId(activity, activity.entityId) }
 
 /**
  * The hero (topmost, biggest) bento slot only ever shows an album or a

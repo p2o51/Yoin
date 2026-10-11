@@ -4,6 +4,8 @@ import app.cash.turbine.test
 import com.gpo.yoin.data.home.FakeHomeLayoutDao
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.home.HomeSectionPref
+import com.gpo.yoin.data.local.ActivityActionType
+import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.PlayHistory
@@ -1908,6 +1910,52 @@ class HomeViewModelTest {
         assertEquals(listOf("pl-1"), content.playlists.map { it.id.rawId })
         assertEquals(listOf("added-1"), content.recentlyAddedAlbums.map { it.id.rawId })
         coVerify(exactly = 2) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_keepAlbumsInRecentlyPlayed_when_onlySongAndPlaylistPlaysNameThem() = runTest {
+        // QA L12-B6: an album played from Songs (a song event) or from a
+        // playlist (a playlist event) carries its album id, and the shelf
+        // dropped it though Activities shows no card of it. Only the album
+        // cards the bento shows leave Recently Played.
+        val profile = "subsonic-recently-played-dedupe"
+        val repository = memorySignalRepository(profile = profile)
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(
+            listOf(
+                ActivityEvent(
+                    entityType = ActivityEntityType.SONG.name,
+                    actionType = ActivityActionType.PLAYED.name,
+                    entityId = "song-1",
+                    title = "Distant Shadows",
+                    subtitle = "Artist",
+                    songId = "song-1",
+                    albumId = "al-song"
+                ),
+                ActivityEvent(
+                    entityType = ActivityEntityType.PLAYLIST.name,
+                    actionType = ActivityActionType.PLAYED.name,
+                    entityId = "pl-mix",
+                    title = "QA Mix",
+                    subtitle = "",
+                    albumId = "al-playlist"
+                ),
+                ActivityEvent(
+                    entityType = ActivityEntityType.ALBUM.name,
+                    actionType = ActivityActionType.PLAYED.name,
+                    entityId = "al-card",
+                    title = "Album card",
+                    subtitle = "Artist",
+                    albumId = "al-card"
+                )
+            )
+        )
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns
+            listOf("al-song", "al-other", "al-playlist", "al-card").map { id -> album(id, "Album $id") }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(listOf("al-song", "al-other", "al-playlist"), content.recentlyPlayed.map { it.id.rawId })
     }
 
     @Test

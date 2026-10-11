@@ -1429,12 +1429,15 @@ class HomeViewModel(
         }
     }
 
-    /** Albums the Activities feed doesn't already show (its album cards and played tracks' albums). */
+    /**
+     * Albums the Activities bento doesn't already show as an album card
+     * ([homeActivityAlbumCards]). Not every event's album: a song played from
+     * Songs or a playlist names its album too, but the bento never shows a
+     * song, and a playlist's card shows the playlist (QA L12-B6).
+     */
     private fun List<Album>.notShownIn(activities: List<ActivityEvent>): List<Album> {
-        val shown = activities.mapNotNullTo(HashSet()) { event ->
-            event.albumId ?: event.entityId.takeIf { event.entityType.equals("album", ignoreCase = true) }
-        }
-        return filterNot { album -> album.id.toString() in shown || album.id.rawId in shown }
+        val shown = homeActivityAlbumCards(activities)
+        return filterNot { album -> album.id.rawId in shown }
     }
 
     /**
