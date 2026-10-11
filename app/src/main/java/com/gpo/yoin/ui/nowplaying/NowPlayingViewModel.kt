@@ -51,6 +51,8 @@ import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Sentinel id a Spotify App Remote track gets when its uri is blank
@@ -298,6 +300,9 @@ class NowPlayingViewModel(
                 }
         }
     }
+
+    // Rating writes, one at a time and first come first served ([setRating]).
+    private val ratingWrites = Mutex()
 
     private val ratingFlow = currentSongId.flatMapLatest { songId ->
         if (songId != null) {
@@ -886,10 +891,16 @@ class NowPlayingViewModel(
         }
     }
 
+    /**
+     * Writes the rating the bar committed (once per press, NowPlayingRatingBar).
+     * Writes land one at a time in commit order ([ratingWrites]): a quick
+     * second press waits for the first one's provider call instead of racing
+     * it, so the server and the stored rating end on the newest value.
+     */
     fun setRating(rating: Float) {
         val songId = currentSongId.value ?: return
         viewModelScope.launch {
-            repository.setRating(songId, rating)
+            ratingWrites.withLock { repository.setRating(songId, rating) }
         }
     }
 
