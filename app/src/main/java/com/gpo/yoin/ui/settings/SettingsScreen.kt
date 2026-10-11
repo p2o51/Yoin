@@ -124,6 +124,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.animateFloatAsPacedState
 import kotlinx.coroutines.launch
 
 /** Deep-link targets for [SettingsActivity]'s `focusSection` extra. */
@@ -1623,10 +1624,11 @@ private fun ProfileSwitchOverlay(
     modifier: Modifier = Modifier,
 ) {
     val visible = switchingState !is ProfileManager.SwitchState.Idle
-    val alpha by animateFloatAsState(
+    // Paced: it comes in as the switch begins, on frames the outgoing
+    // session's teardown keeps busy, where it would otherwise pop in.
+    val alpha by animateFloatAsPacedState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "overlayAlpha",
     )
     if (alpha <= 0f) return
 
