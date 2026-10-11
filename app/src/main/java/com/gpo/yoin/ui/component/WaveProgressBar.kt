@@ -2,7 +2,6 @@ package com.gpo.yoin.ui.component
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -49,7 +48,20 @@ import kotlinx.coroutines.delay
 
 private val SeekTouchHeight = 18.dp
 private val SeekWaveLength = 24.dp
-private const val SeekWaveAmplitudeScale = 0.28f
+internal const val SeekWaveAmplitudeScale = 0.28f
+
+// M3E's own amplitude easing (WavyProgressIndicatorKt's Increasing/
+// DecreasingAmplitudeAnimationSpec: tween 500ms), plus a few frames of slack
+// before the recheck re-sends the final target.
+private const val M3E_AMPLITUDE_TWEEN_MS = 500L
+private const val AMPLITUDE_RECHECK_SLACK_MS = 50L
+
+/**
+ * The amplitude fraction the scrubber hands M3E's wavy indicator: a step on
+ * play state alone. Progress never shapes it, so there is no M3-default flat
+ * stretch over a song's first 10% or last 5%.
+ */
+internal fun seekWaveAmplitude(isPlaying: Boolean): Float = if (isPlaying) SeekWaveAmplitudeScale else 0f
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -177,20 +189,32 @@ fun WaveProgressBar(
         }
     }
 
-    // Fade the wave amplitude in/out on play-state changes rather than
-    // hard-toggling between zero and full. Also fixes the "flat bar on
-    // first open" moment — if isPlaying briefly emits false before the
-    // backend settles, the amplitude eases in rather than popping.
-    val amplitudeMultiplier = animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0f,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "waveAmp",
-    )
-    val waveAmplitude: (Float) -> Float = remember(amplitudeMultiplier) {
-        { progressValue ->
-            WavyProgressIndicatorDefaults.indicatorAmplitude(progressValue) *
-                SeekWaveAmplitudeScale *
-                amplitudeMultiplier.value
+    // The amplitude is a step on play state and nothing else: a full wave
+    // while playing, flat while paused. Two things are deliberately left out.
+    // - M3's default indicatorAmplitude, which flattens the first 10% and the
+    //   last 5% of every song. The owner wants the scrubber wave flowing for
+    //   the whole song (10-08, 10-10), so progress never shapes it.
+    // - Any value that moves frame by frame (the old effect-spring
+    //   multiplier). M3E eases amplitude changes itself with a 500ms tween
+    //   and DROPS every new target that arrives while that tween runs, so a
+    //   moving value only had its first frame sampled: the wave went flat
+    //   after a resume and stayed wavy after a pause.
+    // A step survives a single toggle, but a second one inside the tween (a
+    // quick pause/resume, a Spotify isPaused blip) is still dropped, and a
+    // paused bar has nothing else that rebuilds M3E's draw cache. So once
+    // the tween has had time to finish, amplitudeRecheck is bumped: the
+    // amplitude lambda reads it inside M3E's observed cache block, the cache
+    // rebuilds, and M3E receives the final target once more.
+    val amplitudeRecheck = remember { mutableIntStateOf(0) }
+    LaunchedEffect(isPlaying) {
+        delay(M3E_AMPLITUDE_TWEEN_MS + AMPLITUDE_RECHECK_SLACK_MS)
+        amplitudeRecheck.intValue++
+    }
+    val waveAmplitude: (Float) -> Float = remember {
+        { _ ->
+            // Read only to be observed; see amplitudeRecheck above.
+            amplitudeRecheck.intValue
+            seekWaveAmplitude(isPlaying = latestPlaying.value)
         }
     }
 
