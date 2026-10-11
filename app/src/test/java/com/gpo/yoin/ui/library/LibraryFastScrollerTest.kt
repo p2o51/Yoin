@@ -156,6 +156,32 @@ class LibraryFastScrollerTest {
             assertEquals(root.right, thumb.boundsInRoot.right, 0.5f)
             assertEquals(dpToPx(THUMB_TOUCH_WIDTH_DP), thumb.boundsInRoot.width, 0.5f)
         }
+        // Each fade draws its view through a layer of the view's own size,
+        // which clips whatever lies past it whatever the bounds above say
+        // (device QA: an 8dp sliver of the handle). Each view reaches the
+        // page edge, so the handle lies inside the layer that fades it.
+        val views = rule.onAllNodesWithTag(LIBRARY_VIEW_TAG).fetchSemanticsNodes()
+        assertEquals("both views mid cross-fade", 2, views.size)
+        views.forEach { view ->
+            assertEquals(root.right, view.boundsInRoot.right, 0.5f)
+            assertTrue(
+                "a handle past its view ${view.boundsInRoot}",
+                thumbs.any { view.boundsInRoot.contains(it.boundsInRoot.center) }
+            )
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w800dp-h1280dp")
+    fun should_keepEachViewsContentOffTheGutter_when_theViewsReachAcrossIt() {
+        setLibrary(LibraryTab.Artists, previewYoinWindowInfo(800, 1280))
+
+        val root = rule.onNodeWithTag(ROOT).fetchSemanticsNode().boundsInRoot
+        val view = rule.onNodeWithTag(LIBRARY_VIEW_TAG).fetchSemanticsNode().boundsInRoot
+        assertEquals(root.right, view.right, 0.5f)
+        // The last column still ends at the 32dp page margin: 16 gutter + 16 grid padding.
+        val lastColumnRight = cells().maxOf { (_, cell) -> cell.right }
+        assertEquals(root.right - dpToPx(32f), lastColumnRight, 0.5f)
     }
 
     @Test

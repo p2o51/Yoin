@@ -88,6 +88,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -826,7 +827,10 @@ private fun LibraryContentBody(
                     // Unclipped: every view fills this box, so there is no size
                     // change to clip, and the fast scroller's handle reaches
                     // past the box across the page gutter (LibraryGridFastScroller)
-                    // — a clipped cross-fade would cut it to a sliver.
+                    // — a clipped cross-fade would cut it to a sliver. The fades
+                    // draw each view through a layer of the view's own size, which
+                    // clips just the same: so each view spans the gutter too
+                    // (overhangEnd), and keeps its content off it with padding.
                     transitionSpec = {
                         (
                             YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
@@ -834,7 +838,9 @@ private fun LibraryContentBody(
                             ) using SizeTransform(clip = false) { _, _ -> tabSizeSpec }
                     },
                     label = "tabContent",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .overhangEnd(scrollerEndOverhang),
                 ) { tab ->
                     // Each view's order and the orders it offers; under two, no sort row.
                     val sort = state.sorts[tab]
@@ -846,75 +852,82 @@ private fun LibraryContentBody(
                             onSortSelected = { picked -> onSortSelected(tab, picked) }
                         )
                     }
-                    when (tab) {
-                        LibraryTab.All -> AllTabContent(
-                            items = state.allItems,
-                            gridState = allGridState,
-                            sortRow = sortRow,
-                            scrollSections = state.scrollSections[tab].orEmpty(),
-                            scrollerEndOverhang = scrollerEndOverhang,
-                            onArtistClick = onArtistClick,
-                            onAlbumClick = onAlbumClick,
-                            onPlaylistClick = onPlaylistClick,
-                            coverArtUrlBuilder = coverArtUrlBuilder
-                        )
-                        LibraryTab.Artists -> ArtistsTabContent(
-                            artists = state.artists,
-                            gridState = artistsGridState,
-                            sortRow = sortRow,
-                            scrollSections = state.scrollSections[tab].orEmpty(),
-                            scrollerEndOverhang = scrollerEndOverhang,
-                            onArtistClick = onArtistClick,
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Albums -> AlbumsTabContent(
-                            albums = state.albums,
-                            gridState = albumsGridState,
-                            sortRow = sortRow,
-                            scrollSections = state.scrollSections[tab].orEmpty(),
-                            scrollerEndOverhang = scrollerEndOverhang,
-                            onAlbumClick = onAlbumClick,
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Songs -> SongsTabContent(
-                            songs = state.songs,
-                            listState = songsListState,
-                            activeSongId = activeSongId,
-                            isPlaying = isPlaying,
-                            playbackSignal = playbackSignal,
-                            notedSongIds = notedSongIds,
-                            onSongClick = onSongsListClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
-                            onReshuffle = onReshuffleSongs,
-                            canReshuffle = state.canReshuffleSongs,
-                            more = state.songsMore,
-                            onLoadMore = onLoadMoreSongs,
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Playlists -> PlaylistsTabContent(
-                            playlists = remember(state.playlists, state.playlistsByYou) {
-                                shownPlaylists(state.playlists, state.playlistsByYou)
-                            },
-                            listState = playlistsListState,
-                            sortRow = sortRow,
-                            onPlaylistClick = onPlaylistClick,
-                            onCreatePlaylist = onCreatePlaylist.takeIf { state.canCreatePlaylists },
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Favorites -> FavoritesTabContent(
-                            favorites = state.favorites,
-                            listState = favoritesListState,
-                            activeSongId = activeSongId,
-                            isPlaying = isPlaying,
-                            playbackSignal = playbackSignal,
-                            notedSongIds = notedSongIds,
-                            onArtistClick = onArtistClick,
-                            onAlbumClick = onAlbumClick,
-                            onSongClick = onSongClick,
-                            onFavoriteSongClick = onFavoriteSongClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag(LIBRARY_VIEW_TAG)
+                            .padding(end = scrollerEndOverhang)
+                    ) {
+                        when (tab) {
+                            LibraryTab.All -> AllTabContent(
+                                items = state.allItems,
+                                gridState = allGridState,
+                                sortRow = sortRow,
+                                scrollSections = state.scrollSections[tab].orEmpty(),
+                                scrollerEndOverhang = scrollerEndOverhang,
+                                onArtistClick = onArtistClick,
+                                onAlbumClick = onAlbumClick,
+                                onPlaylistClick = onPlaylistClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder
+                            )
+                            LibraryTab.Artists -> ArtistsTabContent(
+                                artists = state.artists,
+                                gridState = artistsGridState,
+                                sortRow = sortRow,
+                                scrollSections = state.scrollSections[tab].orEmpty(),
+                                scrollerEndOverhang = scrollerEndOverhang,
+                                onArtistClick = onArtistClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Albums -> AlbumsTabContent(
+                                albums = state.albums,
+                                gridState = albumsGridState,
+                                sortRow = sortRow,
+                                scrollSections = state.scrollSections[tab].orEmpty(),
+                                scrollerEndOverhang = scrollerEndOverhang,
+                                onAlbumClick = onAlbumClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Songs -> SongsTabContent(
+                                songs = state.songs,
+                                listState = songsListState,
+                                activeSongId = activeSongId,
+                                isPlaying = isPlaying,
+                                playbackSignal = playbackSignal,
+                                notedSongIds = notedSongIds,
+                                onSongClick = onSongsListClick,
+                                onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+                                onReshuffle = onReshuffleSongs,
+                                canReshuffle = state.canReshuffleSongs,
+                                more = state.songsMore,
+                                onLoadMore = onLoadMoreSongs,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Playlists -> PlaylistsTabContent(
+                                playlists = remember(state.playlists, state.playlistsByYou) {
+                                    shownPlaylists(state.playlists, state.playlistsByYou)
+                                },
+                                listState = playlistsListState,
+                                sortRow = sortRow,
+                                onPlaylistClick = onPlaylistClick,
+                                onCreatePlaylist = onCreatePlaylist.takeIf { state.canCreatePlaylists },
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Favorites -> FavoritesTabContent(
+                                favorites = state.favorites,
+                                listState = favoritesListState,
+                                activeSongId = activeSongId,
+                                isPlaying = isPlaying,
+                                playbackSignal = playbackSignal,
+                                notedSongIds = notedSongIds,
+                                onArtistClick = onArtistClick,
+                                onAlbumClick = onAlbumClick,
+                                onSongClick = onSongClick,
+                                onFavoriteSongClick = onFavoriteSongClick,
+                                onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                        }
                     }
                 }
             }
