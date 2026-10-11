@@ -1,8 +1,10 @@
 package com.gpo.yoin.ui.landing.guide
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Looper
+import android.os.PowerManager
 import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.MainActivity
 import java.time.Duration
@@ -120,5 +122,40 @@ class ConnectGuideActivityTest {
 
         assertFalse(guide.isFinishing)
         assertEquals(GuideKind.Spotify, ConnectGuide.floating.value)
+    }
+
+    @Test
+    fun should_keepTheGuide_when_theScreenGoesOffAndTheSystemTakesTheWindowOutOfTheCorner() {
+        // P10-2 review: in case the system takes a sleeping window out of the corner, every lock would end it.
+        val controller = floatingSpotifyGuide()
+        val guide = controller.get()
+        val power = shadowOf(guide.getSystemService(PowerManager::class.java))
+
+        power.setIsInteractive(false)
+        controller.stop()
+        guide.reportCorner(false)
+        assertFalse(guide.isFinishing)
+
+        // Awake and back in the corner: ✕ still ends it.
+        power.setIsInteractive(true)
+        controller.restart()
+        guide.reportCorner(true)
+        guide.reportCorner(false)
+        controller.stop()
+        assertTrue(guide.isFinishing)
+        assertNull(guide.nextStarted())
+    }
+
+    @Test
+    fun should_keepTheGuide_when_theScreenLocksWithTheWindowOutOfTheCorner() {
+        val controller = floatingSpotifyGuide()
+        val guide = controller.get()
+
+        shadowOf(guide.getSystemService(KeyguardManager::class.java)).setKeyguardLocked(true)
+        guide.reportCorner(false)
+        controller.stop()
+
+        assertFalse(guide.isFinishing)
+        assertEquals(GuideKind.Spotify, ConnectGuide.open.value)
     }
 }

@@ -13,29 +13,43 @@ import org.junit.Test
  */
 class GuideSessionTest {
 
-    private fun GuideSession.stop(inCorner: Boolean = false, recreating: Boolean = false, finishing: Boolean = false) =
-        onStop(inPictureInPicture = inCorner, changingConfigurations = recreating, finishing = finishing)
+    /** Stopped; [screenInUse] off is the screen going off or locking. */
+    private fun GuideSession.stop(
+        inCorner: Boolean = false,
+        recreating: Boolean = false,
+        finishing: Boolean = false,
+        screenInUse: Boolean = true
+    ) = onStop(
+        inPictureInPicture = inCorner,
+        changingConfigurations = recreating,
+        finishing = finishing,
+        screenInUse = screenInUse
+    )
+
+    /** Into the corner or out of it, at [state]. */
+    private fun GuideSession.corner(inCorner: Boolean, state: State, screenInUse: Boolean = true) =
+        onPictureInPictureChanged(inPictureInPicture = inCorner, state = state, screenInUse = screenInUse)
 
     /** Opened, card shown, shrunk into the corner and the other side handed the stage. */
     private fun floatingSession(): GuideSession = GuideSession().apply {
         assertEquals(GuideAction.Enter, onResume(inPictureInPicture = false))
-        assertEquals(GuideAction.HandOff, onPictureInPictureChanged(true, State.STARTED))
+        assertEquals(GuideAction.HandOff, corner(true, State.STARTED))
     }
 
     @Test
     fun should_showTheCardThenHandOffOnce_when_theWindowFirstFloats() {
         val session = GuideSession()
         assertEquals(GuideAction.Enter, session.onResume(inPictureInPicture = false))
-        assertEquals(GuideAction.HandOff, session.onPictureInPictureChanged(true, State.STARTED))
+        assertEquals(GuideAction.HandOff, session.corner(true, State.STARTED))
         assertTrue(session.handedOff)
         // Back in the corner again later (e.g. after a recreation) never hands off twice.
-        assertEquals(GuideAction.None, session.onPictureInPictureChanged(true, State.STARTED))
+        assertEquals(GuideAction.None, session.corner(true, State.STARTED))
     }
 
     @Test
     fun should_returnToYoin_when_expandedAndResumedAfterLeavingTheCorner() {
         val session = floatingSession()
-        assertEquals(GuideAction.None, session.onPictureInPictureChanged(false, State.STARTED))
+        assertEquals(GuideAction.None, session.corner(false, State.STARTED))
         assertEquals(GuideAction.ReturnToYoin, session.onResume(inPictureInPicture = false))
     }
 
@@ -43,7 +57,7 @@ class GuideSessionTest {
     fun should_returnToYoin_when_resumedBeforeTheSystemSaysItLeftTheCorner() {
         val session = floatingSession()
         assertEquals(GuideAction.None, session.onResume(inPictureInPicture = true))
-        assertEquals(GuideAction.ReturnToYoin, session.onPictureInPictureChanged(false, State.RESUMED))
+        assertEquals(GuideAction.ReturnToYoin, session.corner(false, State.RESUMED))
     }
 
     @Test
@@ -57,7 +71,7 @@ class GuideSessionTest {
     @Test
     fun should_endTheGuide_when_dismissedAndTheCornerIsLeftBeforeTheStop() {
         val session = floatingSession()
-        assertEquals(GuideAction.None, session.onPictureInPictureChanged(false, State.STARTED))
+        assertEquals(GuideAction.None, session.corner(false, State.STARTED))
         assertEquals(GuideAction.End, session.stop())
     }
 
@@ -65,7 +79,7 @@ class GuideSessionTest {
     fun should_endTheGuide_when_dismissedAndStoppedBeforeLeavingTheCorner() {
         val session = floatingSession()
         assertEquals(GuideAction.None, session.stop(inCorner = true))
-        assertEquals(GuideAction.End, session.onPictureInPictureChanged(false, State.CREATED))
+        assertEquals(GuideAction.End, session.corner(false, State.CREATED))
     }
 
     @Test
@@ -73,6 +87,31 @@ class GuideSessionTest {
         val session = floatingSession()
         assertEquals(GuideAction.None, session.stop(inCorner = true))
         assertEquals(GuideAction.None, session.onResume(inPictureInPicture = true))
+    }
+
+    @Test
+    fun should_keepTheGuide_when_theScreenGoesOffAndTheWindowLeavesTheCornerBeforeTheStop() {
+        // P10-2 review: in case the system takes a sleeping window out of the corner, that's no ✕.
+        val session = floatingSession()
+        assertEquals(GuideAction.None, session.corner(false, State.STARTED, screenInUse = false))
+        assertEquals(GuideAction.None, session.stop(screenInUse = false))
+    }
+
+    @Test
+    fun should_keepTheGuide_when_theScreenLocksAndTheWindowLeavesTheCornerAfterTheStop() {
+        val session = floatingSession()
+        assertEquals(GuideAction.None, session.stop(inCorner = true, screenInUse = false))
+        assertEquals(GuideAction.None, session.corner(false, State.CREATED, screenInUse = false))
+    }
+
+    @Test
+    fun should_stillEndTheGuide_when_dismissedOnceTheScreenIsBack() {
+        val session = floatingSession()
+        assertEquals(GuideAction.None, session.stop(screenInUse = false))
+        // Unlocked, back in the corner, then ✕.
+        assertEquals(GuideAction.None, session.corner(true, State.STARTED))
+        assertEquals(GuideAction.None, session.corner(false, State.STARTED))
+        assertEquals(GuideAction.End, session.stop())
     }
 
     @Test
@@ -99,9 +138,9 @@ class GuideSessionTest {
         // P10-2/P10-3: the full screen that follows a launch from Yoin isn't "done over there".
         val session = floatingSession()
         assertTrue(session.onLaunchedAgain(returning = false))
-        assertEquals(GuideAction.None, session.onPictureInPictureChanged(false, State.STARTED))
+        assertEquals(GuideAction.None, session.corner(false, State.STARTED))
         assertEquals(GuideAction.Enter, session.onResume(inPictureInPicture = false))
-        assertEquals(GuideAction.HandOff, session.onPictureInPictureChanged(true, State.STARTED))
+        assertEquals(GuideAction.HandOff, session.corner(true, State.STARTED))
     }
 
     @Test
@@ -118,7 +157,7 @@ class GuideSessionTest {
     fun should_returnToYoin_when_itsOwnBackToYoinLaunchesItAndTheSystemExpandsIt() {
         val session = floatingSession()
         assertFalse(session.onLaunchedAgain(returning = true))
-        assertEquals(GuideAction.None, session.onPictureInPictureChanged(false, State.STARTED))
+        assertEquals(GuideAction.None, session.corner(false, State.STARTED))
         assertEquals(GuideAction.ReturnToYoin, session.onResume(inPictureInPicture = false))
     }
 
@@ -128,7 +167,7 @@ class GuideSessionTest {
         session.onLaunchedAgain(returning = true)
         assertEquals(GuideAction.None, session.onResume(inPictureInPicture = true))
         // The user can still dismiss it: it ends.
-        assertEquals(GuideAction.None, session.onPictureInPictureChanged(false, State.STARTED))
+        assertEquals(GuideAction.None, session.corner(false, State.STARTED))
         assertEquals(GuideAction.End, session.stop())
     }
 

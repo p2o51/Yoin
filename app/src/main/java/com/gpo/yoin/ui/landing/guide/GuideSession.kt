@@ -26,7 +26,8 @@ internal enum class GuideAction {
  * - it is expanded (the system's full-screen button, or "back to Yoin", which launches it again so the system
  *   expands it): back to Yoin;
  * - it is dismissed (✕, or dragged away): the guide ends. The system only stops the window and sends it to the
- *   back, so nothing would end it otherwise, and the next launch would find it still there;
+ *   back, so nothing would end it otherwise, and the next launch would find it still there. A screen that goes off
+ *   or locks stops the window too, and is not a dismissal;
  * - Yoin launches it again while it is still there: it starts over.
  *
  * A window that only floats may not start Yoin itself (Android 17 doesn't count a pinned window as visible), so
@@ -64,8 +65,15 @@ internal class GuideSession(handedOff: Boolean = false, floated: Boolean = false
         return GuideAction.HandOff
     }
 
-    /** The window went into the corner or left it, with the activity at [state] when the system said so. */
-    fun onPictureInPictureChanged(inPictureInPicture: Boolean, state: Lifecycle.State): GuideAction {
+    /**
+     * The window went into the corner or left it, with the activity at [state] when the system said so.
+     * [screenInUse]: the screen is on and unlocked ([onStop]).
+     */
+    fun onPictureInPictureChanged(
+        inPictureInPicture: Boolean,
+        state: Lifecycle.State,
+        screenInUse: Boolean
+    ): GuideAction {
         if (inPictureInPicture) {
             floated = true
             if (handedOff) return GuideAction.None
@@ -74,7 +82,7 @@ internal class GuideSession(handedOff: Boolean = false, floated: Boolean = false
         }
         return when {
             // Left the corner while stopped: dismissed, not expanded (expanding resumes it).
-            floated && !state.isAtLeast(Lifecycle.State.STARTED) -> GuideAction.End
+            floated && screenInUse && !state.isAtLeast(Lifecycle.State.STARTED) -> GuideAction.End
             // Resumed before the system said it left the corner: expanded (onResume saw it still floating).
             handedOff && state.isAtLeast(Lifecycle.State.RESUMED) -> GuideAction.ReturnToYoin
             else -> GuideAction.None
@@ -83,10 +91,17 @@ internal class GuideSession(handedOff: Boolean = false, floated: Boolean = false
 
     /**
      * Stopped. [inPictureInPicture] still true is the screen going off while the window floats; a recreation is
-     * not leaving. Otherwise a window that floated and is now neither floating nor finishing was dismissed.
+     * not leaving. Otherwise a window that floated and is now neither floating nor finishing was dismissed, as
+     * long as [screenInUse] (on and unlocked): only then can anyone reach the window. Whatever the system does to
+     * it while the screen is off or locked, out of the corner included, is no ✕, so the guide stays.
      */
-    fun onStop(inPictureInPicture: Boolean, changingConfigurations: Boolean, finishing: Boolean): GuideAction {
-        val dismissed = floated && !inPictureInPicture && !changingConfigurations && !finishing
+    fun onStop(
+        inPictureInPicture: Boolean,
+        changingConfigurations: Boolean,
+        finishing: Boolean,
+        screenInUse: Boolean
+    ): GuideAction {
+        val dismissed = floated && screenInUse && !inPictureInPicture && !changingConfigurations && !finishing
         return if (dismissed) GuideAction.End else GuideAction.None
     }
 

@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.landing.guide
 
 import android.app.ActivityOptions
+import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
@@ -15,6 +16,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -140,12 +142,19 @@ class ConnectGuideActivity : ComponentActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         inPictureInPicture = isInPictureInPictureMode
         ConnectGuide.cornerChanged(kind, isInPictureInPictureMode)
-        perform(session.onPictureInPictureChanged(isInPictureInPictureMode, lifecycle.currentState))
+        perform(session.onPictureInPictureChanged(isInPictureInPictureMode, lifecycle.currentState, screenInUse()))
     }
 
     override fun onStop() {
         super.onStop()
-        perform(session.onStop(isInPictureInPictureMode, isChangingConfigurations, isFinishing))
+        perform(session.onStop(isInPictureInPictureMode, isChangingConfigurations, isFinishing, screenInUse()))
+    }
+
+    /** On and unlocked: the only time anyone can reach the floating window to dismiss it ([GuideSession.onStop]). */
+    private fun screenInUse(): Boolean {
+        val awake = getSystemService(PowerManager::class.java)?.isInteractive != false
+        val locked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+        return awake && !locked
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
