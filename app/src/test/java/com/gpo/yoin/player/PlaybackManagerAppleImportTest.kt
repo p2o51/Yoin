@@ -50,6 +50,11 @@ class PlaybackManagerAppleImportTest {
         runBlocking { runCatching { apple.handleFor(import("any")) } }.exceptionOrNull()?.message.orEmpty()
     }
 
+    /** What the real source says when handed a song its storefront has no catalog song for. */
+    private val pulledError: String by lazy {
+        runBlocking { runCatching { apple.handleFor(pulled("any")) } }.exceptionOrNull()?.message.orEmpty()
+    }
+
     /** Every track the manager asked the source to resolve, in order. */
     private val resolved = mutableListOf<Track>()
 
@@ -112,6 +117,36 @@ class PlaybackManagerAppleImportTest {
     }
 
     @Test
+    fun should_handMusicKitOnlyPlayableSongs_when_storefrontLacksSomeBeforeTheTap() {
+        // MusicKit drops an id its storefront doesn't serve and reads the start index in what's left:
+        // none may reach it, before the tapped song or after it.
+        val tapped = catalog("2")
+
+        manager.play(
+            listOf(catalog("1"), pulled("1"), import("a"), pulled("2"), tapped, pulled("3"), catalog("3")),
+            startIndex = 4,
+            source = source
+        )
+
+        assertEquals(listOf(tapped, catalog("1"), tapped, catalog("3")), resolved)
+        assertNotEquals(pulledError, manager.playbackState.value.connectionErrorMessage)
+    }
+
+    @Test
+    fun should_reportError_when_tappedSongHasNoCatalogSongInTheStorefront() {
+        val tapped = pulled("1")
+
+        manager.play(listOf(catalog("1"), tapped, catalog("2")), startIndex = 1, source = source)
+
+        val state = manager.playbackState.value
+        assertTrue(pulledError.isNotEmpty())
+        assertEquals(ConnectionPhase.Error, state.connectionPhase)
+        assertEquals(pulledError, state.connectionErrorMessage)
+        // Nothing else was started in its place.
+        assertEquals(listOf(tapped), resolved)
+    }
+
+    @Test
     fun should_startAtFirstPlayableSong_when_shuffledListStartsWithImport() {
         // A Shuffle button's list: its first place is the shuffle's, never a pick.
         manager.play(
@@ -141,6 +176,11 @@ class PlaybackManagerAppleImportTest {
     private fun catalog(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "14408577$id"))
 
     private fun import(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.$id"))
+
+    /** A library song whose play parameters name a catalog id the account's storefront doesn't have. */
+    private fun pulled(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1848256$id")).copy(
+        extras = mapOf("appleMusicCatalogId" to "1848256$id", "appleMusicCatalogUnavailable" to "true")
+    )
 
     private fun track(id: MediaId) = Track(
         id = id,

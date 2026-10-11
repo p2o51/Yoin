@@ -75,6 +75,9 @@ class AppleMusicMedia3Player(
      * deliberate seek.
      */
     private var startFromTop = false
+
+    /** Debug only: the next prepared queue is still to be compared with the request ([logPreparedStart]). */
+    private var preparedStartUnchecked = false
     private val listener = object : MediaPlayerController.Listener {
         override fun onPlayerStateRestored(c: MediaPlayerController) {
             if (requestedItems.isEmpty()) c.stop()
@@ -158,6 +161,7 @@ class AppleMusicMedia3Player(
     }
 
     private fun publishState() {
+        if (BuildConfig.DEBUG && preparedStartUnchecked && !preparing) logPreparedStart()
         invalidateState()
         val item = controller.currentItem?.item
         onObservation(
@@ -171,6 +175,27 @@ class AppleMusicMedia3Player(
                 message = failure ?: if (preparing || controller.isBuffering) "Preparing with MusicKit…" else "Ready"
             )
         )
+    }
+
+    /**
+     * Debug only: what MusicKit made of the queue Yoin prepared. Its catalog request
+     * (`CatalogPlaybackQueueItemProvider`, 1.1.1) leaves out every id the storefront doesn't
+     * serve, without an error, and reads the start index in that shorter list: Apple Music
+     * Songs once started a song eight rows past the tapped one. Yoin hands over no such id
+     * (`isUnplayableAppleImport`); a warning here says one got through.
+     */
+    private fun logPreparedStart() {
+        val current = controller.currentItem ?: return
+        preparedStartUnchecked = false
+        val prepared = controller.playbackQueueIndex.coerceAtLeast(0) + 1 + controller.queueItems.orEmpty().size
+        val asked = requestedItems.getOrNull(requestedIndex)?.let(::catalogId)
+        val started = current.item?.subscriptionStoreId
+        val line = "prepared $prepared of ${requestedItems.size}; start asked=$asked got=$started"
+        if (prepared == requestedItems.size && asked == started) {
+            Log.d("YoinMusicKitQueue", line)
+        } else {
+            Log.w("YoinMusicKitQueue", line)
+        }
     }
 
     /**
@@ -312,6 +337,7 @@ class AppleMusicMedia3Player(
         requestedIndex = startIndex.takeIf { it in items.indices } ?: 0
         queuePrepared = false
         preparing = false
+        preparedStartUnchecked = false
         failure = null
         return Futures.immediateVoidFuture()
     }
@@ -323,6 +349,7 @@ class AppleMusicMedia3Player(
             handler.removeCallbacks(prepareTimeout)
             handler.postDelayed(prepareTimeout, 30_000)
             startFromTop = true
+            preparedStartUnchecked = true
             // A new queue replaces everything, Play next included. The plain prepare() is REPLACE, which
             // MusicKit (1.1.1, `queue.b`) refuses with a queue error while an added Up Next sits after a
             // non-last item: after any Play next / Add to queue, tapping a song failed until the queue ran out.

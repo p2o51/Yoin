@@ -32,6 +32,33 @@ class PlayableQueueTest {
     }
 
     @Test
+    fun should_startTheTappedSong_when_unplayableSongsComeBeforeAndAfterIt() {
+        // Library Songs, rows 233–247 on the tablet: imports and songs the storefront has no catalog song
+        // for sit around "Angel Of Satisfaction". MusicKit dropped the second kind without a word, and the
+        // start index then landed eight songs further on.
+        val tracks = listOf(
+            catalog("0"), import("a"), pulled("1"), import("b"), import("c"), pulled("2"),
+            catalog("1"), import("d"), pulled("3"), pulled("4"), catalog("2"), pulled("5")
+        )
+
+        val queue = playableQueue(tracks, startIndex = 6, explicitStart = true)
+
+        assertEquals(listOf(catalog("0"), catalog("1"), catalog("2")), queue.tracks)
+        assertEquals(catalog("1"), queue.tracks[queue.startIndex])
+    }
+
+    @Test
+    fun should_keepTheQueueAsGiven_when_tappedSongHasNoCatalogSongInTheStorefront() {
+        // The source turns it down with its reason; nothing else starts in its place.
+        val tracks = listOf(catalog("1"), pulled("1"), catalog("2"))
+
+        val queue = playableQueue(tracks, startIndex = 1, explicitStart = true)
+
+        assertSame(tracks, queue.tracks)
+        assertEquals(1, queue.startIndex)
+    }
+
+    @Test
     fun should_keepTheQueueAsGiven_when_startedTrackIsAnImport() {
         // The import itself reaches the provider, which reports why it can't play.
         val tracks = listOf(catalog("1"), import("a"), catalog("2"))
@@ -104,6 +131,12 @@ class PlayableQueueTest {
     private fun catalog(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "14408577$id"))
 
     private fun import(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.$id"))
+
+    /** A library song whose play parameters name a catalog id the account's storefront doesn't have. */
+    private fun pulled(id: String) = track(
+        MediaId(MediaId.PROVIDER_APPLE_MUSIC, "18482562$id"),
+        mapOf("appleMusicCatalogId" to "18482562$id", "appleMusicCatalogUnavailable" to "true")
+    )
 
     private fun track(id: MediaId, extras: Map<String, String> = emptyMap()) = Track(
         id = id,

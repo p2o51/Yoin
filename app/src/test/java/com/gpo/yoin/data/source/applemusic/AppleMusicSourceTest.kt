@@ -239,9 +239,16 @@ class AppleMusicSourceTest {
         ).map { json -> AppleMusicSong.fromJson(Json.parseToJsonElement(json).jsonObject).toTrack() }
         // A library id that carries its catalog id in extras only.
         val extrasOnly = parsed.last().let { it.copy(extras = it.extras + (AppleMusicSong.EXTRA_CATALOG_ID to "789")) }
-        val tracks = parsed + extrasOnly
+        // Its play parameters name a catalog song the storefront doesn't have.
+        val pulled = AppleMusicSong.fromJson(
+            Json.parseToJsonElement(
+                """{"id": "i.pulled", "type": "library-songs", "attributes": {"playParams": {"catalogId": "321"}},
+                 "relationships": {"catalog": {"data": []}}}"""
+            ).jsonObject
+        ).toTrack()
+        val tracks = parsed + extrasOnly + pulled
 
-        assertEquals(listOf(false, false, true, false), tracks.map { it.isUnplayableAppleImport })
+        assertEquals(listOf(false, false, true, false, true), tracks.map { it.isUnplayableAppleImport })
         tracks.forEach { track ->
             val refused = runCatching { source.handleFor(track) }.isFailure
             assertEquals(track.id.toString(), track.isUnplayableAppleImport, refused)
@@ -293,6 +300,35 @@ class AppleMusicSourceTest {
         )
         val results = source.searchLibrary("song")
         assertEquals(listOf(MediaId("applemusic", "123")), results.tracks.map { it.id })
+    }
+
+    @Test fun should_markSongsUnplayable_when_appleHasNoCatalogSongForThem() = runTest {
+        reply(
+            """{"data":[
+              {"id":"i.played","type":"library-songs","attributes":{"name":"Plays","playParams":{"catalogId":"111"}},
+               "relationships":{"catalog":{"data":[{"id":"112","type":"songs"}]}}},
+              {"id":"i.pulled","type":"library-songs","attributes":{"name":"Angel","playParams":{"catalogId":"221"}},
+               "relationships":{"catalog":{"data":[]}}},
+              {"id":"i.import","type":"library-songs","attributes":{"name":"Imported"},
+               "relationships":{"catalog":{"data":[]}}},
+              {"id":"i.unasked","type":"library-songs","attributes":{"name":"Unasked","playParams":{"catalogId":"331"}}}
+            ]}"""
+        )
+
+        val tracks = source.getLibrarySongs(size = 10)
+
+        // The storefront's own catalog song plays; one Apple says it has none of keeps its id but can't play.
+        assertEquals(listOf("112", "221", "library:i.import", "331"), tracks.map { it.id.rawId })
+        assertEquals(listOf(false, true, true, false), tracks.map { it.isUnplayableAppleImport })
+        val pulled = tracks[1]
+        assertEquals("i.pulled", pulled.extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        val refusal = runCatching { source.handleFor(pulled) }.exceptionOrNull()
+        assertTrue(refusal is IllegalArgumentException)
+        // Without the relationship there is nothing to go on: its play parameters' id stands.
+        assertEquals(
+            PlaybackHandle.ExternalController(PlaybackHandle.ControllerType.APPLE_MUSIC_KIT, "331"),
+            source.handleFor(tracks[3])
+        )
     }
 
     @Test fun should_loadRequestedLibrarySongPages_when_providerCannotReturnRandomSongs() = runTest {

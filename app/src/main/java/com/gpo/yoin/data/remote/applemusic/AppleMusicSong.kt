@@ -3,6 +3,7 @@ package com.gpo.yoin.data.remote.applemusic
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -22,7 +23,14 @@ data class AppleMusicSong(
     val artworkTemplate: String?,
     val trackNumber: Int?,
     val albumId: MediaId? = null,
-    val artistId: MediaId? = null
+    val artistId: MediaId? = null,
+    /**
+     * A library song whose `catalog` relationship Apple answered with no catalog song: the
+     * storefront has none, whatever catalog id its play parameters still name (a song since
+     * pulled, or one from another storefront). MusicKit drops such an id from a queue without a
+     * word, so a start index past it lands that many songs further on.
+     */
+    val catalogUnavailable: Boolean = false
 ) {
     fun toTrack(): Track = Track(
         id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, catalogId ?: "library:$resourceId"),
@@ -42,12 +50,16 @@ data class AppleMusicSong(
         extras = buildMap {
             libraryId?.let { put(EXTRA_LIBRARY_ID, it) }
             catalogId?.let { put(EXTRA_CATALOG_ID, it) }
+            if (catalogUnavailable) put(EXTRA_CATALOG_UNAVAILABLE, "true")
         }
     )
 
     companion object {
         const val EXTRA_LIBRARY_ID = "appleMusicLibraryId"
         const val EXTRA_CATALOG_ID = "appleMusicCatalogId"
+
+        /** [catalogUnavailable]: the song can't play, though its catalog id still names it. */
+        const val EXTRA_CATALOG_UNAVAILABLE = "appleMusicCatalogUnavailable"
 
         /** Present when the album load resolved the user's library, so a missing library id means "not added". */
         const val EXTRA_LIBRARY_CHECKED = "appleMusicLibraryChecked"
@@ -57,8 +69,10 @@ data class AppleMusicSong(
             val type = resource.string("type")
             require(type == "songs" || type == "library-songs") { "Expected an Apple Music song" }
             val attributes = resource["attributes"]?.jsonObject
-            val catalog = resource["relationships"]?.jsonObject?.get("catalog")?.jsonObject
-                ?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
+            // There only when the request included it, and then empty when Apple has no catalog song.
+            val catalogRelationship = resource["relationships"]?.jsonObject?.get("catalog")?.jsonObject
+                ?.get("data") as? JsonArray
+            val catalog = catalogRelationship?.firstOrNull()?.jsonObject
             val library = resource["relationships"]?.jsonObject?.get("library")?.jsonObject
                 ?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
             return AppleMusicSong(
@@ -79,7 +93,8 @@ data class AppleMusicSong(
                 artworkTemplate = attributes?.get("artwork")?.jsonObject?.string("url"),
                 trackNumber = attributes?.get("trackNumber")?.jsonPrimitive?.intOrNull,
                 albumId = relatedId(resource, "albums") ?: catalog?.let { relatedId(it, "albums") },
-                artistId = relatedId(resource, "artists") ?: catalog?.let { relatedId(it, "artists") }
+                artistId = relatedId(resource, "artists") ?: catalog?.let { relatedId(it, "artists") },
+                catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true
             )
         }
 
