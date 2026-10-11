@@ -54,6 +54,11 @@ sealed interface HomeUiState {
         // Your Playlists: the library's playlists in the provider's own order
         // (recently changed first on Spotify). Empty = the section isn't rendered.
         val playlists: List<Playlist> = emptyList(),
+        // Raw album id → its cover's memory mark (HomeAlbumMemoryMark.kt),
+        // from the memory signals' candidate build. Jump Back In's plain album
+        // covers and the Recently Added / Recently Played album cards look
+        // theirs up here. Empty = no marks (signals not in yet, nothing kept).
+        val albumMemoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
         // The account this feed is of (its profile id), stamped by
         // HomeViewModel: Home keeps a feed's list state per account, so a
         // feed that Loading stood over (a failed switch) comes back where it was.

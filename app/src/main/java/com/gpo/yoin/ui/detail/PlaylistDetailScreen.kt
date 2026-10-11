@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,12 +54,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -146,6 +156,9 @@ fun PlaylistDetailScreen(
     barExitsOnBack: Boolean = false,
     miniPlayerState: DetailMiniPlayerState? = null,
     playbackProgress: Float = 0f,
+    // The rows' songs that carry a note (MediaId strings, PlaylistSong.id's
+    // form): those rows wear the album row's note marker.
+    notedSongIds: Set<String> = emptySet(),
     modifier: Modifier = Modifier,
 ) {
     // Dialog states lifted here so they survive child recomposition (e.g.
@@ -158,7 +171,12 @@ fun PlaylistDetailScreen(
     // path as the Album & Artist pages); animated so the resolve doesn't pop.
     val coverScheme = rememberCoverColorScheme(content?.coverArtUrl)
     val headerScheme = coverScheme ?: MaterialTheme.colorScheme
-    val titleColor by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
+    val titleColorState =
+        animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
+    val titleColor by titleColorState
+    // The rows' note markers read it while drawing: the colour spring repaints
+    // them instead of recomposing the track list every frame.
+    val rowAccent: () -> Color = remember(titleColorState) { { titleColorState.value } }
     // Stacked-V layers, back to front.
     val stackBack by animateColorAsState(headerScheme.tertiary, YoinMotion.effectsSpring(), label = "playlistStackBack")
     val stackMiddle by animateColorAsState(headerScheme.secondary, YoinMotion.effectsSpring(), label = "playlistStackMiddle")
@@ -264,6 +282,7 @@ fun PlaylistDetailScreen(
                                     PlaylistDetailContent(
                                         content = state,
                                         stackColors = stackColors,
+                                        rowMarks = PlaylistRowMarks(notedSongIds, accent = rowAccent),
                                         onSongClick = onSongClick,
                                     )
                             }
@@ -485,6 +504,7 @@ private fun RenamePlaylistDialog(
 private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
     stackColors: List<Color>,
+    rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
 ) {
     // Same breakpoints as the Album (断点交接 §5): height first — a landscape
@@ -495,19 +515,22 @@ private fun PlaylistDetailContent(
         windowInfo.isCompactHeight -> PlaylistPullUpOverview(
             content = content,
             stackColors = stackColors,
+            rowMarks = rowMarks,
             onSongClick = onSongClick,
             landscape = true,
         )
         layoutMode == LayoutMode.Wide -> PlaylistWideOverview(
             content = content,
             stackColors = stackColors,
+            rowMarks = rowMarks,
             onSongClick = onSongClick,
         )
         layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop ->
-            PlaylistMediumOverview(content = content, onSongClick = onSongClick)
+            PlaylistMediumOverview(content = content, rowMarks = rowMarks, onSongClick = onSongClick)
         else -> PlaylistPullUpOverview(
             content = content,
             stackColors = stackColors,
+            rowMarks = rowMarks,
             onSongClick = onSongClick,
         )
     }
@@ -519,6 +542,7 @@ private fun PlaylistDetailContent(
 private fun PlaylistWideOverview(
     content: PlaylistDetailUiState.Content,
     stackColors: List<Color>,
+    rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -563,6 +587,7 @@ private fun PlaylistWideOverview(
         PlaylistTrackList(
             content = content,
             listState = listState,
+            rowMarks = rowMarks,
             onSongClick = onSongClick,
             modifier = Modifier
                 .weight(1f)
@@ -581,6 +606,7 @@ private val PlaylistWideListMaxWidth = 800.dp
 private fun PlaylistPullUpOverview(
     content: PlaylistDetailUiState.Content,
     stackColors: List<Color>,
+    rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
     // Landscape handset (PlaylistLandscape): the hero turned sideways — cover
     // on its stacked V at the left, Length | Owner and the flowing titles on
@@ -619,6 +645,7 @@ private fun PlaylistPullUpOverview(
                 coverSide = minOf(PlaylistLandscapeCoverSide, maxHeight - 36.dp),
                 gestures = gestures,
                 listState = listState,
+                rowMarks = rowMarks,
                 onSongClick = onSongClick,
             )
             return@BoxWithConstraints
@@ -689,6 +716,7 @@ private fun PlaylistPullUpOverview(
                         PlaylistTrackList(
                             content = content,
                             listState = listState,
+                            rowMarks = rowMarks,
                             onSongClick = onSongClick,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -753,6 +781,7 @@ private fun PlaylistLandscapeLayers(
     coverSide: Dp,
     gestures: DetailPullUpGestures,
     listState: LazyListState,
+    rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -760,6 +789,7 @@ private fun PlaylistLandscapeLayers(
             PlaylistTrackList(
                 content = content,
                 listState = listState,
+                rowMarks = rowMarks,
                 onSongClick = onSongClick,
                 modifier = Modifier
                     .fillMaxSize()
@@ -885,9 +915,10 @@ private fun PlaylistHeroDetails(
 }
 
 @Composable
-private fun PlaylistTrackList(
+internal fun PlaylistTrackList(
     content: PlaylistDetailUiState.Content,
     listState: LazyListState,
+    rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
     modifier: Modifier = Modifier,
     // >= Medium overview only: a leading hero item that scrolls away with the list.
@@ -937,6 +968,8 @@ private fun PlaylistTrackList(
         ) { _, song ->
             PlaylistTrackRow(
                 song = song,
+                hasNote = song.id in rowMarks.notedSongIds,
+                accent = rowMarks.accent,
                 onClick = { onSongClick(song.id) },
             )
         }
@@ -959,12 +992,27 @@ private fun PlaylistTrackCredit(artist: String, album: String) {
 }
 
 /**
+ * What the rows mark beyond the song itself: the songs carrying a note (MediaId
+ * strings, [PlaylistSong.id]'s form) and the page accent their note marker is
+ * tinted with (the cover scheme's primary, as the album rows' accent). The
+ * accent is read while drawing, so its colour spring never recomposes a row.
+ */
+@Immutable
+internal data class PlaylistRowMarks(
+    val notedSongIds: Set<String>,
+    val accent: () -> Color
+)
+
+/**
  * One playlist row: tracks come from different albums, so the row leads with
- * the album thumbnail (not a track number) and credits artist, then album.
+ * the album thumbnail (not a track number) and credits artist, then album. A
+ * song with a note wears the album row's note marker after its title.
  */
 @Composable
 private fun PlaylistTrackRow(
     song: PlaylistSong,
+    hasNote: Boolean,
+    accent: () -> Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -999,13 +1047,18 @@ private fun PlaylistTrackRow(
                 .seamFade(),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                text = song.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // Title + the album row's note marker (AlbumTrackRow).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = song.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                PlaylistNoteMarker(visible = hasNote, accent = accent)
+            }
             PlaylistTrackCredit(artist = song.artist, album = song.album)
         }
         song.duration?.let { duration ->
@@ -1019,18 +1072,61 @@ private fun PlaylistTrackRow(
     }
 }
 
+/**
+ * The album row's note marker (12dp [YoinSymbols.Note], [accent] at 0.8, 6dp
+ * after the title). The noted set is read once the rows are up, so a note can
+ * land on a row already on screen: the marker then unfolds from the title's
+ * end and fades in on the motion springs, and the title's ellipsis eases
+ * over rather than jumping; a note deleted folds it away the same way. A row
+ * that has never had a note composes nothing here.
+ */
+@Suppress("ktlint:standard:function-naming") // Composables are PascalCase
+@Composable
+private fun PlaylistNoteMarker(visible: Boolean, accent: () -> Color) {
+    val shown = remember { MutableTransitionState(visible) }
+    shown.targetState = visible
+    if (!shown.currentState && !shown.targetState) return
+    AnimatedVisibility(
+        visibleState = shown,
+        enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Standard, expandFrom = Alignment.Start) +
+            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard, shrinkTowards = Alignment.Start) +
+            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+        label = "playlistNoteMarker"
+    ) {
+        val symbol = rememberVectorPainter(YoinSymbols.Note)
+        val description = stringResource(R.string.detail_album_cd_has_note)
+        Box(
+            modifier = Modifier
+                .padding(start = 6.dp)
+                .size(12.dp)
+                .semantics {
+                    contentDescription = description
+                    role = Role.Image
+                }
+                .drawBehind {
+                    with(symbol) {
+                        draw(size, colorFilter = ColorFilter.tint(accent().copy(alpha = 0.8f)))
+                    }
+                }
+        )
+    }
+}
+
 // >= Medium hero cover: a fixed side (no reshape to travel), like the Album's.
 private val PlaylistMediumHeroCoverSide = 240.dp
 
 @Composable
 private fun PlaylistMediumOverview(
     content: PlaylistDetailUiState.Content,
+    rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     PlaylistTrackList(
         content = content,
         listState = listState,
+        rowMarks = rowMarks,
         onSongClick = onSongClick,
         // Content container carries the width cap; backgrounds stay full-bleed upstream.
         modifier = Modifier

@@ -345,6 +345,7 @@ internal fun PlaylistPaneEntry(
         factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
     )
     val uiState by viewModel.uiState.collectAsState()
+    val notedSongIds by viewModel.notedSongIds.collectAsState()
     val content = uiState as? PlaylistDetailUiState.Content
     val currentOnMessage by rememberUpdatedState(onMessage)
     val currentOnBack by rememberUpdatedState(onBack)
@@ -424,6 +425,7 @@ internal fun PlaylistPaneEntry(
         onShare = share,
         isPlaying = playback.isPlaying,
         playbackSignal = playback.playbackSignal,
+        notedSongIds = notedSongIds,
         modifier = Modifier.fillMaxSize(),
     )
 }

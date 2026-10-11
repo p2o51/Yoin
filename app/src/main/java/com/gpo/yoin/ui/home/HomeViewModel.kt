@@ -1043,14 +1043,15 @@ class HomeViewModel(
             signalsBuilt = true
             if (built != null) scopeSignals[scopeKey] = built
             splice(fresh = built != null) { latest ->
-                // Unscoped / failed: keep the pill and memory 1×2 up.
+                // Unscoped / failed: keep the pill, memory 1×2 and cover marks up.
                 val pill = built?.pill ?: latest.memoryPill
                 val memory = if (built != null) built.memoryCard else latest.memoryCard()
                 val grid = gridWith(latest, memory)
                 latest.copy(
                     widgetGrid = grid,
                     memoryPill = pill,
-                    rediscover = rediscoverFor(built, grid, pill, latest.recentlyAdded(), fallback = latest.rediscover)
+                    rediscover = rediscoverFor(built, grid, pill, latest.recentlyAdded(), fallback = latest.rediscover),
+                    albumMemoryMarks = built?.albumMarks ?: latest.albumMemoryMarks
                 )
             }
         }
@@ -1432,6 +1433,8 @@ class HomeViewModel(
                         recentlyAdded = RecentlyAdded(latest.recentlyAddedTracks, latest.recentlyAddedAlbums),
                         fallback = latest.rediscover,
                     )
+                    // The covers' memory marks follow the build; a failed one keeps them.
+                    val refreshedMarks = signals?.albumMarks ?: latest.albumMemoryMarks
                     // What's up now reflects this build's stamp, spliced in or already equal.
                     signals?.stamp?.let { built -> signalStamps[scopeKey] = built }
                     signals?.let { built -> scopeSignals[scopeKey] = built }
@@ -1440,7 +1443,8 @@ class HomeViewModel(
                     if (
                         nextGrid == latest.widgetGrid &&
                         refreshedPill == latest.memoryPill &&
-                        refreshedRediscover == latest.rediscover
+                        refreshedRediscover == latest.rediscover &&
+                        refreshedMarks == latest.albumMemoryMarks
                     ) {
                         return@collectLatest
                     }
@@ -1448,6 +1452,7 @@ class HomeViewModel(
                         widgetGrid = nextGrid,
                         memoryPill = refreshedPill,
                         rediscover = refreshedRediscover,
+                        albumMemoryMarks = refreshedMarks,
                     )
                     keep(scopeKey, providerId, profileId, nextContent)
                     emit(nextContent, profileId)
@@ -2278,7 +2283,8 @@ private class NoActiveSourceException : IllegalStateException("No source for the
 /**
  * The shared memory read: header pill + the grid's memory 1×2 (card, album
  * id), plus the whole candidate build (ineligible albums included) and the
- * rated / noted songs that Rediscover picks from.
+ * rated / noted songs that Rediscover picks from. The build also gives the
+ * album covers their memory marks.
  */
 private data class MemorySignals(
     val pill: HomeMemoryPill,
@@ -2287,7 +2293,10 @@ private data class MemorySignals(
     val songs: List<SongMemoryAggregate> = emptyList(),
     // The memory-signal stamp read before the build (null: unread).
     val stamp: Long? = null,
-)
+) {
+    /** Every album of [pool] the user kept something on, by raw id (HomeAlbumMemoryMark.kt). */
+    val albumMarks: Map<String, HomeAlbumMemoryMark> = homeAlbumMemoryMarks(pool)
+}
 
 /** Whether [this] card played: an album card's album, a song card's song or its album. Raw ids. */
 private fun HomeRediscoverItem.playedBy(playedAlbums: Set<String>, playedSongs: Set<String>): Boolean {

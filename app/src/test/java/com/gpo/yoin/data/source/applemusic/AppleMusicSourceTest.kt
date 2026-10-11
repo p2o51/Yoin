@@ -643,6 +643,72 @@ class AppleMusicSourceTest {
         assertEquals(null, server.takeRequest().requestUrl!!.queryParameter("limit"))
     }
 
+    @Test fun should_giveRecentlyPlayedLibraryAlbumsTheirCatalogId_when_appleIncludesTheCatalog() = runTest {
+        reply(
+            """{
+              "data":[
+                {"id":"l.1","type":"library-albums","attributes":{"name":"Mine"},
+                 "relationships":{"catalog":{"data":[{"id":"1440857781","type":"albums"}]}}},
+                {"id":"l.2","type":"library-albums","attributes":{"name":"Imported"},
+                 "relationships":{"catalog":{"data":[]}}},
+                {"id":"pl.1","type":"playlists","attributes":{"name":"A playlist"}},
+                {"id":"310730204","type":"albums","attributes":{"name":"Catalog"}},
+                {"id":"l.3","type":"library-albums","attributes":{"name":"Mine again"},
+                 "relationships":{"catalog":{"data":[{"id":"310730204","type":"albums"}]}}}
+              ]
+            }"""
+        )
+        val albums = source.getRecentlyPlayedAlbums(10)
+        // The catalog id the album opens as and is rated under; an unmatched one keeps its library id.
+        assertEquals(listOf("1440857781", "library:l.2", "310730204"), albums.map { it.id.rawId })
+        val request = server.takeRequest().requestUrl!!
+        assertEquals("/v1/me/recent/played", request.encodedPath)
+        assertEquals("catalog", request.queryParameter("include[library-albums]"))
+        assertNull(request.queryParameter("include"))
+        assertEquals("10", request.queryParameter("limit"))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun should_readRecentlyPlayedWithoutTheInclude_when_appleRefusesIt() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"errors":[]}"""))
+        reply("""{"data":[{"id":"l.1","type":"library-albums","attributes":{"name":"Mine"}}]}""")
+        reply("""{"data":[{"id":"l.1","type":"library-albums","attributes":{"name":"Mine"}}]}""")
+
+        assertEquals(listOf("library:l.1"), source.getRecentlyPlayedAlbums(10).map { it.id.rawId })
+        assertEquals("catalog", server.takeRequest().requestUrl!!.queryParameter("include[library-albums]"))
+        val retry = server.takeRequest().requestUrl!!
+        assertNull(retry.queryParameter("include[library-albums]"))
+        assertEquals("10", retry.queryParameter("limit"))
+
+        // Refused with a 400: the next read doesn't ask again.
+        assertEquals(listOf("library:l.1"), source.getRecentlyPlayedAlbums(10).map { it.id.rawId })
+        assertNull(server.takeRequest().requestUrl!!.queryParameter("include[library-albums]"))
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test fun should_askForTheCatalogAgain_when_recentlyPlayedFailedWithAServerError() = runTest {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"errors":[]}"""))
+        reply("""{"data":[]}""")
+        reply("""{"data":[]}""")
+
+        source.getRecentlyPlayedAlbums(10)
+        source.getRecentlyPlayedAlbums(10)
+
+        val includes = List(3) { server.takeRequest().requestUrl!!.queryParameter("include[library-albums]") }
+        // A 5xx may be passing: it costs this read's include, not the next one's.
+        assertEquals(listOf("catalog", null, "catalog"), includes)
+    }
+
+    @Test fun should_failRecentlyPlayed_when_appleRateLimitsIt() = runTest {
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"errors":[]}"""))
+
+        val error = runCatching { source.getRecentlyPlayedAlbums(10) }.exceptionOrNull()
+
+        assertEquals(AppleMusicApiFailure.RateLimited, (error as AppleMusicApiException).failure)
+        // Not a refused include: no second request.
+        assertEquals(1, server.requestCount)
+    }
+
     @Test fun should_roundTripAppleCredentials_withProviderDiscriminator() {
         val credentials = ProfileCredentials.AppleMusic("https://token.test/token", "user")
         val codec = PlaintextProfileCredentialsCodec()

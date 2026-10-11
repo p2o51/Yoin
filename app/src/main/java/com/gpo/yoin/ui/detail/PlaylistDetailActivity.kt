@@ -87,6 +87,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                     factory = PlaylistDetailViewModel.Factory(playlistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
+                val notedSongIds by viewModel.notedSongIds.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
@@ -151,60 +152,61 @@ class PlaylistDetailActivity : ComponentActivity() {
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     ProvideBesidePanelWindowInfo(nowPlayingPanel) {
-                    PlaylistDetailScreen(
-                        uiState = uiState,
-                        // Toolbar arrow routes through the dispatcher so it plays the
-                        // SAME commit choreography as a system back (card collapse +
-                        // bar scrub + content fade in DetailPredictiveBackCollapse's
-                        // no-gesture path) — one back language per page class.
-                        onBackClick = { onBackPressedDispatcher.onBackPressed() },
-                        onLeavePage = {
-                            // Pre-morph the covered shell bar to nav chrome so the reveal
-                            // after the dissolve matches the scrubbed detail bar.
-                            if (intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-                                (application as YoinApplication).container.experienceSessionStore
-                                    .setDetailChromeActive(false)
-                            }
-                            finish()
-                        },
-                        morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
-                        intent.getBooleanExtra(DETAIL_EXTRA_BAR_MORPH, false),
-                    bridgeBackToShell = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
-                        navSection = intent.detailOriginSection(),
-                        enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
-                        barExitsOnBack = intent.detailBarExitsOnBack(),
-                        onPlayAllClick = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
-                        onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
-                        onSongClick = { songId ->
-                            val index = viewModel.getPlaylistSongs()
-                                .indexOfFirst { it.id.toString() == songId }
-                                .coerceAtLeast(0)
-                            playFrom(startIndex = index, shuffle = false)
-                        },
-                        onRetry = viewModel::retry,
-                        onRename = viewModel::rename,
-                        onDelete = viewModel::delete,
-                        onShare = {
-                            val text = (uiState as? PlaylistDetailUiState.Content)
-                                ?.playlistName
-                                ?: context.getString(R.string.detail_share_playlist)
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, text)
-                            }
-                            context.startActivity(Intent.createChooser(send, null))
-                        },
-                        isPlaying = isPlaying,
-                        playbackSignal = if (isPlaying) playbackSignal else 0f,
-                        onOpenNowPlaying = { nowPlayingOpen = true },
-                        nowPlayingOpen = nowPlayingOpen,
+                        PlaylistDetailScreen(
+                            uiState = uiState,
+                            // Toolbar arrow routes through the dispatcher so it plays the
+                            // SAME commit choreography as a system back (card collapse +
+                            // bar scrub + content fade in DetailPredictiveBackCollapse's
+                            // no-gesture path) — one back language per page class.
+                            onBackClick = { onBackPressedDispatcher.onBackPressed() },
+                            onLeavePage = {
+                                // Pre-morph the covered shell bar to nav chrome so the reveal
+                                // after the dissolve matches the scrubbed detail bar.
+                                if (intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
+                                    (application as YoinApplication).container.experienceSessionStore
+                                        .setDetailChromeActive(false)
+                                }
+                                finish()
+                            },
+                            morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
+                                intent.getBooleanExtra(DETAIL_EXTRA_BAR_MORPH, false),
+                            bridgeBackToShell = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
+                            navSection = intent.detailOriginSection(),
+                            enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
+                            barExitsOnBack = intent.detailBarExitsOnBack(),
+                            onPlayAllClick = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+                            onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
+                            onSongClick = { songId ->
+                                val index = viewModel.getPlaylistSongs()
+                                    .indexOfFirst { it.id.toString() == songId }
+                                    .coerceAtLeast(0)
+                                playFrom(startIndex = index, shuffle = false)
+                            },
+                            onRetry = viewModel::retry,
+                            onRename = viewModel::rename,
+                            onDelete = viewModel::delete,
+                            onShare = {
+                                val text = (uiState as? PlaylistDetailUiState.Content)
+                                    ?.playlistName
+                                    ?: context.getString(R.string.detail_share_playlist)
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                }
+                                context.startActivity(Intent.createChooser(send, null))
+                            },
+                            isPlaying = isPlaying,
+                            playbackSignal = if (isPlaying) playbackSignal else 0f,
+                            onOpenNowPlaying = { nowPlayingOpen = true },
+                            nowPlayingOpen = nowPlayingOpen,
 
-                        miniPlayerState = miniPlayerState,
-                        playbackProgress = miniPlayerProgress,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .besideNowPlayingPanel(nowPlayingPanel),
-                    )
+                            miniPlayerState = miniPlayerState,
+                            playbackProgress = miniPlayerProgress,
+                            notedSongIds = notedSongIds,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .besideNowPlayingPanel(nowPlayingPanel),
+                        )
                     }
 
 

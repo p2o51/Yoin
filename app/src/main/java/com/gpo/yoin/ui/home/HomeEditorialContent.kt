@@ -286,6 +286,8 @@ internal fun HomeEditorialContent(
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
     rediscover: List<HomeRediscoverItem> = emptyList(),
+    // Raw album id → the memory mark its plain cover wears (HomeAlbumMemoryMark.kt).
+    albumMemoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     playlists: List<LibraryPlaylist> = emptyList(),
     recentlyPlayed: List<Album> = emptyList(),
     // The header's Memories pill; null keeps today's bare chevron.
@@ -1106,6 +1108,7 @@ internal fun HomeEditorialContent(
                                     title = stringResource(HomeSection.JumpBackIn.titleRes),
                                     cards = widgetGrid,
                                     rows = layout.rowsOf(HomeSection.JumpBackIn),
+                                    memoryMarks = albumMemoryMarks,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onCardClick = onWidgetCardClick,
                                     modifier = remember(firstReveal) {
@@ -1123,6 +1126,7 @@ internal fun HomeEditorialContent(
                                 HomeSection.RecentlyAdded -> RecentlyAddedSection(
                                     tracks = recentlyAddedTracks,
                                     albums = recentlyAddedAlbums,
+                                    memoryMarks = albumMemoryMarks,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
                                     onAlbumClick = { album ->
@@ -1168,6 +1172,7 @@ internal fun HomeEditorialContent(
                                 HomeSection.RecentlyPlayed -> AlbumShelfSection(
                                     title = stringResource(HomeSection.RecentlyPlayed.titleRes),
                                     albums = recentlyPlayed,
+                                    memoryMarks = albumMemoryMarks,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onAlbumClick = { album ->
                                         onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
@@ -2356,6 +2361,8 @@ private fun RecentlyAddedSection(
     singleRowShelf: Boolean = false,
     // Off while Home is being edited: a drag on the shelf is edit mode's.
     shelfScrollEnabled: Boolean = true,
+    // Raw album id → the album card's memory mark (HomeAlbumMemoryMark.kt).
+    memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     // How many of each this container seats: columns from the resting width
@@ -2439,6 +2446,7 @@ private fun RecentlyAddedSection(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onAlbumClick(album) },
                             buildCoverArtUrl = buildCoverArtUrl,
+                            memoryMark = album.albumMemoryMark(memoryMarks),
                             modifier = Modifier.homeEditCard(
                                 maxColumns * rows + stackIndex * albumStack + inStack,
                             ),
@@ -2562,6 +2570,8 @@ private fun RecentlyAddedAlbumCard(
     onClick: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
+    // The cover's memory mark (HomeAlbumMemoryMark.kt); null = a bare cover.
+    memoryMark: HomeAlbumMemoryMark? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val coverArtUrl = resolveHomeCoverArtUrl(album.coverArt, buildCoverArtUrl)
@@ -2582,6 +2592,7 @@ private fun RecentlyAddedAlbumCard(
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
             modifier = Modifier.size(RecentlyAddedAlbumCover),
+            memoryMark = memoryMark,
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -2666,6 +2677,8 @@ private fun AlbumShelfSection(
     buildCoverArtUrl: (String) -> String,
     frame: HomeFeedFrame,
     shelfScrollEnabled: Boolean = true,
+    // Raw album id → the album card's memory mark (HomeAlbumMemoryMark.kt).
+    memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val editCardScope = LocalHomeEditCardScope.current
@@ -2692,6 +2705,7 @@ private fun AlbumShelfSection(
                     extractBackdropColors = extractBackdropColors,
                     onClick = { onAlbumClick(album) },
                     buildCoverArtUrl = buildCoverArtUrl,
+                    memoryMark = album.albumMemoryMark(memoryMarks),
                     modifier = Modifier.homeEditCard(index),
                 )
             }

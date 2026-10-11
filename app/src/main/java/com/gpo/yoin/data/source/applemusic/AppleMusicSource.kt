@@ -61,6 +61,9 @@ class AppleMusicSource(
     @Volatile var playbackDeveloperToken: String = ""
         private set
     private var storefront: String? = null
+
+    // Apple answered recent/played's catalog include with a 400: later reads leave it out.
+    @Volatile private var recentPlayedRefusesCatalog = false
     private val libraryMutationMutex = Mutex()
     private val pendingLibraryAdds = ConcurrentHashMap.newKeySet<String>()
 
@@ -120,14 +123,28 @@ class AppleMusicSource(
         return result
     }
 
-    /** recent/played mixes albums, playlists and stations, 10 a page: keep the albums. */
+    /**
+     * recent/played mixes albums, playlists and stations, 10 a page: keep the albums. A library album comes
+     * with its catalog album ([RecentPlayedCatalogQuery]), so it carries the catalog id it opens as and the
+     * user's ratings are kept under, as the library album list's do. Refused, the include costs only that:
+     * the page is read again without it (and, after a 400, later reads leave it out).
+     */
     override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> {
         if (size <= 0) return emptyList()
+        val path = listOf("v1", "me", "recent", "played")
         val albums = mutableListOf<Album>()
         val visited = mutableSetOf<String>()
+        var query = if (recentPlayedRefusesCatalog) RecentPlayedPageQuery else RecentPlayedCatalogQuery
         var next: String? = null
         do {
-            val response = page(listOf("v1", "me", "recent", "played"), mapOf("limit" to "10"), next)
+            val response = try {
+                page(path, query, next)
+            } catch (error: AppleMusicApiException) {
+                if (next != null || query == RecentPlayedPageQuery || !error.mayRefuseInclude()) throw error
+                if ((error.failure as? AppleMusicApiFailure.Http)?.status == 400) recentPlayedRefusesCatalog = true
+                query = RecentPlayedPageQuery
+                page(path, query, null)
+            }
             albums += response.resources().filter { it.text("type") in setOf("albums", "library-albums") }.map(::album)
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
@@ -628,6 +645,16 @@ private typealias TracklistRead = Deferred<Result<List<JsonObject>>>
 
 /** recent/played pages (10 each) read at most: Apple keeps only a short history anyway. */
 private const val RecentPlayedMaxPages = 5
+
+/** recent/played's largest page. */
+private val RecentPlayedPageQuery = mapOf("limit" to "10")
+
+/**
+ * [RecentPlayedPageQuery] with each library album's catalog album. Scoped to `library-albums` (Apple's
+ * "Scoping Parameters"): the page mixes in catalog albums, playlists and stations, which have no
+ * `catalog` relationship to include.
+ */
+private val RecentPlayedCatalogQuery = RecentPlayedPageQuery + ("include[library-albums]" to "catalog")
 
 /** Apple's largest page for library collections and the artist albums relationship (default 25). */
 private val PageLimitQuery = mapOf("limit" to "100")
