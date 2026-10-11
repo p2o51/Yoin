@@ -1802,6 +1802,11 @@ class YoinRepository(
         }
     }
 
+    /**
+     * Which of [trackIds] carry a note, asked [NOTE_KEYS_PER_QUERY] ids at a
+     * time: a playlist has no ceiling, and SQLite before 3.32 (Android 11 and
+     * older) binds at most 999 values to one query.
+     */
     fun observeTracksWithNotes(trackIds: Collection<MediaId>): Flow<Set<MediaId>> {
         val distinctTrackIds = trackIds.distinct()
         if (distinctTrackIds.isEmpty()) {
@@ -1815,12 +1820,14 @@ class YoinRepository(
 
             val groupedFlows = distinctTrackIds
                 .groupBy(MediaId::provider)
-                .map { (provider, ids) ->
-                    songNoteDao.observeKeys(
-                        trackIds = ids.map(MediaId::rawId),
-                        provider = provider,
-                        profileId = profileId,
-                    )
+                .flatMap { (provider, ids) ->
+                    ids.chunked(NOTE_KEYS_PER_QUERY).map { chunk ->
+                        songNoteDao.observeKeys(
+                            trackIds = chunk.map(MediaId::rawId),
+                            provider = provider,
+                            profileId = profileId,
+                        )
+                    }
                 }
 
             if (groupedFlows.size == 1) {
@@ -3469,6 +3476,9 @@ private fun sha256Hex(text: String): String {
 
 private fun List<SongNoteKey>.toMediaIdSet(): Set<MediaId> =
     mapTo(linkedSetOf()) { key -> MediaId(key.provider, key.trackId) }
+
+/** Well under SQLite's old 999-value limit, with room for the query's own values. */
+private const val NOTE_KEYS_PER_QUERY = 500
 
 private fun List<AlbumNoteKey>.toAlbumMediaIdSet(): Set<MediaId> =
     mapTo(linkedSetOf()) { key -> MediaId(key.provider, key.albumId) }
