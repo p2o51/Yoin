@@ -433,7 +433,9 @@ class SpotifyMusicSourceTest {
     }
 
     @Test
-    fun should_returnNull_when_albumNotFoundAndSavedTracksFail() = runTest {
+    fun should_returnNullWithoutReadingSavedTracks_when_albumNotFound() = runTest {
+        // The saved-tracks list fails and would answer before the 404: an
+        // album open that awaited it would turn this null into an error.
         routes["/v1/albums/gone"] = {
             Thread.sleep(200)
             notFound()
@@ -442,6 +444,7 @@ class SpotifyMusicSourceTest {
         val source = newSource()
 
         assertNull(source.library().getAlbum(MediaId.spotify("gone")))
+        assertEquals(0, requestsTo("/v1/me/tracks"))
     }
 
     @Test
