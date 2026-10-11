@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -66,7 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
@@ -80,11 +83,14 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
@@ -106,7 +112,10 @@ import kotlin.math.roundToInt
 // a wash of the cover's own colour. It speaks only when it has something to
 // say (owner: 「有新内容出现，如果很久不动也可以出现」): something written since
 // it last spoke (per profile, remembered across launches), or the page left
-// untouched for a while. Any touch elsewhere tucks it back.
+// untouched for a while — that one at most once each time the app comes to
+// the foreground. Said in full, it holds six seconds and flies back into the
+// arrow (owner 2026-10-11). Any touch elsewhere — the bar included — tucks it
+// back sooner; the app going to the background puts it away unseen.
 
 /** The body: a cover and a title on one line, where the header's title was. */
 private val BubbleBodyHeight = 60.dp
@@ -162,8 +171,17 @@ private val ArrowPullNudge = 2.dp
 /** The arrow fades out over the first stretch of scroll — the pull only works at the top. */
 private val ArrowScrollFade = 48.dp
 
-/** "很久不动": the page left untouched this long, the bubble speaks (once per visit). */
+/**
+ * "很久不动": Home readable and untouched this long, the bubble speaks — at
+ * most once each time the app comes to the foreground (owner 2026-10-11).
+ */
 internal const val MemoryBubbleIdleMs = 15_000L
+
+/**
+ * Said in full (the bubble out, its spring at rest), it holds this long, then
+ * flies back into the arrow on its own (owner 2026-10-11: 说完停 6 秒).
+ */
+internal val MemoryBubbleDwellMs: Long = 6_000L
 
 /** Presence below this is tucked away: not drawn, not composed. */
 private const val BubbleGoneBelow = 0.01f
@@ -172,6 +190,7 @@ private const val BubbleGoneBelow = 0.01f
 private const val MemoryBubbleNewsDelayMs = 450L
 
 internal val LocalMemoryBubbleIdleMs = staticCompositionLocalOf { MemoryBubbleIdleMs }
+internal val LocalMemoryBubbleDwellMs = staticCompositionLocalOf { MemoryBubbleDwellMs }
 
 // ── What the bubble remembers ──────────────────────────────────────────
 
@@ -236,6 +255,129 @@ internal fun isMemoryNews(pill: HomeMemoryPill?, lastSeen: String?): Boolean {
     return now.first > seen.first || now.second > seen.second
 }
 
+// ── When it speaks, when it goes (owner 2026-10-11) ────────────────────
+
+internal enum class BubbleReason { News, Idle }
+
+/**
+ * What the bubble is saying (null = tucked away), and whether it has spoken
+ * since the app came to the foreground — which uses up the idle reminder.
+ */
+@Immutable
+internal data class MemoryBubbleTurn(val reason: BubbleReason? = null, val spokeThisForeground: Boolean = false)
+
+/** What happens to the bubble; the overlay's effects turn each into one of these. */
+internal enum class MemoryBubbleCue {
+    /** Something written that this profile hasn't been told, and Home can be read. */
+    News,
+
+    /** Home sat readable and untouched for the idle window. */
+    IdleElapsed,
+
+    /** Said in full, it held for the dwell. */
+    DwellOver,
+
+    /** A press anywhere — Home, the bar, the Now Playing pill — or a wheel scroll; a tap on it too. */
+    Touch,
+
+    /** Home went out of reach: covered, scrolled, pulled toward Memories, another window in front. */
+    OutOfReach,
+
+    /** The app went to the background (STOPPED). */
+    Backgrounded
+}
+
+/**
+ * The bubble's rules. News is always told. The idle reminder speaks at most
+ * once each time in the foreground — a trip to an album, Library and back, a
+ * touch: none of them winds it up again — and never over a bubble already
+ * speaking. Everything else tucks it away; the background also starts the
+ * next time in the foreground afresh (unseen, so it isn't a hard cut).
+ */
+internal fun MemoryBubbleTurn.after(cue: MemoryBubbleCue): MemoryBubbleTurn = when (cue) {
+    MemoryBubbleCue.News -> MemoryBubbleTurn(reason = BubbleReason.News, spokeThisForeground = true)
+    MemoryBubbleCue.IdleElapsed -> if (reason == null && !spokeThisForeground) {
+        MemoryBubbleTurn(reason = BubbleReason.Idle, spokeThisForeground = true)
+    } else {
+        this
+    }
+    MemoryBubbleCue.DwellOver, MemoryBubbleCue.Touch, MemoryBubbleCue.OutOfReach -> copy(reason = null)
+    MemoryBubbleCue.Backgrounded -> MemoryBubbleTurn()
+}
+
+/** The dwell starts once it has said it all: the bubble fully out and its spring at rest. */
+internal fun memoryBubbleFullySaid(unroll: Float, unrolling: Boolean): Boolean = unroll >= 1f && !unrolling
+
+/** Waits until it has said it all ([fullySaid]), then holds it [dwellMs]: it goes after that. */
+internal suspend fun awaitMemoryBubbleDwell(fullySaid: Flow<Boolean>, dwellMs: Long) {
+    fullySaid.first { it }
+    delay(dwellMs)
+}
+
+/**
+ * Returns once Home has stayed [readable] and untouched for [idleMs] straight:
+ * a touch, or Home going out of reach, starts the clock over.
+ */
+internal suspend fun awaitMemoryBubbleIdle(readable: Flow<Boolean>, touches: Flow<Unit>, idleMs: Long) {
+    while (true) {
+        readable.first { it }
+        val interrupted = withTimeoutOrNull(idleMs) {
+            merge(touches, readable.filter { !it }.map { }).first()
+        }
+        if (interrupted == null) return
+    }
+}
+
+/**
+ * Home's own window can be read: in front ([Lifecycle.State.RESUMED] — a
+ * detail page, translucent, only pauses it) and focused (not under the
+ * account card's dialog, the notification shade, the other side of a split).
+ */
+internal fun memoryBubbleWindowReadable(state: Lifecycle.State, focused: Boolean): Boolean =
+    focused && state.isAtLeast(Lifecycle.State.RESUMED)
+
+/**
+ * A press the shell's root saw first: Home's root saw it too if the down
+ * times match — Home deals with those (a tap on the bubble is not a tuck) —
+ * else it landed outside Home (the bar, the Now Playing pill) and counts as
+ * a touch (owner 2026-10-11: 碰底栏也算碰屏).
+ */
+internal fun isShellOnlyPress(shellDownAt: Long, homeDownAt: Long): Boolean = shellDownAt != homeDownAt
+
+/**
+ * The shell's half of the bubble, one per window, above the section switch
+ * (a trip to Library and back keeps it): every press anywhere in the shell —
+ * the bar and the Now Playing pill are not inside Home — and whether the
+ * bubble has spoken since the app came to the foreground. YoinNavHost
+ * provides it ([LocalMemoryBubbleShell]); without one (the debug harness,
+ * previews) the overlay keeps its own and only Home's presses count.
+ */
+@Stable
+internal class MemoryBubbleShell {
+    /** Each press's down time, as the shell's root sees it — ahead of everything inside. */
+    internal val presses = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+
+    internal var spokeThisForeground: Boolean = false
+}
+
+internal val LocalMemoryBubbleShell = staticCompositionLocalOf<MemoryBubbleShell?> { null }
+
+/** The shell's [MemoryBubbleShell]: the app going to the background frees the idle reminder again. */
+@Composable
+internal fun rememberMemoryBubbleShell(): MemoryBubbleShell {
+    val shell = remember { MemoryBubbleShell() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { shell.spokeThisForeground = false }
+    return shell
+}
+
+/** Put on the shell's root: reports every press to [shell] (Initial pass, consuming nothing). */
+internal fun Modifier.reportMemoryBubbleShellPresses(shell: MemoryBubbleShell): Modifier = pointerInput(shell) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        shell.presses.tryEmit(down.uptimeMillis)
+    }
+}
+
 // ── Controller: touches and the header's free span ─────────────────────
 
 /**
@@ -246,6 +388,9 @@ internal fun isMemoryNews(pill: HomeMemoryPill?, lastSeen: String?): Boolean {
 @Stable
 internal class MemoryBubbleController {
     internal val touches = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** The last press Home's root saw, by its down time: the shell's report of it is not news ([isShellOnlyPress]). */
+    internal var lastDownAt: Long = Long.MIN_VALUE
 
     /** The bubble's and the arrow's bounds in the overlay's (= Home root's) space, written in placement. */
     internal var bubbleBounds: Rect = Rect.Zero
@@ -316,6 +461,7 @@ internal fun Modifier.watchMemoryBubbleTouches(controller: MemoryBubbleControlle
             .pointerInput(controller) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    controller.lastDownAt = down.uptimeMillis
                     val tap = controller.tapTargetAt(down.position)
                     if (tap == null) {
                         controller.touches.tryEmit(Unit)
@@ -503,8 +649,6 @@ internal fun memoryBubbleOutline(
 
 private enum class BubbleSlot { Arrow, Surface, Content, Mark }
 
-private enum class BubbleReason { News, Idle }
-
 /**
  * The Memories entry in [MemoryEntryStyle.Bubble]: the safe-area arrow and
  * its speech bubble, laid over the whole Home page (fill the page's root Box;
@@ -515,7 +659,9 @@ private enum class BubbleReason { News, Idle }
  * column): the bubble keeps quiet and tucks away. [editing] = Home is being
  * edited: the same, and the arrow takes no taps and fades out over the first
  * half of [editProgress] (draw phase). The header's title carries
- * [memoryBubbleTitle] so the bubble can take its place.
+ * [memoryBubbleTitle] so the bubble can take its place. When it speaks and
+ * when it goes follow [MemoryBubbleTurn.after]; the shell's presses and the
+ * once-per-foreground reminder come from [LocalMemoryBubbleShell].
  */
 @Composable
 internal fun MemoryBubbleOverlay(
@@ -538,23 +684,37 @@ internal fun MemoryBubbleOverlay(
     val context = LocalContext.current
     val store = LocalMemoryBubbleSeenStore.current ?: remember(context) { SharedPrefsMemoryBubbleSeenStore(context) }
     val idleMs = LocalMemoryBubbleIdleMs.current
+    val dwellMs = LocalMemoryBubbleDwellMs.current
+    // The shell's presses and the once-per-foreground reminder; on its own
+    // (the debug harness, previews) it keeps a holder of its own.
+    val shell = LocalMemoryBubbleShell.current ?: remember { MemoryBubbleShell() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
+    val windowInfo = LocalWindowInfo.current
     val currentPill by rememberUpdatedState(pill)
     val currentHint by rememberUpdatedState(hintProgress)
     val currentReveal by rememberUpdatedState(revealProgress)
     val currentScrolled by rememberUpdatedState(scrolledPx)
     val currentCovered by rememberUpdatedState(covered || editing)
     val fadePx = with(density) { ArrowScrollFade.toPx() }
-    // It may only speak where it can be read: Home on top, the feed at its
-    // top (the arrow is there), nobody pulling Memories open — and not over
-    // the header's own cold-start bloom (the same mark, the same place).
+    // It may only speak where it can be read: Home on top, its window in
+    // front and focused, the feed at its top (the arrow is there), nobody
+    // pulling Memories open — and not over the header's own cold-start bloom
+    // (the same mark, the same place).
     val canSpeak: () -> Boolean = {
-        !currentCovered && currentScrolled() <= fadePx && currentHint() <= 0.01f && !HomeIntroRunning.value
+        !currentCovered && currentScrolled() <= fadePx && currentHint() <= 0.01f && !HomeIntroRunning.value &&
+            memoryBubbleWindowReadable(lifecycleState, windowInfo.isWindowFocused)
     }
 
     var reason by remember { mutableStateOf<BubbleReason?>(null) }
     val hasSomething = pill.hasSomethingToSay()
     if (!hasSomething && reason != null) reason = null
+    // Every change of what it says goes through the rules (MemoryBubbleTurn.after).
+    val cue: (MemoryBubbleCue) -> Unit = { what ->
+        val next = MemoryBubbleTurn(reason, shell.spokeThisForeground).after(what)
+        reason = next.reason
+        shell.spokeThisForeground = next.spokeThisForeground
+    }
 
     // News: once the launch reveal has landed and it can be read (every time
     // Home resumes with news still untold), speak — and remember it was said.
@@ -571,29 +731,56 @@ internal fun MemoryBubbleOverlay(
             snapshotFlow { currentReveal() >= 1f }.first { it }
             delay(MemoryBubbleNewsDelayMs)
             snapshotFlow { canSpeak() }.first { it }
-            reason = BubbleReason.News
+            cue(MemoryBubbleCue.News)
             store.markSeen(news.scope, news.newsKey)
         }
     }
-    // "很久不动": untouched for idleMs where it can be read, speak — once per visit.
-    LaunchedEffect(hasSomething, idleMs) {
+    // "很久不动": readable and untouched for idleMs, speak — at most once each
+    // time the app comes to the foreground (counted from STARTED: a detail
+    // page, translucent, never stops Home, so coming back from one doesn't
+    // wind it up again; it only keeps the clock from running under it).
+    LaunchedEffect(hasSomething, idleMs, shell) {
         if (!hasSomething) return@LaunchedEffect
-        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (true) {
-                snapshotFlow { canSpeak() }.first { it }
-                val touched = withTimeoutOrNull(idleMs) { controller.touches.first() }
-                if (touched == null && reason == null && canSpeak()) {
-                    reason = BubbleReason.Idle
-                    awaitCancellation()
-                }
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            val readable = snapshotFlow { canSpeak() }
+            while (!shell.spokeThisForeground) {
+                awaitMemoryBubbleIdle(readable, controller.touches, idleMs)
+                if (canSpeak()) cue(MemoryBubbleCue.IdleElapsed)
             }
         }
     }
-    // Any touch elsewhere, a pull toward Memories, the feed scrolling away or
-    // something covering Home tucks it back.
-    LaunchedEffect(controller) {
-        launch { controller.touches.collect { reason = null } }
-        snapshotFlow { canSpeak() }.filter { !it }.collect { reason = null }
+    // Said in full, it holds dwellMs and flies back into the arrow on its own.
+    LaunchedEffect(reason, dwellMs) {
+        if (reason == null) return@LaunchedEffect
+        val fullySaid = snapshotFlow { memoryBubbleFullySaid(controller.unroll.value, controller.unroll.isRunning) }
+        awaitMemoryBubbleDwell(fullySaid, dwellMs)
+        cue(MemoryBubbleCue.DwellOver)
+    }
+    // Any touch elsewhere (the bar's too), a pull toward Memories, the feed
+    // scrolling away or something covering Home tucks it back.
+    LaunchedEffect(controller, shell) {
+        launch { controller.touches.collect { cue(MemoryBubbleCue.Touch) } }
+        launch {
+            shell.presses.collect { downAt ->
+                if (isShellOnlyPress(downAt, controller.lastDownAt)) controller.touches.tryEmit(Unit)
+            }
+        }
+        snapshotFlow { canSpeak() }.filter { !it }.collect { cue(MemoryBubbleCue.OutOfReach) }
+    }
+    // The app gone to the background (STOPPED): the window can't be seen, so
+    // it is put away at once, unseen — no spring left for later — and Home
+    // comes back at rest.
+    LaunchedEffect(lifecycleOwner, controller) {
+        lifecycleOwner.lifecycle.currentStateFlow
+            .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            .distinctUntilChanged()
+            .filter { started -> !started }
+            .collect {
+                cue(MemoryBubbleCue.Backgrounded)
+                controller.flyAway.snapTo(0f)
+                controller.unroll.snapTo(0f)
+                controller.markIn.snapTo(0f)
+            }
     }
 
     val speaking = reason != null
@@ -646,12 +833,12 @@ internal fun MemoryBubbleOverlay(
     }
     val tapArrow: () -> Unit = {
         haptics.performContextClick()
-        reason = null
+        cue(MemoryBubbleCue.Touch)
         onNavigateToMemories()
     }
     val tapBubble: () -> Unit = {
         haptics.performContextClick()
-        reason = null
+        cue(MemoryBubbleCue.Touch)
         val session = pill?.latest?.sessionId
         if (session != null) onOpenMemoryFocus(session) else onNavigateToMemories()
     }

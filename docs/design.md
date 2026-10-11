@@ -211,6 +211,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - Mix / 推荐区块（从 Navidrome 获取随机专辑、最近添加等；「最常播放」排序依赖 Scrobble，MVP 阶段使用服务端已有数据）
 - 辅助可视化区域（当有曲目播放时，显示实时音频可视化效果）
 - Memory teaser 只显示一条轻提示，点入 shell-owned Memories surface；Feed 不承载重型 Memory 卡片流
+- **Memories 气泡什么时候说、什么时候走（2026-10-11 owner 拍板）**：写下新的评分、乐评或笔记后，回到首页说一次；首页看得见、15 秒没人碰也说一次，但这条闲置提醒每次打开 app（Activity 进入 STARTED）最多一次，本次前台已经说过（包括说过新内容）就不再提醒，从详情页返回、切到 Library 再切回都不重新给次数。气泡完全展开、弹簧停稳后停 6 秒，沿现有的 flyAway 弹簧飞回箭头。碰屏幕任何地方（包括底栏的播放胶囊和 Home / Library 按钮）、滚动、下拉 Memories、打开 Now Playing 或详情、别的窗口挡在前面（账号卡片、通知栏）都会提前飞走，闲置计时也从头算；app 退到后台（STOPPED）时悄悄复位，这时窗口看不见，不算硬切。点气泡打开这条记忆。规则是纯函数 `MemoryBubbleTurn.after`，实现在 `ui/home/HomeMemoryBubble.kt`。
 - 右上角 ⚙️ 设置入口
 - **版块与布局**：Activities、Jump Back In、Recently Added、Rediscover，顺序和开关按 profile 存（`home_layout`）。只在真的改变时写入；改回默认就删掉这一行，等于「从未定制」。定制过的用户遇到新版块时，新版块以关闭状态追加进托盘并标 "New"；没定制过的按各版块的默认开关（Rediscover 默认开、排在最后）。
 - **页头：两行问候（2026-10-09 owner 定，原型 artifact GWEBwdavGiwS1ngqmcqTyF）**：上面一行是按时段换的小字问候（titleMedium，次要文字色：5–11 点早上好、11–13 中午好、13–18 下午好、其余晚上好；英文只有 morning / afternoon / evening，整点自动更新），下面一行是 Home（headlineMedium，比原来的 headlineLarge 小一号；手机横屏再小一号 headlineSmall），两行都用 Google Sans Flex 的圆体（ROND 100，Medium）——中文没有这个字形，落到系统字体。编辑模式里问候语跟页头图标一起淡出，Edit Home 照旧盖在 Home 上。**冷启动开场**：Yoin 标志（三臂，tertiary / primary / secondary）在标题位置依次弹开（带回弹），停一拍后转 70° 缩小淡出，问候语和 Home 依次浮上来，约 1.4 秒；每个进程只播一次（切回 Home、转屏不重播）。首页加载时会临时报「动效压力」（AdaptiveReduced），开场最多等 0.4 秒让它解除；一次加载最多报 3 秒（`HOME_LOADING_PRESSURE_MAX_MS`），挂住的加载不会让整个 app 一直停在降级动效；真正的减少动态（低内存、省电）直接显示两行字。实现 `ui/home/HomeGreetingTitle.kt`。

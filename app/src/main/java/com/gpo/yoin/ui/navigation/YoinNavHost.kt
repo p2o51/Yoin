@@ -125,8 +125,11 @@ import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
+import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
+import com.gpo.yoin.ui.home.rememberMemoryBubbleShell
+import com.gpo.yoin.ui.home.reportMemoryBubbleShellPresses
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
@@ -894,10 +897,15 @@ private fun YoinShell(
         }
     }
 
+    // Home's Memories bubble hears every press in the shell — the bar and the
+    // Now Playing pill sit outside Home — and keeps its once-per-foreground
+    // reminder above the section switch.
+    val memoryBubbleShell = rememberMemoryBubbleShell()
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .reportMemoryBubbleShellPresses(memoryBubbleShell),
     ) {
         // The columns region: everything beside the Now Playing panel. The
         // shell column takes what the detail column (gutter + page) leaves,
@@ -936,6 +944,7 @@ private fun YoinShell(
         CompositionLocalProvider(
             LocalYoinWindowInfo provides columnWindowInfos.shell.value,
             LocalPaneWidthInMotion provides paneWidthInMotion,
+            LocalMemoryBubbleShell provides memoryBubbleShell,
         ) {
             AnimatedContent<YoinSection>(
                 targetState = selectedSection,

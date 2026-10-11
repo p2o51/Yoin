@@ -33,8 +33,10 @@ import com.gpo.yoin.ui.home.HomeWidgetCard
 import com.gpo.yoin.ui.home.HomeWidgetTarget
 import com.gpo.yoin.ui.home.LocalHomeHintVariant
 import com.gpo.yoin.ui.home.InMemoryMemoryBubbleSeenStore
+import com.gpo.yoin.ui.home.LocalMemoryBubbleDwellMs
 import com.gpo.yoin.ui.home.LocalMemoryBubbleIdleMs
 import com.gpo.yoin.ui.home.LocalMemoryBubbleSeenStore
+import com.gpo.yoin.ui.home.MemoryBubbleDwellMs
 import com.gpo.yoin.ui.home.MemoryBubbleIdleMs
 import com.gpo.yoin.ui.home.edit.HomePlateVariant
 import com.gpo.yoin.ui.home.edit.HomeWiggleMode
@@ -84,6 +86,7 @@ import java.io.File
  *   --es bubble   news (default: the pill is untold news, the bubble speaks
  *                 after the reveal) | seen (only the arrow until idle)
  *   --el idleMs   the idle threshold (default 15000)
+ *   --el dwellMs  how long it holds, said in full, before it flies back (default 6000)
  *
  * Rediscover (P0-9; 2026-10-05 no score bar + rating badge):
  *   --ez rediscover true  adds the shelf: an album rating (solid badge), a
@@ -133,6 +136,7 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         val showActivities = intent.getBooleanExtra("activities", true)
         val bubbleSeen = intent.getStringExtra("bubble") == "seen"
         val idleMs = intent.getLongExtra("idleMs", MemoryBubbleIdleMs)
+        val dwellMs = intent.getLongExtra("dwellMs", MemoryBubbleDwellMs)
         val rediscover = if (intent.getBooleanExtra("rediscover", false)) {
             fakeRediscover().take(intent.getIntExtra("rediscoverCount", Int.MAX_VALUE).coerceAtLeast(0))
         } else {
@@ -185,6 +189,7 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 LocalHomeHintVariant provides variant,
                 LocalMemoryBubbleSeenStore provides bubbleStore,
                 LocalMemoryBubbleIdleMs provides idleMs,
+                LocalMemoryBubbleDwellMs provides dwellMs,
                 LocalHomeWiggleStyle provides wiggleStyle,
                 LocalMotionProfile provides motionProfile,
                 LocalHomePlateVariant provides plateVariant,
