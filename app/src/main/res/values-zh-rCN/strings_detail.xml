@@ -3,65 +3,65 @@
     <string name="detail_cd_back">返回</string>
 
     <string name="detail_menu_play_next">下一首播放</string>
-    <string name="detail_menu_add_to_queue">加入播放队列</string>
-    <string name="detail_menu_add_to_playlist">加入播放列表</string>
+    <string name="detail_menu_add_to_queue">加入队列</string>
+    <string name="detail_menu_add_to_playlist">加入歌单</string>
     <string name="detail_menu_open_spotify">在 Spotify 中打开</string>
     <string name="detail_menu_open_apple_music">在 Apple Music 中打开</string>
     <plurals name="detail_menu_queued">
-        <item quantity="other">已将 %1$d 首加入播放队列</item>
+        <item quantity="other">已将 %1$d 首加入队列</item>
     </plurals>
     <plurals name="detail_menu_play_next_count">
         <item quantity="other">接下来播放 %1$d 首</item>
     </plurals>
 
-    <string name="detail_share_album">推荐这张专辑</string>
+    <string name="detail_share_album">看看这张专辑</string>
     <string name="detail_share_album_title">%1$s – %2$s</string>
-    <string name="detail_share_artist">推荐这位歌手</string>
-    <string name="detail_share_playlist">推荐这个播放列表</string>
+    <string name="detail_share_artist">看看这位艺术家</string>
+    <string name="detail_share_playlist">看看这个歌单</string>
 
-    <string name="detail_album_error_not_found">找不到专辑</string>
-    <string name="detail_album_error_load">无法加载这张专辑。</string>
-    <string name="detail_album_neodb_failed">无法同步到 NeoDB</string>
-    <string name="detail_artist_error_not_found">找不到歌手</string>
-    <string name="detail_artist_error_load">无法加载这位歌手。</string>
-    <string name="detail_playlist_error_not_found">找不到播放列表</string>
-    <string name="detail_playlist_error_load">无法加载这个播放列表。</string>
+    <string name="detail_album_error_not_found">未找到专辑</string>
+    <string name="detail_album_error_load">无法加载此专辑。</string>
+    <string name="detail_album_neodb_failed">无法同步至 NeoDB</string>
+    <string name="detail_artist_error_not_found">未找到艺术家</string>
+    <string name="detail_artist_error_load">无法加载此艺术家。</string>
+    <string name="detail_playlist_error_not_found">未找到歌单</string>
+    <string name="detail_playlist_error_load">无法加载此歌单。</string>
     <string name="detail_playlist_renamed">已重命名</string>
-    <string name="detail_playlist_error_rename">无法重命名播放列表</string>
-    <string name="detail_playlist_deleted">已删除播放列表</string>
-    <string name="detail_playlist_error_delete">无法删除播放列表</string>
+    <string name="detail_playlist_error_rename">无法重命名歌单</string>
+    <string name="detail_playlist_deleted">已删除歌单</string>
+    <string name="detail_playlist_error_delete">无法删除歌单</string>
     <string name="detail_playlist_error_remove">无法移除曲目</string>
     <string name="detail_provider_local">本地</string>
 
-    <string name="detail_album_go_to_artist">前往歌手</string>
+    <string name="detail_album_go_to_artist">前往艺术家</string>
     <string name="detail_album_share">分享</string>
     <string name="detail_album_kind">专辑</string>
     <string name="detail_album_last_play">上次播放</string>
-    <string name="detail_album_never">从未</string>
+    <string name="detail_album_never">从未播放</string>
     <string name="detail_relative_today">今天</string>
     <string name="detail_relative_yesterday">昨天</string>
     <plurals name="detail_relative_days_ago">
         <item quantity="other">%1$d 天前</item>
     </plurals>
     <string name="detail_album_notes">笔记</string>
-    <string name="detail_album_no_notes">还没有笔记</string>
+    <string name="detail_album_no_notes">暂无笔记</string>
     <string name="detail_album_note_cross">%1$s：%2$s</string>
-    <string name="detail_album_cd_edit_comment">编辑评论</string>
-    <string name="detail_album_cd_write_comment">写评论</string>
+    <string name="detail_album_cd_edit_comment">编辑评价</string>
+    <string name="detail_album_cd_write_comment">撰写评价</string>
     <string name="detail_album_rate">评分</string>
-    <string name="detail_album_review_hint">乐评</string>
+    <string name="detail_album_review_hint">专辑评价</string>
     <string name="detail_album_short_comment">短评</string>
-    <string name="detail_album_review">长评</string>
+    <string name="detail_album_review">专辑评价</string>
     <string name="detail_album_review_count">%1$d / %2$d</string>
     <string name="detail_album_cd_show_cover">显示封面</string>
     <string name="detail_album_page_overview">概览</string>
-    <string name="detail_album_page_scrapbook">手帐</string>
+    <string name="detail_album_page_scrapbook">拼贴手册</string>
     <string name="detail_album_page_n">第 %1$d 页</string>
     <string name="detail_album_cd_now_playing">正在播放</string>
-    <string name="detail_album_cd_has_note">有笔记</string>
+    <string name="detail_album_cd_has_note">包含笔记</string>
     <string name="detail_album_cd_remove_favorite">取消收藏</string>
     <string name="detail_album_cd_add_favorite">加入收藏</string>
-    <string name="detail_album_cd_rate">评分和评论</string>
+    <string name="detail_album_cd_rate">评分与评价</string>
     <string name="detail_album_rated">%1$d/%2$d 已评分</string>
     <string name="detail_album_feat">"&#160;（合作：%1$s）"</string>
     <plurals name="detail_unit_track">
@@ -90,8 +90,8 @@
         <item quantity="other">%1$d 张作品</item>
     </plurals>
     <string name="detail_artist_last_play">上次播放</string>
-    <string name="detail_artist_never">从未</string>
-    <string name="detail_artist_no_albums_rated">还没有专辑评分</string>
+    <string name="detail_artist_never">从未播放</string>
+    <string name="detail_artist_no_albums_rated">暂无专辑评分</string>
     <string name="detail_artist_album_average">专辑均分 %1$s，%3$d 张中已评分 %2$d 张</string>
     <string name="detail_artist_follow">关注</string>
     <string name="detail_artist_following">已关注</string>
@@ -104,12 +104,12 @@
     <plurals name="detail_artist_plays">
         <item quantity="other">%1$d 次播放</item>
     </plurals>
-    <string name="detail_artist_discography">作品</string>
+    <string name="detail_artist_discography">音乐作品</string>
     <string name="detail_artist_filter_all">全部</string>
     <string name="detail_artist_filter_albums">专辑</string>
-    <string name="detail_artist_filter_singles">单曲和 EP</string>
+    <string name="detail_artist_filter_singles">单曲与 EP</string>
     <string name="detail_artist_filter_compilations">合辑</string>
-    <string name="detail_artist_no_releases">没有作品</string>
+    <string name="detail_artist_no_releases">暂无发行作品</string>
     <string name="detail_artist_show_fewer">收起</string>
     <string name="detail_artist_show_all">显示全部 %1$d</string>
     <string name="detail_artist_latest">最新</string>
@@ -119,22 +119,21 @@
     <string name="detail_artist_kind_compilation">合辑</string>
 
     <string name="detail_playlist_share">分享</string>
-    <string name="detail_playlist_delete_title">删除播放列表？</string>
-    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
-    <string name="detail_playlist_delete_body">「%1$s」将从你的资料库中移除。</string>
+    <string name="detail_playlist_delete_title">删除歌单？</string>
+    <string name="detail_playlist_delete_body">“%1$s” 将从你的资料库中移除。</string>
     <string name="detail_playlist_delete">删除</string>
     <string name="detail_playlist_cancel_delete">取消</string>
-    <string name="detail_playlist_kind">播放列表</string>
+    <string name="detail_playlist_kind">歌单</string>
     <string name="detail_playlist_cd_more">更多操作</string>
     <string name="detail_playlist_rename">重命名</string>
     <string name="detail_playlist_delete_menu">删除</string>
-    <string name="detail_playlist_rename_title">重命名播放列表</string>
+    <string name="detail_playlist_rename_title">重命名歌单</string>
     <string name="detail_playlist_name">名称</string>
     <string name="detail_playlist_rename_confirm">重命名</string>
     <string name="detail_playlist_cancel_rename">取消</string>
-    <string name="detail_playlist_empty_hero">播放列表是空的。</string>
-    <string name="detail_playlist_empty_list">播放列表是空的。</string>
-    <string name="detail_playlist_length">长度</string>
+    <string name="detail_playlist_empty_hero">歌单是空的。</string>
+    <string name="detail_playlist_empty_list">歌单是空的。</string>
+    <string name="detail_playlist_length">时长</string>
     <plurals name="detail_playlist_tracks">
         <item quantity="other">%1$d 首曲目</item>
     </plurals>
@@ -145,14 +144,14 @@
 
     <string name="detail_scrap_cd_rename">重命名</string>
     <string name="detail_scrap_cd_album_note">专辑笔记：%1$s</string>
-    <string name="detail_scrap_cd_rate">评分和评论</string>
-    <string name="detail_scrap_cd_edit_comment">编辑评论</string>
-    <string name="detail_scrap_cd_write_comment">写评论</string>
-    <string name="detail_scrap_action_write_comment">写评论</string>
-    <string name="detail_scrap_about">简介</string>
-    <string name="detail_scrap_not_yet">还没有</string>
-    <string name="detail_scrap_read_all">查看全部</string>
-    <string name="detail_scrap_cd_read_all">查看全部</string>
+    <string name="detail_scrap_cd_rate">评分与评价</string>
+    <string name="detail_scrap_cd_edit_comment">编辑评价</string>
+    <string name="detail_scrap_cd_write_comment">撰写评价</string>
+    <string name="detail_scrap_action_write_comment">撰写评价</string>
+    <string name="detail_scrap_about">档案</string>
+    <string name="detail_scrap_not_yet">暂无记录</string>
+    <string name="detail_scrap_read_all">阅读全文</string>
+    <string name="detail_scrap_cd_read_all">阅读全文</string>
     <string name="detail_scrap_cd_ask">关于 %1$s 的提问：%2$s</string>
     <string name="detail_scrap_cd_about">关于 %1$s：%2$s</string>
     <string name="detail_scrap_cd_note">笔记：%1$s</string>
@@ -177,6 +176,6 @@
     <string name="detail_scrap_fact_lyricist">作词</string>
     <string name="detail_scrap_fact_composer">作曲</string>
     <string name="detail_scrap_fact_producer">制作人</string>
-    <string name="detail_scrap_fact_about">简介</string>
+    <string name="detail_scrap_fact_about">档案</string>
     <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
 </resources>
