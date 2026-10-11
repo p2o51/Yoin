@@ -84,6 +84,9 @@ internal fun spotifyStartAttempts(
         }
 
         is ActivityContext.LikedSongs -> SpotifyStartAttempt.LikedSongs(offsetUri = startUri)
+        // An artist page's Play / Shuffle / Most Played says "playing from" the artist in Yoin
+        // only. Spotify's artist context plays Spotify's own order (artist radio), not the list
+        // Yoin queued, so Yoin's queue would no longer match what plays: the plain list it is.
         is ActivityContext.Artist, ActivityContext.None -> null
     }
     return listOfNotNull(context, list)

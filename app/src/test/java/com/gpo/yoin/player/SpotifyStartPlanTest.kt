@@ -114,6 +114,17 @@ class SpotifyStartPlanTest {
     }
 
     @Test
+    fun should_playThePlainList_when_playingFromAnArtist() {
+        // Spotify's artist context is its own order (artist radio); Yoin's queue is the artist page's list.
+        val artist = ActivityContext.Artist(artistId = "spotify:ar1", artistName = "Artist")
+
+        val result = attempts(artist, start = 0)
+
+        val uris = tracks.map { "spotify:track:${it.id.rawId}" }
+        assertEquals(listOf(SpotifyStartAttempt.Tracks(uris = uris, offsetPosition = 0)), result)
+    }
+
+    @Test
     fun should_windowALongListAroundTheStart_when_itExceedsTheUriLimit() {
         val long = (0 until 250).map { track("x$it") }
 

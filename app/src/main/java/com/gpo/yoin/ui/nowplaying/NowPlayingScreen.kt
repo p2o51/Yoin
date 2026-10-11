@@ -4830,7 +4830,12 @@ private fun PlayingFromLabel(
             nameLabel = activityContext.playlistName
             clickAction = { onPlaylistClick(activityContext.playlistId) }
         }
-        is ActivityContext.Artist,
+        is ActivityContext.Artist -> {
+            // No "from artist" string of its own: the queue's "Playing from", in this label's caps.
+            kindLabel = stringResource(R.string.cmp_queue_playing_from).uppercase()
+            nameLabel = activityContext.artistName
+            clickAction = { onArtistClick(activityContext.artistId) }
+        }
         is ActivityContext.LikedSongs,
         ActivityContext.None,
         -> {

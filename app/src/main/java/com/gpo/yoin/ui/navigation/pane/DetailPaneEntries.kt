@@ -259,7 +259,7 @@ internal fun ArtistPaneEntry(
                     tracks = ordered,
                     startIndex = 0,
                     source = source,
-                    activityContext = ActivityContext.None,
+                    activityContext = viewModel.playbackContext(),
                     // Play / Shuffle pick no song: an Apple Music import first
                     // in line gives way to the next that plays.
                     explicitStart = false,
@@ -275,7 +275,7 @@ internal fun ArtistPaneEntry(
                 tracks = tracks,
                 startIndex = startIndex.coerceIn(0, tracks.lastIndex),
                 source = source,
-                activityContext = ActivityContext.None,
+                activityContext = viewModel.playbackContext(),
             )
         }
     }
