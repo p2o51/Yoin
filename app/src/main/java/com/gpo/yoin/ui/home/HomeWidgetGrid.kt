@@ -23,9 +23,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialShapes
@@ -144,6 +146,8 @@ internal fun HomeWidgetGridSection(
     modifier: Modifier = Modifier,
     // The row preset (D1, HomeRowPresets.kt); L is the composition from before presets.
     rows: HomeRowPreset = HomeRowPreset.Default,
+    // Raw album id → the memory mark a plain album cover wears (HomeAlbumMemoryMark.kt).
+    memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
 ) {
     if (cards.isEmpty()) return
     // Columns and path follow the container (HomeFeedDensity: jbiGridSpec) —
@@ -224,6 +228,7 @@ internal fun HomeWidgetGridSection(
                         is JbiPresetLayout.Template -> JbiTemplateGrid(
                             seated = composition.layout,
                             coverFit = coverFit,
+                            memoryMarks = memoryMarks,
                             extractBackdropColors = extractBackdropColors,
                             onCardClick = onCardClick,
                         )
@@ -232,6 +237,7 @@ internal fun HomeWidgetGridSection(
                             columns = columns,
                             followColumn = followColumn,
                             coverFit = coverFit,
+                            memoryMarks = memoryMarks,
                             extractBackdropColors = extractBackdropColors,
                             onCardClick = onCardClick,
                         )
@@ -250,6 +256,7 @@ private enum class JbiCardLook { Cover, Wide, Tall }
 private fun JbiTemplateGrid(
     seated: JbiLayout,
     coverFit: JbiCoverFit,
+    memoryMarks: Map<String, HomeAlbumMemoryMark>,
     extractBackdropColors: Boolean,
     onCardClick: (HomeWidgetTarget) -> Unit,
 ) {
@@ -288,6 +295,7 @@ private fun JbiTemplateGrid(
                 modifier = editCard,
                 artworkModifier = Modifier.jbiCoverSquare(templateFit),
                 artworkRequestSizePx = coverRequestPx,
+                memoryMark = card.albumMemoryMark(memoryMarks),
             )
         }
     }
@@ -304,6 +312,7 @@ private fun JbiPackedGrid(
     columns: Int,
     followColumn: Boolean,
     coverFit: JbiCoverFit,
+    memoryMarks: Map<String, HomeAlbumMemoryMark>,
     extractBackdropColors: Boolean,
     onCardClick: (HomeWidgetTarget) -> Unit,
 ) {
@@ -337,6 +346,7 @@ private fun JbiPackedGrid(
                     modifier = Modifier.card(card),
                     artworkModifier = Modifier.jbiCoverSquare(coverFit),
                     artworkRequestSizePx = coverRequestPx,
+                    memoryMark = card.albumMemoryMark(memoryMarks),
                 )
             }
         }
@@ -370,6 +380,7 @@ private fun JbiPackedGrid(
                                     extractBackdropColors = extractBackdropColors,
                                     onClick = { onCardClick(card.target) },
                                     modifier = Modifier.card(card).weight(1f),
+                                    memoryMark = card.albumMemoryMark(memoryMarks),
                                 )
                             }
                         }
@@ -613,6 +624,8 @@ private fun WidgetCoverBlock(
     onClick: (() -> Unit)? = null,
     artworkModifier: Modifier = Modifier.size(WidgetCoverSize),
     artworkRequestSizePx: Int? = null,
+    // A plain album cover's memory mark (HomeAlbumMemoryMark.kt); null = bare.
+    memoryMark: HomeAlbumMemoryMark? = null,
 ) {
     val ownInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
     // Only a standalone block takes its own tap (no haptic, as WidgetCard12);
@@ -642,6 +655,7 @@ private fun WidgetCoverBlock(
             interactionSource = ownInteractionSource,
             modifier = artworkModifier,
             requestSizePx = artworkRequestSizePx,
+            memoryMark = memoryMark,
         )
         Spacer(modifier = Modifier.height(5.dp))
         WidgetCoverCaption(card = card)
@@ -726,6 +740,9 @@ internal fun WidgetBackdropArtwork(
     // Fixed decode size for a cover whose size moves with its column, so it
     // never stays at the (smaller) size it first laid out at.
     requestSizePx: Int? = null,
+    // An album cover's memory mark (HomeAlbumMemoryMark.kt): a sticker on the
+    // cover's top-end corner. Null = a bare cover.
+    memoryMark: HomeAlbumMemoryMark? = null,
 ) {
     // Artists render as a clean full circle — the app-wide portrait convention
     // (Library grid/list, Artist detail) — NOT the album/song/playlist
@@ -797,6 +814,21 @@ internal fun WidgetBackdropArtwork(
             shadowElevation = 0.dp,
             requestSizePx = requestSizePx,
         )
+        if (kind == WidgetShapeKind.Album) {
+            // On the cover's own footprint (pressed with it), its disc half
+            // over the top edge at the end corner: inside the backdrop, so a
+            // seam's dissolve layer never cuts it. Ink = the JBI score rule.
+            AlbumMemoryMarkSticker(
+                mark = memoryMark,
+                ink = if (isSystemInDarkTheme()) backdropColors.accentColor else backdropColors.baseColor,
+                modifier = Modifier
+                    .fillMaxSize(WidgetArtworkFraction)
+                    .align(Alignment.BottomEnd)
+                    .then(if (interactionSource != null) Modifier.elasticPress(interactionSource) else Modifier)
+                    .wrapContentSize(Alignment.TopEnd, unbounded = true)
+                    .offset(y = -AlbumMemoryMarkLift)
+            )
+        }
     }
 }
 

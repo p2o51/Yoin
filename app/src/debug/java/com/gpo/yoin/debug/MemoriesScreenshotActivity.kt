@@ -22,6 +22,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.home.HomeAlbumMemoryMark
 import com.gpo.yoin.ui.home.HomeEditorialContent
 import com.gpo.yoin.ui.home.HomeHintVariant
 import com.gpo.yoin.ui.home.HomeLayout
@@ -109,6 +110,12 @@ import java.io.File
  *   e.g. adb shell am start -S -n com.gpo.yoin/com.gpo.yoin.debug.MemoriesScreenshotActivity \
  *          --ez edit true --ez rediscover true --es plate V0
  *
+ * Album memory marks (owner 2026-10-11, T4):
+ *   --ez marks    true marks some plain album covers (JBI, Recently Added) and
+ *                 adds a Recently Played shelf: solid = album rating, a line =
+ *                 track average, dashed = notes only
+ *   --el marksDelayMs  land the marks after this delay (watch them fade in)
+ *
  * Row presets (D1, 2026-10-05; drag the ⌟ at a block's bottom-right in edit mode):
  *   --es rowsActivities  s | m | l (default) | xl
  *   --es rowsJbi         s | m | l (default) | xl
@@ -140,6 +147,10 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         }
         val recentTracks = intent.getIntExtra("recentTracks", Int.MAX_VALUE).coerceAtLeast(0)
         val startEditing = intent.getBooleanExtra("edit", false)
+        val showMarks = intent.getBooleanExtra("marks", false)
+        val marksDelayMs = intent.getLongExtra("marksDelayMs", 0L)
+        // With marks on, Recently Played shows the Recently Added fakes from the sixth on.
+        val recentlyPlayed = if (showMarks) fakeRecentlyAddedAlbums().drop(5) else emptyList()
         val plateVariant = intent.getStringExtra("plate")
             ?.let { name -> HomePlateVariant.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
             ?: HomePlateVariant.V1
@@ -165,6 +176,15 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             }
             var pill by remember {
                 mutableStateOf(if (pillDelayMs > 0L || cycle) null else fakeMemoryPill(pillKey, noteCount))
+            }
+            var marks by remember {
+                mutableStateOf(if (showMarks && marksDelayMs <= 0L) fakeAlbumMemoryMarks() else emptyMap())
+            }
+            LaunchedEffect(Unit) {
+                if (showMarks && marksDelayMs > 0L) {
+                    delay(marksDelayMs)
+                    marks = fakeAlbumMemoryMarks()
+                }
             }
             LaunchedEffect(Unit) {
                 if (cycle) {
@@ -220,6 +240,8 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                         },
                         recentlyAddedAlbums = if (showRecent) fakeRecentlyAddedAlbums() else emptyList(),
                         rediscover = rediscover,
+                            albumMemoryMarks = marks,
+                            recentlyPlayed = recentlyPlayed,
                         memoryPill = pill,
                         sections = initialLayout.sections,
                         onNavigateToSettings = {},
@@ -622,6 +644,17 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         fakeAlbum("ra12", "Ajala", "Ezra Collective", swatchCover("coral2", 0xFFE07B4F.toInt())),
         fakeAlbum("ra13", "After LIKE", "IVE", swatchCover("mint2", 0xFF56B894.toInt())),
         fakeAlbum("ra14", "Aftertaste", "Hannah Jadagu", swatchCover("brick", 0xFFB5523C.toInt())),
+    )
+
+    /** Raw album id → mark: JBI covers (raw id = title), Recently Added and Recently Played albums. */
+    private fun fakeAlbumMemoryMarks(): Map<String, HomeAlbumMemoryMark> = mapOf(
+        "Little House" to HomeAlbumMemoryMark(MemoryScoreKind.ALBUM_RATING, "8.6", 2),
+        "AIと刹那" to HomeAlbumMemoryMark(MemoryScoreKind.AVERAGE_TRACK_RATING, "7.4", 0),
+        "Freakout/Release" to HomeAlbumMemoryMark(MemoryScoreKind.NONE, null, 3),
+        "ra2" to HomeAlbumMemoryMark(MemoryScoreKind.ALBUM_RATING, "9.0", 0),
+        "ra4" to HomeAlbumMemoryMark(MemoryScoreKind.NONE, null, 1),
+        "ra7" to HomeAlbumMemoryMark(MemoryScoreKind.AVERAGE_TRACK_RATING, "6.8", 4),
+        "ra9" to HomeAlbumMemoryMark(MemoryScoreKind.ALBUM_RATING, "7.5", 0)
     )
 
     private fun fakeRediscover(): List<HomeRediscoverItem> {

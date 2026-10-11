@@ -302,6 +302,7 @@ fun HomeContent(
                                 recentlyAddedTracks = feed.recentlyAddedTracks,
                                 recentlyAddedAlbums = feed.recentlyAddedAlbums,
                                 rediscover = feed.rediscover,
+                                albumMemoryMarks = feed.albumMemoryMarks,
                                 playlists = feed.playlists,
                                 recentlyPlayed = feed.recentlyPlayed,
                                 memoryPill = feed.memoryPill,
