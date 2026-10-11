@@ -251,8 +251,12 @@ internal data class HomeAccountChrome(
     val windowUp: Boolean,
     /** The header reports where its avatar is (window px)… */
     val onAnchor: (Rect) -> Unit,
-    /** …and this is where it was last. */
-    val anchor: Rect?,
+    /**
+     * …and this is where it was last. Read where it is used (a snapshotFlow,
+     * layout, draw), never in composition: the header reports it every frame
+     * it moves (a scroll, a pull), and a pull frame must not recompose Home.
+     */
+    val anchor: () -> Rect?,
     /** A switch begun from the card is under way. */
     val switchPending: Boolean,
     /** The window's last close flew an avatar into the header (false: reduced motion, the card faded where it sat). */
@@ -350,13 +354,14 @@ internal fun HomeAccountSwitcherHost(
         }
     }
     val onAnchor = remember { { rect: Rect -> accountAnchor = rect } }
+    val anchor = remember { { accountAnchor } }
     content(
         HomeAccountChrome(
             account = displayAccount,
             onOpen = onOpen,
             windowUp = switcherShown,
             onAnchor = onAnchor,
-            anchor = accountAnchor,
+            anchor = anchor,
             switchPending = pendingTarget != null,
             landed = landed
         )
@@ -526,7 +531,7 @@ internal fun HomeAccountAvatarHold(
     hold: HomeAccountHold,
     holding: Boolean,
     card: ProfileCard?,
-    anchor: Rect?,
+    anchor: () -> Rect?,
     anchorLive: Boolean,
     shown: Boolean,
     landed: Boolean,
@@ -545,7 +550,7 @@ internal fun HomeAccountAvatarHold(
         var placed = false
         try {
             snapshotFlow {
-                val a = currentAnchor
+                val a = currentAnchor()
                 val o = origin
                 if (a == null || o == null) null else a.center - o
             }.filterNotNull().collectLatest { spot ->

@@ -188,10 +188,11 @@ fun HomeContent(
     onActivityArtistsShown: (List<String>) -> Unit = {},
     onFeedAtRestChanged: (Boolean) -> Unit = {},
     // A switch begun from Home's account card is under way ([activeAccount] is
-    // its target), where the header's avatar is (window px), and whether the
+    // its target), where the header's avatar is (window px; read only in
+    // snapshotFlows — it moves with every scroll frame), and whether the
     // card's close flew an avatar into the header (false: it faded in place).
     accountSwitchPending: Boolean = false,
-    accountAnchor: Rect? = null,
+    accountAnchor: () -> Rect? = { null },
     accountHandedUp: Boolean = true
 ) {
     ReportMotionPressure(
@@ -280,7 +281,7 @@ fun HomeContent(
                             when {
                                 avatarHold.abandoned -> HomeHoldEnd.Release
                                 moved -> HomeHoldEnd.HandBack
-                                feedIn() && (avatarHold.atRest || currentAnchor == null) -> HomeHoldEnd.HandBack
+                                feedIn() && (avatarHold.atRest || currentAnchor() == null) -> HomeHoldEnd.HandBack
                                 else -> null
                             }
                         }

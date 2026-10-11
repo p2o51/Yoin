@@ -1,9 +1,12 @@
 package com.gpo.yoin.ui.home
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
@@ -75,6 +78,10 @@ class HomeAccountSwitcherHostTest {
     private val failures = mutableListOf<Unit>()
     private var editHomeTaps = 0
 
+    // Home under the host: how often it is composed, and what it was last handed.
+    private var homeCompositions = 0
+    private var chrome: HomeAccountChrome? = null
+
     @After
     fun tearDown() {
         collector.cancel()
@@ -89,6 +96,10 @@ class HomeAccountSwitcherHostTest {
                     onNavigateToSettings = {},
                     onEditHome = { editHomeTaps++ }
                 ) { account ->
+                    SideEffect {
+                        homeCompositions++
+                        chrome = account
+                    }
                     val inUse by active.collectAsState()
                     // Home's own page under reduced motion (no title marquee for the
                     // clock to wait on); the card's window keeps the full motion.
@@ -229,6 +240,26 @@ class HomeAccountSwitcherHostTest {
         assertEquals(0, editHomeTaps)
     }
 
+    @Test
+    fun should_notRecomposeHome_when_theHeaderAvatarMovesUnderAScroll() {
+        setHome()
+        val settled = homeCompositions
+
+        // The header avatar's onGloballyPositioned, frame after frame of a
+        // scroll (or a pull to Memories) with the header still on the page.
+        var last: Rect? = null
+        repeat(SCROLL_FRAMES) { step ->
+            val moved = Rect(Offset(24f, 120f - step * 9f), Size(32f, 32f))
+            rule.runOnIdle { requireNotNull(chrome).onAnchor(moved) }
+            rule.waitForIdle()
+            last = moved
+        }
+
+        assertEquals(settled, homeCompositions)
+        // Still there for what reads it outside composition (the stand-in's snapshotFlow).
+        assertEquals(last, requireNotNull(chrome).anchor())
+    }
+
     private fun feedOf(profileId: String) = HomeUiState.Content(
         activities = emptyList(),
         recentlyPlayed = List(3) { index -> album("$profileId-played-$index") },
@@ -275,6 +306,7 @@ class HomeAccountSwitcherHostTest {
 
     private companion object {
         const val MAX_FRAMES = 30
+        const val SCROLL_FRAMES = 8
         const val NEAR_PX = 2f
     }
 }

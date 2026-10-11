@@ -83,7 +83,7 @@ class HomeAccountAvatarHoldTest {
                             buildCoverArtUrl = { "" },
                             activeAccount = account,
                             accountSwitchPending = pending,
-                            accountAnchor = anchor
+                            accountAnchor = { anchor }
                         )
                     }
                 }
