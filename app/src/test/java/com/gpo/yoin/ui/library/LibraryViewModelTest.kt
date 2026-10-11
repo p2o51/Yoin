@@ -687,6 +687,47 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_listAppleSongsInOneTitleOrder_when_appleSendsTwoSortedRuns() = runTest {
+        // The tablet's /v1/me/library/songs: rows 1–233 run A–Z, then row 234 starts at "A Ticket to the Moon" again.
+        val repository = repositoryFor(MediaId.PROVIDER_APPLE_MUSIC, ServiceFeatureCatalog.appleMusic.capabilities)
+        fun song(id: String, title: String, artist: String = "Someone") =
+            appleMusicTrack().copy(id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, id), title = title, artist = artist)
+        coEvery { repository.getLibrarySongs(size = 500) } returns listOf(
+            song("1", "A Bar Song"),
+            song("2", "Ay No Puedo"),
+            song("3", "A Ticket to the Moon"),
+            song("4", "Angel Of Satisfaction", artist = "Rose Gray"),
+            song("5", "Angel Of Satisfaction", artist = "Another"),
+            song("6", "b i g f e e l i n g s")
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        // One A–Z, by Alphabetical's collator; one title twice goes by artist.
+        assertEquals(
+            listOf("1", "3", "5", "4", "2", "6"),
+            content(viewModel).songs.orEmpty().map { it.id.rawId }
+        )
+    }
+
+    @Test
+    fun should_keepLikedSongsNewestFirst_when_spotifySongsAreNotInTitleOrder() = runTest {
+        val repository = spotifyRepository()
+        val liked = listOf(spotifyTrack("new").copy(title = "Zebra"), spotifyTrack("old").copy(title = "Apple"))
+        coEvery { repository.getLibrarySongs(size = 500) } returns liked
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(LibraryTab.Songs)
+        advanceUntilIdle()
+
+        assertEquals(liked, content(viewModel).songs)
+    }
+
+    @Test
     fun should_rereadLikedSongsFromCache_when_likeChangesOnSpotifySongsTab() = runTest {
         val overrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
         val repository = spotifyRepository()

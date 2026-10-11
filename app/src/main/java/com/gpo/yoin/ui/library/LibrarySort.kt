@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.data.source.ServiceFeatures
 import java.time.Instant
@@ -229,6 +230,27 @@ private fun artistNameKey(name: String): String? = name.trim().lowercase(Locale.
  * Navidrome's "The El La Los Las Le Les Os As O A").
  */
 val LibraryIgnoredArticles: List<String> = listOf("The", "El", "La", "Los", "Las", "Le", "Les", "Os", "As", "O", "A")
+
+/**
+ * [songs] by title, the way Alphabetical orders the other views ([nameOrder], past a
+ * leading word in [ignoredArticles]); a title shared by several songs goes by artist,
+ * then by where the service listed them.
+ */
+fun librarySongsByTitle(
+    songs: List<Track>,
+    nameOrder: Comparator<String>,
+    ignoredArticles: List<String> = emptyList()
+): List<Track> {
+    fun sortName(text: String?) = stripLeadingArticle(text.orEmpty().trim(), ignoredArticles)
+    val byTitle = compareBy<SongEntry, String>(nameOrder) { it.title }
+        .thenBy(nameOrder) { it.artist }
+        .thenBy(SongEntry::position)
+    return songs.mapIndexed { position, song ->
+        SongEntry(song, position, sortName(song.title), sortName(song.artist))
+    }.sortedWith(byTitle).map(SongEntry::song)
+}
+
+private class SongEntry(val song: Track, val position: Int, val title: String, val artist: String)
 
 /** [text] without a leading [articles] word ("The Beatles" → "Beatles"); never down to nothing. */
 internal fun stripLeadingArticle(text: String, articles: Collection<String>): String {

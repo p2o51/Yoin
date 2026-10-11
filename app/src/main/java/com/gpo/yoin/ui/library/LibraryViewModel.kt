@@ -460,8 +460,7 @@ class LibraryViewModel(
                         val songs = cachedSongs ?: run {
                             val loaded = when {
                                 pager != null -> pager.next()
-                                Capability.LIBRARY_SONGS in repository.currentCapabilities() ->
-                                    repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+                                Capability.LIBRARY_SONGS in repository.currentCapabilities() -> readLibrarySongs()
                                 else -> repository.getRandomSongs(size = 50)
                             }
                             loaded.applySongsOverrides(repository.favoriteOverrides.value)
@@ -837,6 +836,21 @@ class LibraryViewModel(
     }
 
     /** Songs as if never read: the next visit starts again from the top. */
+    /**
+     * The service's own library songs, its first [LIBRARY_SONGS_SIZE]. Where
+     * Songs lists them by title ([com.gpo.yoin.data.source.ServiceFeatures.songsByTitle],
+     * Apple Music) they are sorted here, off the main thread, with the
+     * collator Alphabetical uses; the rows a tap plays from are these, so the
+     * queue follows the same order.
+     */
+    private suspend fun readLibrarySongs(): List<Track> {
+        val songs = repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+        val features = ServiceFeatureCatalog.forProvider(repository.currentProviderId())
+        if (!features.songsByTitle) return songs
+        val articles = if (features.sortIgnoresArticles) LibraryIgnoredArticles else emptyList()
+        return withContext(sortDispatcher) { librarySongsByTitle(songs, nameOrder(), articles) }
+    }
+
     private fun forgetSongs() {
         cachedSongs = null
         songsPager = null
@@ -1702,8 +1716,7 @@ class LibraryViewModel(
                 if (rereadsSongs) {
                     launch {
                         attempt {
-                            repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
-                                .applySongsOverrides(repository.favoriteOverrides.value)
+                            readLibrarySongs().applySongsOverrides(repository.favoriteOverrides.value)
                         }.onSuccess { songs ->
                             if (!isCurrent()) return@onSuccess
                             cachedSongs = songs
