@@ -169,14 +169,55 @@ class ArtistDetailViewModelTest {
         advanceUntilIdle()
 
         // "Latest" tags the first row, and the year column follows the same order.
+        // 2007b came after 2007a in an oldest-first list, so it is the newer of the two.
         assertEquals(
             listOf(
                 "subsonic:al-2017",
-                "subsonic:al-2007a",
                 "subsonic:al-2007b",
+                "subsonic:al-2007a",
                 "subsonic:al-2000",
                 "subsonic:al-undated"
             ),
+            content(viewModel).albums.map { it.id }
+        )
+    }
+
+    @Test
+    fun should_putTheLaterReleaseOfAYearFirst_when_theSourceListsThemOldestFirst() = runTest {
+        // Navidrome by date: a February single, then the October album of the same year.
+        coEvery { repository.getArtist(any()) } returns artist().copy(
+            albums = listOf(
+                album("al-2019", year = 2019),
+                album("al-2024-feb-single", year = 2024),
+                album("al-2024-oct-album", year = 2024)
+            )
+        )
+
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("subsonic:al-2024-oct-album", "subsonic:al-2024-feb-single", "subsonic:al-2019"),
+            content(viewModel).albums.map { it.id }
+        )
+    }
+
+    @Test
+    fun should_keepTheProvidersOrderInsideAYear_when_theSourceListsThemNewestFirst() = runTest {
+        // Spotify's order: newest year first, by name inside a year.
+        coEvery { repository.getArtist(any()) } returns artist().copy(
+            albums = listOf(
+                album("al-2024-a", year = 2024),
+                album("al-2024-b", year = 2024),
+                album("al-2019", year = 2019)
+            )
+        )
+
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("subsonic:al-2024-a", "subsonic:al-2024-b", "subsonic:al-2019"),
             content(viewModel).albums.map { it.id }
         )
     }

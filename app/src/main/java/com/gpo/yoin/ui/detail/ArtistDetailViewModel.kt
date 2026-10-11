@@ -281,11 +281,20 @@ internal fun ArtistDetailViewModel.playArtist(container: AppContainer, shuffle: 
 /**
  * An artist's releases newest first, whatever order the provider lists them
  * in: Spotify sorts them, Subsonic and Apple Music pass the server's order on
- * (Navidrome lists an artist's albums oldest first). A release without a year
- * goes last; releases of one year keep the provider's order.
+ * (Navidrome lists an artist's albums oldest first, by date inside a year).
+ * Only the year is known, so a list that reads oldest first (its first dated
+ * release older than its last) is turned round before the sort: releases of
+ * one year then come out newest first too. Any other list keeps its order
+ * inside a year. A release without a year goes last.
  */
-internal fun List<Album>.newestReleasesFirst(): List<Album> =
-    sortedByDescending { album -> album.year?.takeIf { it > 0 } ?: Int.MIN_VALUE }
+internal fun List<Album>.newestReleasesFirst(): List<Album> {
+    val years = mapNotNull { album -> album.releaseYear() }
+    val listedOldestFirst = years.isNotEmpty() && years.first() < years.last()
+    return (if (listedOldestFirst) asReversed() else this)
+        .sortedByDescending { album -> album.releaseYear() ?: Int.MIN_VALUE }
+}
+
+private fun Album.releaseYear(): Int? = year?.takeIf { it > 0 }
 
 /**
  * The artist as a play's "playing from" context. The id is the full [MediaId]
