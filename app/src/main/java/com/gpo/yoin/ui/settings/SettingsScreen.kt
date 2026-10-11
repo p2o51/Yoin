@@ -1402,7 +1402,8 @@ private fun FeaturePageRow(
  * the detail pane's colour and rounds all its corners, detaching from its
  * neighbours — colour on the effects spring, corners on the spatial spring.
  * Its group item must be `paintsOwnSegment`. [selectedColor]: where the open
- * row is no pane's (Home's account card), the list's own selected colour.
+ * row is no pane's — Home's account card, where the picked account takes its
+ * service's colour, as the account in use does here.
  */
 @Composable
 internal fun SelectableSegment(

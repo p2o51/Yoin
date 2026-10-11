@@ -96,23 +96,59 @@ class AccountSwitcherViewModelTest {
             assertNull(vm.pendingTarget.value)
             // Back to the account in use: Home's header springs back to it.
             assertEquals("a", active.value)
+            // Once: the snackbar says it one time.
+            expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun should_dropTheTarget_when_theSwitchIsTurnedAway() = runTest {
+    fun should_dropTheTargetAndSayItCouldNotSwitch_when_theSwitchIsTurnedAway() = runTest {
         // A switch already under way (begun in Settings) turns this one away:
         // switchingState never moves for it.
         val other = ProfileManager.SwitchState.Switching("c", ProfileManager.SwitchState.Stage.Priming)
         state.value = other
         coEvery { profiles.switchTo("b") } coAnswers { }
         val vm = viewModel()
+        vm.switchFailures.test {
+            vm.switchTo("b")
 
-        vm.switchTo("b")
+            // Not swallowed: Home says it couldn't switch, as for a failure.
+            awaitItem()
+            expectNoEvents()
+            assertNull(vm.pendingTarget.value)
+            assertEquals(other, state.value)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 
-        assertNull(vm.pendingTarget.value)
-        assertEquals(other, state.value)
+    @Test
+    fun should_sayItCouldNotSwitch_when_theAccountIsGone() = runTest {
+        // Deleted in Settings while Home's card was up: ProfileManager finds
+        // no such profile and runs nothing.
+        coEvery { profiles.switchTo("b") } coAnswers { }
+        val vm = viewModel()
+        vm.switchFailures.test {
+            vm.switchTo("b")
+
+            awaitItem()
+            assertNull(vm.pendingTarget.value)
+            assertEquals(ProfileManager.SwitchState.Idle, state.value)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun should_reportNothing_when_theSwitchLands() = runTest {
+        val vm = viewModel()
+        vm.switchFailures.test {
+            vm.switchTo("b")
+            land("b")
+            cards.value = cardsWithActive("b")
+
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test

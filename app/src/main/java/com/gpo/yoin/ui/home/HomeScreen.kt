@@ -58,11 +58,13 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
 private const val HomeLoadingIndicatorDelayMillis = 180L
+
+/** How Home's hold on the header avatar ends ([HomeAccountHold]). */
+private enum class HomeHoldEnd { HandBack, FadeAway, Release }
 
 // Loading's indicator springs in from (and out to) this scale.
 private const val HOME_LOADING_INDICATOR_SCALE = 0.6f
@@ -101,66 +103,6 @@ fun HomeScreen(
     // The account switcher behind the header avatar (null = the plain Settings gear).
     accountSwitcher: AccountSwitcherViewModel? = null,
 ) {
-    val accountCards by (accountSwitcher?.cards ?: remember { MutableStateFlow(emptyList()) }).collectAsState()
-    val pendingTarget by (accountSwitcher?.pendingTarget ?: remember { MutableStateFlow<String?>(null) })
-        .collectAsState()
-    val activeAccount = accountCards.firstOrNull { it.isActive }
-    // The account the header shows: a switch's target from the tap on (the
-    // pick shows at once), the one in use again if the switch fails.
-    val displayAccount = pendingTarget?.let { id -> accountCards.firstOrNull { it.id == id } } ?: activeAccount
-    // Shown = the dialog window exists; open = its card is in (it animates out before the window goes).
-    var switcherShown by rememberSaveable { mutableStateOf(false) }
-    var switcherOpen by rememberSaveable { mutableStateOf(false) }
-    var accountAnchor by remember { mutableStateOf<Rect?>(null) }
-    // A switch closes the card from the picked row's avatar (window px).
-    var switchFrom by remember { mutableStateOf<Rect?>(null) }
-    // A trip to Settings waits until the card is back in the avatar: launched at once, Settings covers the shell
-    // mid-spring, the stopped window's frame clock pauses, and the half-closed card greets you on the way back.
-    // (Only the spring's invisible tail may be left then.)
-    var afterSwitcherDismissed by remember { mutableStateOf<(() -> Unit)?>(null) }
-    fun closeSwitcherThen(action: () -> Unit) {
-        afterSwitcherDismissed = action
-        switcherOpen = false
-    }
-    if (switcherShown && accountSwitcher != null) {
-        HomeAccountSwitcherDialog(
-            visible = switcherOpen,
-            anchor = accountAnchor,
-            cards = accountCards,
-            onRequestClose = { switcherOpen = false },
-            onCardHome = {
-                afterSwitcherDismissed?.let { action ->
-                    afterSwitcherDismissed = null
-                    action()
-                }
-            },
-            onDismissed = {
-                switcherShown = false
-                switchFrom = null
-            },
-            onSwitch = { card, avatar ->
-                // An account that can't be used right now is recovered in Settings.
-                if (card.unavailableReason != null) {
-                    closeSwitcherThen(onNavigateToSettings)
-                } else {
-                    // Same frame: the switch's target is pending (the header
-                    // shows it) and the card hands its avatar up from the row.
-                    if (accountSwitcher.switchTo(card.id)) switchFrom = avatar
-                    switcherOpen = false
-                }
-            },
-            pendingTarget = pendingTarget,
-            closeFrom = switchFrom,
-            closeInto = switchFrom?.let { displayAccount },
-            onManageAccounts = { closeSwitcherThen(onNavigateToSettings) },
-            onAddAccount = { closeSwitcherThen(onNavigateToSettings) },
-            onOpenSettings = { closeSwitcherThen(onNavigateToSettings) },
-            onEditHome = {
-                switcherOpen = false
-                editController?.enter(null, lifted = false)
-            },
-        )
-    }
     val uiState by viewModel.uiState.collectAsState()
     val homeLayout by viewModel.homeLayout.collectAsState()
     // A section new since the last edit session waits in the tray (Q6a).
@@ -168,42 +110,45 @@ fun HomeScreen(
     // A new instance per source: covers resolved before it was up resolve again.
     val buildCoverArtUrl by viewModel.coverArtUrlBuilder.collectAsState()
 
-    HomeContent(
-        uiState = uiState,
-        sections = homeLayout.sections,
-        editController = editController,
-        footerNewBadge = unseenNewSections.isNotEmpty(),
-        isPlaying = isPlaying,
-        playbackSignal = playbackSignal,
-        activeSongId = activeSongId,
+    HomeAccountSwitcherHost(
+        accountSwitcher = accountSwitcher,
         onNavigateToSettings = onNavigateToSettings,
-        activeAccount = displayAccount,
-        onOpenAccounts = {
-            switchFrom = null
-            switcherShown = true
-            switcherOpen = true
-        },
-        accountButtonHidden = switcherShown,
-        onAccountAnchor = { accountAnchor = it },
-        accountSwitchPending = pendingTarget != null,
-        accountAnchor = accountAnchor,
-        onNavigateToMemories = onNavigateToMemories,
-        onOpenMemoryFocus = onOpenMemoryFocus,
-        memoriesRevealState = memoriesRevealState,
-        onCommitMemoriesReveal = onCommitMemoriesReveal,
-        onAlbumClick = onAlbumClick,
-        onArtistClick = onArtistClick,
-        onPlaylistClick = onPlaylistClick,
-        onSongClick = onSongClick,
-        homeCovered = homeCovered,
-        onRetry = viewModel::refresh,
-        buildCoverArtUrl = buildCoverArtUrl,
-        sharedTransitionScope = sharedTransitionScope,
-        animatedVisibilityScope = animatedVisibilityScope,
-        modifier = modifier,
-        onActivityArtistsShown = viewModel::onActivityArtistsShown,
-        onFeedAtRestChanged = viewModel::onFeedAtRestChanged,
-    )
+        onEditHome = { editController?.enter(null, lifted = false) },
+    ) { account ->
+        HomeContent(
+            uiState = uiState,
+            sections = homeLayout.sections,
+            editController = editController,
+            footerNewBadge = unseenNewSections.isNotEmpty(),
+            isPlaying = isPlaying,
+            playbackSignal = playbackSignal,
+            activeSongId = activeSongId,
+            onNavigateToSettings = onNavigateToSettings,
+            activeAccount = account.account,
+            onOpenAccounts = account.onOpen,
+            accountButtonHidden = account.windowUp,
+            onAccountAnchor = account.onAnchor,
+            accountSwitchPending = account.switchPending,
+            accountAnchor = account.anchor,
+            accountHandedUp = account.landed,
+            onNavigateToMemories = onNavigateToMemories,
+            onOpenMemoryFocus = onOpenMemoryFocus,
+            memoriesRevealState = memoriesRevealState,
+            onCommitMemoriesReveal = onCommitMemoriesReveal,
+            onAlbumClick = onAlbumClick,
+            onArtistClick = onArtistClick,
+            onPlaylistClick = onPlaylistClick,
+            onSongClick = onSongClick,
+            homeCovered = homeCovered,
+            onRetry = viewModel::refresh,
+            buildCoverArtUrl = buildCoverArtUrl,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            modifier = modifier,
+            onActivityArtistsShown = viewModel::onActivityArtistsShown,
+            onFeedAtRestChanged = viewModel::onFeedAtRestChanged,
+        )
+    }
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -243,9 +188,11 @@ fun HomeContent(
     onActivityArtistsShown: (List<String>) -> Unit = {},
     onFeedAtRestChanged: (Boolean) -> Unit = {},
     // A switch begun from Home's account card is under way ([activeAccount] is
-    // its target), and where the header's avatar is (window px).
+    // its target), where the header's avatar is (window px), and whether the
+    // card's close flew an avatar into the header (false: it faded in place).
     accountSwitchPending: Boolean = false,
-    accountAnchor: Rect? = null
+    accountAnchor: Rect? = null,
+    accountHandedUp: Boolean = true
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -295,33 +242,63 @@ fun HomeContent(
             // holds the avatar's spot from the tap — the target account, back
             // to the one in use if the switch fails — until the page is back
             // under it. Meanwhile the feed fades in place (no 16dp settle), so
-            // the header's avatar is where the stand-in rests when it takes over.
+            // the header's avatar is where the stand-in rests when it hands over.
             val avatarHold = remember { HomeAccountHold() }
             LaunchedEffect(accountSwitchPending) {
-                if (accountSwitchPending) avatarHold.latched = true
+                if (accountSwitchPending) avatarHold.begin()
             }
             val holdingAvatar = accountSwitchPending || avatarHold.latched
             val currentUiState by rememberUpdatedState(uiState)
             val currentAnchor by rememberUpdatedState(accountAnchor)
+            val currentPending by rememberUpdatedState(accountSwitchPending)
+            // The feed's own at-rest reports (Q16's, passed on as they are),
+            // with the account whose feed made each, read here for one thing:
+            // a feed that was resting and isn't any more is being moved (a
+            // scroll, a pull), and the stand-in doesn't chase it.
+            var feedRest by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
             val holdFadeSpec = YoinMotion.defaultEffectsSpec<Float>()
-            LaunchedEffect(avatarHold.latched, accountSwitchPending) {
-                if (!avatarHold.latched || accountSwitchPending) return@LaunchedEffect
-                // Over (landed, failed or turned away). On a feed: hand back once
-                // it is all in and the stand-in rests on its avatar. On an error
-                // page (no header): fade.
-                val onError = snapshotFlow {
-                    when (currentUiState) {
-                        is HomeUiState.Error -> true
-                        is HomeUiState.Content -> false.takeIf {
-                            contentAlphaState.value >= 1f &&
-                                contentOffsetState.value == 1f &&
-                                (avatarHold.atRest || currentAnchor == null)
+            LaunchedEffect(avatarHold.generation) {
+                if (avatarHold.generation == 0) return@LaunchedEffect
+                avatarHold.fade.snapTo(1f)
+                // The switch first: landed, failed or turned away.
+                snapshotFlow { currentPending }.first { !it }
+                // Then the page under the stand-in. On a feed: hand back once it
+                // is all in and the stand-in rests on its avatar — at once if
+                // the feed is moved first. On an error page (no header): fade.
+                fun feedIn() = contentAlphaState.value >= 1f && contentOffsetState.value == 1f
+                var rested: String? = null
+                val end = snapshotFlow {
+                    when (val state = currentUiState) {
+                        is HomeUiState.Error -> HomeHoldEnd.FadeAway
+                        is HomeUiState.Content -> {
+                            // Only this feed's own reports: one going (its last
+                            // "not resting") is no move of the one coming.
+                            val owner = state.ownerProfileId.orEmpty()
+                            val rest = feedRest?.takeIf { it.first == owner }?.second
+                            val moved = rested == owner && rest == false
+                            if (rest == true) rested = owner
+                            when {
+                                avatarHold.abandoned -> HomeHoldEnd.Release
+                                moved -> HomeHoldEnd.HandBack
+                                feedIn() && (avatarHold.atRest || currentAnchor == null) -> HomeHoldEnd.HandBack
+                                else -> null
+                            }
                         }
-                        HomeUiState.Loading -> null
+                        HomeUiState.Loading -> {
+                            rested = null
+                            null
+                        }
                     }
                 }.filterNotNull().first()
-                if (onError) avatarHold.fadeAway(holdFadeSpec)
-                avatarHold.latched = false
+                when (end) {
+                    HomeHoldEnd.HandBack -> avatarHold.handBack(holdFadeSpec)
+                    HomeHoldEnd.FadeAway -> avatarHold.fadeAway(holdFadeSpec)
+                    HomeHoldEnd.Release -> Unit
+                }
+                // The feed settles where it is before Home's entrance offset
+                // has a say again: no 16dp jump under the header's avatar.
+                snapshotFlow { currentUiState !is HomeUiState.Content || feedIn() }.first { it }
+                avatarHold.release()
             }
             // A feed that goes back to Loading (an account switch, a deleted
             // account) leaves on the springs it came in on — fading, settling
@@ -339,6 +316,12 @@ fun HomeContent(
             // where it was; another account's feed starts fresh, and drops it.
             val feedStates = rememberSaveableStateHolder()
             val feedOwner = feed?.ownerProfileId.orEmpty()
+            val reportFeedAtRest = remember(onFeedAtRestChanged, feedOwner) {
+                { rest: Boolean ->
+                    feedRest = feedOwner to rest
+                    onFeedAtRestChanged(rest)
+                }
+            }
             var keptFeedOwner by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(feed != null, feedOwner) {
                 if (feed == null) return@LaunchedEffect
@@ -380,7 +363,8 @@ fun HomeContent(
                                 onNavigateToSettings = onNavigateToSettings,
                                 activeAccount = activeAccount,
                                 onOpenAccounts = onOpenAccounts,
-                                accountButtonHidden = accountButtonHidden || holdingAvatar,
+                                accountButtonHidden = accountButtonHidden ||
+                                    (holdingAvatar && !avatarHold.headerAvatarBack),
                                 onAccountAnchor = onAccountAnchor,
                                 onNavigateToMemories = onNavigateToMemories,
                                 editController = editController,
@@ -397,7 +381,7 @@ fun HomeContent(
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 modifier = Modifier.fillMaxSize(),
                                 onActivityArtistsShown = onActivityArtistsShown,
-                                onFeedAtRestChanged = onFeedAtRestChanged,
+                                onFeedAtRestChanged = reportFeedAtRest,
                             )
                         }
                     }
@@ -450,8 +434,11 @@ fun HomeContent(
                 holding = holdingAvatar,
                 card = activeAccount,
                 anchor = accountAnchor,
+                // The header is on the page to say where it is.
+                anchorLive = feed != null,
                 // Until the switcher's window (its flight) has gone.
                 shown = !accountButtonHidden,
+                landed = accountHandedUp,
                 modifier = Modifier.matchParentSize()
             )
         }

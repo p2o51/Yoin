@@ -4,7 +4,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
@@ -15,7 +17,9 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.LayoutDirection
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
@@ -42,27 +46,33 @@ class HomeAccountSwitchFlightTest {
     val rule = createComposeRule()
 
     private var visible by mutableStateOf(true)
+    private var anchor by mutableStateOf(ANCHOR)
     private var pending by mutableStateOf<String?>(null)
     private var closeFrom by mutableStateOf<Rect?>(null)
     private var closeInto by mutableStateOf<ProfileCard?>(null)
     private var picked: Pair<String, Rect>? = null
-    private var dismissed = false
+    private var dismissed: Boolean? = null
+    private var editHomeTaps = 0
+    private var manageTaps = 0
 
-    private fun openCard() {
+    private fun openCard(direction: LayoutDirection = LayoutDirection.Ltr) {
         rule.setContent {
-            CompositionLocalProvider(LocalMotionProfile provides MotionProfile.Full) {
+            CompositionLocalProvider(
+                LocalMotionProfile provides MotionProfile.Full,
+                LocalLayoutDirection provides direction
+            ) {
                 YoinTheme {
                     HomeAccountSwitcherDialog(
                         visible = visible,
-                        anchor = ANCHOR,
+                        anchor = anchor,
                         cards = cards,
                         onRequestClose = { visible = false },
-                        onDismissed = { dismissed = true },
+                        onDismissed = { landed -> dismissed = landed },
                         onSwitch = { card, avatar -> picked = card.id to avatar },
-                        onManageAccounts = {},
+                        onManageAccounts = { manageTaps++ },
                         onAddAccount = {},
                         onOpenSettings = {},
-                        onEditHome = {},
+                        onEditHome = { editHomeTaps++ },
                         pendingTarget = pending,
                         closeFrom = closeFrom,
                         closeInto = closeInto
@@ -92,6 +102,8 @@ class HomeAccountSwitchFlightTest {
 
     private fun flight(): SemanticsNodeInteraction = rule.onNodeWithTag(HOME_ACCOUNT_FLIGHT_TAG, useUnmergedTree = true)
 
+    private fun flightCenter(): Offset = flight().fetchSemanticsNode().boundsInRoot.center
+
     private fun framesUntilTheFlight() {
         repeat(MAX_FRAMES) {
             frame()
@@ -103,6 +115,14 @@ class HomeAccountSwitchFlightTest {
         rule.onAllNodes(hasTestTag(HOME_ACCOUNT_FLIGHT_TAG), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun shows(id: String) = SemanticsMatcher.expectValue(HomeAccountShownKey, id)
+
+    /** How far [point] is off the straight path from the row's avatar to [landing]. */
+    private fun offPath(point: Offset, landing: Offset): Float {
+        val start = TAKE_OFF.center
+        val path = landing - start
+        val along = ((point - start).x * path.x + (point - start).y * path.y) / path.getDistanceSquared()
+        return (point - (start + path * along.coerceIn(0f, 1f))).getDistance()
+    }
 
     @Test
     fun should_reportThePickAndItsAvatar_when_anAccountRowIsTapped() {
@@ -133,6 +153,26 @@ class HomeAccountSwitchFlightTest {
     }
 
     @Test
+    fun should_startNothingElse_when_aSwitchIsPending() {
+        openCard()
+        // Open, the card's own entries do what they say.
+        rule.onNodeWithText("Edit Home").performClick()
+        assertEquals(1, editHomeTaps)
+
+        rule.mainClock.autoAdvance = false
+        switchTo(cards[1])
+        frame()
+
+        // Through the row's beat the card is still all there, but a switch is
+        // under way: Edit Home (which would freeze the feed that's leaving)
+        // and Manage accounts start nothing.
+        rule.onNodeWithText("Edit Home").performClick()
+        rule.onNodeWithText("Manage accounts").performClick()
+        assertEquals(1, editHomeTaps)
+        assertEquals(0, manageTaps)
+    }
+
+    @Test
     fun should_flyTheTargetUpFromItsRow_when_aSwitchClosesTheCard() {
         openCard()
         rule.mainClock.autoAdvance = false
@@ -145,12 +185,79 @@ class HomeAccountSwitchFlightTest {
         framesUntilTheFlight()
 
         flight().assert(shows("b"))
-        val start = flight().fetchSemanticsNode().boundsInRoot.center
+        val start = flightCenter()
         assertTrue("takes off from the row (at $start)", (start - TAKE_OFF.center).getDistance() < NEAR_PX)
 
         rule.mainClock.autoAdvance = true
         rule.waitForIdle()
-        assertTrue(dismissed)
+        assertEquals(true, dismissed)
+    }
+
+    @Test
+    fun should_landOnTheHeaderAvatar_when_theFlightEnds() {
+        openCard()
+        rule.mainClock.autoAdvance = false
+        switchTo(cards[1])
+        framesUntilTheFlight()
+
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+
+        // The window is told an avatar landed, and it is in the header's slot.
+        assertEquals(true, dismissed)
+        flight().assert(shows("b"))
+        val end = flightCenter()
+        assertTrue("lands on the header avatar (at $end)", (end - ANCHOR.center).getDistance() < NEAR_PX)
+    }
+
+    @Test
+    fun should_followTheHeader_when_itMovesMidFlight() {
+        openCard()
+        rule.mainClock.autoAdvance = false
+        switchTo(cards[1])
+        framesUntilTheFlight()
+        // Past half way up.
+        val halfway = (TAKE_OFF.center.y + ANCHOR.center.y) / 2f
+        var frames = 0
+        while (flightCenter().y >= halfway && frames++ < MAX_FRAMES) frame()
+        val before = flightCenter()
+        assertTrue("past half way (at $before)", before.y < halfway)
+
+        // The next feed comes in under it: the header avatar is lower now.
+        rule.runOnIdle { anchor = MOVED }
+        frame()
+
+        // Still on its way up: no jump toward the new spot.
+        val after = flightCenter()
+        assertTrue("from $before to $after", after.y <= before.y)
+
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        assertEquals(true, dismissed)
+        val end = flightCenter()
+        assertTrue("lands on the moved header avatar (at $end)", (end - MOVED.center).getDistance() < NEAR_PX)
+    }
+
+    @Test
+    fun should_giveWayToTheAccountInUseMidAir_when_theSwitchFailsInFlight() {
+        openCard()
+        rule.mainClock.autoAdvance = false
+        switchTo(cards[1])
+        framesUntilTheFlight()
+        frame()
+        frame()
+
+        // Failed on the way up: the header is back on the account in use.
+        rule.runOnIdle {
+            pending = null
+            closeInto = cards[0]
+        }
+        frame()
+
+        flight().assert(shows("a"))
+        val now = flightCenter()
+        assertTrue("still on its way up (at $now)", offPath(now, ANCHOR.center) < NEAR_PX)
+        assertTrue("not landed yet (at $now)", (now - ANCHOR.center).getDistance() > NEAR_PX)
     }
 
     @Test
@@ -172,11 +279,29 @@ class HomeAccountSwitchFlightTest {
         flight().assert(shows("a"))
     }
 
+    @Test
+    fun should_flyFromTheRowToTheHeader_when_theLayoutIsRightToLeft() {
+        // Window px are absolute: an RTL layout doesn't mirror where they land.
+        openCard(direction = LayoutDirection.Rtl)
+        rule.mainClock.autoAdvance = false
+        switchTo(cards[1])
+        framesUntilTheFlight()
+
+        val start = flightCenter()
+        assertTrue("takes off from the row (at $start)", (start - TAKE_OFF.center).getDistance() < NEAR_PX)
+
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        val end = flightCenter()
+        assertTrue("lands on the header avatar (at $end)", (end - ANCHOR.center).getDistance() < NEAR_PX)
+    }
+
     private companion object {
         const val MAX_FRAMES = 30
         const val NEAR_PX = 24f
 
         val ANCHOR = Rect(1000f, 120f, 1084f, 204f)
+        val MOVED = Rect(1000f, 720f, 1084f, 804f)
         val TAKE_OFF = Rect(120f, 1500f, 225f, 1605f)
 
         val cards = listOf(
