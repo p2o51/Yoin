@@ -127,8 +127,7 @@ internal fun queueNextFromLabel(
     return when (context) {
         is ActivityContext.Album -> resources.getString(R.string.cmp_queue_next_from_album, context.albumName)
         is ActivityContext.Playlist -> resources.getString(R.string.cmp_queue_next_from_playlist, context.playlistName)
-        // No string of its own: the album's reads the same "Next from: X" in every language.
-        is ActivityContext.Artist -> resources.getString(R.string.cmp_queue_next_from_album, context.artistName)
+        is ActivityContext.Artist -> resources.getString(R.string.cmp_queue_next_from_artist, context.artistName)
         else -> resources.getString(R.string.cmp_queue_next_up)
     }
 }

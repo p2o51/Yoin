@@ -38,6 +38,7 @@
     <string name="cmp_queue_next_up">Next up</string>
     <string name="cmp_queue_next_from_album">Next from: %1$s</string>
     <string name="cmp_queue_next_from_playlist">Next from: %1$s</string>
+    <string name="cmp_queue_next_from_artist">Next from: %1$s</string>
     <string name="cmp_queue_section_now">Now playing</string>
     <string name="cmp_queue_section_queued">Next in queue</string>
     <string name="cmp_queue_playing_from">Playing from</string>
