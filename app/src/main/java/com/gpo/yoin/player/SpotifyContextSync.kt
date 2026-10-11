@@ -29,6 +29,13 @@ import com.gpo.yoin.data.repository.ActivityContext
  * - Yoin's Liked Songs starts Spotify's whole collection but mirrors only a window of it: a liked
  *   song past the window, while Spotify still says it plays the collection (`spotify:collection:
  *   tracks`, `spotify:user:<id>:collection`), is still Yoin's start, not a move.
+ *
+ * A dropped connection (the host stopped) voids what Spotify last said: it may have moved on
+ * unheard. Back on a fresh connection its PlayerState comes before its PlayerContext, so a song
+ * outside Yoin's queue then waits for that fresh word before anything is handed over (Spotify
+ * still on Yoin's album or playlist, as a 300+ song playlist played past the songs Yoin mirrors
+ * is, keeps Yoin's label), and while it waits the play isn't recorded ([settled]). No word in
+ * [SPOTIFY_CONTEXT_REPORT_GRACE_MS] ([onReportOverdue]): Spotify moved on, to somewhere unnamed.
  */
 internal class SpotifyContextSync {
 
@@ -41,21 +48,38 @@ internal class SpotifyContextSync {
     /** What Spotify last said it plays from, on this connection; null once it drops. */
     private var reported: SpotifyPlaybackContext? = null
 
+    /** The connection dropped since Spotify last said what it plays from. */
+    private var reportStale = false
+
+    /** A song outside Yoin's queue played while [reportStale]: the hand-over waits for Spotify's word. */
+    private var takeoverPending = false
+
+    /** Waiting for Spotify's fresh PlayerContext to say whether it moved on ([onReportOverdue] if none). */
+    val awaitingReport: Boolean
+        get() = takeoverPending
+
+    /** The song Spotify plays now may be recorded under the context shown. */
+    val settled: Boolean
+        get() = !takeoverPending
+
     /** A Yoin play set [context] and handed Spotify (or a local player) its queue. */
     fun onYoinStart(context: ActivityContext) {
         yoinContext = context
         confirmed = false
+        takeoverPending = false
     }
 
     /** Playback Spotify started on its own was adopted: its context is Spotify's to name. */
     fun followSpotify() {
         yoinContext = null
         confirmed = false
+        takeoverPending = false
     }
 
     /** The App Remote connection dropped (host stopped, an error): Spotify may move on unheard. */
     fun onDisconnected() {
         reported = null
+        reportStale = true
     }
 
     /** Spotify reported playing [track] while Yoin mirrors [queue] for it. */
@@ -63,6 +87,8 @@ internal class SpotifyContextSync {
         val yoin = yoinContext ?: return null
         track ?: return null
         if (queue.any { queued -> queued.isSameSongAs(track) }) {
+            // Back on Yoin's queue: whatever played outside it is no question any more.
+            takeoverPending = false
             if (!confirmed) {
                 confirmed = true
                 // Said before the start landed: about what Spotify played before, unless it
@@ -73,17 +99,23 @@ internal class SpotifyContextSync {
         }
         // A song from before the start, still playing while the start lands.
         if (!confirmed) return null
-        // Past Yoin's window of Liked Songs, still in the collection Yoin started.
-        if (yoin is ActivityContext.LikedSongs && reported.names(yoin)) return null
-        followSpotify()
-        val next = deriveSpotifyActivityContext(reported) ?: ActivityContext.None
-        return next.takeUnless { it.namesSameAs(current) }
+        // What Spotify said before the connection dropped is void: its fresh word decides.
+        if (reportStale) {
+            takeoverPending = true
+            return null
+        }
+        return movedOn(current, yoin)
     }
 
     /** Spotify reported playing from [context] (App Remote's PlayerContext). */
     fun onReported(current: ActivityContext, context: SpotifyPlaybackContext?): ActivityContext? {
         reported = context
+        reportStale = false
         val yoin = yoinContext
+        if (takeoverPending && yoin != null) {
+            takeoverPending = false
+            return movedOn(current, yoin)
+        }
         val next = when {
             yoin == null -> deriveSpotifyActivityContext(context) ?: ActivityContext.None
             !confirmed -> return null
@@ -91,7 +123,34 @@ internal class SpotifyContextSync {
         }
         return next.takeUnless { it.namesSameAs(current) }
     }
+
+    /**
+     * No PlayerContext came [SPOTIFY_CONTEXT_REPORT_GRACE_MS] after a song outside Yoin's queue
+     * on a fresh connection: Spotify plays from somewhere it doesn't name.
+     */
+    fun onReportOverdue(current: ActivityContext): ActivityContext? {
+        val yoin = yoinContext
+        if (!takeoverPending || yoin == null) return null
+        takeoverPending = false
+        reportStale = false
+        return movedOn(current, yoin)
+    }
+
+    /**
+     * Spotify played a song outside Yoin's queue (after the start was confirmed): unless it still
+     * plays from [yoin] past the songs Yoin mirrors (Liked Songs), the context follows Spotify.
+     */
+    private fun movedOn(current: ActivityContext, yoin: ActivityContext): ActivityContext? {
+        // Past Yoin's window of Liked Songs, still in the collection Yoin started.
+        if (yoin is ActivityContext.LikedSongs && reported.names(yoin)) return null
+        followSpotify()
+        val next = deriveSpotifyActivityContext(reported) ?: ActivityContext.None
+        return next.takeUnless { it.namesSameAs(current) }
+    }
 }
+
+/** How long a fresh connection's PlayerContext may trail its PlayerState ([SpotifyContextSync.onReportOverdue]). */
+internal const val SPOTIFY_CONTEXT_REPORT_GRACE_MS = 2_000L
 
 /**
  * Spotify's report names [yoin]: the same album or playlist, or (Yoin's Liked Songs) the user's

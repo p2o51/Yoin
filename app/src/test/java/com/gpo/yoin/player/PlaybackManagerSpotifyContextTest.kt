@@ -18,6 +18,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -167,18 +168,58 @@ class PlaybackManagerSpotifyContextTest {
         reportContext(SpotifyPlaybackContext(uri = "spotify:album:al1", title = "TUNE & PLAY"))
 
         // Host stopped: App Remote disconnects. Back in the foreground, the first PlayerState
-        // comes before the PlayerContext.
+        // comes before the PlayerContext: the song waits for Spotify's fresh word.
         disconnected()
         state(liked, isPlaying = true)
         runCurrent()
-        assertEquals(ActivityContext.None, manager.currentActivityContext.value)
-        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), album) }
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), any()) }
 
+        val other = ActivityContext.Album(albumId = "spotify:al2", albumName = "Other")
         reportContext(SpotifyPlaybackContext(uri = "spotify:album:al2", title = "Other"))
-        assertEquals(
-            ActivityContext.Album(albumId = "spotify:al2", albumName = "Other"),
-            manager.currentActivityContext.value
+        runCurrent()
+        assertEquals(other, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(liked, any(), any(), other) }
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), album) }
+    }
+
+    @Test
+    fun should_keepAndRecordTheRichPlaylist_when_spotifyStillPlaysItAfterAReconnect() = runTest {
+        val playlist = ActivityContext.Playlist(
+            playlistId = "spotify:pl1",
+            playlistName = "Mix",
+            owner = "me",
+            coverArtId = "https://i.scdn.co/image/pl1"
         )
+        play(playlist, startIndex = 1)
+        state(tracks[1])
+        reportContext(SpotifyPlaybackContext(uri = "spotify:playlist:pl1", title = "Mix"))
+
+        // Shuffled on in the background past the 300 songs Yoin mirrors of the playlist.
+        disconnected()
+        state(liked, isPlaying = true)
+        reportContext(SpotifyPlaybackContext(uri = "spotify:playlist:pl1", title = "Mix"))
+        runCurrent()
+
+        assertEquals(playlist, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(liked, any(), any(), playlist) }
+    }
+
+    @Test
+    fun should_handOverAndRecord_when_noContextComesWithinTheGraceAfterAReconnect() = runTest {
+        play(album, startIndex = 1)
+        state(tracks[1])
+
+        disconnected()
+        state(liked, isPlaying = true)
+        advanceTimeBy(SPOTIFY_CONTEXT_REPORT_GRACE_MS - 1)
+        runCurrent()
+        assertEquals(album, manager.currentActivityContext.value)
+        coVerify(exactly = 0) { repository.recordPlay(liked, any(), any(), any()) }
+
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(ActivityContext.None, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(liked, any(), any(), ActivityContext.None) }
     }
 
     @Test

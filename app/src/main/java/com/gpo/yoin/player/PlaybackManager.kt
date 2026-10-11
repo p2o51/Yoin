@@ -77,6 +77,9 @@ class PlaybackManager(
     // else follows what Spotify reports. See [onSpotifyPlayerContext] and [publishRemoteState].
     private val spotifyContextSync = SpotifyContextSync()
 
+    // Gives up on Spotify's fresh PlayerContext after a reconnect ([SpotifyContextSync.onReportOverdue]).
+    private var spotifyReportGraceJob: Job? = null
+
     // Last context Spotify reported it's playing FROM (album / playlist / …). Used to
     // label externally-started playback. See [onSpotifyPlayerContext].
     private var lastSpotifyContext: SpotifyPlaybackContext? = null
@@ -790,6 +793,9 @@ class PlaybackManager(
             // Spotify may move on while the connection is down: what it last said it plays
             // from no longer vouches for the songs it reports when it's back.
             spotifyContextSync.onDisconnected()
+            // The next connection's songs ask again.
+            spotifyReportGraceJob?.cancel()
+            spotifyReportGraceJob = null
         }
         if (activeBackend != ActiveBackend.SPOTIFY_REMOTE && !pendingSpotifyHandoff) {
             // Warm-connect adoption: if we're idle, the active profile is
@@ -862,6 +868,7 @@ class PlaybackManager(
                         track = snapshot.currentTrack,
                         queue = snapshot.queue
                     )?.let { _currentActivityContext.value = it }
+                    awaitSpotifyReportIfAsked()
                 }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
@@ -933,9 +940,18 @@ class PlaybackManager(
         } else {
             stopPositionUpdates()
         }
+        recordPlayIfDue(state)
+    }
 
+    /**
+     * Records [state]'s song once, while it plays, under the context shown. A song Spotify
+     * plays waits while that context isn't settled ([SpotifyContextSync.settled]); it is
+     * recorded when it is ([onSpotifyPlayerContext], [awaitSpotifyReportIfAsked]).
+     */
+    private fun recordPlayIfDue(state: PlaybackState) {
         val track = state.currentTrack ?: return
         if (track.id == lastRecordedTrackId || !state.isPlaying) return
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && !spotifyContextSync.settled) return
         lastRecordedTrackId = track.id
         val fallbackDurationSec = track.durationSec ?: lastKnownDurationSecById[track.id]
         scope.launch {
@@ -1184,6 +1200,29 @@ class PlaybackManager(
         lastSpotifyContext = context
         spotifyContextSync.onReported(_currentActivityContext.value, context)
             ?.let { _currentActivityContext.value = it }
+        awaitSpotifyReportIfAsked()
+        // A song held back while its context was in question goes on record now.
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) recordPlayIfDue(_playbackState.value)
+    }
+
+    /**
+     * Back on a fresh connection, a song outside Yoin's queue waits for Spotify's PlayerContext
+     * ([SpotifyContextSync.awaitingReport]); none in [SPOTIFY_CONTEXT_REPORT_GRACE_MS], the
+     * context is decided without it, and the song recorded.
+     */
+    private fun awaitSpotifyReportIfAsked() {
+        if (!spotifyContextSync.awaitingReport) {
+            spotifyReportGraceJob?.cancel()
+            spotifyReportGraceJob = null
+            return
+        }
+        if (spotifyReportGraceJob?.isActive == true) return
+        spotifyReportGraceJob = scope.launch {
+            delay(SPOTIFY_CONTEXT_REPORT_GRACE_MS)
+            spotifyContextSync.onReportOverdue(_currentActivityContext.value)
+                ?.let { _currentActivityContext.value = it }
+            if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) recordPlayIfDue(_playbackState.value)
+        }
     }
 
     private fun selectMedia3Source(source: MusicSource) {

@@ -140,14 +140,76 @@ class SpotifyContextSyncTest {
         context(report("spotify:album:al1", "TUNE & PLAY"))
 
         // Back from the background: Spotify moved on while Yoin wasn't listening, and its old
-        // word about Yoin's album no longer vouches for the song.
+        // word about Yoin's album no longer vouches for the song. Its PlayerState comes first:
+        // the song waits for Spotify's fresh word, and isn't Yoin's to record meanwhile.
         sync.onDisconnected()
         state(elsewhere)
-        assertEquals(ActivityContext.None, shown)
+        assertEquals(album, shown)
+        assertFalse(sync.settled)
 
         // Its fresh report then names where it is.
         context(report("spotify:playlist:pl1", "Mix"))
         assertEquals(ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = "Mix"), shown)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_keepYoinsPlaylist_when_spotifyStillPlaysItAfterADroppedConnection() {
+        val playlist = ActivityContext.Playlist(
+            playlistId = MediaId.spotify("pl1").toString(),
+            playlistName = "Mix",
+            owner = "me",
+            coverArtId = "https://i.scdn.co/image/pl1"
+        )
+        startAndConfirm(playlist)
+
+        // A 300+ song playlist on shuffle: past the songs Yoin mirrors while Yoin was away.
+        sync.onDisconnected()
+        state(elsewhere)
+        context(report("spotify:playlist:pl1", "Mix"))
+
+        assertEquals(playlist, shown)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_keepYoinsLikedSongs_when_spotifyStillPlaysTheCollectionAfterADroppedConnection() {
+        startAndConfirm(likedSongs)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+
+        sync.onDisconnected()
+        state(elsewhere)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+        state(track("elsewhere-2"))
+
+        assertEquals(likedSongs, shown)
+    }
+
+    @Test
+    fun should_handTheContextToSpotify_when_noFreshReportComesAfterADroppedConnection() {
+        startAndConfirm(album)
+        sync.onDisconnected()
+        state(elsewhere)
+        assertTrue(sync.awaitingReport)
+
+        sync.onReportOverdue(shown)?.let { shown = it }
+
+        assertEquals(ActivityContext.None, shown)
+        assertFalse(sync.awaitingReport)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_stopWaiting_when_spotifyIsBackOnYoinsQueueBeforeItsReport() {
+        startAndConfirm(album)
+        sync.onDisconnected()
+        state(elsewhere)
+
+        state(queue[2])
+
+        assertFalse(sync.awaitingReport)
+        assertNull(sync.onReportOverdue(shown))
+        assertEquals(album, shown)
     }
 
     @Test
