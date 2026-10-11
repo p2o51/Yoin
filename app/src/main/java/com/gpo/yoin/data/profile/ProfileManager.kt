@@ -109,6 +109,28 @@ class ProfileManager(
         _reconnectReason.value = null
     }
 
+    // Bumped when an account's stored credentials change state while its Room
+    // row stays as it was (Spotify's grant revoked, read again by a retry), so
+    // what reads them — the account cards, [activeNeedsReconnect] — reads again.
+    private val _credentialsRevision = MutableStateFlow(0)
+    val credentialsRevision: StateFlow<Int> = _credentialsRevision.asStateFlow()
+
+    private val _activeNeedsReconnect = MutableStateFlow(false)
+
+    /**
+     * The account in use needs its owner before it works: Home's avatar dot
+     * and its card's Reconnect (owner 2026-10-11). True when its source has
+     * settled without coming (its credentials couldn't be read — a restore
+     * without them, a key that didn't come along) or its credentials say so
+     * ([needsReconnect]: Spotify's grant revoked or short of a required
+     * scope). False with no account, and while its source is still being
+     * built. Unlike the sticky, app-wide [reconnectReason], it is this
+     * account's, and clears as soon as the account works again (re-entered
+     * credentials, a reconnect, [retryActiveSource]). Read from local state
+     * only: nothing is asked of any server for it.
+     */
+    val activeNeedsReconnect: StateFlow<Boolean> = _activeNeedsReconnect.asStateFlow()
+
     init {
         // Build the initial source for whatever profile boot-migration left active.
         scope.launch {
@@ -121,6 +143,73 @@ class ProfileManager(
                 activeSourceBuilds.update { builds -> builds - 1 }
             }
         }
+        // Read again when the account in use, its source, the build under way
+        // or its stored credentials change — not otherwise.
+        scope.launch {
+            combine(
+                activeProfile,
+                _activeSource,
+                activeSourceSettled,
+                _credentialsRevision
+            ) { profile, source, settled, _ ->
+                accountNeedsReconnect(profile, sourceUp = source != null, settled = settled)
+            }.collect { needs -> _activeNeedsReconnect.value = needs }
+        }
+    }
+
+    /**
+     * Whether [profile], the account in use, needs its owner: with no source,
+     * once none is coming; with one, when its credentials say so.
+     */
+    private fun accountNeedsReconnect(profile: Profile?, sourceUp: Boolean, settled: Boolean): Boolean = when {
+        profile == null -> false
+        !sourceUp -> settled
+        else -> decodeCredentials(profile).needsReconnect()
+    }
+
+    /**
+     * Home's Reconnect: one more try at the account in use, without
+     * switching. With no source, its credentials are read again; if they read
+     * (and don't need the owner anyway), its source is built and pinged, and
+     * published only once the server has answered and only if the account is
+     * still the one in use with no source — a switch or an edit meanwhile
+     * wins. A source that is up is left alone. Local reads and one ping: no
+     * more. True when the account needs nothing from its owner afterwards —
+     * [activeNeedsReconnect] already says so when this returns; false: its
+     * page is the way on.
+     */
+    suspend fun retryActiveSource(): Boolean {
+        val profile = getActiveProfileSnapshot() ?: return false
+        if (_activeSource.value == null && _switchingState.value !is SwitchState.Switching) {
+            val credentials = decodeCredentials(profile)
+            if (credentials != null && !credentials.needsReconnect()) {
+                val source = buildSource(profile, credentials)
+                var published = false
+                try {
+                    val answered = try {
+                        withTimeoutOrNull(PING_TIMEOUT_MS) { source.library().ping() } == true
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Exception) {
+                        false
+                    }
+                    published = answered &&
+                        getActiveProfileSnapshot()?.id == profile.id &&
+                        _activeSource.compareAndSet(null, source)
+                } finally {
+                    if (!published) source.dispose()
+                }
+            }
+        }
+        // Read again: the cards follow, and the answer is the one Home shows.
+        _credentialsRevision.update { revision -> revision + 1 }
+        val needs = accountNeedsReconnect(
+            getActiveProfileSnapshot(),
+            sourceUp = _activeSource.value != null,
+            settled = activeSourceBuilds.value == 0
+        )
+        _activeNeedsReconnect.value = needs
+        return !needs
     }
 
     /** Runs [block], which builds the active profile's source, with [activeSourceSettled] held down. */
@@ -397,6 +486,10 @@ class ProfileManager(
 
     private fun buildSource(profile: Profile): MusicSource? {
         val credentials = decodeCredentials(profile) ?: return null
+        return buildSource(profile, credentials)
+    }
+
+    private fun buildSource(profile: Profile, credentials: ProfileCredentials): MusicSource {
         return when (credentials) {
             is ProfileCredentials.AppleMusic -> com.gpo.yoin.data.source.applemusic.AppleMusicSource(credentials)
             is ProfileCredentials.Subsonic -> SubsonicMusicSource(
@@ -449,6 +542,8 @@ class ProfileManager(
             ?: return
         if (credentials.revoked) return
         persistCredentialsSilently(id, credentials.copy(revoked = true))
+        // The row is unchanged: what reads the credentials reads them again.
+        _credentialsRevision.update { revision -> revision + 1 }
     }
 
     sealed interface SwitchState {

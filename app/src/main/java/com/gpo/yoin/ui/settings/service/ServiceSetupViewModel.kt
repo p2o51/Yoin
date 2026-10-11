@@ -12,8 +12,8 @@ import com.gpo.yoin.data.profile.ProfileLimitReachedException
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
+import com.gpo.yoin.data.profile.needsReconnect
 import com.gpo.yoin.data.repository.SubsonicException
-import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthResult
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import com.gpo.yoin.ui.common.UiText
@@ -58,10 +58,9 @@ class ServiceSetupViewModel(
         profileManager.profiles,
     ) { override, effective, status, profiles ->
         val existing = request.profileId?.let { id -> profiles.firstOrNull { it.id == id } }
+        // The same rule as the account's card and Home's Reconnect.
         val needsReconnect = existing?.let { profile ->
-            val decoded = profileManager.decodeCredentials(profile) as? ProfileCredentials.Spotify
-            decoded == null || decoded.revoked ||
-                SpotifyAuthConfig.REQUIRED_SCOPES.any { it !in decoded.scopes }
+            profileManager.decodeCredentials(profile).needsReconnect()
         } ?: false
         SpotifySetupState(
             clientId = effective,
