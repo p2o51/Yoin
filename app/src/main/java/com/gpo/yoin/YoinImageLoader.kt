@@ -13,6 +13,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.ErrorResult
 import coil3.request.ImageResult
 import coil3.request.Options
+import com.gpo.yoin.data.remote.SubsonicCacheKey
 import com.gpo.yoin.perf.YoinPerfImages
 import com.gpo.yoin.ui.component.ArtworkFailureKind
 import com.gpo.yoin.ui.component.ArtworkRetryPolicy
@@ -67,19 +68,32 @@ internal fun buildYoinImageLoader(context: Context): ImageLoader {
 }
 
 /**
- * Keeps bytes that made no image out of [diskCache], for every request the
- * loader runs — the artwork, the palette reads, Now Playing, the widgets.
- * Coil stores a body before it decodes it, and serves a stored entry without
- * asking the network, so the next request for that url, this one's retry or
- * a sibling's read, would decode the same bytes again. On an
- * [ArtworkFailureKind.Undecodable] failure the entry goes before the result
- * is returned; any other failure leaves it alone.
+ * Owns a network image's entry in [diskCache], for every request the loader
+ * runs — the artwork, the palette reads, Now Playing, the widgets.
+ *
+ * Its key: a Subsonic url is stored under [SubsonicCacheKey] instead of
+ * itself, so a cover one process stored is found by the next (the url carries
+ * a salt drawn per process). Any other url keeps Coil's key, the url.
+ *
+ * Bytes that made no image: Coil stores a body before it decodes it, and
+ * serves a stored entry without asking the network, so the next request for
+ * that url, this one's retry or a sibling's read, would decode the same bytes
+ * again, in this process or the next. On an [ArtworkFailureKind.Undecodable]
+ * failure the entry goes before the result is returned; any other failure
+ * leaves it alone.
  */
 internal class ImageDiskCacheInterceptor(private val diskCache: () -> DiskCache?) : Interceptor {
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val request = chain.request
-        val key = request.diskCacheKey ?: networkUrlOf(request.data) ?: return chain.proceed()
-        val result = chain.proceed()
+        val url = networkUrlOf(request.data)
+        val named = request.diskCacheKey
+        val key = named ?: url?.let { SubsonicCacheKey.of(it) ?: it } ?: return chain.proceed()
+        val keyed = if (named == null && key != url) {
+            chain.withRequest(request.newBuilder().diskCacheKey(key).build())
+        } else {
+            chain
+        }
+        val result = keyed.proceed()
         if (result is ErrorResult && ArtworkRetryPolicy.classify(result.throwable) == ArtworkFailureKind.Undecodable) {
             withContext(Dispatchers.IO) { diskCache()?.remove(key) }
         }

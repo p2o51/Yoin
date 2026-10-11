@@ -11,6 +11,9 @@ import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
+import com.gpo.yoin.data.remote.ServerCredentials
+import com.gpo.yoin.data.remote.SubsonicApiFactory
+import com.gpo.yoin.data.remote.SubsonicCacheKey
 import com.gpo.yoin.testutil.pngBytes
 import com.gpo.yoin.testutil.undecodableImageBytes
 import com.gpo.yoin.ui.component.ArtworkFailureKind
@@ -21,6 +24,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -99,6 +103,25 @@ class YoinImageLoaderDecodeTest {
         val healed = loader.execute(load(url)) as SuccessResult
         assertEquals(DataSource.NETWORK, healed.dataSource)
         assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun should_dropTheStoredCopy_when_aSubsonicCoverMakesNoImage() = runBlocking {
+        server.enqueue(garbageCover())
+        server.enqueue(realCover())
+        val credentials = ServerCredentials(serverUrl = server.url("/").toString(), username = "qa", password = "pw")
+        val url = SubsonicApiFactory.buildCoverArtUrl(credentials, "al-1", size = 300)
+        val key = checkNotNull(SubsonicCacheKey.of(url))
+        val diskCache = checkNotNull(loader.diskCache)
+
+        assertTrue(loader.execute(load(url)) is ErrorResult)
+        // Gone from under the key the next process looks up, not only this process's url.
+        assertNull(diskCache.openSnapshot(key))
+        assertNull(diskCache.openSnapshot(url))
+
+        val healed = loader.execute(load(url)) as SuccessResult
+        assertEquals(DataSource.NETWORK, healed.dataSource)
+        diskCache.openSnapshot(key).use { assertNotNull(it) }
     }
 
     @Test
