@@ -87,8 +87,52 @@ class FastScrollMathTest {
         val jump = FastScrollMath.jumpIndex(1f, items, perLine, linesPerScreen)
         assertTrue(jump in 0 until items)
         assertEquals(0, jump % perLine)
+        // Never short of the end: a line the list can't bring to the top, so it clamps to its end.
+        assertTrue(jump / perLine >= lines - linesPerScreen)
         assertEquals(0, FastScrollMath.jumpIndex(0f, items, perLine, linesPerScreen))
         assertEquals(0, FastScrollMath.labelIndex(0f, 3_000, 1))
+    }
+
+    @Test
+    fun should_reachTheListsEnd_when_handleIsAtTheBottomWhateverTheScreenHolds() {
+        // A screen's lines end in any fraction of a line: below a half the
+        // old rounding put the line before the end on top, leaving part of the
+        // last row under the floating bar (device QA: 85px on the tablet in
+        // portrait at 5.65 lines, 187px on a phone at 3.51).
+        for (screen in floatArrayOf(3.5075f, 5.65f, 5.756f, 6.2f, 6.7f, 13.617f, 9f)) {
+            val jump = FastScrollMath.jumpIndex(1f, items, perLine, screen)
+            assertEquals("screen $screen", 0, jump % perLine)
+            val line = jump / perLine
+            assertTrue("screen $screen: line $line short of ${lines - screen}", line >= lines - screen)
+            assertTrue("screen $screen", jump < items)
+            // Monotonic all the way down, and still a row start everywhere.
+            var previous = 0
+            for (step in 0..400) {
+                val index = FastScrollMath.jumpIndex(step / 400f, items, perLine, screen)
+                assertTrue("screen $screen step $step", index >= previous)
+                assertEquals(0, index % perLine)
+                previous = index
+            }
+        }
+    }
+
+    @Test
+    fun should_countTheLastLinesMissingSpacing_when_measuringAScreen() {
+        // The tablet in portrait: a 2244px grid inside 16px and 280px of
+        // padding, 312px cells 32px apart.
+        val screen = FastScrollMath.screenLines(
+            viewportPx = 2_244,
+            beforePaddingPx = 16,
+            afterPaddingPx = 280,
+            spacingPx = 32,
+            linePx = 344f
+        )
+        assertEquals((1_948f + 32f) / 344f, screen, 1e-4f)
+        // So the scroll range is exactly how far the grid scrolls: 224 lines
+        // end 312px above the padding, after 223 gaps.
+        val contentPx = 224 * 344f - 32f
+        assertEquals((contentPx - 1_948f) / 344f, 224 - screen, 1e-3f)
+        assertEquals(0f, FastScrollMath.screenLines(100, 60, 60, 16, 344f), 0f)
     }
 
     @Test

@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridLayoutInfo
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.systemGestureExclusion
@@ -67,6 +69,8 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -304,11 +308,21 @@ internal object FastScrollMath {
         return knee + (f - kneeFraction) / (1f - kneeFraction) * tail
     }
 
-    /** The item to jump to for [fraction]: the first item of its line. */
+    /**
+     * The item to jump to for [fraction]: the first item of its line. The
+     * list's end is seldom a whole line, so past the last line the list can
+     * still bring to the top the jump aims a line further, which the lazy
+     * layout clamps to its true end: rounded back instead, the last part of a
+     * row stayed under whatever covers the list's bottom (a floating bar),
+     * with the handle already at the bottom of its track.
+     */
     fun jumpIndex(fraction: Float, itemCount: Int, itemsPerLine: Int, linesPerScreen: Float): Int {
         if (itemCount <= 0) return 0
         val perLine = itemsPerLine.coerceAtLeast(1)
-        val line = positionFor(fraction, lineCount(itemCount, perLine), linesPerScreen).roundToInt()
+        val lines = lineCount(itemCount, perLine)
+        val position = positionFor(fraction, lines, linesPerScreen)
+        val lastTopLine = floor(scrollRange(lines, linesPerScreen))
+        val line = if (position > lastTopLine) ceil(position).toInt() else position.roundToInt()
         return (line * perLine).coerceIn(0, itemCount - 1)
     }
 
@@ -410,6 +424,35 @@ internal object FastScrollMath {
         }
         return keep
     }
+
+    /**
+     * The lines one screen of a lazy layout holds, as far as the scroll range
+     * goes: the viewport inside its content padding plus the spacing the
+     * last line has none of after it. So `lines - linesPerScreen` is exactly
+     * how far the list scrolls, and the handle meets the bottom of its track
+     * exactly when the list meets its end.
+     */
+    fun screenLines(viewportPx: Int, beforePaddingPx: Int, afterPaddingPx: Int, spacingPx: Int, linePx: Float): Float {
+        val inner = viewportPx - beforePaddingPx - afterPaddingPx
+        if (inner <= 0 || linePx <= 0f) return 0f
+        return (inner + spacingPx) / linePx
+    }
+
+    fun screenLines(info: LazyGridLayoutInfo, linePx: Float): Float = screenLines(
+        viewportPx = info.viewportSize.height,
+        beforePaddingPx = info.beforeContentPadding,
+        afterPaddingPx = info.afterContentPadding,
+        spacingPx = info.mainAxisItemSpacing,
+        linePx = linePx
+    )
+
+    fun screenLines(info: LazyListLayoutInfo, linePx: Float): Float = screenLines(
+        viewportPx = info.viewportSize.height,
+        beforePaddingPx = info.beforeContentPadding,
+        afterPaddingPx = info.afterContentPadding,
+        spacingPx = info.mainAxisItemSpacing,
+        linePx = linePx
+    )
 
     private fun scrollRange(lines: Int, linesPerScreen: Float): Float = (lines - linesPerScreen).coerceAtLeast(0f)
 }
@@ -1005,8 +1048,7 @@ private class GridScrollReader(private val state: LazyGridState, private val lea
         val first = info.visibleItemsInfo.firstOrNull { it.index >= leading } ?: return 0f
         val linePx = (first.size.height + info.mainAxisItemSpacing).toFloat()
         if (linePx <= 0f) return 0f
-        val viewport = info.viewportSize.height - info.beforeContentPadding - info.afterContentPadding
-        return viewport.coerceAtLeast(0) / linePx * info.maxSpan.coerceAtLeast(1)
+        return FastScrollMath.screenLines(info, linePx) * info.maxSpan.coerceAtLeast(1)
     }
 
     /** requestScrollToItem cancels any scroll in progress; asking for where the list already is stops it there. */
@@ -1047,8 +1089,7 @@ private class ListScrollReader(private val state: LazyListState, private val lea
         }
         val linePx = sum.toFloat() / count + info.mainAxisItemSpacing
         if (linePx <= 0f) return 0f
-        val viewport = info.viewportSize.height - info.beforeContentPadding - info.afterContentPadding
-        return viewport.coerceAtLeast(0) / linePx
+        return FastScrollMath.screenLines(info, linePx)
     }
 
     fun stopFling() {

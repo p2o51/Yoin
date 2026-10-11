@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -26,6 +27,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import org.junit.Assert.assertEquals
@@ -228,6 +230,36 @@ class YoinFastScrollerTest {
     }
 
     @Test
+    fun should_restAtTheBottom_when_aGridWithRowGapsIsScrolledToTheEnd() {
+        // The last row has no gap after it: counted in, the handle stopped a
+        // few pixels short of the track's end with the grid at its own.
+        setGrid(initialIndex = GRID_ITEMS, rowGap = 16.dp)
+
+        val track = rule.onNodeWithTag(TRACK).getBoundsInRoot()
+        val thumb = rule.onNodeWithTag(FastScrollerTags.THUMB).getBoundsInRoot()
+        assertEquals(track.bottom.value, thumb.bottom.value, 0.5f)
+    }
+
+    @Test
+    fun should_bringTheLastRowWhole_when_theHandleIsDroppedAtTheBottom() {
+        // 640 / 47 = 13.62 rows a screen: the end lies 0.38 of a row past the
+        // last whole row, which the jump used to round back to.
+        lateinit var grid: LazyGridState
+        setGrid(cellHeight = 47.dp) { grid = it }
+        wakeGrid(grid)
+
+        rule.onNodeWithTag(FastScrollerTags.THUMB).performTouchInput {
+            down(center)
+            moveBy(Offset(0f, 5_000f))
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag(FastScrollerTags.THUMB).performTouchInput { up() }
+        rule.waitForIdle()
+
+        assertFalse("the grid stopped short of its end", grid.canScrollForward)
+    }
+
+    @Test
     fun should_fadeOutWhereTheFingerLeftIt_when_hidingAfterARelease() {
         var scrolling by mutableStateOf(true)
         setScroller(itemCount = itemCount, onJump = {}, isScrollInProgress = { scrolling })
@@ -343,7 +375,12 @@ class YoinFastScrollerTest {
     }
 
     /** A 3-column grid under a full-span sort row, the scroller told to skip it. */
-    private fun setGrid(initialIndex: Int = 0, onState: (LazyGridState) -> Unit = {}) {
+    private fun setGrid(
+        initialIndex: Int = 0,
+        cellHeight: Dp = 40.dp,
+        rowGap: Dp = 0.dp,
+        onState: (LazyGridState) -> Unit = {}
+    ) {
         rule.setContent {
             MaterialTheme {
                 val grid = rememberLazyGridState(initialFirstVisibleItemIndex = initialIndex)
@@ -352,10 +389,11 @@ class YoinFastScrollerTest {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(GRID_COLUMNS),
                         state = grid,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(rowGap)
                     ) {
                         item(span = { GridItemSpan(maxLineSpan) }) { Text("Sort", Modifier.height(48.dp)) }
-                        items(count = GRID_ITEMS) { Text("Cell $it", Modifier.height(40.dp)) }
+                        items(count = GRID_ITEMS) { Text("Cell $it", Modifier.height(cellHeight)) }
                     }
                     YoinFastScroller(
                         state = grid,
