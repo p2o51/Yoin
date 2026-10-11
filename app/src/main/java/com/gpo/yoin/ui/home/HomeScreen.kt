@@ -67,7 +67,7 @@ private const val HomeLoadingIndicatorDelayMillis = 180L
 private enum class HomeHoldEnd { HandBack, FadeAway, Release }
 
 // Loading's indicator springs in from (and out to) this scale.
-private const val HOME_LOADING_INDICATOR_SCALE = 0.6f
+internal const val HOME_LOADING_INDICATOR_SCALE = 0.6f
 
 // Loading reports motion pressure (design.md: AdaptiveReduced while Home
 // loads; the intro waits up to 0.4 s for it to clear). A load that hangs past
@@ -131,6 +131,7 @@ fun HomeScreen(
             accountSwitchPending = account.switchPending,
             accountAnchor = account.anchor,
             accountHandedUp = account.landed,
+            accountNeedsReconnect = account.needsReconnect,
             onNavigateToMemories = onNavigateToMemories,
             onOpenMemoryFocus = onOpenMemoryFocus,
             memoriesRevealState = memoriesRevealState,
@@ -193,7 +194,9 @@ fun HomeContent(
     // card's close flew an avatar into the header (false: it faded in place).
     accountSwitchPending: Boolean = false,
     accountAnchor: () -> Rect? = { null },
-    accountHandedUp: Boolean = true
+    accountHandedUp: Boolean = true,
+    // The account in use needs its owner: the header avatar wears a dot.
+    accountNeedsReconnect: Boolean = false
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -368,6 +371,7 @@ fun HomeContent(
                                 accountButtonHidden = accountButtonHidden ||
                                     (holdingAvatar && !avatarHold.headerAvatarBack),
                                 onAccountAnchor = onAccountAnchor,
+                                accountNeedsReconnect = accountNeedsReconnect,
                                 onNavigateToMemories = onNavigateToMemories,
                                 editController = editController,
                                 footerNewBadge = footerNewBadge,

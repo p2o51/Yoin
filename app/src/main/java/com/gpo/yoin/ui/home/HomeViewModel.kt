@@ -648,10 +648,11 @@ class HomeViewModel(
                 // snapshot still stays, and the load ends as a failed one
                 // (below) rather than wait for ever. No Retry shows then —
                 // there is no Error page over a feed — so the way out is the
-                // account itself: re-entering its credentials builds the
-                // source, which moves the scope, and that load replaces the
-                // snapshot. (Its card in the account switcher and Settings
-                // says so for Subsonic and Spotify; Apple Music's says nothing.)
+                // account itself: the header avatar's dot and the card's
+                // Reconnect (ProfileManager.activeNeedsReconnect, owner
+                // 2026-10-11) try its source once more, then open its page to
+                // re-enter its credentials. A source built either way moves
+                // the scope, and that load replaces the snapshot block by block.
                 if (sourcelessLoadWouldReplace(scopeKey)) {
                     if (!settledWithoutSource) noSourceComing.first { sourceless -> sourceless }
                     throw NoActiveSourceException()

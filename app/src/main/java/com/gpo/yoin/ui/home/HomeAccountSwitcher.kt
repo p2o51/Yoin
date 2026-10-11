@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
@@ -8,6 +9,7 @@ import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +17,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.absoluteOffset
@@ -27,8 +31,11 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Badge
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -75,6 +82,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -105,6 +113,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -118,11 +127,16 @@ import com.gpo.yoin.ui.settings.SelectableSegment
 import com.gpo.yoin.ui.settings.ServiceLine
 import com.gpo.yoin.ui.settings.SettingsItem
 import com.gpo.yoin.ui.settings.SettingsSegments
+import com.gpo.yoin.ui.settings.face
 import com.gpo.yoin.ui.settings.monogramOf
 import com.gpo.yoin.ui.settings.profileCardsFlow
+import com.gpo.yoin.ui.settings.service.ServiceSetupContract
+import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
+import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.settings.serviceIdentity
 import com.gpo.yoin.ui.settings.serviceLineGroups
 import com.gpo.yoin.ui.settings.tone
+import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -156,10 +170,55 @@ import kotlinx.coroutines.launch
 /** The accounts for Home's switcher. */
 class AccountSwitcherViewModel internal constructor(
     private val profiles: ProfileManager,
-    profileCards: Flow<List<ProfileCard>>
+    profileCards: Flow<List<ProfileCard>>,
+    // ProfileManager.activeNeedsReconnect: the one "needs reconnect" signal.
+    activeNeedsReconnect: Flow<Boolean>
 ) : ViewModel() {
     val cards: StateFlow<List<ProfileCard>> = profileCards
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The account in use needs its owner (owner 2026-10-11): its credentials
+     * couldn't be read, or Spotify revoked its grant. Home's header avatar
+     * wears a dot and the card offers Reconnect. Local state only: nothing
+     * polls, nothing asks a server.
+     */
+    val needsReconnect: StateFlow<Boolean> = activeNeedsReconnect
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    // A Reconnect under way: from the tap until ProfileManager's one more try
+    // at the account is over. The card waits meanwhile, as through a switch.
+    private val retrying = MutableStateFlow(false)
+    val reconnecting: StateFlow<Boolean> = retrying.asStateFlow()
+
+    // The account a Reconnect couldn't fix: its own page is the way on.
+    private val accountPages = Channel<ProfileCard>(Channel.CONFLATED)
+    val reconnectPages: Flow<ProfileCard> = accountPages.receiveAsFlow()
+
+    /**
+     * Reconnect the account in use: one more try at its source, without
+     * switching (a local read and a ping). Fixed: the dot goes, and Home's
+     * feed loads as it does when a source comes in. Not fixed, and the
+     * account still in use: [reconnectPages] gets it. False when nothing
+     * starts: a Reconnect or a switch begun here is under way, or there is
+     * no account.
+     */
+    fun reconnect(): Boolean {
+        if (retrying.value || pending.value != null) return false
+        val account = cards.value.firstOrNull { it.isActive } ?: return false
+        retrying.value = true
+        viewModelScope.launch {
+            try {
+                val fixed = profiles.retryActiveSource()
+                // Another account in use by now (switched in Settings): not this one's page.
+                val stillInUse = profiles.activeProfileId.value.let { it == null || it == account.id }
+                if (!fixed && stillInUse) accountPages.trySend(account)
+            } finally {
+                retrying.value = false
+            }
+        }
+        return true
+    }
 
     // A switch begun here that doesn't land — failed, or turned away (another
     // switch under way, the account gone): Home's feed comes back on its own
@@ -179,7 +238,7 @@ class AccountSwitcherViewModel internal constructor(
      * use, or a switch begun here is still under way.
      */
     fun switchTo(profileId: String): Boolean {
-        if (pending.value != null || profiles.activeProfileId.value == profileId) return false
+        if (pending.value != null || retrying.value || profiles.activeProfileId.value == profileId) return false
         // Set before anything suspends: the tap's own frame shows the target.
         pending.value = profileId
         viewModelScope.launch {
@@ -202,8 +261,10 @@ class AccountSwitcherViewModel internal constructor(
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            AccountSwitcherViewModel(container.profileManager, profileCardsFlow(container)) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            val profiles = container.profileManager
+            return AccountSwitcherViewModel(profiles, profileCardsFlow(container), profiles.activeNeedsReconnect) as T
+        }
     }
 }
 
@@ -260,7 +321,9 @@ internal data class HomeAccountChrome(
     /** A switch begun from the card is under way. */
     val switchPending: Boolean,
     /** The window's last close flew an avatar into the header (false: reduced motion, the card faded where it sat). */
-    val landed: Boolean
+    val landed: Boolean,
+    /** The account the header shows needs its owner: its avatar wears the dot. */
+    val needsReconnect: Boolean = false
 )
 
 /**
@@ -272,6 +335,11 @@ internal data class HomeAccountChrome(
  * Add account, Settings, an account that can't be used now) waits until the
  * card is back in the avatar. Null [accountSwitcher]: no card, and the header
  * keeps its Settings gear.
+ *
+ * An account in use that needs its owner ([AccountSwitcherViewModel.needsReconnect])
+ * wears a dot in the header and gets Reconnect on the card; a Reconnect the
+ * retry can't fix opens the account's own page ([onOpenAccountPage]) once the
+ * card is back in the avatar.
  */
 @Suppress("ktlint:standard:function-naming") // a Composable
 @Composable
@@ -279,11 +347,14 @@ internal fun HomeAccountSwitcherHost(
     accountSwitcher: AccountSwitcherViewModel?,
     onNavigateToSettings: () -> Unit,
     onEditHome: () -> Unit,
+    onOpenAccountPage: (ProfileCard) -> Unit = rememberAccountPageOpener(),
     content: @Composable (HomeAccountChrome) -> Unit
 ) {
     val accountCards by (accountSwitcher?.cards ?: remember { MutableStateFlow(emptyList()) }).collectAsState()
     val pendingTarget by (accountSwitcher?.pendingTarget ?: remember { MutableStateFlow<String?>(null) })
         .collectAsState()
+    val needsReconnect by (accountSwitcher?.needsReconnect ?: remember { MutableStateFlow(false) }).collectAsState()
+    val reconnecting by (accountSwitcher?.reconnecting ?: remember { MutableStateFlow(false) }).collectAsState()
     val activeAccount = accountCards.firstOrNull { it.isActive }
     // The account the header shows: a switch's target from the tap on (the
     // pick shows at once), the one in use again if the switch fails.
@@ -302,6 +373,15 @@ internal fun HomeAccountSwitcherHost(
     fun closeSwitcherThen(action: () -> Unit) {
         afterSwitcherDismissed = action
         switcherOpen = false
+    }
+    // A Reconnect the retry couldn't fix: the account's own page, once the
+    // card is back in the avatar. A card closed meanwhile (back, a tap
+    // outside) leaves it at that: the dot is still there to come back by.
+    val openAccountPage by rememberUpdatedState(onOpenAccountPage)
+    LaunchedEffect(accountSwitcher) {
+        accountSwitcher?.reconnectPages?.collect { account ->
+            if (switcherOpen) closeSwitcherThen { openAccountPage(account) }
+        }
     }
     if (switcherShown && accountSwitcher != null) {
         HomeAccountSwitcherDialog(
@@ -343,7 +423,10 @@ internal fun HomeAccountSwitcherHost(
                     switcherOpen = false
                     onEditHome()
                 }
-            }
+            },
+            needsReconnect = needsReconnect,
+            reconnecting = reconnecting,
+            onReconnect = { accountSwitcher.reconnect() }
         )
     }
     val onOpen = remember {
@@ -363,9 +446,29 @@ internal fun HomeAccountSwitcherHost(
             onAnchor = onAnchor,
             anchor = anchor,
             switchPending = pendingTarget != null,
-            landed = landed
+            landed = landed,
+            // Through a switch the header shows its target, not the account in use.
+            needsReconnect = needsReconnect && pendingTarget == null
         )
     )
+}
+
+/**
+ * Opens an account's own page — the setup page in manage mode, where its
+ * credentials are entered again (Subsonic) or its sign-in run again (Spotify's
+ * reconnect, Apple Music's) — over Home: its back comes straight back here.
+ */
+@Composable
+private fun rememberAccountPageOpener(): (ProfileCard) -> Unit {
+    val context = LocalContext.current
+    return remember(context) {
+        { account ->
+            SetupService.forProvider(account.provider)?.let { service ->
+                val request = ServiceSetupRequest(service, profileId = account.id, face = account.face)
+                context.startActivity(ServiceSetupContract().createIntent(context, request))
+            }
+        }
+    }
 }
 
 /** The account in use as Home's header button (in place of the Settings gear). */
@@ -381,6 +484,8 @@ internal fun HomeAccountButton(
     hidden: Boolean = false,
     // Where the avatar is, in window px: the switcher grows out of it.
     onAvatarPositioned: (Rect) -> Unit = {},
+    // The account needs its owner: a dot on the avatar's corner.
+    needsReconnect: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
     val identity = card.provider.serviceIdentity
@@ -402,17 +507,55 @@ internal fun HomeAccountButton(
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        AccountAvatar(
-            monogram = monogramOf(card.title, stringResource(identity.nameRes)),
-            shapeIndex = card.avatarShape,
-            identity = identity,
-            ringColor = MaterialTheme.colorScheme.surfaceContainer,
-            photoUrl = card.photoUrl,
-            size = HomeAccountButtonAvatar,
+        Box {
+            AccountAvatar(
+                monogram = monogramOf(card.title, stringResource(identity.nameRes)),
+                shapeIndex = card.avatarShape,
+                identity = identity,
+                ringColor = MaterialTheme.colorScheme.surfaceContainer,
+                photoUrl = card.photoUrl,
+                size = HomeAccountButtonAvatar,
+                modifier = Modifier
+                    .onGloballyPositioned { onAvatarPositioned(it.unclippedBoundsInWindow()) }
+                    .graphicsLayer { alpha = if (hidden) 0f else 1f },
+            )
+            // Steps aside with the avatar while the card or a switch has it,
+            // and springs back once the avatar is home.
+            HomeAccountReconnectDot(
+                visible = needsReconnect && !hidden,
+                ringColor = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+        }
+    }
+}
+
+/**
+ * The account needs its owner (owner 2026-10-11): M3's small badge — 6dp, in
+ * the error colour — on a ring of the header's colour, at the avatar's
+ * top-end corner. No text. Comes and goes with scale on the spatial spring
+ * and alpha on the effects spring; TalkBack hears it with the avatar.
+ */
+@Suppress("ktlint:standard:function-naming") // a Composable
+@Composable
+private fun HomeAccountReconnectDot(visible: Boolean, ringColor: Color, modifier: Modifier = Modifier) {
+    val role = LocalYoinMotionRole.current
+    val label = stringResource(R.string.home_account_reconnect_needed)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = YoinMotion.fadeIn(role) + YoinMotion.scaleIn(role, initialScale = 0f),
+        exit = YoinMotion.fadeOut(role) + YoinMotion.scaleOut(role, targetScale = 0f)
+    ) {
+        Box(
             modifier = Modifier
-                .onGloballyPositioned { onAvatarPositioned(it.unclippedBoundsInWindow()) }
-                .graphicsLayer { alpha = if (hidden) 0f else 1f },
-        )
+                .testTag(HOME_ACCOUNT_RECONNECT_DOT_TAG)
+                .semantics { contentDescription = label }
+                .background(ringColor, CircleShape)
+                .padding(HomeAccountDotRing)
+        ) {
+            Badge(containerColor = MaterialTheme.colorScheme.error)
+        }
     }
 }
 
@@ -429,6 +572,12 @@ internal fun LayoutCoordinates.unclippedBoundsInWindow(): Rect {
 
 private val HomeAccountButtonAvatar = 32.dp
 private val HomeAccountRowAvatar = 40.dp
+
+// The reconnect dot's ring: M3's 6dp small badge, cut out of the avatar by 1dp of the header.
+private val HomeAccountDotRing = 1.dp
+
+// T7's loading indicator, sized into the Reconnect button's label.
+private val HomeAccountReconnectIndicator = 24.dp
 
 /**
  * Home's header avatar through a switch begun from Home: from the tap until
@@ -749,7 +898,12 @@ internal fun HomeAccountSwitcherDialog(
     // header shows next — the switch's target, or the one in use again if the
     // switch has failed meanwhile. Null = a plain close (✕, outside, back).
     closeFrom: Rect? = null,
-    closeInto: ProfileCard? = null
+    closeInto: ProfileCard? = null,
+    // The account in use needs its owner: the card offers Reconnect, and
+    // waits — as through a switch — while [reconnecting].
+    needsReconnect: Boolean = false,
+    reconnecting: Boolean = false,
+    onReconnect: () -> Unit = {}
 ) {
     // The card closes the way it opened: the profile it opened under holds
     // until the window goes. It can flip while the card is up — Home's
@@ -845,8 +999,8 @@ internal fun HomeAccountSwitcherDialog(
             if (spot != landing.targetValue) landing.animateTo(spot, landingSpec)
         }
     }
-    // Once a switch is pending, or the card is going: nothing on it starts anything.
-    val takesInput = visible && pendingTarget == null
+    // Once a switch is pending, a Reconnect is running, or the card is going: nothing on it starts anything.
+    val takesInput = visible && pendingTarget == null && !reconnecting
     val surface = MaterialTheme.colorScheme.surfaceContainer
     val scrim = MaterialTheme.colorScheme.scrim
     val density = LocalDensity.current
@@ -946,6 +1100,9 @@ internal fun HomeAccountSwitcherDialog(
                     enabled = takesInput,
                     pendingTarget = pendingTarget,
                     flightRow = flightRow,
+                    needsReconnect = needsReconnect,
+                    reconnecting = reconnecting,
+                    onReconnect = onReconnect,
                     // The big avatar stays hidden while its twin flies in, and reports where it is.
                     // A switch's flight is the picked row's: the big one (the old account) goes with the contents.
                     avatarModifier = Modifier
@@ -1046,6 +1203,7 @@ private const val HomeAccountScrimAlpha = 0.32f
 
 private val HomeAccountCardMaxWidth = 420.dp
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeAccountCard(
     cards: List<ProfileCard>,
@@ -1065,10 +1223,15 @@ private fun HomeAccountCard(
     // A switch under way: its row is the selected one, the other accounts wait.
     pendingTarget: String? = null,
     // The row whose avatar is flying up to the header (it leaves the row).
-    flightRow: String? = null
+    flightRow: String? = null,
+    // The account in use needs its owner: Reconnect beside Manage accounts.
+    needsReconnect: Boolean = false,
+    reconnecting: Boolean = false,
+    onReconnect: () -> Unit = {}
 ) {
     // Taken only while the card takes input.
     fun gated(action: () -> Unit): () -> Unit = { if (enabled) action() }
+    val role = LocalYoinMotionRole.current
     val active = cards.firstOrNull { it.isActive } ?: cards.firstOrNull()
     val others = cards.filter { it !== active }
     Surface(
@@ -1114,11 +1277,29 @@ private fun HomeAccountCard(
                     modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp),
                 )
             }
-            OutlinedButton(
-                onClick = gated(onManageAccounts),
+            // Manage accounts, with Reconnect ahead of it while the account in
+            // use needs its owner: it opens and closes its width on the
+            // spatial spring and fades on the effects spring. A row that wraps
+            // under a large font rather than clip.
+            FlowRow(
                 modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(stringResource(R.string.home_account_manage))
+                AnimatedVisibility(
+                    visible = needsReconnect,
+                    enter = YoinMotion.fadeIn(role) + YoinMotion.expandHorizontally(role),
+                    exit = YoinMotion.fadeOut(role) + YoinMotion.shrinkHorizontally(role)
+                ) {
+                    HomeAccountReconnectButton(
+                        reconnecting = reconnecting,
+                        onClick = gated(onReconnect),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+                OutlinedButton(onClick = gated(onManageAccounts)) {
+                    Text(stringResource(R.string.home_account_manage))
+                }
             }
             SettingsSegments {
                 others.forEach { card ->
@@ -1248,6 +1429,39 @@ private fun AccountServiceLine(card: ProfileCard) {
     ServiceLine(groups = groups)
 }
 
+/**
+ * Reconnect, tonal beside Manage accounts' outline. While the account is
+ * tried again ([reconnecting]) its label gives way, on the effects spring, to
+ * T7's loading indicator (effects fade, spatial scale); the button keeps its
+ * size and colours.
+ */
+@Suppress("ktlint:standard:function-naming") // a Composable
+@Composable
+private fun HomeAccountReconnectButton(reconnecting: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val role = LocalYoinMotionRole.current
+    val labelAlpha by animateFloatAsState(
+        targetValue = if (reconnecting) 0f else 1f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "reconnectLabel"
+    )
+    FilledTonalButton(onClick = onClick, modifier = modifier.testTag(HOME_ACCOUNT_RECONNECT_TAG)) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = stringResource(R.string.home_account_reconnect),
+                modifier = Modifier.graphicsLayer { alpha = labelAlpha }
+            )
+            // The plain one: the button's RowScope is not this Box's to use.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = reconnecting,
+                enter = YoinMotion.fadeIn(role) + YoinMotion.scaleIn(role, initialScale = HOME_LOADING_INDICATOR_SCALE),
+                exit = YoinMotion.fadeOut(role) + YoinMotion.scaleOut(role, targetScale = HOME_LOADING_INDICATOR_SCALE)
+            ) {
+                YoinLoadingIndicator(size = HomeAccountReconnectIndicator)
+            }
+        }
+    }
+}
+
 @Preview(showBackground = true, widthDp = 412, heightDp = 760)
 @Composable
 private fun HomeAccountCardPreview() {
@@ -1289,6 +1503,35 @@ private fun HomeAccountCardPreview() {
     }
 }
 
+@Suppress("ktlint:standard:function-naming") // a Composable
+@Preview(showBackground = true, widthDp = 412, heightDp = 520)
+@Composable
+private fun HomeAccountCardReconnectPreview() {
+    val account = ProfileCard(
+        id = "a",
+        displayName = "qa",
+        subtitle = "music.example.com",
+        provider = ProviderKind.SUBSONIC,
+        isActive = true
+    )
+    YoinTheme {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            HomeAccountButton(card = account, onClick = {}, needsReconnect = true)
+            HomeAccountCard(
+                cards = listOf(account),
+                onClose = {},
+                onSwitch = { _, _ -> },
+                onManageAccounts = {},
+                onAddAccount = {},
+                onOpenSettings = {},
+                onEditHome = {},
+                needsReconnect = true,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+    }
+}
+
 /** Closing progress at which the card reads as back in the avatar ([HomeAccountSwitcherDialog]'s onCardHome). */
 private const val CardHomeProgress = 0.04f
 
@@ -1306,6 +1549,12 @@ internal const val HOME_ACCOUNT_FLIGHT_TAG = "home-account-flight"
 
 /** Home's stand-in for the header avatar through a switch ([HomeAccountAvatarHold]). */
 internal const val HOME_ACCOUNT_HOLD_TAG = "home-account-hold"
+
+/** The header avatar's dot: the account in use needs its owner. */
+internal const val HOME_ACCOUNT_RECONNECT_DOT_TAG = "home-account-reconnect-dot"
+
+/** The card's Reconnect button. */
+internal const val HOME_ACCOUNT_RECONNECT_TAG = "home-account-reconnect"
 
 /** An account's row in the switcher card. */
 internal fun homeAccountRowTag(profileId: String) = "home-account-row-$profileId"

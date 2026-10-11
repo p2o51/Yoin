@@ -80,7 +80,7 @@ class HomeAccountSwitcherHostTest {
             outcome.await().invoke()
         }
     }
-    private val switcher = AccountSwitcherViewModel(profiles, cards)
+    private val switcher = AccountSwitcherViewModel(profiles, cards, MutableStateFlow(false))
     private val collector = CoroutineScope(Dispatchers.Main)
     private val failures = mutableListOf<Unit>()
     private var editHomeTaps = 0
