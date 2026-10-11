@@ -33,7 +33,8 @@ class SpotifyContextSyncTest {
 
     /** What the manager shows: every non-null answer replaces it. */
     private var shown: ActivityContext = ActivityContext.None
-    private val sync = SpotifyContextSync()
+    private var now = 1_000L
+    private val sync = SpotifyContextSync(clock = { now })
 
     @Test
     fun should_keepYoinsAlbum_when_spotifyReportsNoContextOrAnEmptyOrBlankUri() {
@@ -305,6 +306,71 @@ class SpotifyContextSyncTest {
         state(elsewhere)
 
         assertEquals(ActivityContext.Album(albumId = "spotify:al1", albumName = "TUNE & PLAY"), shown)
+    }
+
+    @Test
+    fun should_followSpotify_when_aSongOutsideYoinsQueuePlaysLongAfterAnUnconfirmedStart() {
+        // Started, then Yoin went to the background before Spotify played a song of its queue.
+        start(album)
+        sync.onDisconnected()
+        // Back: Spotify plays the user's playlist, picked in the Spotify app meanwhile.
+        state(track("p1"))
+        context(report("spotify:playlist:pl1", "Mix"))
+        assertEquals(album, shown)
+
+        now += SPOTIFY_START_CONFIRM_TIMEOUT_MS
+        state(track("p2"))
+
+        assertEquals(ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = "Mix"), shown)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_followSpotify_when_aThirdSongOutsideYoinsQueuePlaysBeforeTheStartLands() {
+        start(artist)
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        state(track("before-2"))
+        assertEquals(artist, shown)
+
+        // The start never landed (its Web API call and the App Remote fallback both failed).
+        state(track("before-3"))
+
+        assertEquals(ActivityContext.Album(albumId = "spotify:old", albumName = "Old"), shown)
+    }
+
+    @Test
+    fun should_keepWaiting_when_theStartIsSlowToLand() {
+        start(artist)
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        // The song before ends while the start is still landing.
+        now += SPOTIFY_START_CONFIRM_TIMEOUT_MS - 1
+        state(track("before-2"))
+        state(track("before-2"))
+        assertEquals(artist, shown)
+
+        state(queue[0])
+        context(report("", ""))
+
+        assertEquals(artist, shown)
+    }
+
+    @Test
+    fun should_restartTheWait_when_theConnectionDropsBeforeTheStartLands() {
+        start(album)
+        state(before)
+        // The connect gave up in the background; the start runs again on the next connection.
+        sync.onDisconnected()
+        now += 10 * SPOTIFY_START_CONFIRM_TIMEOUT_MS
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        assertEquals(album, shown)
+
+        state(queue[1])
+        context(report("spotify:album:al1", ""))
+
+        assertEquals(album, shown)
     }
 
     @Test

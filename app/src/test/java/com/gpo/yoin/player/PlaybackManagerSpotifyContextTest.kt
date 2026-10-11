@@ -238,6 +238,22 @@ class PlaybackManagerSpotifyContextTest {
     }
 
     @Test
+    fun should_followSpotify_when_spotifyPlaysAThirdSongOutsideYoinsQueueBeforeTheStartLands() = runTest {
+        play(artist, startIndex = 0)
+        state(before)
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:old", title = "Old"))
+        state(track("before-2"))
+        assertEquals(artist, manager.currentActivityContext.value)
+
+        state(track("before-3"))
+
+        assertEquals(
+            ActivityContext.Album(albumId = "spotify:old", albumName = "Old"),
+            manager.currentActivityContext.value
+        )
+    }
+
+    @Test
     fun should_followSpotify_when_aWarmConnectAdoptsPlaybackStartedOutsideYoin() = runTest {
         reportContext(SpotifyPlaybackContext(uri = "spotify:playlist:pl1", title = "Mix"))
         state(liked)

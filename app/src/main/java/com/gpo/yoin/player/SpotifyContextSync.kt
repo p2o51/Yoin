@@ -1,5 +1,6 @@
 package com.gpo.yoin.player
 
+import android.os.SystemClock
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
@@ -17,7 +18,11 @@ import com.gpo.yoin.data.repository.ActivityContext
  *
  * Until Spotify plays a song of Yoin's queue the start is unconfirmed: the first PlayerState and
  * PlayerContext a cold connect delivers describe what Spotify played BEFORE the start, so nothing
- * Spotify reports counts yet. Once confirmed:
+ * Spotify reports counts yet — until Spotify has plainly moved past it: a song outside Yoin's
+ * queue [SPOTIFY_START_CONFIRM_TIMEOUT_MS] after Spotify was first heard on this connection, or
+ * the [SPOTIFY_START_OVERRIDE_SONGS]th such song, means the start was overridden (the user played
+ * something else in the Spotify app while Yoin was away) or never landed, and the context follows
+ * Spotify as below. Once confirmed:
  * - an album or playlist Spotify names, and a different one, is shown; an unnamed report while
  *   Spotify is still on Yoin's queue brings Yoin's back, so a stale name doesn't stick;
  * - a song outside Yoin's queue means Spotify moved on (the user took over in the Spotify app, or
@@ -37,7 +42,7 @@ import com.gpo.yoin.data.repository.ActivityContext
  * is, keeps Yoin's label), and while it waits the play isn't recorded ([settled]). No word in
  * [SPOTIFY_CONTEXT_REPORT_GRACE_MS] ([onReportOverdue]): Spotify moved on, to somewhere unnamed.
  */
-internal class SpotifyContextSync {
+internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::elapsedRealtime) {
 
     /** The context a Yoin play set, while Spotify plays its queue; null while following Spotify. */
     private var yoinContext: ActivityContext? = null
@@ -54,6 +59,10 @@ internal class SpotifyContextSync {
     /** A song outside Yoin's queue played while [reportStale]: the hand-over waits for Spotify's word. */
     private var takeoverPending = false
 
+    /** While unconfirmed: when Spotify was first heard on this connection ([clock]), and the songs outside Yoin's queue. */
+    private var firstHeardAtMs: Long? = null
+    private val strangers = HashSet<MediaId>()
+
     /** Waiting for Spotify's fresh PlayerContext to say whether it moved on ([onReportOverdue] if none). */
     val awaitingReport: Boolean
         get() = takeoverPending
@@ -67,6 +76,8 @@ internal class SpotifyContextSync {
         yoinContext = context
         confirmed = false
         takeoverPending = false
+        firstHeardAtMs = null
+        strangers.clear()
     }
 
     /** Playback Spotify started on its own was adopted: its context is Spotify's to name. */
@@ -80,6 +91,8 @@ internal class SpotifyContextSync {
     fun onDisconnected() {
         reported = null
         reportStale = true
+        // A start still queued for the next connection lands then: its wait starts over.
+        firstHeardAtMs = null
     }
 
     /** Spotify reported playing [track] while Yoin mirrors [queue] for it. */
@@ -98,7 +111,7 @@ internal class SpotifyContextSync {
             return null
         }
         // A song from before the start, still playing while the start lands.
-        if (!confirmed) return null
+        if (!confirmed && !startOverriddenBy(track)) return null
         // What Spotify said before the connection dropped is void: its fresh word decides.
         if (reportStale) {
             takeoverPending = true
@@ -125,6 +138,18 @@ internal class SpotifyContextSync {
     }
 
     /**
+     * [track], outside Yoin's queue, plays while the start is unconfirmed: whether Spotify has
+     * long since moved past the start ([SPOTIFY_START_CONFIRM_TIMEOUT_MS] after it was first heard
+     * on this connection, or the [SPOTIFY_START_OVERRIDE_SONGS]th such song).
+     */
+    private fun startOverriddenBy(track: Track): Boolean {
+        val now = clock()
+        val heardAt = firstHeardAtMs ?: now.also { firstHeardAtMs = it }
+        strangers += track.id
+        return now - heardAt >= SPOTIFY_START_CONFIRM_TIMEOUT_MS || strangers.size >= SPOTIFY_START_OVERRIDE_SONGS
+    }
+
+    /**
      * No PlayerContext came [SPOTIFY_CONTEXT_REPORT_GRACE_MS] after a song outside Yoin's queue
      * on a fresh connection: Spotify plays from somewhere it doesn't name.
      */
@@ -137,12 +162,16 @@ internal class SpotifyContextSync {
     }
 
     /**
-     * Spotify played a song outside Yoin's queue (after the start was confirmed): unless it still
-     * plays from [yoin] past the songs Yoin mirrors (Liked Songs), the context follows Spotify.
+     * Spotify played a song outside Yoin's queue (after the start was confirmed, or long after an
+     * unconfirmed one): unless it still plays from [yoin] past the songs Yoin mirrors (Liked
+     * Songs), the context follows Spotify.
      */
     private fun movedOn(current: ActivityContext, yoin: ActivityContext): ActivityContext? {
         // Past Yoin's window of Liked Songs, still in the collection Yoin started.
-        if (yoin is ActivityContext.LikedSongs && reported.names(yoin)) return null
+        if (yoin is ActivityContext.LikedSongs && reported.names(yoin)) {
+            confirmed = true
+            return null
+        }
         followSpotify()
         val next = deriveSpotifyActivityContext(reported) ?: ActivityContext.None
         return next.takeUnless { it.namesSameAs(current) }
@@ -151,6 +180,19 @@ internal class SpotifyContextSync {
 
 /** How long a fresh connection's PlayerContext may trail its PlayerState ([SpotifyContextSync.onReportOverdue]). */
 internal const val SPOTIFY_CONTEXT_REPORT_GRACE_MS = 2_000L
+
+/**
+ * How long an unconfirmed start may wait for Spotify to play a song of Yoin's queue, from when
+ * Spotify was first heard on the connection: a Web API start (and its App Remote fallback)
+ * lands well within it.
+ */
+internal const val SPOTIFY_START_CONFIRM_TIMEOUT_MS = 15_000L
+
+/**
+ * Songs outside Yoin's queue an unconfirmed start sees before it gives up: the one Spotify played
+ * before the start, and the next if it ended while the start was landing, are no proof yet.
+ */
+internal const val SPOTIFY_START_OVERRIDE_SONGS = 3
 
 /**
  * Spotify's report names [yoin]: the same album or playlist, or (Yoin's Liked Songs) the user's
