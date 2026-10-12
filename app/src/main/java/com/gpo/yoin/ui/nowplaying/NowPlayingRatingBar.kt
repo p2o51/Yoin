@@ -23,7 +23,7 @@ import com.gpo.yoin.ui.component.RatingSlider
  * as a press). The draft stays on the bar until the stored [rating] catches
  * up, so the fill never flicks back to the old value in between.
  *
- * @param songId the playing song: a new one drops any draft.
+ * @param songId the playing song: a new one cancels the old press and drops its draft.
  */
 @Composable
 internal fun NowPlayingRatingBar(
@@ -34,7 +34,7 @@ internal fun NowPlayingRatingBar(
     orientation: Orientation = Orientation.Vertical
 ) {
     var draft by remember(songId) { mutableStateOf<Float?>(null) }
-    var held by remember { mutableStateOf(false) }
+    var held by remember(songId) { mutableStateOf(false) }
     val latestOnRatingCommit by rememberUpdatedState(onRatingCommit)
     // The stored rating moved — the commit landed, or a write from elsewhere:
     // it is what the bar shows again, unless a finger is on it.
@@ -45,6 +45,7 @@ internal fun NowPlayingRatingBar(
         rating = draft ?: rating,
         onRatingChange = { value -> draft = value },
         orientation = orientation,
+        gestureKey = songId,
         onInteractionChange = { active ->
             held = active
             if (!active) draft?.let(latestOnRatingCommit)

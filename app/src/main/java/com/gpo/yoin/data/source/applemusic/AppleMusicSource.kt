@@ -462,7 +462,9 @@ class AppleMusicSource(
             mapOf(
                 "term" to query,
                 "types" to "library-songs,library-albums,library-artists,library-playlists",
-                "limit" to "25"
+                "limit" to "25",
+                // A library song's stale playParams catalog id alone does not prove it can play here.
+                "include[library-songs]" to "catalog"
             )
         )["results"]?.jsonObject ?: return SearchResults()
         // Two library songs (or albums) can share one catalog identity; the result lists key rows by id.

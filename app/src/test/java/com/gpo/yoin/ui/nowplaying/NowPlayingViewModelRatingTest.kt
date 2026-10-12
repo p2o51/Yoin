@@ -13,6 +13,7 @@ import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,7 @@ class NowPlayingViewModelRatingTest {
 
     private val song = track("tr-1116")
     private val repository = mockk<YoinRepository>(relaxed = true)
+    private val playbackState = MutableStateFlow(playing(song))
 
     /** Each rating handed to the repository, in order. */
     private val writes = mutableListOf<Float>()
@@ -52,16 +54,53 @@ class NowPlayingViewModelRatingTest {
         }
         val viewModel = viewModel()
 
-        viewModel.setRating(3.0f)
-        viewModel.setRating(7.7f)
+        viewModel.setRating(song.id.toString(), 3.0f)
+        viewModel.setRating(song.id.toString(), 7.7f)
 
         // No runCurrent: neither press waited on this window's scope or on the first write.
         assertEquals(listOf(3.0f, 7.7f), writes)
     }
 
+    @Test
+    fun should_rejectThePreviousSongsRelease_when_playbackAdvancesBeforeTheUiCatchesUp() = runTest {
+        val viewModel = viewModel()
+        playbackState.value = playing(track("tr-1117"))
+
+        // No runCurrent: the flow projections and displayed bar still name the old song.
+        viewModel.setRating(song.id.toString(), 7.7f)
+        verify(exactly = 0) { repository.setRating(any(), any()) }
+
+        runCurrent()
+        // A disposed or fading old bar cannot file its draft under the new song either.
+        viewModel.setRating(song.id.toString(), 7.7f)
+        verify(exactly = 0) { repository.setRating(any(), any()) }
+    }
+
+    @Test
+    fun should_writeTheMatchingSong_when_theSongIdProjectionHasNotCaughtUp() = runTest {
+        val viewModel = viewModel()
+        val next = track("tr-1117")
+        playbackState.value = playing(next)
+
+        viewModel.setRating(next.id.toString(), 6.5f)
+
+        verify(exactly = 1) { repository.setRating(next.id, 6.5f) }
+        verify(exactly = 0) { repository.setRating(song.id, any()) }
+    }
+
+    @Test
+    fun should_dropTheRelease_when_playbackWasClearedBeforeTheBarDisappears() = runTest {
+        val viewModel = viewModel()
+        playbackState.value = PlaybackState()
+
+        viewModel.setRating(song.id.toString(), 7.7f)
+
+        verify(exactly = 0) { repository.setRating(any(), any()) }
+    }
+
     private fun TestScope.viewModel(): NowPlayingViewModel {
         val manager = mockk<PlaybackManager>(relaxed = true)
-        every { manager.playbackState } returns MutableStateFlow(playing(song))
+        every { manager.playbackState } returns playbackState
         every { manager.currentActivityContext } returns MutableStateFlow<ActivityContext>(ActivityContext.None)
         every { repository.currentProfileIdFlow } returns MutableStateFlow<String?>("profile")
         every { repository.currentCapabilities() } returns emptySet()

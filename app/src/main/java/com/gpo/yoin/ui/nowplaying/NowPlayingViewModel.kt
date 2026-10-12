@@ -891,10 +891,13 @@ class NowPlayingViewModel(
      * Not in this window's scope: the repository stores it at once and pushes
      * it on its own ([YoinRepository.setRating]), so a slow provider never
      * holds the stored rating back and closing this window drops neither.
+     * [songId] belongs to the displayed bar. Read playback directly because
+     * both the rendered UI and currentSongId's projection can lag a track change.
      */
-    fun setRating(rating: Float) {
-        val songId = currentSongId.value ?: return
-        repository.setRating(songId, rating)
+    fun setRating(songId: String, rating: Float) {
+        val currentId = playbackManager.playbackState.value.currentTrack?.id ?: return
+        if (currentId.toString() != songId) return
+        repository.setRating(currentId, rating)
     }
 
     fun toggleFavorite() {

@@ -324,6 +324,46 @@ class AppleMusicSourceTest {
         )
     }
 
+    @Test fun should_refuseUnavailableSongs_when_librarySearchReturnsStaleCatalogIds() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                // Apple only answers catalog availability when that relationship was requested.
+                val includesCatalog = request.requestUrl!!.queryParameter("include[library-songs]") == "catalog"
+                val playableCatalog = if (includesCatalog) {
+                    """, "relationships":{"catalog":{"data":[{"id":"112","type":"songs"}]}}"""
+                } else {
+                    ""
+                }
+                val emptyCatalog = if (includesCatalog) """, "relationships":{"catalog":{"data":[]}}""" else ""
+                return MockResponse().setBody(
+                    """{"results":{"library-songs":{"data":[
+                      {"id":"i.playable","type":"library-songs",
+                       "attributes":{"name":"Available","playParams":{"catalogId":"111"}}$playableCatalog},
+                      {"id":"i.pulled","type":"library-songs",
+                       "attributes":{"name":"Unavailable","playParams":{"catalogId":"221"}}$emptyCatalog},
+                      {"id":"i.import","type":"library-songs","attributes":{"name":"Imported"}$emptyCatalog}
+                    ]}}}"""
+                )
+            }
+        }
+
+        val tracks = source.searchLibrary("song").tracks
+
+        assertEquals(listOf("112", "221", "library:i.import"), tracks.map { it.id.rawId })
+        assertEquals(listOf(false, true, true), tracks.map { it.isUnplayableAppleImport })
+        assertEquals(
+            PlaybackHandle.ExternalController(PlaybackHandle.ControllerType.APPLE_MUSIC_KIT, "112"),
+            source.handleFor(tracks[0])
+        )
+        assertTrue(runCatching { source.handleFor(tracks[1]) }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals("i.pulled", tracks[1].extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertEquals("true", tracks[1].extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE])
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/v1/me/library/search", request.requestUrl!!.encodedPath)
+        assertEquals("user", request.getHeader("Music-User-Token"))
+    }
+
     @Test fun should_listOneRow_when_twoLibrarySongsShareACatalogSong() = runTest {
         reply(
             """{

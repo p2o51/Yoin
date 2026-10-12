@@ -33,6 +33,12 @@
     <string name="player_apple_music_notification_title" translatable="false">Apple Music</string>
     <string name="player_apple_music_preparing">Preparing playback…</string>
     <string name="player_apple_music_connecting">Connecting to Apple Music…</string>
-    <string name="player_apple_music_play_failed">MusicKit could not play this song. Check subscription and reconnect, then retry.</string>
-    <string name="player_apple_music_timeout">Apple Music playback timed out. Check your connection and subscription, then retry.</string>
+    <string name="player_apple_music_play_failed">Apple Music could not play this song. Try again or choose another song.</string>
+    <string name="player_apple_music_io_failed">Apple Music could not load this song. Check your connection and try again.</string>
+    <string name="player_apple_music_drm_failed">Apple Music could not unlock this song for playback. Try it in the Apple Music app.</string>
+    <string name="player_apple_music_queue_failed">Apple Music could not prepare this queue. Try another song or reopen the playlist.</string>
+    <string name="player_apple_music_session_failed">Apple Music could not start a playback session. Try again.</string>
+    <string name="player_apple_music_cast_failed">Apple Music could not play on the connected device. Check its connection and try again.</string>
+    <string name="player_apple_music_age_verification">Apple Music requires age verification for this song. Open Apple Music to check your account.</string>
+    <string name="player_apple_music_timeout">Apple Music playback timed out. Check your connection and try again.</string>
 </resources>

@@ -61,6 +61,9 @@ import kotlin.math.roundToInt
  *   a parent's drag can't steal it. False (a sheet that scrolls or drags away):
  *   the bar waits for a drag along its own axis past touch slop, or a tap; a
  *   swipe across it goes to the parent and leaves the rating alone.
+ * @param gestureKey the rated item's identity. Changing it cancels the old
+ *   press without committing it; callers should reset their draft/held state
+ *   for the new item. Fill and label animations keep their existing state.
  */
 @Composable
 fun RatingSlider(
@@ -70,14 +73,16 @@ fun RatingSlider(
     orientation: Orientation = Orientation.Vertical,
     onInteractionChange: (active: Boolean) -> Unit = {},
     claimOnDown: Boolean = true,
+    gestureKey: Any? = null,
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
     val ratingState = stringResource(R.string.cmp_rating_state, formatRatingLabel(rating))
-    // The gesture outlives recompositions (keyed on orientation): read the
-    // callers' latest lambdas, not the first ones.
+    // An item's gesture outlives recompositions: read the callers' latest
+    // lambdas, not the first ones.
     val latestOnRatingChange by rememberUpdatedState(onRatingChange)
     val latestOnInteractionChange by rememberUpdatedState(onInteractionChange)
+    val latestGestureKey by rememberUpdatedState(gestureKey)
     val animatedFraction by animateFloatAsState(
         targetValue = (rating / 10f).coerceIn(0f, 1f),
         animationSpec = YoinMotion.spatialSpring(),
@@ -114,7 +119,7 @@ fun RatingSlider(
             // on the fold). Two separate tap/drag detectors let that parent steal
             // the slider's vertical drag; claiming the pointer here keeps the
             // gesture local so the slider is actually adjustable.
-            .pointerInput(orientation, claimOnDown) {
+            .pointerInput(orientation, claimOnDown, gestureKey) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     // The first position sets the baseline silently; each 0.1
@@ -147,7 +152,7 @@ fun RatingSlider(
                                 up.consume()
                                 latestOnInteractionChange(true)
                                 try {
-                                    applyAt(along(down))
+                                    applyAt(along(up))
                                 } finally {
                                     latestOnInteractionChange(false)
                                 }
@@ -162,6 +167,8 @@ fun RatingSlider(
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) {
+                                // UP may carry movement that had no preceding MOVE.
+                                applyAt(along(change))
                                 change.consume()
                                 break
                             }
@@ -169,7 +176,10 @@ fun RatingSlider(
                             change.consume()
                         }
                     } finally {
-                        latestOnInteractionChange(false)
+                        // A replaced item's pointer coroutine is cancelled after
+                        // recomposition: the latest callback already belongs to
+                        // the new item and must not receive the old press's commit.
+                        if (latestGestureKey == gestureKey) latestOnInteractionChange(false)
                     }
                 }
             },
