@@ -1219,6 +1219,32 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun should_ignoreGenreAndYear_when_searchingTheSavedLibrary() = runTest {
+        val repository = spotifyRepository()
+        val hidden = spotifyTrack("hidden").copy(title = "Moon", artist = "Kiku", album = "Sky", genre = "Jazz")
+        val visible = spotifyTrack("visible").copy(title = "Jazz 1999", artist = "Kiku", album = "Sky")
+        val hiddenAlbum = album("hidden", "Sky").copy(artist = "Kiku", genre = "Jazz", year = 1999)
+        val visibleAlbum = album("visible", "Jazz 1999").copy(artist = "Kiku")
+        coEvery { repository.getSpotifyLocalSearchSnapshot() } returns
+            SpotifyLibrarySyncCoordinator.SpotifyLocalSearchSnapshot(
+                artists = emptyList(),
+                albums = listOf(hiddenAlbum, visibleAlbum),
+                tracks = listOf(hidden, visible),
+                playlists = emptyList(),
+                starred = Starred()
+            )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+
+        for (query in listOf("jazz", "1999")) {
+            viewModel.search(query)
+            advanceUntilIdle()
+            assertEquals(query, listOf(visible), content(viewModel).searchResults?.tracks)
+            assertEquals(query, listOf(visibleAlbum), content(viewModel).searchResults?.albums)
+        }
+    }
+
+    @Test
     fun should_matchAnAccentedTitle_when_theQueryHasNoAccents() = runTest {
         val repository = spotifyRepository()
         val accented = spotifyTrack("t1").copy(

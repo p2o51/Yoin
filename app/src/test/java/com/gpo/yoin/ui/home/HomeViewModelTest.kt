@@ -2089,6 +2089,7 @@ class HomeViewModelTest {
         }
         val viewModel = switchingViewModel(repository, profileId, switching)
 
+        assertTrue(viewModel.loadingReportsPressure.value)
         viewModel.uiState.test {
             assertEquals(HomeUiState.Loading, awaitItem())
             assertEquals(
@@ -2098,6 +2099,7 @@ class HomeViewModelTest {
 
             switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Preparing)
             assertEquals(HomeUiState.Loading, awaitItem())
+            assertFalse(viewModel.loadingReportsPressure.value)
             switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Priming)
             advanceTimeBy(2_000)
             expectNoEvents()
@@ -2108,11 +2110,13 @@ class HomeViewModelTest {
             switching.value = ProfileManager.SwitchState.Idle
             advanceTimeBy(500)
             expectNoEvents()
+            assertFalse(viewModel.loadingReportsPressure.value)
 
             val arrived = awaitItem() as HomeUiState.Content
             assertEquals(listOf("artist-of-$incoming"), arrived.activities.map { it.entityId })
             // Whose feed it is travels with it (Home keeps list state per account).
             assertEquals(incoming, arrived.ownerProfileId)
+            assertFalse(viewModel.loadingReportsPressure.value)
         }
     }
 

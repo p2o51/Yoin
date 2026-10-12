@@ -73,8 +73,8 @@ private enum class HomeHoldEnd { HandBack, FadeAway, Release }
 // Loading's indicator springs in from (and out to) this scale.
 internal const val HOME_LOADING_INDICATOR_SCALE = 0.6f
 
-// Loading reports motion pressure (design.md: AdaptiveReduced while Home
-// loads; the intro waits up to 0.4 s for it to clear). A load that hangs past
+// Initial loading reports motion pressure (the intro waits up to 0.4 s
+// for it to clear); account-switch Loading does not. A load that hangs past
 // this lifts it anyway, so the whole app doesn't stay reduced behind it.
 private const val HOME_LOADING_PRESSURE_MAX_MS = 3_000L
 private val HomeInitialEntranceOffset = 16.dp
@@ -108,6 +108,7 @@ fun HomeScreen(
     accountSwitcher: AccountSwitcherViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val loadingReportsPressure by viewModel.loadingReportsPressure.collectAsState()
     val homeLayout by viewModel.homeLayout.collectAsState()
     // A section new since the last edit session waits in the tray (Q6a).
     val unseenNewSections by viewModel.unseenNewSections.collectAsState()
@@ -121,6 +122,7 @@ fun HomeScreen(
     ) { account ->
         HomeContent(
             uiState = uiState,
+            loadingReportsPressure = loadingReportsPressure,
             sections = homeLayout.sections,
             editController = editController,
             footerNewBadge = unseenNewSections.isNotEmpty(),
@@ -200,11 +202,12 @@ fun HomeContent(
     accountAnchor: () -> Rect? = { null },
     accountHandedUp: Boolean = true,
     // The account in use needs its owner: the header avatar wears a dot.
-    accountNeedsReconnect: Boolean = false
+    accountNeedsReconnect: Boolean = false,
+    loadingReportsPressure: Boolean = true
 ) {
     ReportMotionPressure(
         tag = "home",
-        isHighPressure = uiState is HomeUiState.Loading,
+        isHighPressure = uiState is HomeUiState.Loading && loadingReportsPressure,
         maxDurationMs = HOME_LOADING_PRESSURE_MAX_MS,
     )
 

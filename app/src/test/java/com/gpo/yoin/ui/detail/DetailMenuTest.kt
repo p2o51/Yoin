@@ -4,7 +4,9 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.player.queueableSongs
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DetailMenuTest {
@@ -41,13 +43,24 @@ class DetailMenuTest {
     }
 
     @Test
-    fun should_stillConfirm_when_everySongOnThePageIsAnImport() {
-        // 'Language' (22 of 22 imports): Add to queue used to do nothing without a word.
-        val songs = queueableSongs(List(22) { import("i$it") })
+    fun should_hideQueueActions_when_theAlbumHasNoPlayableSongs() {
+        val unavailable = AlbumSong("applemusic:library:i.a", "Track", "Artist", 1, 180, false, isUnavailable = true)
+        val album = AlbumDetailUiState.Content(
+            albumId = "applemusic:library:l.a",
+            albumName = "Language",
+            artistName = "Artist",
+            artistId = null,
+            coverArtId = null,
+            coverArtUrl = null,
+            year = null,
+            songCount = 22,
+            totalDuration = null,
+            songs = List(22) { unavailable.copy(id = "applemusic:library:i.$it") }
+        )
 
-        assertEquals(emptyList<Track>(), songs)
-        assertEquals("Added 0 songs to the queue", queuedMessage(songs!!.size, next = false))
-        assertEquals("0 songs will play next", queuedMessage(songs.size, next = true))
+        assertFalse(album.hasQueueableSongs())
+        assertFalse(album.copy(songs = emptyList()).hasQueueableSongs())
+        assertTrue(album.copy(songs = album.songs + unavailable.copy(isUnavailable = false)).hasQueueableSongs())
     }
 
     @Test

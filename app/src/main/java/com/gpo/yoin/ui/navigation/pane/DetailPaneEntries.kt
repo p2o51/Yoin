@@ -37,6 +37,7 @@ import com.gpo.yoin.ui.detail.PlaylistDetailScreen
 import com.gpo.yoin.ui.detail.PlaylistDetailUiState
 import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
 import com.gpo.yoin.ui.detail.detailShareText
+import com.gpo.yoin.ui.detail.hasQueueableSongs
 import com.gpo.yoin.ui.detail.playArtist
 import com.gpo.yoin.ui.detail.rememberDetailMenu
 import com.gpo.yoin.ui.detail.rememberDetailWebLink
@@ -154,6 +155,7 @@ internal fun AlbumPaneEntry(
         onAddToPlaylist = onAddToPlaylist,
         inLibrary = content?.librarySaved,
         onToggleLibrary = viewModel::toggleLibrarySaved,
+        queueAvailable = content?.hasQueueableSongs() == true,
     )
     val share = {
         val title = content?.let {
@@ -450,4 +452,3 @@ private fun shareIntent(text: String): Intent = Intent(Intent.ACTION_SEND).apply
     type = "text/plain"
     putExtra(Intent.EXTRA_TEXT, text)
 }
-

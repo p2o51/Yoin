@@ -2252,7 +2252,7 @@ private fun String?.containsSearchToken(token: String): Boolean {
     return value.isNotBlank() && foldForLibrarySearch(value).contains(token)
 }
 
-// What a result row shows, and the metadata it stands for; never the
+// Only the names a result row shows; never hidden genre/year metadata or the
 // provider's opaque id, which a single letter matches half the time (a
 // Spotify id is 22 random letters and digits).
 
@@ -2260,15 +2260,12 @@ private fun Artist.matches(token: String): Boolean = name.containsSearchToken(to
 
 private fun Album.matches(token: String): Boolean =
     name.containsSearchToken(token) ||
-        artist.containsSearchToken(token) ||
-        genre.containsSearchToken(token) ||
-        year?.toString().containsSearchToken(token)
+        artist.containsSearchToken(token)
 
 private fun Track.matches(token: String): Boolean =
     title.containsSearchToken(token) ||
         artist.containsSearchToken(token) ||
-        album.containsSearchToken(token) ||
-        genre.containsSearchToken(token)
+        album.containsSearchToken(token)
 
 private fun Playlist.matches(token: String): Boolean =
     name.containsSearchToken(token) || owner.containsSearchToken(token)

@@ -66,6 +66,9 @@ sealed interface AlbumDetailUiState {
 /** Bun 评分卡要显示的三态。 */
 enum class AlbumScoreKind { UserRating, Average, None }
 
+/** Queue actions have no destination when the album contains no playable row. */
+internal fun AlbumDetailUiState.Content.hasQueueableSongs(): Boolean = songs.any { !it.isUnavailable }
+
 data class AlbumScore(
     val kind: AlbumScoreKind,
     /** 0–10，仅在 [kind] != None 时有意义。 */

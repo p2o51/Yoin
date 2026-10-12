@@ -152,6 +152,7 @@ internal fun rememberDetailMenu(
     onAddToPlaylist: ((List<MediaId>) -> Unit)?,
     inLibrary: Boolean? = null,
     onToggleLibrary: () -> Unit = {},
+    queueAvailable: Boolean = true,
 ): DetailMenu {
     val context = LocalContext.current
     val resources = context.resources
@@ -162,20 +163,19 @@ internal fun rememberDetailMenu(
     val latestOnToggleLibrary by rememberUpdatedState(onToggleLibrary)
     val canAddToPlaylist = onAddToPlaylist != null &&
         Capability.PLAYLISTS_WRITE in container.repository.currentCapabilities()
-    return remember(container, link, provider, canAddToPlaylist, inLibrary) {
+    return remember(container, link, provider, canAddToPlaylist, inLibrary, queueAvailable) {
         fun queue(next: Boolean) {
             val source = container.profileManager.activeSource.value ?: return
             // The player reads and queues, not this composition: a rotation, or the
             // Wide column closing, while an artist's releases load still queues them.
-            // The count leaves Apple Music imports out, as the queue does; a page of
-            // nothing but imports still says so ([com.gpo.yoin.player.queueableSongs]).
+            // The count leaves Apple Music imports out, as the queue does.
             container.playbackManager.queueWhenLoaded(source, next, load = { latestTracks() }) { count ->
                 latestOnMessage(queuedMessage(count, next, resources))
             }
         }
         DetailMenu(
-            onPlayNext = if (provider != MediaId.PROVIDER_SPOTIFY) ({ queue(next = true) }) else null,
-            onAddToQueue = { queue(next = false) },
+            onPlayNext = if (queueAvailable && provider != MediaId.PROVIDER_SPOTIFY) ({ queue(next = true) }) else null,
+            onAddToQueue = if (queueAvailable) ({ queue(next = false) }) else null,
             onAddToPlaylist = if (canAddToPlaylist) {
                 {
                     scope.launch {

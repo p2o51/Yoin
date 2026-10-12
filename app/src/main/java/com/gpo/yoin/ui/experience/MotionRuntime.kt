@@ -24,7 +24,7 @@ enum class MotionProfile {
 
 /**
  * The app's motion tier. Dynamic, not static: it flips at runtime (Home's
- * loading pressure comes and goes on every cold start and account switch),
+ * loading pressure comes and goes on cold starts),
  * and a static local's flip recomposes the whole app under its provider —
  * the feed that just composed included — where this recomposes only what
  * reads it. Provide it with [motionProfileValues].

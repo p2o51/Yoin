@@ -114,6 +114,12 @@ class HomeViewModel(
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    // An account switch holds Loading through the incoming feed's first paint,
+    // including after ProfileManager has committed. That hold must not change
+    // the app's motion tier while the account card and avatar are in flight.
+    private val _loadingReportsPressure = MutableStateFlow(true)
+    val loadingReportsPressure: StateFlow<Boolean> = _loadingReportsPressure.asStateFlow()
+
     // What Home has published, and whose it is (the profile id): [uiState]
     // shows it unless an account switch holds Loading over it ([show]).
     private var published: HomeUiState = HomeUiState.Loading
@@ -373,6 +379,7 @@ class HomeViewModel(
         if (target != null && published !is HomeUiState.Loading && publishedProfileId == target) {
             switchTarget = null
         }
+        _loadingReportsPressure.value = switchTarget == null && published is HomeUiState.Loading
         _uiState.value = if (switchTarget != null) HomeUiState.Loading else published
     }
 

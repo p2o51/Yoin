@@ -194,6 +194,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
                     inLibrary = (uiState as? AlbumDetailUiState.Content)?.librarySaved,
                     onToggleLibrary = viewModel::toggleLibrarySaved,
+                    queueAvailable = (uiState as? AlbumDetailUiState.Content)?.hasQueueableSongs() == true,
                 )
 
                 Box(modifier = Modifier.fillMaxSize()) {
