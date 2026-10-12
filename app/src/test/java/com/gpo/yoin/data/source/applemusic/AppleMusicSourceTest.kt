@@ -12,12 +12,21 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.WebLinkKind
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -220,6 +229,43 @@ class AppleMusicSourceTest {
         assertEquals(0, server.requestCount)
     }
 
+    @Test fun should_refuseWithTheImportMessage_when_anImportComesWithAnEmptyCatalog() = runTest {
+        // Library › Songs includes `catalog`, which Apple answers empty for an import as well.
+        val track = AppleMusicSong.fromJson(
+            Json.parseToJsonElement(
+                """{"id": "i.import", "type": "library-songs", "attributes": {"name": "Imported"},
+                 "relationships": {"catalog": {"data": []}}}"""
+            ).jsonObject
+        ).toTrack()
+        // A row an earlier build marked both ways is still refused as the import it is.
+        val marked = track.copy(extras = track.extras + (AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE to "true"))
+
+        assertNull(track.extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE])
+        assertTrue(track.isUnplayableAppleImport)
+        listOf(track, marked).forEach { row ->
+            val failure = runCatching { source.handleFor(row) }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure!!.message!!.contains("imported song"))
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun should_refuseWithoutTextOfItsOwn_when_theStorefrontHasNoCatalogSong() = runTest {
+        // The refusal adds no English-only line: PlaybackManager shows its localized "Unable to play this song".
+        val pulled = AppleMusicSong.fromJson(
+            Json.parseToJsonElement(
+                """{"id": "i.pulled", "type": "library-songs", "attributes": {"playParams": {"catalogId": "321"}},
+                 "relationships": {"catalog": {"data": []}}}"""
+            ).jsonObject
+        ).toTrack()
+
+        val failure = runCatching { source.handleFor(pulled) }.exceptionOrNull()
+
+        assertEquals("true", pulled.extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE])
+        assertTrue(failure is IllegalArgumentException)
+        assertNull(failure!!.message)
+    }
+
     // PlaybackManager leaves isUnplayableAppleImport tracks out before MusicKit
     // sees them: the predicate must name exactly the tracks handleFor refuses.
     @Test fun should_refuseExactlyTheTracksMarkedUnplayable_when_resolvingPlayback() = runTest {
@@ -230,9 +276,16 @@ class AppleMusicSourceTest {
         ).map { json -> AppleMusicSong.fromJson(Json.parseToJsonElement(json).jsonObject).toTrack() }
         // A library id that carries its catalog id in extras only.
         val extrasOnly = parsed.last().let { it.copy(extras = it.extras + (AppleMusicSong.EXTRA_CATALOG_ID to "789")) }
-        val tracks = parsed + extrasOnly
+        // Its play parameters name a catalog song the storefront doesn't have.
+        val pulled = AppleMusicSong.fromJson(
+            Json.parseToJsonElement(
+                """{"id": "i.pulled", "type": "library-songs", "attributes": {"playParams": {"catalogId": "321"}},
+                 "relationships": {"catalog": {"data": []}}}"""
+            ).jsonObject
+        ).toTrack()
+        val tracks = parsed + extrasOnly + pulled
 
-        assertEquals(listOf(false, false, true, false), tracks.map { it.isUnplayableAppleImport })
+        assertEquals(listOf(false, false, true, false, true), tracks.map { it.isUnplayableAppleImport })
         tracks.forEach { track ->
             val refused = runCatching { source.handleFor(track) }.isFailure
             assertEquals(track.id.toString(), track.isUnplayableAppleImport, refused)
@@ -284,6 +337,35 @@ class AppleMusicSourceTest {
         )
         val results = source.searchLibrary("song")
         assertEquals(listOf(MediaId("applemusic", "123")), results.tracks.map { it.id })
+    }
+
+    @Test fun should_markSongsUnplayable_when_appleHasNoCatalogSongForThem() = runTest {
+        reply(
+            """{"data":[
+              {"id":"i.played","type":"library-songs","attributes":{"name":"Plays","playParams":{"catalogId":"111"}},
+               "relationships":{"catalog":{"data":[{"id":"112","type":"songs"}]}}},
+              {"id":"i.pulled","type":"library-songs","attributes":{"name":"Angel","playParams":{"catalogId":"221"}},
+               "relationships":{"catalog":{"data":[]}}},
+              {"id":"i.import","type":"library-songs","attributes":{"name":"Imported"},
+               "relationships":{"catalog":{"data":[]}}},
+              {"id":"i.unasked","type":"library-songs","attributes":{"name":"Unasked","playParams":{"catalogId":"331"}}}
+            ]}"""
+        )
+
+        val tracks = source.getLibrarySongs(size = 10)
+
+        // The storefront's own catalog song plays; one Apple says it has none of keeps its id but can't play.
+        assertEquals(listOf("112", "221", "library:i.import", "331"), tracks.map { it.id.rawId })
+        assertEquals(listOf(false, true, true, false), tracks.map { it.isUnplayableAppleImport })
+        val pulled = tracks[1]
+        assertEquals("i.pulled", pulled.extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        val refusal = runCatching { source.handleFor(pulled) }.exceptionOrNull()
+        assertTrue(refusal is IllegalArgumentException)
+        // Without the relationship there is nothing to go on: its play parameters' id stands.
+        assertEquals(
+            PlaybackHandle.ExternalController(PlaybackHandle.ControllerType.APPLE_MUSIC_KIT, "331"),
+            source.handleFor(tracks[3])
+        )
     }
 
     @Test fun should_loadRequestedLibrarySongPages_when_providerCannotReturnRandomSongs() = runTest {
@@ -707,6 +789,46 @@ class AppleMusicSourceTest {
         assertEquals(AppleMusicApiFailure.RateLimited, (error as AppleMusicApiException).failure)
         // Not a refused include: no second request.
         assertEquals(1, server.requestCount)
+    }
+
+    @Test fun should_readTheStorefrontOnce_when_manyCatalogReadsStartTogether() = runTest {
+        // A source that went live without a ping (a delete's hand-off): Home's refresh opens many albums at once.
+        val storefrontReads = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "/v1/me/storefront" -> {
+                    storefrontReads.incrementAndGet()
+                    // Slow enough that every caller asks before the first answer is in.
+                    MockResponse().setBody("""{"data":[{"id":"jp"}]}""").setBodyDelay(300, TimeUnit.MILLISECONDS)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+
+        val links = withContext(Dispatchers.Default) {
+            List(8) { index -> async { source.webUrl(WebLinkKind.Album, MediaId("applemusic", "12$index")) } }
+                .awaitAll()
+        }
+
+        assertEquals(List(8) { "https://music.apple.com/jp/album/12$it" }, links)
+        assertEquals(1, storefrontReads.get())
+    }
+
+    @Test fun should_readTheStorefrontAgain_when_theFirstReadFailed() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500))
+        reply("""{"data":[{"id":"jp"}]}""")
+
+        assertNull(source.webUrl(WebLinkKind.Album, MediaId("applemusic", "123")))
+        assertEquals(
+            "https://music.apple.com/jp/album/123",
+            source.webUrl(WebLinkKind.Album, MediaId("applemusic", "123"))
+        )
+        // Kept once it answered: the next catalog link asks no more.
+        assertEquals(
+            "https://music.apple.com/jp/album/456",
+            source.webUrl(WebLinkKind.Album, MediaId("applemusic", "456"))
+        )
+        assertEquals(2, server.requestCount)
     }
 
     @Test fun should_roundTripAppleCredentials_withProviderDiscriminator() {

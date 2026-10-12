@@ -341,8 +341,9 @@ class PlaybackManager(
      * read runs here, so a rotation or a Wide column closing mid-read still
      * queues; an account switch ([disconnect]) drops it. [onQueued] gets how
      * many songs went in (Apple Music imports MusicKit can't play are left
-     * out, as [addToQueue] leaves them); an empty or failed read queues
-     * nothing and calls nothing.
+     * out, as [addToQueue] leaves them; [queueableSongs]): a read of nothing
+     * but those queues nothing and still reports 0, while an empty or failed
+     * read queues nothing and calls nothing.
      */
     fun queueWhenLoaded(
         source: MusicSource,
@@ -351,9 +352,8 @@ class PlaybackManager(
         onQueued: (count: Int) -> Unit
     ) {
         scope.launch(queueReads) {
-            val songs = readQueue(load).filterNot { it.isUnplayableAppleImport }
-            if (songs.isEmpty()) return@launch
-            addToQueue(songs, source, next)
+            val songs = queueableSongs(readQueue(load)) ?: return@launch
+            if (songs.isNotEmpty()) addToQueue(songs, source, next)
             onQueued(songs.size)
         }
     }

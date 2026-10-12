@@ -195,6 +195,20 @@ class PlaybackManagerLoadingStartTest {
     }
 
     @Test
+    fun should_sayNoSongsWereQueued_when_everySongReadIsAnAppleImport() {
+        val queued = mutableListOf<Int>()
+
+        // A page of nothing but imports MusicKit can't play ('Language', 22 of 22).
+        manager.queueWhenLoaded(source = source, next = false, load = { List(3) { appleImport("i$it") } }) {
+            queued += it
+        }
+
+        // Nothing queued, and the tap still says so ("Added 0 songs to the queue").
+        assertEquals(listOf(0), queued)
+        assertEquals(emptyList<Track>(), started)
+    }
+
+    @Test
     fun should_keepWhatIsPlaying_when_theReadComesBackEmptyOrFails() {
         manager.play(listOf(track("song")), source = source)
 
@@ -204,6 +218,9 @@ class PlaybackManagerLoadingStartTest {
         assertEquals(listOf(track("song")), started)
         assertEquals(ActivityContext.None, manager.currentActivityContext.value)
     }
+
+    private fun appleImport(rawId: String) =
+        track(rawId).copy(id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.$rawId"))
 
     private fun track(rawId: String) = Track(
         id = MediaId.subsonic(rawId),

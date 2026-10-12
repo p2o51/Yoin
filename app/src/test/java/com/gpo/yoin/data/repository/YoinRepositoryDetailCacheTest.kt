@@ -17,6 +17,8 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.remote.GeminiService
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
@@ -32,6 +34,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -144,6 +147,71 @@ class YoinRepositoryDetailCacheTest {
         runCurrent()
 
         assertTrue(dao.entityIds.isEmpty())
+    }
+
+    @Test
+    fun should_refreshTwoStaleAlbumsAtATime_when_manyAreServedFromDisk() = runTest {
+        val dao = FakeDetailCacheDao()
+        val ids = (1..5).map { MediaId(MediaId.PROVIDER_APPLE_MUSIC, "90$it") }
+        // Disk copies past the revalidate age (2 h), still disk-fresh (7 d).
+        val written = DetailCacheStore(dao, clock = { currentTime - 3 * HOUR_MS })
+        ids.forEach { id -> written.writeAlbum(PROFILE, id.toString(), album().copy(id = id)) }
+        val repository = repository(heldCodecStore(dao))
+        val refreshes = ids.associateWith { CompletableDeferred<Unit>() }
+        var inFlight = 0
+        var mostInFlight = 0
+        ids.forEach { id ->
+            coEvery { library.getAlbum(id) } coAnswers {
+                mostInFlight = maxOf(mostInFlight, ++inFlight)
+                refreshes.getValue(id).await()
+                inFlight -= 1
+                album().copy(id = id, name = "Album (Remaster)")
+            }
+        }
+
+        // Home opens them all at once: each is served from disk and asks for a refresh …
+        val pages = ids.map { id -> async { repository.getAlbum(id) } }
+        settle()
+        assertEquals(List(5) { "Album" }, pages.awaitAll().map { it?.name })
+        // … of which two go out; each one that ends lets the next one go.
+        coVerify(exactly = 2) { library.getAlbum(any()) }
+        ids.forEach { id ->
+            refreshes.getValue(id).complete(Unit)
+            settle()
+        }
+
+        coVerify(exactly = 5) { library.getAlbum(any()) }
+        assertEquals(2, mostInFlight)
+    }
+
+    @Test
+    fun should_holdBackgroundRefreshes_when_theServiceRateLimitsOne() = runTest {
+        val dao = FakeDetailCacheDao()
+        val ids = (1..4).map { MediaId(MediaId.PROVIDER_APPLE_MUSIC, "90$it") }
+        val written = DetailCacheStore(dao, clock = { currentTime - 3 * HOUR_MS })
+        ids.forEach { id -> written.writeAlbum(PROFILE, id.toString(), album().copy(id = id)) }
+        val repository = repository(heldCodecStore(dao))
+        coEvery { library.getAlbum(ids[0]) } throws AppleMusicApiException(AppleMusicApiFailure.RateLimited)
+        val second = CompletableDeferred<Album>()
+        coEvery { library.getAlbum(ids[1]) } coAnswers { second.await() }
+        coEvery { library.getAlbum(ids[2]) } returns album().copy(id = ids[2], name = "Album (Remaster)")
+        coEvery { library.getAlbum(ids[3]) } returns album().copy(id = ids[3], name = "Album (Remaster)")
+
+        val pages = ids.map { id -> async { repository.getAlbum(id) } }
+        settle()
+        pages.awaitAll()
+        // The first refresh is answered with a 429: the one already out ends, and nothing more is sent.
+        second.complete(album().copy(id = ids[1], name = "Album (Remaster)"))
+        settle()
+        coVerify(exactly = 0) { library.getAlbum(ids[2]) }
+        coVerify(exactly = 0) { library.getAlbum(ids[3]) }
+
+        // Past the pause (and the 20 min in-memory copy), the next open from disk asks again.
+        currentTime += 30 * 60 * 1000
+        val again = async { repository.getAlbum(ids[2]) }
+        settle()
+        assertEquals("Album", again.await()?.name)
+        coVerify(exactly = 1) { library.getAlbum(ids[2]) }
     }
 
     @Test
@@ -396,6 +464,13 @@ class YoinRepositoryDetailCacheTest {
         clock = { currentTime },
         detailCacheStore = store
     )
+
+    /** Runs what's queued, the store's JSON work included, until a few rounds of it are done. */
+    private fun TestScope.settle() = repeat(4) {
+        runCurrent()
+        codec.runAll()
+        runCurrent()
+    }
 
     /** A store whose JSON work waits in [codec], so a test decides when an encode is done. */
     private fun TestScope.heldCodecStore(dao: FakeDetailCacheDao) = DetailCacheStore(

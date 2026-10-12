@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.player.queueableSongs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -28,4 +31,44 @@ class DetailMenuTest {
         assertEquals("Added 12 songs to the queue", queuedMessage(12, next = false))
         assertEquals("1 song will play next", queuedMessage(1, next = true))
     }
+
+    @Test
+    fun should_leaveImportsOutOfTheQueue_when_aPageMixesThem() {
+        val playable = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1440857781"))
+        val tracks = listOf(import("a"), playable, import("b"))
+
+        assertEquals(listOf(playable), queueableSongs(tracks))
+    }
+
+    @Test
+    fun should_stillConfirm_when_everySongOnThePageIsAnImport() {
+        // 'Language' (22 of 22 imports): Add to queue used to do nothing without a word.
+        val songs = queueableSongs(List(22) { import("i$it") })
+
+        assertEquals(emptyList<Track>(), songs)
+        assertEquals("Added 0 songs to the queue", queuedMessage(songs!!.size, next = false))
+        assertEquals("0 songs will play next", queuedMessage(songs.size, next = true))
+    }
+
+    @Test
+    fun should_sayNothing_when_thePageHasNoSongsYet() {
+        assertNull(queueableSongs(emptyList()))
+    }
+
+    private fun import(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.$id"))
+
+    private fun track(id: MediaId) = Track(
+        id = id,
+        title = "Track $id",
+        artist = "Artist",
+        artistId = null,
+        album = "Album",
+        albumId = null,
+        coverArt = null,
+        durationSec = 180,
+        trackNumber = null,
+        year = null,
+        genre = null,
+        userRating = null
+    )
 }

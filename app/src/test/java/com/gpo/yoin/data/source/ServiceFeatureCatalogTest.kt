@@ -28,4 +28,12 @@ class ServiceFeatureCatalogTest {
         assertFalse(apple.favoritesAreLibrary)
         assertFalse(ServiceFeatureCatalog.forProvider("unknown").favoritesAreLibrary)
     }
+
+    @Test
+    fun should_sortOnlyAppleMusicsSongsByTitle_when_catalogRead() {
+        assertTrue(ServiceFeatureCatalog.forProvider(MediaId.PROVIDER_APPLE_MUSIC).songsByTitle)
+        // Spotify's Songs is Liked Songs, newest first; Subsonic's come album by album.
+        assertFalse(ServiceFeatureCatalog.forProvider(MediaId.PROVIDER_SPOTIFY).songsByTitle)
+        assertFalse(ServiceFeatureCatalog.forProvider(MediaId.PROVIDER_SUBSONIC).songsByTitle)
+    }
 }

@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import java.text.Collator
@@ -203,6 +204,32 @@ class LibrarySorterTest {
         assertEquals("Beatles", stripLeadingArticle("the  Beatles", LibraryIgnoredArticles))
     }
 
+    @Test
+    fun should_orderSongsByTitleThenArtistThenServiceOrder_when_sortingSongsByTitle() {
+        val songs = listOf(
+            song("1", "Ay No Puedo"),
+            song("2", "Aardvark"),
+            song("3", "Angel", artist = "Rose Gray"),
+            song("4", "Angel", artist = "Another"),
+            song("5", "Angel", artist = "Rose Gray"),
+            song("6", "The Boy Is Mine")
+        )
+
+        val sorted = librarySongsByTitle(songs, nameOrder)
+
+        // Same title and artist: the order the service listed them in.
+        assertEquals(listOf("2", "4", "3", "5", "1", "6"), sorted.map { it.id.rawId })
+    }
+
+    @Test
+    fun should_skipLeadingArticles_when_theServiceSortsPastThem() {
+        val songs = listOf(song("the", "The Boy Is Mine"), song("c", "Cruel Summer"), song("a", "Ay No Puedo"))
+
+        val sorted = librarySongsByTitle(songs, nameOrder, LibraryIgnoredArticles)
+
+        assertEquals(listOf("a", "the", "c"), sorted.map { it.id.rawId })
+    }
+
     // ── Creator ─────────────────────────────────────────────────────────
 
     @Test
@@ -319,6 +346,21 @@ class LibrarySorterTest {
     }
 
     private fun List<Album>.ids() = map { it.id.rawId }
+
+    private fun song(id: String, title: String, artist: String = "Someone") = Track(
+        id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, id),
+        title = title,
+        artist = artist,
+        artistId = null,
+        album = null,
+        albumId = null,
+        coverArt = null,
+        durationSec = null,
+        trackNumber = null,
+        year = null,
+        genre = null,
+        userRating = null
+    )
 
     private fun artist(id: String, name: String) = Artist(
         MediaId.subsonic(id),

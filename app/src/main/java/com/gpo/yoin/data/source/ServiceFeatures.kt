@@ -48,6 +48,14 @@ data class ServiceFeatures(
      */
     val songsFromNewestAlbums: Boolean = false,
     /**
+     * Library's Songs is the service's library songs in title order, which the
+     * service doesn't send them in, so Library sorts them itself, as
+     * Alphabetical sorts the other views (Apple Music: `/v1/me/library/songs`
+     * came in two A–Z runs, the second from row 234). Not Spotify's, whose
+     * Songs is Liked Songs newest first ([favoritesAreLibrary]).
+     */
+    val songsByTitle: Boolean = false,
+    /**
      * Library lists whose items carry the date they joined the library
      * ([com.gpo.yoin.data.model.Album.libraryAddedAt],
      * [com.gpo.yoin.data.model.Playlist.libraryAddedAt]), so Library offers
@@ -200,6 +208,7 @@ object ServiceFeatureCatalog {
         // Library albums' and library playlists' dateAdded.
         albumsHaveLibraryDates = true,
         playlistsHaveLibraryDates = true,
+        songsByTitle = true,
         integrated = true,
         capabilities = setOf(
             Capability.SEARCH,

@@ -31,3 +31,13 @@ internal fun playableQueue(tracks: List<Track>, startIndex: Int, explicitStart: 
         startIndex = (0 until startIndex).count { !unplayable[it] }.coerceAtMost(playable.lastIndex)
     )
 }
+
+/**
+ * What a ▾ queue action hands the queue from a page's [tracks]: all but the
+ * Apple Music songs MusicKit can't play, which addToQueue leaves out (so the
+ * count does too). Null while the page has no songs, and the tap says nothing;
+ * a page of nothing but those still says so ("Added 0 songs to the queue"),
+ * where its tap used to do nothing without a word.
+ */
+internal fun queueableSongs(tracks: List<Track>): List<Track>? =
+    if (tracks.isEmpty()) null else tracks.filterNot { it.isUnplayableAppleImport }

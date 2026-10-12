@@ -167,7 +167,8 @@ internal fun rememberDetailMenu(
             val source = container.profileManager.activeSource.value ?: return
             // The player reads and queues, not this composition: a rotation, or the
             // Wide column closing, while an artist's releases load still queues them.
-            // The count leaves Apple Music imports out, as the queue does.
+            // The count leaves Apple Music imports out, as the queue does; a page of
+            // nothing but imports still says so ([com.gpo.yoin.player.queueableSongs]).
             container.playbackManager.queueWhenLoaded(source, next, load = { latestTracks() }) { count ->
                 latestOnMessage(queuedMessage(count, next, resources))
             }

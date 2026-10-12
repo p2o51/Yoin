@@ -482,8 +482,7 @@ class LibraryViewModel(
                         val songs = cachedSongs ?: run {
                             val loaded = when {
                                 pager != null -> pager.next()
-                                Capability.LIBRARY_SONGS in repository.currentCapabilities() ->
-                                    repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+                                Capability.LIBRARY_SONGS in repository.currentCapabilities() -> readLibrarySongs()
                                 else -> repository.getRandomSongs(size = 50)
                             }
                             loaded.applySongsOverrides(repository.favoriteOverrides.value)
@@ -636,14 +635,18 @@ class LibraryViewModel(
      *   with the `catalog` relationship, each dated by `dateAdded`) — the
      *   source reads them for any list type but `newest`, which is the
      *   recently-added window, not the library. Apple documents them as
-     *   "in alphabetical order": Alphabetical's.
+     *   "in alphabetical order", but it is Apple's own: sort names that
+     *   aren't the titles, and Chinese and Japanese titles in pages near the
+     *   end (on the tablet, 張懸's "A City" came on page 16 of 17), where
+     *   Library's collator files them by pinyin among the A's. So no Library
+     *   sort is their order (null), and every page after the first waits for
+     *   the read to end (owner, R1, 2026-10-11).
      * - Spotify: none. Its list is the synced mirror's newest 200, read whole
      *   (Q10).
      */
     private fun libraryAlbumsQuery(): LibraryAlbumsQuery? = when (repository.currentProviderId()) {
         MediaId.PROVIDER_SPOTIFY -> null
-        MediaId.PROVIDER_APPLE_MUSIC ->
-            LibraryAlbumsQuery(APPLE_LIBRARY_ALBUMS, APPLE_ALBUMS_BATCH, arrivesIn = LibrarySort.Alphabetical)
+        MediaId.PROVIDER_APPLE_MUSIC -> LibraryAlbumsQuery(APPLE_LIBRARY_ALBUMS, APPLE_ALBUMS_BATCH, arrivesIn = null)
         else -> LibraryAlbumsQuery("newest", SUBSONIC_ALBUMS_BATCH, arrivesIn = LibrarySort.RecentlyAdded)
     }
 
@@ -770,12 +773,13 @@ class LibraryViewModel(
     /**
      * Whether a background batch waits instead of joining the list at once:
      * while the view shown lists albums (All, Albums) in another order than
-     * the batches come in ([LibraryAlbumsQuery.arrivesIn]). Joining would
-     * land its albums among the ones on screen — Apple Music's pages come
-     * A–Z, so under Recents or Recently added each page's newest albums
-     * would go to the top — and shift the grid under the user batch after
-     * batch. In the batches' own order a batch falls in past every album
-     * already listed, so what is above it holds still.
+     * the batches come in ([LibraryAlbumsQuery.arrivesIn]), or the batches
+     * come in no Library order at all (Apple Music). Joining would land its
+     * albums among the ones on screen — under Recents or Recently added each
+     * Apple page's newest albums would go to the top, and under Alphabetical
+     * a late page's "A City" went into the first row — and shift the grid
+     * under the user batch after batch. In the batches' own order a batch
+     * falls in past every album already listed, so what is above it holds still.
      * Held albums join together ([releaseHeldAlbums]) when the read ends,
      * Library comes into view, or the view or its sort changes.
      */
@@ -783,7 +787,8 @@ class LibraryViewModel(
         val current = _uiState.value as? LibraryUiState.Content ?: return false
         val view = current.selectedTab
         if (view != LibraryTab.All && view != LibraryTab.Albums) return false
-        return (current.sorts[view] ?: LibrarySort.Recents) != query.arrivesIn
+        val arrivesIn = query.arrivesIn ?: return true
+        return (current.sorts[view] ?: LibrarySort.Recents) != arrivesIn
     }
 
     /** [albumsHeldBack] joins All and Albums, in one re-sort. */
@@ -850,6 +855,21 @@ class LibraryViewModel(
     private fun publishSongsMore(more: LibrarySongsMore) {
         songsMoreState = more
         updateContent { copy(songsMore = more) }
+    }
+
+    /**
+     * The service's own library songs, its first [LIBRARY_SONGS_SIZE]. Where
+     * Songs lists them by title ([com.gpo.yoin.data.source.ServiceFeatures.songsByTitle],
+     * Apple Music) they are sorted here, off the main thread, with the
+     * collator Alphabetical uses; the rows a tap plays from are these, so the
+     * queue follows the same order.
+     */
+    private suspend fun readLibrarySongs(): List<Track> {
+        val songs = repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
+        val features = ServiceFeatureCatalog.forProvider(repository.currentProviderId())
+        if (!features.songsByTitle) return songs
+        val articles = if (features.sortIgnoresArticles) LibraryIgnoredArticles else emptyList()
+        return withContext(sortDispatcher) { librarySongsByTitle(songs, nameOrder(), articles) }
     }
 
     /** Songs as if never read: the next visit starts again from the top. */
@@ -1718,8 +1738,7 @@ class LibraryViewModel(
                 if (rereadsSongs) {
                     launch {
                         attempt {
-                            repository.getLibrarySongs(size = LIBRARY_SONGS_SIZE)
-                                .applySongsOverrides(repository.favoriteOverrides.value)
+                            readLibrarySongs().applySongsOverrides(repository.favoriteOverrides.value)
                         }.onSuccess { songs ->
                             if (!isCurrent()) return@onSuccess
                             cachedSongs = songs
@@ -2174,9 +2193,10 @@ private class AlbumsBatch(val albums: List<Album>, val nextOffset: Int?)
 
 /**
  * A service's album list Library reads whole, [batch] at a time, the batches
- * coming in [arrivesIn]'s order ([LibraryViewModel]'s `libraryAlbumsQuery`).
+ * coming in [arrivesIn]'s order, or in none of Library's sorts when null
+ * ([LibraryViewModel]'s `libraryAlbumsQuery`).
  */
-private class LibraryAlbumsQuery(val type: String, val batch: Int, val arrivesIn: LibrarySort)
+private class LibraryAlbumsQuery(val type: String, val batch: Int, val arrivesIn: LibrarySort?)
 
 private class LibrarySortSettings(
     val options: Map<LibraryTab, List<LibrarySort>>,

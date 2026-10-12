@@ -62,6 +62,8 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.remote.GeminiService
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicSource
@@ -71,6 +73,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
 import com.gpo.yoin.data.source.spotify.SpotifyPortraitPassEnd
+import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryArtistCache
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
@@ -98,7 +101,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -183,11 +188,21 @@ class YoinRepository(
     private val detailDiskFreshMs = 7L * 24 * 60 * 60 * 1000
 
     // Stale-while-revalidate: a disk-served album/artist older than this triggers
-    // a gated background refresh, so a like/follow toggled on another device or
-    // the official app converges on the next open instead of lingering for the
-    // full disk-fresh week. Short-enough to catch real changes, long-enough not
-    // to refetch something just opened (respects the Spotify rate-limit gate).
+    // a background refresh ([revalidateDetail]), so a like/follow toggled on
+    // another device or the official app converges on the next open instead of
+    // lingering for the full disk-fresh week. Short-enough to catch real
+    // changes, long-enough not to refetch something just opened.
     private val detailRevalidateAfterMs = 2L * 60 * 60 * 1000
+
+    // Those background refreshes run a few at a time: Home reads dozens of
+    // albums from disk as it opens, and each past the revalidate age sent its
+    // refresh at once (46 on an Apple Music hand-off, answered with 429s).
+    private val revalidationPermits = Semaphore(DETAIL_REVALIDATE_PARALLELISM)
+
+    // Per profile, until when background refreshes wait out a rate limit the
+    // service answered one of them with. One skipped meanwhile keeps its stale
+    // disk copy, and a later open asks again.
+    private val revalidationPausedUntil = ConcurrentHashMap<String, Long>()
 
     // Playlists revalidate on every open, but the copy a tap's own prefetch
     // fetched a moment ago IS that open's revalidation: for this long after a
@@ -1354,7 +1369,13 @@ class YoinRepository(
         persistDetail(profileId, value, alias.diskWrite, canWrite)
     }
 
-    /** Background refresh of an already-served (slightly stale) disk entry. */
+    /**
+     * Background refresh of an already-served (slightly stale) disk entry, at
+     * most [DETAIL_REVALIDATE_PARALLELISM] at a time ([revalidationPermits]).
+     * One that waited its turn is dropped if the account changed or an edit
+     * dropped its key meanwhile, and none is sent while the account's service
+     * is rate-limiting them ([revalidationPausedUntil]).
+     */
     private fun <V : Any> revalidateDetail(
         mem: DetailMemoryCache<V>,
         key: String,
@@ -1365,10 +1386,24 @@ class YoinRepository(
     ) {
         val generation = mem.generationOf(key)
         val invalidations = mem.invalidationCount()
+        val pauseKey = profileId.orEmpty()
+        fun paused() = clock() < (revalidationPausedUntil[pauseKey] ?: 0L)
         fun stillCurrent() = activeProfileId.value == profileId && mem.generationOf(key) == generation
         fun aliasStillCurrent() = stillCurrent() && mem.invalidationCount() == invalidations
+        if (paused()) return
         repositoryScope.launch {
-            runCatching { fetch() }.getOrNull()?.let { value ->
+            revalidationPermits.withPermit {
+                if (paused() || !stillCurrent()) return@withPermit
+                val value = try {
+                    fetch()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    error.rateLimitPauseMs()?.let { pauseMs ->
+                        revalidationPausedUntil.merge(pauseKey, clock() + pauseMs) { a, b -> maxOf(a, b) }
+                    }
+                    null
+                } ?: return@withPermit
                 if (stillCurrent()) {
                     mem.put(key, value, fetched = true)
                     if (profileId != null) runCatching { diskWrite(profileId, value, ::stillCurrent) }
@@ -3532,6 +3567,24 @@ private fun List<SongNoteKey>.toMediaIdSet(): Set<MediaId> =
 
 /** Well under SQLite's old 999-value limit, with room for the query's own values. */
 private const val NOTE_KEYS_PER_QUERY = 500
+
+/** Background detail refreshes in flight at once ([YoinRepository]'s revalidation). */
+private const val DETAIL_REVALIDATE_PARALLELISM = 2
+
+/** How long background detail refreshes wait after Apple Music rate-limits one (it names no retry time). */
+private const val DETAIL_REVALIDATE_RATE_LIMIT_PAUSE_MS = 5L * 60 * 1000
+
+/**
+ * How long background refreshes wait after this failure, when it is the
+ * service rate-limiting them: Spotify's Retry-After, or a fixed pause for
+ * Apple Music. Null for any other failure.
+ */
+private fun Throwable.rateLimitPauseMs(): Long? = when {
+    this is SpotifyRateLimitException -> retryAfterSeconds.coerceAtLeast(1L) * 1000
+    this is AppleMusicApiException && failure == AppleMusicApiFailure.RateLimited ->
+        DETAIL_REVALIDATE_RATE_LIMIT_PAUSE_MS
+    else -> null
+}
 
 private fun List<AlbumNoteKey>.toAlbumMediaIdSet(): Set<MediaId> =
     mapTo(linkedSetOf()) { key -> MediaId(key.provider, key.albumId) }
