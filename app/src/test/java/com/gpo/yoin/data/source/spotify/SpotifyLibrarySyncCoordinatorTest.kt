@@ -404,7 +404,7 @@ class SpotifyLibrarySyncCoordinatorTest {
 
         coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
 
-        // A read an album open started moments ago serves the re-sync too.
+        // A list read started moments ago serves the re-sync too.
         verify(exactly = 1) { spotifySource.invalidateLibraryCaches(keepRecentLoads = true) }
         verify(exactly = 0) { spotifySource.invalidateLibraryCaches(keepRecentLoads = false) }
     }

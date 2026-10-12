@@ -23,6 +23,7 @@ import kotlinx.coroutines.ensureActive
  * [read] also says when the request behind a value started — a cached
  * value's, or the load in flight a caller joined — so what is written from
  * it can be dated by when Spotify was asked, not by when it was used.
+ * [peek] is the value on hand, for a caller that must not wait for a load.
  */
 internal class SingleFlightValue<T : Any>(
     private val maxAgeMs: Long = Long.MAX_VALUE,
@@ -44,6 +45,13 @@ internal class SingleFlightValue<T : Any>(
     private var generation = 0L
 
     suspend fun get(load: suspend () -> T): T = read(load).value
+
+    /**
+     * The value [get] would serve without loading, or null: none loaded, it
+     * was invalidated, or it is past [maxAgeMs]. Never starts a load nor
+     * waits for one in flight.
+     */
+    fun peek(): T? = synchronized(lock) { value?.takeIf { clock() - loadedAtMs <= maxAgeMs } }
 
     /** [get], with when the request behind the value it serves started. */
     suspend fun read(load: suspend () -> T): ReadValue<T> {
@@ -117,7 +125,8 @@ internal class ReadValue<T>(val value: T, val readStartedAtMs: Long)
 /**
  * Likes and unlikes written through this source, laid over the cached
  * saved-tracks list so a like doesn't throw that list away (dropping it cost
- * up to four /me/tracks pages on the next album, playlist or search).
+ * up to four /me/tracks pages on its next read). Over no list at all, they
+ * are the marks an album, playlist or search opened before any read gets.
  *
  * Spotify applies library writes eventually: a list read right after a like
  * may not have it yet. So an entry is dropped only by a list read that

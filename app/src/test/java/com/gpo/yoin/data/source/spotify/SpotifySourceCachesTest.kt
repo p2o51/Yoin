@@ -6,12 +6,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
  * The coroutine edges of [SingleFlightValue]: a cancelled leader, and an
  * invalidate while a load is out — dropping it, or keeping a recent one —
- * and when the request behind a value it serves started.
+ * when the request behind a value it serves started, and what [peek] sees.
  */
 class SpotifySourceCachesTest {
 
@@ -180,6 +181,33 @@ class SpotifySourceCachesTest {
         gate.complete(Unit)
         assertEquals("old", old.await())
         assertEquals("fresh", cache.get { error("served from the cache") })
+    }
+
+    @Test
+    fun should_peekOnlyAValueOnHand_when_noneOrALoadInFlight() = runTest {
+        var now = 0L
+        val cache = SingleFlightValue<String>(maxAgeMs = 1_000L, clock = { now })
+        assertNull(cache.peek())
+        val gate = CompletableDeferred<Unit>()
+        val load = async {
+            cache.get {
+                gate.await()
+                "list"
+            }
+        }
+        runCurrent()
+
+        // A load out is neither waited for nor joined.
+        assertNull(cache.peek())
+        gate.complete(Unit)
+        load.await()
+        assertEquals("list", cache.peek())
+
+        now += 1_001L
+        assertNull(cache.peek())
+        assertEquals("fresh", cache.get { "fresh" })
+        cache.invalidate()
+        assertNull(cache.peek())
     }
 
     @Test
