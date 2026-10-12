@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.home
 
+import com.gpo.yoin.data.cache.AlbumDto
 import com.gpo.yoin.data.cache.PlaylistDto
 import com.gpo.yoin.data.model.MediaId
 import java.io.File
@@ -39,6 +40,22 @@ class HomeSnapshotStoreTest {
         playlists = playlistNames.map { name ->
             PlaylistDto(id = MediaId.subsonic("pl-$name").toString(), name = name, coverArt = "cover-$name")
         }
+    )
+
+    private fun album(rawId: String): AlbumDto = AlbumDto(
+        id = MediaId.subsonic(rawId).toString(),
+        name = "Album $rawId",
+        artist = "Artist",
+        coverArt = rawId
+    )
+
+    private fun activity(entityId: String): HomeActivityDto = HomeActivityDto(
+        entityType = "ARTIST",
+        actionType = "VISITED",
+        entityId = entityId,
+        provider = MediaId.PROVIDER_SUBSONIC,
+        title = "Artist $entityId",
+        timestamp = 1L
     )
 
     private fun TestScope.settle() {
@@ -158,6 +175,103 @@ class HomeSnapshotStoreTest {
         settle()
         assertEquals(1, builds)
         assertEquals(feed("4"), store.read(PROFILE)?.feed)
+    }
+
+    @Test
+    fun should_keepTheFilesBlocks_when_aSaveHasNotReadThem() = runTest {
+        // An earlier process's full feed; this one's load built its feed from
+        // nothing and its network reads are out (or failed).
+        store().save(PROFILE, MediaId.PROVIDER_SUBSONIC) {
+            feed("Morning").copy(recentlyPlayed = listOf(album("played")), recentlyAddedAlbums = listOf(album("added")))
+        }
+        settle()
+        val fresh = HomeFeedDto(activities = listOf(activity("fresh")))
+
+        val store = store()
+        store.save(PROFILE, MediaId.PROVIDER_SUBSONIC, unread = HomeNetworkBlock.entries.toSet()) { fresh }
+        settle()
+
+        val written = store.read(PROFILE)?.feed
+        assertEquals(listOf("fresh"), written?.activities?.map { it.entityId })
+        assertEquals(feed("Morning").playlists, written?.playlists)
+        assertEquals(listOf(album("played")), written?.recentlyPlayed)
+        assertEquals(listOf(album("added")), written?.recentlyAddedAlbums)
+
+        // The playlists' read lands: that block is this process's from now on.
+        store.save(PROFILE, MediaId.PROVIDER_SUBSONIC, unread = setOf(HomeNetworkBlock.RecentlyPlayed)) {
+            fresh.copy(playlists = feed("Evening").playlists)
+        }
+        advanceTimeBy(HomeSnapshotStore.MIN_WRITE_INTERVAL_MS)
+        settle()
+        val next = store.read(PROFILE)?.feed
+        assertEquals(feed("Evening").playlists, next?.playlists)
+        assertEquals(listOf(album("played")), next?.recentlyPlayed)
+        assertEquals(emptyList<AlbumDto>(), next?.recentlyAddedAlbums)
+    }
+
+    @Test
+    fun should_keepTheFilesEndpointActivities_when_theEndpointHasNotAnswered() = runTest {
+        // Spotify: an earlier process's recently-played on disk; this load's
+        // endpoint read is out, the activity log up meanwhile.
+        val endpointFeed = HomeFeedDto(
+            activities = listOf(activity("endpoint")),
+            activitiesFromRemote = true,
+            heroFootnote = "Footnote",
+            heroYear = 2019,
+            heroSongCount = 12,
+            heroMinutes = 48,
+            playlists = feed("Morning").playlists
+        )
+        store().save(PROFILE, MediaId.PROVIDER_SPOTIFY) { endpointFeed }
+        settle()
+        val local = HomeFeedDto(activities = listOf(activity("log")), playlists = feed("Evening").playlists)
+
+        val store = store()
+        store.save(PROFILE, MediaId.PROVIDER_SPOTIFY, unread = setOf(HomeNetworkBlock.Activities)) { local }
+        settle()
+
+        assertEquals(endpointFeed.copy(playlists = feed("Evening").playlists), store.read(PROFILE)?.feed)
+    }
+
+    @Test
+    fun should_writeTheActivityLogAsRead_when_theFilesActivitiesAreTheLogToo() = runTest {
+        // The file's Activities are an older read of the same activity log: nothing to keep.
+        store().save(PROFILE, MediaId.PROVIDER_SPOTIFY) {
+            HomeFeedDto(activities = listOf(activity("older-log")), heroFootnote = "Older")
+        }
+        settle()
+        val local = HomeFeedDto(activities = listOf(activity("log")))
+
+        val store = store()
+        store.save(PROFILE, MediaId.PROVIDER_SPOTIFY, unread = setOf(HomeNetworkBlock.Activities)) { local }
+        settle()
+
+        assertEquals(local, store.read(PROFILE)?.feed)
+    }
+
+    @Test
+    fun should_leaveActivitiesOutOfAFeedBuiltFromNothing_when_noEndpointFeedsThem() {
+        val blocks = setOf(HomeNetworkBlock.RecentlyAdded, HomeNetworkBlock.RecentlyPlayed, HomeNetworkBlock.Playlists)
+        assertEquals(blocks, HomeNetworkBlock.unreadFromNothing(endpointActivities = false))
+        val spotify = HomeNetworkBlock.unreadFromNothing(endpointActivities = true)
+        assertEquals(blocks + HomeNetworkBlock.Activities, spotify)
+    }
+
+    @Test
+    fun should_writeTheFeedAsBuilt_when_noFileOfItsProviderHoldsItsUnreadBlocks() = runTest {
+        val unread = HomeNetworkBlock.entries.toSet()
+        val fresh = HomeFeedDto(activities = listOf(activity("fresh")))
+        // No file yet (a first run): what was read is better than nothing.
+        store().save(PROFILE, MediaId.PROVIDER_SUBSONIC, unread = unread) { fresh }
+        settle()
+        assertEquals(fresh, store().read(PROFILE)?.feed)
+
+        // Another provider's file has nothing of this account's feed.
+        store().save(OTHER, MediaId.PROVIDER_SPOTIFY) { feed("Theirs") }
+        settle()
+        store().save(OTHER, MediaId.PROVIDER_SUBSONIC, unread = unread) { fresh }
+        settle()
+        assertEquals(fresh, store().read(OTHER)?.feed)
     }
 
     @Test

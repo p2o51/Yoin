@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Playlist
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -94,4 +97,49 @@ class HomeFeedBlocksTest {
         val keys = homeFeedKeys(blocks = emptyList(), trayMounted = false, hidden = emptyList(), allHidden = true)
         assertEquals(listOf("home-header", "home-all-hidden", "home-edit-entry"), keys)
     }
+
+    @Test
+    fun should_revealTheFeed_when_onlyRecentlyPlayedOrPlaylistsAreIn() {
+        // QA FC-2: a block on the reveal's payload beat stayed at alpha 0
+        // while nothing the reveal counted was in.
+        val nothing = revealReady()
+        assertEquals(false, nothing)
+        assertEquals(true, revealReady(recentlyPlayed = listOf(album("played"))))
+        assertEquals(true, revealReady(playlists = listOf(playlist("pl"))))
+    }
+
+    private fun revealReady(
+        recentlyPlayed: List<Album> = emptyList(),
+        playlists: List<Playlist> = emptyList()
+    ): Boolean = homeFeedHasSomethingToReveal(
+        hasActivityEntries = false,
+        widgetGrid = emptyList(),
+        recentlyAddedTracks = emptyList(),
+        recentlyAddedAlbums = emptyList(),
+        rediscover = emptyList(),
+        recentlyPlayed = recentlyPlayed,
+        playlists = playlists,
+        memoryPill = null
+    )
+
+    private fun album(rawId: String) = Album(
+        id = MediaId.subsonic(rawId),
+        name = "Album $rawId",
+        artist = "Artist",
+        artistId = null,
+        coverArt = null,
+        songCount = 10,
+        durationSec = null,
+        year = 2024,
+        genre = null
+    )
+
+    private fun playlist(rawId: String) = Playlist(
+        id = MediaId.subsonic(rawId),
+        name = "Playlist $rawId",
+        owner = "owner",
+        coverArt = null,
+        songCount = 5,
+        durationSec = 600
+    )
 }

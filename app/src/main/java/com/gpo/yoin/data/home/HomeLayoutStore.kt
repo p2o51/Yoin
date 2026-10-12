@@ -58,6 +58,15 @@ class HomeLayoutStore(
     fun layoutFlow(profileId: String): Flow<List<HomeSectionPref>?> =
         dao.getForProfile(profileId).map { row -> row?.sectionsJson?.let(::decode) }
 
+    /**
+     * [layoutFlow]'s current value, read once on the caller's dispatcher: a
+     * plain query, so it neither hops back to the collector's thread nor waits
+     * on Room's change tracking (Home reads it beside a snapshot, off the main
+     * thread, before a cold start's first frames are done).
+     */
+    suspend fun readLayout(profileId: String): List<HomeSectionPref>? =
+        dao.getOnceForProfile(profileId)?.sectionsJson?.let(::decode)
+
     /** Persist [sections] for [profileId]; skipped when the stored row already holds them. */
     suspend fun setLayout(profileId: String, sections: List<HomeSectionPref>) {
         bestEffort {

@@ -11,6 +11,10 @@ interface HomeLayoutDao {
     @Query("SELECT * FROM home_layout WHERE profileId = :profileId LIMIT 1")
     fun getForProfile(profileId: String): Flow<HomeLayoutPreference?>
 
+    /** [getForProfile] read once, without observing (a one-shot query: no invalidation tracking). */
+    @Query("SELECT * FROM home_layout WHERE profileId = :profileId LIMIT 1")
+    suspend fun getOnceForProfile(profileId: String): HomeLayoutPreference?
+
     @Upsert
     suspend fun upsert(preference: HomeLayoutPreference)
 

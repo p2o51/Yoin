@@ -292,7 +292,8 @@ internal suspend fun coordinateDetailEnter(
     return true
 }
 
-private suspend fun awaitNextFrameCommit(view: View): Boolean =
+/** The next frame [view]'s window commits (bounded); false when that couldn't be told. Home's `home.visible` uses it too. */
+internal suspend fun awaitNextFrameCommit(view: View): Boolean =
     withTimeoutOrNull(FRAME_COMMIT_TIMEOUT_MS) {
         if (!view.isAttachedToWindow) return@withTimeoutOrNull false
         if (Build.VERSION.SDK_INT < 29 || !view.isHardwareAccelerated) {

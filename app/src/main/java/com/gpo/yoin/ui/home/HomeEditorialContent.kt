@@ -494,11 +494,16 @@ internal fun HomeEditorialContent(
     // against the loading spinner is a reveal nobody sees.
     val firstReveal = rememberStagedReveal(
         key = "home-feed",
-        // A resolved Memories pill counts too: on a profile with nothing in
-        // the feed yet, it is the one thing to reveal.
-        ready = activityEntries.isNotEmpty() || widgetGrid.isNotEmpty() ||
-            recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
-            rediscover.isNotEmpty() || memoryPill != null,
+        ready = homeFeedHasSomethingToReveal(
+            hasActivityEntries = activityEntries.isNotEmpty(),
+            widgetGrid = widgetGrid,
+            recentlyAddedTracks = recentlyAddedTracks,
+            recentlyAddedAlbums = recentlyAddedAlbums,
+            rediscover = rediscover,
+            recentlyPlayed = recentlyPlayed,
+            playlists = playlists,
+            memoryPill = memoryPill
+        ),
     )
     // Rediscover's "Not played in Yoin for …" is read against the moment its
     // list arrived; day-scale copy doesn't need a ticking clock.
@@ -1643,7 +1648,7 @@ private data class BentoContent(
 private const val ActivityBentoUnitsMaxEntries = 16
 
 /** The widest XL bento (a fourth row of up to four more) — the hero is still found in the first [ActivityBentoUnitsMaxEntries]. */
-private const val ActivityBentoUnitsXlEntries = 20
+internal const val ActivityBentoUnitsXlEntries = 20
 
 /** The phone pipeline's cap (hero + 3 supporting from the top 6), and XL's (hero + 5 from the top 8). */
 private const val ActivityBentoPhoneEntries = 6
@@ -2808,6 +2813,29 @@ internal fun HomeEmptyCard(
     }
 }
 
+/**
+ * Whether the feed has anything for its cold-start reveal ("home-feed") to
+ * show: the reveal holds every block's beat at 0 until it does. Every block
+ * that rides a beat counts — a feed with only Recently Played or Your
+ * Playlists in (a profile with nothing else yet, or those landing first)
+ * would otherwise keep them drawn at alpha 0 until something else came. A
+ * resolved Memories pill counts too: on a profile with nothing in the feed
+ * yet, it is the one thing to reveal.
+ */
+internal fun homeFeedHasSomethingToReveal(
+    hasActivityEntries: Boolean,
+    widgetGrid: List<HomeWidgetCard>,
+    recentlyAddedTracks: List<Track>,
+    recentlyAddedAlbums: List<Album>,
+    rediscover: List<HomeRediscoverItem>,
+    recentlyPlayed: List<Album>,
+    playlists: List<LibraryPlaylist>,
+    memoryPill: HomeMemoryPill?
+): Boolean = hasActivityEntries || widgetGrid.isNotEmpty() ||
+    recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
+    rediscover.isNotEmpty() || recentlyPlayed.isNotEmpty() || playlists.isNotEmpty() ||
+    memoryPill != null
+
 internal fun dedupeActivitiesForHome(
     activities: List<ActivityEvent>,
 ): List<ActivityEvent> = activities.distinctBy(::homeActivityDedupKey)
@@ -2821,6 +2849,19 @@ internal fun selectHomeActivities(
     activities: List<ActivityEvent>,
 ): List<ActivityEvent> = dedupeActivitiesForHome(activities)
     .filterNot { it.entityType == ActivityEntityType.SONG.name }
+
+/**
+ * The albums the Activities bento can show as an album card — its hero or a
+ * supporting card — by raw id: the album entries among those the widest
+ * bento seats from ([ActivityBentoUnitsXlEntries]; the ViewModel can't tell
+ * the width, so it counts them all). Recently Played leaves these out. A
+ * song's play never earns a card, and a playlist's or an artist's card shows
+ * that playlist or artist, not the album its play came from.
+ */
+internal fun homeActivityAlbumCards(activities: List<ActivityEvent>): Set<String> = selectHomeActivities(activities)
+    .take(ActivityBentoUnitsXlEntries)
+    .filter { it.entityType == ActivityEntityType.ALBUM.name }
+    .mapTo(HashSet()) { activity -> activityEntityRawId(activity, activity.entityId) }
 
 /**
  * The hero (topmost, biggest) bento slot only ever shows an album or a

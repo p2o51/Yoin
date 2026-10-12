@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -43,9 +44,11 @@ import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.detail.awaitNextFrameCommit
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
@@ -313,6 +316,7 @@ fun HomeContent(
                 if (uiState is HomeUiState.Content) lastFeed = uiState
             }
             val feedVisible by remember { derivedStateOf { contentAlphaState.value > 0f } }
+            HomePerfVisibleEffect { feedVisible && currentUiState is HomeUiState.Content }
             val feed = uiState as? HomeUiState.Content
                 ?: lastFeed?.takeIf { uiState is HomeUiState.Loading && feedVisible }
             // Each account's feed keeps its own list state (the scroll) while
@@ -448,6 +452,28 @@ fun HomeContent(
                 modifier = Modifier.matchParentSize()
             )
         }
+    }
+}
+
+/**
+ * Debug-only `home.visible` (docs/perf/yoinperf-logging.md): the first frame
+ * drawing a feed at all — its entrance alpha past 0 — has been committed.
+ * `home.content` marks the ViewModel's publish; between the two sit the
+ * feed's first composition and layout (one long frame on a cold start) and
+ * the entrance's first frame. Once per Home (its saved state).
+ */
+@Suppress("ktlint:standard:function-naming") // a Composable
+@Composable
+private fun HomePerfVisibleEffect(feedVisible: () -> Boolean) {
+    if (!YoinPerf.enabled) return
+    val view = LocalView.current
+    var marked by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (marked) return@LaunchedEffect
+        snapshotFlow(feedVisible).first { visible -> visible }
+        val committed = awaitNextFrameCommit(view)
+        marked = true
+        YoinPerf.mark("home.visible", "ms_since_process_start" to YoinPerf.sinceProcessStart(), "commit" to committed)
     }
 }
 

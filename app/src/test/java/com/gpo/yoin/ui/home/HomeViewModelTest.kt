@@ -4,6 +4,8 @@ import app.cash.turbine.test
 import com.gpo.yoin.data.home.FakeHomeLayoutDao
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.home.HomeSectionPref
+import com.gpo.yoin.data.local.ActivityActionType
+import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.PlayHistory
@@ -45,7 +47,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -1909,6 +1913,52 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun should_keepAlbumsInRecentlyPlayed_when_onlySongAndPlaylistPlaysNameThem() = runTest {
+        // QA L12-B6: an album played from Songs (a song event) or from a
+        // playlist (a playlist event) carries its album id, and the shelf
+        // dropped it though Activities shows no card of it. Only the album
+        // cards the bento shows leave Recently Played.
+        val profile = "subsonic-recently-played-dedupe"
+        val repository = memorySignalRepository(profile = profile)
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(
+            listOf(
+                ActivityEvent(
+                    entityType = ActivityEntityType.SONG.name,
+                    actionType = ActivityActionType.PLAYED.name,
+                    entityId = "song-1",
+                    title = "Distant Shadows",
+                    subtitle = "Artist",
+                    songId = "song-1",
+                    albumId = "al-song"
+                ),
+                ActivityEvent(
+                    entityType = ActivityEntityType.PLAYLIST.name,
+                    actionType = ActivityActionType.PLAYED.name,
+                    entityId = "pl-mix",
+                    title = "QA Mix",
+                    subtitle = "",
+                    albumId = "al-playlist"
+                ),
+                ActivityEvent(
+                    entityType = ActivityEntityType.ALBUM.name,
+                    actionType = ActivityActionType.PLAYED.name,
+                    entityId = "al-card",
+                    title = "Album card",
+                    subtitle = "Artist",
+                    albumId = "al-card"
+                )
+            )
+        )
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns
+            listOf("al-song", "al-other", "al-playlist", "al-card").map { id -> album(id, "Album $id") }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(listOf("al-song", "al-other", "al-playlist"), content.recentlyPlayed.map { it.id.rawId })
+    }
+
+    @Test
     fun should_emptyShelves_when_reloadReadsComeBackEmpty() = runTest {
         // An empty answer is the library's truth, not a failure: it clears.
         val profile = "subsonic-empty-on-reload"
@@ -2163,6 +2213,61 @@ class HomeViewModelTest {
             assertEquals(listOf("late-list"), back.playlists.map { it.id.rawId })
             assertEquals(outgoing, back.ownerProfileId)
         }
+    }
+
+    @Test
+    fun should_paintTheCachedFeedInItsOwnLayout_when_switchingBackToAnAccountInTheProcess() = runTest {
+        // QA P9b-3: back to an account this process already loaded, its feed
+        // painted from the cache in the outgoing account's sections, then its
+        // own layout landed and the sections sprang through each other. Now
+        // the account's own layout is up before its feed.
+        val first = "subsonic-cache-layout-a"
+        val second = "subsonic-cache-layout-b"
+        val firstLayout = HomeLayout.Default.toPrefs().reversed()
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>(first)
+        val switching = MutableStateFlow<ProfileManager.SwitchState>(ProfileManager.SwitchState.Idle)
+        val repository = scopedRepository(first, provider)
+        val layouts = mockk<HomeLayoutStore>(relaxed = true).also { store ->
+            // Room's answer for the account's own row reaches Home a beat after its feed.
+            every { store.layoutFlow(first) } returns flow {
+                delay(LATE_LAYOUT_MS)
+                emit(firstLayout)
+            }
+            every { store.layoutFlow(second) } returns flowOf(null)
+        }
+        val viewModel = HomeViewModel(
+            repository = repository,
+            activeProfileId = profileId,
+            homeLayoutStore = layouts,
+            switchingState = switching
+        )
+        val painted = mutableListOf<Pair<HomeUiState.Content, HomeLayout>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state ->
+                if (state is HomeUiState.Content) painted += state to viewModel.homeLayout.value
+            }
+        }
+        advanceUntilIdle()
+
+        switching.value = ProfileManager.SwitchState.Switching(second, ProfileManager.SwitchState.Stage.Priming)
+        runCurrent()
+        profileId.value = second
+        switching.value = ProfileManager.SwitchState.Idle
+        advanceUntilIdle()
+        assertEquals(second, painted.last().first.ownerProfileId)
+
+        painted.clear()
+        switching.value = ProfileManager.SwitchState.Switching(first, ProfileManager.SwitchState.Stage.Priming)
+        runCurrent()
+        profileId.value = first
+        switching.value = ProfileManager.SwitchState.Idle
+        runCurrent()
+        // The cached feed is up at once, in its own sections.
+        assertEquals(first, painted.first().first.ownerProfileId)
+        advanceUntilIdle()
+        assertTrue(painted.isNotEmpty())
+        assertTrue(painted.all { (_, layout) -> layout.sameSectionsAs(HomeLayout.reconcile(firstLayout)) })
     }
 
     @Test
@@ -2599,6 +2704,9 @@ class HomeViewModelTest {
         // Rediscover's fixed clock.
         const val NOW = 1_800_000_000_000L
         const val DAY = 24L * 60 * 60 * 1000
+
+        // An account's layout read landing a beat after its feed.
+        const val LATE_LAYOUT_MS = 150L
     }
 
     private fun savedTrack(rawId: String, addedAt: String): Track = Track(

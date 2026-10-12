@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.home.HomeLayoutStore
+import com.gpo.yoin.data.home.HomeNetworkBlock
 import com.gpo.yoin.data.home.HomeSnapshot
 import com.gpo.yoin.data.home.HomeSnapshotStore
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -45,9 +46,11 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -103,7 +106,9 @@ class HomeViewModel(
     // Each account's last feed on disk (P2 PR3, owner Q14a): painted when
     // nothing of a scope is up yet, then replaced by the fresh load. Null =
     // none (previews, tests).
-    private val snapshotStore: HomeSnapshotStore? = null
+    private val snapshotStore: HomeSnapshotStore? = null,
+    // Where a snapshot and its account's layout are read ([readSnapshot]).
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -180,13 +185,14 @@ class HomeViewModel(
     // Snapshot reads in flight or done, per profile id, each taken by the
     // first load of that profile that has nothing up ([paintableSnapshot]).
     // Started early — the active profile's as this VM is created, a switch's
-    // target as the switch begins — so the read is usually in by then.
-    private val snapshotReads = mutableMapOf<String, Deferred<HomeSnapshot?>>()
+    // target as the switch begins — so the read is usually in by then. Each
+    // carries the account's layout, read beside it ([readSnapshot]).
+    private val snapshotReads = mutableMapOf<String, Deferred<SnapshotRead?>>()
 
     // The profile whose layout [homeLayout] holds, once its first read is in
-    // (set right after the layout, see [observeHomeLayout]): a snapshot paints
-    // in its own account's layout, not the default (or the outgoing
-    // account's) it would rearrange from a beat later.
+    // (set right after the layout, see [observeHomeLayout] and [adoptLayout]):
+    // a feed paints in its own account's layout, not the default (or the
+    // outgoing account's) it would rearrange from a beat later.
     private val layoutReadFor = MutableStateFlow<String?>(null)
 
     // Owner Q16: the artists the Activities bento pictures (MediaId strings,
@@ -279,8 +285,10 @@ class HomeViewModel(
 
     /**
      * Keep [homeLayout] on the active profile's persisted layout — and only
-     * then mark whose it is ([layoutReadFor]), so a snapshot waiting for it
-     * never paints in the one before ([paintableSnapshot]).
+     * then mark whose it is ([layoutReadFor]). A snapshot brings its
+     * account's layout along ([paintableSnapshot]), read off the main thread
+     * beside it: this observed flow reaches the main thread in several hops,
+     * too late for a cold start's paint.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeHomeLayout() {
@@ -297,6 +305,7 @@ class HomeViewModel(
                 .collect { (profileId, layout) ->
                     _homeLayout.value = layout
                     layoutReadFor.value = profileId
+                    if (!profileId.isNullOrBlank()) homeLayoutCache[profileId] = layout
                 }
         }
     }
@@ -591,12 +600,15 @@ class HomeViewModel(
         loadedSource = repository.activeSourceIdentity()
         val signalTicksBeforeLoad = signalTickCount
         val perf = YoinPerf.begin("home.refresh")
+        // The load builds on the feed read without a source, off screen (see the branch below).
+        var buildsOnSourceless = false
         try {
             if (contentOf(scopeKey) == null) {
                 val cachedHomeContent = homeContentCache[scopeKey]
                 val snapshot = if (cachedHomeContent == null) paintableSnapshot(providerId, profileId) else null
                 when {
                     cachedHomeContent != null -> {
+                        awaitOwnLayout(profileId)
                         emit(cachedHomeContent, profileId, perfSrc = "mem")
                         contentScopeKey = scopeKey
                         // This process's own feed is newer than any snapshot.
@@ -608,6 +620,8 @@ class HomeViewModel(
                         // endpoint feed in it only holds until this process's
                         // own endpoint read answers.
                         snapshotOnlyScopes += snapshotScopeKey
+                        // Every block holds what the snapshot read.
+                        unreadBlocks -= snapshotScopeKey
                         if (feed.activitiesFromRemote) {
                             snapshotEndpointFeeds += snapshotScopeKey
                         } else {
@@ -624,13 +638,29 @@ class HomeViewModel(
                         // (its credentials couldn't be read and no snapshot
                         // was there to keep: a restore onto a new phone), and
                         // the source has come (Reconnect, the credentials
-                        // entered again). It stays as a snapshot would, and
-                        // the load splices into it block by block: the header
-                        // stays, no Loading between. It names no provider, so
+                        // entered again). It stays up as a snapshot would —
+                        // the header stays, no Loading between — and the load
+                        // builds on it off screen until its local tier is in,
+                        // then puts that up with every block that beat it, in
+                        // one go: blocks spliced in ahead of Activities would
+                        // be laid out under its empty card and slide down
+                        // through the bento as it grows (QA FC-2). Later
+                        // blocks splice in place. It names no provider, so
                         // nothing of it is written back until a block lands.
                         snapshotOnlyScopes += scopeKey
                         snapshotEndpointFeeds -= scopeKey
+                        // Its network blocks were never read: none could be
+                        // (nor Spotify's endpoint, which a load without a
+                        // source never asks).
+                        val unreadSourceless = unreadBlocks[homeScopeKey(null, profileId)]
+                            ?: HomeNetworkBlock.unreadFromNothing(endpointActivities = false)
+                        unreadBlocks[scopeKey] = if (providerId == MediaId.PROVIDER_SPOTIFY) {
+                            unreadSourceless + HomeNetworkBlock.Activities
+                        } else {
+                            unreadSourceless
+                        }
                         contentScopeKey = scopeKey
+                        buildsOnSourceless = true
                     }
                     else -> {
                         emit(HomeUiState.Loading, profileId)
@@ -673,10 +703,14 @@ class HomeViewModel(
                     throw NoActiveSourceException()
                 }
             }
-            HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad).run()
+            // Its covers resolved above, now that the source is in.
+            val seed = if (buildsOnSourceless) contentOf(scopeKey) else null
+            val load = HomeLoad(scopeKey, providerId, profileId, signalTicksBeforeLoad, seed = seed)
+            load.run()
             if (perf != null) {
                 val result = if (matchesCurrentScope(providerId, profileId)) "ok" else "superseded"
-                YoinPerf.end(perf, "provider" to providerId, "result" to result)
+                // A block whose read failed doesn't fail the load (it keeps what is up).
+                YoinPerf.end(perf, "provider" to providerId, "result" to result, "failed" to load.failedBlocks)
             }
         } catch (cancellation: CancellationException) {
             // The scope moved on (or a refresh restarted it) mid-load.
@@ -787,13 +821,29 @@ class HomeViewModel(
 
     // ── Snapshot (P2 PR3) ────────────────────────────────────────────────
 
-    /** Start reading [profileId]'s snapshot unless a read is already out or in. */
+    /**
+     * Start reading [profileId]'s snapshot, and the account's layout beside
+     * it, unless a read is already out or in. Off the main thread from start
+     * to end: its answer reaches the main thread in one hop, so a cold
+     * start's first frames, busy there, can't run [paintableSnapshot]'s wait
+     * out on a read that was in long before (the layout used to come through
+     * Room's observed flow and the main thread, and often lost that race).
+     */
     private fun readSnapshot(profileId: String) {
         val store = snapshotStore ?: return
         if (profileId in snapshotReads) return
-        snapshotReads[profileId] = viewModelScope.async {
+        snapshotReads[profileId] = viewModelScope.async(ioDispatcher) {
             try {
-                store.read(profileId)
+                coroutineScope {
+                    val layout = async { readLayoutOrDefault(profileId) }
+                    val snapshot = store.read(profileId)
+                    if (snapshot == null) {
+                        layout.cancel()
+                        null
+                    } else {
+                        SnapshotRead(snapshot, layout.await())
+                    }
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
@@ -802,32 +852,81 @@ class HomeViewModel(
         }
     }
 
+    /** [profileId]'s layout read once; one that can't be read is the default, as [observeHomeLayout] would show. */
+    private suspend fun readLayoutOrDefault(profileId: String): HomeLayout = try {
+        HomeLayout.reconcile(homeLayoutStore.readLayout(profileId))
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        HomeLayout.Default
+    }
+
     /**
      * [profileId]'s snapshot as a feed to paint, with the scope it belongs to
      * (its provider's), or null: no snapshot, one of another provider than
      * [providerId] — the account's source disagrees, so it isn't this
-     * account's feed — or a read that, with the account's layout, takes
-     * longer than [SNAPSHOT_READ_WAIT_MS] (the load goes ahead with Loading).
-     * It paints in that layout ([homeLayout]): drawn in the default's
-     * sections, it would rearrange as soon as the account's own lands. With
-     * no source yet ([providerId] null) it paints on its own word and is
-     * checked when the source arrives: then only a source of its provider
-     * finds it up as this scope's content.
+     * account's feed — or a read that, with the account's layout, isn't in
+     * within [SNAPSHOT_READ_WAIT_MS] (the load goes ahead with Loading). It
+     * paints in that layout, put up first ([adoptLayout]): drawn in the
+     * default's sections, it would rearrange as soon as the account's own
+     * lands. With no source yet ([providerId] null) it paints on its own word
+     * and is checked when the source arrives: then only a source of its
+     * provider finds it up as this scope's content.
      */
     private suspend fun paintableSnapshot(providerId: String?, profileId: String?): Pair<String, HomeUiState.Content>? {
         val id = profileId?.takeIf(String::isNotBlank) ?: return null
         readSnapshot(id)
         val read = snapshotReads[id] ?: return null
-        val snapshot = withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) {
-            read.await()
-                ?.takeIf { found -> providerId == null || found.provider == providerId }
-                ?.also { layoutReadFor.first { layoutProfileId -> layoutProfileId == id } }
-        }
+        val found = withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) { read.await() }
         // Taken (a scope change cancelling this wait leaves it to the next load).
         snapshotReads.remove(id)
-        if (snapshot == null) return null
+        if (!read.isCompleted) read.cancel()
+        val paintable = found?.takeIf { providerId == null || it.snapshot.provider == providerId }
+        if (YoinPerf.enabled) {
+            val result = when {
+                paintable != null -> "paint"
+                found != null -> "provider"
+                read.isCancelled -> "late"
+                else -> "none"
+            }
+            YoinPerf.mark("home.snapshot.paint", "result" to result)
+        }
+        if (paintable == null) return null
+        val snapshot = paintable.snapshot
+        adoptLayout(id, paintable.layout)
         val content = snapshot.feed.toHomeContent { key -> snapshotCoverUrl(key, snapshot.provider) }
         return homeScopeKey(snapshot.provider, id) to content
+    }
+
+    /**
+     * Put [profileId]'s [layout] up ahead of a feed of that account — unless
+     * Home already holds that account's own, observed ([observeHomeLayout]),
+     * which is at least as new.
+     */
+    private fun adoptLayout(profileId: String, layout: HomeLayout) {
+        if (layoutReadFor.value == profileId) return
+        _homeLayout.value = layout
+        layoutReadFor.value = profileId
+        homeLayoutCache[profileId] = layout
+    }
+
+    /**
+     * Before [profileId]'s feed from this process's cache paints (an account
+     * switched back to): put that account's own layout up first. Painted in
+     * the outgoing account's sections, the feed would rearrange as soon as
+     * its own landed — sections springing through each other. This process
+     * has usually seen it ([homeLayoutCache]); else its first read is waited
+     * for, as long as a snapshot's read at most.
+     */
+    private suspend fun awaitOwnLayout(profileId: String?) {
+        val id = profileId?.takeIf(String::isNotBlank) ?: return
+        if (layoutReadFor.value == id) return
+        val seen = homeLayoutCache[id]
+        if (seen != null) {
+            adoptLayout(id, seen)
+            return
+        }
+        withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) { layoutReadFor.first { layoutProfileId -> layoutProfileId == id } }
     }
 
     /**
@@ -860,14 +959,15 @@ class HomeViewModel(
      * conflated and capped by the store) — once something this process read
      * is in it ([snapshotOnlyScopes]): the snapshot as painted, or with a
      * played card taken off at most, is what is on disk already. A feed read
-     * without a source names no provider, so it isn't written.
+     * without a source names no provider, so it isn't written. Its network
+     * blocks no read has filled yet ([unreadBlocks]) keep what the file has.
      */
     private fun keep(scopeKey: String, providerId: String?, profileId: String?, content: HomeUiState.Content) {
         homeContentCache[scopeKey] = content
         val store = snapshotStore ?: return
         if (scopeKey in snapshotOnlyScopes) return
         if (providerId == null || profileId.isNullOrBlank()) return
-        store.save(profileId, providerId) { content.toSnapshotFeed() }
+        store.save(profileId, providerId, unread = unreadBlocks[scopeKey].orEmpty()) { content.toSnapshotFeed() }
     }
 
     /** A block read by this process just went into [scopeKey]'s content: from now on it is written back ([keep]). */
@@ -926,18 +1026,33 @@ class HomeViewModel(
         private val scopeKey: String,
         private val providerId: String?,
         private val profileId: String?,
-        private val signalTicksBeforeLoad: Int
+        private val signalTicksBeforeLoad: Int,
+        // The account's feed read without a source, up as this scope's: the
+        // draft starts from it (it stays on screen meanwhile) instead of empty.
+        private val seed: HomeUiState.Content? = null
     ) {
         private val spotify = providerId == MediaId.PROVIDER_SPOTIFY && !profileId.isNullOrBlank()
 
-        // The feed being built while nothing of this scope is up; null once
-        // it is (from the start on a same-scope reload or a cache paint).
-        private var draft: HomeUiState.Content? =
-            if (contentOf(scopeKey) == null) {
-                HomeUiState.Content(activities = emptyList(), ownerProfileId = profileId)
-            } else {
-                null
+        // The feed being built while nothing of this scope is up — or only
+        // the feed read without a source ([seed]); null once the local tier
+        // has opened it (from the start on a same-scope reload or a cache paint).
+        private var draft: HomeUiState.Content? = when {
+            seed != null -> seed
+            contentOf(scopeKey) == null -> HomeUiState.Content(activities = emptyList(), ownerProfileId = profileId)
+            else -> null
+        }
+
+        init {
+            // Built from nothing: each network block is unread until its read
+            // lands — on Spotify, Activities too, until its endpoint answers.
+            if (draft != null && seed == null) {
+                unreadBlocks[scopeKey] = HomeNetworkBlock.unreadFromNothing(endpointActivities = spotify)
             }
+        }
+
+        /** This load's network reads that failed (Recently Added, Recently Played, Your Playlists, Spotify's feed). */
+        var failedBlocks = 0
+            private set
 
         private var localTierIn = false
 
@@ -1012,6 +1127,13 @@ class HomeViewModel(
                 throw cancellation
             } catch (e: Exception) {
                 failed = true
+                // Built on the feed up: the blocks that landed before the
+                // local tier failed go up rather than with the load.
+                val pending = draft
+                if (seed != null && pending != null && pending !== seed && matchesCurrentScope(providerId, profileId)) {
+                    draft = null
+                    publish(pending, perfSrc = null)
+                }
                 throw e
             } finally {
                 if (activeLoad === this) activeLoad = null
@@ -1094,8 +1216,8 @@ class HomeViewModel(
         }
 
         private fun spliceRecentlyAdded(read: Result<RecentlyAdded>) {
-            val added = read.getOrNull() ?: return
-            splice { latest ->
+            val added = read.getOrNull() ?: return failed()
+            splice(filled = HomeNetworkBlock.RecentlyAdded) { latest ->
                 latest.copy(
                     recentlyAddedTracks = added.tracks,
                     recentlyAddedAlbums = added.albums,
@@ -1111,20 +1233,34 @@ class HomeViewModel(
         }
 
         private fun splicePlaylists(read: Result<List<Playlist>>) {
-            val playlists = read.getOrNull() ?: return
-            splice { latest -> latest.copy(playlists = playlists.distinctBy { it.id }.take(HOME_PLAYLIST_LIMIT)) }
+            val playlists = read.getOrNull() ?: return failed()
+            splice(filled = HomeNetworkBlock.Playlists) { latest ->
+                latest.copy(playlists = playlists.distinctBy { it.id }.take(HOME_PLAYLIST_LIMIT))
+            }
         }
 
         private fun spliceRecentlyPlayed(read: Result<List<Album>>) {
-            val albums = read.getOrNull()?.distinctBy { it.id } ?: return
+            val albums = read.getOrNull()?.distinctBy { it.id } ?: return failed()
             recentlyPlayedRead = albums
-            splice { latest -> latest.copy(recentlyPlayed = albums.notShownIn(latest.activities)) }
+            splice(filled = HomeNetworkBlock.RecentlyPlayed) { latest ->
+                latest.copy(recentlyPlayed = albums.notShownIn(latest.activities))
+            }
+        }
+
+        /** A network read of this load failed: what is up stays (debug: counted in `home.refresh`). */
+        private fun failed() {
+            failedBlocks++
         }
 
         private suspend fun spliceRemoteFeed(feed: List<ActivityEvent>?) {
+            if (feed == null) failed()
             remoteFeed = feed
             remoteFeedIn = true
-            coroutineScope { spliceActivities(scope = this, fresh = feed != null) { it } }
+            // Answered or failed, Activities are this load's now: the
+            // endpoint's, or the activity log a failed read hands them to.
+            coroutineScope {
+                spliceActivities(scope = this, fresh = feed != null, filled = HomeNetworkBlock.Activities) { it }
+            }
         }
 
         /**
@@ -1143,18 +1279,19 @@ class HomeViewModel(
         /**
          * Splice the Activities this load now has (see [activitiesFor]) and
          * what [also] derives from them; [fresh]: a read just landed (not a
-         * failed endpoint read). A new hero drops the footnote of the old one
-         * and resolves its own — on a cold detail cache a network read — then
-         * splices it in if that hero is still up. On Spotify that waits for
-         * the endpoint's answer ([footnotePending]).
+         * failed endpoint read); [filled] as [splice]'s. A new hero drops the
+         * footnote of the old one and resolves its own — on a cold detail
+         * cache a network read — then splices it in if that hero is still up.
+         * On Spotify that waits for the endpoint's answer ([footnotePending]).
          */
         private fun spliceActivities(
             scope: CoroutineScope,
             fresh: Boolean = true,
+            filled: HomeNetworkBlock? = null,
             also: (HomeUiState.Content) -> HomeUiState.Content
         ) {
             var heroToResolve: List<ActivityEvent>? = null
-            splice(fresh) { latest ->
+            splice(fresh, filled) { latest ->
                 val (activities, fromRemote) = activitiesFor(latest)
                 val heroChanged = !sameHero(activities, latest.activities)
                 if (heroChanged || footnotePending) heroToResolve = activities
@@ -1245,20 +1382,33 @@ class HomeViewModel(
          * publish, so splices landing together build on each other. [fresh]:
          * it carries a block this load just read, so a snapshot it lands on
          * is written back from now on ([markFresh]); a failed read's splice
-         * doesn't.
+         * doesn't. [filled]: the network block it brings, read now — no longer
+         * one the content lacks ([unreadBlocks]); written so even when it
+         * changes nothing up (read empty over a feed built empty), or the
+         * write already queued would fill it from the file.
          */
-        private fun splice(fresh: Boolean = true, transform: (HomeUiState.Content) -> HomeUiState.Content) {
+        private fun splice(
+            fresh: Boolean = true,
+            filled: HomeNetworkBlock? = null,
+            transform: (HomeUiState.Content) -> HomeUiState.Content
+        ) {
             if (!matchesCurrentScope(providerId, profileId)) return
             if (fresh) markFresh(scopeKey)
             val pending = draft
             if (pending != null) {
+                if (filled != null) markFilled(filled)
                 draft = transform(pending)
                 openIfReady()
                 return
             }
             val latest = contentOf(scopeKey) ?: return
+            val nowRead = filled != null && markFilled(filled)
             val next = transform(latest)
-            if (next != latest) publish(next, perfSrc = null)
+            if (next != latest) {
+                publish(next, perfSrc = null)
+            } else if (nowRead) {
+                keep(scopeKey, providerId, profileId, latest)
+            }
             settleSignals()
         }
 
@@ -1280,6 +1430,14 @@ class HomeViewModel(
             settleSignals()
         }
 
+        /** [block] is read now; whether it was one [scopeKey]'s content lacked ([unreadBlocks]). */
+        private fun markFilled(block: HomeNetworkBlock): Boolean {
+            val unread = unreadBlocks[scopeKey] ?: return false
+            if (block !in unread) return false
+            unreadBlocks[scopeKey] = unread - block
+            return true
+        }
+
         private fun publish(content: HomeUiState.Content, perfSrc: String?) {
             keep(scopeKey, providerId, profileId, content)
             emit(content, profileId, perfSrc = perfSrc)
@@ -1296,12 +1454,15 @@ class HomeViewModel(
         }
     }
 
-    /** Albums the Activities feed doesn't already show (its album cards and played tracks' albums). */
+    /**
+     * Albums the Activities bento doesn't already show as an album card
+     * ([homeActivityAlbumCards]). Not every event's album: a song played from
+     * Songs or a playlist names its album too, but the bento never shows a
+     * song, and a playlist's card shows the playlist (QA L12-B6).
+     */
     private fun List<Album>.notShownIn(activities: List<ActivityEvent>): List<Album> {
-        val shown = activities.mapNotNullTo(HashSet()) { event ->
-            event.albumId ?: event.entityId.takeIf { event.entityType.equals("album", ignoreCase = true) }
-        }
-        return filterNot { album -> album.id.toString() in shown || album.id.rawId in shown }
+        val shown = homeActivityAlbumCards(activities)
+        return filterNot { album -> album.id.rawId in shown }
     }
 
     /**
@@ -2220,8 +2381,10 @@ class HomeViewModel(
         private val ACTIVITY_PORTRAIT_RETRY_DELAYS_MS = longArrayOf(60_000L, 5L * 60_000L, 30L * 60_000L)
 
         // How long a load with nothing up waits for its snapshot's read (a
-        // small file, read since the VM or the switch began; usually in by
-        // then) and the account's layout before going ahead with Loading.
+        // small file and the account's layout row, read off the main thread
+        // since the VM or the switch began; usually in by then) before going
+        // ahead with Loading — counted from when the load starts waiting,
+        // not from when the read began.
         private const val SNAPSHOT_READ_WAIT_MS = 400L
 
         // The pixel size Home resolves its cards' covers at (grid, Rediscover,
@@ -2230,6 +2393,11 @@ class HomeViewModel(
         private val MemoryDateFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("MMM d", Locale.US)
         private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
+
+        // Each account's home layout as last read in this process, per
+        // profile id: a feed painted from [homeContentCache] goes up in its
+        // own account's layout at once ([awaitOwnLayout]).
+        private val homeLayoutCache = mutableMapOf<String, HomeLayout>()
 
         // What a scope's content up, or in [homeContentCache], still has of
         // its snapshot — with the cache, as long as the process (a ViewModel
@@ -2246,6 +2414,17 @@ class HomeViewModel(
         // the activity log takes over, live, as on a cold start without a
         // snapshot ([HomeLoad.activitiesFor], [endpointFeedOwns]).
         private val snapshotEndpointFeeds = mutableSetOf<String>()
+
+        // Per scope, the network blocks of its content up (or in
+        // [homeContentCache]) that no read has filled: a load that started
+        // with nothing up — no snapshot painted, no cache — builds its feed
+        // from nothing, and until each block's read lands (or when it fails)
+        // that block is empty for want of a read, not empty (on Spotify,
+        // Activities until its endpoint answers: the activity log up meanwhile
+        // isn't what the file's endpoint feed was). [keep] writes them as the
+        // file on disk has them: a slow network, a server down or refused
+        // credentials never shrink the snapshot to the local tier.
+        private val unreadBlocks = mutableMapOf<String, Set<HomeNetworkBlock>>()
 
         private fun homeScopeKey(providerId: String?, profileId: String?): String =
             "${providerId.orEmpty()}|${profileId.orEmpty()}"
@@ -2283,6 +2462,9 @@ private fun ActivityEvent.spotifyArtistRawId(): String? =
     } else {
         null
     }
+
+/** A snapshot as read for painting, with its account's layout read beside it. */
+private class SnapshotRead(val snapshot: HomeSnapshot, val layout: HomeLayout)
 
 /** What Home's content belongs to: the active profile and its source's provider (null until built). */
 private data class HomeScope(val providerId: String?, val profileId: String?) {
