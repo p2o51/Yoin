@@ -128,6 +128,41 @@ class MarqueeTextTest {
     }
 
     @Test
+    fun should_restartFadeOnlyWithTheMarqueeTarget_when_widthChangesByPixels() {
+        var width by mutableStateOf(101)
+        show(text = "MMMMMMMMMMMMMMMMMMMM", running = { true }, width = { width })
+        rule.mainClock.advanceTimeBy(1_600)
+        val moving = image().toPixelMap()
+        assertTrue("leading edge is fading while moving", moving[1, moving.height / 2].red > 0.9f)
+
+        // Foundation's spacing rounds both 101/3 and 102/3 to 34px: no animation restart.
+        rule.runOnIdle {
+            width = 102
+            Snapshot.sendApplyNotifications()
+        }
+        rule.mainClock.advanceTimeByFrame()
+        val unchangedTarget = image().toPixelMap()
+        assertEquals(102, unchangedTarget.width)
+        assertTrue("same target must keep the leading fade", unchangedTarget[1, unchangedTarget.height / 2].red > 0.9f)
+
+        // 104/3 rounds to 35px: the motion and leading fade must now return to their start.
+        rule.runOnIdle {
+            width = 104
+            Snapshot.sendApplyNotifications()
+        }
+        rule.mainClock.advanceTimeByFrame()
+        val restarted = image()
+        assertEquals(104, restarted.width)
+        val start = restarted.toPixelMap()
+        assertTrue("new target immediately clears leading fade", start[1, start.height / 2].red < 0.1f)
+        rule.mainClock.advanceTimeBy(1_000)
+        assertPixelsEqual(restarted, image())
+        rule.mainClock.advanceTimeBy(600)
+        val resumed = image().toPixelMap()
+        assertTrue("new target gets its own initial pause", resumed[1, resumed.height / 2].red > 0.9f)
+    }
+
+    @Test
     fun should_remeasureCjkAndResetPhase_when_fontScaleChanges() {
         var scale by mutableStateOf(1f)
         show(text = "夜明けの街を歩く音楽", running = { true }, fontScale = { scale })

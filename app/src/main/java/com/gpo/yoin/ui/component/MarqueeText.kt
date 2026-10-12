@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.MarqueeDefaults
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
@@ -25,6 +26,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -45,14 +47,15 @@ internal fun MarqueeText(
 ) {
     // Keep the fade's initial phase and basicMarquee's offset together, including replacements
     // with the same measured width. Color changes alone must not restart a playing title.
-    key(text, style, LocalDensity.current, LocalLayoutDirection.current, running) {
-        val viewport = remember { MarqueeViewport() }
+    val density = LocalDensity.current
+    key(text, style, density, LocalLayoutDirection.current, running) {
+        val viewport = remember { MarqueeViewport(density) }
         LaunchedEffect(viewport) {
-            snapshotFlow { viewport.widths }.collectLatest { widths ->
-                viewport.movingWidths = null
-                if (running && widths.width > widths.height && widths.height > 0) {
+            snapshotFlow { viewport.animationTarget }.collectLatest { target ->
+                viewport.movingTarget = null
+                if (running && target != null) {
                     delay(MarqueeInitialDelayMs.toLong())
-                    viewport.movingWidths = widths
+                    viewport.movingTarget = target
                 }
             }
         }
@@ -74,7 +77,8 @@ internal fun MarqueeText(
                 .basicMarquee(
                     iterations = if (running) Int.MAX_VALUE else 0,
                     repeatDelayMillis = 1800,
-                    initialDelayMillis = MarqueeInitialDelayMs
+                    initialDelayMillis = MarqueeInitialDelayMs,
+                    spacing = MarqueeDefaults.Spacing
                 )
                 .layout { measurable, constraints ->
                     val placeable = measurable.measure(constraints)
@@ -90,10 +94,22 @@ internal fun MarqueeText(
  * actual sizes instead of subcomposing every card and measuring its text a second time.
  * These states are observed only by drawing/the phase coroutine, never by composition.
  */
-private class MarqueeViewport {
+private class MarqueeViewport(private val density: Density) {
     var widths by mutableStateOf(IntSize.Zero)
         private set
-    var movingWidths by mutableStateOf<IntSize?>(null)
+    var movingTarget by mutableStateOf<Float?>(null)
+
+    // Foundation restarts only when this nullable target changes, not on every pixel of
+    // viewport resize: its fractional spacing can round adjacent widths to the same value.
+    val animationTarget: Float?
+        get() {
+            val measured = widths
+            if (measured.width <= measured.height) return null
+            val spacing = with(MarqueeDefaults.Spacing) {
+                density.calculateSpacing(measured.width, measured.height)
+            }
+            return (measured.width + spacing).toFloat()
+        }
 
     var contentWidth = 0
         set(value) {
@@ -126,7 +142,7 @@ private fun Modifier.marqueeFade(viewport: MarqueeViewport): Modifier = drawWith
             canvas.saveLayer(Rect(Offset.Zero, size), layerPaint)
             try {
                 drawContent()
-                val moving = viewport.movingWidths == widths
+                val moving = viewport.movingTarget == viewport.animationTarget
                 if (moving || layoutDirection == LayoutDirection.Rtl) {
                     drawRect(leftMask, size = Size(edge, size.height), blendMode = BlendMode.DstIn)
                 }
