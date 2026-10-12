@@ -2383,7 +2383,8 @@ class HomeViewModel(
         // How long a load with nothing up waits for its snapshot's read (a
         // small file and the account's layout row, read off the main thread
         // since the VM or the switch began; usually in by then) before going
-        // ahead with Loading.
+        // ahead with Loading — counted from when the load starts waiting,
+        // not from when the read began.
         private const val SNAPSHOT_READ_WAIT_MS = 400L
 
         // The pixel size Home resolves its cards' covers at (grid, Rediscover,
