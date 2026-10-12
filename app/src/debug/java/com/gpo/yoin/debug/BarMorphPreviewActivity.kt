@@ -73,8 +73,7 @@ class BarMorphPreviewActivity : ComponentActivity() {
                         Box(modifier = Modifier.fillMaxSize()) {
                             Button(
                                 onClick = {
-                                    store.prepareDetailEnterSlide()
-                                    store.setDetailChromeActive(true)
+                                    store.beginDetailHandoff()
                                     launchDetailFromShell(
                                         context,
                                         AlbumDetailActivity.intent(context, "debug:album:missing"),

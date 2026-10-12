@@ -690,8 +690,9 @@ private fun YoinShell(
         if (!experienceSessionStore.state.value.hasOverlayHidingBottomBar &&
             windowInfo.hasChromeHandoff
         ) {
-            experienceSessionStore.prepareDetailEnterSlide()
-            experienceSessionStore.setDetailChromeActive(true)
+            // The launched detail carries this generation and retires it when
+            // its window is destroyed, whether or not this shell still exists.
+            experienceSessionStore.beginDetailHandoff()
         }
     }
     // Each entry starts the page's load before any gate (ui/detail/DetailPrefetch.kt).
@@ -795,7 +796,10 @@ private fun YoinShell(
     // publishes an onStop tick after its exit animation) — the primary
     // restores are the detail's own onBackClick and the commit settle above.
     // Keep drop(1) INSIDE repeatOnLifecycle so a replayed old completion tick
-    // is discarded on every app foreground resubscription.
+    // is discarded on every app foreground resubscription. A detail destroyed
+    // without that finishing onStop (it was already stopped: task swiped from
+    // recents, a CLEAR_TOP launch) retires its hand-off itself in onDestroy
+    // (DetailShellHandoff.kt), and a new shell starts clean (MainActivity).
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             experienceSessionStore.detailWindowSettledTick

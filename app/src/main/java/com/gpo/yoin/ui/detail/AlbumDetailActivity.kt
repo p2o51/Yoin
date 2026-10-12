@@ -310,14 +310,12 @@ class AlbumDetailActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Only the outer detail launched from the shell owns this backstop.
-        // With translucent detail windows, MainActivity stays STARTED; letting
-        // an inner detail's onStop publish the tick would clear the shell pose
-        // while its outer detail is still on screen.
-        if (isFinishing && intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-            (application as YoinApplication).container.experienceSessionStore
-                .noteDetailWindowSettled()
-        }
+        publishShellHandoffSettled()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        retireShellHandoff()
     }
 
     companion object {

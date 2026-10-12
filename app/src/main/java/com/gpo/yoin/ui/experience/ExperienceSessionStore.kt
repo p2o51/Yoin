@@ -129,6 +129,58 @@ class ExperienceSessionStore {
         }
     }
 
+    // ── Shell → detail hand-off lifetime ───────────────────────────────────
+    // This store lives as long as the PROCESS, which a playing service keeps
+    // alive after the task is swiped away; a hand-off belongs to one detail
+    // WINDOW. Each arm gets a generation the detail carries in its intent, so
+    // the window retires exactly its own hand-off when it is destroyed —
+    // however it goes (recents swipe, a CLEAR_TOP launch), even with no shell
+    // left to hear the settled tick. Seeded from the monotonic clock: a detail
+    // restored after process death carries a generation from the previous
+    // process, which must never match one armed in this one.
+    var detailHandoffGeneration: Long = System.nanoTime()
+        private set
+
+    /**
+     * The shell arms a forward detail hand-off: the bar wears detail chrome and
+     * the content recedes once the detail's slide starts. Returns the hand-off's
+     * generation (stamped on the detail's intent by `launchDetailFromShell`).
+     */
+    fun beginDetailHandoff(): Long {
+        detailHandoffGeneration += 1L
+        prepareDetailEnterSlide()
+        setDetailChromeActive(true)
+        return detailHandoffGeneration
+    }
+
+    /**
+     * The outer detail window of hand-off [generation] is gone for good (its
+     * finishing onDestroy): restore nav chrome unless a newer hand-off was armed
+     * since — a late onDestroy must not cancel the next page's (compare-and-set,
+     * like [windowBeneathRevealed]). Back phase and bar pose stay with the shell:
+     * a commit settle may still be riding them, and the shell's chrome effects
+     * take the flag from here.
+     */
+    fun endDetailHandoff(generation: Long) {
+        if (generation == detailHandoffGeneration) setDetailChromeActive(false)
+    }
+
+    /**
+     * A brand-new shell window has nothing above it, so nothing an earlier
+     * shell's hand-off left behind may read as live: nav chrome, back phase Idle
+     * with a clean pose, no window being revealed, and the bar pose at nav before
+     * the shell's first frame (no owner animates it until the shell composes, so
+     * a stale detail pose would otherwise morph back in view).
+     */
+    suspend fun resetDetailHandoff() {
+        setDetailChromeActive(false)
+        detailBackPhase.value = DetailBackPhase.Idle
+        detailBackProgress.floatValue = 0f
+        detailBackTouchYDelta.floatValue = 0f
+        windowBeneathRevealed.value = null
+        shellBarChromeMorph.snapTo(0f)
+    }
+
     /**
      * Ticks when the outer, shell-launched detail Activity has actually LEFT
      * the screen (its finishing onStop — the system holds that until the exit

@@ -64,6 +64,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         enableYoinEdgeToEdge()
+        // A new shell (not a recreated one) has no detail above it, but the session store outlives the task: a
+        // swipe from recents while music plays keeps the process, and with it the last detail's hand-off. Start
+        // from the nav pose before the first frame (lifecycleScope runs this inline: Main.immediate, on main).
+        if (savedInstanceState == null) {
+            val store = (application as YoinApplication).container.experienceSessionStore
+            lifecycleScope.launch { store.resetDetailHandoff() }
+        }
         // A detail Activity covers the shell but keeps it alive (translucent): freeze its animations meanwhile.
         installCoveredWindowAnimationGate(CoveredWindowAnimationGate.ShellWindowKey)
         // A fresh install holds the shell back until the landing check (a cheap prefs read).

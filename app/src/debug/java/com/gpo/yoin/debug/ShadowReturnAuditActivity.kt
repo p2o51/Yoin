@@ -165,8 +165,7 @@ class ShadowReturnAuditActivity : ComponentActivity() {
         if (!gate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         val store = (application as YoinApplication).container.experienceSessionStore
         // The same arm YoinNavHost performs before a compact shell launch.
-        store.prepareDetailEnterSlide()
-        store.setDetailChromeActive(true)
+        store.beginDetailHandoff()
         try {
             launchDetailFromShell(this, AlbumDetailActivity.intent(this, "shadow-audit-album"))
         } catch (error: RuntimeException) {

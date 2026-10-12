@@ -219,6 +219,16 @@ Anatomy (all infra, never re-implemented in feature screens):
    `detailBackProgress/detailBackTouchYDelta` — snapshot floats written per
    gesture frame, read ONLY inside `graphicsLayer` lambdas: zero
    recomposition at gesture Hz in either window.
+   **The hand-off lives as long as its detail WINDOW, not the process.** The
+   store is process-wide and a playing service keeps the process alive after
+   the task is swiped from recents, so the shell arms through
+   `beginDetailHandoff()` (a generation stamped on the intent as
+   `DETAIL_EXTRA_HANDOFF_GENERATION`), the outer detail retires exactly its own
+   generation in its finishing onDestroy (`ui/detail/DetailShellHandoff.kt` —
+   a window already stopped never sends the settled tick), and a brand-new
+   MainActivity calls `resetDetailHandoff()` before its first frame. Ticket 4
+   (S26, 2026-10): without this, reopening after a swipe showed Home 96dp to
+   the left under the detail bar.
 6. **Translucency dance** (all inside the infra): gesture start →
    `setTranslucent(true)` + phase `Gesture`; commit → phase `Committed`
    (content exit fade ≈90ms, activity finishes into the close dissolve;
