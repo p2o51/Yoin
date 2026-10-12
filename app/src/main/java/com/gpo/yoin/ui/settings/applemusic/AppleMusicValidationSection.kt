@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.settings.applemusic
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -80,18 +81,18 @@ fun AppleMusicValidationContent(state: AppleMusicValidationUiState, onConnect: (
             enabled = !state.busy && endpoint.startsWith("https://"),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                stringResource(
-                    when {
-                        state.retryable -> R.string.settings_apple_retry
-                        state.connected -> R.string.settings_apple_reconnect
-                        else -> R.string.settings_apple_connect
-                    },
-                ),
-            )
+            Text(stringResource(appleMusicConnectLabel(state)))
         }
     }
 }
+
+/**
+ * The button's label. A try that didn't take keeps it: the floating guide then says to tap Connect again
+ * (`guide_apple_retry`, design.md › 悬浮窗导航), and the landing's button reads the same.
+ */
+@StringRes
+internal fun appleMusicConnectLabel(state: AppleMusicValidationUiState): Int =
+    if (state.connected) R.string.settings_apple_reconnect else R.string.settings_apple_connect
 
 @Preview
 @Composable

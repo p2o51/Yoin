@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.landing.guide
 
+import android.app.ActivityOptions
+import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
@@ -14,6 +16,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -52,20 +55,19 @@ import kotlin.math.roundToInt
  *   it to "once more", a connection closes it.
  *
  * Expanding the window (the system's full-screen button) or "back to Yoin" returns to Yoin; closing it just ends
- * the guide. A separate task (taskAffinity, excludeFromRecents) so the pinned window never drags Yoin along.
+ * the guide, and opening it again from Yoin starts it over ([GuideSession]). A separate task (taskAffinity,
+ * excludeFromRecents) so the pinned window never drags Yoin along.
  */
 class ConnectGuideActivity : ComponentActivity() {
 
-    private lateinit var kind: GuideKind
+    private var kind by mutableStateOf(GuideKind.Spotify)
     private var step by mutableIntStateOf(0)
     private var flash by mutableStateOf<String?>(null)
     private var inPictureInPicture by mutableStateOf(false)
     private var cardBounds: Rect? = null
-
-    /** The other side has been handed the stage: the browser opened, or Yoin told to start the sign-in. */
-    private var handedOff = false
-    private var enteredOnce = false
+    private lateinit var session: GuideSession
     private var flashJob: Job? = null
+    private var enterJob: Job? = null
 
     private val steps get() = guideSteps(kind)
 
@@ -75,18 +77,21 @@ class ConnectGuideActivity : ComponentActivity() {
                 GuideCommand.Prev.name -> moveTo(step - 1)
                 GuideCommand.Next.name -> moveTo(step + 1)
                 GuideCommand.Copy.name -> copyStepValue()
-                GuideCommand.Return.name -> returnToYoin()
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        kind = intent.getStringExtra(EXTRA_KIND)?.let { runCatching { GuideKind.valueOf(it) }.getOrNull() } ?: GuideKind.Spotify
+        kind = intent.guideKind()
         step = savedInstanceState?.getInt(STATE_STEP) ?: 0
-        handedOff = savedInstanceState?.getBoolean(STATE_HANDED_OFF) ?: false
-        enteredOnce = handedOff
+        session = GuideSession(
+            // A "back to Yoin" that finds no window (the process went): straight back, nothing to hand off.
+            handedOff = savedInstanceState?.getBoolean(STATE_HANDED_OFF) ?: intent.isGuideReturn(),
+            floated = savedInstanceState?.getBoolean(STATE_FLOATED) == true || isInPictureInPictureMode
+        )
         ConnectGuide.opened(kind)
+        if (isInPictureInPictureMode) ConnectGuide.cornerChanged(kind, inCorner = true)
         ContextCompat.registerReceiver(this, receiver, IntentFilter(ACTION_GUIDE), ContextCompat.RECEIVER_NOT_EXPORTED)
         lifecycleScope.launch {
             ConnectGuide.commands.collect { command ->
@@ -110,53 +115,91 @@ class ConnectGuideActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // "Back to Yoin" (the window's own action): the system expands the window, and onResume returns.
+        if (!session.onLaunchedAgain(returning = intent.isGuideReturn())) return
+        // Opened again from Yoin while this one is still here (left behind, or floating, which the system now
+        // expands): start over at the first step, the other guide's or this one's.
+        val next = intent.guideKind()
+        if (next != kind) {
+            ConnectGuide.closed(kind)
+            kind = next
+            ConnectGuide.opened(next)
+        }
+        enterJob?.cancel()
+        step = 0
+        if (isInPictureInPictureMode) setPictureInPictureParams(pipParams())
+    }
+
     override fun onResume() {
         super.onResume()
-        if (!enteredOnce) {
-            enteredOnce = true
-            // Let the full-screen card show for a beat, then shrink into the corner.
-            lifecycleScope.launch {
-                delay(EnterDelayMs)
-                // No picture-in-picture (turned off for Yoin, or unsupported) returns false or throws: hand off
-                // anyway so nothing waits on a window that will never float.
-                val entered = runCatching { enterPictureInPictureMode(pipParams()) }.getOrDefault(false)
-                if (!entered) {
-                    handOff()
-                    // Apple's sign-in happens in Yoin; with no floating window there is nothing left to show.
-                    if (kind == GuideKind.AppleMusic) finishAndRemoveTask()
-                }
-            }
-        } else if (handedOff && !isInPictureInPictureMode) {
-            // Expanded back to full screen: the user is done over there.
-            returnToYoin()
-        }
+        perform(session.onResume(isInPictureInPictureMode))
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         inPictureInPicture = isInPictureInPictureMode
-        if (isInPictureInPictureMode && !handedOff) handOff()
+        ConnectGuide.cornerChanged(kind, isInPictureInPictureMode)
+        perform(session.onPictureInPictureChanged(isInPictureInPictureMode, lifecycle.currentState, screenInUse()))
+    }
+
+    override fun onStop() {
+        super.onStop()
+        perform(session.onStop(isInPictureInPictureMode, isChangingConfigurations, isFinishing, screenInUse()))
+    }
+
+    /** On and unlocked: the only time anyone can reach the floating window to dismiss it ([GuideSession.onStop]). */
+    private fun screenInUse(): Boolean {
+        val awake = getSystemService(PowerManager::class.java)?.isInteractive != false
+        val locked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+        return awake && !locked
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(STATE_STEP, step)
-        outState.putBoolean(STATE_HANDED_OFF, handedOff)
+        outState.putBoolean(STATE_HANDED_OFF, session.handedOff)
+        outState.putBoolean(STATE_FLOATED, session.floated)
     }
 
     override fun onDestroy() {
         unregisterReceiver(receiver)
+        // A recreation floats again from onCreate; any other end takes the window with it.
+        ConnectGuide.cornerChanged(kind, inCorner = false)
         if (isFinishing) ConnectGuide.closed(kind)
         super.onDestroy()
     }
 
-    private fun handOff() {
-        handedOff = true
-        when (kind) {
-            GuideKind.Spotify -> {
-                val view = Intent(Intent.ACTION_VIEW, SpotifyDashboardUrl.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                runCatching { startActivity(view) }
+    private fun perform(action: GuideAction) {
+        when (action) {
+            GuideAction.None -> Unit
+            GuideAction.Enter -> enter()
+            GuideAction.HandOff -> handOff()
+            GuideAction.ReturnToYoin -> returnToYoin()
+            GuideAction.End -> finishAndRemoveTask()
+        }
+    }
+
+    private fun enter() {
+        enterJob?.cancel()
+        // Let the full-screen card show for a beat, then shrink into the corner.
+        enterJob = lifecycleScope.launch {
+            delay(EnterDelayMs)
+            // No picture-in-picture (turned off for Yoin, or unsupported) returns false or throws.
+            val entered = runCatching { enterPictureInPictureMode(pipParams()) }.getOrDefault(false)
+            if (!entered) {
+                perform(session.onEnterRefused())
+                // Apple's sign-in happens in Yoin; with no floating window there is nothing left to show.
+                if (kind == GuideKind.AppleMusic) finishAndRemoveTask()
             }
+        }
+    }
+
+    private fun handOff() {
+        when (kind) {
+            GuideKind.Spotify -> runCatching { startActivity(spotifyDashboardIntent()) }
             // Yoin is waiting in openAndAwaitReady and now opens the sign-in beneath the window.
             GuideKind.AppleMusic -> ConnectGuide.ready.tryEmit(kind)
         }
@@ -181,7 +224,9 @@ class ConnectGuideActivity : ComponentActivity() {
         }
     }
 
+    /** From full screen only: a window that only floats may not start Yoin, and finishing would strand the user. */
     private fun returnToYoin() {
+        if (isFinishing) return
         val main = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             .putExtra(MainActivity.EXTRA_FROM_SPOTIFY_GUIDE, kind == GuideKind.Spotify)
@@ -215,6 +260,7 @@ class ConnectGuideActivity : ComponentActivity() {
     private companion object {
         const val STATE_STEP = "step"
         const val STATE_HANDED_OFF = "handedOff"
+        const val STATE_FLOATED = "floated"
         const val EnterDelayMs = 450L
         const val FlashMs = 1_800L
     }
@@ -226,28 +272,67 @@ private const val EXTRA_KIND = "kind"
 internal const val ACTION_GUIDE = "com.gpo.yoin.action.CONNECT_GUIDE"
 internal const val EXTRA_COMMAND = "command"
 
+/** The guide window launched again by its own "back to Yoin" ([guideReturnIntent]). */
+internal const val ACTION_GUIDE_RETURN = "com.gpo.yoin.action.CONNECT_GUIDE_RETURN"
+
+private fun Intent.guideKind(): GuideKind =
+    getStringExtra(EXTRA_KIND)?.let { runCatching { GuideKind.valueOf(it) }.getOrNull() } ?: GuideKind.Spotify
+
+internal fun Intent.isGuideReturn(): Boolean = action == ACTION_GUIDE_RETURN
+
+/**
+ * "Back to Yoin" launches the guide window itself again rather than Yoin: the system answers a launch of its
+ * floating task by expanding it, and once it is full screen the window may start Yoin ([GuideSession.onResume]).
+ * Yoin can't come forward from the floating window (a broadcast, then a start): Android 17 doesn't count a pinned
+ * window as visible and blocks that start. The expanding launch needs no such right, so it works either way.
+ */
+internal fun guideReturnIntent(context: Context): Intent = Intent(context, ConnectGuideActivity::class.java)
+    .setAction(ACTION_GUIDE_RETURN)
+    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+/** Spotify for Developers in the browser, in its own task. */
+internal fun spotifyDashboardIntent(): Intent =
+    Intent(Intent.ACTION_VIEW, SpotifyDashboardUrl.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
 /**
  * The guide window's actions on [step] as handed to the system: [guideActionSlots] fitted to its limit [max], one
  * [RemoteAction] per place. A greyed place has isEnabled off, which the system draws at its own disabled alpha (0.54)
- * and ignores taps on, so the place stays; a live one broadcasts its [GuideCommand] to the open guide.
+ * and ignores taps on, so the place stays; a live one broadcasts its [GuideCommand] to the open guide, except
+ * "back to Yoin", which launches the window again ([guideReturnIntent]).
  */
 internal fun guideRemoteActions(context: Context, kind: GuideKind, step: Int, max: Int): List<RemoteAction> =
     fitGuideActionSlots(guideActionSlots(kind, step), max).map { remoteAction(context, it) }
 
 private fun remoteAction(context: Context, slot: GuideActionSlot): RemoteAction {
     val command = slot.command.name
-    val intent = Intent(ACTION_GUIDE).setPackage(context.packageName).putExtra(EXTRA_COMMAND, command)
-    val pending = PendingIntent.getBroadcast(
-        context,
-        command.hashCode(),
-        intent,
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
+    val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    val pending = if (slot.command == GuideCommand.Return) {
+        val options = creatorMayStartOptions()
+        PendingIntent.getActivity(context, command.hashCode(), guideReturnIntent(context), flags, options)
+    } else {
+        val intent = Intent(ACTION_GUIDE).setPackage(context.packageName).putExtra(EXTRA_COMMAND, command)
+        PendingIntent.getBroadcast(context, command.hashCode(), intent, flags)
+    }
     // The system's menu reads only the content description aloud: a blank place has none, so TalkBack skips it.
     val text = slot.label?.let(context::getString).orEmpty()
     return RemoteAction(Icon.createWithResource(context, slot.command.icon), text, text, pending).apply {
         isEnabled = slot.enabled
     }
+}
+
+/**
+ * A PendingIntent's creator lends it its own right to start activities only when it opts in (Android 15 on). Yoin
+ * opts in where it has that right, i.e. while visible: up to Android 16 the floating window counts as visible.
+ */
+@Suppress("DEPRECATION") // MODE_BACKGROUND_ACTIVITY_START_ALLOWED: the only mode before ALLOW_IF_VISIBLE (36).
+private fun creatorMayStartOptions(): Bundle? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+    } else {
+        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+    }
+    return ActivityOptions.makeBasic().setPendingIntentCreatorBackgroundActivityStartMode(mode).toBundle()
 }
 
 /**
@@ -262,6 +347,10 @@ internal object ConnectGuide {
 
     private val openKind = MutableStateFlow<GuideKind?>(null)
     val open: StateFlow<GuideKind?> = openKind.asStateFlow()
+
+    /** The guide in the corner right now. [open] also covers its full-screen moments and a window left behind. */
+    private val floatingKind = MutableStateFlow<GuideKind?>(null)
+    val floating: StateFlow<GuideKind?> = floatingKind.asStateFlow()
     internal val ready = MutableSharedFlow<GuideKind>(extraBufferCapacity = 1)
     internal val commands = MutableSharedFlow<Command>(extraBufferCapacity = 4)
 
@@ -269,15 +358,29 @@ internal object ConnectGuide {
         Intent(context, ConnectGuideActivity::class.java).putExtra(EXTRA_KIND, kind.name)
 
     /**
+     * "Open Spotify for Developers". With the Spotify guide already in the corner only the dashboard opens again
+     * beneath it, at the step it's on: launching the window again would make the system pull it full screen.
+     */
+    fun openSpotify(context: Context) {
+        if (floatingKind.value == GuideKind.Spotify) {
+            runCatching { context.startActivity(spotifyDashboardIntent()) }
+        } else {
+            context.startActivity(intent(context, GuideKind.Spotify))
+        }
+    }
+
+    /**
      * Shows the [kind] guide and suspends until it has floated into the corner (or given up), so whatever Yoin
-     * opens next lands beneath it. Already showing: back to its first step at once.
+     * opens next lands beneath it. Already in the corner: back to its first step at once. Open but not in the
+     * corner (a window left behind) is launched again, which starts it over.
      */
     suspend fun openAndAwaitReady(context: Context, kind: GuideKind): Boolean {
-        if (openKind.value == kind) {
+        if (floatingKind.value == kind) {
             showStep(0)
             return true
         }
-        if (openKind.value != null) {
+        val other = openKind.value
+        if (other != null && other != kind) {
             // The other guide is the same singleTask activity: let it go first, or this launch would reach the
             // dying instance and the new kind would be lost.
             finishIfOpen()
@@ -302,6 +405,15 @@ internal object ConnectGuide {
 
     internal fun closed(kind: GuideKind) {
         if (openKind.value == kind) openKind.value = null
+        cornerChanged(kind, inCorner = false)
+    }
+
+    internal fun cornerChanged(kind: GuideKind, inCorner: Boolean) {
+        if (inCorner) {
+            floatingKind.value = kind
+        } else if (floatingKind.value == kind) {
+            floatingKind.value = null
+        }
     }
 
     private const val READY_TIMEOUT_MS = 3_000L

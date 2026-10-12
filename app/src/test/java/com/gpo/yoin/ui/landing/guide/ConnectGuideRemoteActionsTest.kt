@@ -1,11 +1,16 @@
 package com.gpo.yoin.ui.landing.guide
 
+import android.app.ActivityOptions
 import android.app.RemoteAction
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import androidx.test.core.app.ApplicationProvider
+import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,9 +26,17 @@ class ConnectGuideRemoteActionsTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
 
-    /** The command the action broadcasts when tapped, read back from its PendingIntent. */
+    /** The command the action sends when tapped, read back from its PendingIntent. */
     private fun RemoteAction.command(): String? {
-        val sent = shadowOf(actionIntent).savedIntent
+        val pending = shadowOf(actionIntent)
+        val sent = pending.savedIntent
+        if (pending.isActivityIntent) {
+            // Only "back to Yoin" starts an activity: the guide window itself, which the system then expands.
+            assertTrue(sent.isGuideReturn())
+            assertEquals(ConnectGuideActivity::class.java.name, sent.component?.className)
+            return GuideCommand.Return.name
+        }
+        assertTrue(pending.isBroadcastIntent)
         assertEquals(ACTION_GUIDE, sent.action)
         assertEquals(context.packageName, sent.`package`)
         return sent.getStringExtra(EXTRA_COMMAND)
@@ -82,6 +95,34 @@ class ConnectGuideRemoteActionsTest {
         }
     }
 
+    @Suppress("DEPRECATION") // MODE_BACKGROUND_ACTIVITY_START_ALLOWED below 36
+    @Test
+    fun should_launchTheGuideWindowNotYoin_when_backToYoinIsTapped() {
+        // P10-1: a broadcast left the start of Yoin to a window that only floats, which Android 17 blocks.
+        val actions = guideRemoteActions(context, GuideKind.Spotify, SpotifyGuideSteps.lastIndex, max = 3)
+        val back = actions[1]
+        assertTrue(back.isEnabled)
+        val pending = shadowOf(back.actionIntent)
+        assertTrue(pending.isActivityIntent)
+        assertTrue(pending.isImmutable)
+        val sent = pending.savedIntent
+        assertEquals(ConnectGuideActivity::class.java.name, sent.component?.className)
+        assertNotEquals(MainActivity::class.java.name, sent.component?.className)
+        assertTrue(sent.isGuideReturn())
+        assertTrue(sent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        // The creator opts in to lending its own right to start activities (Android 15 on asks for it).
+        val sdk = Build.VERSION.SDK_INT
+        val expectedMode = when {
+            sdk >= Build.VERSION_CODES.BAKLAVA -> ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+            sdk >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            else -> null
+        }
+        assertEquals(expectedMode, pending.options?.getInt(CREATOR_MODE_KEY))
+        // ‹ and › still go to the open window as broadcasts.
+        assertTrue(shadowOf(actions[0].actionIntent).isBroadcastIntent)
+        assertTrue(shadowOf(actions[2].actionIntent).isBroadcastIntent)
+    }
+
     @Test
     fun should_neverHandTheSystemMoreThanItsLimit_when_itTakesFewerActions() {
         (1..GUIDE_ACTION_SLOT_COUNT).forEach { max ->
@@ -93,5 +134,10 @@ class ConnectGuideRemoteActionsTest {
             }
             assertEquals(max, guideRemoteActions(context, GuideKind.AppleMusic, 0, max).size)
         }
+    }
+
+    private companion object {
+        /** Where ActivityOptions.toBundle() keeps the creator's mode (framework source, ActivityOptions.java). */
+        const val CREATOR_MODE_KEY = "android.activity.pendingIntentCreatorBackgroundActivityStartMode"
     }
 }
