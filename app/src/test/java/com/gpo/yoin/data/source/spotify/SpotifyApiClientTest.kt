@@ -15,6 +15,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import okhttp3.Call
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -592,6 +594,32 @@ class SpotifyApiClientTest {
         assertTrue(newest.body.readUtf8().contains("spotify:track:new"))
     }
 
+    @Test
+    fun should_cancelDeviceLookupPromptly_when_headersArrivedButTheBodyIsStalled() = runTest {
+        val bodyStarted = CountDownLatch(1)
+        val httpClient = OkHttpClient.Builder().eventListener(object : EventListener() {
+            override fun responseBodyStart(call: Call) {
+                bodyStarted.countDown()
+            }
+        }).build()
+        server.enqueue(MockResponse().setBody("""{"devices":[]}""").throttleBody(7, 3, TimeUnit.SECONDS))
+        server.enqueue(MockResponse().setResponseCode(204))
+        val client = newClient(
+            credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            httpClient = httpClient
+        )
+        val old = launch(Dispatchers.IO) { client.listDevices() }
+        withContext(Dispatchers.IO) { assertTrue(bodyStarted.await(2, TimeUnit.SECONDS)) }
+
+        withContext(Dispatchers.IO) {
+            withTimeout(2_000L) {
+                old.cancelAndJoin()
+                client.startPlayback(uris = listOf("spotify:track:new"))
+            }
+        }
+        assertEquals(2, server.requestCount)
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun playlistItemsPage(offset: Int, size: Int, total: Int): String {
@@ -606,8 +634,8 @@ class SpotifyApiClientTest {
         rateLimitGate: SpotifyRateLimitGate? = null,
         profileId: String? = null,
         readPermits: Semaphore = Semaphore(4),
+        httpClient: OkHttpClient = OkHttpClient.Builder().build()
     ): SpotifyApiClient {
-        val httpClient = OkHttpClient.Builder().build()
         val baseUrl = server.url("/")
         val authService = SpotifyAuthService(
             httpClient = httpClient,

@@ -3,13 +3,17 @@ package com.gpo.yoin.data.source.spotify
 import com.gpo.yoin.data.profile.ProfileCredentials
 import java.io.IOException
 import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -631,23 +635,43 @@ class SpotifyApiClient(
         results.take(maxItems)
     }
 
-    private suspend fun <T> getDecoded(url: HttpUrl, deserializer: KSerializer<T>, lane: Lane = Lane.Read): T {
-        ensureNotRateLimited(url.toString())
-        val response = executeWithAuthRetry(url.toString(), lane) { accessToken ->
-            val req = Request.Builder()
-                .url(url)
-                .header("Authorization", "Bearer $accessToken")
-                .build()
-            httpClient.newCall(req).awaitResponse()
-        }
-        response.use {
-            val body = it.body.string()
-            if (!it.isSuccessful) {
-                throw it.toSpotifyFailure(url.toString())
+    private suspend fun <T> getDecoded(url: HttpUrl, deserializer: KSerializer<T>, lane: Lane = Lane.Read): T =
+        coroutineScope {
+            // awaitResponse covers headers. Keep cancellation tied to the Call while body.string()
+            // reads too, so a stalled devices body cannot delay the user's next playback request.
+            val reading = AtomicReference<Call?>(null)
+            val cancelRead = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    reading.getAndSet(null)?.cancel()
+                }
             }
-            return JSON.decodeFromString(deserializer, body)
+            try {
+                ensureNotRateLimited(url.toString())
+                val response = executeWithAuthRetry(url.toString(), lane) { accessToken ->
+                    val req = Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer $accessToken")
+                        .build()
+                    httpClient.newCall(req).also(reading::set).awaitResponse()
+                }
+                response.use {
+                    val body = it.body.string()
+                    if (!it.isSuccessful) {
+                        throw it.toSpotifyFailure(url.toString())
+                    }
+                    JSON.decodeFromString(deserializer, body)
+                }
+            } catch (error: IOException) {
+                // Call.cancel aborts a blocking body read with IOException; preserve coroutine cancellation.
+                currentCoroutineContext().ensureActive()
+                throw error
+            } finally {
+                reading.set(null)
+                cancelRead.cancel()
+            }
         }
-    }
 
     private fun Response.toSpotifyFailure(endpoint: String): Throwable {
         if (code == HTTP_TOO_MANY_REQUESTS) {
