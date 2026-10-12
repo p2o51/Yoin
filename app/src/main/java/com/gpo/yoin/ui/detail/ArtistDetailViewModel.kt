@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
@@ -77,14 +78,17 @@ class ArtistDetailViewModel(
                 // The visit row feeds Home's activity and the widgets, not this page:
                 // Content doesn't wait on the Room insert.
                 launch { repository.recordArtistVisit(artist) }
+                // Newest first on every provider: the "Latest" tag, the year column,
+                // Play's queue and this preload all read this order.
+                val releases = artist.albums.newestReleasesFirst()
                 // Preload the newest releases so tapping a row opens instantly.
-                artist.albums.take(6).forEach { album -> repository.prefetchAlbum(album.id) }
+                releases.take(6).forEach { album -> repository.prefetchAlbum(album.id) }
                 _uiState.value = ArtistDetailUiState.Content(
                     artistId = artist.id.toString(),
                     artistName = artist.name,
                     heroCoverArtUrl = artist.coverArt?.let { repository.resolveCoverUrl(it) },
                     isStarred = artist.isStarred,
-                    albums = artist.albums.map { album ->
+                    albums = releases.map { album ->
                         ArtistAlbum(
                             id = album.id.toString(),
                             name = album.name,
@@ -252,6 +256,45 @@ class ArtistDetailViewModel(
             ArtistDetailViewModel(artistId, container.repository) as T
     }
 }
+
+/**
+ * The artist page's Play ([shuffle] false) or Shuffle, in a window or the
+ * Wide column alike. [com.gpo.yoin.player.PlaybackManager] reads the queue
+ * ([ArtistDetailViewModel.getPlayTracks]) and starts it, so a rotation that
+ * rebuilds the page while the releases load doesn't drop the tap, and a play
+ * started meanwhile isn't overtaken when the reads land.
+ */
+internal fun ArtistDetailViewModel.playArtist(container: AppContainer, shuffle: Boolean) {
+    val source = container.profileManager.activeSource.value ?: return
+    container.playbackManager.playWhenLoaded(
+        source = source,
+        activityContext = playbackContext(),
+        // Play / Shuffle pick no song: an Apple Music import first in line
+        // gives way to the next that plays.
+        explicitStart = false
+    ) {
+        // Already in play order: Shuffle's order is drawn before its albums load.
+        getPlayTracks(shuffle)
+    }
+}
+
+/**
+ * An artist's releases newest first, whatever order the provider lists them
+ * in: Spotify sorts them, Subsonic and Apple Music pass the server's order on
+ * (Navidrome lists an artist's albums oldest first, by date inside a year).
+ * Only the year is known, so a list that reads oldest first (its first dated
+ * release older than its last) is turned round before the sort: releases of
+ * one year then come out newest first too. Any other list keeps its order
+ * inside a year. A release without a year goes last.
+ */
+internal fun List<Album>.newestReleasesFirst(): List<Album> {
+    val years = mapNotNull { album -> album.releaseYear() }
+    val listedOldestFirst = years.isNotEmpty() && years.first() < years.last()
+    return (if (listedOldestFirst) asReversed() else this)
+        .sortedByDescending { album -> album.releaseYear() ?: Int.MIN_VALUE }
+}
+
+private fun Album.releaseYear(): Int? = year?.takeIf { it > 0 }
 
 /**
  * The artist as a play's "playing from" context. The id is the full [MediaId]

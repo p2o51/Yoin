@@ -886,11 +886,15 @@ class NowPlayingViewModel(
         }
     }
 
+    /**
+     * Writes the rating the bar committed (once per press, NowPlayingRatingBar).
+     * Not in this window's scope: the repository stores it at once and pushes
+     * it on its own ([YoinRepository.setRating]), so a slow provider never
+     * holds the stored rating back and closing this window drops neither.
+     */
     fun setRating(rating: Float) {
         val songId = currentSongId.value ?: return
-        viewModelScope.launch {
-            repository.setRating(songId, rating)
-        }
+        repository.setRating(songId, rating)
     }
 
     fun toggleFavorite() {

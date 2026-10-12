@@ -995,9 +995,10 @@ private enum class DiscographyFilter {
 }
 
 /**
- * Every release, newest first, as a timeline: a year column marks where a
- * year begins, each row carries the release kind and track count, and the
- * newest one is tagged "Latest". Kind filters appear only when the provider
+ * Every release, newest first ([newestReleasesFirst], whatever order the
+ * provider gave), as a timeline: a year column marks where a year begins,
+ * each row carries the release kind and track count, and the newest one is
+ * tagged "Latest". Kind filters appear only when the provider
  * reports at least two kinds.
  * The first [DiscographyCollapsedCount] rows show; the rest expand in place.
  */

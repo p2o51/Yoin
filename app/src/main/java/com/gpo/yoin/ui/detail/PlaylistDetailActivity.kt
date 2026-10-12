@@ -30,6 +30,7 @@ import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.navigation.trackCoverArtId
@@ -150,6 +151,23 @@ class PlaylistDetailActivity : ComponentActivity() {
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
 
+                // Now Playing in this window opens the page it names over this one. When it
+                // names this page (this playlist's "Playing from"), the page is revealed instead.
+                fun openFromNowPlaying(kind: DetailPageKind, id: String) {
+                    openFromHostedNowPlaying(
+                        requested = kind,
+                        requestedId = id,
+                        shown = DetailPageKind.Playlist,
+                        shownIds = listOf(playlistId, (uiState as? PlaylistDetailUiState.Content)?.playlistId),
+                        panelAvailable = nowPlayingFrame.panelAvailable,
+                        onStepBackToPanel = { nowPlayingViewModel.setMediumFullscreen(false) },
+                        onCollapse = { nowPlayingOpen = false }
+                    ) {
+                        YoinPerf.detailClick(kind.perfKind, id, via = "push")
+                        launchChildDetail(kind.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
+                    }
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                         PlaylistDetailScreen(
@@ -216,15 +234,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
-                    onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
-                    },
+                    onAlbumClick = { id -> openFromNowPlaying(DetailPageKind.Album, id) },
+                    onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
+                    onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
                 )
                 NowPlayingAccessories(

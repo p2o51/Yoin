@@ -145,7 +145,6 @@ import com.gpo.yoin.ui.component.NoteWriteBar
 import com.gpo.yoin.ui.component.NoteWriteBarDefaults
 import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.component.QueueSheet
-import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.SongInfoDisplay
 import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.WaveProgressBar
@@ -223,6 +222,7 @@ fun NowPlayingScreen(
     onTranslateLyrics: () -> Unit = {},
     onApplyLyrics: (String) -> Unit = {},
     onLyricsMessage: (String) -> Unit = {},
+    // Once per press on the rating bar, with the value it lifts at (NowPlayingRatingBar).
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onAddCurrentToLibrary: () -> Unit = {},
@@ -1551,9 +1551,10 @@ private fun CompactPlayingContent(
                                             translationX = 72.dp.toPx() * ratingRetreatProgress
                                         },
                                 ) {
-                                    RatingSlider(
+                                    NowPlayingRatingBar(
+                                        songId = state.songId,
                                         rating = state.rating,
-                                        onRatingChange = onRatingChange,
+                                        onRatingCommit = onRatingChange,
                                         modifier = Modifier.weight(1f),
                                     )
 
@@ -2346,9 +2347,10 @@ private fun WidePlayingContent(
                                 .weight(1f)
                                 .height(48.dp),
                         ) {
-                            RatingSlider(
+                            NowPlayingRatingBar(
+                                songId = state.songId,
                                 rating = state.rating,
-                                onRatingChange = onRatingChange,
+                                onRatingCommit = onRatingChange,
                                 orientation = Orientation.Horizontal,
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -2901,9 +2903,10 @@ private fun LandscapePlayingContent(
                             .weight(1f)
                             .height(48.dp),
                     ) {
-                        RatingSlider(
+                        NowPlayingRatingBar(
+                            songId = state.songId,
                             rating = state.rating,
-                            onRatingChange = onRatingChange,
+                            onRatingCommit = onRatingChange,
                             orientation = Orientation.Horizontal,
                             modifier = Modifier.fillMaxSize(),
                         )

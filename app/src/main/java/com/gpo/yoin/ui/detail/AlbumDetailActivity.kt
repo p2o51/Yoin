@@ -165,6 +165,23 @@ class AlbumDetailActivity : ComponentActivity() {
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
 
+                // Now Playing in this window opens the page it names over this one. When it
+                // names this page (this album's title or "Playing from"), the page is revealed instead.
+                fun openFromNowPlaying(kind: DetailPageKind, id: String) {
+                    openFromHostedNowPlaying(
+                        requested = kind,
+                        requestedId = id,
+                        shown = DetailPageKind.Album,
+                        shownIds = listOf(albumId, (uiState as? AlbumDetailUiState.Content)?.albumId),
+                        panelAvailable = nowPlayingFrame.panelAvailable,
+                        onStepBackToPanel = { nowPlayingViewModel.setMediumFullscreen(false) },
+                        onCollapse = { nowPlayingOpen = false }
+                    ) {
+                        YoinPerf.detailClick(kind.perfKind, id, via = "push")
+                        launchChildDetail(kind.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
+                    }
+                }
+
                 // ▾: Play next, Add to queue, Add to playlist, Save to / Remove from
                 // library (Spotify), Open in …; Share carries the link.
                 val webLink = rememberDetailWebLink(app.container, WebLinkKind.Album, albumId)
@@ -276,15 +293,9 @@ class AlbumDetailActivity : ComponentActivity() {
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
-                    onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
-                    },
+                    onAlbumClick = { id -> openFromNowPlaying(DetailPageKind.Album, id) },
+                    onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
+                    onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
                 )
                 NowPlayingAccessories(
