@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextReplacement
@@ -84,6 +85,29 @@ class ServiceSetupSubsonicFormTest {
 
         field("qa2").assertExists()
         field(USERNAME).assertDoesNotExist()
+    }
+
+    @Test
+    fun should_keepWhatWasTyped_when_thePageComesBackAfterItsProcessWent() {
+        val restoration = StateRestorationTester(rule)
+        state = managing(stored())
+        restoration.setContent {
+            YoinTheme {
+                ServiceSetupContent(state = state, onBackClick = {})
+            }
+        }
+        rule.waitForIdle()
+        field(USERNAME).performTextReplacement("qa2")
+
+        // A new process: its page starts unloaded, then reads the same stored values.
+        state = managing(SubsonicFormState(loaded = false))
+        restoration.emulateSavedInstanceStateRestore()
+        state = managing(stored())
+        rule.waitForIdle()
+
+        field("qa2").assertExists()
+        field(USERNAME).assertDoesNotExist()
+        field(SERVER).assertExists()
     }
 
     private fun stored() = SubsonicFormState(
