@@ -10,12 +10,14 @@ import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.contentcapture.ContentCaptureManager
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.window.embedding.RuleController
 import androidx.window.embedding.SplitController
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
+import com.gpo.yoin.ui.component.ArtworkForegroundRetry
 import com.gpo.yoin.ui.component.ArtworkNetworkRecovery
 import com.gpo.yoin.ui.component.ArtworkRetrySignal
 import com.gpo.yoin.widget.WidgetRefresher
@@ -51,6 +53,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         container = containerOverrideForTests ?: AppContainer(this)
         retireLegacyImageDiskCache(cacheDir)
         registerArtworkNetworkRetry()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(ArtworkForegroundRetry())
         registerHostLifecycle()
         registerActivityEmbeddingRules()
         if (containerOverrideForTests == null) WidgetRefresher.start(this, container)
@@ -119,8 +122,8 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
      * separate Activities, individual hosts can pause or stop during handoffs;
      * counting started activities keeps the remote connected as long as ANY
      * Yoin Activity is foregrounded, and only tears it down when the last one
-     * stops (the app is actually backgrounded). Coming to the foreground also
-     * retries failed artwork.
+     * stops (the app is actually backgrounded). Artwork separately observes
+     * process resume: a quick return can happen before the Activity stops.
      */
     private fun registerHostLifecycle() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
@@ -130,7 +133,6 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
                 if (started.onStarted()) {
                     container.playbackManager.onHostStart(activity)
                     container.cloudSync.onAppForeground()
-                    ArtworkRetrySignal.bump()
                 }
             }
 
