@@ -101,9 +101,9 @@ class ShadowReturnAuditActivity : ComponentActivity() {
                 // YoinNavHost's reverse-morph backstop, verbatim.
                 LaunchedEffect(lifecycleOwner) {
                     lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                        store.detailWindowSettledTick
+                        store.detailWindowSettledGeneration
                             .drop(1)
-                            .collect { store.setDetailChromeActive(false) }
+                            .collect { generation -> generation?.let(store::endDetailHandoff) }
                     }
                 }
                 Box(Modifier.fillMaxSize()) {

@@ -25,7 +25,8 @@ private val Activity.launchedFromShell: Boolean
  * the shell pose while its outer detail is still on screen.
  */
 internal fun Activity.publishShellHandoffSettled() {
-    if (isFinishing && launchedFromShell) sessionStore.noteDetailWindowSettled()
+    if (!isFinishing || !launchedFromShell || !intent.hasExtra(DETAIL_EXTRA_HANDOFF_GENERATION)) return
+    sessionStore.noteDetailWindowSettled(intent.getLongExtra(DETAIL_EXTRA_HANDOFF_GENERATION, 0L))
 }
 
 /**
@@ -38,7 +39,12 @@ internal fun Activity.publishShellHandoffSettled() {
  * the detail bar. A recreation keeps it: the same window comes back.
  */
 internal fun Activity.retireShellHandoff() {
-    if (!isFinishing || isChangingConfigurations || !launchedFromShell) return
-    if (!intent.hasExtra(DETAIL_EXTRA_HANDOFF_GENERATION)) return
+    if (!isFinishing || isChangingConfigurations) return
+    endShellHandoff()
+}
+
+/** Explicit page exits retire only this window's hand-off, just like lifecycle cleanup. */
+internal fun Activity.endShellHandoff() {
+    if (!launchedFromShell || !intent.hasExtra(DETAIL_EXTRA_HANDOFF_GENERATION)) return
     sessionStore.endDetailHandoff(intent.getLongExtra(DETAIL_EXTRA_HANDOFF_GENERATION, 0L))
 }

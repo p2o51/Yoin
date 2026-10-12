@@ -100,4 +100,56 @@ class DetailShellHandoffTest {
         assertTrue(store.state.value.detailChromeActive)
         assertEquals(1f, store.shellBarChromeMorph.value)
     }
+
+    @Test
+    fun should_keepHandoff_when_nestedDetailStopsAndIsDestroyed() {
+        val outer = Robolectric.buildActivity(AlbumDetailActivity::class.java, launchAlbumFromShell()).create().get()
+        launchDetailFromDetail(outer, ArtistDetailActivity.intent(outer, "subsonic:artist:1"), fromNowPlaying = false)
+        val nestedIntent = shadowOf(outer).nextStartedActivity
+        val nested = Robolectric.buildActivity(ArtistDetailActivity::class.java, nestedIntent).create()
+
+        nested.get().finish()
+        nested.get().publishShellHandoffSettled()
+        nested.destroy()
+
+        assertTrue(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_keepNextHandoff_when_earlierDetailStopsLate() {
+        val earlier = Robolectric.buildActivity(AlbumDetailActivity::class.java, launchAlbumFromShell()).create()
+        launchAlbumFromShell()
+
+        earlier.get().finish()
+        earlier.get().publishShellHandoffSettled()
+        store.detailWindowSettledGeneration.value?.let(store::endDetailHandoff)
+
+        assertTrue(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_keepHandoff_when_aSecondMainActivityIsCreated() {
+        Robolectric.buildActivity(MainActivity::class.java).create()
+        store.beginDetailHandoff()
+        runBlocking { store.shellBarChromeMorph.snapTo(1f) }
+
+        Robolectric.buildActivity(MainActivity::class.java).create()
+
+        assertTrue(store.state.value.detailChromeActive)
+        assertEquals(1f, store.shellBarChromeMorph.value)
+    }
+
+    @Test
+    fun should_resetPose_when_aNewMainActivityReplacesTheDestroyedTask() {
+        val shell = Robolectric.buildActivity(MainActivity::class.java).create()
+        store.beginDetailHandoff()
+        runBlocking { store.shellBarChromeMorph.snapTo(1f) }
+        shell.get().finish()
+        shell.destroy()
+
+        Robolectric.buildActivity(MainActivity::class.java).create()
+
+        assertFalse(store.state.value.detailChromeActive)
+        assertEquals(0f, store.shellBarChromeMorph.value)
+    }
 }

@@ -54,9 +54,9 @@ class BarMorphPreviewActivity : ComponentActivity() {
                 val lifecycleOwner = LocalLifecycleOwner.current
                 LaunchedEffect(lifecycleOwner) {
                     lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                        app.container.experienceSessionStore.detailWindowSettledTick
+                        app.container.experienceSessionStore.detailWindowSettledGeneration
                             .drop(1)
-                            .collect { store.setDetailChromeActive(false) }
+                            .collect { generation -> generation?.let(store::endDetailHandoff) }
                     }
                 }
                 // Mirror the real shell's single-owner bar pose (open morph +

@@ -157,4 +157,70 @@ class ExperienceSessionStoreTest {
         assertEquals(0f, store.detailBackTouchYDelta.floatValue)
         assertNull(store.windowBeneathRevealed.value)
     }
+
+    @Test
+    fun should_ignoreSettledEvent_when_anEarlierDetailStopsAfterTheNextLaunch() {
+        val stale = store.beginDetailHandoff()
+        store.beginDetailHandoff()
+
+        store.noteDetailWindowSettled(stale)
+
+        assertNull(store.detailWindowSettledGeneration.value)
+        assertTrue(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_keepNewHandoff_when_acceptedSettledEventIsCollectedAfterTheNextLaunch() {
+        val stale = store.beginDetailHandoff()
+        store.noteDetailWindowSettled(stale)
+        val emitted = requireNotNull(store.detailWindowSettledGeneration.value)
+        store.beginDetailHandoff()
+
+        store.endDetailHandoff(emitted)
+
+        assertTrue(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_keepLiveHandoff_when_anotherFreshShellIsCreated() = runBlocking {
+        store.attachShellHandoffHost("first", restored = false)
+        val generation = store.beginDetailHandoff()
+        store.shellBarChromeMorph.snapTo(1f)
+
+        store.attachShellHandoffHost("second", restored = false)
+
+        assertEquals(generation, store.detailHandoffGeneration)
+        assertTrue(store.state.value.detailChromeActive)
+        assertEquals(1f, store.shellBarChromeMorph.value)
+    }
+
+    @Test
+    fun should_keepLiveHandoff_when_shellIsRecreated() = runBlocking {
+        store.attachShellHandoffHost("shell", restored = false)
+        val generation = store.beginDetailHandoff()
+        store.shellBarChromeMorph.snapTo(1f)
+
+        store.detachShellHandoffHost("shell", changingConfigurations = true)
+        store.attachShellHandoffHost("shell", restored = true)
+
+        assertEquals(generation, store.detailHandoffGeneration)
+        assertTrue(store.state.value.detailChromeActive)
+        assertEquals(1f, store.shellBarChromeMorph.value)
+    }
+
+    @Test
+    fun should_invalidateOrphanedHandoff_when_aFreshShellReplacesTheRemovedTask() = runBlocking {
+        store.attachShellHandoffHost("removed", restored = false)
+        val stale = store.beginDetailHandoff()
+        store.noteDetailEnterSlideStarted()
+        store.shellBarChromeMorph.snapTo(1f)
+        store.detachShellHandoffHost("removed", changingConfigurations = false)
+
+        store.attachShellHandoffHost("new-task", restored = false)
+
+        assertNotEquals(stale, store.detailHandoffGeneration)
+        assertFalse(store.state.value.detailChromeActive)
+        assertEquals(0f, store.shellBarChromeMorph.value)
+        assertEquals(store.detailEnterSlideTick.value, store.detailEnterSlideBaseline)
+    }
 }

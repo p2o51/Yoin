@@ -209,10 +209,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     onLeavePage = {
                         // Pre-morph the covered shell bar to nav chrome so the reveal
                         // after the dissolve matches the scrubbed detail bar.
-                        if (intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-                            (application as YoinApplication).container.experienceSessionStore
-                                .setDetailChromeActive(false)
-                        }
+                        endShellHandoff()
                         finish()
                     },
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||

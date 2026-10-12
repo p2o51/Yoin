@@ -225,8 +225,11 @@ Anatomy (all infra, never re-implemented in feature screens):
    `beginDetailHandoff()` (a generation stamped on the intent as
    `DETAIL_EXTRA_HANDOFF_GENERATION`), the outer detail retires exactly its own
    generation in its finishing onDestroy (`ui/detail/DetailShellHandoff.kt` —
-   a window already stopped never sends the settled tick), and a brand-new
-   MainActivity calls `resetDetailHandoff()` before its first frame. Ticket 4
+   a window already stopped never sends the settled event). The first fresh MainActivity after the previous shell windows are destroyed
+   resets the hand-off before its first frame. Shell host keys survive recreation;
+   a second live MainActivity must not reset the first shell's hand-off. Settled
+   events carry their generation too, and the shell compares it at collection
+   time: an old event cannot retire a newer detail. Ticket 4
    (S26, 2026-10): without this, reopening after a swipe showed Home 96dp to
    the left under the detail bar.
 6. **Translucency dance** (all inside the infra): gesture start →

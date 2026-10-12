@@ -129,6 +129,20 @@ class ExperienceSessionStore {
         }
     }
 
+    // Logical shell windows, retained across configuration recreation by MainActivity's saved key.
+    // A second MainActivity must not erase a hand-off still owned by the first one.
+    private val shellHandoffHosts = mutableSetOf<String>()
+
+    suspend fun attachShellHandoffHost(key: String, restored: Boolean) {
+        val needsReset = shellHandoffHosts.isEmpty() && !restored
+        shellHandoffHosts += key
+        if (needsReset) resetDetailHandoff()
+    }
+
+    fun detachShellHandoffHost(key: String, changingConfigurations: Boolean) {
+        if (!changingConfigurations) shellHandoffHosts -= key
+    }
+
     // ── Shell → detail hand-off lifetime ───────────────────────────────────
     // This store lives as long as the PROCESS, which a playing service keeps
     // alive after the task is swiped away; a hand-off belongs to one detail
@@ -166,13 +180,16 @@ class ExperienceSessionStore {
     }
 
     /**
-     * A brand-new shell window has nothing above it, so nothing an earlier
+     * The first fresh shell after the previous shells are destroyed has nothing above it, so nothing an earlier
      * shell's hand-off left behind may read as live: nav chrome, back phase Idle
      * with a clean pose, no window being revealed, and the bar pose at nav before
      * the shell's first frame (no owner animates it until the shell composes, so
      * a stale detail pose would otherwise morph back in view).
      */
     suspend fun resetDetailHandoff() {
+        // Invalidate late callbacks from the retired task, including an already-emitted settled event.
+        detailHandoffGeneration += 1L
+        prepareDetailEnterSlide()
         setDetailChromeActive(false)
         detailBackPhase.value = DetailBackPhase.Idle
         detailBackProgress.floatValue = 0f
@@ -182,16 +199,15 @@ class ExperienceSessionStore {
     }
 
     /**
-     * Ticks when the outer, shell-launched detail Activity has actually LEFT
-     * the screen (its finishing onStop — the system holds that until the exit
-     * animation ends). Inner detail windows do not publish this tick, so they
-     * cannot retire the shell hand-off while their parent detail remains.
+     * The generation of the outer, shell-launched detail that has LEFT the screen (its finishing
+     * onStop, after the exit animation). Inner and stale windows cannot publish it. Consumers also
+     * compare the generation: a new hand-off may have begun since this event was emitted.
      */
-    private val _detailWindowSettledTick = MutableStateFlow(0L)
-    val detailWindowSettledTick: StateFlow<Long> = _detailWindowSettledTick.asStateFlow()
+    private val _detailWindowSettledGeneration = MutableStateFlow<Long?>(null)
+    val detailWindowSettledGeneration: StateFlow<Long?> = _detailWindowSettledGeneration.asStateFlow()
 
-    fun noteDetailWindowSettled() {
-        _detailWindowSettledTick.update { it + 1L }
+    fun noteDetailWindowSettled(generation: Long) {
+        if (generation == detailHandoffGeneration) _detailWindowSettledGeneration.value = generation
     }
 
     /**

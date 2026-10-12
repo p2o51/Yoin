@@ -802,9 +802,9 @@ private fun YoinShell(
     // (DetailShellHandoff.kt), and a new shell starts clean (MainActivity).
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            experienceSessionStore.detailWindowSettledTick
+            experienceSessionStore.detailWindowSettledGeneration
                 .drop(1)
-                .collect { experienceSessionStore.setDetailChromeActive(false) }
+                .collect { generation -> generation?.let(experienceSessionStore::endDetailHandoff) }
         }
     }
     val snackbarHostState = remember { SnackbarHostState() }
