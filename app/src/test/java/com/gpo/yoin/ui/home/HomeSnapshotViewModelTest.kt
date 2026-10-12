@@ -794,6 +794,36 @@ class HomeSnapshotViewModelTest {
     }
 
     @Test
+    fun should_clearTheSnapshotsBlockOnDisk_when_itsReadLandsEmptyOverAFeedBuiltEmpty() = runTest {
+        // A load built from nothing; Your Playlists' read lands last, and
+        // empty (every playlist deleted on the server). Nothing up changes
+        // — the feed was built without any — so nothing is published, yet
+        // the read is in: the file's playlists go, as an empty read clears
+        // a block, rather than come back on the next cold start.
+        val profile = "snapshot-unpainted-playlists-emptied"
+        seed(profile, MediaId.PROVIDER_SUBSONIC, snapshotFeed())
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SUBSONIC))
+        val playlists = CompletableDeferred<List<Playlist>>()
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("fresh-artist")))
+        coEvery { repository.getPlaylists() } coAnswers { playlists.await() }
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store(), layouts = lateLayout())
+
+        advanceTimeBy(1_000 + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        // Out at the first write: the file's playlists stay.
+        assertEquals(listOf("Snap playlist"), store().read(profile)?.feed?.playlists?.map { it.name })
+
+        val published = record(viewModel)
+        playlists.complete(emptyList())
+        advanceTimeBy(HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        assertTrue((viewModel.uiState.value as HomeUiState.Content).playlists.isEmpty())
+        // Only the state already up (the recorder's replay): the read moved nothing on screen.
+        assertEquals(1, published.size)
+        assertEquals(emptyList<String>(), store().read(profile)?.feed?.playlists?.map { it.name })
+    }
+
+    @Test
     fun should_paintTheIncomingAccountsSnapshot_when_aSwitchCommits() = runTest {
         val outgoing = "snapshot-switch-a"
         val incoming = "snapshot-switch-b"

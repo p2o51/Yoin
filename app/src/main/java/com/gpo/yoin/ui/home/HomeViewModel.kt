@@ -1368,7 +1368,9 @@ class HomeViewModel(
          * it carries a block this load just read, so a snapshot it lands on
          * is written back from now on ([markFresh]); a failed read's splice
          * doesn't. [filled]: the network block it brings, read now — no longer
-         * one the content lacks ([unreadBlocks]).
+         * one the content lacks ([unreadBlocks]); written so even when it
+         * changes nothing up (read empty over a feed built empty), or the
+         * write already queued would fill it from the file.
          */
         private fun splice(
             fresh: Boolean = true,
@@ -1379,15 +1381,19 @@ class HomeViewModel(
             if (fresh) markFresh(scopeKey)
             val pending = draft
             if (pending != null) {
-                filled?.let(::markFilled)
+                if (filled != null) markFilled(filled)
                 draft = transform(pending)
                 openIfReady()
                 return
             }
             val latest = contentOf(scopeKey) ?: return
-            filled?.let(::markFilled)
+            val nowRead = filled != null && markFilled(filled)
             val next = transform(latest)
-            if (next != latest) publish(next, perfSrc = null)
+            if (next != latest) {
+                publish(next, perfSrc = null)
+            } else if (nowRead) {
+                keep(scopeKey, providerId, profileId, latest)
+            }
             settleSignals()
         }
 
@@ -1409,8 +1415,12 @@ class HomeViewModel(
             settleSignals()
         }
 
-        private fun markFilled(block: HomeNetworkBlock) {
-            unreadBlocks[scopeKey]?.let { unread -> unreadBlocks[scopeKey] = unread - block }
+        /** [block] is read now; whether it was one [scopeKey]'s content lacked ([unreadBlocks]). */
+        private fun markFilled(block: HomeNetworkBlock): Boolean {
+            val unread = unreadBlocks[scopeKey] ?: return false
+            if (block !in unread) return false
+            unreadBlocks[scopeKey] = unread - block
+            return true
         }
 
         private fun publish(content: HomeUiState.Content, perfSrc: String?) {
