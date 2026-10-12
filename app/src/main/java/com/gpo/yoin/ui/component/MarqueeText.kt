@@ -1,36 +1,41 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.MarqueeDefaults
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 /**
- * Single-line text that marquee-scrolls when it doesn't fit — the standing
- * alternative to wrapping or ellipsising titles (设计规则: 一行显示，超出滚动).
- * Static text stays static; only overflowing text animates, with soft fade
- * masks at the clip edges so the scroll never hard-cuts a glyph.
- * [running] = false holds an overflowing line at its start (clipped, only
- * its end faded) — e.g. until its page has settled. The leading edge only
- * fades once the line actually moves.
+ * Single-line text that scrolls when it doesn't fit, with soft fades at its clip edges.
+ * [running] = false holds an overflowing line at its start until its page has settled.
  */
 @Composable
 internal fun MarqueeText(
@@ -38,68 +43,120 @@ internal fun MarqueeText(
     style: TextStyle,
     color: Color,
     modifier: Modifier = Modifier,
-    running: Boolean = true,
+    running: Boolean = true
 ) {
-    BoxWithConstraints(modifier = modifier) {
-        val textMeasurer = rememberTextMeasurer()
-        val density = LocalDensity.current
-        val availableWidthPx = with(density) { maxWidth.roundToPx() }
-        val shouldMarquee = remember(text, style, availableWidthPx) {
-            if (availableWidthPx <= 0) {
-                false
-            } else {
-                textMeasurer.measure(
-                    text = AnnotatedString(text),
-                    style = style,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    constraints = Constraints(maxWidth = Constraints.Infinity),
-                ).size.width > availableWidthPx
+    // Keep the fade's initial phase and basicMarquee's offset together, including replacements
+    // with the same measured width. Color changes alone must not restart a playing title.
+    val density = LocalDensity.current
+    key(text, style, density, LocalLayoutDirection.current, running) {
+        val viewport = remember { MarqueeViewport(density) }
+        LaunchedEffect(viewport) {
+            snapshotFlow { viewport.animationTarget }.collectLatest { target ->
+                viewport.movingTarget = null
+                if (running && target != null) {
+                    delay(MarqueeInitialDelayMs.toLong())
+                    viewport.movingTarget = target
+                }
             }
+        }
+        Text(
+            text = text,
+            style = style,
+            color = color,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+            modifier = modifier
+                .fillMaxWidth()
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    viewport.containerWidth = placeable.width
+                    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                }
+                .marqueeFade(viewport)
+                .basicMarquee(
+                    iterations = if (running) Int.MAX_VALUE else 0,
+                    repeatDelayMillis = 1800,
+                    initialDelayMillis = MarqueeInitialDelayMs,
+                    spacing = MarqueeDefaults.Spacing
+                )
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    viewport.contentWidth = placeable.width
+                    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                }
+        )
+    }
+}
+
+/**
+ * basicMarquee measures Text unbounded once, then constrains its own viewport. Reuse those
+ * actual sizes instead of subcomposing every card and measuring its text a second time.
+ * These states are observed only by drawing/the phase coroutine, never by composition.
+ */
+private class MarqueeViewport(private val density: Density) {
+    var widths by mutableStateOf(IntSize.Zero)
+        private set
+    var movingTarget by mutableStateOf<Float?>(null)
+
+    // Foundation restarts only when this nullable target changes, not on every pixel of
+    // viewport resize: its fractional spacing can round adjacent widths to the same value.
+    val animationTarget: Float?
+        get() {
+            val measured = widths
+            if (measured.width <= measured.height) return null
+            val spacing = with(MarqueeDefaults.Spacing) {
+                density.calculateSpacing(measured.width, measured.height)
+            }
+            return (measured.width + spacing).toFloat()
         }
 
-        // the leading edge only fades once the line moves (before that a faded first glyph reads as cut off)
-        var moving by remember(text) { mutableStateOf(false) }
-        LaunchedEffect(text, running, shouldMarquee) {
-            moving = false
-            if (running && shouldMarquee) {
-                delay(MarqueeInitialDelayMs.toLong())
-                moving = true
-            }
+    var contentWidth = 0
+        set(value) {
+            if (field == value) return
+            field = value
+            widths = IntSize(value, containerWidth)
         }
-        Box(
-            modifier = when {
-                shouldMarquee && !moving ->
-                    Modifier
-                        .fillMaxWidth()
-                        .clipToBounds()
-                        .edgeFade(end = 18.dp)
-                shouldMarquee ->
-                    Modifier
-                        .fillMaxWidth()
-                        .clipToBounds()
-                        .horizontalFadeMask(edgeWidth = 18.dp)
-                else -> Modifier.fillMaxWidth()
-            },
-        ) {
-            Text(
-                text = text,
-                style = style,
-                color = color,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-                modifier = if (shouldMarquee && running) {
-                    Modifier.basicMarquee(
-                        iterations = Int.MAX_VALUE,
-                        repeatDelayMillis = 1800,
-                        initialDelayMillis = MarqueeInitialDelayMs,
+    var containerWidth = 0
+        set(value) {
+            if (field == value) return
+            field = value
+            widths = IntSize(contentWidth, value)
+        }
+}
+
+private fun Modifier.marqueeFade(viewport: MarqueeViewport): Modifier = drawWithCache {
+    val edge = minOf(18.dp.toPx(), size.width / 2f)
+    val colors = listOf(0f, 0.104f, 0.352f, 0.648f, 0.896f, 1f).map { Color.Black.copy(alpha = it) }
+    val leftMask = Brush.horizontalGradient(colors, startX = 0f, endX = edge)
+    val rightMask = Brush.horizontalGradient(colors.reversed(), startX = size.width - edge, endX = size.width)
+    val layerPaint = Paint()
+    onDrawWithContent {
+        val widths = viewport.widths
+        if (widths.width <= widths.height || edge <= 0f) {
+            drawContent()
+        } else {
+            // Isolate DstIn from the card/background, only when a mask is needed. A fitting
+            // title does not allocate an additional offscreen fade layer.
+            val canvas = drawContext.canvas
+            canvas.saveLayer(Rect(Offset.Zero, size), layerPaint)
+            try {
+                drawContent()
+                val moving = viewport.movingTarget == viewport.animationTarget
+                if (moving || layoutDirection == LayoutDirection.Rtl) {
+                    drawRect(leftMask, size = Size(edge, size.height), blendMode = BlendMode.DstIn)
+                }
+                if (moving || layoutDirection == LayoutDirection.Ltr) {
+                    drawRect(
+                        rightMask,
+                        topLeft = Offset(size.width - edge, 0f),
+                        size = Size(edge, size.height),
+                        blendMode = BlendMode.DstIn
                     )
-                } else {
-                    Modifier
-                },
-            )
+                }
+            } finally {
+                canvas.restore()
+            }
         }
     }
 }

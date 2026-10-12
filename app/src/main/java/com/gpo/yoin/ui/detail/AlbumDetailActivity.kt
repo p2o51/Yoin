@@ -25,6 +25,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
@@ -56,6 +57,8 @@ class AlbumDetailActivity : ComponentActivity() {
     }
 
     private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
+        // The page's load starts at the tap, ahead of this gate (DetailPrefetch.kt).
+        (application as YoinApplication).container.repository.prefetchDetail(intent)
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
             launchDetailFromDetail(this, intent, fromNowPlaying)
@@ -105,7 +108,9 @@ class AlbumDetailActivity : ComponentActivity() {
                         .distinctUntilChanged()
                 }.collectAsState(initial = currentTrackIdSeed)
 
-                fun playFrom(startIndex: Int, shuffle: Boolean) {
+                // explicitStart = false for Play / Shuffle: they pick no song, so an
+                // Apple Music import first in line gives way to the next that plays.
+                fun playFrom(startIndex: Int, shuffle: Boolean, explicitStart: Boolean = true) {
                     val ordered = viewModel.getAlbumSongs()
                     if (ordered.isEmpty()) return
                     val tracks = if (shuffle) ordered.shuffled() else ordered
@@ -125,6 +130,7 @@ class AlbumDetailActivity : ComponentActivity() {
                             source = source,
                             activityContext = activityContext,
                             shuffled = shuffle,
+                            explicitStart = explicitStart,
                         )
                     }
                 }
@@ -159,7 +165,25 @@ class AlbumDetailActivity : ComponentActivity() {
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
 
-                // ▾: Play next, Add to queue, Add to playlist, Open in …; Share carries the link.
+                // Now Playing in this window opens the page it names over this one. When it
+                // names this page (this album's title or "Playing from"), the page is revealed instead.
+                fun openFromNowPlaying(kind: DetailPageKind, id: String) {
+                    openFromHostedNowPlaying(
+                        requested = kind,
+                        requestedId = id,
+                        shown = DetailPageKind.Album,
+                        shownIds = listOf(albumId, (uiState as? AlbumDetailUiState.Content)?.albumId),
+                        panelAvailable = nowPlayingFrame.panelAvailable,
+                        onStepBackToPanel = { nowPlayingViewModel.setMediumFullscreen(false) },
+                        onCollapse = { nowPlayingOpen = false }
+                    ) {
+                        YoinPerf.detailClick(kind.perfKind, id, via = "push")
+                        launchChildDetail(kind.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
+                    }
+                }
+
+                // ▾: Play next, Add to queue, Add to playlist, Save to / Remove from
+                // library (Spotify), Open in …; Share carries the link.
                 val webLink = rememberDetailWebLink(app.container, WebLinkKind.Album, albumId)
                 val menu = rememberDetailMenu(
                     container = app.container,
@@ -168,6 +192,9 @@ class AlbumDetailActivity : ComponentActivity() {
                     tracks = { viewModel.getAlbumSongs() },
                     onMessage = nowPlayingViewModel::postMessage,
                     onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
+                    inLibrary = (uiState as? AlbumDetailUiState.Content)?.librarySaved,
+                    onToggleLibrary = viewModel::toggleLibrarySaved,
+                    queueAvailable = (uiState as? AlbumDetailUiState.Content)?.hasQueueableSongs() == true,
                 )
 
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -182,10 +209,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     onLeavePage = {
                         // Pre-morph the covered shell bar to nav chrome so the reveal
                         // after the dissolve matches the scrubbed detail bar.
-                        if (intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-                            (application as YoinApplication).container.experienceSessionStore
-                                .setDetailChromeActive(false)
-                        }
+                        endShellHandoff()
                         finish()
                     },
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
@@ -204,6 +228,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     },
                     onToggleStar = viewModel::toggleStar,
                     onRetry = viewModel::retry,
+                    onResumed = viewModel::onResumed,
                     onRenameMemoryTitle = viewModel::renameMemoryTitle,
                     onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
                     notedSongIds = notedSongIds,
@@ -218,8 +243,8 @@ class AlbumDetailActivity : ComponentActivity() {
                     onRateSheetClosed = viewModel::onRateSheetClosed,
                     onNeoDbRetry = viewModel::retryNeoDbSync,
                     onNeoDbSignIn = { startActivity(SettingsActivity.intent(this@AlbumDetailActivity, "neodb")) },
-                    onPlayAlbum = { playFrom(startIndex = 0, shuffle = false) },
-                    onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
+                    onPlayAlbum = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+                    onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
                     onShare = {
                         val content = uiState as? AlbumDetailUiState.Content
                         val title = if (content != null) {
@@ -241,6 +266,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     menu = menu,
                     onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->
                         {
+                            YoinPerf.detailClick("artist", artistId, via = "push")
                             launchChildDetail(
                                 ArtistDetailActivity.intent(this@AlbumDetailActivity, artistId),
                             )
@@ -265,15 +291,9 @@ class AlbumDetailActivity : ComponentActivity() {
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
-                    onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
-                    },
+                    onAlbumClick = { id -> openFromNowPlaying(DetailPageKind.Album, id) },
+                    onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
+                    onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
                 )
                 NowPlayingAccessories(
@@ -287,18 +307,16 @@ class AlbumDetailActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Only the outer detail launched from the shell owns this backstop.
-        // With translucent detail windows, MainActivity stays STARTED; letting
-        // an inner detail's onStop publish the tick would clear the shell pose
-        // while its outer detail is still on screen.
-        if (isFinishing && intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-            (application as YoinApplication).container.experienceSessionStore
-                .noteDetailWindowSettled()
-        }
+        publishShellHandoffSettled()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        retireShellHandoff()
     }
 
     companion object {
-        private const val EXTRA_ALBUM_ID = "albumId"
+        internal const val EXTRA_ALBUM_ID = "albumId"
 
         fun intent(context: Context, albumId: String): Intent =
             Intent(context, AlbumDetailActivity::class.java)

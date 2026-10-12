@@ -50,6 +50,49 @@ class SubsonicMappersTest {
     }
 
     @Test
+    fun should_markOwnedByMe_when_ownerIsTheLoginNameInAnyCase() {
+        val stored = SubsonicPlaylist(id = "pl1", name = "Mine", owner = "Alice")
+
+        assertEquals(true, stored.toPlaylist(currentUsername = "alice").ownedByMe)
+        assertEquals(true, stored.toPlaylist(currentUsername = "ALICE").ownedByMe)
+    }
+
+    @Test
+    fun should_markNotOwnedByMe_when_publicPlaylistBelongsToAnotherUser() {
+        val playlist = SubsonicPlaylist(id = "pl1", name = "Shared", owner = "bob", isPublic = true)
+
+        assertEquals(false, playlist.toPlaylist(currentUsername = "alice").ownedByMe)
+    }
+
+    @Test
+    fun should_keepOwnershipApartFromEditing_when_serverMarksOwnPlaylistReadonly() {
+        val playlist = Json.decodeFromString<SubsonicPlaylist>(
+            """{"id":"pl1","name":"Smart","owner":"alice","readonly":true}"""
+        ).toPlaylist(currentUsername = "alice")
+
+        assertFalse(playlist.canWrite)
+        assertEquals(true, playlist.ownedByMe)
+    }
+
+    @Test
+    fun should_leaveOwnershipUnknown_when_serverSendsNoOwner() {
+        val legacy = Json.decodeFromString<SubsonicPlaylist>("""{"id":"pl1","name":"Legacy"}""")
+        val blank = SubsonicPlaylist(id = "pl2", name = "Blank", owner = " ")
+
+        assertNull(legacy.toPlaylist(currentUsername = "alice").ownedByMe)
+        assertNull(blank.toPlaylist(currentUsername = "alice").ownedByMe)
+        // Still editable, as before: ownership and edits are separate questions.
+        assertTrue(legacy.toPlaylist(currentUsername = "alice").canWrite)
+    }
+
+    @Test
+    fun should_leaveOwnershipUnknown_when_loginNameIsUnknown() {
+        val playlist = SubsonicPlaylist(id = "pl1", name = "Mine", owner = "alice")
+
+        assertNull(playlist.toPlaylist(currentUsername = null).ownedByMe)
+    }
+
+    @Test
     fun should_namespace_all_ids_with_subsonic_provider_when_mapping_song() {
         val song = SubsonicSong(
             id = "song-1",

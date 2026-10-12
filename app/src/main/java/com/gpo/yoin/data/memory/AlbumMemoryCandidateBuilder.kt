@@ -82,7 +82,11 @@ class AlbumMemoryCandidateBuilder(
                 }
         }
         albumEvents.forEach { event ->
-            seeds.getOrPut(event.entityId) { AlbumMemorySeed(albumId = event.entityId) }
+            // A play's event names the album by its full id (the play's context: album page,
+            // a memory), a visit's by the raw one, as play history does. One album, one seed:
+            // a `provider:raw` seed would be fetched by an id the source can't serve, every build.
+            val albumId = MediaId.storedRawId(provider, event.entityId)
+            seeds.getOrPut(albumId) { AlbumMemorySeed(albumId = albumId) }
                 .apply {
                     albumName = albumName ?: event.title.takeIf(String::isNotBlank)
                     artistName = artistName ?: event.subtitle.takeIf(String::isNotBlank)
@@ -258,6 +262,7 @@ class AlbumMemoryCandidateBuilder(
         // Rediscover-only seeds never join the Memory pool, whatever they pass.
         val isEligible = seed.inMemoryScan && passesWritingGate && meetsMemoryTrackCount(albumTrackCount)
 
+        val albumCoverUrl = album?.coverArt?.let { cover -> resolveCoverUrl(cover, 480) }
         return AlbumMemoryCandidate(
             profileId = profileId,
             provider = provider,
@@ -280,10 +285,14 @@ class AlbumMemoryCandidateBuilder(
             isMemoryEligible = isEligible,
             year = album?.year,
             durationSeconds = album?.durationSec,
-            coverArtUrl = album?.coverArt?.let { cover -> resolveCoverUrl(cover, 480) }
+            coverArtUrl = albumCoverUrl
                 ?: seed.coverArtId
                     ?.let(CoverRef::fromStorageKey)
                     ?.let { cover -> resolveCoverUrl(cover, 480) },
+            // The key of the cover the URL came from (the album's, else the seed's).
+            coverArtKey = CoverRef.toStorageKey(album?.coverArt).takeIf { albumCoverUrl != null }
+                ?: seed.coverArtId?.takeIf(String::isNotBlank)
+                ?: CoverRef.toStorageKey(album?.coverArt),
             firstPlayedFromHistoryAt = seed.historyFirstPlayedAt,
             lastPlayedFromHistoryAt = seed.historyLastPlayedAt,
             playCountFromHistory = seed.historyPlayCount,

@@ -21,16 +21,6 @@ interface AlbumRatingDao {
 
     @Query(
         "SELECT * FROM album_ratings " +
-            "WHERE profileId = :profileId AND albumId IN (:albumIds) AND provider = :provider",
-    )
-    suspend fun getAll(
-        albumIds: List<String>,
-        provider: String,
-        profileId: String,
-    ): List<AlbumRating>
-
-    @Query(
-        "SELECT * FROM album_ratings " +
             "WHERE profileId = :profileId AND provider = :provider " +
             "AND (ratingNeedsSync = 1 OR reviewNeedsSync = 1)",
     )

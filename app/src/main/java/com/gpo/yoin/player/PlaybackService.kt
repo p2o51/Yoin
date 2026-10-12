@@ -7,6 +7,9 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -18,11 +21,38 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.remote.SubsonicCacheKey
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+
+/**
+ * Reads a song from [cache] before [upstream], and stores what [upstream]
+ * plays. Every song is stored under [mediaCacheKey].
+ */
+@OptIn(UnstableApi::class)
+internal fun mediaCacheDataSourceFactory(cache: Cache, upstream: DataSource.Factory): CacheDataSource.Factory =
+    CacheDataSource.Factory()
+        .setCache(cache)
+        .setCacheKeyFactory(::mediaCacheKey)
+        .setUpstreamDataSourceFactory(upstream)
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+/**
+ * A song's key in the media cache: [SubsonicCacheKey] for a signed Subsonic
+ * stream url, else Media3's own key (the spec's key, or its url). The stream url
+ * carries a salt drawn per process, so keyed on the url a song one process
+ * stored is never found by the next: it downloads again online, and offline it
+ * does not play although its bytes are on disk.
+ */
+@OptIn(UnstableApi::class)
+internal fun mediaCacheKey(spec: DataSpec): String {
+    spec.key?.let { return it }
+    val url = spec.uri.toString()
+    return SubsonicCacheKey.of(url) ?: url
+}
 
 class PlaybackService : MediaSessionService() {
 
@@ -41,10 +71,7 @@ class PlaybackService : MediaSessionService() {
         cache = simpleCache
 
         val upstreamFactory = OkHttpDataSource.Factory(OkHttpClient())
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(simpleCache)
-            .setUpstreamDataSourceFactory(upstreamFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val cacheDataSourceFactory = mediaCacheDataSourceFactory(simpleCache, upstreamFactory)
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)

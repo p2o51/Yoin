@@ -116,6 +116,18 @@ class HomeLayoutStoreTest {
     }
 
     @Test
+    fun should_readTheStoredPrefsOnce_when_readLayoutIsAsked() = runTest {
+        assertNull(store.readLayout(PROFILE))
+
+        store.setLayout(PROFILE, prefs)
+        dao.seed(OTHER_PROFILE, "not json at all")
+
+        assertEquals(prefs, store.readLayout(PROFILE))
+        // Unreadable reads as never set, as the observed flow does.
+        assertNull(store.readLayout(OTHER_PROFILE))
+    }
+
+    @Test
     fun should_skipUpsert_when_prefsEqualStoredRow() = runTest {
         store.setLayout(PROFILE, prefs)
         store.setLayout(PROFILE, prefs.toList())
@@ -169,6 +181,8 @@ internal class FakeHomeLayoutDao : HomeLayoutDao {
     var failWrites = false
 
     override fun getForProfile(profileId: String): Flow<HomeLayoutPreference?> = rows.map { it[profileId] }
+
+    override suspend fun getOnceForProfile(profileId: String): HomeLayoutPreference? = rows.value[profileId]
 
     override suspend fun upsert(preference: HomeLayoutPreference) {
         if (failWrites) error("disk full")

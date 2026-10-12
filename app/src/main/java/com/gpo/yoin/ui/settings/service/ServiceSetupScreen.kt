@@ -502,11 +502,24 @@ private fun SubsonicConnectGroup(
     onSave: (String, String, String) -> Unit,
 ) {
     val form = state.subsonic
-    // Keyed on `loaded` so an edit form picks up the stored values once they
-    // arrive instead of keeping the empty first frame.
-    var serverUrl by rememberSaveable(form.loaded) { mutableStateOf(form.initialUrl) }
-    var username by rememberSaveable(form.loaded) { mutableStateOf(form.initialUsername) }
-    var password by rememberSaveable(form.loaded) { mutableStateOf(form.initialPassword) }
+    var serverUrl by rememberSaveable { mutableStateOf(form.initialUrl) }
+    var username by rememberSaveable { mutableStateOf(form.initialUsername) }
+    var password by rememberSaveable { mutableStateOf(form.initialPassword) }
+    // The stored values the fields were last filled from (a hash, saved with
+    // them). An edit form takes them in once, as they arrive, whatever its
+    // first frame said (a loaded empty form, or none); typing, a test and a
+    // failed save leave them be — and so does a page brought back after its
+    // process went, whose new page reads the same values again.
+    var seededFrom by rememberSaveable { mutableStateOf<Int?>(null) }
+    val stored = listOf(form.initialUrl, form.initialUsername, form.initialPassword).hashCode()
+    LaunchedEffect(form.loaded, stored) {
+        if (form.loaded && seededFrom != stored) {
+            serverUrl = form.initialUrl
+            username = form.initialUsername
+            password = form.initialPassword
+            seededFrom = stored
+        }
+    }
     val filled = serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
     val canSubmit = filled && !form.isBusy && form.loaded && state.canAddProfile
 

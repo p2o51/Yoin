@@ -46,6 +46,7 @@
     <string name="library_search_section_albums">Albums</string>
     <string name="library_search_section_songs">Songs</string>
     <string name="library_search_section_playlists">Playlists</string>
+    <string name="library_search_filter_all">All</string>
     <string name="library_search_added">Added to library</string>
 
     <string name="library_error_load_library">Failed to load library</string>

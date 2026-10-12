@@ -14,6 +14,7 @@ import com.gpo.yoin.data.integration.neodb.NeoDBOAuthResult
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.ui.common.UiText
 import java.net.URI
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -98,6 +100,9 @@ class SettingsViewModel(
             ),
         )
 
+    // Mapped off the main thread, as Home's cards are (profileCardsFlow): each
+    // card reads its account's credentials, a file and a Keystore decrypt, and
+    // a switch begun on this page changes them under its overlay.
     val uiState: StateFlow<SettingsUiState> = combine(
         combine(profileManager.profiles, container.profileAvatarStore.urls, ::Pair),
         profileManager.activeProfileId,
@@ -126,7 +131,7 @@ class SettingsViewModel(
             neoDbInstance = misc.neoDb.instance,
             neoDbAccessToken = misc.neoDb.accessToken,
         )
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState.Loading)
+    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState.Loading)
 
     val switchingState: StateFlow<ProfileManager.SwitchState> = profileManager.switchingState
 

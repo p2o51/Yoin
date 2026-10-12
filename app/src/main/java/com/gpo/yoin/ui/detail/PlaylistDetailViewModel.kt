@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -33,6 +34,10 @@ class PlaylistDetailViewModel(
 
     private val _uiState = MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
     val uiState: StateFlow<PlaylistDetailUiState> = _uiState.asStateFlow()
+
+    // Debug-only: `detail.content` marks the first Content only. Declared before
+    // init, whose load can publish a mem-cached Content synchronously.
+    private var perfContentMarked = false
 
     private val _messages = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
     /** One-shot toasts (rename/delete/remove result). */
@@ -78,6 +83,18 @@ class PlaylistDetailViewModel(
     fun retry() {
         _uiState.value = PlaylistDetailUiState.Loading
         loadPlaylist()
+    }
+
+    /** Debug-only `detail.content`: the first Content this VM publishes (docs/perf/yoinperf-logging.md). */
+    private fun markPerfContent(resolvedId: String) {
+        if (!YoinPerf.enabled || perfContentMarked) return
+        perfContentMarked = true
+        YoinPerf.mark(
+            "detail.content",
+            "kind" to "playlist",
+            "id" to playlistId,
+            "resolved" to resolvedId.takeIf { it != playlistId }
+        )
     }
 
     fun rename(name: String) {
@@ -135,6 +152,7 @@ class PlaylistDetailViewModel(
     private fun loadPlaylist() {
         viewModelScope.launch {
             try {
+                repository.awaitActiveSource(DETAIL_SOURCE_WAIT_MS)
                 val playlist = repository.getPlaylist(MediaId.parse(playlistId))
                 if (playlist == null) {
                     _uiState.value = PlaylistDetailUiState.Error(UiText.Res(R.string.detail_playlist_error_not_found))
@@ -174,6 +192,7 @@ class PlaylistDetailViewModel(
                         )
                     },
                 )
+                markPerfContent(playlist.id.toString())
             } catch (e: Exception) {
                 _uiState.value = PlaylistDetailUiState.Error(
                     e.toDetailMessage(R.string.detail_playlist_error_load),

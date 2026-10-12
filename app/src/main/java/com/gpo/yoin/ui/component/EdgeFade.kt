@@ -122,11 +122,16 @@ fun Modifier.edgeFade(
  * crisp instead of permanently dimmed (the "content stuck half-faded above
  * the bar" complaint). Fades ease in/out with the scroll position and use
  * the same smoothstep alpha ramp on the content's own transparency.
+ *
+ * [maxFraction] caps each fade at that share of the container's height (read
+ * at draw time, so a container resizing every frame never recomposes), for a
+ * window that can get too short to give both fades their full length.
  */
 fun Modifier.verticalEdgeFadeOnScroll(
     state: ScrollableState,
     top: Dp = 0.dp,
     bottom: Dp = 0.dp,
+    maxFraction: Float = 1f,
 ): Modifier = composed {
     val density = LocalDensity.current
     val topPx = with(density) { top.toPx() }
@@ -145,26 +150,30 @@ fun Modifier.verticalEdgeFadeOnScroll(
     graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
         .drawWithContent {
             drawContent()
-            if (topPx > 0f && topFade > 0f) {
+            // Uncapped by default: a fade longer than its container keeps its old ramp.
+            val cap = if (maxFraction < 1f) size.height * maxFraction else Float.POSITIVE_INFINITY
+            val topLength = minOf(topPx, cap)
+            val bottomLength = minOf(bottomPx, cap)
+            if (topLength > 0f && topFade > 0f) {
                 drawRect(
                     brush = Brush.verticalGradient(
                         colors = easedMaskColors(edgeAlpha = 1f - topFade),
                         startY = 0f,
-                        endY = topPx,
+                        endY = topLength,
                     ),
-                    size = Size(size.width, topPx),
+                    size = Size(size.width, topLength),
                     blendMode = BlendMode.DstIn,
                 )
             }
-            if (bottomPx > 0f && bottomFade > 0f) {
+            if (bottomLength > 0f && bottomFade > 0f) {
                 drawRect(
                     brush = Brush.verticalGradient(
                         colors = easedMaskColors(edgeAlpha = 1f - bottomFade).reversed(),
-                        startY = size.height - bottomPx,
+                        startY = size.height - bottomLength,
                         endY = size.height,
                     ),
-                    topLeft = Offset(0f, size.height - bottomPx),
-                    size = Size(size.width, bottomPx),
+                    topLeft = Offset(0f, size.height - bottomLength),
+                    size = Size(size.width, bottomLength),
                     blendMode = BlendMode.DstIn,
                 )
             }

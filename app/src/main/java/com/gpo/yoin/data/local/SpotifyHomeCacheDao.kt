@@ -27,6 +27,16 @@ interface SpotifyHomeCacheDao {
         minCachedAt: Long,
     ): List<SpotifyHomeArtistCache>
 
+    /** The cached rows of [artistIds] (MediaId strings) for [profileId], any age. */
+    @Query(
+        "SELECT * FROM spotify_home_artist_cache " +
+            "WHERE profileId = :profileId AND artistId IN (:artistIds)"
+    )
+    suspend fun getArtists(profileId: String, artistIds: List<String>): List<SpotifyHomeArtistCache>
+
+    @Query("DELETE FROM spotify_home_artist_cache WHERE profileId = :profileId AND cachedAt < :before")
+    suspend fun deleteArtistsCachedBefore(profileId: String, before: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAlbums(items: List<SpotifyHomeAlbumCache>)
 

@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.home
 import android.content.res.Resources
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterExitState
@@ -11,6 +12,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -222,6 +225,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
@@ -282,6 +286,8 @@ internal fun HomeEditorialContent(
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
     rediscover: List<HomeRediscoverItem> = emptyList(),
+    // Raw album id → the memory mark its plain cover wears (HomeAlbumMemoryMark.kt).
+    albumMemoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     playlists: List<LibraryPlaylist> = emptyList(),
     recentlyPlayed: List<Album> = emptyList(),
     // The header's Memories pill; null keeps today's bare chevron.
@@ -296,6 +302,8 @@ internal fun HomeEditorialContent(
     onOpenAccounts: () -> Unit = onNavigateToSettings,
     accountButtonHidden: Boolean = false,
     onAccountAnchor: (Rect) -> Unit = {},
+    // The account in use needs its owner: its avatar wears a dot.
+    accountNeedsReconnect: Boolean = false,
     onNavigateToMemories: () -> Unit,
     editController: HomeEditController? = null,
     footerNewBadge: Boolean = false,
@@ -313,6 +321,11 @@ internal fun HomeEditorialContent(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
+    // The artists (MediaId strings) the Activities bento pictures, and
+    // whether the feed rests (on screen, nothing over it, its list still):
+    // Home asks Spotify for those portraits only, and only then (owner Q16).
+    onActivityArtistsShown: (List<String>) -> Unit = {},
+    onFeedAtRestChanged: (Boolean) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val haptics = rememberYoinHaptics()
@@ -420,6 +433,7 @@ internal fun HomeEditorialContent(
             }
         }
     }
+    val currentOnActivityArtistsShown by rememberUpdatedState(onActivityArtistsShown)
     LaunchedEffect(listState, allowBackdropPalette) {
         if (allowBackdropPalette) return@LaunchedEffect
         snapshotFlow { listState.isScrollInProgress }
@@ -480,11 +494,16 @@ internal fun HomeEditorialContent(
     // against the loading spinner is a reveal nobody sees.
     val firstReveal = rememberStagedReveal(
         key = "home-feed",
-        // A resolved Memories pill counts too: on a profile with nothing in
-        // the feed yet, it is the one thing to reveal.
-        ready = activityEntries.isNotEmpty() || widgetGrid.isNotEmpty() ||
-            recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
-            rediscover.isNotEmpty() || memoryPill != null,
+        ready = homeFeedHasSomethingToReveal(
+            hasActivityEntries = activityEntries.isNotEmpty(),
+            widgetGrid = widgetGrid,
+            recentlyAddedTracks = recentlyAddedTracks,
+            recentlyAddedAlbums = recentlyAddedAlbums,
+            rediscover = rediscover,
+            recentlyPlayed = recentlyPlayed,
+            playlists = playlists,
+            memoryPill = memoryPill
+        ),
     )
     // Rediscover's "Not played in Yoin for …" is read against the moment its
     // list arrived; day-scale copy doesn't need a ticking clock.
@@ -664,7 +683,19 @@ internal fun HomeEditorialContent(
     val enabledOrder = layout.enabledSections
     // Derived, by value: a motion flag that leaves the blocks as they are (the
     // placeholders above a lifted block opening with none held back) recomposes nothing.
-    val blocks by remember(layout, editing, motion, widgetGrid, recentlyAddedTracks, recentlyAddedAlbums, rediscover) {
+    // Keyed on every list hasContent reads: Home's tiers splice a block in on
+    // its own, and one missing here would stay out (or stay in, empty).
+    val blocks by remember(
+        layout,
+        editing,
+        motion,
+        widgetGrid,
+        recentlyAddedTracks,
+        recentlyAddedAlbums,
+        rediscover,
+        recentlyPlayed,
+        playlists
+    ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
                 layout = layout,
@@ -763,6 +794,22 @@ internal fun HomeEditorialContent(
             }
             .collect { motion.visible = it }
     }
+    // Owner Q16: the feed rests — Home resumed, nothing over it (Now Playing,
+    // the detail column, Memories) and its list still. Spotify's portraits
+    // are asked for only then; a feed that leaves composition (Library, a
+    // switch's Loading) no longer rests.
+    val currentOnFeedAtRestChanged by rememberUpdatedState(onFeedAtRestChanged)
+    LaunchedEffect(listState, memoriesRevealState, lifecycleOwner) {
+        lifecycleOwner.lifecycle.currentStateFlow
+            .combine(
+                snapshotFlow {
+                    !currentHomeCovered && !memoriesRevealState.isVisible && !listState.isScrollInProgress
+                }
+            ) { state, clear -> clear && state.isAtLeast(Lifecycle.State.RESUMED) }
+            .distinctUntilChanged()
+            .collect { atRest -> currentOnFeedAtRestChanged(atRest) }
+    }
+    DisposableEffect(listState) { onDispose { currentOnFeedAtRestChanged(false) } }
     // The seam followers ignore the scroll the anchor makes under the strips,
     // and the one that keeps a held block under the finger (HomePlateSpacingAnchor).
     LaunchedEffect(engine, seamFlow, spacingAnchor) {
@@ -929,6 +976,7 @@ internal fun HomeEditorialContent(
                         onOpenAccounts = onOpenAccounts,
                         accountButtonHidden = accountButtonHidden,
                         onAccountAnchor = onAccountAnchor,
+                        accountNeedsReconnect = accountNeedsReconnect,
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
@@ -1014,6 +1062,23 @@ internal fun HomeEditorialContent(
                                     val candidates = remember(bentoEntries, heroEntry) {
                                         bentoEntries.filterNot { it === heroEntry }
                                     }
+                                    // The artists this preset seats in a card with a
+                                    // picture (the hero is never one, a strip is text
+                                    // only): the portraits worth asking for.
+                                    val activityPreset = layout.rowsOf(HomeSection.Activities)
+                                    val picturedArtistIds = remember(candidates, bentoSpec, heroEntry, activityPreset) {
+                                        activityPresetPicturedEntries(
+                                            spec = bentoSpec,
+                                            hasHero = heroEntry != null,
+                                            preset = activityPreset
+                                        ).mapNotNull { index ->
+                                            val target = candidates.getOrNull(index)?.target
+                                            (target as? HomeEntryTarget.Artist)?.artistId
+                                        }
+                                    }
+                                    LaunchedEffect(picturedArtistIds) {
+                                        currentOnActivityArtistsShown(picturedArtistIds)
+                                    }
                                     val bentoModifier = remember(firstReveal) {
                                         Modifier
                                             .fillMaxWidth()
@@ -1027,7 +1092,7 @@ internal fun HomeEditorialContent(
                                         hero = heroEntry,
                                         candidates = candidates,
                                         spec = bentoSpec,
-                                        preset = layout.rowsOf(HomeSection.Activities),
+                                        preset = activityPreset,
                                         heroFootnoteExtra = homeHeroFootnote(
                                             year = activityHeroYear,
                                             songCount = activityHeroSongCount,
@@ -1051,6 +1116,7 @@ internal fun HomeEditorialContent(
                                     title = stringResource(HomeSection.JumpBackIn.titleRes),
                                     cards = widgetGrid,
                                     rows = layout.rowsOf(HomeSection.JumpBackIn),
+                                    memoryMarks = albumMemoryMarks,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onCardClick = onWidgetCardClick,
                                     modifier = remember(firstReveal) {
@@ -1068,6 +1134,7 @@ internal fun HomeEditorialContent(
                                 HomeSection.RecentlyAdded -> RecentlyAddedSection(
                                     tracks = recentlyAddedTracks,
                                     albums = recentlyAddedAlbums,
+                                    memoryMarks = albumMemoryMarks,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
                                     onAlbumClick = { album ->
@@ -1113,6 +1180,7 @@ internal fun HomeEditorialContent(
                                 HomeSection.RecentlyPlayed -> AlbumShelfSection(
                                     title = stringResource(HomeSection.RecentlyPlayed.titleRes),
                                     albums = recentlyPlayed,
+                                    memoryMarks = albumMemoryMarks,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onAlbumClick = { album ->
                                         onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
@@ -1441,6 +1509,7 @@ private fun HomeContentHeader(
     onOpenAccounts: () -> Unit,
     accountButtonHidden: Boolean,
     onAccountAnchor: (Rect) -> Unit,
+    accountNeedsReconnect: Boolean,
     onNavigateToMemories: () -> Unit,
     memoriesHintProgress: () -> Float,
     // Edit mode's P (read in draw and layout only), its hit targets, and the
@@ -1468,6 +1537,8 @@ private fun HomeContentHeader(
     val iconSemantics = if (iconsEnabled) Modifier else Modifier.clearAndSetSemantics {}
     Row(
         modifier = modifier
+            // The page the Memories arrow centres on.
+            .memoryBubblePage(bubbleController)
             .statusBarsPadding()
             // 8dp, plus the 4dp the list's top padding used to add.
             .padding(top = 12.dp)
@@ -1532,6 +1603,7 @@ private fun HomeContentHeader(
                 enabled = iconsEnabled,
                 hidden = accountButtonHidden,
                 onAvatarPositioned = onAccountAnchor,
+                needsReconnect = accountNeedsReconnect,
                 modifier = headerControl,
             )
         } else {
@@ -1578,7 +1650,7 @@ private data class BentoContent(
 private const val ActivityBentoUnitsMaxEntries = 16
 
 /** The widest XL bento (a fourth row of up to four more) — the hero is still found in the first [ActivityBentoUnitsMaxEntries]. */
-private const val ActivityBentoUnitsXlEntries = 20
+internal const val ActivityBentoUnitsXlEntries = 20
 
 /** The phone pipeline's cap (hero + 3 supporting from the top 6), and XL's (hero + 5 from the top 8). */
 private const val ActivityBentoPhoneEntries = 6
@@ -1918,6 +1990,10 @@ internal fun rememberActivityCardColors(
         fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
         fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
         enabled = extractBackdropColors,
+        // A card's cover can change in place (a Spotify artist's portrait
+        // replacing the play's album cover, Q16): its wash springs from the
+        // old cover's colour to the new one's, not through the theme's.
+        holdUntilResolved = true
     )
     return ActivityCardColors(
         container = lerp(
@@ -2004,9 +2080,25 @@ private fun ActivityHeroCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (footnoteExtra.isNotEmpty()) {
+                // The footnote can land after the card (Home's local tier goes up
+                // first; on a cold detail cache it is a network read): it eases
+                // in rather than shoving the lines above it up. A change of hero
+                // takes it out the same way, showing the last one as it goes.
+                val lastFootnote = remember { mutableStateOf(footnoteExtra) }
+                SideEffect { if (footnoteExtra.isNotEmpty()) lastFootnote.value = footnoteExtra }
+                AnimatedVisibility(
+                    visible = footnoteExtra.isNotEmpty(),
+                    enter = expandVertically(
+                        animationSpec = YoinMotion.spatialSpring(),
+                        expandFrom = Alignment.Top
+                    ) + YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                    exit = shrinkVertically(
+                        animationSpec = YoinMotion.spatialSpring(),
+                        shrinkTowards = Alignment.Top
+                    ) + YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                ) {
                     MetaLine(
-                        groups = footnoteExtra,
+                        groups = footnoteExtra.ifEmpty { lastFootnote.value },
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.contentMuted,
                     )
@@ -2281,6 +2373,8 @@ private fun RecentlyAddedSection(
     singleRowShelf: Boolean = false,
     // Off while Home is being edited: a drag on the shelf is edit mode's.
     shelfScrollEnabled: Boolean = true,
+    // Raw album id → the album card's memory mark (HomeAlbumMemoryMark.kt).
+    memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     // How many of each this container seats: columns from the resting width
@@ -2364,6 +2458,7 @@ private fun RecentlyAddedSection(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onAlbumClick(album) },
                             buildCoverArtUrl = buildCoverArtUrl,
+                            memoryMark = album.albumMemoryMark(memoryMarks),
                             modifier = Modifier.homeEditCard(
                                 maxColumns * rows + stackIndex * albumStack + inStack,
                             ),
@@ -2487,6 +2582,8 @@ private fun RecentlyAddedAlbumCard(
     onClick: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
+    // The cover's memory mark (HomeAlbumMemoryMark.kt); null = a bare cover.
+    memoryMark: HomeAlbumMemoryMark? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val coverArtUrl = resolveHomeCoverArtUrl(album.coverArt, buildCoverArtUrl)
@@ -2507,6 +2604,7 @@ private fun RecentlyAddedAlbumCard(
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
             modifier = Modifier.size(RecentlyAddedAlbumCover),
+            memoryMark = memoryMark,
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -2591,6 +2689,8 @@ private fun AlbumShelfSection(
     buildCoverArtUrl: (String) -> String,
     frame: HomeFeedFrame,
     shelfScrollEnabled: Boolean = true,
+    // Raw album id → the album card's memory mark (HomeAlbumMemoryMark.kt).
+    memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val editCardScope = LocalHomeEditCardScope.current
@@ -2617,6 +2717,7 @@ private fun AlbumShelfSection(
                     extractBackdropColors = extractBackdropColors,
                     onClick = { onAlbumClick(album) },
                     buildCoverArtUrl = buildCoverArtUrl,
+                    memoryMark = album.albumMemoryMark(memoryMarks),
                     modifier = Modifier.homeEditCard(index),
                 )
             }
@@ -2714,6 +2815,29 @@ internal fun HomeEmptyCard(
     }
 }
 
+/**
+ * Whether the feed has anything for its cold-start reveal ("home-feed") to
+ * show: the reveal holds every block's beat at 0 until it does. Every block
+ * that rides a beat counts — a feed with only Recently Played or Your
+ * Playlists in (a profile with nothing else yet, or those landing first)
+ * would otherwise keep them drawn at alpha 0 until something else came. A
+ * resolved Memories pill counts too: on a profile with nothing in the feed
+ * yet, it is the one thing to reveal.
+ */
+internal fun homeFeedHasSomethingToReveal(
+    hasActivityEntries: Boolean,
+    widgetGrid: List<HomeWidgetCard>,
+    recentlyAddedTracks: List<Track>,
+    recentlyAddedAlbums: List<Album>,
+    rediscover: List<HomeRediscoverItem>,
+    recentlyPlayed: List<Album>,
+    playlists: List<LibraryPlaylist>,
+    memoryPill: HomeMemoryPill?
+): Boolean = hasActivityEntries || widgetGrid.isNotEmpty() ||
+    recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
+    rediscover.isNotEmpty() || recentlyPlayed.isNotEmpty() || playlists.isNotEmpty() ||
+    memoryPill != null
+
 internal fun dedupeActivitiesForHome(
     activities: List<ActivityEvent>,
 ): List<ActivityEvent> = activities.distinctBy(::homeActivityDedupKey)
@@ -2727,6 +2851,19 @@ internal fun selectHomeActivities(
     activities: List<ActivityEvent>,
 ): List<ActivityEvent> = dedupeActivitiesForHome(activities)
     .filterNot { it.entityType == ActivityEntityType.SONG.name }
+
+/**
+ * The albums the Activities bento can show as an album card — its hero or a
+ * supporting card — by raw id: the album entries among those the widest
+ * bento seats from ([ActivityBentoUnitsXlEntries]; the ViewModel can't tell
+ * the width, so it counts them all). Recently Played leaves these out. A
+ * song's play never earns a card, and a playlist's or an artist's card shows
+ * that playlist or artist, not the album its play came from.
+ */
+internal fun homeActivityAlbumCards(activities: List<ActivityEvent>): Set<String> = selectHomeActivities(activities)
+    .take(ActivityBentoUnitsXlEntries)
+    .filter { it.entityType == ActivityEntityType.ALBUM.name }
+    .mapTo(HashSet()) { activity -> activityEntityRawId(activity, activity.entityId) }
 
 /**
  * The hero (topmost, biggest) bento slot only ever shows an album or a

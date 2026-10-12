@@ -63,7 +63,18 @@ enum class Capability {
     FAVORITES,
     SEARCH,
     CATALOG_SEARCH,
+
+    /** Search results can hold playlists: the search surface offers its Playlists chip. */
+    SEARCH_PLAYLISTS,
     LIBRARY_ADD,
+
+    /**
+     * An album itself can be saved to and removed from the user's library
+     * ([MusicWriteActions.setAlbumSaved]) — Spotify's "Save to library" on an
+     * album page. Only Spotify declares it: Subsonic stars albums through
+     * favorites, Apple Music adds songs one at a time ([LIBRARY_ADD]).
+     */
+    ALBUM_SAVE,
     LIBRARY_SONGS,
     RANDOM_SONGS,
     PLAYLISTS_READ,
@@ -131,6 +142,34 @@ interface MusicWriteActions {
     /** Added is returned only after membership has been confirmed. */
     suspend fun addToLibrary(trackId: MediaId): Result<LibraryMembership> =
         Result.failure(UnsupportedOperationException("Adding to the library is unavailable"))
+
+    /**
+     * Whether each of [tracks] is a favorite right now, asked of the service —
+     * for one whose own lists can't tell (Spotify's saved-tracks mirror stops
+     * at 200 of a library that can hold thousands). Tracks the service can't
+     * be asked about are left out of the map. Gated by
+     * [Capability.FAVORITES] like [setFavorite]; services whose tracks already
+     * carry their exact state (Subsonic) keep this default. A read asked in
+     * parts that fails after some answered fails with
+     * [FavoriteStatesIncompleteException], which carries those answers.
+     *
+     * [albums]: albums whose saved state ([Capability.ALBUM_SAVE]) rides the
+     * same requests rather than one of its own — the album page asks about
+     * its album with its tracks. Their answers sit in the same map, keyed by
+     * the album's id.
+     */
+    suspend fun favoriteStates(
+        tracks: List<Track>,
+        albums: List<MediaId> = emptyList()
+    ): Result<Map<MediaId, Boolean>> = Result.failure(UnsupportedOperationException("Favorite lookup is unavailable"))
+
+    /**
+     * Saves [album] to the user's library or removes it ([saved] false).
+     * Gated by [Capability.ALBUM_SAVE]; providers without it keep this
+     * default and the album page shows no such row.
+     */
+    suspend fun setAlbumSaved(album: Album, saved: Boolean): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Saving albums is unavailable"))
 
     /** Favourite / like / star — semantics vary, but the UI concept is boolean. */
     suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit>

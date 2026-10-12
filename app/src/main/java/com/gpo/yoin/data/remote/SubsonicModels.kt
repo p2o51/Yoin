@@ -73,6 +73,8 @@ data class Album(
     val year: Int? = null,
     val genre: String? = null,
     val starred: String? = null,
+    /** When the album was added to the server (AlbumID3.created, required by the API). */
+    val created: String? = null,
     val song: List<Song> = emptyList(),
     /** OpenSubsonic (Navidrome ≥0.53): e.g. ["Album"], ["EP"], ["Single"], ["Compilation"]. */
     val releaseTypes: List<String> = emptyList(),

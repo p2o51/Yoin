@@ -95,6 +95,7 @@
     <string name="settings_spotify_install">安装 Spotify</string>
     <string name="settings_spotify_premium_required">需要 Premium</string>
     <string name="settings_spotify_restore_sign_in">恢复登录</string>
+    <string name="settings_spotify_app_sign_in">登录 Spotify 应用</string>
     <string name="settings_add_sheet_title">添加账号</string>
     <string name="settings_provider_subsonic_summary">Navidrome、Airsonic 和其他服务器</string>
     <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->

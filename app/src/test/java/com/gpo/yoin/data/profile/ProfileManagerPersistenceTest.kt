@@ -8,13 +8,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -174,6 +177,37 @@ class ProfileManagerPersistenceTest {
 
         assertEquals(null, profileDao.getById(profile.id))
         assertEquals(null, manager.activeProfileId.value)
+        scope.cancelChildren()
+    }
+
+    @Test
+    fun should_settleWithoutSource_when_activeCredentialsAreUnreadable() = runTest {
+        // The row's marker points at the store, but the secret is gone (a
+        // backup restored onto another device): the launch build ends with no
+        // source, and says so rather than leave waiters to their timeout.
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val profileDao = InMemoryProfileDao()
+        profileDao.upsert(
+            Profile(
+                id = "restored",
+                provider = "subsonic",
+                displayName = "restored",
+                credentialsJson = ProfileManager.STORE_MARKER_V1
+            )
+        )
+        val manager = ProfileManager(
+            profileDao = profileDao,
+            activeIdStore = InMemoryActiveIdStore().apply { write("restored") },
+            credentialsStore = InMemoryProfileCredentialsStore(),
+            legacyCodec = PlaintextProfileCredentialsCodec(),
+            scope = scope
+        )
+        assertFalse(manager.activeSourceSettled.first())
+
+        scope.advanceUntilIdle()
+
+        assertTrue(manager.activeSourceSettled.first())
+        assertNull(manager.activeSource.value)
         scope.cancelChildren()
     }
 

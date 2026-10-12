@@ -24,12 +24,19 @@ import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.coEvery
 import io.mockk.slot
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -175,11 +182,107 @@ class YoinRepositoryTest {
         writeActions.setRatingResult = Result.success(Unit)
         every { source.id } returns MediaId.PROVIDER_SUBSONIC
 
-        repository.setRating(trackId, 7.4f)
+        repository.setRating(trackId, 7.4f).join()
 
         assertEquals(trackId, writeActions.lastRatedTrackId)
         assertEquals(4, writeActions.lastServerRating)
-        coVerify(exactly = 2) { localRatingDao.upsert(any()) }
+        // Stored first, still to sync; the provider's answer only clears the flag of that same rating.
+        coVerify(exactly = 1) {
+            localRatingDao.upsert(
+                match { it.songId == "song-1" && it.rating == 7.4f && it.serverRating == 4 && it.needsSync }
+            )
+        }
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 7.4f)
+        }
+    }
+
+    @Test
+    fun should_leaveTheRatingToSync_when_theProviderRefusesTheWrite() = runTest {
+        val trackId = MediaId.subsonic("song-1")
+        writeActions.setRatingResult = Result.failure(IllegalStateException("offline"))
+        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+
+        repository.setRating(trackId, 7.4f).join()
+
+        coVerify(exactly = 1) { localRatingDao.upsert(match { it.rating == 7.4f && it.needsSync }) }
+        coVerify(exactly = 0) { localRatingDao.markSynced(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun should_storeTheNewerRatingAtOnce_when_theFirstPushIsStillOut() = runTest {
+        val trackId = MediaId.subsonic("song-1")
+        val firstAnswer = CompletableDeferred<Unit>()
+        writeActions.setRatingResult = Result.success(Unit)
+        writeActions.holdNextRating = firstAnswer
+        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+
+        val first = repository.setRating(trackId, 3.0f)
+        val second = repository.setRating(trackId, 7.7f)
+
+        // The first push is still out, the newer rating is already stored, and its push waits.
+        coVerifyOrder {
+            localRatingDao.upsert(match { it.rating == 3.0f && it.needsSync })
+            localRatingDao.upsert(match { it.rating == 7.7f && it.needsSync })
+        }
+        assertEquals(listOf(2), writeActions.serverRatings)
+        assertTrue(second.isActive)
+
+        firstAnswer.complete(Unit)
+        first.join()
+        second.join()
+
+        assertEquals(listOf(2, 4), writeActions.serverRatings)
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 7.7f)
+        }
+    }
+
+    @Test
+    fun should_pushOnlyTheNewestRating_when_twoMoreLandWhileTheFirstIsOut() = runTest {
+        val trackId = MediaId.subsonic("song-1")
+        val firstAnswer = CompletableDeferred<Unit>()
+        writeActions.setRatingResult = Result.success(Unit)
+        writeActions.holdNextRating = firstAnswer
+        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+
+        val writes = listOf(
+            repository.setRating(trackId, 3.0f),
+            repository.setRating(trackId, 7.7f),
+            repository.setRating(trackId, 6.0f)
+        )
+        firstAnswer.complete(Unit)
+        writes.forEach { it.join() }
+
+        // 7.7 was overtaken before its turn: the provider gets 3.0, then 6.0.
+        assertEquals(listOf(2, 3), writeActions.serverRatings)
+        coVerify(exactly = 3) { localRatingDao.upsert(any()) }
+        coVerify(exactly = 0) { localRatingDao.markSynced(any(), any(), any(), 7.7f) }
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 6.0f)
+        }
+    }
+
+    @Test
+    fun should_stillPushTheRating_when_theScopeThatAskedIsGone() = runTest {
+        val trackId = MediaId.subsonic("song-1")
+        val answer = CompletableDeferred<Unit>()
+        writeActions.setRatingResult = Result.success(Unit)
+        writeActions.holdNextRating = answer
+        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+        // The window that asked: it closes while the provider call is still out.
+        val window = CoroutineScope(Job())
+        lateinit var write: Job
+        window.launch(start = CoroutineStart.UNDISPATCHED) { write = repository.setRating(trackId, 7.7f) }
+        window.cancel()
+
+        answer.complete(Unit)
+        write.join()
+
+        assertEquals(listOf(4), writeActions.serverRatings)
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 7.7f)
+        }
     }
 
     @Test
@@ -591,12 +694,21 @@ class YoinRepositoryTest {
         var lastRatedTrackId: MediaId? = null
         var lastServerRating: Int? = null
 
+        /** Every server rating sent, in order; [holdNextRating] holds the next call until it completes. */
+        val serverRatings = mutableListOf<Int>()
+        var holdNextRating: CompletableDeferred<Unit>? = null
+
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
             Result.failure(UnsupportedOperationException())
 
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> {
             lastRatedTrackId = trackId
             lastServerRating = rating
+            serverRatings += rating
+            holdNextRating?.let { hold ->
+                holdNextRating = null
+                hold.await()
+            }
             return setRatingResult
         }
 

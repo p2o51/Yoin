@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.home
 import android.content.Context
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -51,8 +52,11 @@ import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.AccessibilityManager
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -66,7 +70,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
@@ -78,13 +84,17 @@ import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberTopCutoutBounds
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.smoothstep
+import com.gpo.yoin.ui.experience.withSteadyFrames
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
@@ -106,7 +116,10 @@ import kotlin.math.roundToInt
 // a wash of the cover's own colour. It speaks only when it has something to
 // say (owner: 「有新内容出现，如果很久不动也可以出现」): something written since
 // it last spoke (per profile, remembered across launches), or the page left
-// untouched for a while. Any touch elsewhere tucks it back.
+// untouched for a while — that one at most once each time the app comes to
+// the foreground. Said in full, it holds six seconds and flies back into the
+// arrow (owner 2026-10-11). Any touch elsewhere — the bar included — tucks it
+// back sooner; the app going to the background puts it away unseen.
 
 /** The body: a cover and a title on one line, where the header's title was. */
 private val BubbleBodyHeight = 60.dp
@@ -162,8 +175,17 @@ private val ArrowPullNudge = 2.dp
 /** The arrow fades out over the first stretch of scroll — the pull only works at the top. */
 private val ArrowScrollFade = 48.dp
 
-/** "很久不动": the page left untouched this long, the bubble speaks (once per visit). */
+/**
+ * "很久不动": Home readable and untouched this long, the bubble speaks — at
+ * most once each time the app comes to the foreground (owner 2026-10-11).
+ */
 internal const val MemoryBubbleIdleMs = 15_000L
+
+/**
+ * Said in full (the bubble out, its spring at rest), it holds this long, then
+ * flies back into the arrow on its own (owner 2026-10-11: 说完停 6 秒).
+ */
+internal val MemoryBubbleDwellMs: Long = 6_000L
 
 /** Presence below this is tucked away: not drawn, not composed. */
 private const val BubbleGoneBelow = 0.01f
@@ -171,7 +193,16 @@ private const val BubbleGoneBelow = 0.01f
 /** News waits this long after the launch reveal lands. */
 private const val MemoryBubbleNewsDelayMs = 450L
 
+/**
+ * News that had to wait for Home to be readable waits this long more, readable
+ * and untouched: a free-form or split window comes into focus under the tap
+ * that clicked it, which is likely opening something — the news, spoken then,
+ * would be tucked away at once, told to no one.
+ */
+internal const val MEMORY_BUBBLE_NEWS_SETTLE_MS = 300L
+
 internal val LocalMemoryBubbleIdleMs = staticCompositionLocalOf { MemoryBubbleIdleMs }
+internal val LocalMemoryBubbleDwellMs = staticCompositionLocalOf { MemoryBubbleDwellMs }
 
 // ── What the bubble remembers ──────────────────────────────────────────
 
@@ -236,6 +267,160 @@ internal fun isMemoryNews(pill: HomeMemoryPill?, lastSeen: String?): Boolean {
     return now.first > seen.first || now.second > seen.second
 }
 
+// ── When it speaks, when it goes (owner 2026-10-11) ────────────────────
+
+internal enum class BubbleReason { News, Idle }
+
+/**
+ * What the bubble is saying (null = tucked away), and whether it has spoken
+ * since the app came to the foreground — which uses up the idle reminder.
+ */
+@Immutable
+internal data class MemoryBubbleTurn(val reason: BubbleReason? = null, val spokeThisForeground: Boolean = false)
+
+/** What happens to the bubble; the overlay's effects turn each into one of these. */
+internal enum class MemoryBubbleCue {
+    /** Something written that this profile hasn't been told, and Home can be read. */
+    News,
+
+    /** Home sat readable and untouched for the idle window. */
+    IdleElapsed,
+
+    /** Said in full, it held for the dwell. */
+    DwellOver,
+
+    /** A press anywhere — Home, the bar, the Now Playing pill — or a wheel scroll; a tap on it too. */
+    Touch,
+
+    /** Home went out of reach: covered, scrolled, pulled toward Memories, another window in front. */
+    OutOfReach,
+
+    /** The app went to the background (STOPPED). */
+    Backgrounded
+}
+
+/**
+ * The bubble's rules. News is always told. The idle reminder speaks at most
+ * once each time in the foreground — a trip to an album, Library and back, a
+ * touch: none of them winds it up again — and never over a bubble already
+ * speaking. Everything else tucks it away; the background also starts the
+ * next time in the foreground afresh (unseen, so it isn't a hard cut).
+ */
+internal fun MemoryBubbleTurn.after(cue: MemoryBubbleCue): MemoryBubbleTurn = when (cue) {
+    MemoryBubbleCue.News -> MemoryBubbleTurn(reason = BubbleReason.News, spokeThisForeground = true)
+    MemoryBubbleCue.IdleElapsed -> if (reason == null && !spokeThisForeground) {
+        MemoryBubbleTurn(reason = BubbleReason.Idle, spokeThisForeground = true)
+    } else {
+        this
+    }
+    MemoryBubbleCue.DwellOver, MemoryBubbleCue.Touch, MemoryBubbleCue.OutOfReach -> copy(reason = null)
+    MemoryBubbleCue.Backgrounded -> MemoryBubbleTurn()
+}
+
+/**
+ * The dwell starts once it has said it all: the bubble fully out, its spring
+ * at rest — and not flying away. Flying off, the bubble keeps [unroll] at 1
+ * (only flyAway moves), so a bubble called back mid-flight would otherwise
+ * start its clock before it has even bloomed again.
+ */
+internal fun memoryBubbleFullySaid(unroll: Float, unrolling: Boolean, flyAway: Float, flyingAway: Boolean): Boolean =
+    unroll >= 1f && !unrolling && flyAway <= 0f && !flyingAway
+
+/**
+ * Waits until it has said it all ([fullySaid]), then holds it [dwellMs] — and
+ * never leaves from under a finger: while [held] (a press on the bubble or the
+ * arrow, not yet let go) it waits for the release.
+ */
+internal suspend fun awaitMemoryBubbleDwell(fullySaid: Flow<Boolean>, held: Flow<Boolean>, dwellMs: Long) {
+    fullySaid.first { it }
+    delay(dwellMs)
+    held.first { !it }
+}
+
+/**
+ * How long it holds for this user: [dwellMs], or longer when the system's
+ * accessibility timeout ("Time to take action") asks for it — the bubble is
+ * a control that goes away on its own, so it honours that like a snackbar.
+ */
+internal fun memoryBubbleDwellMs(dwellMs: Long, accessibility: AccessibilityManager?): Long =
+    accessibility?.calculateRecommendedTimeoutMillis(
+        dwellMs,
+        containsIcons = true,
+        containsText = true,
+        containsControls = true
+    ) ?: dwellMs
+
+/**
+ * Returns once Home has stayed [readable] and untouched for [idleMs] straight:
+ * a touch, or Home going out of reach, starts the clock over.
+ */
+internal suspend fun awaitMemoryBubbleIdle(readable: Flow<Boolean>, touches: Flow<Unit>, idleMs: Long) {
+    while (true) {
+        readable.first { it }
+        val interrupted = withTimeoutOrNull(idleMs) {
+            merge(touches, readable.filter { !it }.map { }).first()
+        }
+        if (interrupted == null) return
+    }
+}
+
+/**
+ * Home's own window can be read: in front ([Lifecycle.State.RESUMED] — a
+ * detail page, translucent, only pauses it) and focused (not under the
+ * account card's dialog, the notification shade, the other side of a split).
+ */
+internal fun memoryBubbleWindowReadable(state: Lifecycle.State, focused: Boolean): Boolean =
+    focused && state.isAtLeast(Lifecycle.State.RESUMED)
+
+/**
+ * A press the window's root reported: Home's root saw it too if the down
+ * times match — Home deals with those (a tap on the bubble is not a tuck) —
+ * else it landed outside Home (the bar, the Now Playing pill) and counts as
+ * a touch (owner 2026-10-11: 碰底栏也算碰屏). The root reports on the Final
+ * pass, after every Initial pass inside, so Home's [MemoryBubbleController.lastDownAt]
+ * is already written whenever (and on whatever dispatcher) this is asked.
+ */
+internal fun isShellOnlyPress(shellDownAt: Long, homeDownAt: Long): Boolean = shellDownAt != homeDownAt
+
+/**
+ * The shell's half of the bubble, one per window, above the section switch
+ * (a trip to Library and back keeps it): every press anywhere in the window —
+ * the bar, the Now Playing pill and the snackbars are not inside Home — and
+ * whether the bubble has spoken since the app came to the foreground.
+ * YoinNavHost makes it, reports its root's presses into it and provides it
+ * ([LocalMemoryBubbleShell]); without one (the debug harness, previews) the
+ * overlay keeps its own and only Home's presses count.
+ */
+@Stable
+internal class MemoryBubbleShell {
+    /** Each press's down time, as the window's root sees it — after Home's own watcher has. */
+    internal val presses = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+
+    internal var spokeThisForeground: Boolean = false
+}
+
+internal val LocalMemoryBubbleShell = staticCompositionLocalOf<MemoryBubbleShell?> { null }
+
+/** The shell's [MemoryBubbleShell]: the app going to the background frees the idle reminder again. */
+@Composable
+internal fun rememberMemoryBubbleShell(): MemoryBubbleShell {
+    val shell = remember { MemoryBubbleShell() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { shell.spokeThisForeground = false }
+    return shell
+}
+
+/**
+ * Put on the window's root: reports every press to [shell], consuming
+ * nothing. On the Final pass — consumed or not — so Home's root (Initial
+ * pass) has always recorded a press of its own first ([isShellOnlyPress]).
+ */
+internal fun Modifier.reportMemoryBubbleShellPresses(shell: MemoryBubbleShell): Modifier = pointerInput(shell) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+        shell.presses.tryEmit(down.uptimeMillis)
+    }
+}
+
 // ── Controller: touches and the header's free span ─────────────────────
 
 /**
@@ -246,6 +431,12 @@ internal fun isMemoryNews(pill: HomeMemoryPill?, lastSeen: String?): Boolean {
 @Stable
 internal class MemoryBubbleController {
     internal val touches = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** The last press Home's root saw, by its down time: the shell's report of it is not news ([isShellOnlyPress]). */
+    internal var lastDownAt: Long = Long.MIN_VALUE
+
+    /** A finger is down on the bubble or the arrow, not yet let go: the dwell waits for it. */
+    internal var held by mutableStateOf(false)
 
     /** The bubble's and the arrow's bounds in the overlay's (= Home root's) space, written in placement. */
     internal var bubbleBounds: Rect = Rect.Zero
@@ -265,6 +456,10 @@ internal class MemoryBubbleController {
     /** The header's free span between the title and Settings, in WINDOW x; NaN = not placed yet. */
     internal var freeStartInWindow by mutableFloatStateOf(Float.NaN)
     internal var freeEndInWindow by mutableFloatStateOf(Float.NaN)
+
+    /** The header row's span in WINDOW x ([memoryBubblePage]): the page's content; NaN = not placed yet. */
+    internal var pageStartInWindow by mutableFloatStateOf(Float.NaN)
+    internal var pageEndInWindow by mutableFloatStateOf(Float.NaN)
 
     /** The overlay's own window position (last placement), to bring the header into its space while measuring. */
     internal var overlayXInWindow by mutableFloatStateOf(Float.NaN)
@@ -292,6 +487,13 @@ internal class MemoryBubbleController {
 
     /** Where everything lands, written in the overlay's placement; read in draw. */
     internal var geometry by mutableStateOf<MemoryBubbleGeometry?>(null)
+
+    /**
+     * Flying away, the place it left from: it flies into the arrow it left,
+     * whatever Home lays out meanwhile (a detail column opening re-lays the
+     * header under the same tap). Null = not flying; the header places it.
+     */
+    internal var flightGeometry by mutableStateOf<MemoryBubbleGeometry?>(null)
 }
 
 /**
@@ -316,6 +518,7 @@ internal fun Modifier.watchMemoryBubbleTouches(controller: MemoryBubbleControlle
             .pointerInput(controller) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    controller.lastDownAt = down.uptimeMillis
                     val tap = controller.tapTargetAt(down.position)
                     if (tap == null) {
                         controller.touches.tryEmit(Unit)
@@ -323,20 +526,28 @@ internal fun Modifier.watchMemoryBubbleTouches(controller: MemoryBubbleControlle
                     }
                     down.consume()
                     val slop = viewConfiguration.touchSlop
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Final)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-                        if (!change.pressed) {
-                            if ((change.position - down.position).getDistance() <= slop) {
-                                change.consume()
-                                tap()
+                    // Held, the bubble doesn't leave from under the finger
+                    // (the dwell waits); let go — tap, drag or cancel — and
+                    // it's free again.
+                    controller.held = true
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                            if (!change.pressed) {
+                                if ((change.position - down.position).getDistance() <= slop) {
+                                    change.consume()
+                                    tap()
+                                }
+                                return@awaitEachGesture
                             }
-                            return@awaitEachGesture
+                            if ((change.position - down.position).getDistance() > slop) {
+                                controller.touches.tryEmit(Unit)
+                                return@awaitEachGesture
+                            }
                         }
-                        if ((change.position - down.position).getDistance() > slop) {
-                            controller.touches.tryEmit(Unit)
-                            return@awaitEachGesture
-                        }
+                    } finally {
+                        controller.held = false
                     }
                 }
             }
@@ -394,6 +605,24 @@ internal fun Modifier.memoryBubbleFreeSpan(controller: MemoryBubbleController?):
         }
     }
 
+/**
+ * Put on the header's row: it spans the page's content, and the arrow takes
+ * its centre. At rest that is the window's too; but a detail column re-tiers
+ * Home at the tap, before the column takes any width, and the feed's frame
+ * then runs start-aligned in the still-wide container (feedFrameInsets). The
+ * window's centre falls outside the header's free span there, so an arrow
+ * centred on the window would cut to its fallback beside the title and back;
+ * on the page it moves with the frame's own spring.
+ */
+internal fun Modifier.memoryBubblePage(controller: MemoryBubbleController?): Modifier {
+    if (controller == null) return this
+    return onPlaced { coordinates ->
+        val x = coordinates.positionInWindow().x
+        controller.pageStartInWindow = x
+        controller.pageEndInWindow = x + coordinates.size.width
+    }
+}
+
 // ── Where the arrow goes ───────────────────────────────────────────────
 
 /**
@@ -401,13 +630,13 @@ internal fun Modifier.memoryBubbleFreeSpan(controller: MemoryBubbleController?):
  * camera cutout. The bubble's body runs from the header's title ([titleLeft])
  * to [reach] past the arrow, with at least [minLeft] left of it, and ends
  * before Settings ([freeEnd]): so the arrow goes under the cutout when that
- * leaves the bubble room, else the page's centre when that does, else as far
- * left as the bubble allows (a corner punch-hole, or a page without the
- * cutout over it).
+ * leaves the bubble room, else the page's centre ([pageCentre]) when that
+ * does, else as far left as the bubble allows (a corner punch-hole, or a page
+ * without the cutout over it).
  */
 internal fun memoryArrowCenterX(
     cutoutCenterX: Float?,
-    width: Float,
+    pageCentre: Float,
     titleLeft: Float,
     freeEnd: Float,
     minLeft: Float,
@@ -415,8 +644,7 @@ internal fun memoryArrowCenterX(
 ): Pair<Float, Boolean> {
     fun fits(x: Float) = x - minLeft >= titleLeft && x + reach <= freeEnd
     cutoutCenterX?.takeIf(::fits)?.let { return it to true }
-    val centre = width / 2f
-    if (fits(centre)) return centre to false
+    if (fits(pageCentre)) return pageCentre to false
     return (titleLeft + minLeft) to false
 }
 
@@ -503,8 +731,6 @@ internal fun memoryBubbleOutline(
 
 private enum class BubbleSlot { Arrow, Surface, Content, Mark }
 
-private enum class BubbleReason { News, Idle }
-
 /**
  * The Memories entry in [MemoryEntryStyle.Bubble]: the safe-area arrow and
  * its speech bubble, laid over the whole Home page (fill the page's root Box;
@@ -515,7 +741,9 @@ private enum class BubbleReason { News, Idle }
  * column): the bubble keeps quiet and tucks away. [editing] = Home is being
  * edited: the same, and the arrow takes no taps and fades out over the first
  * half of [editProgress] (draw phase). The header's title carries
- * [memoryBubbleTitle] so the bubble can take its place.
+ * [memoryBubbleTitle] so the bubble can take its place. When it speaks and
+ * when it goes follow [MemoryBubbleTurn.after]; the shell's presses and the
+ * once-per-foreground reminder come from [LocalMemoryBubbleShell].
  */
 @Composable
 internal fun MemoryBubbleOverlay(
@@ -538,26 +766,43 @@ internal fun MemoryBubbleOverlay(
     val context = LocalContext.current
     val store = LocalMemoryBubbleSeenStore.current ?: remember(context) { SharedPrefsMemoryBubbleSeenStore(context) }
     val idleMs = LocalMemoryBubbleIdleMs.current
+    val dwellMs = LocalMemoryBubbleDwellMs.current
+    val accessibility = LocalAccessibilityManager.current
+    // The shell's presses and the once-per-foreground reminder; on its own
+    // (the debug harness, previews) it keeps a holder of its own.
+    val shell = LocalMemoryBubbleShell.current ?: remember { MemoryBubbleShell() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
+    val windowInfo = LocalWindowInfo.current
     val currentPill by rememberUpdatedState(pill)
     val currentHint by rememberUpdatedState(hintProgress)
     val currentReveal by rememberUpdatedState(revealProgress)
     val currentScrolled by rememberUpdatedState(scrolledPx)
     val currentCovered by rememberUpdatedState(covered || editing)
     val fadePx = with(density) { ArrowScrollFade.toPx() }
-    // It may only speak where it can be read: Home on top, the feed at its
-    // top (the arrow is there), nobody pulling Memories open — and not over
-    // the header's own cold-start bloom (the same mark, the same place).
+    // It may only speak where it can be read: Home on top, its window in
+    // front and focused, the feed at its top (the arrow is there), nobody
+    // pulling Memories open — and not over the header's own cold-start bloom
+    // (the same mark, the same place).
     val canSpeak: () -> Boolean = {
-        !currentCovered && currentScrolled() <= fadePx && currentHint() <= 0.01f && !HomeIntroRunning.value
+        !currentCovered && currentScrolled() <= fadePx && currentHint() <= 0.01f && !HomeIntroRunning.value &&
+            memoryBubbleWindowReadable(lifecycleState, windowInfo.isWindowFocused)
     }
 
     var reason by remember { mutableStateOf<BubbleReason?>(null) }
     val hasSomething = pill.hasSomethingToSay()
     if (!hasSomething && reason != null) reason = null
+    // Every change of what it says goes through the rules (MemoryBubbleTurn.after).
+    val cue: (MemoryBubbleCue) -> Unit = { what ->
+        val next = MemoryBubbleTurn(reason, shell.spokeThisForeground).after(what)
+        reason = next.reason
+        shell.spokeThisForeground = next.spokeThisForeground
+    }
 
     // News: once the launch reveal has landed and it can be read (every time
     // Home resumes with news still untold), speak — and remember it was said.
+    // Waiting for it to be readable, it must stay so, untouched, a beat first
+    // (MEMORY_BUBBLE_NEWS_SETTLE_MS).
     LaunchedEffect(pill?.scope, pill?.newsKey, store) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             val news = currentPill ?: return@repeatOnLifecycle
@@ -570,74 +815,79 @@ internal fun MemoryBubbleOverlay(
             }
             snapshotFlow { currentReveal() >= 1f }.first { it }
             delay(MemoryBubbleNewsDelayMs)
-            snapshotFlow { canSpeak() }.first { it }
-            reason = BubbleReason.News
+            if (!canSpeak()) {
+                awaitMemoryBubbleIdle(snapshotFlow { canSpeak() }, controller.touches, MEMORY_BUBBLE_NEWS_SETTLE_MS)
+            }
+            cue(MemoryBubbleCue.News)
             store.markSeen(news.scope, news.newsKey)
         }
     }
-    // "很久不动": untouched for idleMs where it can be read, speak — once per visit.
-    LaunchedEffect(hasSomething, idleMs) {
+    // "很久不动": readable and untouched for idleMs, speak — at most once each
+    // time the app comes to the foreground (counted from STARTED: a detail
+    // page, translucent, never stops Home, so coming back from one doesn't
+    // wind it up again; it only keeps the clock from running under it).
+    LaunchedEffect(hasSomething, idleMs, shell) {
         if (!hasSomething) return@LaunchedEffect
-        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (true) {
-                snapshotFlow { canSpeak() }.first { it }
-                val touched = withTimeoutOrNull(idleMs) { controller.touches.first() }
-                if (touched == null && reason == null && canSpeak()) {
-                    reason = BubbleReason.Idle
-                    awaitCancellation()
-                }
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            val readable = snapshotFlow { canSpeak() }
+            while (!shell.spokeThisForeground) {
+                awaitMemoryBubbleIdle(readable, controller.touches, idleMs)
+                if (canSpeak()) cue(MemoryBubbleCue.IdleElapsed)
             }
         }
     }
-    // Any touch elsewhere, a pull toward Memories, the feed scrolling away or
-    // something covering Home tucks it back.
-    LaunchedEffect(controller) {
-        launch { controller.touches.collect { reason = null } }
-        snapshotFlow { canSpeak() }.filter { !it }.collect { reason = null }
+    // Said in full, it holds dwellMs (longer if the accessibility timeout asks)
+    // and flies back into the arrow on its own — never from under a finger.
+    LaunchedEffect(reason, dwellMs) {
+        if (reason == null) return@LaunchedEffect
+        val fullySaid = snapshotFlow {
+            memoryBubbleFullySaid(
+                unroll = controller.unroll.value,
+                unrolling = controller.unroll.isRunning,
+                flyAway = controller.flyAway.value,
+                flyingAway = controller.flyAway.isRunning
+            )
+        }
+        awaitMemoryBubbleDwell(fullySaid, snapshotFlow { controller.held }, memoryBubbleDwellMs(dwellMs, accessibility))
+        cue(MemoryBubbleCue.DwellOver)
+    }
+    // Any touch elsewhere (the bar's too), a pull toward Memories, the feed
+    // scrolling away or something covering Home tucks it back.
+    LaunchedEffect(controller, shell) {
+        launch { controller.touches.collect { cue(MemoryBubbleCue.Touch) } }
+        launch {
+            shell.presses.collect { downAt ->
+                if (isShellOnlyPress(downAt, controller.lastDownAt)) controller.touches.tryEmit(Unit)
+            }
+        }
+        snapshotFlow { canSpeak() }.filter { !it }.collect { cue(MemoryBubbleCue.OutOfReach) }
+    }
+    // The app gone to the background (STOPPED): the window can't be seen, so
+    // it is put away at once, unseen — no spring left for later — and Home
+    // comes back at rest.
+    LaunchedEffect(lifecycleOwner, controller) {
+        lifecycleOwner.lifecycle.currentStateFlow
+            .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            .distinctUntilChanged()
+            .filter { started -> !started }
+            .collect {
+                cue(MemoryBubbleCue.Backgrounded)
+                controller.flyAway.snapTo(0f)
+                controller.unroll.snapTo(0f)
+                controller.markIn.snapTo(0f)
+            }
     }
 
     val speaking = reason != null
-    // Out with the Expressive bounce; back in without one.
-    val outSpring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
-    val inSpring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    // Flying away is a trip, not a snap: the slow spatial spring, no bounce.
-    val flySpring = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    // Out with the Expressive bounce; back in without one. Flying away is a
+    // trip, not a snap: the slow spatial spring, no bounce.
+    val springs = MemoryBubbleSprings(
+        out = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+        back = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        fly = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard)
+    )
     LaunchedEffect(speaking, reduced) {
-        val target = if (speaking) 1f else 0f
-        when {
-            reduced -> Unit
-            speaking -> {
-                // Caught flying away: start over from the title.
-                if (controller.flyAway.value > 0f) {
-                    controller.unroll.snapTo(0f)
-                    controller.markIn.snapTo(0f)
-                    controller.flyAway.snapTo(0f)
-                }
-                // The mark squeezes in and blooms, holds a beat beside the
-                // title, then rolls off with the bubble unrolling behind it.
-                if (controller.unroll.value <= 0f) {
-                    controller.markIn.animateTo(1f, outSpring)
-                    delay(MarkHoldMs)
-                } else {
-                    // Caught mid-tuck: straight back out.
-                    launch { controller.markIn.animateTo(1f, outSpring) }
-                }
-                controller.unroll.animateTo(1f, outSpring)
-            }
-            // Spoken: it flies off into the arrow and the title comes back.
-            controller.unroll.value >= FlyAwayFrom -> controller.flyAway.animateTo(1f, flySpring)
-            // Still only the mark beside the title: it folds away.
-            else -> {
-                controller.unroll.animateTo(0f, inSpring)
-                controller.markIn.animateTo(0f, inSpring)
-            }
-        }
-        // Land exactly: a spring settles within its visibility threshold,
-        // and a bubble left at 0.004 would linger as a ghost. (Flown away,
-        // the reset is invisible: the title already reads as at rest.)
-        controller.unroll.snapTo(target)
-        controller.markIn.snapTo(target)
-        controller.flyAway.snapTo(0f)
+        controller.settle(speaking = speaking, reduced = reduced, springs = springs)
     }
     val composedBubble by remember {
         derivedStateOf {
@@ -646,12 +896,12 @@ internal fun MemoryBubbleOverlay(
     }
     val tapArrow: () -> Unit = {
         haptics.performContextClick()
-        reason = null
+        cue(MemoryBubbleCue.Touch)
         onNavigateToMemories()
     }
     val tapBubble: () -> Unit = {
         haptics.performContextClick()
-        reason = null
+        cue(MemoryBubbleCue.Touch)
         val session = pill?.latest?.sessionId
         if (session != null) onOpenMemoryFocus(session) else onNavigateToMemories()
     }
@@ -674,7 +924,8 @@ internal fun MemoryBubbleOverlay(
         },
         content = {
             MemoryArrow(
-                speaking = { controller.unroll.value },
+                // Coming home from a flight, it is the arrow at rest again.
+                speaking = { controller.unroll.value * (1f - memoryArrowHomecoming(controller.flyAway.value)) },
                 hintProgress = hintProgress,
                 scrolledPx = scrolledPx,
                 editProgress = editProgress,
@@ -707,10 +958,10 @@ internal fun MemoryBubbleOverlay(
         val touch = ArrowTouchSize.roundToPx()
         val arrow = measurables.first { it.layoutId == BubbleSlot.Arrow }.measure(Constraints.fixed(touch, touch))
         val margin = BubbleEdgeMargin.toPx()
-        // The header's title and its span before Settings, and the cutout,
-        // brought into this overlay's space (window positions from the last
-        // placement; they only move when the page's width does, and a write
-        // re-measures).
+        // The header's title, its span before Settings and the page it heads,
+        // and the cutout, brought into this overlay's space (window positions
+        // from the last placement; they only move when the page's width
+        // does, and a write re-measures).
         val overlayX = controller.overlayXInWindow.takeIf { !it.isNaN() } ?: 0f
         val overlayY = controller.overlayYInWindow.takeIf { !it.isNaN() } ?: 0f
         val titleLeft = controller.titleLeftInWindow.takeIf { !it.isNaN() }?.minus(overlayX)
@@ -720,10 +971,13 @@ internal fun MemoryBubbleOverlay(
         val titleHeight = controller.titleHeight.takeIf { !it.isNaN() } ?: TitleFallbackHeight.toPx()
         val freeEnd = controller.freeEndInWindow.takeIf { !it.isNaN() }?.minus(overlayX)
             ?.coerceAtMost(width - margin) ?: (width - margin)
+        val pageStart = controller.pageStartInWindow
+        val pageEnd = controller.pageEndInWindow
+        val pageCentre = if (pageStart.isNaN() || pageEnd.isNaN()) width / 2f else (pageStart + pageEnd) / 2f - overlayX
         val reach = BubbleReach.toPx()
         val (arrowX, underCutout) = memoryArrowCenterX(
             cutoutCenterX = cutout?.let { it.center.x - overlayX },
-            width = width.toFloat(),
+            pageCentre = pageCentre,
             titleLeft = titleLeft,
             freeEnd = freeEnd,
             minLeft = BubbleMinLeft.toPx(),
@@ -739,18 +993,24 @@ internal fun MemoryBubbleOverlay(
         // under the title's, or lower if the tail needs the room.
         val bodyRight = arrowX + reach
         val bodyLeft = maxOf(titleLeft, bodyRight - BubbleMaxWidth.toPx())
-        val tailTop = arrowCenterY - BubbleTipAboveChevron.toPx()
         val bodyTop = maxOf(titleTop, arrowCenterY + BubbleChevronAboveBody.toPx())
-        val body = Rect(bodyLeft, bodyTop, bodyRight, bodyTop + BubbleBodyHeight.toPx())
+        val headerBody = Rect(bodyLeft, bodyTop, bodyRight, bodyTop + BubbleBodyHeight.toPx())
         val markPx = BubbleMarkSize.roundToPx()
         val markHalf = markPx / 2f
-        val geometry = MemoryBubbleGeometry(
-            body = body,
+        // Flying away, it keeps the place it left from (flightGeometry).
+        val flight = controller.flightGeometry
+        val geometry = flight ?: MemoryBubbleGeometry(
+            body = headerBody,
             tailX = arrowX,
-            tailTop = tailTop,
+            tailTop = arrowCenterY - BubbleTipAboveChevron.toPx(),
             markStart = Offset(titleLeft + markHalf, titleTop + titleHeight / 2f),
-            markEnd = Offset(body.right - BubbleMarkCornerInsetX.toPx(), body.bottom - BubbleMarkCornerInsetY.toPx()),
+            markEnd = Offset(
+                headerBody.right - BubbleMarkCornerInsetX.toPx(),
+                headerBody.bottom - BubbleMarkCornerInsetY.toPx()
+            )
         )
+        val body = geometry.body
+        val tailTop = geometry.tailTop
         val inset = BubbleCoverInset.toPx()
         val surface = measurables.firstOrNull { it.layoutId == BubbleSlot.Surface }
             ?.measure(Constraints.fixed(width, height))
@@ -776,8 +1036,18 @@ internal fun MemoryBubbleOverlay(
             content?.placeWithLayer(contentX, contentY) {
                 flyIntoTip(controller.flyAway.value, Offset(geometry.tailX - contentX, geometry.tailTop - contentY))
             }
-            val arrowLeft = (arrowX - touch / 2f).roundToInt()
-            val arrowTop = (arrowCenterY - touch / 2f).roundToInt()
+            // The chevron sits in the tail: flying, it stays where the bubble
+            // left it while any of the bubble is seen, then comes home to
+            // where the header puts it now as the flight lands.
+            val home = Offset(arrowX, arrowCenterY)
+            val chevron = if (flight == null) {
+                home
+            } else {
+                val left = Offset(flight.tailX, flight.tailTop + BubbleTipAboveChevron.toPx())
+                lerp(left, home, memoryArrowHomecoming(controller.flyAway.value))
+            }
+            val arrowLeft = (chevron.x - touch / 2f).roundToInt()
+            val arrowTop = (chevron.y - touch / 2f).roundToInt()
             controller.arrowBounds = Rect(
                 arrowLeft.toFloat(),
                 arrowTop.toFloat(),
@@ -807,13 +1077,96 @@ internal fun MemoryBubbleOverlay(
 /** Tucked from this far unrolled it flies away; less, the mark just folds back. */
 private const val FlyAwayFrom = 0.5f
 
+/** The bubble's springs: [out] as it speaks, [back] folding away, [fly] flying off into the arrow. */
+@Immutable
+internal class MemoryBubbleSprings(
+    val out: FiniteAnimationSpec<Float>,
+    val back: FiniteAnimationSpec<Float>,
+    val fly: FiniteAnimationSpec<Float>
+)
+
+/**
+ * Moves the bubble to where [speaking] puts it: out from the title, or —
+ * spoken — off into the arrow it left from ([MemoryBubbleController.flightGeometry]),
+ * or folded back beside the title. All of it on steady frames: the tap that
+ * tucks it may also open a detail column, whose first frames re-lay Home out
+ * and come late — by the wall clock the whole flight would fall between two
+ * of them and read as a cut.
+ */
+internal suspend fun MemoryBubbleController.settle(speaking: Boolean, reduced: Boolean, springs: MemoryBubbleSprings) {
+    val target = if (speaking) 1f else 0f
+    var departure: MemoryBubbleGeometry? = null
+    try {
+        withSteadyFrames {
+            when {
+                reduced -> Unit
+                speaking -> {
+                    // Caught flying away: start over from the title.
+                    if (flyAway.value > 0f) {
+                        flightGeometry = null
+                        unroll.snapTo(0f)
+                        markIn.snapTo(0f)
+                        flyAway.snapTo(0f)
+                    }
+                    // The mark squeezes in and blooms, holds a beat beside the
+                    // title, then rolls off with the bubble unrolling behind it.
+                    if (unroll.value <= 0f) {
+                        markIn.animateTo(1f, springs.out)
+                        delay(MarkHoldMs)
+                    } else {
+                        // Caught mid-tuck: straight back out.
+                        launch { markIn.animateTo(1f, springs.out) }
+                    }
+                    unroll.animateTo(1f, springs.out)
+                }
+                // Spoken: it flies off into the arrow and the title comes back.
+                unroll.value >= FlyAwayFrom -> {
+                    departure = geometry
+                    flightGeometry = departure
+                    flyAway.animateTo(1f, springs.fly)
+                }
+                // Still only the mark beside the title: it folds away.
+                else -> {
+                    unroll.animateTo(0f, springs.back)
+                    markIn.animateTo(0f, springs.back)
+                }
+            }
+        }
+        // Land exactly: a spring settles within its visibility threshold,
+        // and a bubble left at 0.004 would linger as a ghost. (Flown away,
+        // the reset is invisible: the title already reads as at rest.)
+        unroll.snapTo(target)
+        markIn.snapTo(target)
+        flyAway.snapTo(0f)
+    } finally {
+        // Landed, or cut short (called back, the app gone to the
+        // background): the header places it again.
+        if (departure != null && flightGeometry === departure) flightGeometry = null
+    }
+}
+
 /** Flying away, it shrinks to this (about the tail's tip) and lifts this far. */
 private const val FlyShrink = 0.75f
 private val FlyLift = 20.dp
 
+/** Flying away, it fades from this far into the flight and is gone by this far. */
+private const val FLY_FADE_FROM = 0.35f
+private const val FLY_GONE_AT = 0.9f
+
+/** How much of the bubble is still seen [fly] into its flight: it fades over the second half. */
+internal fun memoryBubbleFlightAlpha(fly: Float): Float = 1f - smoothstep(FLY_FADE_FROM, FLY_GONE_AT, fly)
+
+/**
+ * How far the chevron is on its way home [fly] into the flight: 0 while any of
+ * the bubble is seen — it stays in the tail it sat in — and 1 as it lands, at
+ * the place (and the resting ink) the header gives it now. Home may have
+ * moved it meanwhile: a detail column re-lays the header out under the tap.
+ */
+internal fun memoryArrowHomecoming(fly: Float): Float = smoothstep(FLY_GONE_AT, 1f, fly)
+
 /**
  * Flying away into the arrow on [fly]: shrinks toward the tail's tip at [tip]
- * (in this layer's own space), lifts, and fades out over the second half.
+ * (in this layer's own space), lifts, and fades out ([memoryBubbleFlightAlpha]).
  */
 private fun GraphicsLayerScope.flyIntoTip(fly: Float, tip: Offset) {
     if (fly <= 0f || size.width <= 0f || size.height <= 0f) return
@@ -822,7 +1175,7 @@ private fun GraphicsLayerScope.flyIntoTip(fly: Float, tip: Offset) {
     scaleY *= scale
     transformOrigin = TransformOrigin(tip.x / size.width, tip.y / size.height)
     translationY -= FlyLift.toPx() * fly
-    alpha *= 1f - smoothstep(0.35f, 0.9f, fly)
+    alpha *= memoryBubbleFlightAlpha(fly)
 }
 
 /** The mark rests beside the title this long before it rolls off. */

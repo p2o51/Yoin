@@ -8,6 +8,8 @@
     <string name="home_account_cd">Account: %1$s</string>
     <string name="home_account_close">Close</string>
     <string name="home_account_manage">Manage accounts</string>
+    <string name="home_account_reconnect">Reconnect</string>
+    <string name="home_account_reconnect_needed">Account needs reconnecting</string>
     <string name="home_account_switch">Switch account</string>
     <string name="home_account_add">Add account</string>
     <string name="home_account_settings">Settings</string>

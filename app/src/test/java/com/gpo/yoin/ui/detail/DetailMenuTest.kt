@@ -1,7 +1,12 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.player.queueableSongs
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DetailMenuTest {
@@ -28,4 +33,55 @@ class DetailMenuTest {
         assertEquals("Added 12 songs to the queue", queuedMessage(12, next = false))
         assertEquals("1 song will play next", queuedMessage(1, next = true))
     }
+
+    @Test
+    fun should_leaveImportsOutOfTheQueue_when_aPageMixesThem() {
+        val playable = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1440857781"))
+        val tracks = listOf(import("a"), playable, import("b"))
+
+        assertEquals(listOf(playable), queueableSongs(tracks))
+    }
+
+    @Test
+    fun should_hideQueueActions_when_theAlbumHasNoPlayableSongs() {
+        val unavailable = AlbumSong("applemusic:library:i.a", "Track", "Artist", 1, 180, false, isUnavailable = true)
+        val album = AlbumDetailUiState.Content(
+            albumId = "applemusic:library:l.a",
+            albumName = "Language",
+            artistName = "Artist",
+            artistId = null,
+            coverArtId = null,
+            coverArtUrl = null,
+            year = null,
+            songCount = 22,
+            totalDuration = null,
+            songs = List(22) { unavailable.copy(id = "applemusic:library:i.$it") }
+        )
+
+        assertFalse(album.hasQueueableSongs())
+        assertFalse(album.copy(songs = emptyList()).hasQueueableSongs())
+        assertTrue(album.copy(songs = album.songs + unavailable.copy(isUnavailable = false)).hasQueueableSongs())
+    }
+
+    @Test
+    fun should_sayNothing_when_thePageHasNoSongsYet() {
+        assertNull(queueableSongs(emptyList()))
+    }
+
+    private fun import(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.$id"))
+
+    private fun track(id: MediaId) = Track(
+        id = id,
+        title = "Track $id",
+        artist = "Artist",
+        artistId = null,
+        album = "Album",
+        albumId = null,
+        coverArt = null,
+        durationSec = 180,
+        trackNumber = null,
+        year = null,
+        genre = null,
+        userRating = null
+    )
 }

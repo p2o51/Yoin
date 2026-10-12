@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -17,10 +18,12 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.perf.YoinPerf
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
@@ -29,13 +32,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -46,6 +52,8 @@ class PlaybackManager(
     private val repository: YoinRepository,
     private val castManager: CastManager? = null,
     spotifyClientIdProvider: () -> String,
+    /** What [SpotifyContextSync] times an unconfirmed Spotify start by (a test passes its virtual clock). */
+    spotifyContextClock: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private enum class ActiveBackend {
         NONE,
@@ -57,6 +65,9 @@ class PlaybackManager(
     private var controllerUsesMusicKit = false
     private var requestedMedia3Source: MusicSource? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // The ▾ queue actions still reading their songs ([queueWhenLoaded]): an account switch cancels them.
+    private val queueReads = SupervisorJob(scope.coroutineContext[Job])
     private var positionUpdateJob: Job? = null
     // True while any Yoin Activity is started (driven by YoinApplication's
     // host lifecycle). Gates the 250ms position ticker: nothing consumes
@@ -64,10 +75,21 @@ class PlaybackManager(
     // driven by Media3 itself, not this StateFlow.
     private var hostStarted = false
     private var connectJob: Job? = null
+
+    // The one start still reading its queue ([playWhenLoaded]): any newer start cancels it.
+    private var loadingStart: Job? = null
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
     private var lastRecordedTrackId: MediaId? = null
     private val _currentActivityContext = MutableStateFlow<ActivityContext>(ActivityContext.None)
     val currentActivityContext: StateFlow<ActivityContext> = _currentActivityContext.asStateFlow()
+
+    // Keeps [_currentActivityContext] the one a Yoin play set while Spotify plays that queue,
+    // else follows what Spotify reports. See [onSpotifyPlayerContext] and [publishRemoteState].
+    private val spotifyContextSync = SpotifyContextSync(clock = spotifyContextClock)
+
+    // Gives up on Spotify's fresh PlayerContext after a reconnect ([SpotifyContextSync.onReportOverdue]).
+    private var spotifyReportGraceJob: Job? = null
+
     // Last context Spotify reported it's playing FROM (album / playlist / …). Used to
     // label externally-started playback. See [onSpotifyPlayerContext].
     private var lastSpotifyContext: SpotifyPlaybackContext? = null
@@ -109,6 +131,28 @@ class PlaybackManager(
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
         onContext = ::onSpotifyPlayerContext,
+    )
+
+    /**
+     * The Spotify heart check, made here — once per track change, however
+     * many Now Playing hosts are open — and pushed into the repository's
+     * favorite state (this depends on the repository, never the reverse).
+     */
+    private val savedStateRefresher = SpotifySavedStateRefresher(
+        scope = scope,
+        clock = System::currentTimeMillis,
+        appRemoteState = ::appRemoteLibraryState,
+        sink = object : SpotifySavedStateSink {
+            override fun currentProfileId(): String? = repository.currentProfileId()
+
+            override fun recordAppRemoteState(profileId: String, trackId: MediaId, saved: Boolean) {
+                repository.recordFavoriteState(profileId, trackId, saved)
+            }
+
+            override suspend fun checkWithWebApi(track: Track) {
+                repository.refreshFavoriteStates(listOf(track))
+            }
+        }
     )
 
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -213,8 +257,12 @@ class PlaybackManager(
     }
 
     fun disconnect() {
+        // A queue read for the outgoing account never starts, or queues, on the next one.
+        cancelLoadingStart()
+        queueReads.cancelChildren()
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
+        savedStateRefresher.reset()
         activeBackend = ActiveBackend.NONE
         requestedMedia3Source = null
         pendingSpotifyHandoff = false
@@ -238,7 +286,11 @@ class PlaybackManager(
      * Starts [tracks] at [startIndex]. [shuffled] says the caller already
      * shuffled the list for a Shuffle button: Media3 / MusicKit play it as
      * given, while Spotify starts its context at the first track with
-     * Spotify's own shuffle on (a context can't take Yoin's order).
+     * Spotify's own shuffle on (a context can't take Yoin's order). Apple
+     * Music imports MusicKit can't play are dropped first ([playableQueue]).
+     * [explicitStart] says the user picked tracks[startIndex] (a row tap); a
+     * Play or Shuffle button picks no song, and neither does a shuffled list's
+     * first place, so an import there gives way to the next song that plays.
      */
     fun play(
         tracks: List<Track>,
@@ -246,11 +298,103 @@ class PlaybackManager(
         source: MusicSource,
         activityContext: ActivityContext = ActivityContext.None,
         shuffled: Boolean = false,
+        explicitStart: Boolean = true,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        // The user chose this: a queue still being read must not take over when it lands.
+        cancelLoadingStart()
+        startPlayable(tracks, startIndex, source, activityContext, shuffled, explicitStart)
+    }
+
+    /**
+     * Starts the queue [load] reads, from its first track, on [source] with
+     * [activityContext] — a start whose tracks must be read first (an
+     * artist's Play or Shuffle reads every release). The read runs here, not
+     * in the page that asked, so a page recreated by a rotation, or a Wide
+     * column handed to a window page, doesn't drop the tap. A newer start —
+     * [play], another of these, a pick in the queue ([skipToQueueItem]),
+     * [clearQueue], an account switch ([disconnect]) — cancels it
+     * ([loadingStart]); an empty or failed read starts nothing.
+     */
+    fun playWhenLoaded(
+        source: MusicSource,
+        activityContext: ActivityContext = ActivityContext.None,
+        explicitStart: Boolean = true,
+        load: suspend () -> List<Track>
+    ) {
+        cancelLoadingStart()
+        loadingStart = scope.launch {
+            val tracks = readQueue(load)
+            // Superseded while the read was landing: the newer start stands.
+            ensureActive()
+            loadingStart = null
+            if (tracks.isNotEmpty()) {
+                startPlayable(tracks, 0, source, activityContext, shuffled = false, explicitStart = explicitStart)
+            }
+        }
+    }
+
+    /**
+     * Queues the tracks [load] reads ([addToQueue]; [next] for Play next): a
+     * detail page's ▾ Play next / Add to queue, whose songs may have to be
+     * read first (an artist's every release). As in [playWhenLoaded], the
+     * read runs here, so a rotation or a Wide column closing mid-read still
+     * queues; an account switch ([disconnect]) drops it. [onQueued] gets how
+     * many songs went in (Apple Music imports MusicKit can't play are left
+     * out, as [addToQueue] leaves them; [queueableSongs]): a read of nothing
+     * but those queues nothing and still reports 0, while an empty or failed
+     * read queues nothing and calls nothing.
+     */
+    fun queueWhenLoaded(
+        source: MusicSource,
+        next: Boolean,
+        load: suspend () -> List<Track>,
+        onQueued: (count: Int) -> Unit
+    ) {
+        scope.launch(queueReads) {
+            val songs = queueableSongs(readQueue(load)) ?: return@launch
+            if (songs.isNotEmpty()) addToQueue(songs, source, next)
+            onQueued(songs.size)
+        }
+    }
+
+    private suspend fun readQueue(load: suspend () -> List<Track>): List<Track> = try {
+        load()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (error: Exception) {
+        Log.w(TAG, "queue read failed; nothing started or queued", error)
+        emptyList()
+    }
+
+    private fun cancelLoadingStart() {
+        loadingStart?.cancel()
+        loadingStart = null
+    }
+
+    private fun startPlayable(
+        tracks: List<Track>,
+        startIndex: Int,
+        source: MusicSource,
+        activityContext: ActivityContext,
+        shuffled: Boolean,
+        explicitStart: Boolean
+    ) {
+        val queue = playableQueue(tracks, startIndex, explicitStart = explicitStart && !shuffled)
+        startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled)
+    }
+
+    private fun startQueue(
+        tracks: List<Track>,
+        startIndex: Int,
+        source: MusicSource,
+        activityContext: ActivityContext,
+        shuffled: Boolean
+    ) {
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         lastRecordedTrackId = null
         _currentActivityContext.value = activityContext
+        spotifyContextSync.onYoinStart(activityContext, tracks[startIndex])
         lastKnownDurationSecById = tracks
             .mapNotNull { track -> track.durationSec?.let { track.id to it } }
             .toMap()
@@ -299,13 +443,9 @@ class PlaybackManager(
                         if (!preserveLocalUiDuringSpotifyHandoff) {
                             activeBackend = ActiveBackend.SPOTIFY_REMOTE
                         }
-                        // If the user tapped inside an album / playlist / artist,
-                        // route through Spotify's Web API so the context sticks
-                        // ("playing from X" in Spotify's own UI + proper
-                        // recommendation signal). Bare-track entry points (queue,
-                        // search result, memories single track) keep the
-                        // non-context App Remote path — playQueue falls back
-                        // transparently on Web API failure too.
+                        // Contexts and lists use the Web API on this phone. Bare single
+                        // tracks use App Remote directly; both require the requested song
+                        // to arrive through PlayerState before the start is confirmed.
                         spotifySource = source as? SpotifyMusicSource
                         spotifyRemotePlayer.playQueue(
                             tracks = tracks,
@@ -424,10 +564,17 @@ class PlaybackManager(
      * owner F1 2026-10-05), Spotify's way: Play next right after the current
      * song; Add to queue after what the user already queued there, ahead of
      * the rest of the album or playlist. Spotify has one queue, its own,
-     * which plays before the context resumes: both land there.
+     * which plays before the context resumes: both land there. Apple Music
+     * imports MusicKit can't play are left out, as in [play]: one used to
+     * fail the whole batch.
      */
     fun addToQueue(tracks: List<Track>, source: MusicSource, next: Boolean) {
-        if (tracks.isEmpty()) return
+        val playable = tracks.filterNot { it.isUnplayableAppleImport }
+        if (playable.isEmpty()) return
+        queueTracks(playable, source, next)
+    }
+
+    private fun queueTracks(tracks: List<Track>, source: MusicSource, next: Boolean) {
         scope.launch {
             runCatching {
                 val handle = source.playback().handleFor(tracks.first())
@@ -499,6 +646,8 @@ class PlaybackManager(
     private fun MediaItem.isUserQueued(): Boolean = mediaMetadata.extras?.getBoolean(EXTRA_USER_QUEUED, false) == true
 
     fun clearQueue() {
+        // The user emptied the queue: one still being read must not refill it.
+        cancelLoadingStart()
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.clearQueue()
             else -> executeOrQueue { it.clearMediaItems() }
@@ -506,6 +655,8 @@ class PlaybackManager(
     }
 
     fun skipToQueueItem(index: Int) {
+        // A song picked in the queue is a newer start: a queue still being read must not replace it.
+        cancelLoadingStart()
         lastRecordedTrackId = null
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> {
@@ -730,6 +881,14 @@ class PlaybackManager(
     }
 
     private fun publishRemoteState(snapshot: SpotifyRemoteSnapshot) {
+        if (snapshot.connectionPhase == ConnectionPhase.Idle || snapshot.connectionPhase == ConnectionPhase.Error) {
+            // Spotify may move on while the connection is down: what it last said it plays
+            // from no longer vouches for the songs it reports when it's back.
+            spotifyContextSync.onDisconnected()
+            // The next connection's songs ask again.
+            spotifyReportGraceJob?.cancel()
+            spotifyReportGraceJob = null
+        }
         if (activeBackend != ActiveBackend.SPOTIFY_REMOTE && !pendingSpotifyHandoff) {
             // Warm-connect adoption: if we're idle, the active profile is
             // Spotify, and Spotify just pushed a real PlayerState (the
@@ -749,7 +908,8 @@ class PlaybackManager(
             // back to None for unrecognised contexts (artist radio, collection, …).
             // [onSpotifyPlayerContext] keeps it in sync as the external context changes.
             _currentActivityContext.value =
-                deriveActivityContext(lastSpotifyContext) ?: ActivityContext.None
+                deriveSpotifyActivityContext(lastSpotifyContext) ?: ActivityContext.None
+            spotifyContextSync.followSpotify()
         }
         // Re-pin the position anchor on every real snapshot — any seek /
         // pause / resume / track change re-syncs to Spotify's authoritative
@@ -792,8 +952,30 @@ class PlaybackManager(
                     disconnectLocalController(resetState = false)
                     activeBackend = ActiveBackend.SPOTIFY_REMOTE
                 }
+                // Before the play is recorded, so it is filed under the right context. Once
+                // Spotify has played a song of a Yoin start's queue, a song outside it hands
+                // the context to Spotify (after a reconnect, once Spotify says where it is).
+                // Before that, one only does so once the start has plainly given way
+                // ([SPOTIFY_START_CONFIRM_TIMEOUT_MS] after one was first heard, or the
+                // [SPOTIFY_START_OVERRIDE_SONGS]th one). A play is recorded only once the context
+                // is settled ([SpotifyContextSync.settled]), so the song Spotify played before
+                // the start isn't filed under the album or artist Yoin started. The full rules
+                // are [SpotifyContextSync]'s.
+                if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
+                    spotifyContextSync.onPlayerState(
+                        current = _currentActivityContext.value,
+                        track = snapshot.currentTrack,
+                        queue = snapshot.queue
+                    )?.let { _currentActivityContext.value = it }
+                    awaitSpotifyReportIfAsked()
+                }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
+                // Spotify's own state, adopted or Yoin-started alike: checks the
+                // heart on a track change, rechecks now and then on later events.
+                if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && snapshot.observedPlayerState) {
+                    savedStateRefresher.onPlayerState(snapshot.currentTrack)
+                }
             }
 
             ConnectionPhase.Error -> {
@@ -857,11 +1039,23 @@ class PlaybackManager(
         } else {
             stopPositionUpdates()
         }
+        recordPlayIfDue(state)
+    }
 
+    /**
+     * Records [state]'s song once, while it plays, under the context shown. A song Spotify
+     * plays waits while that context isn't settled ([SpotifyContextSync.settled]); it is
+     * recorded when it is, if it still plays: on Spotify's next PlayerState
+     * ([publishRemoteState]) or report ([onSpotifyPlayerContext]), or once the wait for
+     * that report runs out ([awaitSpotifyReportIfAsked]).
+     */
+    private fun recordPlayIfDue(state: PlaybackState) {
         val track = state.currentTrack ?: return
         if (track.id == lastRecordedTrackId || !state.isPlaying) return
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && !spotifyContextSync.settled) return
         lastRecordedTrackId = track.id
         val fallbackDurationSec = track.durationSec ?: lastKnownDurationSecById[track.id]
+        val activityContext = _currentActivityContext.value
         scope.launch {
             // Losing one history row must never take playback down with it
             // (scope has no CoroutineExceptionHandler — an uncaught Room
@@ -872,7 +1066,7 @@ class PlaybackManager(
                     durationMs = state.duration.coerceAtLeast(0L).takeIf { it > 0L }
                         ?: ((fallbackDurationSec ?: 0) * 1_000L),
                     completedPercent = 0f,
-                    activityContext = _currentActivityContext.value,
+                    activityContext = activityContext,
                 )
             }.onFailure { error ->
                 Log.w(TAG, "recordPlay failed for ${track.id}", error)
@@ -988,7 +1182,7 @@ class PlaybackManager(
             val deviceId = runCatching { spotifySource.localDeviceId(localDeviceNames()) }
                 .onFailure { e -> if (e is CancellationException) throw e }
                 .getOrNull()
-            if (deviceId == null) Log.w(TAG, "Spotify: this device isn't in the Connect list; the active device plays")
+            check(deviceId != null) { "This device is not in Spotify Connect; use local App Remote playback" }
             var failure: Throwable? = null
             val started = attempts.any { attempt ->
                 runCatching { spotifySource.start(attempt, deviceId) }
@@ -1033,47 +1227,108 @@ class PlaybackManager(
         android.os.Build.MODEL,
     )
 
+    /** App Remote's answer whether [uri] is in Liked Songs; null when it can't give one. */
+    private suspend fun appRemoteLibraryState(uri: String): Boolean? {
+        val perf = YoinPerf.begin("favorite.check")
+        val state = spotifyRemotePlayer.libraryState(uri)
+        YoinPerf.end(
+            perf,
+            "src" to "appRemote",
+            "ok" to state.isSuccess,
+            "err" to state.exceptionOrNull()?.javaClass?.simpleName
+        )
+        return state.getOrNull()?.isAdded
+    }
+
+    /**
+     * The debug library-state probe (`app/src/debug` LibraryStateProbeReceiver,
+     * docs/perf/yoinperf-logging.md): connects App Remote when it isn't —
+     * plays nothing, leaves the queue alone, and is closed again after the
+     * reads where nothing else wanted it ([SpotifyAppRemotePlayer.withProbeConnection])
+     * — and reads Spotify's library state for each of [uris], one after another.
+     */
+    internal suspend fun probeSpotifyLibraryStates(
+        uris: List<String>,
+        connectTimeoutMs: Long
+    ): SpotifyLibraryStateProbe {
+        val connectStart = SystemClock.elapsedRealtime()
+        val run = spotifyRemotePlayer.withProbeConnection(connectTimeoutMs) { connection ->
+            val connectMs = SystemClock.elapsedRealtime() - connectStart
+            val account = probedAccount()
+            if (connection != SpotifyAppRemotePlayer.ProbeConnection.Connected) {
+                return@withProbeConnection SpotifyLibraryStateProbe(connection, connectMs, emptyList(), account)
+            }
+            val readings = uris.map { uri ->
+                val start = SystemClock.elapsedRealtime()
+                val state = spotifyRemotePlayer.libraryState(uri)
+                SpotifyLibraryStateReading(
+                    uri = uri,
+                    isAdded = state.getOrNull()?.isAdded,
+                    canAdd = state.getOrNull()?.canAdd,
+                    elapsedMs = SystemClock.elapsedRealtime() - start,
+                    error = state.exceptionOrNull()
+                )
+            }
+            SpotifyLibraryStateProbe(connection, connectMs, readings, account)
+        }
+        return run.value.copy(left = run.left)
+    }
+
+    /**
+     * The active account as the probe found it, for its log: its service, or
+     * why it has no source — none chosen, its source still being built (a
+     * cold start), or none coming (ProfileManager settled without one).
+     */
+    private suspend fun probedAccount(): String = repository.currentProviderId() ?: when {
+        repository.currentProfileId() == null -> SpotifyLibraryStateProbe.ACCOUNT_NONE
+        repository.activeSourceSettled.first() -> SpotifyLibraryStateProbe.ACCOUNT_UNAVAILABLE
+        else -> SpotifyLibraryStateProbe.ACCOUNT_BUILDING
+    }
+
     /**
      * Spotify reported a new "playing from" context (album / playlist / …). When we're
      * playing externally-started Spotify content, derive an [ActivityContext] so Now
      * Playing shows "Playing from X" instead of a bare "Now Playing".
      *
-     * Skipped while a local play() is handing off to Spotify (pendingSpotifyHandoff):
-     * play() already set a RICH context (with cover/artist) and we keep it; we also
-     * keep it whenever Spotify's context URI matches the current in-app context.
+     * A context play() set (RICH: with cover/artist) is kept while Spotify plays Yoin's
+     * queue, and no context, an empty or blank uri, or one Yoin can't name (a `uris` start,
+     * an artist page's list) never replaces it. Until Spotify plays a song of that queue
+     * its reports don't count (a cold connect first reports what played BEFORE the start),
+     * unless the start has plainly given way: a song outside the queue
+     * [SPOTIFY_START_CONFIRM_TIMEOUT_MS] after one was first heard, or the
+     * [SPOTIFY_START_OVERRIDE_SONGS]th one, hands the context to Spotify, as any song
+     * outside it does once the start is confirmed ([publishRemoteState]). A song is
+     * recorded once its context is settled ([SpotifyContextSync.settled]); one held back
+     * goes on record here when this report settles it. The full rules are
+     * [SpotifyContextSync]'s.
      */
     private fun onSpotifyPlayerContext(context: SpotifyPlaybackContext?) {
+        Log.d(TAG, "Spotify player context: uri=${context?.uri} title=${context?.title}")
         lastSpotifyContext = context
-        if (pendingSpotifyHandoff) return
-        if (context?.uri == activityContextUri(_currentActivityContext.value)) return
-        _currentActivityContext.value = deriveActivityContext(context) ?: ActivityContext.None
+        spotifyContextSync.onReported(_currentActivityContext.value, context)
+            ?.let { _currentActivityContext.value = it }
+        awaitSpotifyReportIfAsked()
+        // A song held back while its context was in question goes on record now.
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) recordPlayIfDue(_playbackState.value)
     }
 
-    /** URI of the context an [ActivityContext] represents, to compare against Spotify's. */
-    private fun activityContextUri(context: ActivityContext): String? = when (context) {
-        is ActivityContext.Album -> MediaId.parseOrNull(context.albumId)
-            ?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY }
-            ?.let { "spotify:album:${it.rawId}" }
-        is ActivityContext.Playlist -> MediaId.parseOrNull(context.playlistId)
-            ?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY }
-            ?.let { "spotify:playlist:${it.rawId}" }
-        else -> null
-    }
-
-    /** Map a Spotify "playing from" context to an [ActivityContext]; null if unrecognised. */
-    private fun deriveActivityContext(context: SpotifyPlaybackContext?): ActivityContext? {
-        val uri = context?.uri ?: return null
-        val title = (context.title?.takeIf { it.isNotBlank() }).orEmpty()
-        return when {
-            uri.startsWith("spotify:album:") ->
-                uri.removePrefix("spotify:album:").takeIf { it.isNotBlank() }?.let {
-                    ActivityContext.Album(albumId = MediaId.spotify(it).toString(), albumName = title)
-                }
-            uri.startsWith("spotify:playlist:") ->
-                uri.removePrefix("spotify:playlist:").takeIf { it.isNotBlank() }?.let {
-                    ActivityContext.Playlist(playlistId = MediaId.spotify(it).toString(), playlistName = title)
-                }
-            else -> null
+    /**
+     * A song that needs Spotify's fresh PlayerContext ([SpotifyContextSync.awaitingReport])
+     * waits at most [SPOTIFY_CONTEXT_REPORT_GRACE_MS]; after that its context is decided
+     * without the invalidated report, and the song recorded.
+     */
+    private fun awaitSpotifyReportIfAsked() {
+        if (!spotifyContextSync.awaitingReport) {
+            spotifyReportGraceJob?.cancel()
+            spotifyReportGraceJob = null
+            return
+        }
+        if (spotifyReportGraceJob?.isActive == true) return
+        spotifyReportGraceJob = scope.launch {
+            delay(SPOTIFY_CONTEXT_REPORT_GRACE_MS)
+            spotifyContextSync.onReportOverdue(_currentActivityContext.value)
+                ?.let { _currentActivityContext.value = it }
+            if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) recordPlayIfDue(_playbackState.value)
         }
     }
 
@@ -1149,6 +1404,77 @@ class PlaybackManager(
 }
 
 /**
+ * What the debug library-state probe found: how App Remote's connection
+ * went, then one reading per URI. [account]: the active account as the probe
+ * ran — its service's id, or [ACCOUNT_NONE] (none chosen),
+ * [ACCOUNT_BUILDING] (its source still being built, as on a cold start) or
+ * [ACCOUNT_UNAVAILABLE] (no source coming: its credentials didn't open).
+ * [left]: how the probe left the connection, once it was done (null: not
+ * told).
+ */
+internal data class SpotifyLibraryStateProbe(
+    val connection: SpotifyAppRemotePlayer.ProbeConnection,
+    val connectMs: Long,
+    val readings: List<SpotifyLibraryStateReading>,
+    val account: String = ACCOUNT_NONE,
+    val left: SpotifyAppRemotePlayer.ProbeLeft? = null
+) {
+    /**
+     * The probe's notes on the connection, one fact a line, for its log. An
+     * account that isn't Spotify's is said on its own line: it doesn't stop
+     * the probe, which connects App Remote for itself on any account. Nor
+     * does it explain a missing client id — that is the app's one setting,
+     * not the account's. What became of the connection is said as it turned
+     * out, only where the probe connected: one it opened was closed after it,
+     * or kept because something wanted it meanwhile (a Spotify account's
+     * source coming in on a cold start warms it).
+     */
+    fun connectionNotes(connectTimeoutMs: Long): List<String> = buildList {
+        when (account) {
+            MediaId.PROVIDER_SPOTIFY -> Unit
+            ACCOUNT_NONE -> add("no active account")
+            ACCOUNT_BUILDING -> add("the active account's source was still being built")
+            ACCOUNT_UNAVAILABLE -> add("the active account has no source: its credentials didn't open")
+            else -> add("active account is $account, not Spotify")
+        }
+        when (connection) {
+            SpotifyAppRemotePlayer.ProbeConnection.Connected -> Unit
+            SpotifyAppRemotePlayer.ProbeConnection.NoClientId -> add(
+                "no Spotify client id configured: set one in Settings › Spotify (one for the app, not per account)"
+            )
+            SpotifyAppRemotePlayer.ProbeConnection.NoHost ->
+                add("App Remote did not connect: open Yoin (an Activity must be started) and retry")
+            SpotifyAppRemotePlayer.ProbeConnection.TimedOut ->
+                add("App Remote did not connect within ${connectTimeoutMs / 1_000} s: open Spotify and retry")
+        }
+        when (left) {
+            SpotifyAppRemotePlayer.ProbeLeft.Closed -> add("App Remote was opened for the probe alone: closed after it")
+            SpotifyAppRemotePlayer.ProbeLeft.Kept -> add(
+                "App Remote was opened for the probe and kept: the account's warm-up or a play wanted it meanwhile"
+            )
+            SpotifyAppRemotePlayer.ProbeLeft.AsFound ->
+                if (account != MediaId.PROVIDER_SPOTIFY) add("App Remote was already connected: left as it was")
+            SpotifyAppRemotePlayer.ProbeLeft.NotConnected, null -> Unit
+        }
+    }
+
+    companion object {
+        const val ACCOUNT_NONE = "none"
+        const val ACCOUNT_BUILDING = "building"
+        const val ACCOUNT_UNAVAILABLE = "unavailable"
+    }
+}
+
+/** One App Remote `getLibraryState` read: its answer, or the [error] it failed with. */
+internal data class SpotifyLibraryStateReading(
+    val uri: String,
+    val isAdded: Boolean?,
+    val canAdd: Boolean?,
+    val elapsedMs: Long,
+    val error: Throwable?
+)
+
+/**
  * The window indices of [timeline] that play after [current], in play order
  * ([shuffle] follows the timeline's shuffle order), without wrapping: the
  * queue sheet's "next" list.
@@ -1163,4 +1489,3 @@ internal fun upcomingOrder(timeline: Timeline, current: Int, shuffle: Boolean): 
     }
     return order
 }
-

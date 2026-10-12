@@ -30,6 +30,7 @@ import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.navigation.trackCoverArtId
@@ -57,6 +58,8 @@ class PlaylistDetailActivity : ComponentActivity() {
     }
 
     private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
+        // The page's load starts at the tap, ahead of this gate (DetailPrefetch.kt).
+        (application as YoinApplication).container.repository.prefetchDetail(intent)
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
             launchDetailFromDetail(this, intent, fromNowPlaying)
@@ -85,6 +88,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                     factory = PlaylistDetailViewModel.Factory(playlistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
+                val notedSongIds by viewModel.notedSongIds.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
@@ -104,7 +108,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 // ActivityContext. The cover is the playlist's OWN art —
                 // a track cover only when the playlist has none — so the Home
                 // activity card wears the playlist's face, not the first song's.
-                fun playFrom(startIndex: Int, shuffle: Boolean) {
+                // explicitStart = false for Play / Shuffle: they pick no song, so
+                // an Apple Music import first in line gives way to the next that plays.
+                fun playFrom(startIndex: Int, shuffle: Boolean, explicitStart: Boolean = true) {
                     val ordered = viewModel.getPlaylistSongs()
                     if (ordered.isEmpty()) return
                     val tracks = if (shuffle) ordered.shuffled() else ordered
@@ -124,6 +130,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                             source = source,
                             activityContext = activityContext,
                             shuffled = shuffle,
+                            explicitStart = explicitStart,
                         )
                     }
                 }
@@ -144,62 +151,77 @@ class PlaylistDetailActivity : ComponentActivity() {
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
 
+                // Now Playing in this window opens the page it names over this one. When it
+                // names this page (this playlist's "Playing from"), the page is revealed instead.
+                fun openFromNowPlaying(kind: DetailPageKind, id: String) {
+                    openFromHostedNowPlaying(
+                        requested = kind,
+                        requestedId = id,
+                        shown = DetailPageKind.Playlist,
+                        shownIds = listOf(playlistId, (uiState as? PlaylistDetailUiState.Content)?.playlistId),
+                        panelAvailable = nowPlayingFrame.panelAvailable,
+                        onStepBackToPanel = { nowPlayingViewModel.setMediumFullscreen(false) },
+                        onCollapse = { nowPlayingOpen = false }
+                    ) {
+                        YoinPerf.detailClick(kind.perfKind, id, via = "push")
+                        launchChildDetail(kind.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
+                    }
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     ProvideBesidePanelWindowInfo(nowPlayingPanel) {
-                    PlaylistDetailScreen(
-                        uiState = uiState,
-                        // Toolbar arrow routes through the dispatcher so it plays the
-                        // SAME commit choreography as a system back (card collapse +
-                        // bar scrub + content fade in DetailPredictiveBackCollapse's
-                        // no-gesture path) — one back language per page class.
-                        onBackClick = { onBackPressedDispatcher.onBackPressed() },
-                        onLeavePage = {
-                            // Pre-morph the covered shell bar to nav chrome so the reveal
-                            // after the dissolve matches the scrubbed detail bar.
-                            if (intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-                                (application as YoinApplication).container.experienceSessionStore
-                                    .setDetailChromeActive(false)
-                            }
-                            finish()
-                        },
-                        morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
-                        intent.getBooleanExtra(DETAIL_EXTRA_BAR_MORPH, false),
-                    bridgeBackToShell = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
-                        navSection = intent.detailOriginSection(),
-                        enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
-                        barExitsOnBack = intent.detailBarExitsOnBack(),
-                        onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
-                        onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
-                        onSongClick = { songId ->
-                            val index = viewModel.getPlaylistSongs()
-                                .indexOfFirst { it.id.toString() == songId }
-                                .coerceAtLeast(0)
-                            playFrom(startIndex = index, shuffle = false)
-                        },
-                        onRetry = viewModel::retry,
-                        onRename = viewModel::rename,
-                        onDelete = viewModel::delete,
-                        onShare = {
-                            val text = (uiState as? PlaylistDetailUiState.Content)
-                                ?.playlistName
-                                ?: context.getString(R.string.detail_share_playlist)
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, text)
-                            }
-                            context.startActivity(Intent.createChooser(send, null))
-                        },
-                        isPlaying = isPlaying,
-                        playbackSignal = if (isPlaying) playbackSignal else 0f,
-                        onOpenNowPlaying = { nowPlayingOpen = true },
-                        nowPlayingOpen = nowPlayingOpen,
+                        PlaylistDetailScreen(
+                            uiState = uiState,
+                            // Toolbar arrow routes through the dispatcher so it plays the
+                            // SAME commit choreography as a system back (card collapse +
+                            // bar scrub + content fade in DetailPredictiveBackCollapse's
+                            // no-gesture path) — one back language per page class.
+                            onBackClick = { onBackPressedDispatcher.onBackPressed() },
+                            onLeavePage = {
+                                // Pre-morph the covered shell bar to nav chrome so the reveal
+                                // after the dissolve matches the scrubbed detail bar.
+                                endShellHandoff()
+                                finish()
+                            },
+                            morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
+                                intent.getBooleanExtra(DETAIL_EXTRA_BAR_MORPH, false),
+                            bridgeBackToShell = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
+                            navSection = intent.detailOriginSection(),
+                            enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
+                            barExitsOnBack = intent.detailBarExitsOnBack(),
+                            onPlayAllClick = { playFrom(startIndex = 0, shuffle = false, explicitStart = false) },
+                            onShufflePlay = { playFrom(startIndex = 0, shuffle = true, explicitStart = false) },
+                            onSongClick = { songId ->
+                                val index = viewModel.getPlaylistSongs()
+                                    .indexOfFirst { it.id.toString() == songId }
+                                    .coerceAtLeast(0)
+                                playFrom(startIndex = index, shuffle = false)
+                            },
+                            onRetry = viewModel::retry,
+                            onRename = viewModel::rename,
+                            onDelete = viewModel::delete,
+                            onShare = {
+                                val text = (uiState as? PlaylistDetailUiState.Content)
+                                    ?.playlistName
+                                    ?: context.getString(R.string.detail_share_playlist)
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                }
+                                context.startActivity(Intent.createChooser(send, null))
+                            },
+                            isPlaying = isPlaying,
+                            playbackSignal = if (isPlaying) playbackSignal else 0f,
+                            onOpenNowPlaying = { nowPlayingOpen = true },
+                            nowPlayingOpen = nowPlayingOpen,
 
-                        miniPlayerState = miniPlayerState,
-                        playbackProgress = miniPlayerProgress,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .besideNowPlayingPanel(nowPlayingPanel),
-                    )
+                            miniPlayerState = miniPlayerState,
+                            playbackProgress = miniPlayerProgress,
+                            notedSongIds = notedSongIds,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .besideNowPlayingPanel(nowPlayingPanel),
+                        )
                     }
 
 
@@ -209,15 +231,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
-                    onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
-                    },
+                    onAlbumClick = { id -> openFromNowPlaying(DetailPageKind.Album, id) },
+                    onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
+                    onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
                 )
                 NowPlayingAccessories(
@@ -240,17 +256,16 @@ class PlaylistDetailActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Only the outer detail launched from the shell owns this backstop.
-        // An inner translucent detail must not clear the shell pose while its
-        // outer detail is still on screen.
-        if (isFinishing && intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-            (application as YoinApplication).container.experienceSessionStore
-                .noteDetailWindowSettled()
-        }
+        publishShellHandoffSettled()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        retireShellHandoff()
     }
 
     companion object {
-        private const val EXTRA_PLAYLIST_ID = "playlistId"
+        internal const val EXTRA_PLAYLIST_ID = "playlistId"
 
         fun intent(context: Context, playlistId: String): Intent =
             Intent(context, PlaylistDetailActivity::class.java)

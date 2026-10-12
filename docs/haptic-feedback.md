@@ -119,6 +119,17 @@ Activities 和 Jump Back In 在编辑态底板右下角的 ⌟ 把手（规则�
 | 连接成功 / 输入有误、没选服务就点下一步 | `performConfirm()` / `performReject()` | Yoin 举手蹦一下 / 表单横抖、Yoin 摇头 |
 | 进入 Yoin | `performConfirm()` | 胶囊变成首页底栏 |
 
+### H. 资料库快速滚动条（2026-10-10，U2）
+
+All / Artists / Albums 贴边的把手（`ui/component/YoinFastScroller.kt`，直接用 `rememberYoinHaptics()`，没有新常量）。平板没有马达：每一行都有视觉孪生，触感只能在手机上验。
+
+| 时机 | 方法 | 常量（API） | 低版本回退 | 视觉孪生 |
+| --- | --- | --- | --- | --- |
+| 按住把手 | 无 | — | — | 把手变 primary；刻度列和气泡展开；列表若还在惯性滑动，原地停下 |
+| 拖动中进入下一个刻度（字母；时间线是年份，跨度不到两年时是月份）；距上一拍不到 45ms 的不打 | `performSegmentTick()` | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 气泡脉冲一下（快空间弹簧；减少动态下不脉冲），当前刻度变 primary |
+| 气泡里的年月变了，但还在同一个刻度里 | 无 | — | — | 只换字 |
+| 松手 | 无 | — | — | 刻度列和气泡收起；把手留在手指离开的地方，列表自己动了或长度变了才用弹簧回到列表的位置，否则原地淡出 |
+
 ## 3. 技术落地建议
 
 1. **统一震动接口**：建议在 `com.gpo.yoin.ui.experience` 包下新建 `Haptics.kt`，封装一个全局的扩展函数或组合项（Composable），将硬编码的 `Constants` 语义化。例如：

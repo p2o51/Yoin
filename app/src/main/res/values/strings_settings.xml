@@ -102,6 +102,7 @@
     <string name="settings_spotify_install">Install Spotify</string>
     <string name="settings_spotify_premium_required">Premium required</string>
     <string name="settings_spotify_restore_sign_in">Restore sign-in</string>
+    <string name="settings_spotify_app_sign_in">Sign in to Spotify app</string>
     <string name="settings_add_sheet_title">Add an account</string>
     <string name="settings_provider_subsonic_summary">Navidrome, Airsonic and other servers</string>
     <string name="settings_provider_spotify_summary">Your Spotify library</string>

@@ -9,6 +9,7 @@ import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,8 +18,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 
@@ -70,6 +76,18 @@ class ProfileManager(
     private val _activeSource = MutableStateFlow<MusicSource?>(null)
     val activeSource: StateFlow<MusicSource?> = _activeSource.asStateFlow()
 
+    // Builds of the active profile's source still in flight. Starts at one:
+    // the launch build in init, counted from construction.
+    private val activeSourceBuilds = MutableStateFlow(1)
+
+    /**
+     * False while the active profile's source is still being built — at
+     * launch, and while a delete hands over to the next profile. Once true, a
+     * null [activeSource] means none is coming (no profile, unreadable
+     * credentials), so nothing should keep waiting for one.
+     */
+    val activeSourceSettled: Flow<Boolean> = activeSourceBuilds.map { builds -> builds == 0 }.distinctUntilChanged()
+
     private val _switchingState = MutableStateFlow<SwitchState>(SwitchState.Idle)
     val switchingState: StateFlow<SwitchState> = _switchingState.asStateFlow()
 
@@ -95,21 +113,153 @@ class ProfileManager(
         _reconnectReason.value = null
     }
 
+    // Bumped when an account's stored credentials change state while its Room
+    // row stays as it was (Spotify's grant revoked, read again by a retry), so
+    // what reads them — the account cards, [activeNeedsReconnect] — reads again.
+    private val _credentialsRevision = MutableStateFlow(0)
+    val credentialsRevision: StateFlow<Int> = _credentialsRevision.asStateFlow()
+
+    private val _activeNeedsReconnect = MutableStateFlow(false)
+
+    /**
+     * The account in use needs its owner before it works: Home's avatar dot
+     * and its card's Reconnect (owner 2026-10-11). True when its source has
+     * settled without coming (its credentials couldn't be read — a restore
+     * without them, a key that didn't come along) or its credentials say so
+     * ([needsReconnect]: Spotify's grant revoked or short of a required
+     * scope). False with no account, and while its source is still being
+     * built. Unlike the sticky, app-wide [reconnectReason], it is this
+     * account's, and clears as soon as the account works again (re-entered
+     * credentials, a reconnect, [retryActiveSource]). Read from local state
+     * only: nothing is asked of any server for it.
+     */
+    val activeNeedsReconnect: StateFlow<Boolean> = _activeNeedsReconnect.asStateFlow()
+
+    // Held by create() from its secret's write to its row's, and by the
+    // startup sweep ([pruneOrphanCredentials]): a secret written for a row
+    // still to come is never taken for an orphan.
+    private val credentialsRowLock = Mutex()
+
     init {
         // Build the initial source for whatever profile boot-migration left active.
         scope.launch {
-            val initial = getActiveProfileSnapshot()
-            if (initial != null) {
-                _activeSource.value = buildSource(initial)
+            try {
+                val initial = getActiveProfileSnapshot()
+                if (initial != null) {
+                    _activeSource.value = buildSource(initial)
+                }
+            } finally {
+                activeSourceBuilds.update { builds -> builds - 1 }
             }
+        }
+        // Read again when the account in use, its source, the build under way
+        // or its stored credentials change — not otherwise.
+        scope.launch {
+            combine(
+                activeProfile,
+                _activeSource,
+                activeSourceSettled,
+                _credentialsRevision
+            ) { profile, source, settled, _ ->
+                accountNeedsReconnect(profile, sourceUp = source != null, settled = settled)
+            }.collect { needs -> _activeNeedsReconnect.value = needs }
         }
     }
 
     /**
-     * Switch the active profile, priming its [MusicSource] (ping +
-     * provider-owned warm-up via [MusicSource.prime]) before resolving.
-     * Subscribers of [switchingState] see the full progression so UI can show
-     * a loading overlay that blocks on real work.
+     * Whether [profile], the account in use, needs its owner: with no source,
+     * once none is coming; with one, when its credentials say so.
+     */
+    private fun accountNeedsReconnect(profile: Profile?, sourceUp: Boolean, settled: Boolean): Boolean = when {
+        profile == null -> false
+        !sourceUp -> settled
+        else -> decodeCredentials(profile).needsReconnect()
+    }
+
+    /**
+     * Home's Reconnect: one more try at the account in use, without
+     * switching. With no source, its credentials are read again; if they read
+     * (and don't need the owner anyway), its source is built and pinged, and
+     * published unless the service turned the credentials down
+     * ([refusesCredentials]) — a server that doesn't answer (offline, a
+     * timeout) gets the source all the same, as a cold start would, and Home
+     * and Library tell their own network errors. Published only if the
+     * account is still the one in use with no source — a switch or an edit
+     * meanwhile wins — and then fanned out as a switch is ([onSwitchCommit]:
+     * Library, Memories and the widgets read again; Home already reloads on
+     * its scope). A source that is up is left alone. Local reads and one
+     * ping, off the main thread: no more. True when the account needs
+     * nothing from its owner afterwards — [activeNeedsReconnect] already
+     * says so when this returns; false: its page is the way on.
+     */
+    suspend fun retryActiveSource(): Boolean {
+        val profile = getActiveProfileSnapshot() ?: return false
+        if (_activeSource.value == null && _switchingState.value !is SwitchState.Switching) {
+            if (withContext(Dispatchers.IO) { publishRetriedSource(profile) }) onSwitchCommit()
+        }
+        // Read again: the cards follow, and the answer is the one Home shows.
+        _credentialsRevision.update { revision -> revision + 1 }
+        val needs = withContext(Dispatchers.IO) {
+            accountNeedsReconnect(
+                getActiveProfileSnapshot(),
+                sourceUp = _activeSource.value != null,
+                settled = activeSourceBuilds.value == 0
+            )
+        }
+        _activeNeedsReconnect.value = needs
+        return !needs
+    }
+
+    /**
+     * [retryActiveSource]'s build: [profile]'s source from its credentials
+     * read again, pinged, and published as the active one unless the service
+     * turned the credentials down or the account in use has moved on (or got
+     * a source) meanwhile. True when it was published; a source that wasn't
+     * is disposed.
+     */
+    private suspend fun publishRetriedSource(profile: Profile): Boolean {
+        val credentials = decodeCredentials(profile)
+        if (credentials == null || credentials.needsReconnect()) return false
+        val source = buildSource(profile, credentials)
+        var published = false
+        try {
+            val refused = try {
+                // A timeout (null) is a server that didn't answer, not a refusal.
+                withTimeoutOrNull(PING_TIMEOUT_MS) { source.library().ping() }
+                false
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                error.refusesCredentials()
+            }
+            published = !refused &&
+                getActiveProfileSnapshot()?.id == profile.id &&
+                _activeSource.compareAndSet(null, source)
+        } finally {
+            if (!published) source.dispose()
+        }
+        return published
+    }
+
+    /** Runs [block], which builds the active profile's source, with [activeSourceSettled] held down. */
+    private inline fun <T> buildingActiveSource(block: () -> T): T {
+        activeSourceBuilds.update { builds -> builds + 1 }
+        try {
+            return block()
+        } finally {
+            activeSourceBuilds.update { builds -> builds - 1 }
+        }
+    }
+
+    /**
+     * Switch the active profile: its [MusicSource] built and its server
+     * asked once ([SwitchState.Stage.Connecting]: a ping), then the
+     * provider-owned warm-up ([SwitchState.Stage.Priming]: [MusicSource.prime])
+     * before resolving. Subscribers of [switchingState] see the full
+     * progression so UI can show a loading overlay that blocks on real work.
+     * The source is built off the main thread — the target's credentials are
+     * a file and a Keystore decrypt, its client a Retrofit stack — so a
+     * switch begun from a tap never holds that tap's frames.
      */
     suspend fun switchTo(id: String) {
         if (_switchingState.value is SwitchState.Switching) return
@@ -124,13 +274,14 @@ class ProfileManager(
             onSwitchPrepare()
 
             _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Connecting)
-            newSource = buildSource(target)
+            newSource = withContext(Dispatchers.IO) { buildSource(target) }
                 ?: throw IllegalStateException("Profile ${target.displayName} has invalid credentials")
-
-            _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Priming)
             withTimeoutOrNull(PING_TIMEOUT_MS) { newSource.library().ping() }
                 ?: throw IllegalStateException("Server did not respond within ${PING_TIMEOUT_MS / 1000}s")
-            // Provider-specific warm-up; cold cache is not a fatal switch error.
+
+            // The server answered: what's left is the warm-up. Provider-specific;
+            // a cold cache is not a fatal switch error.
+            _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Priming)
             runCatching {
                 withTimeoutOrNull(PRIME_TIMEOUT_MS) { newSource.prime() }
             }
@@ -164,10 +315,6 @@ class ProfileManager(
             throw ProfileLimitReachedException(MAX_PROFILES)
         }
         val profileId = UUID.randomUUID().toString()
-        // Write the secret first — if Room insert fails after, we're left
-        // with an orphan `.bin` (cleaned up next launch when it doesn't
-        // match any profile id), not a Room row pointing at nothing.
-        credentialsStore.write(profileId, credentials)
         val profile = Profile(
             id = profileId,
             provider = credentials.providerId,
@@ -175,10 +322,20 @@ class ProfileManager(
             credentialsJson = STORE_MARKER_V1,
             createdAt = System.currentTimeMillis(),
         )
-        profileDao.upsert(profile)
+        // Write the secret first — if Room insert fails after, we're left
+        // with an orphan `.bin` (deleted by the next launch's sweep,
+        // [pruneOrphanCredentials], as no profile id matches it), not a Room
+        // row pointing at nothing. The sweep waits for both: it never sees
+        // this secret without its row.
+        credentialsRowLock.withLock {
+            credentialsStore.write(profileId, credentials)
+            profileDao.upsert(profile)
+        }
         if (_activeProfileId.value == null) {
-            setActive(profile.id)
-            _activeSource.value = buildSource(profile)
+            buildingActiveSource {
+                setActive(profile.id)
+                _activeSource.value = buildSource(profile)
+            }
         }
         return profile
     }
@@ -236,14 +393,16 @@ class ProfileManager(
         // forever on disk under a profile id no Room row references.
         credentialsStore.delete(id)
         if (wasActive) {
-            _activeSource.value?.dispose()
-            _activeSource.value = null
-            val remaining = profileDao.getAll().firstOrNull()
-            if (remaining != null) {
-                setActive(remaining.id)
-                _activeSource.value = buildSource(remaining)
-            } else {
-                setActive(null)
+            buildingActiveSource {
+                _activeSource.value?.dispose()
+                _activeSource.value = null
+                val remaining = profileDao.getAll().firstOrNull()
+                if (remaining != null) {
+                    setActive(remaining.id)
+                    _activeSource.value = buildSource(remaining)
+                } else {
+                    setActive(null)
+                }
             }
         }
         // After the switch, so Home no longer observes the outgoing profile
@@ -343,6 +502,32 @@ class ProfileManager(
      */
     suspend fun runStartupMigrations() {
         migrateInlineCredentialsIfNeeded()
+        pruneOrphanCredentials()
+    }
+
+    /**
+     * Deletes the stored credentials (`.bin`, and what a cut-short write
+     * left) of profile ids no profile row names: a create() that died
+     * between its secret and its row, a Room wipe (a destructive downgrade)
+     * — secrets nothing can use, a Spotify token among them. Only ids with
+     * no row at all: an existing profile's files are never touched, even
+     * ones that won't read (its card says so, its page enters them again).
+     * Waits for a create() under way ([credentialsRowLock]) rather than
+     * sweep its secret before its row is in. A store or a Room that can't
+     * be read leaves everything as it is; the next launch tries again.
+     */
+    internal suspend fun pruneOrphanCredentials() {
+        credentialsRowLock.withLock {
+            try {
+                val named = profileDao.getAll().mapTo(HashSet()) { it.id }
+                for (orphan in credentialsStore.storedProfileIds() - named) {
+                    credentialsStore.delete(orphan)
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+            }
+        }
     }
 
     /**
@@ -365,6 +550,10 @@ class ProfileManager(
 
     private fun buildSource(profile: Profile): MusicSource? {
         val credentials = decodeCredentials(profile) ?: return null
+        return buildSource(profile, credentials)
+    }
+
+    private fun buildSource(profile: Profile, credentials: ProfileCredentials): MusicSource {
         return when (credentials) {
             is ProfileCredentials.AppleMusic -> com.gpo.yoin.data.source.applemusic.AppleMusicSource(credentials)
             is ProfileCredentials.Subsonic -> SubsonicMusicSource(
@@ -417,6 +606,8 @@ class ProfileManager(
             ?: return
         if (credentials.revoked) return
         persistCredentialsSilently(id, credentials.copy(revoked = true))
+        // The row is unchanged: what reads the credentials reads them again.
+        _credentialsRevision.update { revision -> revision + 1 }
     }
 
     sealed interface SwitchState {
@@ -426,7 +617,16 @@ class ProfileManager(
 
         data class Error(val profileId: String, val message: String) : SwitchState
 
-        enum class Stage { Preparing, Connecting, Priming }
+        enum class Stage {
+            /** The outgoing account's playback is let go. */
+            Preparing,
+
+            /** The target's source is built and its server asked (a ping). */
+            Connecting,
+
+            /** The server answered: the provider's own warm-up ([MusicSource.prime]). */
+            Priming
+        }
     }
 
     companion object {

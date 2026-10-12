@@ -44,9 +44,11 @@
 
     <string name="np_dock_playing_from_album">来自专辑</string>
     <string name="np_dock_playing_from_playlist">来自歌单</string>
+    <string name="np_dock_playing_from_artist">来自歌手</string>
     <string name="np_dock_now_playing">正在播放</string>
     <string name="np_from_album">来自专辑</string>
     <string name="np_from_playlist">来自歌单</string>
+    <string name="np_from_artist">来自歌手</string>
     <string name="np_from_now_playing">正在播放</string>
 
     <string name="np_cd_back_to_panel">回到侧栏</string>

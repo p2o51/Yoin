@@ -175,11 +175,11 @@ Repository 的兜底逻辑在 `getLoadedLyrics`（`YoinRepository.kt:1680-1727`�
 
 | Capability | Subsonic | Spotify | Apple | UI 读取点 |
 |---|---|---|---|---|
-| FAVORITES | 有 | 有 | 无 | `LibraryViewModel.kt:261`（Favorites 标签）；`supportsFavorites` 用于 `ArtistDetailScreen.kt:171` 的关注按钮 |
+| FAVORITES | 有 | 有 | 无 | `LibraryViewModel.kt:261`（Favorites 标签；Spotify 的由 `ServiceFeatures.favoritesAreLibrary` 隐藏，它的收藏就是 Songs / Albums / Artists 三个标签）；`supportsFavorites` 用于 `ArtistDetailScreen.kt:171` 的关注按钮 |
 | SEARCH | 有 | 有 | 有 | **没人读** |
 | CATALOG_SEARCH | 无 | 有 | 有 | `LibraryViewModel.kt:607-615, 914` |
 | LIBRARY_ADD | 无 | 无 | 有 | NowPlaying VM 和 Screen；`LibraryViewModel.kt:194/221/246`；Repository 守卫 `:343` |
-| LIBRARY_SONGS | 无 | 无 | 有 | `LibraryViewModel.kt:262, 297` |
+| LIBRARY_SONGS | 无 | 有（2026-10-10 起 = Liked Songs，Repository 读同步缓存） | 有 | `LibraryViewModel.kt:262, 297` |
 | RANDOM_SONGS | 有 | 有（其实是 shuffle 已存曲目） | 无 | `HomeViewModel.kt:547`；`LibraryViewModel.kt:262, 917` |
 | PLAYLISTS_READ | 有 | 有 | 有 | `LibraryViewModel.kt:260` |
 | PLAYLISTS_WRITE | 有 | 有 | 无 | `LibraryViewModel.kt:192/219/244`；`NowPlayingOverlayHost.kt:731`；`AddToPlaylistSheet` |

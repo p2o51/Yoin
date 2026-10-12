@@ -186,6 +186,7 @@ internal fun buildHomeMemoryPill(
             albumName = candidate.albumName,
             artistName = candidate.artistName?.takeIf { it.isNotBlank() },
             coverArtUrl = candidate.coverArtUrl,
+            coverKey = candidate.coverArtKey,
             scoreKind = kind,
             scoreText = when (kind) {
                 MemoryScoreKind.ALBUM_RATING -> formatPillScore(candidate.albumRating)

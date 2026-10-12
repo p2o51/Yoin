@@ -24,6 +24,7 @@
     <string name="cmp_queue_next_up">接下来</string>
     <string name="cmp_queue_next_from_album">接下来：%1$s</string>
     <string name="cmp_queue_next_from_playlist">接下来：%1$s</string>
+    <string name="cmp_queue_next_from_artist">接下来：%1$s</string>
     <string name="cmp_queue_section_now">正在播放</string>
     <string name="cmp_queue_section_queued">队列中接下来</string>
     <string name="cmp_queue_playing_from">播放来自</string>

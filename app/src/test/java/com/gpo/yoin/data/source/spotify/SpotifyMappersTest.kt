@@ -64,6 +64,21 @@ class SpotifyMappersTest {
     }
 
     @Test
+    fun should_ownPlaylist_when_ownerIdIsTheUser() {
+        val mine = SpotifyPlaylistObject(id = "p-1", name = "Mine", owner = SpotifyOwnerObject(id = "me"))
+        val theirs = SpotifyPlaylistObject(id = "p-2", name = "Theirs", owner = SpotifyOwnerObject(id = "them"))
+        val nameless = SpotifyPlaylistObject(id = "p-3", name = "?", owner = SpotifyOwnerObject(displayName = "?"))
+        val ownerless = SpotifyPlaylistObject(id = "p-4", name = "?")
+
+        assertEquals(true, mine.ownedBy("me"))
+        assertEquals(false, theirs.ownedBy("me"))
+        assertNull(nameless.ownedBy("me"))
+        assertNull(ownerless.ownedBy("me"))
+        // Search results don't ask.
+        assertNull(mine.toPlaylist().ownedByMe)
+    }
+
+    @Test
     fun should_keep_plain_descriptions_and_null_out_blank_ones() {
         val plain = SpotifyPlaylistObject(id = "p-1", name = "Mix", description = "Late night drives.")
         val blank = SpotifyPlaylistObject(id = "p-2", name = "Mix", description = "")

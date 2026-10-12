@@ -1,8 +1,11 @@
 package com.gpo.yoin.ui.experience
 
 import com.gpo.yoin.ui.navigation.YoinSection
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -87,5 +90,137 @@ class ExperienceSessionStoreTest {
 
         assertEquals(2L, store.detailEnterSlideBaseline)
         assertEquals(3L, store.detailEnterSlideTick.value)
+    }
+
+    @Test
+    fun should_armChromeAndCaptureEnterBaseline_when_detailHandoffBegins() {
+        store.noteDetailEnterSlideStarted()
+        store.noteDetailEnterSlideStarted()
+
+        val generation = store.beginDetailHandoff()
+
+        assertTrue(store.state.value.detailChromeActive)
+        assertEquals(2L, store.detailEnterSlideBaseline)
+        assertEquals(generation, store.detailHandoffGeneration)
+    }
+
+    @Test
+    fun should_restoreNavChrome_when_itsDetailWindowEnds() {
+        val generation = store.beginDetailHandoff()
+
+        store.endDetailHandoff(generation)
+
+        assertFalse(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_keepNewerHandoff_when_staleDetailWindowEndsLate() {
+        val stale = store.beginDetailHandoff()
+        val current = store.beginDetailHandoff()
+
+        store.endDetailHandoff(stale)
+
+        assertNotEquals(stale, current)
+        assertTrue(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_ignoreGenerationFromEarlierProcess_when_restoredDetailEnds() {
+        // A detail restored after process death carries a generation armed by the
+        // previous process's store, which started counting from an earlier seed.
+        val earlierProcess = ExperienceSessionStore()
+        val restoredGeneration = earlierProcess.beginDetailHandoff()
+        val current = ExperienceSessionStore()
+        current.beginDetailHandoff()
+
+        current.endDetailHandoff(restoredGeneration)
+
+        assertTrue(current.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_startFromNavPose_when_newShellResetsStaleHandoff() = runBlocking {
+        store.beginDetailHandoff()
+        store.noteDetailEnterSlideStarted()
+        store.shellBarChromeMorph.snapTo(1f)
+        store.detailBackPhase.value = DetailBackPhase.Committed
+        store.detailBackProgress.floatValue = 0.4f
+        store.detailBackTouchYDelta.floatValue = 12f
+        store.windowBeneathRevealed.value = CoveredWindowAnimationGate.ShellWindowKey
+
+        store.resetDetailHandoff()
+
+        assertFalse(store.state.value.detailChromeActive)
+        assertEquals(0f, store.shellBarChromeMorph.value)
+        assertEquals(DetailBackPhase.Idle, store.detailBackPhase.value)
+        assertEquals(0f, store.detailBackProgress.floatValue)
+        assertEquals(0f, store.detailBackTouchYDelta.floatValue)
+        assertNull(store.windowBeneathRevealed.value)
+    }
+
+    @Test
+    fun should_ignoreSettledEvent_when_anEarlierDetailStopsAfterTheNextLaunch() {
+        val stale = store.beginDetailHandoff()
+        store.beginDetailHandoff()
+
+        store.noteDetailWindowSettled(stale)
+
+        assertNull(store.detailWindowSettledGeneration.value)
+        assertTrue(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_keepNewHandoff_when_acceptedSettledEventIsCollectedAfterTheNextLaunch() {
+        val stale = store.beginDetailHandoff()
+        store.noteDetailWindowSettled(stale)
+        val emitted = requireNotNull(store.detailWindowSettledGeneration.value)
+        store.beginDetailHandoff()
+
+        store.endDetailHandoff(emitted)
+
+        assertTrue(store.state.value.detailChromeActive)
+    }
+
+    @Test
+    fun should_keepLiveHandoff_when_anotherFreshShellIsCreated() = runBlocking {
+        store.attachShellHandoffHost("first", restored = false)
+        val generation = store.beginDetailHandoff()
+        store.shellBarChromeMorph.snapTo(1f)
+
+        store.attachShellHandoffHost("second", restored = false)
+
+        assertEquals(generation, store.detailHandoffGeneration)
+        assertTrue(store.state.value.detailChromeActive)
+        assertEquals(1f, store.shellBarChromeMorph.value)
+    }
+
+    @Test
+    fun should_keepLiveHandoff_when_shellIsRecreated() = runBlocking {
+        store.attachShellHandoffHost("shell", restored = false)
+        val generation = store.beginDetailHandoff()
+        store.shellBarChromeMorph.snapTo(1f)
+
+        store.detachShellHandoffHost("shell", changingConfigurations = true)
+        store.attachShellHandoffHost("shell", restored = true)
+
+        assertEquals(generation, store.detailHandoffGeneration)
+        assertTrue(store.state.value.detailChromeActive)
+        assertEquals(1f, store.shellBarChromeMorph.value)
+    }
+
+    @Test
+    fun should_invalidateOrphanedHandoff_when_aFreshShellReplacesTheRemovedTask() = runBlocking {
+        store.attachShellHandoffHost("removed", restored = false)
+        val stale = store.beginDetailHandoff()
+        store.noteDetailEnterSlideStarted()
+        store.shellBarChromeMorph.snapTo(1f)
+        store.detachShellHandoffHost("removed", changingConfigurations = false)
+
+        store.attachShellHandoffHost("new-task", restored = false)
+
+        assertNotEquals(stale, store.detailHandoffGeneration)
+        assertFalse(store.state.value.detailChromeActive)
+        assertEquals(0f, store.shellBarChromeMorph.value)
+        assertEquals(store.detailEnterSlideTick.value, store.detailEnterSlideBaseline)
     }
 }

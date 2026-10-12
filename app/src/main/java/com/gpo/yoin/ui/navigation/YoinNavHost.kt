@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -77,15 +78,20 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
+import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
+import com.gpo.yoin.player.startWindowQueue
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
@@ -99,6 +105,9 @@ import com.gpo.yoin.ui.detail.PlaylistDetailActivity
 import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.detail.hasOverlayHidingBottomBar
 import com.gpo.yoin.ui.detail.launchDetailFromShell
+import com.gpo.yoin.ui.detail.prefetchAlbumDetail
+import com.gpo.yoin.ui.detail.prefetchArtistDetail
+import com.gpo.yoin.ui.detail.prefetchPlaylistDetail
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.EdgeSplitSide
 import com.gpo.yoin.ui.experience.HomeSurface
@@ -115,9 +124,13 @@ import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeScreen
+import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
+import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
+import com.gpo.yoin.ui.home.rememberMemoryBubbleShell
+import com.gpo.yoin.ui.home.reportMemoryBubbleShellPresses
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
@@ -127,6 +140,7 @@ import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.rememberMemoriesHomeBehind
 import com.gpo.yoin.ui.memories.rememberMemoriesHostPose
+import com.gpo.yoin.ui.memories.toPlaybackActivityContext
 import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
@@ -225,7 +239,12 @@ fun YoinNavHost(
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        // Home's Memories bubble hears every press in the window — the bar,
+        // the Now Playing pill, the snackbars all sit outside Home — and keeps
+        // its once-per-foreground reminder above the shell's section switch.
+        val memoryBubbleShell = rememberMemoryBubbleShell()
+
+        Box(modifier = Modifier.fillMaxSize().reportMemoryBubbleShellPresses(memoryBubbleShell)) {
             NavDisplay(
                 backStack = backStack,
                 modifier = Modifier.fillMaxSize(),
@@ -267,46 +286,50 @@ fun YoinNavHost(
                             factory = MemoriesViewModel.Factory(app.container),
                         )
 
-                        YoinShell(
-                            app = app,
-                            homeViewModel = homeViewModel,
-                            libraryViewModel = libraryViewModel,
-                            memoriesViewModel = memoriesViewModel,
-                            nowPlayingViewModel = nowPlayingViewModel,
-                            // Detail pages are now separate Activities — launch
-                            // them so back navigation plays the device-native
-                            // cross-Activity predictive back. sharedTransitionKey
-                            // is no longer used (no cross-page shared element).
-                            // launchDetailFromShell delays the incoming
-                            // window's fade so the shell bar's nav→split
-                            // morph plays first (detail_bar_handoff_enter).
-                            onNavigateToSettings = { focusSection ->
-                                context.startActivity(SettingsActivity.intent(context, focusSection))
-                            },
-                            onNavigateToAlbum = { albumId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    AlbumDetailActivity.intent(context, albumId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            onNavigateToArtist = { artistId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    ArtistDetailActivity.intent(context, artistId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            onNavigateToPlaylist = { playlistId, _ ->
-                                launchDetailFromShell(
-                                    context,
-                                    PlaylistDetailActivity.intent(context, playlistId),
-                                    mode = detailLaunchMode(),
-                                )
-                            },
-                            sharedTransitionScope = sharedTransitionScope,
-                            shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
-                        )
+                        // Home's Memories bubble: every press in the window and the
+                        // once-per-foreground reminder (LocalMemoryBubbleShell).
+                        CompositionLocalProvider(LocalMemoryBubbleShell provides memoryBubbleShell) {
+                            YoinShell(
+                                app = app,
+                                homeViewModel = homeViewModel,
+                                libraryViewModel = libraryViewModel,
+                                memoriesViewModel = memoriesViewModel,
+                                nowPlayingViewModel = nowPlayingViewModel,
+                                // Detail pages are now separate Activities — launch
+                                // them so back navigation plays the device-native
+                                // cross-Activity predictive back. sharedTransitionKey
+                                // is no longer used (no cross-page shared element).
+                                // launchDetailFromShell delays the incoming
+                                // window's fade so the shell bar's nav→split
+                                // morph plays first (detail_bar_handoff_enter).
+                                onNavigateToSettings = { focusSection ->
+                                    context.startActivity(SettingsActivity.intent(context, focusSection))
+                                },
+                                onNavigateToAlbum = { albumId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        AlbumDetailActivity.intent(context, albumId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                onNavigateToArtist = { artistId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        ArtistDetailActivity.intent(context, artistId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                onNavigateToPlaylist = { playlistId, _ ->
+                                    launchDetailFromShell(
+                                        context,
+                                        PlaylistDetailActivity.intent(context, playlistId),
+                                        mode = detailLaunchMode(),
+                                    )
+                                },
+                                sharedTransitionScope = sharedTransitionScope,
+                                shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
+                            )
+                        }
                     }
                 },
             )
@@ -432,6 +455,14 @@ private fun YoinShell(
     val memoriesVisible by remember(memoriesReveal) { derivedStateOf { memoriesReveal.isVisible } }
     val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesVisible
     val shellScope = rememberCoroutineScope()
+    val homeSongTap = remember(shellScope) {
+        HomeSongTap(
+            scope = shellScope,
+            currentSource = { app.container.profileManager.activeSource.value },
+            awaitSource = { timeoutMs -> app.container.repository.awaitActiveSource(timeoutMs) },
+            play = { track, source -> app.container.playbackManager.playSingle(track = track, source = source) }
+        )
+    }
     // Home edit mode: the only writer of the Edit surface and its progress P.
     // Hoisted here so back, the bar and every exit trigger below reach it.
     val homeEdit = rememberHomeEditController(experienceSessionStore, homeViewModel)
@@ -462,7 +493,9 @@ private fun YoinShell(
             paneStack.clear()
             paneState.snapClosed()
         }
-        homeViewModel.refresh()
+        // Not Home: it reloads on its own profile|provider scope and takes an
+        // edit of the active account's credentials from this revision itself,
+        // so a switch (or a delete of the active profile) loads it once, not twice.
         libraryViewModel.refresh()
         memoriesViewModel.refresh()
     }
@@ -532,7 +565,11 @@ private fun YoinShell(
             }
         }
     }
-    val pushPane: (DetailPaneRoute) -> Unit = { route -> paneStack.add(route) }
+    val pushPane: (DetailPaneRoute) -> Unit = { route ->
+        markDetailClick(route, via = "pane-push")
+        app.container.repository.prefetchPaneDetail(route)
+        paneStack.add(route)
+    }
     // Opening or closing the column re-tiers the shell — never mid-edit: edit
     // mode animates out first (P settles at 0), then the column moves.
     val currentOpenPane by rememberUpdatedState(openPane)
@@ -653,14 +690,19 @@ private fun YoinShell(
         if (!experienceSessionStore.state.value.hasOverlayHidingBottomBar &&
             windowInfo.hasChromeHandoff
         ) {
-            experienceSessionStore.prepareDetailEnterSlide()
-            experienceSessionStore.setDetailChromeActive(true)
+            // The launched detail carries this generation and retires it when
+            // its window is destroyed, whether or not this shell still exists.
+            experienceSessionStore.beginDetailHandoff()
         }
     }
+    // Each entry starts the page's load before any gate (ui/detail/DetailPrefetch.kt).
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
+        app.container.repository.prefetchAlbumDetail(albumId)
         if (hasDetailPane) {
+            YoinPerf.detailClick("album", albumId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Album(albumId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("album", albumId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -674,9 +716,12 @@ private fun YoinShell(
         }
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
+        app.container.repository.prefetchArtistDetail(artistId)
         if (hasDetailPane) {
+            YoinPerf.detailClick("artist", artistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Artist(artistId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("artist", artistId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -690,9 +735,12 @@ private fun YoinShell(
         }
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
+        app.container.repository.prefetchPlaylistDetail(playlistId)
         if (hasDetailPane) {
+            YoinPerf.detailClick("playlist", playlistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Playlist(playlistId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("playlist", playlistId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -748,12 +796,15 @@ private fun YoinShell(
     // publishes an onStop tick after its exit animation) — the primary
     // restores are the detail's own onBackClick and the commit settle above.
     // Keep drop(1) INSIDE repeatOnLifecycle so a replayed old completion tick
-    // is discarded on every app foreground resubscription.
+    // is discarded on every app foreground resubscription. A detail destroyed
+    // without that finishing onStop (it was already stopped: task swiped from
+    // recents, a CLEAR_TOP launch) retires its hand-off itself in onDestroy
+    // (DetailShellHandoff.kt), and a new shell starts clean (MainActivity).
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            experienceSessionStore.detailWindowSettledTick
+            experienceSessionStore.detailWindowSettledGeneration
                 .drop(1)
-                .collect { experienceSessionStore.setDetailChromeActive(false) }
+                .collect { generation -> generation?.let(experienceSessionStore::endDetailHandoff) }
         }
     }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -790,6 +841,18 @@ private fun YoinShell(
                     }
                 }
             }
+        }
+    }
+    // Home's account switcher. A switch begun there that fails puts Home's
+    // feed back on its own (HomeViewModel) and says so here, once.
+    val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
+    val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
+    LaunchedEffect(accountSwitcher) {
+        accountSwitcher.switchFailures.collect {
+            snackbarHostState.showSnackbar(
+                message = switchFailedMessage,
+                duration = SnackbarDuration.Short
+            )
         }
     }
     // Library-side playlist mutations (currently: create from the "+" FAB).
@@ -922,9 +985,6 @@ private fun YoinShell(
                         // the wash is a vertical gradient with Home's own
                         // parameters, so the two meet without a seam.
                         ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
-                            val accountSwitcher: AccountSwitcherViewModel = viewModel(
-                                factory = AccountSwitcherViewModel.Factory(app.container),
-                            )
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,
@@ -963,14 +1023,8 @@ private fun YoinShell(
                                 onAlbumClick = navigateToAlbumFromShell,
                                 onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
                                 onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
-                                onSongClick = { song ->
-                                    app.container.profileManager.activeSource.value?.let { source ->
-                                        app.container.playbackManager.playSingle(
-                                            track = song,
-                                            source = source,
-                                        )
-                                    }
-                                },
+                                // Its snapshot can be up before the source: a tap then waits for it.
+                                onSongClick = homeSongTap::tap,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = shellAnimatedVisibilityScope,
                                 // Edge-split: the feed starts past the capsules (84dp)
@@ -1011,7 +1065,7 @@ private fun YoinShell(
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back
                                         // 从专辑页回来时它还在。
-                                        onOpenAlbum = { memory ->
+                                        onOpenAlbum = rememberMemoryAlbumOpen(app.container.repository) { memory ->
                                             // MemoryEntry.entityId is the RAW id
                                             // (the coordinator strips the provider
                                             // prefix); AlbumDetailViewModel parses a
@@ -1019,10 +1073,12 @@ private fun YoinShell(
                                             // and the page lands on "Couldn't load
                                             // this album." (memory → goto album).
                                             if (hasDetailPane) {
+                                                markMemoryAlbumClick(memory, via = "pane")
                                                 openPane(
                                                     DetailPaneRoute.Album("${memory.entityProvider}:${memory.entityId}"),
                                                 )
                                             } else if (canLaunchDetail()) {
+                                                markMemoryAlbumClick(memory, via = "activity")
                                                 detailLaunchPending = true
                                                 try {
                                                     // Keep the deck mounted. Its hidden bottom bar must
@@ -1115,6 +1171,7 @@ private fun YoinShell(
                                     )
                                 }
                             },
+                            onSongsListClick = { _, queue, index -> app.container.playSongsList(queue, index) },
                             onAddSongToPlaylist = { song ->
                                 nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                             },
@@ -1492,33 +1549,6 @@ private fun SpotifyConnectFailure.shouldOpenSpotifySettings(): Boolean = when (t
     is SpotifyConnectFailure.TransportFailure -> false
 }
 
-private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
-    val firstSong = playbackSongs.firstOrNull()
-    val coverArtId = playbackSongs.firstNotNullOfOrNull(::trackCoverArtId)
-
-    return when (entityType) {
-        MemoryEntityType.ALBUM -> ActivityContext.Album(
-            albumId = entityId,
-            albumName = title,
-            artistName = firstSong?.artist,
-            artistId = firstSong?.artistId?.rawId,
-            coverArtId = coverArtId ?: entityId,
-        )
-
-        MemoryEntityType.PLAYLIST -> ActivityContext.Playlist(
-            playlistId = entityId,
-            playlistName = title,
-            // Prefer the playlist's own art. The memory's cover is a resolved
-            // URL — a valid storage key on Spotify only; Subsonic resolved
-            // URLs embed a rotating token, so those keep the track fallback.
-            coverArtId = coverArtUrl.takeIf { entityProvider == MediaId.PROVIDER_SPOTIFY }
-                ?: coverArtId,
-        )
-
-        MemoryEntityType.SONG -> ActivityContext.None
-    }
-}
-
 /**
  * Flatten a track's cover art into the storage-key shape used by
  * `ActivityEvent` / `PlayHistory`. On Subsonic this is the classic raw id;
@@ -1530,6 +1560,31 @@ internal fun trackCoverArtId(track: Track): String? =
     CoverRef.toStorageKey(track.coverArt)
         ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
 
+/**
+ * A Library Songs row: the list plays on from the tapped song. Where Songs is
+ * the service's liked list ([com.gpo.yoin.data.source.ServiceFeatures.favoritesAreLibrary],
+ * Spotify, newest like first) it starts as Liked Songs — Spotify plays its own
+ * collection from the tapped song (`spotify:collection:tracks` + `offset.uri`)
+ * and its queue is left alone. Elsewhere Songs is no collection: context None.
+ *
+ * Only the window around the tapped row is handed over ([startWindowQueue]),
+ * on every provider. Apple's Songs list runs to 500 songs, and MusicKit
+ * prepares a queue with ONE catalog request for all its ids, which Apple
+ * caps at 300 — a large library would fail the start a single song used to
+ * play. Spotify cuts its `uris` fallback to the same window anyway.
+ */
+internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
+    val source = profileManager.activeSource.value ?: return
+    val window = startWindowQueue(queue, startIndex)
+    val activityContext = if (ServiceFeatureCatalog.forProvider(source.id).favoritesAreLibrary) {
+        // The collection's cover, as Favorites gives it: the newest like's.
+        ActivityContext.LikedSongs(coverArtId = queue.firstOrNull()?.let(::trackCoverArtId))
+    } else {
+        ActivityContext.None
+    }
+    playbackManager.play(window.tracks, window.startIndex, source, activityContext)
+}
+
 internal fun canLaunchDetailFromShell(
     lifecycleState: Lifecycle.State,
     backPhase: DetailBackPhase,
@@ -1539,6 +1594,42 @@ internal fun canLaunchDetailFromShell(
     !launchPending
 
 private const val DETAIL_LAUNCH_PAUSE_GRACE_MS = 500L
+
+/** Tap-time prefetch for a page opened into the shell's detail column (ui/detail/DetailPrefetch.kt). */
+private fun YoinRepository.prefetchPaneDetail(route: DetailPaneRoute) = when (route) {
+    is DetailPaneRoute.Album -> prefetchAlbumDetail(route.albumId)
+    is DetailPaneRoute.Artist -> prefetchArtistDetail(route.artistId)
+    is DetailPaneRoute.Playlist -> prefetchPlaylistDetail(route.playlistId)
+}
+
+/** Debug-only `detail.click` for a page opened into the shell's detail column. */
+private fun markDetailClick(route: DetailPaneRoute, via: String) {
+    val kind = when (route) {
+        is DetailPaneRoute.Album -> "album"
+        is DetailPaneRoute.Artist -> "artist"
+        is DetailPaneRoute.Playlist -> "playlist"
+    }
+    YoinPerf.detailClick(kind, route.entityId, via)
+}
+
+/**
+ * [open] for a Memories stamp's album, starting the album's tap-time prefetch first (ui/detail/DetailPrefetch.kt).
+ * Remembered per [open] — a lambda the compiler already memoizes on what it captures — so the deck keeps getting
+ * the same callback instance across recompositions and can still skip them.
+ */
+@Composable
+private fun rememberMemoryAlbumOpen(repository: YoinRepository, open: (MemoryEntry) -> Unit): (MemoryEntry) -> Unit =
+    remember(repository, open) {
+        { memory ->
+            repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
+            open(memory)
+        }
+    }
+
+/** Debug-only `detail.click` for a Memories stamp's album (its full MediaId, as the page is opened with). */
+private fun markMemoryAlbumClick(memory: MemoryEntry, via: String) {
+    YoinPerf.detailClick("album", "${memory.entityProvider}:${memory.entityId}", via)
+}
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
