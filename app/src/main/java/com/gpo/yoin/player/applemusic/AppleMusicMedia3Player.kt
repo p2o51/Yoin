@@ -63,6 +63,7 @@ class AppleMusicMedia3Player(
     private var failure: String? = null
     private var released = false
     private var published: PlayOrder? = null
+    private val playRequest = MusicKitPlayRequest()
 
     /**
      * A queue Yoin prepared must start its first song at 0:00. MusicKit
@@ -100,6 +101,7 @@ class AppleMusicMedia3Player(
         override fun onPlaybackQueueItemsAdded(c: MediaPlayerController, a: Int, b: Int, d: Int) = publish()
         override fun onPlaybackError(c: MediaPlayerController, error: MediaPlayerException) {
             preparing = false
+            playRequest.clear()
             failure = appContext.getString(R.string.player_apple_music_play_failed)
             publish()
         }
@@ -109,9 +111,25 @@ class AppleMusicMedia3Player(
     private val prepareTimeout = Runnable {
         if (preparing && !released) {
             preparing = false
+            playRequest.clear()
             failure = appContext.getString(R.string.player_apple_music_timeout)
             controller.stop()
             publish()
+        }
+    }
+
+    /** See [MusicKitPlayRequest]: MusicKit never reached the requested state; publish what it reports. */
+    private val playRequestTimeout = object : Runnable {
+        override fun run() {
+            if (released || !playRequest.pending) return
+            // Still loading, so MusicKit hasn't settled on a state yet (a play
+            // that buffers IS playWhenReady + buffering): keep waiting.
+            if (controller.isBuffering) {
+                handler.postDelayed(this, PLAY_REQUEST_ANSWER_MS)
+                return
+            }
+            playRequest.clear()
+            publish("playRequest")
         }
     }
     private val ticker = object : Runnable {
@@ -290,7 +308,8 @@ class AppleMusicMedia3Player(
                 .setDurationUs(if (durationMs > 0) durationMs * 1000 else C.TIME_UNSET)
                 .setIsSeekable(controller.canSeek()).build()
         }
-        val observedPlay = if (preparing) desiredPlay else controller.playbackState == ApplePlaybackState.PLAYING
+        val musicKitPlaying = controller.playbackState == ApplePlaybackState.PLAYING
+        val observedPlay = if (preparing) desiredPlay else playRequest.resolve(musicKitPlaying)
         return State.Builder().setAvailableCommands(commands).setPlaylist(playlist)
             .setCurrentMediaItemIndex(if (playlist.isEmpty()) C.INDEX_UNSET else index)
             .setPlaybackState(
@@ -329,6 +348,7 @@ class AppleMusicMedia3Player(
         startPositionMs: Long
     ): ListenableFuture<*> {
         items.forEach(::catalogId)
+        playRequest.clear()
         // pause, not stop: stop() files the playing song's position as the
         // next prepare's start position (see startFromTop). The new queue's
         // prepare replaces the old song's source anyway.
@@ -384,6 +404,7 @@ class AppleMusicMedia3Player(
     override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> {
         val order = published
         if (fromIndex == 0 && toIndex >= (order?.entries?.size ?: requestedItems.size)) {
+            playRequest.clear()
             controller.stop()
             requestedItems = emptyList()
             queuePrepared = false
@@ -416,10 +437,16 @@ class AppleMusicMedia3Player(
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
         desiredPlay = playWhenReady
         if (playWhenReady && (failure != null || !queuePrepared)) {
+            playRequest.clear()
             queuePrepared = false
             handlePrepare()
         } else if (queuePrepared) {
+            // Published until MusicKit's state catches up (see MusicKitPlayRequest).
+            // Arm before calling MusicKit: a synchronous callback must see the request too.
+            playRequest.request(playWhenReady, controller.playbackState == ApplePlaybackState.PLAYING)
             if (playWhenReady) controller.play() else controller.pause()
+            handler.removeCallbacks(playRequestTimeout)
+            if (playRequest.pending) handler.postDelayed(playRequestTimeout, PLAY_REQUEST_ANSWER_MS)
         }
         return Futures.immediateVoidFuture()
     }
@@ -445,6 +472,7 @@ class AppleMusicMedia3Player(
     override fun handleStop(): ListenableFuture<*> {
         preparing = false
         desiredPlay = false
+        playRequest.clear()
         queuePrepared = false
         controller.stop()
         return Futures.immediateVoidFuture()
@@ -462,6 +490,9 @@ class AppleMusicMedia3Player(
 /** A published playlist: (uid, item) pairs in play order, and the upcoming items' MusicKit queue ids. */
 /** A freshly prepared start item further in than this was put there by MusicKit, not by playback. */
 private const val RestoredStartSlackMs = 1_000L
+
+/** How long a play / pause waits for MusicKit to report it before MusicKit's own state is published again. */
+private const val PLAY_REQUEST_ANSWER_MS = 2_000L
 
 private data class PlayOrder(
     val entries: List<Pair<String, MediaItem>>,

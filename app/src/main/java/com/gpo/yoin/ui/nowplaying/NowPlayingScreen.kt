@@ -1794,7 +1794,6 @@ private fun CompactPlayingContent(
                             playInteractionSource = playInteractionSource,
                             nextInteractionSource = nextInteractionSource,
                             playPressed = playPressed,
-                            nextPressed = nextPressed,
                             playMode = state.playMode,
                             onCyclePlayMode = playbackActions.onCyclePlayMode,
                             controlSize = stageControlSize,
@@ -2114,7 +2113,6 @@ private fun WidePlayingContent(
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
-    val nextPressed by nextInteractionSource.collectIsPressedAsState()
 
     val pagerState = rememberPagerState(
         initialPage = detailPage.ordinal,
@@ -2403,7 +2401,6 @@ private fun WidePlayingContent(
                         playInteractionSource = playInteractionSource,
                         nextInteractionSource = nextInteractionSource,
                         playPressed = playPressed,
-                        nextPressed = nextPressed,
                         playMode = state.playMode,
                         onCyclePlayMode = onCyclePlayMode,
                         modifier = Modifier.width(DualPaneStackWidth),
@@ -2803,7 +2800,6 @@ private fun LandscapePlayingContent(
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
-    val nextPressed by nextInteractionSource.collectIsPressedAsState()
     val resolvedStageProgress = stageProgress ?: rememberNowPlayingStageProgress(stageMode)
     val detailProgress = resolvedStageProgress.detail
     val expanded = stageMode == NowPlayingStageMode.Expanded
@@ -3141,7 +3137,6 @@ private fun LandscapePlayingContent(
                         playInteractionSource = playInteractionSource,
                         nextInteractionSource = nextInteractionSource,
                         playPressed = playPressed,
-                        nextPressed = nextPressed,
                         playMode = state.playMode,
                         onCyclePlayMode = onCyclePlayMode,
                         controlSize = LandscapeControlSize,
@@ -3375,7 +3370,6 @@ private fun TabletopPlayingContent(
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
-    val nextPressed by nextInteractionSource.collectIsPressedAsState()
 
     // The expand button shifts emphasis from the identity to the lyrics: the lyric
     // font grows and the title/artist shrink, in place — the control deck never
@@ -3612,7 +3606,6 @@ private fun TabletopPlayingContent(
                     playInteractionSource = playInteractionSource,
                     nextInteractionSource = nextInteractionSource,
                     playPressed = playPressed,
-                    nextPressed = nextPressed,
                     playMode = state.playMode,
                     onCyclePlayMode = onCyclePlayMode,
                     controlSize = 72.dp,
@@ -4401,7 +4394,6 @@ private fun TickingPlaybackControls(
     playInteractionSource: MutableInteractionSource,
     nextInteractionSource: MutableInteractionSource,
     playPressed: Boolean,
-    nextPressed: Boolean,
     playMode: PlayMode = PlayMode.RepeatAll,
     onCyclePlayMode: () -> Unit = {},
     controlSize: Dp = 56.dp,
@@ -4436,7 +4428,6 @@ private fun TickingPlaybackControls(
         playInteractionSource = playInteractionSource,
         nextInteractionSource = nextInteractionSource,
         playPressed = playPressed,
-        nextPressed = nextPressed,
         playMode = playMode,
         onCyclePlayMode = onCyclePlayMode,
         controlSize = controlSize,
@@ -5301,7 +5292,6 @@ private fun PlaybackControlsPreview() {
             playInteractionSource = playInteractionSource,
             nextInteractionSource = nextInteractionSource,
             playPressed = false,
-            nextPressed = false,
         )
     }
 }

@@ -74,7 +74,6 @@ class NowPlayingControlsFitTest {
                             playInteractionSource = remember { MutableInteractionSource() },
                             nextInteractionSource = remember { MutableInteractionSource() },
                             playPressed = false,
-                            nextPressed = false,
                         )
                     }
                 }

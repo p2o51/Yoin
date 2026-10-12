@@ -106,6 +106,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 - 默认用线性版；「选中」或「已开启」用 *Filled 版（导航的 Home / Library 选中时用 `HomeFilled` / `LibraryFilled`）。
 - 播放控制键用 *Filled 多边形版：`PlayFilled`、`SkipNextFilled`、`SkipPreviousFilled`。PLAY / PAUSE 大按钮只有英文界面显示文字；其他语言换成 `rememberPlayPauseSymbolPainter` 形变图标，居中放在和英文词同宽的胶囊里（PlaybackControls 里按当前语言判断：只有 `en` 显示文字，以后新加的语言自动用图标；不用 `values-en` 资源，因为它会让 Lint 把英文当成一种翻译；2026-10-08 owner）。
+- PLAY ⇄ PAUSE 时胶囊变宽变窄（词宽 + 两侧留白）是同一个 Standard 快空间弹簧，和形变图标同频落定，NEXT 跟着平移，没有单帧跳变：宽度动画放在胶囊内容上，因为 ButtonGroup 按子项的固有宽度排版，`animateContentSize` 对它不起作用。按下只用 ButtonGroup 自带的 `animateWidth`（按下的那个变宽，旁边的让位），Yoin 不再叠自己的按下宽度。Apple Music 的播放 / 暂停在 MusicKit 回报之前按请求发布（最多等 2 秒，仍在缓冲就接着等），按钮不会「新 → 旧 → 新」来回翻（2026-10-12，熟人工单 4）。
 - 返回、左右箭头、发送在 RTL 布局里自动镜像。
 - 按场景选：专辑封面兜底 `Album`，歌单封面兜底 `Playlist`，单曲兜底 `MusicNote`，歌手 `Artist`，队列 `Queue`。
 
