@@ -137,6 +137,49 @@ class LibraryFastScrollerTest {
 
     @Test
     @Config(qualifiers = "w800dp-h1280dp")
+    fun should_bringTheTopRowBack_when_onlyTheReleaseCarriesTheFinalDragPosition() {
+        setLibrary(LibraryTab.Albums, previewYoinWindowInfo(800, 1280))
+        val perLine = firstRowSize()
+        grabAfterAScroll()
+        dragTo(FastScrollMath.tickFraction(target.startIndex, ITEMS, perLine))
+        assertTopRowHolds(target.startIndex)
+
+        val track = rule.onNodeWithTag(LIBRARY_FAST_SCROLLER_TAG).getBoundsInRoot()
+        val thumb = rule.onNodeWithTag(FastScrollerTags.THUMB).getBoundsInRoot()
+        val remainingPx = with(rule.density) { (thumb.top - track.top).toPx() }
+        rule.onNodeWithTag(FastScrollerTags.THUMB).performTouchInput {
+            // Change the UP coordinates without sending another MOVE first.
+            updatePointerBy(0, Offset(0f, -remainingPx))
+            advanceEventTime(FRAME_MS)
+            up()
+        }
+        rule.mainClock.advanceTimeBy(FRAME_MS * 6)
+
+        assertTopRowHolds(0)
+        assertEquals(
+            track.top.value,
+            rule.onNodeWithTag(FastScrollerTags.THUMB).getBoundsInRoot().top.value,
+            0.5f
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w800dp-h1280dp")
+    fun should_keepTheTargetRow_when_releaseHasNoFurtherMovement() {
+        setLibrary(LibraryTab.Albums, previewYoinWindowInfo(800, 1280))
+        val perLine = firstRowSize()
+        grabAfterAScroll()
+        dragTo(FastScrollMath.tickFraction(target.startIndex, ITEMS, perLine))
+        assertTopRowHolds(target.startIndex)
+
+        rule.onNodeWithTag(FastScrollerTags.THUMB).performTouchInput { up() }
+        rule.mainClock.advanceTimeBy(FRAME_MS * 6)
+
+        assertTopRowHolds(target.startIndex)
+    }
+
+    @Test
+    @Config(qualifiers = "w800dp-h1280dp")
     fun should_keepTheHandleWhole_when_theViewsCrossFade() {
         var tab by mutableStateOf(LibraryTab.Albums)
         setLibrary(tabOf = { tab }, window = previewYoinWindowInfo(800, 1280))

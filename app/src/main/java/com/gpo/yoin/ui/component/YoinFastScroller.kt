@@ -895,14 +895,15 @@ private fun Modifier.fastScrollThumbGesture(controller: FastScrollerController):
             while (true) {
                 val event = awaitPointerEvent()
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                if (!change.pressed) {
-                    change.consume()
-                    break
-                }
+                // UP can carry movement beyond the last MOVE event.
                 val dy = change.positionChange().y
                 if (dy != 0f) {
                     change.consume()
                     controller.dragBy(dy)
+                }
+                if (!change.pressed) {
+                    change.consume()
+                    break
                 }
             }
         } finally {
