@@ -31,6 +31,12 @@
     <string name="player_cast_device_initial">投播设备</string>
     <string name="player_apple_music_preparing">正在准备播放…</string>
     <string name="player_apple_music_connecting">正在连接 Apple Music…</string>
-    <string name="player_apple_music_play_failed">MusicKit 无法播放此曲目。请确认订阅并重新连接后再试。</string>
-    <string name="player_apple_music_timeout">Apple Music 播放超时。请检查网络与订阅状态。</string>
+    <string name="player_apple_music_play_failed">Apple Music 无法播放这首歌。请重试或选择其他歌曲。</string>
+    <string name="player_apple_music_io_failed">Apple Music 无法加载这首歌。请检查网络后重试。</string>
+    <string name="player_apple_music_drm_failed">Apple Music 无法解锁这首歌的播放权限。请在 Apple Music 应用中尝试播放。</string>
+    <string name="player_apple_music_queue_failed">Apple Music 无法准备播放队列。请尝试其他歌曲或重新打开歌单。</string>
+    <string name="player_apple_music_session_failed">Apple Music 无法开始播放会话。请重试。</string>
+    <string name="player_apple_music_cast_failed">Apple Music 无法在已连接的设备上播放。请检查设备连接后重试。</string>
+    <string name="player_apple_music_age_verification">播放这首歌需要验证年龄。请打开 Apple Music 检查账号。</string>
+    <string name="player_apple_music_timeout">Apple Music 播放超时。请检查网络后重试。</string>
 </resources>

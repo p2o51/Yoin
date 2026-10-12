@@ -307,6 +307,7 @@ class AppleMusicSourceTest {
               }
             }"""
         )
+        reply("""{"data":[{"id":"i.saved","type":"library-songs","relationships":{"catalog":{"data":[{"id":"123","type":"songs"}]}}}]}""")
         val results = source.searchLibrary("日本 & Music")
         assertEquals(MediaId("applemusic", "123"), results.tracks.single().id)
         assertEquals("i.saved", results.tracks.single().extras["appleMusicLibraryId"])
@@ -322,6 +323,126 @@ class AppleMusicSourceTest {
             "library-songs,library-albums,library-artists,library-playlists",
             request.requestUrl!!.queryParameter("types")
         )
+        assertEquals(setOf("term", "types", "limit"), request.requestUrl!!.queryParameterNames)
+        val songRequest = server.takeRequest()
+        assertEquals("/v1/me/library/songs", songRequest.requestUrl!!.encodedPath)
+        assertEquals("i.saved", songRequest.requestUrl!!.queryParameter("ids"))
+        assertEquals("catalog", songRequest.requestUrl!!.queryParameter("include"))
+        assertEquals("user", songRequest.getHeader("Music-User-Token"))
+    }
+
+    @Test fun should_refuseUnavailableSongs_when_librarySearchReturnsStaleCatalogIds() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val url = request.requestUrl!!
+                // Match Apple's endpoint contracts, not the generic scoped-include convention:
+                // search has no include; only the separate multiple-library-songs read supports it.
+                if (url.encodedPath == "/v1/me/library/search") {
+                    if (url.queryParameterNames.any { it !in setOf("term", "types", "limit", "offset", "l") }) {
+                        return MockResponse().setResponseCode(400)
+                    }
+                    return MockResponse().setBody(
+                        """{"results":{"library-songs":{"data":[
+                      {"id":"i.playable","type":"library-songs",
+                       "attributes":{"name":"Available","playParams":{"catalogId":"111"}},
+                       "relationships":{"albums":{"data":[{"id":"l.album","type":"library-albums"}]}}},
+                      {"id":"i.pulled","type":"library-songs",
+                       "attributes":{"name":"Unavailable","playParams":{"catalogId":"221"}}},
+                      {"id":"i.import","type":"library-songs","attributes":{"name":"Imported"}},
+                      {"id":"i.missing","type":"library-songs",
+                       "attributes":{"name":"Missing answer","playParams":{"catalogId":"331"}}},
+                      {"id":"i.unanswered","type":"library-songs",
+                       "attributes":{"name":"No relationship","playParams":{"catalogId":"441"}}}
+                    ]}}}"""
+                    )
+                }
+                if (url.encodedPath != "/v1/me/library/songs" || url.queryParameter("include") != "catalog") {
+                    return MockResponse().setResponseCode(400)
+                }
+                // Return a different order, unrelated metadata, a missing resource, and one resource
+                // with no catalog answer. Join only answered relationships by the library resource id.
+                return MockResponse().setBody(
+                    """{"data":[
+                      {"id":"i.import","type":"library-songs","relationships":{"catalog":{"data":[]}}},
+                      {"id":"i.unanswered","type":"library-songs","attributes":{"name":"Replacement"}},
+                      {"id":"i.pulled","type":"library-songs","relationships":{"catalog":{"data":[]}}},
+                      {"id":"i.playable","type":"library-songs","attributes":{"name":"Replacement"},
+                       "relationships":{"catalog":{"data":[{"id":"112","type":"songs"}]}}}
+                    ]}"""
+                )
+            }
+        }
+
+        val tracks = source.searchLibrary("song").tracks
+
+        assertEquals(listOf("112", "221", "library:i.import", "331", "441"), tracks.map { it.id.rawId })
+        assertEquals(listOf(false, true, true, false, false), tracks.map { it.isUnplayableAppleImport })
+        assertEquals(listOf("Available", "Unavailable", "Imported", "Missing answer", "No relationship"), tracks.map { it.title })
+        assertEquals(MediaId("applemusic", "library:l.album"), tracks[0].albumId)
+        assertEquals(
+            PlaybackHandle.ExternalController(PlaybackHandle.ControllerType.APPLE_MUSIC_KIT, "112"),
+            source.handleFor(tracks[0])
+        )
+        assertTrue(runCatching { source.handleFor(tracks[1]) }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals("i.pulled", tracks[1].extras[AppleMusicSong.EXTRA_LIBRARY_ID])
+        assertEquals("true", tracks[1].extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE])
+        assertEquals(2, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/v1/me/library/search", request.requestUrl!!.encodedPath)
+        assertEquals("user", request.getHeader("Music-User-Token"))
+        val lookup = server.takeRequest()
+        assertEquals(setOf("ids", "include"), lookup.requestUrl!!.queryParameterNames)
+        assertEquals("i.playable,i.pulled,i.import,i.missing,i.unanswered", lookup.requestUrl!!.queryParameter("ids"))
+        assertEquals("user", lookup.getHeader("Music-User-Token"))
+    }
+
+    @Test fun should_keepSearchResultsUnconfirmed_when_catalogLookupFails() = runTest {
+        for (status in listOf(400, 403, 429, 500)) {
+            reply(
+                """{"results":{
+                  "library-songs":{"data":[{"id":"i.saved","type":"library-songs",
+                    "attributes":{"name":"Saved","playParams":{"catalogId":"123"}}}]},
+                  "library-albums":{"data":[{"id":"l.album","type":"library-albums","attributes":{"name":"Album"}}]}
+                }}"""
+            )
+            server.enqueue(MockResponse().setResponseCode(status))
+
+            val results = source.searchLibrary("song")
+
+            assertEquals("123", results.tracks.single().id.rawId)
+            assertEquals("Saved", results.tracks.single().title)
+            assertFalse(results.tracks.single().isUnplayableAppleImport)
+            assertNull(results.tracks.single().extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE])
+            assertEquals("Album", results.albums.single().name)
+        }
+        assertEquals(8, server.requestCount)
+    }
+
+    @Test fun should_skipCatalogLookup_when_librarySearchHasNoSongs() = runTest {
+        reply("""{"results":{"library-albums":{"data":[{"id":"l.album","type":"library-albums","attributes":{"name":"Album"}}]}}}""")
+
+        assertEquals("Album", source.searchLibrary("album").albums.single().name)
+
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun should_propagateCancellation_when_catalogLookupIsCancelled() = runTest {
+        reply("""{"results":{"library-songs":{"data":[{"id":"i.saved","type":"library-songs","attributes":{"playParams":{"catalogId":"123"}}}]}}}""")
+        var tokenCalls = 0
+        val cancellableSource = AppleMusicSource(
+            ProfileCredentials.AppleMusic("https://token.test", "user"),
+            api = AppleMusicApiClient(
+                {
+                    if (++tokenCalls == 2) throw CancellationException("cancel catalog lookup")
+                    "developer"
+                },
+                { "user" },
+                baseUrl = server.url("/")
+            )
+        )
+
+        assertTrue(runCatching { cancellableSource.searchLibrary("song") }.exceptionOrNull() is CancellationException)
+        assertEquals(1, server.requestCount)
     }
 
     @Test fun should_listOneRow_when_twoLibrarySongsShareACatalogSong() = runTest {
@@ -335,6 +456,7 @@ class AppleMusicSourceTest {
               }
             }"""
         )
+        reply("""{"data":[]}""")
         val results = source.searchLibrary("song")
         assertEquals(listOf(MediaId("applemusic", "123")), results.tracks.map { it.id })
     }

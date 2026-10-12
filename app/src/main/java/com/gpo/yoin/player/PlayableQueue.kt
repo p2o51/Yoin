@@ -1,10 +1,38 @@
 package com.gpo.yoin.player
 
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 
 /** The queue [PlaybackManager.play] actually hands to a player. */
 internal data class PlayableQueue(val tracks: List<Track>, val startIndex: Int)
+
+/** Apple caps GET catalog/{storefront}/songs?ids= at 300; MusicKit 1.1.1 does not batch that request. */
+internal const val APPLE_MUSIC_CATALOG_MAX_IDS = 300
+
+/**
+ * The playable queue for a start, after unavailable songs are removed. Large Apple Music lists use
+ * the same 100-song window as Library Songs and artist starts: the SDK otherwise requests every
+ * catalog id at once and the entire start fails above Apple's limit. The selected song and order
+ * within the window stay intact; this does not queue the rest of a large playlist.
+ * An explicit unavailable target still reaches the provider's error path without substituting a song.
+ */
+internal fun playableStartQueue(
+    tracks: List<Track>,
+    startIndex: Int,
+    explicitStart: Boolean,
+    sourceId: String
+): PlayableQueue {
+    val queue = playableQueue(tracks, startIndex, explicitStart)
+    return if (
+        sourceId == MediaId.PROVIDER_APPLE_MUSIC && queue.tracks.size > APPLE_MUSIC_CATALOG_MAX_IDS &&
+        !queue.tracks[queue.startIndex].isUnplayableAppleImport
+    ) {
+        startWindowQueue(queue.tracks, queue.startIndex)
+    } else {
+        queue
+    }
+}
 
 /**
  * Drops the Apple Music imports MusicKit can't play ([isUnplayableAppleImport])

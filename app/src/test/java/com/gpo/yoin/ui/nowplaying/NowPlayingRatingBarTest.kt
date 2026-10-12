@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,13 +42,15 @@ class NowPlayingRatingBarTest {
     private var stored by mutableFloatStateOf(2f)
     private var songId by mutableStateOf("tr-1116")
 
-    private fun setBar() {
+    private fun setBar(orientation: Orientation = Orientation.Vertical) {
         rule.setContent {
             NowPlayingRatingBar(
                 songId = songId,
                 rating = stored,
                 onRatingCommit = { commits += it },
-                modifier = Modifier.height(400.dp).testTag(BAR)
+                orientation = orientation,
+                modifier = (if (orientation == Orientation.Vertical) Modifier.height(400.dp) else Modifier.width(400.dp))
+                    .testTag(BAR)
             )
         }
     }
@@ -69,6 +73,31 @@ class NowPlayingRatingBarTest {
         rule.waitForIdle()
 
         assertEquals(listOf(7.7f), commits)
+    }
+
+    @Test
+    fun should_commitTheReleasePosition_when_verticalUpContainsTheFinalMovement() {
+        assertReleasePosition(Orientation.Vertical)
+    }
+
+    @Test
+    fun should_commitTheReleasePosition_when_horizontalUpContainsTheFinalMovement() {
+        assertReleasePosition(Orientation.Horizontal)
+    }
+
+    private fun assertReleasePosition(orientation: Orientation) {
+        setBar(orientation)
+        rule.onNodeWithTag(BAR).performTouchInput {
+            down(at(0.2f, orientation))
+            moveTo(at(0.5f, orientation))
+            // Update the coordinates of UP without sending another MOVE.
+            updatePointerBy(0, at(0.8f, orientation) - at(0.5f, orientation))
+            up()
+        }
+        rule.waitForIdle()
+
+        assertEquals(listOf(8f), commits)
+        rule.onNodeWithTag(BAR).assert(shows(8f))
     }
 
     @Test
@@ -105,8 +134,60 @@ class NowPlayingRatingBarTest {
         assertEquals(listOf(5f), commits)
     }
 
-    /** The point on the vertical bar that reads [fraction] of a full rating. */
-    private fun TouchInjectionScope.at(fraction: Float) = Offset(centerX, height * (1f - fraction))
+    @Test
+    fun should_cancelTheOldPressAndAcceptAFreshOne_when_theSongChangesWhileHeld() {
+        setBar()
+        rule.onNodeWithTag(BAR).performTouchInput {
+            down(at(0.2f))
+            moveTo(at(0.5f))
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag(BAR).assert(shows(5f))
+
+        songId = "tr-1117"
+        stored = 9f
+        rule.waitForIdle()
+        // Cancelling the previous item's coroutine is not a commit.
+        assertEquals(emptyList<Float>(), commits)
+        rule.onNodeWithTag(BAR).assert(shows(9f))
+
+        rule.onNodeWithTag(BAR).performTouchInput {
+            moveTo(at(0.7f))
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(emptyList<Float>(), commits)
+        rule.onNodeWithTag(BAR).assert(shows(9f))
+
+        rule.onNodeWithTag(BAR).performTouchInput { click(at(0.4f)) }
+        rule.waitForIdle()
+        assertEquals(listOf(4f), commits)
+        rule.onNodeWithTag(BAR).assert(shows(4f))
+    }
+
+    @Test
+    fun should_keepThePress_when_onlyTheStoredRatingChangesWhileHeld() {
+        setBar()
+        rule.onNodeWithTag(BAR).performTouchInput {
+            down(at(0.2f))
+            moveTo(at(0.5f))
+        }
+        stored = 9f
+        rule.waitForIdle()
+        rule.onNodeWithTag(BAR).assert(shows(5f))
+
+        rule.onNodeWithTag(BAR).performTouchInput {
+            moveTo(at(0.7f))
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(listOf(7f), commits)
+        rule.onNodeWithTag(BAR).assert(shows(7f))
+    }
+
+    /** The point on the bar that reads [fraction] of a full rating. */
+    private fun TouchInjectionScope.at(fraction: Float, orientation: Orientation = Orientation.Vertical) =
+        if (orientation == Orientation.Vertical) Offset(centerX, height * (1f - fraction)) else Offset(width * fraction, centerY)
 
     private fun shows(rating: Float) = SemanticsMatcher.expectValue(
         SemanticsProperties.ProgressBarRangeInfo,

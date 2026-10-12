@@ -467,11 +467,39 @@ class AppleMusicSource(
         )["results"]?.jsonObject ?: return SearchResults()
         // Two library songs (or albums) can share one catalog identity; the result lists key rows by id.
         return SearchResults(
-            tracks = results["library-songs"]?.jsonObject?.resources().orEmpty().songTracks().distinctBy { it.id },
+            tracks = librarySearchSongs(results["library-songs"]?.jsonObject?.resources().orEmpty())
+                .songTracks().distinctBy { it.id },
             albums = results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album).distinctBy { it.id },
             artists = results["library-artists"]?.jsonObject?.resources().orEmpty().map(::artist),
             playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::playlist)
         )
+    }
+
+    /**
+     * Library search accepts no include parameter. Resolve its songs (at most 25) through the documented
+     * multiple-library-songs endpoint instead. Only an answered catalog relationship replaces anything:
+     * search order, metadata and other relationships stay as returned by search. A failed lookup or a
+     * missing answer keeps that row's original information; neither proves the song unavailable.
+     */
+    private suspend fun librarySearchSongs(songs: List<JsonObject>): List<JsonObject> {
+        val ids = songs.filter { it.text("type") == "library-songs" && !it.answers("catalog") }
+            .mapNotNull { it.text("id") }.distinct()
+        if (ids.isEmpty()) return songs
+        val checked = try {
+            page(path("songs"), mapOf("ids" to ids.joinToString(","), "include" to "catalog"))
+                .resources().filter { it.text("type") == "library-songs" && it.answers("catalog") }
+                .associateBy { it.text("id") }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return songs
+        }
+        return songs.map { song ->
+            val catalog = (checked[song.text("id")]?.get("relationships") as? JsonObject)?.get("catalog")
+                ?: return@map song
+            val relationships = (song["relationships"] as? JsonObject).orEmpty() + ("catalog" to catalog)
+            JsonObject(song + ("relationships" to JsonObject(relationships)))
+        }
     }
 
     override suspend fun getLibrarySongs(size: Int, offset: Int): List<Track> {

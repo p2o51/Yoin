@@ -533,6 +533,10 @@ fun NowPlayingOverlayHost(
                         },
                     ),
             ) {
+                // Capture the identity rendered with the bar. Playback can advance
+                // before this composition catches up; a late release still owns
+                // the displayed song, never whichever song is current by then.
+                val ratingSongId = (nowPlayingUiState as? NowPlayingUiState.Playing)?.songId
                 NowPlayingScreen(
                     // Playing.isPlaying is overridden with the EAGER projection:
                     // uiState's combine can serve a stale cached snapshot after a
@@ -565,7 +569,7 @@ fun NowPlayingOverlayHost(
                     onTranslateLyrics = viewModel::translateLyrics,
                     onApplyLyrics = viewModel::applyLyrics,
                     onLyricsMessage = viewModel::showMessage,
-                    onRatingChange = viewModel::setRating,
+                    onRatingChange = { rating -> ratingSongId?.let { viewModel.setRating(it, rating) } },
                     onToggleFavorite = viewModel::toggleFavorite,
                     onAddCurrentToLibrary = viewModel::addCurrentToLibrary,
                     onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,

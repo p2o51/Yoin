@@ -128,6 +128,78 @@ class PlayableQueueTest {
         }
     }
 
+    @Test
+    fun should_startTheTappedSongInAFullWindow_when_applePlaylistExceedsCatalogRequestLimit() {
+        for (size in listOf(301, 650)) {
+            val tracks = List(size) { catalog(it.toString()) }
+            for (start in listOf(0, size / 2, size - 1)) {
+                val queue = playableStartQueue(tracks, start, explicitStart = true, sourceId = MediaId.PROVIDER_APPLE_MUSIC)
+
+                assertEquals(100, queue.tracks.size)
+                assertEquals(tracks[start], queue.tracks[queue.startIndex])
+                val first = tracks.indexOf(queue.tracks.first())
+                assertEquals(tracks.subList(first, first + 100), queue.tracks)
+                assertEquals(if (start == 0) 0 else if (start == size - 1) 99 else 20, queue.startIndex)
+            }
+        }
+    }
+
+    @Test
+    fun should_preserveTheOrderedPlayableWindow_when_unavailableSongsSurroundTheAppleStart() {
+        val playable = List(400) { catalog(it.toString()) }
+        val tracks = playable.flatMapIndexed { index, song -> listOf(import("$index"), song, pulled("$index")) }
+
+        val queue = playableStartQueue(tracks, 601, explicitStart = true, sourceId = MediaId.PROVIDER_APPLE_MUSIC)
+
+        assertEquals(playable.subList(180, 280), queue.tracks)
+        assertEquals(20, queue.startIndex)
+        assertEquals(playable[200], queue.tracks[queue.startIndex])
+    }
+
+    @Test
+    fun should_keepTheWholePlayableQueue_when_filteringBringsAppleStartWithinTheLimit() {
+        val playable = List(300) { catalog(it.toString()) }
+        val tracks = playable.flatMapIndexed { index, song -> listOf(import("$index"), song) }
+
+        val queue = playableStartQueue(tracks, 501, explicitStart = true, sourceId = MediaId.PROVIDER_APPLE_MUSIC)
+
+        assertEquals(playable, queue.tracks)
+        assertEquals(250, queue.startIndex)
+    }
+
+    @Test
+    fun should_keepTheUnavailableTargetForItsError_when_itIsTappedInALargeAppleList() {
+        val tracks = List(400) { if (it == 200) pulled("$it") else catalog("$it") }
+
+        val queue = playableStartQueue(tracks, 200, explicitStart = true, sourceId = MediaId.PROVIDER_APPLE_MUSIC)
+
+        assertSame(tracks, queue.tracks)
+        assertEquals(200, queue.startIndex)
+    }
+
+    @Test
+    fun should_keepTheFullQueue_when_appleIsWithinTheLimitOrAnotherProviderStarts() {
+        for (provider in listOf(MediaId.PROVIDER_APPLE_MUSIC, MediaId.PROVIDER_SUBSONIC, MediaId.PROVIDER_SPOTIFY)) {
+            val tracks = List(if (provider == MediaId.PROVIDER_APPLE_MUSIC) 300 else 650) {
+                track(MediaId(provider, "$it"))
+            }
+            val queue = playableStartQueue(tracks, 200, explicitStart = true, sourceId = provider)
+
+            assertSame(tracks, queue.tracks)
+            assertEquals(200, queue.startIndex)
+        }
+    }
+
+    @Test
+    fun should_startTheFirstPlayableSong_when_largeApplePlayBeginsWithAnUnavailableItem() {
+        val tracks = listOf(import("first")) + List(400) { catalog(it.toString()) }
+
+        val queue = playableStartQueue(tracks, 0, explicitStart = false, sourceId = MediaId.PROVIDER_APPLE_MUSIC)
+
+        assertEquals(tracks.subList(1, 101), queue.tracks)
+        assertEquals(0, queue.startIndex)
+    }
+
     private fun catalog(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "14408577$id"))
 
     private fun import(id: String) = track(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.$id"))

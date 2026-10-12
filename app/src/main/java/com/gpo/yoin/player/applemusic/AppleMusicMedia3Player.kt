@@ -103,7 +103,11 @@ class AppleMusicMedia3Player(
         override fun onPlaybackError(c: MediaPlayerController, error: MediaPlayerException) {
             preparing = false
             playRequest.clear()
-            failure = appContext.getString(R.string.player_apple_music_play_failed)
+            Log.w(
+                "YoinMusicKitError",
+                musicKitPlaybackErrorDiagnostic(error.type, error.errorCode, error.componentErrorCode)
+            )
+            failure = appContext.getString(musicKitPlaybackErrorMessage(error.type))
             publish()
         }
         override fun onPlaybackRepeatModeChanged(c: MediaPlayerController, mode: Int) = publish()

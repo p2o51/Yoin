@@ -287,7 +287,8 @@ class PlaybackManager(
      * shuffled the list for a Shuffle button: Media3 / MusicKit play it as
      * given, while Spotify starts its context at the first track with
      * Spotify's own shuffle on (a context can't take Yoin's order). Apple
-     * Music imports MusicKit can't play are dropped first ([playableQueue]).
+     * Music imports MusicKit can't play are dropped first; Apple lists above
+     * its catalog request limit use the Library Songs start window ([playableStartQueue]).
      * [explicitStart] says the user picked tracks[startIndex] (a row tap); a
      * Play or Shuffle button picks no song, and neither does a shuffled list's
      * first place, so an import there gives way to the next song that plays.
@@ -380,7 +381,12 @@ class PlaybackManager(
         shuffled: Boolean,
         explicitStart: Boolean
     ) {
-        val queue = playableQueue(tracks, startIndex, explicitStart = explicitStart && !shuffled)
+        val queue = playableStartQueue(
+            tracks,
+            startIndex,
+            explicitStart = explicitStart && !shuffled,
+            sourceId = source.id
+        )
         startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled)
     }
 
