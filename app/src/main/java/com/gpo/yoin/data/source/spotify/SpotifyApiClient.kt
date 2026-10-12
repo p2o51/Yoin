@@ -502,7 +502,7 @@ class SpotifyApiClient(
                 .method(method, EMPTY_BODY)
                 .build()
                 .let(httpClient::newCall)
-                .awaitResponse()
+                .awaitResponse(::recordRateLimitBackoff)
         }.use { response ->
             if (!response.isSuccessful) {
                 throw response.toSpotifyFailure(url.toString())
@@ -553,7 +553,7 @@ class SpotifyApiClient(
                 .method(method, body)
                 .build()
                 .let(httpClient::newCall)
-                .awaitResponse()
+                .awaitResponse(::recordRateLimitBackoff)
         }
     }
 
@@ -654,13 +654,13 @@ class SpotifyApiClient(
                         .url(url)
                         .header("Authorization", "Bearer $accessToken")
                         .build()
-                    httpClient.newCall(req).also(reading::set).awaitResponse()
+                    httpClient.newCall(req).also(reading::set).awaitResponse(::recordRateLimitBackoff)
                 }
                 response.use {
-                    val body = it.body.string()
                     if (!it.isSuccessful) {
                         throw it.toSpotifyFailure(url.toString())
                     }
+                    val body = it.body.string()
                     JSON.decodeFromString(deserializer, body)
                 }
             } catch (error: IOException) {
@@ -675,7 +675,7 @@ class SpotifyApiClient(
 
     private fun Response.toSpotifyFailure(endpoint: String): Throwable {
         if (code == HTTP_TOO_MANY_REQUESTS) {
-            // The gate was already closed when the 429 came back (executeGated).
+            // The gate was already closed when the 429's response callback ran.
             return SpotifyRateLimitException(
                 retryAfterSeconds = retryAfterSeconds(),
                 endpoint = endpoint,
@@ -737,18 +737,20 @@ class SpotifyApiClient(
         }
 
     /**
-     * Checks the rate-limit gate right before the call, and closes it as soon
-     * as a 429's headers are in — before a read slot is given back, so no
-     * call queued behind this one goes out after Spotify said stop.
+     * Checks the rate-limit gate right before the call. The response callback
+     * closes it on every observed 429 before delivering the response, including
+     * replies to already-cancelled calls.
      */
     private suspend fun executeGated(endpoint: String, call: suspend () -> Response): Response {
         currentCoroutineContext().ensureActive()
         ensureNotRateLimited(endpoint)
-        return call().also { response ->
-            if (response.code == HTTP_TOO_MANY_REQUESTS) {
-                rateLimitProfileId?.let { profileId ->
-                    rateLimitGate?.recordBackoff(profileId, response.retryAfterSeconds())
-                }
+        return call()
+    }
+
+    private fun recordRateLimitBackoff(response: Response) {
+        if (response.code == HTTP_TOO_MANY_REQUESTS) {
+            rateLimitProfileId?.let { profileId ->
+                rateLimitGate?.recordBackoff(profileId, response.retryAfterSeconds())
             }
         }
     }
@@ -897,21 +899,23 @@ internal fun startPlaybackBody(
 }
 
 /** Cancel superseded starts and their device lookup without waiting for an HTTP timeout. */
-private suspend fun Call.awaitResponse(): Response = suspendCancellableCoroutine { continuation ->
-    continuation.invokeOnCancellation { cancel() }
-    enqueue(
-        object : Callback {
-            override fun onResponse(call: Call, response: Response) {
-                if (continuation.isActive) {
-                    continuation.resume(response) { _, _, _ -> response.close() }
-                } else {
-                    response.close()
+private suspend fun Call.awaitResponse(onResponseReceived: (Response) -> Unit): Response =
+    suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(
+            object : Callback {
+                override fun onResponse(call: Call, response: Response) {
+                    onResponseReceived(response)
+                    if (continuation.isActive) {
+                        continuation.resume(response) { _, _, _ -> response.close() }
+                    } else {
+                        response.close()
+                    }
+                }
+
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(e)
                 }
             }
-
-            override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isActive) continuation.resumeWithException(e)
-            }
-        }
-    )
-}
+        )
+    }

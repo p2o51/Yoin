@@ -1,11 +1,15 @@
 package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.profile.ProfileCredentials
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,8 +20,13 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.EventListener
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -538,6 +547,66 @@ class SpotifyApiClientTest {
         assertEquals(1, server.requestCount)
         assertTrue(results.all { it.exceptionOrNull() is SpotifyRateLimitException })
         assertTrue(gate.isBlocked("profile-a"))
+    }
+
+    @Test
+    fun should_recordBackoff_when_a429CallbackArrivesAfterCancellation() = runTest {
+        val gate = SpotifyRateLimitGate()
+        val callbackReady = CompletableDeferred<Callback>()
+        val call = mockk<Call>(relaxed = true)
+        val httpClient = mockk<OkHttpClient>()
+        every { httpClient.newCall(any()) } returns call
+        every { call.enqueue(any()) } answers { callbackReady.complete(firstArg()) }
+        val client = newClient(
+            credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            rateLimitGate = gate,
+            profileId = "profile-a",
+            httpClient = httpClient
+        )
+        val old = launch { client.getMe() }
+        val callback = callbackReady.await()
+        old.cancelAndJoin()
+
+        // Cancellation can race with OkHttp after it has selected onResponse.
+        // The response must still close the shared gate when nobody awaits it.
+        callback.onResponse(
+            call,
+            Response.Builder()
+                .request(Request.Builder().url(server.url("/v1/me")).build())
+                .protocol(Protocol.HTTP_1_1)
+                .code(429)
+                .message("Too Many Requests")
+                .header("Retry-After", "30")
+                .body("{}".toResponseBody())
+                .build()
+        )
+
+        assertTrue(gate.isBlocked("profile-a"))
+        assertTrue(runCatching { client.getMe() }.exceptionOrNull() is SpotifyRateLimitException)
+        verify(exactly = 1) { httpClient.newCall(any()) }
+    }
+
+    @Test
+    fun should_preserveRateLimitFailure_when_the429BodyIsTruncated() = runTest {
+        val gate = SpotifyRateLimitGate()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(429)
+                .addHeader("Retry-After", "30")
+                .setBody("""{"error":{"status":429}}""")
+                .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+        )
+        val client = newClient(
+            credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            rateLimitGate = gate,
+            profileId = "profile-a"
+        )
+
+        val error = runCatching { client.getMe() }.exceptionOrNull()
+
+        assertTrue(error is SpotifyRateLimitException)
+        assertTrue(gate.isBlocked("profile-a"))
+        assertEquals(1, server.requestCount)
     }
 
     @Test
