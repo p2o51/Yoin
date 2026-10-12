@@ -1,15 +1,11 @@
 package com.gpo.yoin.ui.home
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -51,8 +47,10 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -124,6 +122,7 @@ import com.gpo.yoin.ui.nowplaying.backPreviewTransform
 import com.gpo.yoin.ui.settings.AccountAvatar
 import com.gpo.yoin.ui.settings.LocalSettingsRowColor
 import com.gpo.yoin.ui.settings.ProfileCard
+import com.gpo.yoin.ui.settings.SegmentSelection
 import com.gpo.yoin.ui.settings.SelectableSegment
 import com.gpo.yoin.ui.settings.ServiceLine
 import com.gpo.yoin.ui.settings.SettingsItem
@@ -145,7 +144,6 @@ import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withPacedFrames
 import kotlin.math.roundToInt
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -736,7 +734,7 @@ internal fun HomeAccountAvatarHold(
     // Standard role, as the flight that hands it over.
     val spatial = YoinMotion.defaultSpatialSpec<Offset>(role = YoinMotionRole.Standard)
     val effects = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
-    val swap = updateTransition(card, label = "homeAccountHold")
+    val swap = rememberAccountAvatarSwap(card)
     LaunchedEffect(hold, hold.generation) {
         var placed = false
         try {
@@ -774,8 +772,7 @@ internal fun HomeAccountAvatarHold(
         if (hold.abandoned) hold.lostSpot.animateTo(0f, effects) else hold.lostSpot.snapTo(1f)
     }
     LaunchedEffect(hold, swap) {
-        snapshotFlow { !swap.isRunning && swap.currentState.id == swap.targetState.id }
-            .collect { hold.swapIdle = it }
+        snapshotFlow { swap.idle }.collect { hold.swapIdle = it }
     }
     // Comes in where nothing flew to it: the switcher's card faded where it sat.
     val fadeIn = remember { Animatable(0f) }
@@ -822,8 +819,9 @@ internal fun HomeAccountAvatarHold(
 
 /**
  * [card]'s avatar; another account takes its place on a crossfade (effects)
- * with a little give (spatial). Standard role wherever it is drawn, so the
- * switch's flight (the dialog's window) and Home's stand-in give way in step.
+ * with a little give (spatial), on paced frames ([AccountAvatarSwap]). Standard
+ * role wherever it is drawn, so the switch's flight (the dialog's window) and
+ * Home's stand-in give way in step.
  */
 @Suppress("ktlint:standard:function-naming") // a Composable
 @Composable
@@ -832,32 +830,84 @@ private fun HomeAccountAvatarSwap(
     size: Dp,
     ringColor: Color,
     modifier: Modifier = Modifier,
-    swap: Transition<ProfileCard> = updateTransition(card, label = "homeAccountAvatar")
+    swap: AccountAvatarSwap = rememberAccountAvatarSwap(card)
 ) {
-    swap.AnimatedContent(
-        modifier = modifier.semantics { homeAccountShown = card.id },
-        transitionSpec = {
-            ContentTransform(
-                targetContentEnter = YoinMotion.fadeIn(YoinMotionRole.Standard) +
-                    YoinMotion.scaleIn(YoinMotionRole.Standard, initialScale = ACCOUNT_SWAP_SCALE),
-                initialContentExit = YoinMotion.fadeOut(YoinMotionRole.Standard) +
-                    YoinMotion.scaleOut(YoinMotionRole.Standard, targetScale = ACCOUNT_SWAP_SCALE),
-                // The badge sits a ring's width outside the avatar: no clip.
-                sizeTransform = null
-            )
-        },
-        contentKey = { it.id }
-    ) { shownCard ->
-        val identity = shownCard.provider.serviceIdentity
-        AccountAvatar(
-            monogram = monogramOf(shownCard.title, stringResource(identity.nameRes)),
-            shapeIndex = shownCard.avatarShape,
-            identity = identity,
-            ringColor = ringColor,
-            photoUrl = shownCard.photoUrl,
-            size = size
-        )
+    Box(modifier = modifier.semantics { homeAccountShown = card.id }) {
+        // The one giving way under the one coming in.
+        swap.shown.forEach { shown ->
+            key(shown.card.id) {
+                val shownCard = shown.card
+                val identity = shownCard.provider.serviceIdentity
+                AccountAvatar(
+                    monogram = monogramOf(shownCard.title, stringResource(identity.nameRes)),
+                    shapeIndex = shownCard.avatarShape,
+                    identity = identity,
+                    ringColor = ringColor,
+                    photoUrl = shownCard.photoUrl,
+                    size = size,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = shown.alpha.value
+                        scaleX = shown.scale.value
+                        scaleY = shown.scale.value
+                    }
+                )
+            }
+        }
     }
+}
+
+/**
+ * An avatar's accounts through a swap: the one it shows, and any still
+ * giving way to it — each fading on the effects spring and scaling (to and
+ * from [ACCOUNT_SWAP_SCALE]) on the spatial one. Paced ([withPacedFrames]): a
+ * swap lands on a failed switch's busy frames (the old feed coming back), and
+ * a late frame holds the crossfade rather than cutting from one account to
+ * the other.
+ */
+@Stable
+internal class AccountAvatarSwap(initial: ProfileCard) {
+    /** One account's avatar in the swap. */
+    @Stable
+    internal class Shown(card: ProfileCard, entered: Boolean) {
+        var card by mutableStateOf(card)
+        val alpha = Animatable(if (entered) 1f else 0f)
+        val scale = Animatable(if (entered) 1f else ACCOUNT_SWAP_SCALE)
+    }
+
+    /** In drawing order: the account coming in last, on top. */
+    val shown = mutableStateListOf(Shown(initial, entered = true))
+
+    /** One account, all in: no swap under way. */
+    val idle: Boolean
+        get() = shown.size == 1 && shown[0].alpha.value == 1f && shown[0].scale.value == 1f
+
+    /** [card] comes in (or stays, with its fields brought up to date); any other gives way. */
+    suspend fun showIn(card: ProfileCard, effects: AnimationSpec<Float>, spatial: AnimationSpec<Float>) {
+        val coming = shown.firstOrNull { it.card.id == card.id } ?: Shown(card, entered = false)
+        coming.card = card
+        if (shown.lastOrNull() !== coming) {
+            shown.remove(coming)
+            shown.add(coming)
+        }
+        withPacedFrames {
+            shown.toList().forEach { each ->
+                val target = if (each === coming) 1f else 0f
+                launch { each.alpha.animateTo(target, effects) }
+                launch { each.scale.animateTo(lerpF(ACCOUNT_SWAP_SCALE, 1f, target), spatial) }
+            }
+        }
+        shown.removeAll { it !== coming }
+    }
+}
+
+/** [card]'s [AccountAvatarSwap], swapping as [card] changes (Standard role). */
+@Composable
+private fun rememberAccountAvatarSwap(card: ProfileCard): AccountAvatarSwap {
+    val swap = remember { AccountAvatarSwap(card) }
+    val effects = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
+    val spatial = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    LaunchedEffect(swap, card) { swap.showIn(card, effects, spatial) }
+    return swap
 }
 
 /**
@@ -893,6 +943,58 @@ private fun BoxScope.HomeAccountSwitchFlight(
             }
             .testTag(HOME_ACCOUNT_FLIGHT_TAG)
     )
+}
+
+/**
+ * The picked row's selection on Home's account card (T7): its segment's
+ * colour on the effects spring — the beat the card's close waits for
+ * ([SWITCH_SELECTION_BEAT]) — the other accounts' dim on that same spring,
+ * and its corners detaching on the spatial spring. One set of springs, drawn
+ * by the segment and the rows as they stand, and paced ([withPacedFrames]):
+ * the tap's frames are busy ones (Home going to Loading, the motion tier
+ * turning), and a late frame holds the selection where it was instead of
+ * showing it done.
+ */
+@Stable
+internal class HomeAccountSelection {
+    /** The picked row: kept while it eases back once the switch is over. */
+    var row by mutableStateOf<String?>(null)
+        private set
+    private val colour = Animatable(0f)
+    private val corners = Animatable(0f)
+
+    /** [id]'s segment colour, 0 (a row's) to 1 (selected). */
+    fun colourOf(id: String): Float = if (id == row) colour.value else 0f
+
+    /** [id]'s segment corners, 0 (the row's) to 1 (all round, detached). */
+    fun cornersOf(id: String): Float = if (id == row) corners.value else 0f
+
+    /** [id]'s content alpha: the accounts other than the pick wait, dimmed, while it is selected. */
+    fun alphaOf(id: String): Float {
+        val picked = row
+        return if (picked == null || id == picked) {
+            1f
+        } else {
+            lerpF(1f, ACCOUNT_ROW_DIMMED_ALPHA, colour.value.coerceIn(0f, 1f))
+        }
+    }
+
+    /**
+     * Follows a switch's [target] (null: none, or it is over): a new pick
+     * starts from a plain row; one that is over eases back on the same springs.
+     */
+    suspend fun follow(target: String?, effects: AnimationSpec<Float>, spatial: AnimationSpec<Float>) {
+        if (target != null && target != row) {
+            colour.snapTo(0f)
+            corners.snapTo(0f)
+            row = target
+        }
+        val to = if (target != null) 1f else 0f
+        withPacedFrames {
+            launch { corners.animateTo(to, spatial) }
+            colour.animateTo(to, effects)
+        }
+    }
 }
 
 /**
@@ -951,7 +1053,9 @@ internal fun HomeAccountSwitcherDialog(
     // on the header's) are drawn, handed back — told whether an avatar flew
     // into the header — two frames before [onDismissed] takes the window away.
     onAvatarTaken: () -> Unit = {},
-    onAvatarHandedBack: (landedInHeader: Boolean) -> Unit = {}
+    onAvatarHandedBack: (landedInHeader: Boolean) -> Unit = {},
+    // The picked row's selection: the card's own springs, which its close waits on.
+    selection: HomeAccountSelection = remember { HomeAccountSelection() }
 ) {
     // The card closes the way it opened: the profile it opened under holds
     // until the window goes. It can flip while the card is up — Home's
@@ -994,10 +1098,13 @@ internal fun HomeAccountSwitcherDialog(
     // moves under it (the next feed coming in) — never jumped to.
     val landing = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val landingSpec = YoinMotion.defaultSpatialSpec<Offset>()
-    val selectionBeat = remember { Animatable(0f) }
+    val pending by rememberUpdatedState(pendingTarget)
 
     // Still a switch: it hasn't failed (or been turned away) since the tap.
     fun stillSwitching(): Boolean = switchFrom != null && switchInto.let { it != null && it.id != active?.id }
+    // The picked row turns selected from the tap (the frame its target
+    // pends), and back once the switch is over — on the card's paced frames.
+    LaunchedEffect(selection, pendingTarget) { selection.follow(pendingTarget, effects, spatial) }
     // Paced: the card's springs land on busy frames — a switch's first ones,
     // the next feed coming in, a Reconnect's source going out to every screen
     // — and a late frame holds them where they were instead of showing them
@@ -1017,14 +1124,14 @@ internal fun HomeAccountSwitcherDialog(
                 // left its spot bare until the window drew).
                 avatarTaken()
             } else if (stillSwitching()) {
-                // The picked row turns selected first, on the effects spring its
-                // colour takes, so the tap reads as a choice before the card goes.
-                selectionBeat.snapTo(0f)
-                coroutineScope {
-                    val beat = launch { selectionBeat.animateTo(1f, effects) }
-                    snapshotFlow { selectionBeat.value }.first { it >= SWITCH_SELECTION_BEAT }
-                    beat.cancel()
-                }
+                // The picked row turns selected first: its colour's effects
+                // spring ([selection], from the tap) gets to the beat before the
+                // card goes, so the tap reads as a choice. A switch that is over
+                // meanwhile (it failed) doesn't wait for it.
+                snapshotFlow {
+                    val picked = pending
+                    !stillSwitching() || picked == null || selection.colourOf(picked) >= SWITCH_SELECTION_BEAT
+                }.first { it }
                 // Still a switch: the row's avatar goes up. Otherwise the card
                 // closes like any other close.
                 val into = switchInto
@@ -1168,6 +1275,7 @@ internal fun HomeAccountSwitcherDialog(
                     containerColor = Color.Transparent,
                     enabled = takesInput,
                     pendingTarget = pendingTarget,
+                    selection = selection,
                     flightRow = flightRow,
                     needsReconnect = needsReconnect,
                     reconnecting = reconnecting,
@@ -1296,6 +1404,8 @@ private fun HomeAccountCard(
     enabled: Boolean = true,
     // A switch under way: its row is the selected one, the other accounts wait.
     pendingTarget: String? = null,
+    // How far the picked row's selection has got (the dialog springs it).
+    selection: HomeAccountSelection = remember { HomeAccountSelection() },
     // The row whose avatar is flying up to the header (it leaves the row).
     flightRow: String? = null,
     // The account in use needs its owner: Reconnect beside Manage accounts.
@@ -1380,15 +1490,20 @@ private fun HomeAccountCard(
                     // Settings' selectable segment: the picked row detaches at once and
                     // fills with its service's colour — Settings' colour for the
                     // account in use (design.md, 颜色系统 5), the one it is becoming.
+                    // Drawn from the card's own springs (paced), not the segment's.
                     item(key = card.id, paintsOwnSegment = true) {
                         SelectableSegment(
                             selected = card.id == pendingTarget,
-                            selectedColor = card.provider.serviceIdentity.hue.tone().container
+                            selectedColor = card.provider.serviceIdentity.hue.tone().container,
+                            springs = SegmentSelection(
+                                colour = { selection.colourOf(card.id) },
+                                corners = { selection.cornersOf(card.id) }
+                            )
                         ) {
                             AccountRow(
                                 card = card,
                                 enabled = enabled,
-                                dimmed = pendingTarget != null && card.id != pendingTarget,
+                                contentAlpha = { selection.alphaOf(card.id) },
                                 avatarHidden = card.id == flightRow,
                                 onClick = { avatar -> onSwitch(card, avatar) }
                             )
@@ -1428,36 +1543,34 @@ private fun HomeAccountCard(
  * Another account: avatar, name, service line (or why it can't be used now).
  * [onClick] gets the avatar's bounds in window px. While a switch is under way
  * (or the card is going) the row is disabled ([enabled]) and, during a switch,
- * if it isn't the one picked, [dimmed] — on the effects spring — so a second
- * tap is plainly not taken.
+ * if it isn't the one picked, dimmed ([contentAlpha], the card's selection's
+ * effects spring) so a second tap is plainly not taken.
  */
 @Composable
 private fun AccountRow(
     card: ProfileCard,
     onClick: (avatar: Rect) -> Unit,
     enabled: Boolean = true,
-    dimmed: Boolean = false,
+    contentAlpha: () -> Float = { 1f },
     avatarHidden: Boolean = false
 ) {
     val identity = card.provider.serviceIdentity
     val haptics = rememberYoinHaptics()
     var avatarBounds by remember { mutableStateOf(Rect.Zero) }
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (dimmed) ACCOUNT_ROW_DIMMED_ALPHA else 1f,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "accountRowDim"
-    )
+    // The colour its segment is drawn in: how far the selection has got.
+    val segmentColor = LocalSettingsRowColor.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(homeAccountRowTag(card.id))
+            .semantics { homeAccountRowColor = segmentColor }
             .clickable(enabled = enabled, role = Role.Button) {
                 haptics.performClick()
                 onClick(avatarBounds)
             }
             .heightIn(min = 72.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp)
-            .graphicsLayer { alpha = contentAlpha },
+            .graphicsLayer { alpha = contentAlpha() },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1466,7 +1579,7 @@ private fun AccountRow(
             shapeIndex = card.avatarShape,
             identity = identity,
             // Ring-cut against the row, whatever colour its segment is taking.
-            ringColor = LocalSettingsRowColor.current.takeOrElse { MaterialTheme.colorScheme.surfaceBright },
+            ringColor = segmentColor.takeOrElse { MaterialTheme.colorScheme.surfaceBright },
             photoUrl = card.photoUrl,
             size = HomeAccountRowAvatar,
             modifier = Modifier
@@ -1611,10 +1724,10 @@ private fun HomeAccountCardReconnectPreview() {
 private const val CardHomeProgress = 0.04f
 
 /** How far the picked row's selection (its effects spring) gets before a switch closes the card. */
-private const val SWITCH_SELECTION_BEAT = 0.9f
+internal const val SWITCH_SELECTION_BEAT = 0.9f
 
 /** M3's disabled list-item content opacity: the accounts waiting out a switch. */
-private const val ACCOUNT_ROW_DIMMED_ALPHA = 0.38f
+internal const val ACCOUNT_ROW_DIMMED_ALPHA = 0.38f
 
 /** An avatar giving way to another account's leaves to (and the new one settles from) this scale. */
 private const val ACCOUNT_SWAP_SCALE = 0.8f
@@ -1637,6 +1750,10 @@ internal fun homeAccountRowTag(profileId: String) = "home-account-row-$profileId
 /** The account an avatar in flight (or Home's stand-in) is showing. */
 internal val HomeAccountShownKey = SemanticsPropertyKey<String>("HomeAccountShown")
 internal var SemanticsPropertyReceiver.homeAccountShown by HomeAccountShownKey
+
+/** The colour an account row's segment is drawn in on the card (how far its selection has got). */
+internal val HomeAccountRowColorKey = SemanticsPropertyKey<Color>("HomeAccountRowColor")
+internal var SemanticsPropertyReceiver.homeAccountRowColor by HomeAccountRowColorKey
 
 /** Home's stand-in is up: the switcher's window has gone and it hasn't lost its spot. */
 internal val HomeAccountHoldUpKey = SemanticsPropertyKey<Boolean>("HomeAccountHoldUp")

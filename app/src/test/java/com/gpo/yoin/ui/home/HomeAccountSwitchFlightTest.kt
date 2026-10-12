@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -24,6 +26,9 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.settings.ProfileCard
+import com.gpo.yoin.ui.settings.serviceIdentity
+import com.gpo.yoin.ui.settings.settingsSurfaces
+import com.gpo.yoin.ui.settings.tone
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -54,6 +59,11 @@ class HomeAccountSwitchFlightTest {
     private var dismissed: Boolean? = null
     private var editHomeTaps = 0
     private var manageTaps = 0
+    private val selection = HomeAccountSelection()
+
+    // A plain row's colour, and the Spotify row's when selected (the card's theme).
+    private var rowColor = Color.Unspecified
+    private var spotifySelected = Color.Unspecified
 
     private fun openCard(direction: LayoutDirection = LayoutDirection.Ltr) {
         rule.setContent {
@@ -62,6 +72,8 @@ class HomeAccountSwitchFlightTest {
                 LocalLayoutDirection provides direction
             ) {
                 YoinTheme {
+                    rowColor = settingsSurfaces().row
+                    spotifySelected = ProviderKind.SPOTIFY.serviceIdentity.hue.tone().container
                     HomeAccountSwitcherDialog(
                         visible = visible,
                         anchor = anchor,
@@ -75,7 +87,8 @@ class HomeAccountSwitchFlightTest {
                         onEditHome = { editHomeTaps++ },
                         pendingTarget = pending,
                         closeFrom = closeFrom,
-                        closeInto = closeInto
+                        closeInto = closeInto,
+                        selection = selection
                     )
                 }
             }
@@ -115,6 +128,10 @@ class HomeAccountSwitchFlightTest {
         rule.onAllNodes(hasTestTag(HOME_ACCOUNT_FLIGHT_TAG), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun shows(id: String) = SemanticsMatcher.expectValue(HomeAccountShownKey, id)
+
+    /** The colour [id]'s row's segment was drawn in. */
+    private fun rowColor(id: String): Color = rule.onNodeWithTag(homeAccountRowTag(id), useUnmergedTree = true)
+        .fetchSemanticsNode().config[HomeAccountRowColorKey]
 
     /** How far [point] is off the straight path from the row's avatar to [landing]. */
     private fun offPath(point: Offset, landing: Offset): Float {
@@ -191,6 +208,32 @@ class HomeAccountSwitchFlightTest {
         rule.mainClock.autoAdvance = true
         rule.waitForIdle()
         assertEquals(true, dismissed)
+    }
+
+    @Test
+    fun should_drawThePickOnTheCardsSelectionAndCloseOnItsBeat_when_anAccountIsPicked() {
+        openCard()
+        rule.mainClock.autoAdvance = false
+
+        switchTo(cards[1])
+        // Frame by frame until it flies: how far the card's selection had got,
+        // the colour the picked row's segment was drawn in, and the flight.
+        data class Frame(val selection: Float, val drawn: Color, val flying: Boolean)
+        val frames = mutableListOf<Frame>()
+        while (frames.lastOrNull()?.flying != true && frames.size < MAX_FRAMES) {
+            frame()
+            frames += Frame(selection.colourOf("b"), rowColor("b"), flightUp())
+        }
+
+        // The segment is drawn from the card's own (paced) spring, in-between frames and all…
+        frames.forEach { f ->
+            assertEquals("frames: $frames", lerp(rowColor, spotifySelected, f.selection.coerceIn(0f, 1f)), f.drawn)
+        }
+        assertTrue("frames: $frames", frames.count { it.selection > 0f && it.selection < 1f } >= MIN_IN_BETWEEN)
+        // …and that spring is the beat the close waits for: nothing flies before it.
+        val beat = frames.indexOfFirst { it.selection >= SWITCH_SELECTION_BEAT }
+        val flight = frames.indexOfFirst { it.flying }
+        assertTrue("frames: $frames", beat >= 0 && flight > beat && flight <= beat + 2)
     }
 
     @Test
@@ -298,6 +341,7 @@ class HomeAccountSwitchFlightTest {
 
     private companion object {
         const val MAX_FRAMES = 30
+        const val MIN_IN_BETWEEN = 3
         const val NEAR_PX = 24f
 
         val ANCHOR = Rect(1000f, 120f, 1084f, 204f)
