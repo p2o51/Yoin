@@ -1537,6 +1537,8 @@ private fun HomeContentHeader(
     val iconSemantics = if (iconsEnabled) Modifier else Modifier.clearAndSetSemantics {}
     Row(
         modifier = modifier
+            // The page the Memories arrow centres on.
+            .memoryBubblePage(bubbleController)
             .statusBarsPadding()
             // 8dp, plus the 4dp the list's top padding used to add.
             .padding(top = 12.dp)

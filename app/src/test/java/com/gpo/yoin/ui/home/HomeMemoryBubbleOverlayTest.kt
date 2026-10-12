@@ -27,6 +27,7 @@ import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -153,6 +154,79 @@ class HomeMemoryBubbleOverlayTest {
         // On the flyAway spring, not a cut: it is on its way into the arrow.
         advance(32L)
         assertTrue(rule.runOnIdle { controller.flyAway.value > 0f })
+    }
+
+    @Test
+    fun should_flyIntoTheArrowItLeft_when_homeReLaysOutMidFlight() {
+        setHome()
+        untilSaidInFull()
+        val departure = rule.runOnIdle { controller.geometry }
+        val departureArrow = rule.runOnIdle { controller.arrowBounds }
+        rule.onNodeWithTag(BAR).performTouchInput { click() }
+        frames(2 * FRAME_MS)
+        assertTrue(rule.runOnIdle { controller.flyAway.value > 0f })
+
+        // A Wide detail column opens under the same tap: Home re-lays its
+        // header out for the narrower column.
+        rule.runOnIdle {
+            controller.titleLeftInWindow = 60f
+            controller.freeStartInWindow = 160f
+            controller.freeEndInWindow = 250f
+        }
+        frames(2 * FRAME_MS)
+        rule.runOnIdle {
+            assertTrue(controller.flyAway.value > 0f)
+            assertEquals(departure, controller.geometry)
+            // The chevron stays in the tail it sits in.
+            assertEquals(departureArrow, controller.arrowBounds)
+        }
+
+        // Landed: the header places it again, where the header now is.
+        frames(1_000L)
+        rule.runOnIdle {
+            assertEquals(0f, controller.flyAway.value)
+            assertNotEquals(departure, controller.geometry)
+            assertNotEquals(departureArrow, controller.arrowBounds)
+        }
+    }
+
+    @Test
+    fun should_bringTheArrowHomeOverSeveralFrames_when_homeMovedItDuringTheFlight() {
+        setHome()
+        untilSaidInFull()
+        val departureX = rule.runOnIdle { controller.arrowBounds.center.x }
+        rule.onNodeWithTag(BAR).performTouchInput { click() }
+        frames(2 * FRAME_MS)
+
+        // Home re-tiers for a detail column: the page runs start-aligned,
+        // narrower than the overlay. Its centre is the arrow's new place —
+        // neither the overlay's centre (no room) nor the fallback beside the
+        // title (150 past it).
+        rule.runOnIdle {
+            controller.titleLeftInWindow = 0f
+            controller.freeStartInWindow = 120f
+            controller.freeEndInWindow = 260f
+            controller.pageStartInWindow = 0f
+            controller.pageEndInWindow = 340f
+        }
+        val home = 170f
+        val seen = mutableListOf<Pair<Float, Float>>()
+        var waited = 0L
+        while (rule.runOnIdle { controller.flyAway.value > 0f }) {
+            check(waited < 2_000L) { "it never landed" }
+            seen += rule.runOnIdle { controller.flyAway.value to controller.arrowBounds.center.x }
+            advance(FRAME_MS)
+            waited += FRAME_MS
+        }
+
+        // In the tail while any of the bubble is seen.
+        seen.filter { (fly, _) -> memoryBubbleFlightAlpha(fly) > 0f }.forEach { (fly, x) ->
+            assertEquals("fly $fly", departureX, x, 0.5f)
+        }
+        // Home over several drawn frames, not a cut.
+        val onTheWay = seen.count { (_, x) -> x < departureX - 1f && x > home + 1f }
+        assertTrue("on its way in only $onTheWay frames: $seen", onTheWay >= 2)
+        assertEquals(home, rule.runOnIdle { controller.arrowBounds.center.x }, 0.5f)
     }
 
     @Test
