@@ -128,6 +128,13 @@ android {
             // Robolectric Compose UI tests (breakpoint fit checks) need the
             // merged manifest's ComponentActivity and the app's resources.
             isIncludeAndroidResources = true
+            all {
+                // The full Robolectric suite exhausted the CI test worker. Keep
+                // one bounded worker and recycle it between groups of classes.
+                it.maxHeapSize = "2g"
+                it.maxParallelForks = 1
+                it.forkEvery = 100
+            }
         }
     }
 
