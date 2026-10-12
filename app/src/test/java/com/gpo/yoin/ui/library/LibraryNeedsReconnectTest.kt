@@ -32,7 +32,7 @@ class LibraryNeedsReconnectTest {
 
     @Test
     fun should_sayTheAccountNeedsReconnecting_when_theAccountInUseHasNoSourceComing() = runTest {
-        val viewModel = libraryViewModel(sourcelessRepository(needsReconnect = true))
+        val viewModel = libraryViewModel(sourcelessRepository(MutableStateFlow(true)))
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -42,7 +42,7 @@ class LibraryNeedsReconnectTest {
 
     @Test
     fun should_notSayTheAccountNeedsReconnecting_when_noAccountNeedsIt() = runTest {
-        val viewModel = libraryViewModel(sourcelessRepository(needsReconnect = false))
+        val viewModel = libraryViewModel(sourcelessRepository(MutableStateFlow(false)))
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -50,12 +50,31 @@ class LibraryNeedsReconnectTest {
         assertNotEquals(UiText.Res(R.string.home_account_reconnect_needed), (state as LibraryUiState.Error).message)
     }
 
+    @Test
+    fun should_sayTheAccountNeedsReconnecting_when_thatIsKnownOnlyAfterTheLoadFailed() = runTest {
+        // ProfileManager works the signal out off the main thread: it can land
+        // after the source settled, and after Library's load gave up.
+        val needsReconnect = MutableStateFlow(false)
+        val viewModel = libraryViewModel(sourcelessRepository(needsReconnect))
+        advanceUntilIdle()
+        val before = viewModel.uiState.value
+        assertTrue("an error page: $before", before is LibraryUiState.Error)
+        assertNotEquals(UiText.Res(R.string.home_account_reconnect_needed), (before as LibraryUiState.Error).message)
+
+        needsReconnect.value = true
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertTrue("an error page: $state", state is LibraryUiState.Error)
+        assertEquals(UiText.Res(R.string.home_account_reconnect_needed), (state as LibraryUiState.Error).message)
+    }
+
     /** A real repository whose source has settled without coming, for an account in use. */
-    private fun TestScope.sourcelessRepository(needsReconnect: Boolean) = YoinRepository(
+    private fun TestScope.sourcelessRepository(needsReconnect: MutableStateFlow<Boolean>) = YoinRepository(
         activeSource = MutableStateFlow<MusicSource?>(null),
         activeProfileId = MutableStateFlow<String?>("restored"),
         activeSourceSettled = flowOf(true),
-        activeNeedsReconnect = MutableStateFlow(needsReconnect),
+        activeNeedsReconnect = needsReconnect,
         database = mockk(relaxed = true),
         geminiService = mockk(relaxed = true),
         songAboutEntryDao = mockk(relaxed = true),
