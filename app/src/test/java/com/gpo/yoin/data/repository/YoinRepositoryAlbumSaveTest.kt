@@ -267,6 +267,64 @@ class YoinRepositoryAlbumSaveTest {
     }
 
     @Test
+    fun should_fileTheSaveForItsOriginalProfile_when_theAccountSwitchesBeforeItLands() = runTest {
+        val write = CompletableDeferred<Result<Unit>>()
+        writeActions.pendingWrite = write
+        val saving = async { repository.setAlbumSaved(album, saved = true) }
+        runCurrent()
+
+        profileIds.value = OTHER_PROFILE
+        writeActions.answer = mapOf(album.id to false)
+        repository.refreshFavoriteStates(emptyList(), album = album)
+        assertEquals(AlbumSavedState.NotSaved, state(album))
+        assertEquals(0L, repository.libraryAlbumsRevision.first())
+
+        write.complete(Result.success(Unit))
+        assertTrue(saving.await().isSuccess)
+
+        assertEquals(listOf(album.id to true), writeActions.writes)
+        assertEquals(true, database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1")?.isSaved)
+        assertNull(database.spotifyLibraryCacheDao().getAlbum(OTHER_PROFILE, "al1"))
+        // The old account's success cannot replace the active account's answer or revision.
+        assertEquals(AlbumSavedState.NotSaved, state(album))
+        assertEquals(0L, repository.libraryAlbumsRevision.first())
+
+        profileIds.value = PROFILE
+        assertEquals(AlbumSavedState.Saved, state(album))
+        assertEquals(1L, repository.libraryAlbumsRevision.first())
+    }
+
+    @Test
+    fun should_removeOnlyTheOriginalProfilesMirror_when_theAccountSwitchesBeforeRemovalLands() = runTest {
+        val originalRow = mirrorRow("al1", cachedAt = now)
+        val otherRow = originalRow.copy(profileId = OTHER_PROFILE)
+        database.spotifyLibraryCacheDao().upsertAlbum(originalRow)
+        database.spotifyLibraryCacheDao().upsertAlbum(otherRow)
+        val write = CompletableDeferred<Result<Unit>>()
+        writeActions.pendingWrite = write
+        val removing = async { repository.setAlbumSaved(album, saved = false) }
+        runCurrent()
+
+        profileIds.value = OTHER_PROFILE
+        assertEquals(AlbumSavedState.Saved, state(album))
+        assertEquals(0L, repository.libraryAlbumsRevision.first())
+
+        write.complete(Result.success(Unit))
+        assertTrue(removing.await().isSuccess)
+
+        assertEquals(listOf(album.id to false), writeActions.writes)
+        assertNull(database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1"))
+        assertEquals(otherRow, database.spotifyLibraryCacheDao().getAlbum(OTHER_PROFILE, "al1"))
+        assertEquals(AlbumSavedState.Saved, state(album))
+        assertEquals(0L, repository.libraryAlbumsRevision.first())
+
+        profileIds.value = PROFILE
+        assertEquals(1L, repository.libraryAlbumsRevision.first())
+        // No mirror row is evidence of absence from this bounded mirror, not a membership answer.
+        assertEquals(AlbumSavedState.Unknown, state(album))
+    }
+
+    @Test
     fun should_holdTheSaveForTheGraceAndAskOnlyAfterIt_when_spotifysAnswerWouldLagBehind() = runTest {
         repository.setAlbumSaved(album, saved = true)
         database.spotifyLibraryCacheDao().deleteAlbum(PROFILE, "al1")

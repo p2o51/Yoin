@@ -448,7 +448,7 @@ class YoinRepository(
 
     /**
      * Bumps, per profile, each time [setAlbumSaved] saved or removed an album
-     * on the active account, once the saved-albums mirror took the write:
+     * on the bound account, once the saved-albums mirror took the write:
      * Library then re-reads its albums from that mirror, never the service.
      */
     val libraryAlbumsRevision: Flow<Long> = combine(activeProfileId, libraryAlbumsRevisions) { profileId, revisions ->
@@ -1791,9 +1791,12 @@ class YoinRepository(
                 } catch (error: Exception) {
                     Result.failure(error)
                 }
-                if (result.isSuccess && activeProfileId.value == profileId) {
-                    // The written state before the in-flight one goes, so the row never flickers back.
-                    albumSavedOverlay.recordWrite(FavoriteStateOverlay.Key(profileId, album.id), saved)
+                if (result.isSuccess) {
+                    if (activeProfileId.value == profileId) {
+                        // The written state before the in-flight one goes, so the row never flickers back.
+                        albumSavedOverlay.recordWrite(FavoriteStateOverlay.Key(profileId, album.id), saved)
+                    }
+                    // Persist the bound account's success even if it is no longer the active one.
                     if (source.id == MediaId.PROVIDER_SPOTIFY) {
                         runCatching {
                             spotifyLibrarySyncCoordinator
