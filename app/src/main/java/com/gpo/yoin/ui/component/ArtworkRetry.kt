@@ -1,15 +1,15 @@
 package com.gpo.yoin.ui.component
 
-import coil3.ImageLoader
+import android.graphics.ImageDecoder
+import android.os.Build
+import androidx.annotation.RequiresApi
 import coil3.network.HttpException
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -29,10 +29,10 @@ internal object ArtworkRetrySignal {
 
 internal enum class ArtworkFailureKind {
     /**
-     * IOException or HTTP 5xx — 504 included, which is what Coil's
-     * only-if-cached request answers while the device is offline. Retried on a
-     * backoff while the artwork stays composed, and on every signal; a signal
-     * also starts the backoff over.
+     * IOException (not ImageDecoder's, see [Undecodable]) or HTTP 5xx — 504
+     * included, which is what Coil's only-if-cached request answers while the
+     * device is offline. Retried on a backoff while the artwork stays
+     * composed, and on every signal; a signal also starts the backoff over.
      */
     Transient,
 
@@ -41,8 +41,12 @@ internal enum class ArtworkFailureKind {
 
     /**
      * Everything else: the bytes came back, from the network or the disk
-     * cache, but made no image. The stored copy is dropped before the retry
-     * ([forgetStoredArtwork]); only a signal retries it.
+     * cache, but made no image — BitmapFactory's null bitmap, or
+     * ImageDecoder's DecodeException, which is an IOException but reads only
+     * bytes already on the device (Coil hands it the disk-cache file, never
+     * the network stream). The app's loader drops the stored copy as the
+     * load fails (ImageDiskCacheInterceptor), whichever request read it; only
+     * a signal retries it.
      */
     Undecodable
 }
@@ -57,10 +61,19 @@ internal object ArtworkRetryPolicy {
         return when {
             http != null ->
                 if (http.response.code in 500..599) ArtworkFailureKind.Transient else ArtworkFailureKind.AwaitSignal
+            causes.any(::isImageDecoderFailure) -> ArtworkFailureKind.Undecodable
             causes.any { it is IOException } -> ArtworkFailureKind.Transient
             else -> ArtworkFailureKind.Undecodable
         }
     }
+
+    private fun isImageDecoderFailure(error: Throwable): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && ImageDecoderFailure.matches(error)
+}
+
+@RequiresApi(Build.VERSION_CODES.P)
+private object ImageDecoderFailure {
+    fun matches(error: Throwable): Boolean = error is ImageDecoder.DecodeException
 }
 
 /**
@@ -114,15 +127,6 @@ internal suspend fun awaitArtworkRetry(state: ArtworkRetryState, signal: StateFl
         withTimeoutOrNull(backoff) { signal.first { state.signalledBy(it) } } != null
     }
     return state.retried(signal = signal.value, byBackoff = !signalled)
-}
-
-/**
- * Drops [url]'s copy in [imageLoader]'s disk cache — the key Coil stores a
- * plain url request under — so a retry after an [ArtworkFailureKind.Undecodable]
- * failure reads the network instead of the same bytes again.
- */
-internal suspend fun forgetStoredArtwork(imageLoader: ImageLoader, url: String) {
-    withContext(Dispatchers.IO) { imageLoader.diskCache?.remove(url) }
 }
 
 /**

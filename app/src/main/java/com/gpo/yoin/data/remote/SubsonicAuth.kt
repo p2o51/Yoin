@@ -26,7 +26,8 @@ object SubsonicAuth {
      * Returns a stable auth token pair for the current credentials.
      *
      * This keeps authenticated resource URLs stable across recompositions so image loaders do not
-     * continuously treat the same cover art as a brand-new URL.
+     * continuously treat the same cover art as a brand-new URL. The pair lives only as long as the
+     * process; a cache that outlives it keys on [SubsonicCacheKey], which leaves the pair out.
      */
     fun stableToken(credentials: ServerCredentials): Pair<String, String> =
         stableAuthCache.getOrPut(credentials) {
