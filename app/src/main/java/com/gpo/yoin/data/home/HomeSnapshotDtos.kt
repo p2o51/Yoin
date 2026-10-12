@@ -57,10 +57,25 @@ internal data class HomeFeedDto(
 internal enum class HomeNetworkBlock {
     RecentlyAdded,
     RecentlyPlayed,
-    Playlists
+    Playlists,
+
+    // Spotify's Activities, its recently-played endpoint's (with the hero's
+    // footnote): unread until that endpoint answers or fails — a failed read
+    // hands Activities to the activity log, which is then written as read.
+    Activities;
+
+    companion object {
+        /** Every block a feed built from nothing lacks; Activities only where an endpoint feeds them (Spotify). */
+        fun unreadFromNothing(endpointActivities: Boolean): Set<HomeNetworkBlock> =
+            if (endpointActivities) entries.toSet() else entries.toSet() - Activities
+    }
 }
 
-/** This feed with each of [blocks] taken from [previous] (the file it replaces), as far as that has them. */
+/**
+ * This feed with each of [blocks] taken from [previous] (the file it
+ * replaces), as far as that has them. Activities only when [previous]'s are
+ * an endpoint's too: an activity log on disk is no newer than the one read now.
+ */
 internal fun HomeFeedDto.keepingFrom(previous: HomeFeedDto?, blocks: Set<HomeNetworkBlock>): HomeFeedDto {
     if (previous == null || blocks.isEmpty()) return this
     var kept = this
@@ -72,6 +87,18 @@ internal fun HomeFeedDto.keepingFrom(previous: HomeFeedDto?, blocks: Set<HomeNet
             )
             HomeNetworkBlock.RecentlyPlayed -> kept.copy(recentlyPlayed = previous.recentlyPlayed)
             HomeNetworkBlock.Playlists -> kept.copy(playlists = previous.playlists)
+            HomeNetworkBlock.Activities -> if (!previous.activitiesFromRemote) {
+                kept
+            } else {
+                kept.copy(
+                    activities = previous.activities,
+                    activitiesFromRemote = true,
+                    heroFootnote = previous.heroFootnote,
+                    heroYear = previous.heroYear,
+                    heroSongCount = previous.heroSongCount,
+                    heroMinutes = previous.heroMinutes
+                )
+            }
         }
     }
     return kept

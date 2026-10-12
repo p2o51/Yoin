@@ -824,6 +824,98 @@ class HomeSnapshotViewModelTest {
     }
 
     @Test
+    fun should_writeTheSnapshotsEndpointActivities_when_theEndpointIsStillOutAtTheFirstWrite() = runTest {
+        // QA SP-RO-2: Spotify's cold start missed its snapshot's paint. The
+        // load built from nothing puts the activity log up while the
+        // endpoint's read is out, and writes 2 s later; the 30 s gap after
+        // that write held the endpoint feed back. The write keeps the file's
+        // endpoint Activities, footnote and all, until this process's
+        // endpoint answers — as a painted snapshot holds them on screen.
+        val profile = "snapshot-unpainted-spotify-endpoint-out"
+        seed(
+            profile,
+            MediaId.PROVIDER_SPOTIFY,
+            spotifySnapshotFeed().copy(activityHeroFootnote = "Snap footnote", activityHeroYear = 2019)
+        )
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SPOTIFY))
+        val endpoint = CompletableDeferred<List<ActivityEvent>>()
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("local-artist")))
+        coEvery { repository.getSpotifyRecentActivities(any()) } coAnswers { endpoint.await() }
+        val viewModel = viewModel(repository, MutableStateFlow(profile), store(), layouts = lateLayout())
+
+        advanceTimeBy(1_000 + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        // On screen, the activity log meanwhile; on disk, the file's endpoint feed.
+        assertEquals(listOf("local-artist"), activityIds(viewModel))
+        val first = store().read(profile)?.feed
+        assertEquals(listOf("snap-remote"), first?.activities?.map { it.entityId })
+        assertEquals(true, first?.activitiesFromRemote)
+        assertEquals("Snap footnote", first?.heroFootnote)
+        assertEquals(2019, first?.heroYear)
+
+        endpoint.complete(listOf(spotifyArtistVisit("fresh-remote")))
+        advanceTimeBy(HomeSnapshotStore.MIN_WRITE_INTERVAL_MS + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        assertEquals(listOf("fresh-remote"), activityIds(viewModel))
+        val next = store().read(profile)?.feed
+        assertEquals(listOf("fresh-remote"), next?.activities?.map { it.entityId })
+        assertEquals(true, next?.activitiesFromRemote)
+        assertFalse(next?.heroFootnote == "Snap footnote")
+    }
+
+    @Test
+    fun should_keepTheSnapshotsEndpointActivitiesOnDisk_when_aSpotifyFeedBuildsOnTheSourcelessOne() = runTest {
+        // The snapshot missed its paint and the feed read without a source
+        // went up instead; then the Spotify source comes (Reconnect). The
+        // account's feed builds on the sourceless one with the activity log
+        // while the endpoint is out — never asked without a source, so its
+        // Activities are unread like the other network blocks.
+        val profile = "snapshot-unpainted-spotify-sourceless"
+        seed(profile, MediaId.PROVIDER_SPOTIFY, spotifySnapshotFeed())
+        val provider = MutableStateFlow<String?>(null)
+        val repository = repository(provider)
+        every { repository.activeSourceSettled } returns MutableStateFlow(true)
+        val endpoint = CompletableDeferred<List<ActivityEvent>>()
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("local-artist")))
+        coEvery { repository.getSpotifyRecentActivities(any()) } coAnswers { endpoint.await() }
+        val seen = record(viewModel(repository, MutableStateFlow(profile), store(), layouts = lateLayout()))
+        advanceTimeBy(30_000)
+        runCurrent()
+        val sourceless = seen.last() as HomeUiState.Content
+        assertEquals(listOf("local-artist"), sourceless.activities.map { it.entityId })
+        assertFalse(sourceless.activitiesFromRemote)
+
+        provider.value = MediaId.PROVIDER_SPOTIFY
+        advanceTimeBy(1_000 + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+
+        assertEquals(listOf("local-artist"), (seen.last() as HomeUiState.Content).activities.map { it.entityId })
+        val written = store().read(profile)
+        assertEquals(MediaId.PROVIDER_SPOTIFY, written?.provider)
+        assertEquals(listOf("snap-remote"), written?.feed?.activities?.map { it.entityId })
+        assertEquals(true, written?.feed?.activitiesFromRemote)
+    }
+
+    @Test
+    fun should_writeTheActivityLog_when_theEndpointFailsOnALoadThatMissedItsPaint() = runTest {
+        // A failed endpoint read hands Activities to the activity log, painted
+        // snapshot or not: the file's endpoint feed (an earlier process's,
+        // maybe days old) isn't kept past it.
+        val profile = "snapshot-unpainted-spotify-endpoint-fails"
+        seed(profile, MediaId.PROVIDER_SPOTIFY, spotifySnapshotFeed())
+        val repository = repository(MutableStateFlow(MediaId.PROVIDER_SPOTIFY))
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(artistVisit("local-artist")))
+        coEvery { repository.getSpotifyRecentActivities(any()) } throws IOException("429")
+        viewModel(repository, MutableStateFlow(profile), store(), layouts = lateLayout())
+
+        advanceTimeBy(1_000 + HomeSnapshotStore.SETTLE_MS + 10)
+        runCurrent()
+        val written = store().read(profile)?.feed
+        assertEquals(listOf("local-artist"), written?.activities?.map { it.entityId })
+        assertEquals(false, written?.activitiesFromRemote)
+    }
+
+    @Test
     fun should_paintTheIncomingAccountsSnapshot_when_aSwitchCommits() = runTest {
         val outgoing = "snapshot-switch-a"
         val incoming = "snapshot-switch-b"

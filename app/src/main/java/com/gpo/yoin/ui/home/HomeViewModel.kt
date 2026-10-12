@@ -649,9 +649,16 @@ class HomeViewModel(
                         // nothing of it is written back until a block lands.
                         snapshotOnlyScopes += scopeKey
                         snapshotEndpointFeeds -= scopeKey
-                        // Its network blocks were never read: none could be.
-                        unreadBlocks[scopeKey] =
-                            unreadBlocks[homeScopeKey(null, profileId)] ?: HomeNetworkBlock.entries.toSet()
+                        // Its network blocks were never read: none could be
+                        // (nor Spotify's endpoint, which a load without a
+                        // source never asks).
+                        val unreadSourceless = unreadBlocks[homeScopeKey(null, profileId)]
+                            ?: HomeNetworkBlock.unreadFromNothing(endpointActivities = false)
+                        unreadBlocks[scopeKey] = if (providerId == MediaId.PROVIDER_SPOTIFY) {
+                            unreadSourceless + HomeNetworkBlock.Activities
+                        } else {
+                            unreadSourceless
+                        }
                         contentScopeKey = scopeKey
                         buildsOnSourceless = true
                     }
@@ -1036,8 +1043,11 @@ class HomeViewModel(
         }
 
         init {
-            // Built from nothing: each network block is unread until its read lands.
-            if (draft != null && seed == null) unreadBlocks[scopeKey] = HomeNetworkBlock.entries.toSet()
+            // Built from nothing: each network block is unread until its read
+            // lands — on Spotify, Activities too, until its endpoint answers.
+            if (draft != null && seed == null) {
+                unreadBlocks[scopeKey] = HomeNetworkBlock.unreadFromNothing(endpointActivities = spotify)
+            }
         }
 
         /** This load's network reads that failed (Recently Added, Recently Played, Your Playlists, Spotify's feed). */
@@ -1246,7 +1256,11 @@ class HomeViewModel(
             if (feed == null) failed()
             remoteFeed = feed
             remoteFeedIn = true
-            coroutineScope { spliceActivities(scope = this, fresh = feed != null) { it } }
+            // Answered or failed, Activities are this load's now: the
+            // endpoint's, or the activity log a failed read hands them to.
+            coroutineScope {
+                spliceActivities(scope = this, fresh = feed != null, filled = HomeNetworkBlock.Activities) { it }
+            }
         }
 
         /**
@@ -1265,18 +1279,19 @@ class HomeViewModel(
         /**
          * Splice the Activities this load now has (see [activitiesFor]) and
          * what [also] derives from them; [fresh]: a read just landed (not a
-         * failed endpoint read). A new hero drops the footnote of the old one
-         * and resolves its own — on a cold detail cache a network read — then
-         * splices it in if that hero is still up. On Spotify that waits for
-         * the endpoint's answer ([footnotePending]).
+         * failed endpoint read); [filled] as [splice]'s. A new hero drops the
+         * footnote of the old one and resolves its own — on a cold detail
+         * cache a network read — then splices it in if that hero is still up.
+         * On Spotify that waits for the endpoint's answer ([footnotePending]).
          */
         private fun spliceActivities(
             scope: CoroutineScope,
             fresh: Boolean = true,
+            filled: HomeNetworkBlock? = null,
             also: (HomeUiState.Content) -> HomeUiState.Content
         ) {
             var heroToResolve: List<ActivityEvent>? = null
-            splice(fresh) { latest ->
+            splice(fresh, filled) { latest ->
                 val (activities, fromRemote) = activitiesFor(latest)
                 val heroChanged = !sameHero(activities, latest.activities)
                 if (heroChanged || footnotePending) heroToResolve = activities
@@ -2403,9 +2418,11 @@ class HomeViewModel(
         // [homeContentCache]) that no read has filled: a load that started
         // with nothing up — no snapshot painted, no cache — builds its feed
         // from nothing, and until each block's read lands (or when it fails)
-        // that block is empty for want of a read, not empty. [keep] writes
-        // them as the file on disk has them: a slow network, a server down or
-        // refused credentials never shrink the snapshot to the local tier.
+        // that block is empty for want of a read, not empty (on Spotify,
+        // Activities until its endpoint answers: the activity log up meanwhile
+        // isn't what the file's endpoint feed was). [keep] writes them as the
+        // file on disk has them: a slow network, a server down or refused
+        // credentials never shrink the snapshot to the local tier.
         private val unreadBlocks = mutableMapOf<String, Set<HomeNetworkBlock>>()
 
         private fun homeScopeKey(providerId: String?, profileId: String?): String =

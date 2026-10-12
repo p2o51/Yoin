@@ -210,6 +210,54 @@ class HomeSnapshotStoreTest {
     }
 
     @Test
+    fun should_keepTheFilesEndpointActivities_when_theEndpointHasNotAnswered() = runTest {
+        // Spotify: an earlier process's recently-played on disk; this load's
+        // endpoint read is out, the activity log up meanwhile.
+        val endpointFeed = HomeFeedDto(
+            activities = listOf(activity("endpoint")),
+            activitiesFromRemote = true,
+            heroFootnote = "Footnote",
+            heroYear = 2019,
+            heroSongCount = 12,
+            heroMinutes = 48,
+            playlists = feed("Morning").playlists
+        )
+        store().save(PROFILE, MediaId.PROVIDER_SPOTIFY) { endpointFeed }
+        settle()
+        val local = HomeFeedDto(activities = listOf(activity("log")), playlists = feed("Evening").playlists)
+
+        val store = store()
+        store.save(PROFILE, MediaId.PROVIDER_SPOTIFY, unread = setOf(HomeNetworkBlock.Activities)) { local }
+        settle()
+
+        assertEquals(endpointFeed.copy(playlists = feed("Evening").playlists), store.read(PROFILE)?.feed)
+    }
+
+    @Test
+    fun should_writeTheActivityLogAsRead_when_theFilesActivitiesAreTheLogToo() = runTest {
+        // The file's Activities are an older read of the same activity log: nothing to keep.
+        store().save(PROFILE, MediaId.PROVIDER_SPOTIFY) {
+            HomeFeedDto(activities = listOf(activity("older-log")), heroFootnote = "Older")
+        }
+        settle()
+        val local = HomeFeedDto(activities = listOf(activity("log")))
+
+        val store = store()
+        store.save(PROFILE, MediaId.PROVIDER_SPOTIFY, unread = setOf(HomeNetworkBlock.Activities)) { local }
+        settle()
+
+        assertEquals(local, store.read(PROFILE)?.feed)
+    }
+
+    @Test
+    fun should_leaveActivitiesOutOfAFeedBuiltFromNothing_when_noEndpointFeedsThem() {
+        val blocks = setOf(HomeNetworkBlock.RecentlyAdded, HomeNetworkBlock.RecentlyPlayed, HomeNetworkBlock.Playlists)
+        assertEquals(blocks, HomeNetworkBlock.unreadFromNothing(endpointActivities = false))
+        val spotify = HomeNetworkBlock.unreadFromNothing(endpointActivities = true)
+        assertEquals(blocks + HomeNetworkBlock.Activities, spotify)
+    }
+
+    @Test
     fun should_writeTheFeedAsBuilt_when_noFileOfItsProviderHoldsItsUnreadBlocks() = runTest {
         val unread = HomeNetworkBlock.entries.toSet()
         val fresh = HomeFeedDto(activities = listOf(activity("fresh")))
