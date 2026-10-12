@@ -141,13 +141,15 @@ class AppleMusicApiClient(
      * All request paths are constructed by this provider, never by a cover or external URL.
      * A [next] link keeps [query]'s parameters it leaves out: Apple's links carry the offset
      * but not always `limit` or `include`, and without them later pages shrink to the default
-     * size or lose their relationships.
+     * size or lose their relationships. [excludedQueryParameters] removes rejected options even
+     * when the next link explicitly carries them, without changing its pagination position.
      */
     suspend fun resourcePage(
         segments: List<String>,
         personal: Boolean,
         query: Map<String, String> = emptyMap(),
-        next: String? = null
+        next: String? = null,
+        excludedQueryParameters: Set<String> = emptySet()
     ): JsonObject {
         val initial = url(*segments.toTypedArray()).newBuilder().apply {
             query.forEach { (key, value) -> addQueryParameter(key, value) }
@@ -169,7 +171,20 @@ class AppleMusicApiClient(
                 }
             }.build()
         }
-        return get(target, personal)
+        val filtered = if (excludedQueryParameters.isEmpty()) {
+            target
+        } else {
+            // Match decoded names: removeAllQueryParameters("include") misses a key like "%69nclude".
+            target.newBuilder().query(null).apply {
+                for (index in 0 until target.querySize) {
+                    val name = target.queryParameterName(index)
+                    if (name !in excludedQueryParameters) {
+                        addQueryParameter(name, target.queryParameterValue(index))
+                    }
+                }
+            }.build()
+        }
+        return get(filtered, personal)
     }
 
     private fun songs(page: JsonObject): List<AppleMusicSong> =

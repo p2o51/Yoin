@@ -108,12 +108,14 @@ class AppleMusicSource(
         path: List<String>,
         query: Map<String, String> = emptyMap(),
         next: String? = null,
-        personal: Boolean = path.getOrNull(1) == "me"
-    ) = api.resourcePage(path, personal, query, next)
+        personal: Boolean = path.getOrNull(1) == "me",
+        excludedQueryParameters: Set<String> = emptySet()
+    ) = api.resourcePage(path, personal, query, next, excludedQueryParameters)
 
     /**
-     * Every page of [path]. With a [fallback], a first page Apple refuses as it may refuse an include
-     * ([mayRefuseInclude]) is read again with [fallback], and so is every later page.
+     * Every page of [path]. With a [fallback], a page Apple refuses as it may refuse an include
+     * ([mayRefuseInclude]) is retried at the same position with [fallback]. Later pages also use
+     * [fallback], excluding options dropped from [query] even if their next links carry them.
      */
     private suspend fun all(
         path: List<String>,
@@ -123,14 +125,16 @@ class AppleMusicSource(
         val result = mutableListOf<JsonObject>()
         val visited = mutableSetOf<String>()
         var pageQuery = query
+        var excludedQueryParameters = emptySet<String>()
         var next: String? = null
         do {
             val response = try {
-                page(path, pageQuery, next)
+                page(path, pageQuery, next, excludedQueryParameters = excludedQueryParameters)
             } catch (error: AppleMusicApiException) {
-                if (fallback == null || next != null || !error.mayRefuseInclude()) throw error
+                if (fallback == null || pageQuery == fallback || !error.mayRefuseInclude()) throw error
                 pageQuery = fallback
-                page(path, pageQuery, null)
+                excludedQueryParameters = query.keys - fallback.keys
+                page(path, pageQuery, next, excludedQueryParameters = excludedQueryParameters)
             }
             result += response.resources()
             next = response.text("next")

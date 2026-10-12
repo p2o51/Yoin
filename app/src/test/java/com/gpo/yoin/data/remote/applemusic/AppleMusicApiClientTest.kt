@@ -200,6 +200,52 @@ class AppleMusicApiClientTest {
     }
 
     @Test
+    fun should_removeOnlyExcludedQueryParameters_when_followingAResourcePageLink() = runTest {
+        server.enqueue(MockResponse().setBody("""{"data":[]}"""))
+        client.resourcePage(
+            segments = listOf("v1", "me", "library", "artists"),
+            personal = true,
+            query = mapOf("limit" to "100", "include" to "catalog", "l" to "en-US"),
+            next = "/v1/me/library/artists?offset=100&limit=50&include=catalog&%69nclude=albums&cursor=a%2Bb%2Fc%3D",
+            excludedQueryParameters = setOf("include")
+        )
+        val request = server.takeRequest()
+        val url = request.requestUrl!!
+        assertEquals("/v1/me/library/artists", url.encodedPath)
+        assertEquals("100", url.queryParameter("offset"))
+        assertEquals(listOf("50"), url.queryParameterValues("limit"))
+        assertEquals("a+b/c=", url.queryParameter("cursor"))
+        assertEquals("en-US", url.queryParameter("l"))
+        assertFalse("include" in url.queryParameterNames)
+        assertEquals("user", request.getHeader("Music-User-Token"))
+    }
+
+    @Test
+    fun should_rejectInvalidResourcePaginationBeforeSendingTokens_when_excludingQueryParameters() = runTest {
+        val path = "/v1/me/library/artists?offset=100&include=catalog"
+        val invalidLinks = listOf(
+            "https://untrusted.example$path",
+            server.url("/v1/me/library/albums?offset=100&include=catalog").toString(),
+            server.url(path).newBuilder().port(server.port + 1).build().toString(),
+            server.url(path).newBuilder().username("unexpected").build().toString(),
+            server.url(path).newBuilder().password("unexpected").build().toString()
+        )
+        for (next in invalidLinks) {
+            val error = runCatching {
+                client.resourcePage(
+                    segments = listOf("v1", "me", "library", "artists"),
+                    personal = true,
+                    query = mapOf("limit" to "100"),
+                    next = next,
+                    excludedQueryParameters = setOf("include")
+                )
+            }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun should_shareCanonicalIdentity_when_libraryHasCatalogRelationship() {
         val library =
             song(
