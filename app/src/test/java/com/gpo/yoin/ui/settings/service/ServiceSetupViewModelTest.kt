@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings.service
 
+import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.profile.ProfileCredentials
@@ -9,11 +10,13 @@ import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -56,9 +59,22 @@ class ServiceSetupViewModelTest {
         every { container.profileAvatarStore.urls } returns MutableStateFlow(emptyMap())
     }
 
+    private val viewModels = mutableListOf<ServiceSetupViewModel>()
+
+    // The test's own dispatcher for the credentials' reads, and every page's
+    // work stopped with its test: nothing left on a real pool to touch Main
+    // once the next test has it (it would fail there, not here).
+    private fun viewModel(request: ServiceSetupRequest) =
+        ServiceSetupViewModel(container, request, ioDispatcher = mainDispatcherRule.dispatcher).also(viewModels::add)
+
+    @After
+    fun clearViewModels() {
+        viewModels.forEach { it.viewModelScope.cancel() }
+    }
+
     @Test
     fun should_startUnloadedThenCarryTheStoredCredentials_when_managingASubsonicAccount() = runTest {
-        val viewModel = ServiceSetupViewModel(container, ServiceSetupRequest(SetupService.Subsonic, profileId = "a"))
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic, profileId = "a"))
 
         // The page's first frame: not loaded yet (not a loaded, empty form).
         assertFalse(viewModel.uiState.value.subsonic.loaded)
@@ -73,7 +89,7 @@ class ServiceSetupViewModelTest {
     @Test
     fun should_sayThePasswordIsMissing_when_theStoredCredentialsCannotBeRead() = runTest {
         every { profileManager.decodeCredentials(profile) } returns null
-        val viewModel = ServiceSetupViewModel(container, ServiceSetupRequest(SetupService.Subsonic, profileId = "a"))
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic, profileId = "a"))
 
         val form = viewModel.uiState.first { it.subsonic.loaded }.subsonic
 
@@ -83,7 +99,7 @@ class ServiceSetupViewModelTest {
 
     @Test
     fun should_startLoadedAndEmpty_when_addingASubsonicAccount() = runTest {
-        val viewModel = ServiceSetupViewModel(container, ServiceSetupRequest(SetupService.Subsonic))
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic))
 
         val form = viewModel.uiState.value.subsonic
         assertTrue(form.loaded)

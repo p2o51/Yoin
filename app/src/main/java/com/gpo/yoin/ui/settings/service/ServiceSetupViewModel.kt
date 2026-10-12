@@ -20,6 +20,7 @@ import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.settings.assignAvatarShapes
 import java.net.URI
 import java.net.UnknownServiceException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +44,8 @@ import kotlinx.coroutines.withContext
 class ServiceSetupViewModel(
     private val container: AppContainer,
     private val request: ServiceSetupRequest,
+    // Where the stored credentials (a file and a Keystore decrypt) are read.
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     val profileId: String? get() = request.profileId
     private val tag = "ServiceSetupViewModel"
@@ -78,7 +81,7 @@ class ServiceSetupViewModel(
             },
             needsReconnect = needsReconnect,
         )
-    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.Eagerly, SpotifySetupState())
+    }.flowOn(ioDispatcher).stateIn(viewModelScope, SharingStarted.Eagerly, SpotifySetupState())
 
     val uiState: StateFlow<ServiceSetupUiState> = combine(
         subsonicForm,
@@ -136,7 +139,7 @@ class ServiceSetupViewModel(
             existingProfileName.value = profile.displayName
             if (ProviderKind.fromKeyOrSubsonic(profile.provider) != ProviderKind.SUBSONIC) return@launch
             // A file and a Keystore decrypt: off the main thread.
-            val credentials = withContext(Dispatchers.IO) {
+            val credentials = withContext(ioDispatcher) {
                 profileManager.decodeCredentials(profile)
             } as? ProfileCredentials.Subsonic
             subsonicForm.value = SubsonicFormState(
