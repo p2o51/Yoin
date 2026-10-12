@@ -10,7 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import kotlin.math.abs
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -140,9 +140,16 @@ class PacedStateRedirectTest {
             reference = animateFloatAsState(target, spatial)
         }
         rule.runOnIdle { target = 1f }
-        repeat(4) { rule.mainClock.advanceTimeByFrame() }
-        val turn = rule.runOnIdle { paced.value }
-        assertTrue("reverse a moving spring, not one at rest ($turn)", turn > 0.05f && turn < 0.8f)
+        // Flush composition and its launched work after each frame. The
+        // number of frames before either effect starts is not contractual.
+        var turn = 0f
+        var frames = 0
+        while (turn < 0.2f && frames++ < 20) {
+            rule.mainClock.advanceTimeByFrame()
+            turn = rule.runOnIdle { paced.value }
+        }
+        assertTrue("reverse a moving spring, not one at rest ($turn)", turn >= 0.2f && turn < 0.8f)
+        rule.runOnIdle { assertEquals("same motion before the redirect", reference.value, turn, 0.001f) }
 
         // A failed account switch restores Content while Loading's departure
         // is still moving. On punctual frames pacing changes nothing: every
