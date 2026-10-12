@@ -42,6 +42,10 @@ import com.gpo.yoin.data.repository.ActivityContext
  * still on Yoin's album or playlist, as a 300+ song playlist played past the songs Yoin mirrors
  * is, keeps Yoin's label), and while it waits the play isn't recorded ([settled]). No word in
  * [SPOTIFY_CONTEXT_REPORT_GRACE_MS] ([onReportOverdue]): Spotify moved on, to somewhere unnamed.
+ * On an existing connection, a song's known Spotify album can also disprove the old album
+ * report. Outside a confirmed Yoin queue (or while following Spotify), that conflict clears
+ * the old report and uses the same bounded wait before recording the song. Missing album
+ * metadata and playlist reports cannot establish such a conflict.
  */
 internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::elapsedRealtime) {
 
@@ -57,10 +61,10 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
     /** What Spotify last said it plays from, on this connection; null once it drops. */
     private var reported: SpotifyPlaybackContext? = null
 
-    /** The connection dropped since Spotify last said what it plays from. */
+    /** The last report was invalidated by a dropped connection or a conflicting album. */
     private var reportStale = false
 
-    /** A song outside Yoin's queue played while [reportStale]: the hand-over waits for Spotify's word. */
+    /** A song needs fresh context after a disconnect or an explicit conflict with the old album. */
     private var takeoverPending = false
 
     /** While unconfirmed: when Spotify was first heard on this connection ([clock]), and the songs other than [startTrack]. */
@@ -77,7 +81,7 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
      * Yoin started), nor while a song outside Yoin's queue waits for Spotify's word.
      */
     val settled: Boolean
-        get() = yoinContext == null || confirmed && !takeoverPending
+        get() = !takeoverPending && (yoinContext == null || confirmed)
 
     /** A Yoin play set [context] and handed Spotify (or a local player) its queue, starting at [startTrack]. */
     fun onYoinStart(context: ActivityContext, startTrack: Track) {
@@ -107,8 +111,13 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
 
     /** Spotify reported playing [track] while Yoin mirrors [queue] for it. */
     fun onPlayerState(current: ActivityContext, track: Track?, queue: List<Track>): ActivityContext? {
-        val yoin = yoinContext ?: return null
         track ?: return null
+        val yoin = yoinContext
+        if (yoin == null) {
+            awaitConflictingAlbum(track)
+            if (reportStale) takeoverPending = true
+            return null
+        }
         if (!confirmed && startTrack?.isSameSongAs(track) == true) {
             confirmed = true
             takeoverPending = false
@@ -125,6 +134,9 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
         // A song from before the start, still playing while the start lands: one outside Yoin's
         // queue, or another of its songs (the album's row above the one tapped).
         if (!confirmed && !startOverriddenBy(track)) return null
+        // The subscriptions are independent even without a disconnect: an external song can
+        // arrive before its new context. A known different album disproves the old report.
+        if (confirmed) awaitConflictingAlbum(track)
         // What Spotify said before the connection dropped is void: its fresh word decides.
         if (reportStale) {
             takeoverPending = true
@@ -138,9 +150,9 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
         reported = context
         reportStale = false
         val yoin = yoinContext
-        if (takeoverPending && yoin != null) {
+        if (takeoverPending) {
             takeoverPending = false
-            return movedOn(current, yoin)
+            if (yoin != null) return movedOn(current, yoin)
         }
         val next = when {
             yoin == null -> deriveSpotifyActivityContext(context) ?: ActivityContext.None
@@ -163,15 +175,27 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
     }
 
     /**
-     * No PlayerContext came [SPOTIFY_CONTEXT_REPORT_GRACE_MS] after a song outside Yoin's queue
-     * on a fresh connection: Spotify plays from somewhere it doesn't name.
+     * No PlayerContext came [SPOTIFY_CONTEXT_REPORT_GRACE_MS] after a song needed a fresh
+     * report: Spotify plays from somewhere it doesn't name.
      */
     fun onReportOverdue(current: ActivityContext): ActivityContext? {
         val yoin = yoinContext
-        if (!takeoverPending || yoin == null) return null
+        if (!takeoverPending) return null
         takeoverPending = false
         reportStale = false
-        return movedOn(current, yoin)
+        reported = null
+        return if (yoin != null) movedOn(current, yoin) else ActivityContext.None.takeUnless { it == current }
+    }
+
+    /** Only album identity can disprove an old album report; playlists and missing metadata cannot. */
+    private fun awaitConflictingAlbum(track: Track) {
+        val album = track.albumId?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY && it.rawId.isNotBlank() } ?: return
+        val reportedAlbum = (deriveSpotifyActivityContext(reported) as? ActivityContext.Album)
+            ?.albumId?.let(::spotifyRawId) ?: return
+        if (album.rawId == reportedAlbum) return
+        reported = null
+        reportStale = true
+        takeoverPending = true
     }
 
     /**

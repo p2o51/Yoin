@@ -1055,6 +1055,7 @@ class PlaybackManager(
         if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && !spotifyContextSync.settled) return
         lastRecordedTrackId = track.id
         val fallbackDurationSec = track.durationSec ?: lastKnownDurationSecById[track.id]
+        val activityContext = _currentActivityContext.value
         scope.launch {
             // Losing one history row must never take playback down with it
             // (scope has no CoroutineExceptionHandler — an uncaught Room
@@ -1065,7 +1066,7 @@ class PlaybackManager(
                     durationMs = state.duration.coerceAtLeast(0L).takeIf { it > 0L }
                         ?: ((fallbackDurationSec ?: 0) * 1_000L),
                     completedPercent = 0f,
-                    activityContext = _currentActivityContext.value,
+                    activityContext = activityContext,
                 )
             }.onFailure { error ->
                 Log.w(TAG, "recordPlay failed for ${track.id}", error)
@@ -1312,9 +1313,9 @@ class PlaybackManager(
     }
 
     /**
-     * Back on a fresh connection, a song outside Yoin's queue waits for Spotify's PlayerContext
-     * ([SpotifyContextSync.awaitingReport]); none in [SPOTIFY_CONTEXT_REPORT_GRACE_MS], the
-     * context is decided without it, and the song recorded.
+     * A song that needs Spotify's fresh PlayerContext ([SpotifyContextSync.awaitingReport])
+     * waits at most [SPOTIFY_CONTEXT_REPORT_GRACE_MS]; after that its context is decided
+     * without the invalidated report, and the song recorded.
      */
     private fun awaitSpotifyReportIfAsked() {
         if (!spotifyContextSync.awaitingReport) {
@@ -1488,4 +1489,3 @@ internal fun upcomingOrder(timeline: Timeline, current: Int, shuffle: Boolean): 
     }
     return order
 }
-

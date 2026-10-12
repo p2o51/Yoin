@@ -164,6 +164,98 @@ class PlaybackManagerSpotifyContextTest {
     }
 
     @Test
+    fun should_waitBeforeRecording_when_anotherAlbumPlaysBeforeItsContextOnTheSameConnection() = runTest {
+        play(album, startIndex = 1)
+        state(tracks[1])
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al1", title = "TUNE & PLAY"))
+        val external = liked.copy(albumId = MediaId.spotify("al2"), album = "Other")
+
+        state(external, isPlaying = true)
+        runCurrent()
+        coVerify(exactly = 0) { repository.recordPlay(external, any(), any(), any()) }
+
+        val other = ActivityContext.Album(albumId = "spotify:al2", albumName = "Other")
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al2", title = "Other"))
+        runCurrent()
+        state(external, isPlaying = true)
+        runCurrent()
+
+        assertEquals(other, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(external, any(), any(), other) }
+        coVerify(exactly = 0) { repository.recordPlay(external, any(), any(), album) }
+    }
+
+    @Test
+    fun should_discardTheConflictingAlbum_when_noFreshContextArrivesWithinTheExistingGrace() = runTest {
+        play(album, startIndex = 1)
+        state(tracks[1])
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al1", title = "TUNE & PLAY"))
+        val external = liked.copy(albumId = MediaId.spotify("al2"), album = "Other")
+
+        state(external, isPlaying = true)
+        advanceTimeBy(SPOTIFY_CONTEXT_REPORT_GRACE_MS - 1)
+        runCurrent()
+        coVerify(exactly = 0) { repository.recordPlay(external, any(), any(), any()) }
+
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(ActivityContext.None, manager.currentActivityContext.value)
+        coVerify(exactly = 1) { repository.recordPlay(external, any(), any(), ActivityContext.None) }
+        coVerify(exactly = 0) { repository.recordPlay(external, any(), any(), album) }
+    }
+
+    @Test
+    fun should_waitBeforeRecordingAnAdoptedTrack_when_itsAlbumContradictsThePreviousReport() = runTest {
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al1", title = "TUNE & PLAY"))
+        state(tracks[1], isPlaying = true)
+        runCurrent()
+        val external = liked.copy(albumId = MediaId.spotify("al2"), album = "Other")
+
+        state(external, isPlaying = true)
+        runCurrent()
+        coVerify(exactly = 0) { repository.recordPlay(external, any(), any(), any()) }
+
+        val other = ActivityContext.Album(albumId = "spotify:al2", albumName = "Other")
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al2", title = "Other"))
+        runCurrent()
+        coVerify(exactly = 1) { repository.recordPlay(external, any(), any(), other) }
+    }
+
+    @Test
+    fun should_waitForFreshContext_when_adoptedPlaybackChangesAcrossAReconnect() = runTest {
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al1", title = "TUNE & PLAY"))
+        state(tracks[1], isPlaying = true)
+        runCurrent()
+        val external = liked.copy(albumId = MediaId.spotify("al2"), album = "Other")
+
+        disconnected()
+        state(external, isPlaying = true)
+        runCurrent()
+        coVerify(exactly = 0) { repository.recordPlay(external, any(), any(), any()) }
+
+        val other = ActivityContext.Album(albumId = "spotify:al2", albumName = "Other")
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al2", title = "Other"))
+        runCurrent()
+        coVerify(exactly = 1) { repository.recordPlay(external, any(), any(), other) }
+        coVerify(exactly = 0) { repository.recordPlay(external, any(), any(), album) }
+    }
+
+    @Test
+    fun should_captureTheContextAtThePlay_when_aLaterReportPrecedesTheQueuedHistoryWrite() = runTest {
+        play(album, startIndex = 1)
+        state(tracks[1], isPlaying = true)
+
+        // The write has been queued, but has not run when the other subscription reports.
+        reportContext(SpotifyPlaybackContext(uri = "spotify:album:al2", title = "Other"))
+        runCurrent()
+
+        coVerify(exactly = 1) { repository.recordPlay(tracks[1], any(), any(), album) }
+        coVerify(exactly = 0) {
+            repository.recordPlay(tracks[1], any(), any(), ActivityContext.Album("spotify:al2", "Other"))
+        }
+    }
+
+    @Test
     fun should_dropTheAlbumBeforeRecordingThePlay_when_spotifyMovedOnWhileYoinWasInTheBackground() = runTest {
         play(album, startIndex = 1)
         state(tracks[1])

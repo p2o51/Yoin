@@ -255,6 +255,89 @@ class SpotifyContextSyncTest {
     }
 
     @Test
+    fun should_clearTheOldAlbumAfterTheGrace_when_anAdoptedTracksAlbumConflicts() {
+        sync.followSpotify()
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+
+        state(elsewhere.copy(albumId = MediaId.spotify("al2")))
+        assertTrue(sync.awaitingReport)
+        assertFalse(sync.settled)
+
+        sync.onReportOverdue(shown)?.let { shown = it }
+        assertEquals(ActivityContext.None, shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_dropTheOldAdoptedAlbum_when_aReconnectGetsNoFreshContext() {
+        sync.followSpotify()
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+        state(queue[0])
+
+        sync.onDisconnected()
+        state(elsewhere)
+        assertTrue(sync.awaitingReport)
+        assertFalse(sync.settled)
+
+        sync.onReportOverdue(shown)?.let { shown = it }
+        assertEquals(ActivityContext.None, shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_keepAConfirmedQueueSongOrRelink_when_itsAlbumMetadataDiffersFromTheReportedAlbum() {
+        startAndConfirm(album)
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+
+        state(queue[2].copy(albumId = MediaId.spotify("al2")))
+        state(queue[2].copy(id = MediaId.spotify("relinked"), albumId = MediaId.spotify("al2")))
+
+        assertEquals(album, shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_useTheFreshAlbumWithoutWaiting_when_itsReportPrecedesTheOutsideSong() {
+        startAndConfirm(album)
+        context(report("spotify:album:al2", "Other"))
+
+        state(elsewhere.copy(albumId = MediaId.spotify("al2")))
+
+        assertEquals(ActivityContext.Album("spotify:al2", "Other"), shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_notInferAnAlbumConflict_when_theTrackAlbumIsMissingOrFromAnotherProvider() {
+        listOf(null, MediaId.spotify(" "), MediaId.subsonic("al2")).forEach { albumId ->
+            startAndConfirm(album)
+            context(report("spotify:album:al1", "TUNE & PLAY"))
+
+            state(elsewhere.copy(albumId = albumId))
+
+            assertEquals(album, shown)
+            assertTrue(sync.settled)
+            assertFalse(sync.awaitingReport)
+        }
+    }
+
+    @Test
+    fun should_keepTheReportedPlaylist_when_anOutsideSongHasAnotherAlbum() {
+        startAndConfirm(album)
+        context(report("spotify:playlist:pl1", "Mix"))
+
+        state(elsewhere.copy(albumId = MediaId.spotify("al2")))
+
+        assertEquals(ActivityContext.Playlist("spotify:pl1", "Mix"), shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
     fun should_keepYoinsAlbum_when_spotifyStillNamesItForASongOutsideTheQueue() {
         startAndConfirm(album)
         context(report("spotify:album:al1", "TUNE & PLAY"))
