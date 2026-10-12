@@ -107,6 +107,12 @@ class SpotifyStartPlanTest {
     }
 
     @Test
+    fun should_useAppRemoteWithoutHttp_when_aBareSingleTrackIsTapped() {
+        assertTrue(attempts(ActivityContext.None, list = tracks.take(1), start = 0).isEmpty())
+        assertEquals(2, attempts(album, list = tracks.take(1), start = 0).size)
+    }
+
+    @Test
     fun should_playThePlainListWithoutTouchingTheQueue_when_thereIsNoContext() {
         val result = attempts(ActivityContext.None, start = 4)
 

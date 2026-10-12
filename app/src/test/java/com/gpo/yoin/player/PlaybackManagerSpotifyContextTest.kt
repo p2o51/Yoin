@@ -271,6 +271,22 @@ class PlaybackManagerSpotifyContextTest {
     }
 
     @Test
+    fun should_notRecordTheAlbumSongAboveTheTappedOne_when_spotifyStillPlaysItAsTheStartLands() = runTest {
+        play(album, startIndex = 2)
+
+        // Walking down the album: Spotify still plays the row above the one just tapped.
+        state(tracks[1], isPlaying = true)
+        runCurrent()
+        assertEquals(album, manager.currentActivityContext.value)
+        coVerify(exactly = 0) { repository.recordPlay(tracks[1], any(), any(), any()) }
+
+        state(tracks[2], isPlaying = true)
+        runCurrent()
+        coVerify(exactly = 1) { repository.recordPlay(tracks[2], any(), any(), album) }
+        coVerify(exactly = 0) { repository.recordPlay(tracks[1], any(), any(), any()) }
+    }
+
+    @Test
     fun should_recordUnderSpotifysContext_when_anUnconfirmedStartGivesWay() = runTest {
         play(artist, startIndex = 0)
         state(before, isPlaying = true)

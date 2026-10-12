@@ -79,7 +79,8 @@ class SpotifyAppRemotePlayerProbeTest {
 
         player.playQueue(listOf(spotifyTrack("t1")), startIndex = 0)
         runCurrent()
-        appRemote.playerStates.last().onEvent(playerState())
+        // Spotify plays the started track (what it played before is held back until then).
+        appRemote.playerStates.last().onEvent(playerState(remoteTrack("t1")))
         runCurrent()
 
         assertEquals(1, appRemote.connects)
@@ -245,7 +246,12 @@ class SpotifyAppRemotePlayerProbeTest {
         appRemote = appRemote
     )
 
-    private fun playerState() = PlayerState(null, false, 1f, 0L, null, null)
+    private fun playerState(track: com.spotify.protocol.types.Track? = null) =
+        PlayerState(track, false, 1f, 0L, null, null)
+
+    private fun remoteTrack(rawId: String) = com.spotify.protocol.types.Track(
+        null, emptyList(), null, 60_000L, rawId, "spotify:track:$rawId", null, false, false
+    )
 
     private fun spotifyTrack(rawId: String) = Track(
         id = MediaId.spotify(rawId),

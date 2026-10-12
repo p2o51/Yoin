@@ -1,11 +1,16 @@
 package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.profile.ProfileCredentials
+import java.io.IOException
 import java.net.URLEncoder
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -15,6 +20,8 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -59,9 +66,9 @@ class SpotifyApiClient(
     private val rateLimitProfileId: String? = null,
     /**
      * Slots for reads (library lists, detail pages, search). Calls go out
-     * through the blocking `execute()`, which OkHttp's Dispatcher (5 per
-     * host) does not limit, and pages are now fetched concurrently — this is
-     * the only cap. One set serves the whole process: Spotify counts requests
+     * through the request boundary below, and pages are fetched concurrently.
+     * This cap also keeps background reads from taking every dispatcher slot.
+     * One set serves the whole process: Spotify counts requests
      * per app, and a profile edit rebuilds the source while the old client's
      * reads may still be out. Playback and library writes take no slot
      * ([Lane.Control]).
@@ -458,7 +465,7 @@ class SpotifyApiClient(
      *
      * Throws [SpotifyAuthException] on 4xx/5xx. The typical failure mode
      * worth recovering from is 404 NO_ACTIVE_DEVICE — caller should fall
-     * back to the App Remote `play(uri) + queue(uri)` path.
+     * back to the App Remote `play(uri)` path.
      */
     suspend fun startPlayback(
         contextUri: String? = null,
@@ -491,7 +498,7 @@ class SpotifyApiClient(
                 .method(method, EMPTY_BODY)
                 .build()
                 .let(httpClient::newCall)
-                .execute()
+                .awaitResponse()
         }.use { response ->
             if (!response.isSuccessful) {
                 throw response.toSpotifyFailure(url.toString())
@@ -542,7 +549,7 @@ class SpotifyApiClient(
                 .method(method, body)
                 .build()
                 .let(httpClient::newCall)
-                .execute()
+                .awaitResponse()
         }
     }
 
@@ -631,7 +638,7 @@ class SpotifyApiClient(
                 .url(url)
                 .header("Authorization", "Bearer $accessToken")
                 .build()
-            httpClient.newCall(req).execute()
+            httpClient.newCall(req).awaitResponse()
         }
         response.use {
             val body = it.body.string()
@@ -689,7 +696,7 @@ class SpotifyApiClient(
     private suspend fun executeWithAuthRetry(
         endpoint: String,
         lane: Lane,
-        block: (accessToken: String) -> Response
+        block: suspend (accessToken: String) -> Response
     ): Response {
         ensureFreshCredentials()
         val first = executeWithPermit(endpoint, lane) { block(credentials.accessToken) }
@@ -699,17 +706,19 @@ class SpotifyApiClient(
         return executeWithPermit(endpoint, lane) { block(credentials.accessToken) }
     }
 
-    private suspend fun executeWithPermit(endpoint: String, lane: Lane, call: () -> Response): Response = when (lane) {
-        Lane.Read -> readPermits.withPermit { executeGated(endpoint, call) }
-        Lane.Control -> executeGated(endpoint, call)
-    }
+    private suspend fun executeWithPermit(endpoint: String, lane: Lane, call: suspend () -> Response): Response =
+        when (lane) {
+            Lane.Read -> readPermits.withPermit { executeGated(endpoint, call) }
+            Lane.Control -> executeGated(endpoint, call)
+        }
 
     /**
      * Checks the rate-limit gate right before the call, and closes it as soon
      * as a 429's headers are in — before a read slot is given back, so no
      * call queued behind this one goes out after Spotify said stop.
      */
-    private fun executeGated(endpoint: String, call: () -> Response): Response {
+    private suspend fun executeGated(endpoint: String, call: suspend () -> Response): Response {
+        currentCoroutineContext().ensureActive()
         ensureNotRateLimited(endpoint)
         return call().also { response ->
             if (response.code == HTTP_TOO_MANY_REQUESTS) {
@@ -861,4 +870,24 @@ internal fun startPlaybackBody(
         }
         append('}')
     }
+}
+
+/** Cancel superseded starts and their device lookup without waiting for an HTTP timeout. */
+private suspend fun Call.awaitResponse(): Response = suspendCancellableCoroutine { continuation ->
+    continuation.invokeOnCancellation { cancel() }
+    enqueue(
+        object : Callback {
+            override fun onResponse(call: Call, response: Response) {
+                if (continuation.isActive) {
+                    continuation.resume(response) { _, _, _ -> response.close() }
+                } else {
+                    response.close()
+                }
+            }
+
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(e)
+            }
+        }
+    )
 }

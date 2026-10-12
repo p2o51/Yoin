@@ -10,8 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Spotify's reports against the context a Yoin play set. Nothing counts before Spotify plays a
- * song of Yoin's queue; then no context, an empty or blank uri or one Yoin can't name leaves (or
+ * Spotify's reports against the context a Yoin play set. Nothing counts before Spotify plays the
+ * song the start started (another song of Yoin's queue may be the one it played before); then no context, an empty or blank uri or one Yoin can't name leaves (or
  * brings back) Yoin's, a different album or playlist Spotify names is shown, and a song outside
  * Yoin's queue hands the context to Spotify, unless Spotify still names Yoin's own album or
  * playlist on this connection (a relinked copy). Playback adopted from Spotify follows Spotify.
@@ -102,15 +102,56 @@ class SpotifyContextSyncTest {
 
     @Test
     fun should_bringYoinsContextBack_when_anUnnamedReportFollowsANameWhileOnYoinsQueue() {
-        // The song Spotify was on before the start is in Yoin's queue too: confirmed early.
-        start(artist)
-        state(queue[3])
+        startAndConfirm(artist)
         context(report("spotify:album:old", "Old"))
+        assertEquals(ActivityContext.Album(albumId = "spotify:old", albumName = "Old"), shown)
 
-        state(queue[0])
+        state(queue[2])
         context(report("", ""))
 
         assertEquals(artist, shown)
+    }
+
+    @Test
+    fun should_notConfirmTheStart_when_spotifyStillPlaysTheAlbumSongAboveTheTappedOne() {
+        // Walking down an album: the row above is what Spotify played before the tap.
+        start(album, at = 2)
+
+        state(queue[1])
+        context(report("spotify:album:old", "Old"))
+        assertFalse(sync.settled)
+        assertEquals(album, shown)
+
+        state(queue[2])
+        context(report("spotify:album:al1", ""))
+        assertTrue(sync.settled)
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_confirmTheStart_when_spotifyPlaysARelinkedCopyOfTheTappedSong() {
+        start(album, at = 2)
+
+        // Another market's copy: another id, the same title and artist.
+        state(track("t3-relinked", title = "t3"))
+
+        assertTrue(sync.settled)
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_followSpotify_when_anotherSongOfYoinsQueuePlaysLongAfterAnUnconfirmedStart() {
+        start(album, at = 2)
+        // The start never landed: Spotify plays on the album's song before it, from the user's playlist.
+        state(queue[1])
+        context(report("spotify:playlist:pl1", "Mix"))
+        assertEquals(album, shown)
+
+        now += SPOTIFY_START_CONFIRM_TIMEOUT_MS
+        state(queue[1])
+
+        assertEquals(ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = "Mix"), shown)
+        assertTrue(sync.settled)
     }
 
     @Test
@@ -379,7 +420,7 @@ class SpotifyContextSyncTest {
 
     @Test
     fun should_restartTheWait_when_theConnectionDropsBeforeTheStartLands() {
-        start(album)
+        start(album, at = 1)
         state(before)
         // The connect gave up in the background; the start runs again on the next connection.
         sync.onDisconnected()
@@ -489,13 +530,14 @@ class SpotifyContextSyncTest {
         assertNull(deriveSpotifyActivityContext(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs")))
     }
 
-    private fun start(context: ActivityContext) {
+    /** A Yoin play of [queue] from [at]. */
+    private fun start(context: ActivityContext, at: Int = 0) {
         shown = context
-        sync.onYoinStart(context)
+        sync.onYoinStart(context, queue[at])
     }
 
     private fun startAndConfirm(context: ActivityContext) {
-        start(context)
+        start(context, at = 1)
         state(queue[1])
     }
 

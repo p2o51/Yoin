@@ -9,14 +9,18 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -565,6 +569,27 @@ class SpotifyApiClientTest {
         read.await()
 
         assertTrue(playArrivedDuringRead.get())
+    }
+
+    @Test
+    fun should_cancelTheOldStartPromptly_when_theServerNeverAnswers() = runTest {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        server.enqueue(MockResponse().setResponseCode(204))
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+        val old = launch(Dispatchers.IO) { client.startPlayback(uris = listOf("spotify:track:old")) }
+        val first = withContext(Dispatchers.IO) { server.takeRequest(2, TimeUnit.SECONDS) }
+        assertTrue(first != null)
+
+        // Real clock bound: a blocking execute() would wait for OkHttp's ten-second timeout.
+        withContext(Dispatchers.IO) {
+            withTimeout(2_000L) {
+                old.cancelAndJoin()
+                client.startPlayback(uris = listOf("spotify:track:new"))
+            }
+        }
+        assertEquals(2, server.requestCount)
+        val newest = server.takeRequest()
+        assertTrue(newest.body.readUtf8().contains("spotify:track:new"))
     }
 
     // ── Helpers ────────────────────────────────────────────────────────

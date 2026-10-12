@@ -394,7 +394,7 @@ class PlaybackManager(
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         lastRecordedTrackId = null
         _currentActivityContext.value = activityContext
-        spotifyContextSync.onYoinStart(activityContext)
+        spotifyContextSync.onYoinStart(activityContext, tracks[startIndex])
         lastKnownDurationSecById = tracks
             .mapNotNull { track -> track.durationSec?.let { track.id to it } }
             .toMap()
@@ -443,13 +443,9 @@ class PlaybackManager(
                         if (!preserveLocalUiDuringSpotifyHandoff) {
                             activeBackend = ActiveBackend.SPOTIFY_REMOTE
                         }
-                        // If the user tapped inside an album / playlist / artist,
-                        // route through Spotify's Web API so the context sticks
-                        // ("playing from X" in Spotify's own UI + proper
-                        // recommendation signal). Bare-track entry points (queue,
-                        // search result, memories single track) keep the
-                        // non-context App Remote path — playQueue falls back
-                        // transparently on Web API failure too.
+                        // Contexts and lists use the Web API on this phone. Bare single
+                        // tracks use App Remote directly; both require the requested song
+                        // to arrive through PlayerState before the start is confirmed.
                         spotifySource = source as? SpotifyMusicSource
                         spotifyRemotePlayer.playQueue(
                             tracks = tracks,
@@ -1185,7 +1181,7 @@ class PlaybackManager(
             val deviceId = runCatching { spotifySource.localDeviceId(localDeviceNames()) }
                 .onFailure { e -> if (e is CancellationException) throw e }
                 .getOrNull()
-            if (deviceId == null) Log.w(TAG, "Spotify: this device isn't in the Connect list; the active device plays")
+            check(deviceId != null) { "This device is not in Spotify Connect; use local App Remote playback" }
             var failure: Throwable? = null
             val started = attempts.any { attempt ->
                 runCatching { spotifySource.start(attempt, deviceId) }

@@ -9,8 +9,8 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.spotify.EXTRA_SPOTIFY_URI_TYPE
-import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
+import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.data.source.spotify.spotifyUriType
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -30,7 +30,11 @@ import com.spotify.protocol.types.Empty
 import com.spotify.protocol.types.LibraryState
 import com.spotify.protocol.types.PlayerContext
 import com.spotify.protocol.types.PlayerState
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,12 +43,11 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 internal data class SpotifyRemoteSnapshot(
     val currentTrack: Track? = null,
@@ -148,6 +151,15 @@ internal class SpotifyAppRemotePlayer(
     private var mirroredQueue: List<Track> = emptyList()
     private var lastSnapshot: SpotifyRemoteSnapshot = SpotifyRemoteSnapshot()
     private val pendingOperations = mutableListOf<suspend (SpotifyAppRemote) -> Unit>()
+
+    // A superseded start releases its cancelled HTTP call before the next start is sent.
+    private val startMutex = Mutex()
+    private var pendingStart: PendingStart? = null
+
+    private class PendingStart(val track: Track) {
+        val heard = CompletableDeferred<Unit>()
+        var commandSent = false
+    }
 
     /**
      * Budget for silently retrying a cold-start [UserNotAuthorizedException].
@@ -257,6 +269,7 @@ internal class SpotifyAppRemotePlayer(
         connectJob = null
         replaceableOperationJob?.cancel()
         replaceableOperationJob = null
+        pendingStart = null
         disconnectRemote(preserveSnapshot = !resetState)
         if (resetState) {
             publish(SpotifyRemoteSnapshot())
@@ -264,16 +277,9 @@ internal class SpotifyAppRemotePlayer(
     }
 
     /**
-     * @param startContextPlayback optional — when provided (i.e. the caller
-     *  has an album / playlist / artist context), Yoin first attempts the
-     *  Web API `PUT /me/player/play` via this callback so Spotify's own UI
-     *  shows "playing from <context>" and recommendations get proper
-     *  signal. On failure (typically `NO_ACTIVE_DEVICE` / `PREMIUM_REQUIRED`
-     *  / transport error) we silently fall back to the bare App Remote
-     *  `play(uri) + queue(uri)` path that already works.
-     * @param playMode optional — Yoin-initiated playback applies the user's
-     *  play mode right after the start command, inside the same operation,
-     *  so it can't race the start and survives a provider switch.
+     * Starts the requested track, confirming it through App Remote's state subscription.
+     * A Web API acknowledgement alone is insufficient: after a bounded wait, one App Remote
+     * play is allowed. Starts never append tracks to Spotify's persistent user queue.
      */
     fun playQueue(
         tracks: List<Track>,
@@ -285,9 +291,11 @@ internal class SpotifyAppRemotePlayer(
         Log.d(
             tag,
             "playQueue: size=${tracks.size} startIndex=$startIndex track=${tracks[startIndex].id} " +
-                "hasContext=${startContextPlayback != null}",
+                "hasContext=${startContextPlayback != null}"
         )
         mirroredQueue = tracks
+        val start = PendingStart(tracks[startIndex])
+        pendingStart = start
         // Hold the tap-target as `pendingTrack`. Do NOT write `currentTrack`
         // / `isPlaying = true` / a non-zero position before App Remote
         // confirms with a real PlayerState — that used to produce the
@@ -309,41 +317,66 @@ internal class SpotifyAppRemotePlayer(
             ),
         )
         enqueueOperation(replacePending = true) { connected ->
-            if (startContextPlayback != null) {
-                val contextSucceeded = runCatching { startContextPlayback() }
-                    .onFailure { e ->
-                        // A replaced batch must not fall through to the App
-                        // Remote path and send stale play/queue commands.
-                        if (e is CancellationException) throw e
-                        emitContextPlaybackActionIfNeeded(e)
-                        Log.w(
-                            tag,
-                            "Web API context playback failed, falling back to App Remote: " +
-                                "${e.javaClass.simpleName}: ${e.message}",
-                        )
-                    }
-                    .isSuccess
-                if (contextSucceeded) {
-                    // Spotify started via Web API — App Remote's PlayerState
-                    // subscription will fire shortly with the new track/queue
-                    // state, which replaces our pending snapshot. No need to
-                    // also pump play+queue on App Remote; doing both would
-                    // double-start (the second `play` cancels the first).
+            try {
+                if (pendingStart !== start) return@enqueueOperation
+                start.commandSent = true
+                val accepted = startContextPlayback?.let { command ->
+                    runCatching { command() }.onFailure { error ->
+                        if (error is CancellationException) throw error
+                        emitContextPlaybackActionIfNeeded(error)
+                        Log.w(tag, "Web API start failed; trying App Remote", error)
+                    }.isSuccess
+                } == true
+                if (accepted && awaitStart(start)) {
                     playMode?.let { applyPlayMode(connected, it) }
                     return@enqueueOperation
                 }
+                if (pendingStart !== start) return@enqueueOperation
+                // If the host stopped, observe on reconnect without issuing another start.
+                if (remote !== connected) {
+                    confirmOnReconnect(start)
+                    return@enqueueOperation
+                }
+                val answered = withTimeoutOrNull(SPOTIFY_START_HEARD_TIMEOUT_MS) {
+                    connected.playerApi.play(start.track.spotifyUri()).awaitUnit()
+                    true
+                } == true
+                check(answered || start.heard.isCompleted) {
+                    applicationContext.getString(R.string.player_spotify_unavailable)
+                }
+                if (awaitStart(start)) {
+                    playMode?.let { applyPlayMode(connected, it) }
+                } else if (pendingStart === start) {
+                    if (remote !== connected) {
+                        confirmOnReconnect(start)
+                    } else {
+                        error(applicationContext.getString(R.string.player_spotify_unavailable))
+                    }
+                }
+            } catch (error: Throwable) {
+                // A failed start must not disappear into a reconnect that has no operation to replay.
+                handleRemoteError(error, userStart = true)
             }
-            // Fallback path (the Web API start failed): bare App Remote
-            // `play(uri)` followed by `queue(uri)` for the next few tracks.
-            // Loses Spotify-side context but works whenever App Remote is
-            // connected. Spotify's queue is the user's own and outlives this
-            // play, so only a short run goes in — queueing the whole list
-            // left hundreds of stale songs that played before the next album.
-            val current = tracks[startIndex]
-            connected.playerApi.play(current.spotifyUri()).awaitUnit()
-            playMode?.let { applyPlayMode(connected, it) }
-            tracks.drop(startIndex + 1).take(FALLBACK_QUEUE_LIMIT).forEach { track ->
-                connected.playerApi.queue(track.spotifyUri()).awaitUnit()
+        }
+    }
+
+    private suspend fun awaitStart(start: PendingStart): Boolean =
+        withTimeoutOrNull(SPOTIFY_START_HEARD_TIMEOUT_MS) { start.heard.await() } != null
+
+    /** Reconnecting observes the result; it must not restart a song the user may have changed meanwhile. */
+    private fun confirmOnReconnect(start: PendingStart) {
+        if (pendingStart !== start) return
+        enqueueOperation { connected ->
+            if (pendingStart !== start) return@enqueueOperation
+            if (!awaitStart(start) && pendingStart === start) {
+                if (remote !== connected) {
+                    confirmOnReconnect(start)
+                } else {
+                    handleRemoteError(
+                        IllegalStateException(applicationContext.getString(R.string.player_spotify_unavailable)),
+                        userStart = true
+                    )
+                }
             }
         }
     }
@@ -400,8 +433,10 @@ internal class SpotifyAppRemotePlayer(
      */
     private suspend fun applyPlayMode(connected: SpotifyAppRemote, mode: PlayMode) {
         runCatching {
-            connected.playerApi.setRepeat(mode.repeatMode).awaitUnit()
-            connected.playerApi.setShuffle(mode.shuffle).awaitUnit()
+            withTimeoutOrNull(SPOTIFY_START_HEARD_TIMEOUT_MS) {
+                connected.playerApi.setRepeat(mode.repeatMode).awaitUnit()
+                connected.playerApi.setShuffle(mode.shuffle).awaitUnit()
+            }
         }.onFailure { e ->
             if (e is CancellationException) throw e
             Log.w(tag, "applyPlayMode($mode) failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -569,11 +604,8 @@ internal class SpotifyAppRemotePlayer(
         wantsConnection = true
         if (replacePending) {
             pendingOperations.clear()
-            // Clearing only drops ops that haven't started yet; a
-            // still-running replaceable batch (playQueue's per-track
-            // queue() fallback loop) must be cancelled too, or it keeps
-            // appending the old queue's tracks after the user has
-            // already started something else.
+            // Cancel the old start, including its confirmation wait. The mutex
+            // still orders a blocking HTTP call's completion before the new start.
             replaceableOperationJob?.cancel()
             replaceableOperationJob = null
         }
@@ -595,7 +627,7 @@ internal class SpotifyAppRemotePlayer(
      * their Job in [replaceableOperationJob] so the next
      * `replacePending = true` enqueue can cancel them mid-flight. One-shot
      * ops (pause / seek / …) stay untracked so they never displace a
-     * running play loop from the field.
+     * running start from the field.
      */
     private fun launchOperation(replaceable: Boolean, block: suspend () -> Unit) {
         if (replaceable) {
@@ -603,7 +635,9 @@ internal class SpotifyAppRemotePlayer(
             // CallResults) must not leak when the next batch takes the field.
             replaceableOperationJob?.cancel()
         }
-        val job = scope.launch { block() }
+        val job = scope.launch {
+            if (replaceable) startMutex.withLock { block() } else block()
+        }
         if (replaceable) {
             replaceableOperationJob = job
         }
@@ -769,7 +803,15 @@ internal class SpotifyAppRemotePlayer(
                         "playerState: paused=${playerState.isPaused} position=${playerState.playbackPosition} trackUri=${playerState.track?.uri}",
                     )
                     // A connection only the debug probe opened reports nothing.
-                    if (wantsConnection) publish(fromPlayerState(playerState))
+                    if (wantsConnection) {
+                        val start = pendingStart
+                        if (start != null && (!start.commandSent || !spotifyPlays(playerState, start.track))) {
+                            return@launch
+                        }
+                        start?.heard?.complete(Unit)
+                        pendingStart = null
+                        publish(fromPlayerState(playerState))
+                    }
                 }
             }
             .setLifecycleCallback(
@@ -833,6 +875,11 @@ internal class SpotifyAppRemotePlayer(
         val queueIndex = mappedTrack?.let { current ->
             mirroredQueue.indexOfFirst { queued -> queued.id == current.id }
         } ?: -1
+        val twinIndex = if (queueIndex >= 0) {
+            queueIndex
+        } else {
+            mappedTrack?.let { current -> mirroredQueue.indexOfFirst { queued -> queued.isSameSongAs(current) } } ?: -1
+        }
         val queue = when {
             queueIndex >= 0 -> mirroredQueue
             mirroredQueue.isNotEmpty() -> mirroredQueue
@@ -855,7 +902,7 @@ internal class SpotifyAppRemotePlayer(
                 ?: lastSnapshot.durationMs,
             queue = queue,
             currentIndex = when {
-                queueIndex >= 0 -> queueIndex
+                twinIndex >= 0 -> twinIndex
                 currentTrack != null -> 0
                 else -> lastSnapshot.currentIndex
             },
@@ -909,8 +956,8 @@ internal class SpotifyAppRemotePlayer(
         return "spotify:track:${id.rawId}"
     }
 
-    private fun handleRemoteError(error: Throwable) {
-        // Cancellation (a replaced play loop, a connect cancelled by host
+    private fun handleRemoteError(error: Throwable, userStart: Boolean = false) {
+        // Cancellation (a replaced start, a connect cancelled by host
         // stop) is not a remote failure — rethrow so the coroutine just
         // dies instead of consuming retry budgets, disconnecting a live
         // replacement remote, or publishing an Error banner.
@@ -926,6 +973,7 @@ internal class SpotifyAppRemotePlayer(
         if (error is UserNotAuthorizedException &&
             coldStartAuthRetryAvailable &&
             wantsConnection &&
+            !userStart &&
             pendingOperations.isNotEmpty()
         ) {
             coldStartAuthRetryAvailable = false
@@ -952,7 +1000,8 @@ internal class SpotifyAppRemotePlayer(
         // we previously missed (only the two named subclasses retried).
         if (failure is SpotifyConnectFailure.TransportFailure &&
             transportRetryAvailable &&
-            wantsConnection
+            wantsConnection &&
+            !userStart
         ) {
             transportRetryAvailable = false
             Log.d(tag, "handleRemoteError: silently retrying transport failure after ${TRANSPORT_RETRY_DELAY_MS}ms")
@@ -969,7 +1018,7 @@ internal class SpotifyAppRemotePlayer(
         // Error banner here is just noise — the user wasn't trying to do
         // anything Spotify-related yet. Stay quiet and let the next user
         // action retrigger the connect attempt naturally.
-        if (!isUserWaitingOnConnection()) {
+        if (!userStart && !isUserWaitingOnConnection()) {
             Log.d(tag, "handleRemoteError: warm-connect failure, suppressing Error banner")
             disconnectRemote(preserveSnapshot = true)
             return
@@ -1013,9 +1062,6 @@ internal class SpotifyAppRemotePlayer(
         pendingOperations.isNotEmpty() || lastSnapshot.observedPlayerState
 
     private companion object {
-        /** Tracks the App Remote fallback queues after the started one. */
-        const val FALLBACK_QUEUE_LIMIT = 10
-
         /**
          * How long a library-state read waits for Spotify's answer. It is
          * local IPC and normally answers in milliseconds; a CallResult a
@@ -1107,6 +1153,20 @@ internal class SpotifyAppRemotePlayer(
 
             else -> null
         }
+}
+
+/** Grace for the subscription to report the requested track after a start command answers. */
+internal const val SPOTIFY_START_HEARD_TIMEOUT_MS = 4_000L
+
+/** Match Spotify's market-relinked copy without accepting a paused pre-start state. */
+internal fun spotifyPlays(state: PlayerState, track: Track): Boolean {
+    if (state.isPaused) return false
+    val playing = state.track ?: return false
+    if (track.id.provider == MediaId.PROVIDER_SPOTIFY && playing.uri == "spotify:track:${track.id.rawId}") return true
+    val title = track.title?.takeIf(String::isNotBlank) ?: return false
+    val artist = track.artist?.takeIf(String::isNotBlank) ?: return false
+    val playingArtist = playing.artists?.firstOrNull()?.name ?: playing.artist?.name
+    return title.equals(playing.name, ignoreCase = true) && artist.equals(playingArtist, ignoreCase = true)
 }
 
 /**
