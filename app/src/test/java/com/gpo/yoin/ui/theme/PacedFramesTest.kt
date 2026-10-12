@@ -1,15 +1,25 @@
 package com.gpo.yoin.ui.theme
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.MonotonicFrameClock
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.test.junit4.createComposeRule
+import kotlin.math.abs
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * Springs that must not skip (QA P9a-2 / P9b-1 / P9b-2: the account card's
@@ -104,5 +114,49 @@ class PacedFramesTest {
     private companion object {
         const val SETTLED = 0.95f
         const val HALF_WAY = 0.5f
+    }
+}
+
+/** The composable must retain the running spring's velocity when a switch quickly reverses. */
+@RunWith(RobolectricTestRunner::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+class PacedStateRedirectTest {
+
+    @get:Rule
+    val rule = createComposeRule()
+
+    @Test
+    fun should_matchSpringRedirect_when_targetReversesBeforeTheFeedFadeSettles() {
+        var target by mutableFloatStateOf(0f)
+        lateinit var paced: State<Float>
+        lateinit var reference: State<Float>
+        val spatial = YoinMotion.defaultSpatialSpec<Float>(
+            role = YoinMotionRole.Standard,
+            expressiveScheme = MotionScheme.expressive()
+        )
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            paced = animateFloatAsPacedState(target, spatial)
+            reference = animateFloatAsState(target, spatial)
+        }
+        rule.runOnIdle { target = 1f }
+        repeat(4) { rule.mainClock.advanceTimeByFrame() }
+        val turn = rule.runOnIdle { paced.value }
+        assertTrue("reverse a moving spring, not one at rest ($turn)", turn > 0.05f && turn < 0.8f)
+
+        // A failed account switch restores Content while Loading's departure
+        // is still moving. On punctual frames pacing changes nothing: every
+        // redirected position must match the ordinary spring, including its
+        // remaining forward momentum before it turns back.
+        rule.runOnIdle { target = 0f }
+        val differences = mutableListOf<Float>()
+        repeat(20) {
+            rule.mainClock.advanceTimeByFrame()
+            rule.runOnIdle { differences += abs(paced.value - reference.value) }
+        }
+        assertTrue("redirect lost velocity: $differences", differences.max() < 0.001f)
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        assertEquals(0f, paced.value, 0f)
     }
 }

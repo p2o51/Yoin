@@ -9,9 +9,11 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /*
@@ -54,8 +56,19 @@ suspend fun <R> withPacedFrames(block: suspend CoroutineScope.() -> R): R {
 fun animateFloatAsPacedState(targetValue: Float, animationSpec: AnimationSpec<Float>): State<Float> {
     val animatable = remember { Animatable(targetValue) }
     val spec by rememberUpdatedState(animationSpec)
-    LaunchedEffect(targetValue) {
-        withPacedFrames { animatable.animateTo(targetValue, spec) }
+    val target by rememberUpdatedState(targetValue)
+    LaunchedEffect(animatable) {
+        // Keep one paced timeline across redirects. Let animateTo interrupt
+        // the old animation itself, as animateFloatAsState does: it captures
+        // the running velocity before the previous animation is cancelled.
+        // Cancelling this effect on each target would reset that velocity.
+        withPacedFrames {
+            snapshotFlow { target }.collect { next ->
+                launch {
+                    if (next != animatable.targetValue) animatable.animateTo(next, spec)
+                }
+            }
+        }
     }
     return animatable.asState()
 }
