@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -353,6 +354,26 @@ class LibraryViewModel(
                     ).withLastSorted()
                     applySortSettings(sortSettings, capabilities)
                     publishLists()
+                } else if (repository.currentProviderId() == null) {
+                    // No source came. An account whose source isn't coming (its
+                    // credentials couldn't be read) is said as Home's dot says
+                    // it, not as the repository's "No profile configured". That
+                    // signal is worked out off the main thread and can land a
+                    // beat after the source settled, so the page follows it
+                    // rather than reading it once — while it still shows this error.
+                    val fallback = e.uiTextOr(UiText.Res(R.string.library_error_load_library))
+                    var shown: LibraryUiState? = null
+                    fun stillShown(): Boolean =
+                        isDataLoadCurrent(generation, profileId) && (shown == null || _uiState.value == shown)
+                    repository.activeNeedsReconnect
+                        .takeWhile { stillShown() }
+                        .collect { needsReconnect ->
+                            val error = LibraryUiState.Error(
+                                if (needsReconnect) UiText.Res(R.string.home_account_reconnect_needed) else fallback
+                            )
+                            shown = error
+                            _uiState.value = error
+                        }
                 } else {
                     _uiState.value = LibraryUiState.Error(
                         e.uiTextOr(UiText.Res(R.string.library_error_load_library)),

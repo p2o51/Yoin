@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +59,8 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.animateFloatAsPacedState
+import com.gpo.yoin.ui.theme.withPacedFrames
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -231,16 +232,18 @@ fun HomeContent(
                     hasPlayedInitialContentEntrance = true
                 }
             }
-            val contentAlphaState = animateFloatAsState(
+            // Paced (animateFloatAsPacedState): the feed leaves and comes back
+            // on busy frames — an account switch's first ones, a failed one's
+            // revert, the next feed composing — where a late frame would show
+            // the fade already over (the feed cut out, or snapped back).
+            val contentAlphaState = animateFloatAsPacedState(
                 targetValue = if (isContent && hasPlayedInitialContentEntrance) 1f else 0f,
                 animationSpec = YoinMotion.defaultEffectsSpec(),
-                label = "homeInitialContentAlpha",
             )
             val contentAlpha by contentAlphaState
-            val contentOffsetState = animateFloatAsState(
+            val contentOffsetState = animateFloatAsPacedState(
                 targetValue = if (isContent && hasPlayedInitialContentEntrance) 1f else 0f,
                 animationSpec = YoinMotion.defaultSpatialSpec(),
-                label = "homeInitialContentOffset",
             )
             val contentOffsetProgress by contentOffsetState
 
@@ -266,46 +269,50 @@ fun HomeContent(
             val holdFadeSpec = YoinMotion.defaultEffectsSpec<Float>()
             LaunchedEffect(avatarHold.generation) {
                 if (avatarHold.generation == 0) return@LaunchedEffect
-                avatarHold.fade.snapTo(1f)
-                // The switch first: landed, failed or turned away.
-                snapshotFlow { currentPending }.first { !it }
-                // Then the page under the stand-in. On a feed: hand back once it
-                // is all in and the stand-in rests on its avatar — at once if
-                // the feed is moved first. On an error page (no header): fade.
-                fun feedIn() = contentAlphaState.value >= 1f && contentOffsetState.value == 1f
-                var rested: String? = null
-                val end = snapshotFlow {
-                    when (val state = currentUiState) {
-                        is HomeUiState.Error -> HomeHoldEnd.FadeAway
-                        is HomeUiState.Content -> {
-                            // Only this feed's own reports: one going (its last
-                            // "not resting") is no move of the one coming.
-                            val owner = state.ownerProfileId.orEmpty()
-                            val rest = feedRest?.takeIf { it.first == owner }?.second
-                            val moved = rested == owner && rest == false
-                            if (rest == true) rested = owner
-                            when {
-                                avatarHold.abandoned -> HomeHoldEnd.Release
-                                moved -> HomeHoldEnd.HandBack
-                                feedIn() && (avatarHold.atRest || currentAnchor() == null) -> HomeHoldEnd.HandBack
-                                else -> null
+                // Paced, as the feed's fade it waits on: the hand-back lands
+                // as the next feed composes, on frames that come late.
+                withPacedFrames {
+                    avatarHold.fade.snapTo(1f)
+                    // The switch first: landed, failed or turned away.
+                    snapshotFlow { currentPending }.first { !it }
+                    // Then the page under the stand-in. On a feed: hand back once it
+                    // is all in and the stand-in rests on its avatar — at once if
+                    // the feed is moved first. On an error page (no header): fade.
+                    fun feedIn() = contentAlphaState.value >= 1f && contentOffsetState.value == 1f
+                    var rested: String? = null
+                    val end = snapshotFlow {
+                        when (val state = currentUiState) {
+                            is HomeUiState.Error -> HomeHoldEnd.FadeAway
+                            is HomeUiState.Content -> {
+                                // Only this feed's own reports: one going (its last
+                                // "not resting") is no move of the one coming.
+                                val owner = state.ownerProfileId.orEmpty()
+                                val rest = feedRest?.takeIf { it.first == owner }?.second
+                                val moved = rested == owner && rest == false
+                                if (rest == true) rested = owner
+                                when {
+                                    avatarHold.abandoned -> HomeHoldEnd.Release
+                                    moved -> HomeHoldEnd.HandBack
+                                    feedIn() && (avatarHold.atRest || currentAnchor() == null) -> HomeHoldEnd.HandBack
+                                    else -> null
+                                }
+                            }
+                            HomeUiState.Loading -> {
+                                rested = null
+                                null
                             }
                         }
-                        HomeUiState.Loading -> {
-                            rested = null
-                            null
-                        }
+                    }.filterNotNull().first()
+                    when (end) {
+                        HomeHoldEnd.HandBack -> avatarHold.handBack(holdFadeSpec)
+                        HomeHoldEnd.FadeAway -> avatarHold.fadeAway(holdFadeSpec)
+                        HomeHoldEnd.Release -> Unit
                     }
-                }.filterNotNull().first()
-                when (end) {
-                    HomeHoldEnd.HandBack -> avatarHold.handBack(holdFadeSpec)
-                    HomeHoldEnd.FadeAway -> avatarHold.fadeAway(holdFadeSpec)
-                    HomeHoldEnd.Release -> Unit
+                    // The feed settles where it is before Home's entrance offset
+                    // has a say again: no 16dp jump under the header's avatar.
+                    snapshotFlow { currentUiState !is HomeUiState.Content || feedIn() }.first { it }
+                    avatarHold.release()
                 }
-                // The feed settles where it is before Home's entrance offset
-                // has a say again: no 16dp jump under the header's avatar.
-                snapshotFlow { currentUiState !is HomeUiState.Content || feedIn() }.first { it }
-                avatarHold.release()
             }
             // A feed that goes back to Loading (an account switch, a deleted
             // account) leaves on the springs it came in on — fading, settling

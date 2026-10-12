@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -132,6 +134,11 @@ class ProfileManager(
      * only: nothing is asked of any server for it.
      */
     val activeNeedsReconnect: StateFlow<Boolean> = _activeNeedsReconnect.asStateFlow()
+
+    // Held by create() from its secret's write to its row's, and by the
+    // startup sweep ([pruneOrphanCredentials]): a secret written for a row
+    // still to come is never taken for an orphan.
+    private val credentialsRowLock = Mutex()
 
     init {
         // Build the initial source for whatever profile boot-migration left active.
@@ -245,10 +252,14 @@ class ProfileManager(
     }
 
     /**
-     * Switch the active profile, priming its [MusicSource] (ping +
-     * provider-owned warm-up via [MusicSource.prime]) before resolving.
-     * Subscribers of [switchingState] see the full progression so UI can show
-     * a loading overlay that blocks on real work.
+     * Switch the active profile: its [MusicSource] built and its server
+     * asked once ([SwitchState.Stage.Connecting]: a ping), then the
+     * provider-owned warm-up ([SwitchState.Stage.Priming]: [MusicSource.prime])
+     * before resolving. Subscribers of [switchingState] see the full
+     * progression so UI can show a loading overlay that blocks on real work.
+     * The source is built off the main thread — the target's credentials are
+     * a file and a Keystore decrypt, its client a Retrofit stack — so a
+     * switch begun from a tap never holds that tap's frames.
      */
     suspend fun switchTo(id: String) {
         if (_switchingState.value is SwitchState.Switching) return
@@ -263,13 +274,14 @@ class ProfileManager(
             onSwitchPrepare()
 
             _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Connecting)
-            newSource = buildSource(target)
+            newSource = withContext(Dispatchers.IO) { buildSource(target) }
                 ?: throw IllegalStateException("Profile ${target.displayName} has invalid credentials")
-
-            _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Priming)
             withTimeoutOrNull(PING_TIMEOUT_MS) { newSource.library().ping() }
                 ?: throw IllegalStateException("Server did not respond within ${PING_TIMEOUT_MS / 1000}s")
-            // Provider-specific warm-up; cold cache is not a fatal switch error.
+
+            // The server answered: what's left is the warm-up. Provider-specific;
+            // a cold cache is not a fatal switch error.
+            _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Priming)
             runCatching {
                 withTimeoutOrNull(PRIME_TIMEOUT_MS) { newSource.prime() }
             }
@@ -303,10 +315,6 @@ class ProfileManager(
             throw ProfileLimitReachedException(MAX_PROFILES)
         }
         val profileId = UUID.randomUUID().toString()
-        // Write the secret first — if Room insert fails after, we're left
-        // with an orphan `.bin` (cleaned up next launch when it doesn't
-        // match any profile id), not a Room row pointing at nothing.
-        credentialsStore.write(profileId, credentials)
         val profile = Profile(
             id = profileId,
             provider = credentials.providerId,
@@ -314,7 +322,15 @@ class ProfileManager(
             credentialsJson = STORE_MARKER_V1,
             createdAt = System.currentTimeMillis(),
         )
-        profileDao.upsert(profile)
+        // Write the secret first — if Room insert fails after, we're left
+        // with an orphan `.bin` (deleted by the next launch's sweep,
+        // [pruneOrphanCredentials], as no profile id matches it), not a Room
+        // row pointing at nothing. The sweep waits for both: it never sees
+        // this secret without its row.
+        credentialsRowLock.withLock {
+            credentialsStore.write(profileId, credentials)
+            profileDao.upsert(profile)
+        }
         if (_activeProfileId.value == null) {
             buildingActiveSource {
                 setActive(profile.id)
@@ -486,6 +502,32 @@ class ProfileManager(
      */
     suspend fun runStartupMigrations() {
         migrateInlineCredentialsIfNeeded()
+        pruneOrphanCredentials()
+    }
+
+    /**
+     * Deletes the stored credentials (`.bin`, and what a cut-short write
+     * left) of profile ids no profile row names: a create() that died
+     * between its secret and its row, a Room wipe (a destructive downgrade)
+     * — secrets nothing can use, a Spotify token among them. Only ids with
+     * no row at all: an existing profile's files are never touched, even
+     * ones that won't read (its card says so, its page enters them again).
+     * Waits for a create() under way ([credentialsRowLock]) rather than
+     * sweep its secret before its row is in. A store or a Room that can't
+     * be read leaves everything as it is; the next launch tries again.
+     */
+    internal suspend fun pruneOrphanCredentials() {
+        credentialsRowLock.withLock {
+            try {
+                val named = profileDao.getAll().mapTo(HashSet()) { it.id }
+                for (orphan in credentialsStore.storedProfileIds() - named) {
+                    credentialsStore.delete(orphan)
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+            }
+        }
     }
 
     /**
@@ -575,7 +617,16 @@ class ProfileManager(
 
         data class Error(val profileId: String, val message: String) : SwitchState
 
-        enum class Stage { Preparing, Connecting, Priming }
+        enum class Stage {
+            /** The outgoing account's playback is let go. */
+            Preparing,
+
+            /** The target's source is built and its server asked (a ping). */
+            Connecting,
+
+            /** The server answered: the provider's own warm-up ([MusicSource.prime]). */
+            Priming
+        }
     }
 
     companion object {

@@ -122,4 +122,32 @@ class FileBackedProfileCredentialsStoreTest {
         assertTrue(!backup.exists())
         assertNull(store.read("p"))
     }
+
+    @Test
+    fun should_listEveryProfileWithAFile_when_askedForTheStoredIds() {
+        val storageDir = tempFolder.newFolder("profile_credentials")
+        val store = FileBackedProfileCredentialsStore(
+            storageDir = storageDir,
+            codec = EncryptedProfileCredentialsCodec(InMemoryCredentialsCipher())
+        )
+        store.write("written", ProfileCredentials.Subsonic("a", "b", "c"))
+        // What writes cut short leave, beside (or instead of) a .bin.
+        java.io.File(storageDir, "cut-short.bin.tmp").writeText("x")
+        java.io.File(storageDir, "moved-aside.bin.bak").writeText("x")
+        // Not the store's: never listed, so never swept.
+        java.io.File(storageDir, "hidden.bin.qahidden").writeText("x")
+        java.io.File(storageDir, "notes.txt").writeText("x")
+
+        assertEquals(setOf("written", "cut-short", "moved-aside"), store.storedProfileIds())
+    }
+
+    @Test
+    fun should_listNothing_when_theDirectoryWasNeverMade() {
+        val store = FileBackedProfileCredentialsStore(
+            storageDir = java.io.File(tempFolder.root, "never-made"),
+            codec = EncryptedProfileCredentialsCodec(InMemoryCredentialsCipher())
+        )
+
+        assertEquals(emptySet<String>(), store.storedProfileIds())
+    }
 }

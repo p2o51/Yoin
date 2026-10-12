@@ -20,6 +20,8 @@ import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.settings.assignAvatarShapes
 import java.net.URI
 import java.net.UnknownServiceException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,10 +30,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Owns every "connect an account" flow: Subsonic create/edit, Spotify
@@ -40,6 +44,8 @@ import kotlinx.coroutines.launch
 class ServiceSetupViewModel(
     private val container: AppContainer,
     private val request: ServiceSetupRequest,
+    // Where the stored credentials (a file and a Keystore decrypt) are read.
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     val profileId: String? get() = request.profileId
     private val tag = "ServiceSetupViewModel"
@@ -58,7 +64,8 @@ class ServiceSetupViewModel(
         profileManager.profiles,
     ) { override, effective, status, profiles ->
         val existing = request.profileId?.let { id -> profiles.firstOrNull { it.id == id } }
-        // The same rule as the account's card and Home's Reconnect.
+        // The same rule as the account's card and Home's Reconnect. Read off
+        // the main thread (flowOn): the credentials are a file and a Keystore decrypt.
         val needsReconnect = existing?.let { profile ->
             profileManager.decodeCredentials(profile).needsReconnect()
         } ?: false
@@ -74,7 +81,7 @@ class ServiceSetupViewModel(
             },
             needsReconnect = needsReconnect,
         )
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, SpotifySetupState())
+    }.flowOn(ioDispatcher).stateIn(viewModelScope, SharingStarted.Eagerly, SpotifySetupState())
 
     val uiState: StateFlow<ServiceSetupUiState> = combine(
         subsonicForm,
@@ -115,6 +122,10 @@ class ServiceSetupViewModel(
             service = request.service,
             isManaging = request.profileId != null,
             account = request.face,
+            // The form as it starts, not a loaded empty one: an edit form is
+            // unloaded until its stored credentials are read, and the page
+            // takes them into its fields as it turns loaded.
+            subsonic = subsonicForm.value,
         ),
     )
 
@@ -127,7 +138,10 @@ class ServiceSetupViewModel(
             val profile = profileManager.profiles.first().firstOrNull { it.id == profileId } ?: return@launch
             existingProfileName.value = profile.displayName
             if (ProviderKind.fromKeyOrSubsonic(profile.provider) != ProviderKind.SUBSONIC) return@launch
-            val credentials = profileManager.decodeCredentials(profile) as? ProfileCredentials.Subsonic
+            // A file and a Keystore decrypt: off the main thread.
+            val credentials = withContext(ioDispatcher) {
+                profileManager.decodeCredentials(profile)
+            } as? ProfileCredentials.Subsonic
             subsonicForm.value = SubsonicFormState(
                 initialUrl = credentials?.serverUrl.orEmpty(),
                 initialUsername = credentials?.username.orEmpty(),

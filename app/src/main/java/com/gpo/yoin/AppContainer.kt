@@ -536,6 +536,7 @@ class AppContainer(private val context: Context) {
             activeSource = profileManager.activeSource,
             activeProfileId = profileManager.activeProfileId,
             activeSourceSettled = profileManager.activeSourceSettled,
+            activeNeedsReconnect = profileManager.activeNeedsReconnect,
             database = database,
             spotifyLibrarySyncCoordinator = SpotifyLibrarySyncCoordinator(
                 database = database,

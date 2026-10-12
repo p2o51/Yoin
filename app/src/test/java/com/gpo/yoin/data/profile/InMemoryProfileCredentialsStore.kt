@@ -21,6 +21,8 @@ internal class InMemoryProfileCredentialsStore : ProfileCredentialsStore {
         store.remove(profileId)
     }
 
+    override fun storedProfileIds(): Set<String> = store.keys.toSet()
+
     val size: Int get() = store.size
 
     fun contains(profileId: String): Boolean = profileId in store

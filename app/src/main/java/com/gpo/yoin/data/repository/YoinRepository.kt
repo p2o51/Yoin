@@ -137,6 +137,12 @@ class YoinRepository(
      * Never settled by default — a wait for the source then runs to its timeout.
      */
     val activeSourceSettled: Flow<Boolean> = flowOf(false),
+    /**
+     * ProfileManager.activeNeedsReconnect: the account in use needs its owner
+     * before it works (its credentials couldn't be read, or Spotify revoked
+     * them) — the one signal Home's avatar dot reads. False by default.
+     */
+    val activeNeedsReconnect: StateFlow<Boolean> = MutableStateFlow(false),
     private val database: YoinDatabase,
     private val geminiService: GeminiService,
     private val songAboutEntryDao: SongAboutEntryDao,

@@ -72,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -124,6 +125,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.animateFloatAsPacedState
 import kotlinx.coroutines.launch
 
 /** Deep-link targets for [SettingsActivity]'s `focusSection` extra. */
@@ -155,33 +157,35 @@ fun SettingsScreen(
     // List-detail (SettingsTablet, 断点交接 §7): in an Activity Embedding split
     // the account pages open in the right pane; the list marks the open one.
     val listDetail = rememberIsActivityEmbedded()
-    var openAccountId by rememberSaveable { mutableStateOf<String?>(null) }
-    var openFeature by rememberSaveable { mutableStateOf<SettingsFeature?>(null) }
-    var cloudSyncOpen by rememberSaveable { mutableStateOf(false) }
+    // A page that replaces the one in the pane answers for that one after its
+    // own launch: each launcher's mark waits for its last page (OpenPageMark).
+    val accountMark = rememberSaveable(saver = OpenPageMark.saver<String>()) { OpenPageMark() }
+    val featureMark = rememberSaveable(saver = OpenPageMark.saver<SettingsFeature>()) { OpenPageMark() }
+    val cloudSyncMark = rememberSaveable(saver = OpenPageMark.saver<Boolean>()) { OpenPageMark() }
     // The setup page hands back the id of a newly added account; the switch
     // runs here so it survives that page finishing.
     val serviceSetupLauncher = rememberLauncherForActivityResult(ServiceSetupContract()) { activateId ->
-        openAccountId = null
+        accountMark.answered()
         activateId?.let(viewModel::switchToProfile)
     }
     val openService: (ServiceSetupRequest) -> Unit = { request ->
-        openFeature = null
-        cloudSyncOpen = false
-        openAccountId = request.profileId
+        featureMark.clear()
+        cloudSyncMark.clear()
+        accountMark.opened(request.profileId)
         serviceSetupLauncher.launch(request)
     }
     val featureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        openFeature = null
+        featureMark.answered()
     }
     val context = LocalContext.current
     val openFeaturePage: (SettingsFeature) -> Unit = { feature ->
-        openAccountId = null
-        cloudSyncOpen = false
-        openFeature = feature
+        accountMark.clear()
+        cloudSyncMark.clear()
+        featureMark.opened(feature)
         featureLauncher.launch(SettingsFeatureActivity.intent(context, feature))
     }
     val cloudSyncLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        cloudSyncOpen = false
+        cloudSyncMark.answered()
     }
 
     LaunchedEffect(viewModel) {
@@ -237,21 +241,21 @@ fun SettingsScreen(
         onClearNeoDbToken = viewModel::clearNeoDbToken,
         onClearCache = viewModel::clearCache,
         listDetail = listDetail,
-        openAccountId = openAccountId,
-        openFeature = openFeature,
+        openAccountId = accountMark.open,
+        openFeature = featureMark.open,
         onOpenFeature = openFeaturePage,
         cloudSyncRow = {
             CloudSyncSettingsRow(
                 showChevron = listDetail,
                 onClick = {
-                    openAccountId = null
-                    openFeature = null
-                    cloudSyncOpen = true
+                    accountMark.clear()
+                    featureMark.clear()
+                    cloudSyncMark.opened(true)
                     cloudSyncLauncher.launch(CloudSyncActivity.intent(context))
                 },
             )
         },
-        cloudSyncSelected = cloudSyncOpen,
+        cloudSyncSelected = cloudSyncMark.open == true,
         modifier = modifier,
     )
 }
@@ -1403,21 +1407,28 @@ private fun FeaturePageRow(
  * neighbours — colour on the effects spring, corners on the spatial spring.
  * Its group item must be `paintsOwnSegment`. [selectedColor]: where the open
  * row is no pane's — Home's account card, where the picked account takes its
- * service's colour, as the account in use does here.
+ * service's colour, as the account in use does here. [springs]: the caller
+ * springs the selection itself (Home's account card, on paced frames) and the
+ * segment draws it as it stands; null, the segment springs it on [selected].
  */
 @Composable
 internal fun SelectableSegment(
     selected: Boolean,
     selectedColor: Color = settingsSurfaces().rowSelected,
+    springs: SegmentSelection? = null,
     content: @Composable () -> Unit
 ) {
     val surfaces = settingsSurfaces()
-    val container by animateColorAsState(
-        targetValue = if (selected) selectedColor else surfaces.row,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "segmentSelection",
-    )
-    val shape = animateSelectedRowShape(selected)
+    val container = if (springs != null) {
+        lerp(surfaces.row, selectedColor, springs.colour().coerceIn(0f, 1f))
+    } else {
+        animateColorAsState(
+            targetValue = if (selected) selectedColor else surfaces.row,
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "segmentSelection",
+        ).value
+    }
+    val shape = if (springs != null) selectedRowShape(springs.corners()) else animateSelectedRowShape(selected)
     Surface(
         color = container,
         shape = shape,
@@ -1429,6 +1440,13 @@ internal fun SelectableSegment(
         }
     }
 }
+
+/**
+ * A [SelectableSegment]'s selection as its caller springs it, each 0 (the
+ * row) to 1 (selected): its colour (an effects spring) and its corners (a
+ * spatial one).
+ */
+internal class SegmentSelection(val colour: () -> Float, val corners: () -> Float)
 
 /** The colour behind the current row (for badges that ring-cut against it). */
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
@@ -1621,10 +1639,11 @@ private fun ProfileSwitchOverlay(
     modifier: Modifier = Modifier,
 ) {
     val visible = switchingState !is ProfileManager.SwitchState.Idle
-    val alpha by animateFloatAsState(
+    // Paced: it comes in as the switch begins, on frames the outgoing
+    // session's teardown keeps busy, where it would otherwise pop in.
+    val alpha by animateFloatAsPacedState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "overlayAlpha",
     )
     if (alpha <= 0f) return
 
