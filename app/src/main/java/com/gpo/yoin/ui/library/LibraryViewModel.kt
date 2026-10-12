@@ -24,6 +24,7 @@ import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.toUserMessage
+import java.text.Normalizer
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
@@ -2190,31 +2191,64 @@ private data class LibrarySearchRequest(
     val attempt: Int = 0,
 )
 
-private fun String.normaliseForSearch(): String = trim().lowercase()
+private fun String.normaliseForSearch(): String = foldForLibrarySearch(trim())
+
+/**
+ * [text] as the saved-library search compares it: lower case, with the
+ * accents and other diacritics of Latin, Greek and Cyrillic letters dropped
+ * (ê, é and ễ read as e; Đ, which has no decomposition, as d), so "thien
+ * duong" finds "Thiên Đường". Kana keep their voicing marks and Hangul its
+ * syllables: those are letters of their own, not accents.
+ */
+internal fun foldForLibrarySearch(text: String): String {
+    if (text.all { it.code < 0x80 }) return text.lowercase()
+    val decomposed = Normalizer.normalize(text, Normalizer.Form.NFD)
+    val folded = StringBuilder(decomposed.length)
+    for (char in decomposed) {
+        if (char.isSearchDiacritic()) continue
+        folded.append(
+            when (char) {
+                'đ', 'Đ' -> 'd'
+                'ø', 'Ø' -> 'o'
+                'ł', 'Ł' -> 'l'
+                'ħ', 'Ħ' -> 'h'
+                else -> char
+            }
+        )
+    }
+    return Normalizer.normalize(folded, Normalizer.Form.NFC).lowercase()
+}
+
+/** The combining diacritical mark blocks (U+0300…, and their extensions). */
+private fun Char.isSearchDiacritic(): Boolean =
+    this in '\u0300'..'\u036F' ||
+        this in '\u1AB0'..'\u1AFF' ||
+        this in '\u1DC0'..'\u1DFF' ||
+        this in '\u20D0'..'\u20FF' ||
+        this in '\uFE20'..'\uFE2F'
 
 private fun String?.containsSearchToken(token: String): Boolean {
     val value = this ?: return false
-    return value.isNotBlank() && value.lowercase().contains(token)
+    return value.isNotBlank() && foldForLibrarySearch(value).contains(token)
 }
 
-private fun Artist.matches(token: String): Boolean =
-    name.containsSearchToken(token) || id.rawId.containsSearchToken(token)
+// What a result row shows, and the metadata it stands for; never the
+// provider's opaque id, which a single letter matches half the time (a
+// Spotify id is 22 random letters and digits).
+
+private fun Artist.matches(token: String): Boolean = name.containsSearchToken(token)
 
 private fun Album.matches(token: String): Boolean =
     name.containsSearchToken(token) ||
         artist.containsSearchToken(token) ||
         genre.containsSearchToken(token) ||
-        year?.toString().containsSearchToken(token) ||
-        id.rawId.containsSearchToken(token)
+        year?.toString().containsSearchToken(token)
 
 private fun Track.matches(token: String): Boolean =
     title.containsSearchToken(token) ||
         artist.containsSearchToken(token) ||
         album.containsSearchToken(token) ||
-        genre.containsSearchToken(token) ||
-        id.rawId.containsSearchToken(token)
+        genre.containsSearchToken(token)
 
 private fun Playlist.matches(token: String): Boolean =
-    name.containsSearchToken(token) ||
-        owner.containsSearchToken(token) ||
-        id.rawId.containsSearchToken(token)
+    name.containsSearchToken(token) || owner.containsSearchToken(token)

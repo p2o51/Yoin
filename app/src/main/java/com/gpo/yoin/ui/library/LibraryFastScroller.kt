@@ -22,17 +22,11 @@ import com.gpo.yoin.ui.component.YoinFastScroller
 /** The Library grids' fast scroller, for tests to find. */
 internal const val LIBRARY_FAST_SCROLLER_TAG = "library.fastScroller"
 
+/** One Library view (All, a chip's), as the views' cross-fade draws it, for tests to find. */
+internal const val LIBRARY_VIEW_TAG = "library.view"
+
 // The grids' top content padding: the handle's top end meets the first row.
 private val LibraryScrollerTopInset = 8.dp
-
-/**
- * The item a Library grid brings back to its top after a width change
- * (KeepGridAnchorAcrossWidthChanges, as a lazy index). A scroll records it
- * as it goes; a fast-scroller jump moves the list without scrolling it, so
- * the jump sets it itself ([libraryJumpAnchor]). Plain, not state: only the
- * width-change effect reads it.
- */
-internal class LibraryGridAnchor(var index: Int)
 
 /**
  * The anchor for a jump to lazy index [jumped], the first item of a row
@@ -64,7 +58,9 @@ internal fun libraryJumpAnchor(
  * reaches [endOverhang] past the grid's end edge, so the handle hugs the
  * page's own edge across the page gutter — the shell column's edge in a
  * Wide split, never into the 24dp gap beside it. Nothing between it and the
- * page may clip that overhang: the views' cross-fade is unclipped for it.
+ * page may clip that overhang: the views' cross-fade is unclipped for it, and
+ * each view it fades reaches across the gutter too, so the fade's layer holds
+ * the handle whole.
  *
  * @param leadingItems full-span rows before the first item (the sort row).
  */
@@ -127,7 +123,7 @@ internal fun List<FastScrollSection>.namedWith(names: Map<RecentsLabel, String>)
  * end edge (the left one in RTL): nothing on the way clips it, and touches
  * there still reach it.
  */
-private fun Modifier.overhangEnd(overhang: Dp): Modifier = if (overhang <= 0.dp) {
+internal fun Modifier.overhangEnd(overhang: Dp): Modifier = if (overhang <= 0.dp) {
     this
 } else {
     layout { measurable, constraints ->

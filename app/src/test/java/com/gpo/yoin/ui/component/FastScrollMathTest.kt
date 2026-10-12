@@ -87,8 +87,52 @@ class FastScrollMathTest {
         val jump = FastScrollMath.jumpIndex(1f, items, perLine, linesPerScreen)
         assertTrue(jump in 0 until items)
         assertEquals(0, jump % perLine)
+        // Never short of the end: a line the list can't bring to the top, so it clamps to its end.
+        assertTrue(jump / perLine >= lines - linesPerScreen)
         assertEquals(0, FastScrollMath.jumpIndex(0f, items, perLine, linesPerScreen))
         assertEquals(0, FastScrollMath.labelIndex(0f, 3_000, 1))
+    }
+
+    @Test
+    fun should_reachTheListsEnd_when_handleIsAtTheBottomWhateverTheScreenHolds() {
+        // A screen's lines end in any fraction of a line: below a half the
+        // old rounding put the line before the end on top, leaving part of the
+        // last row under the floating bar (device QA: 85px on the tablet in
+        // portrait at 5.65 lines, 187px on a phone at 3.51).
+        for (screen in floatArrayOf(3.5075f, 5.65f, 5.756f, 6.2f, 6.7f, 13.617f, 9f)) {
+            val jump = FastScrollMath.jumpIndex(1f, items, perLine, screen)
+            assertEquals("screen $screen", 0, jump % perLine)
+            val line = jump / perLine
+            assertTrue("screen $screen: line $line short of ${lines - screen}", line >= lines - screen)
+            assertTrue("screen $screen", jump < items)
+            // Monotonic all the way down, and still a row start everywhere.
+            var previous = 0
+            for (step in 0..400) {
+                val index = FastScrollMath.jumpIndex(step / 400f, items, perLine, screen)
+                assertTrue("screen $screen step $step", index >= previous)
+                assertEquals(0, index % perLine)
+                previous = index
+            }
+        }
+    }
+
+    @Test
+    fun should_countTheLastLinesMissingSpacing_when_measuringAScreen() {
+        // The tablet in portrait: a 2244px grid inside 16px and 280px of
+        // padding, 312px cells 32px apart.
+        val screen = FastScrollMath.screenLines(
+            viewportPx = 2_244,
+            beforePaddingPx = 16,
+            afterPaddingPx = 280,
+            spacingPx = 32,
+            linePx = 344f
+        )
+        assertEquals((1_948f + 32f) / 344f, screen, 1e-4f)
+        // So the scroll range is exactly how far the grid scrolls: 224 lines
+        // end 312px above the padding, after 223 gaps.
+        val contentPx = 224 * 344f - 32f
+        assertEquals((contentPx - 1_948f) / 344f, 224 - screen, 1e-3f)
+        assertEquals(0f, FastScrollMath.screenLines(100, 60, 60, 16, 344f), 0f)
     }
 
     @Test
@@ -199,16 +243,62 @@ class FastScrollMathTest {
     @Test
     fun should_keepBothEndsAndTheMinimumGap_when_thinningTicks() {
         val centers = FloatArray(21) { it * 5f } // 0, 5, …, 100
-        val keep = FastScrollMath.visibleTicks(centers, minGap = 18f)
+        val places = FastScrollMath.placeTicks(centers, minGap = 18f)
 
-        assertTrue(keep.first())
-        assertTrue(keep.last())
-        val kept = centers.filterIndexed { i, _ -> keep[i] }
-        kept.zipWithNext().forEach { (a, b) -> assertTrue("$a→$b", b - a >= 18f) }
-        assertArrayEquals(floatArrayOf(0f, 20f, 40f, 60f, 80f, 100f), kept.toFloatArray(), 0f)
+        assertPlacedOnTheirOwnRuns(centers, places, minGap = 18f)
+        // A crowded label moves down to the gap while that is still on its
+        // own run, else it goes: ticks 0, 15, 35, 50, 70 and 100 are drawn.
+        assertArrayEquals(
+            floatArrayOf(0f, 18f, 36f, 54f, 72f, 100f),
+            places.filter { !it.isNaN() }.toFloatArray(),
+            1e-4f
+        )
+        assertEquals(listOf(0, 3, 7, 10, 14, 20), places.indices.filter { !places[it].isNaN() })
 
-        // The last tick takes its place back from a crowding neighbour.
-        val crowded = FastScrollMath.visibleTicks(floatArrayOf(0f, 20f, 30f), minGap = 18f)
-        assertArrayEquals(booleanArrayOf(true, false, true), crowded)
+        // The last tick keeps its place; the crowding neighbour gives way.
+        val crowded = FastScrollMath.placeTicks(floatArrayOf(0f, 20f, 30f), minGap = 18f)
+        assertEquals(0f, crowded[0], 0f)
+        assertTrue(crowded[1].isNaN())
+        assertEquals(30f, crowded[2], 0f)
+    }
+
+    @Test
+    fun should_keepALongRunsLabel_when_aShortRunCrowdsItFromAbove() {
+        // Albums › Recently added on the device QA library (portrait): 2026,
+        // 2025, 2024 (20 albums), 2023 (351 albums, a quarter of the
+        // library), 2022, 2021, 2020 — 1,343 albums, 6 a row. 2023's tick sat
+        // 12dp under 2024's, and the greedy thinning dropped it.
+        val starts = intArrayOf(0, 31, 72, 92, 443, 743, 1_043)
+        val years = (2026 downTo 2020).map { it.toString() }
+        val sections = starts.zip(years) { start, year -> FastScrollSection("Jan $year", start, year) }
+        val ticks = FastScrollMath.ticks(sections, itemsPerLine = 6)
+        val centers = FastScrollMath.tickCenters(ticks, 1_343, 6, extentPx = 905f, offsetPx = 32f)
+        assertEquals(12.2f, centers[3] - centers[2], 0.1f) // the crowding
+
+        val places = FastScrollMath.placeTicks(centers, minGap = 18f)
+
+        assertEquals("every year labelled", years, ticks.filterIndexed { i, _ -> !places[i].isNaN() }.map { it.label })
+        assertPlacedOnTheirOwnRuns(centers, places, minGap = 18f)
+        assertEquals("2023 under 2024, at the gap", centers[2] + 18f, places[3], 1e-3f)
+        // Held anywhere in 2023, the lit tick is 2023's: the last drawn one at or before the bubble's item.
+        val lit = ticks.indices.last { !places[it].isNaN() && ticks[it].startIndex <= 300 }
+        assertEquals("2023", ticks[lit].label)
+    }
+
+    /** Both ends at their own places; every drawn label on its own run and [minGap] from the one above. */
+    private fun assertPlacedOnTheirOwnRuns(centers: FloatArray, places: FloatArray, minGap: Float) {
+        assertEquals(centers.first(), places.first(), 0f)
+        assertEquals(centers.last(), places.last(), 0f)
+        var above = Float.NaN
+        for (i in centers.indices) {
+            val y = places[i]
+            if (y.isNaN()) continue
+            assertTrue("tick $i drawn at $y above its centre ${centers[i]}", y >= centers[i])
+            if (i < centers.lastIndex) {
+                assertTrue("tick $i drawn at $y past the next run at ${centers[i + 1]}", y < centers[i + 1])
+            }
+            if (!above.isNaN()) assertTrue("tick $i at $y crowds $above", y - above >= minGap - 1e-4f)
+            above = y
+        }
     }
 }

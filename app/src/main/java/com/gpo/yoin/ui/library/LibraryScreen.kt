@@ -88,6 +88,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -197,34 +198,6 @@ private fun libraryGridCells(): GridCells {
         LayoutMode.Compact -> GridCells.Fixed(3)
         LayoutMode.Medium, LayoutMode.Tabletop, LayoutMode.Wide -> GridCells.Adaptive(minSize = LibraryGridMinSize)
     }
-}
-
-/**
- * The shell pane narrows when a split opens and widens again when it closes,
- * so a grid's column count changes under the user. LazyGrid then re-anchors
- * on the first item of the row holding its first visible item, drifting up to
- * a row on every narrow ↔ wide trip. This remembers the item the user scrolled
- * to (index changes seen while a scroll is in progress — relayouts happen
- * outside one) and brings its row back to the top after each width change.
- * A fast-scroller jump is no scroll: it moves the returned anchor itself
- * ([LibraryGridFastScroller]).
- */
-@Composable
-private fun KeepGridAnchorAcrossWidthChanges(state: LazyGridState): LibraryGridAnchor {
-    val anchor = remember(state) { LibraryGridAnchor(state.firstVisibleItemIndex) }
-    LaunchedEffect(state) {
-        launch {
-            snapshotFlow { state.firstVisibleItemIndex }
-                .collect { index -> if (state.isScrollInProgress) anchor.index = index }
-        }
-        var lastWidth = 0
-        snapshotFlow { state.layoutInfo.viewportSize.width }
-            .collect { width ->
-                if (lastWidth > 0 && width > 0 && width != lastWidth) state.scrollToItem(anchor.index)
-                lastWidth = width
-            }
-    }
-    return anchor
 }
 
 // Landscape handset cell (LibLandscape: ~100–108dp → 6 columns at 844).
@@ -589,6 +562,8 @@ private fun LibraryContentBody(
     val artistsGridState = rememberLazyGridState()
     val albumsGridState = rememberLazyGridState()
     val songsListState = rememberLazyListState()
+    // Songs' first row as last shown, beside its state: a new like at the head lands in sight.
+    val songsHead = remember { LibraryListHead() }
     val playlistsListState = rememberLazyListState()
     val favoritesListState = rememberLazyListState()
 
@@ -826,7 +801,10 @@ private fun LibraryContentBody(
                     // Unclipped: every view fills this box, so there is no size
                     // change to clip, and the fast scroller's handle reaches
                     // past the box across the page gutter (LibraryGridFastScroller)
-                    // — a clipped cross-fade would cut it to a sliver.
+                    // — a clipped cross-fade would cut it to a sliver. The fades
+                    // draw each view through a layer of the view's own size, which
+                    // clips just the same: so each view spans the gutter too
+                    // (overhangEnd), and keeps its content off it with padding.
                     transitionSpec = {
                         (
                             YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
@@ -834,7 +812,9 @@ private fun LibraryContentBody(
                             ) using SizeTransform(clip = false) { _, _ -> tabSizeSpec }
                     },
                     label = "tabContent",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .overhangEnd(scrollerEndOverhang),
                 ) { tab ->
                     // Each view's order and the orders it offers; under two, no sort row.
                     val sort = state.sorts[tab]
@@ -846,75 +826,83 @@ private fun LibraryContentBody(
                             onSortSelected = { picked -> onSortSelected(tab, picked) }
                         )
                     }
-                    when (tab) {
-                        LibraryTab.All -> AllTabContent(
-                            items = state.allItems,
-                            gridState = allGridState,
-                            sortRow = sortRow,
-                            scrollSections = state.scrollSections[tab].orEmpty(),
-                            scrollerEndOverhang = scrollerEndOverhang,
-                            onArtistClick = onArtistClick,
-                            onAlbumClick = onAlbumClick,
-                            onPlaylistClick = onPlaylistClick,
-                            coverArtUrlBuilder = coverArtUrlBuilder
-                        )
-                        LibraryTab.Artists -> ArtistsTabContent(
-                            artists = state.artists,
-                            gridState = artistsGridState,
-                            sortRow = sortRow,
-                            scrollSections = state.scrollSections[tab].orEmpty(),
-                            scrollerEndOverhang = scrollerEndOverhang,
-                            onArtistClick = onArtistClick,
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Albums -> AlbumsTabContent(
-                            albums = state.albums,
-                            gridState = albumsGridState,
-                            sortRow = sortRow,
-                            scrollSections = state.scrollSections[tab].orEmpty(),
-                            scrollerEndOverhang = scrollerEndOverhang,
-                            onAlbumClick = onAlbumClick,
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Songs -> SongsTabContent(
-                            songs = state.songs,
-                            listState = songsListState,
-                            activeSongId = activeSongId,
-                            isPlaying = isPlaying,
-                            playbackSignal = playbackSignal,
-                            notedSongIds = notedSongIds,
-                            onSongClick = onSongsListClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
-                            onReshuffle = onReshuffleSongs,
-                            canReshuffle = state.canReshuffleSongs,
-                            more = state.songsMore,
-                            onLoadMore = onLoadMoreSongs,
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Playlists -> PlaylistsTabContent(
-                            playlists = remember(state.playlists, state.playlistsByYou) {
-                                shownPlaylists(state.playlists, state.playlistsByYou)
-                            },
-                            listState = playlistsListState,
-                            sortRow = sortRow,
-                            onPlaylistClick = onPlaylistClick,
-                            onCreatePlaylist = onCreatePlaylist.takeIf { state.canCreatePlaylists },
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
-                        LibraryTab.Favorites -> FavoritesTabContent(
-                            favorites = state.favorites,
-                            listState = favoritesListState,
-                            activeSongId = activeSongId,
-                            isPlaying = isPlaying,
-                            playbackSignal = playbackSignal,
-                            notedSongIds = notedSongIds,
-                            onArtistClick = onArtistClick,
-                            onAlbumClick = onAlbumClick,
-                            onSongClick = onSongClick,
-                            onFavoriteSongClick = onFavoriteSongClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
-                            coverArtUrlBuilder = coverArtUrlBuilder,
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag(LIBRARY_VIEW_TAG)
+                            .padding(end = scrollerEndOverhang)
+                    ) {
+                        when (tab) {
+                            LibraryTab.All -> AllTabContent(
+                                items = state.allItems,
+                                gridState = allGridState,
+                                sortRow = sortRow,
+                                scrollSections = state.scrollSections[tab].orEmpty(),
+                                scrollerEndOverhang = scrollerEndOverhang,
+                                onArtistClick = onArtistClick,
+                                onAlbumClick = onAlbumClick,
+                                onPlaylistClick = onPlaylistClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder
+                            )
+                            LibraryTab.Artists -> ArtistsTabContent(
+                                artists = state.artists,
+                                gridState = artistsGridState,
+                                sortRow = sortRow,
+                                scrollSections = state.scrollSections[tab].orEmpty(),
+                                scrollerEndOverhang = scrollerEndOverhang,
+                                onArtistClick = onArtistClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Albums -> AlbumsTabContent(
+                                albums = state.albums,
+                                gridState = albumsGridState,
+                                sortRow = sortRow,
+                                scrollSections = state.scrollSections[tab].orEmpty(),
+                                scrollerEndOverhang = scrollerEndOverhang,
+                                onAlbumClick = onAlbumClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Songs -> SongsTabContent(
+                                songs = state.songs,
+                                listState = songsListState,
+                                head = songsHead,
+                                activeSongId = activeSongId,
+                                isPlaying = isPlaying,
+                                playbackSignal = playbackSignal,
+                                notedSongIds = notedSongIds,
+                                onSongClick = onSongsListClick,
+                                onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+                                onReshuffle = onReshuffleSongs,
+                                canReshuffle = state.canReshuffleSongs,
+                                more = state.songsMore,
+                                onLoadMore = onLoadMoreSongs,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Playlists -> PlaylistsTabContent(
+                                playlists = remember(state.playlists, state.playlistsByYou) {
+                                    shownPlaylists(state.playlists, state.playlistsByYou)
+                                },
+                                listState = playlistsListState,
+                                sortRow = sortRow,
+                                onPlaylistClick = onPlaylistClick,
+                                onCreatePlaylist = onCreatePlaylist.takeIf { state.canCreatePlaylists },
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Favorites -> FavoritesTabContent(
+                                favorites = state.favorites,
+                                listState = favoritesListState,
+                                activeSongId = activeSongId,
+                                isPlaying = isPlaying,
+                                playbackSignal = playbackSignal,
+                                notedSongIds = notedSongIds,
+                                onArtistClick = onArtistClick,
+                                onAlbumClick = onAlbumClick,
+                                onSongClick = onSongClick,
+                                onFavoriteSongClick = onFavoriteSongClick,
+                                onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                        }
                     }
                 }
             }
@@ -1673,6 +1661,7 @@ private fun LazyListScope.librarySortRow(spec: LibrarySortRowSpec) {
 private fun SongsTabContent(
     songs: List<Track>?,
     listState: LazyListState,
+    head: LibraryListHead,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
@@ -1693,6 +1682,7 @@ private fun SongsTabContent(
     }
     val scope = rememberCoroutineScope()
     LoadMoreSongsEffect(listState = listState, more = more, songCount = songs.size, onLoadMore = onLoadMore)
+    KeepListTopForANewHead(listState, headKey = songs.firstOrNull()?.id, last = head)
     Column(modifier = modifier.fillMaxSize()) {
         // The tab is a random 50-song sample, not the whole library — say so,
         // and offer a reshuffle (the only way to redraw; favorite toggles
@@ -1906,10 +1896,13 @@ private fun PlaylistsTabContent(
                     showCreateDialog = true
                 },
                 expanded = fabVisible,
+                // The label row is hidden from accessibility (M3 keeps the
+                // name steady whether it is expanded or not): the icon names
+                // the button, in both states.
                 icon = {
                     Icon(
                         imageVector = YoinSymbols.Add,
-                        contentDescription = null,
+                        contentDescription = stringResource(R.string.library_playlist_fab),
                     )
                 },
                 text = { Text(stringResource(R.string.library_playlist_fab)) },
@@ -2377,6 +2370,7 @@ private fun SearchResultsContent(
                 SearchResultsGrid(
                     results = shown,
                     gridState = scrollMemory.gridState(resultsQuery, resultsScope, shownFilter),
+                    anchor = scrollMemory.gridAnchor(resultsQuery, resultsScope, shownFilter),
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
                     coverArtUrlBuilder = coverArtUrlBuilder
@@ -2636,12 +2630,15 @@ private fun SearchSongRow(
 private fun SearchResultsGrid(
     results: SearchResults,
     gridState: LazyGridState,
+    anchor: LibraryGridAnchor,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier
 ) {
-    KeepGridAnchorAcrossWidthChanges(gridState)
+    // The surface morphs to its pill and back through every width: the grid
+    // comes back exactly where it was left (a result opened in a Wide column).
+    KeepGridAnchorAcrossWidthChanges(gridState, anchor, exact = true)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyVerticalGrid(
         columns = libraryGridCells(),

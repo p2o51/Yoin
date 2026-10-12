@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,10 +74,11 @@ private val ChipHeight = 44.dp
 private val SubChipGap = 8.dp
 
 /**
- * How far clear of the row's ends an unfolding By You comes to rest: past the
- * row's scroll-aware edge fade (24dp), so it lands readable.
+ * How far clear of the row's ends a chip just turned on, or an unfolding By
+ * You, comes to rest: past the row's scroll-aware edge fade (24dp), so it
+ * lands readable.
  */
-private val SubChipRevealMargin = 24.dp
+private val ChipRevealMargin = 24.dp
 
 /**
  * Library's chip row, after Spotify's Your Library: one chip per view, and
@@ -91,7 +93,12 @@ private val SubChipRevealMargin = 24.dp
  * Unfolding, it scrolls itself into view, clear of the edge fades, where the
  * row is too short for it (a Wide column the detail pane narrows, whose head
  * row the ✕ narrows further as it unfolds) or was scrolled with Playlists at
- * an end.
+ * an end — Playlists with it.
+ *
+ * A chip turned on comes into view the same way: the ✕ unfolding in front of
+ * the row narrows it and slides every chip over by its width, which would
+ * push a chip at the row's end out of sight (a phone's Favorites), and a chip
+ * turned on while the row was scrolled could stay half under the pinned ✕.
  *
  * Library is a root section: none of this touches system back, which still
  * leaves the app from any chip.
@@ -152,23 +159,46 @@ internal fun LibraryFilterRow(
             contentPadding = PaddingValues(start = chipsStart, end = horizontalPadding)
         ) {
             chips.forEach { tab ->
-                // A chip and its sub-chip are one item of the row, so the gap
-                // before By You unfolds with it instead of snapping in.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ExpressiveSegmentChip(
-                        label = label(tab),
-                        // All is no chip, so with All on none of them is selected.
-                        selected = tab == selectedTab,
-                        onClick = { onTabSelected(if (tab == selectedTab) LibraryTab.All else tab) }
-                    )
-                    if (tab == LibraryTab.Playlists) {
-                        LibraryByYouChip(
-                            visible = selectedTab == LibraryTab.Playlists && playlistsByYou.available,
-                            selected = playlistsByYou.selected,
-                            onSelectedChange = onPlaylistsByYouChange,
-                            rowWidth = { rowWidth },
-                            rowSettled = { clearChipVisibility.isIdle }
+                key(tab) {
+                    // All is no chip, so with All on none of them is selected.
+                    val selected = tab == selectedTab
+                    // Playlists' width, for By You to bring it along.
+                    var chipWidth by remember { mutableIntStateOf(0) }
+                    // The chip on comes into view as it turns on (a fresh reveal
+                    // each time), following the row while the ✕ unfolds —
+                    // Playlists with By You unfolding after it excepted: By You
+                    // brings it along, and two reveals would undo each other.
+                    val reveal = if (selected && !(tab == LibraryTab.Playlists && playlistsByYou.available)) {
+                        rememberRevealOnArrival(
+                            arriving = { !clearChipVisibility.isIdle },
+                            rowWidth = { rowWidth }
                         )
+                    } else {
+                        Modifier
+                    }
+                    // A chip and its sub-chip are one item of the row, so the gap
+                    // before By You unfolds with it instead of snapping in.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ExpressiveSegmentChip(
+                            label = label(tab),
+                            selected = selected,
+                            onClick = { onTabSelected(if (selected) LibraryTab.All else tab) },
+                            modifier = if (tab == LibraryTab.Playlists) {
+                                Modifier.onSizeChanged { chipWidth = it.width }.then(reveal)
+                            } else {
+                                reveal
+                            }
+                        )
+                        if (tab == LibraryTab.Playlists) {
+                            LibraryByYouChip(
+                                visible = selectedTab == LibraryTab.Playlists && playlistsByYou.available,
+                                selected = playlistsByYou.selected,
+                                onSelectedChange = onPlaylistsByYouChange,
+                                rowWidth = { rowWidth },
+                                rowSettled = { clearChipVisibility.isIdle },
+                                leadingWidth = { chipWidth }
+                            )
+                        }
                     }
                 }
             }
@@ -182,6 +212,9 @@ internal fun LibraryFilterRow(
  * @param rowWidth the chip row's width now, its view.
  * @param rowSettled the ✕ in front of the row is not unfolding or folding,
  *   so the row is done changing width.
+ * @param leadingWidth Playlists' width: By You brings Playlists into view
+ *   with it, so the two never ask the row for places that leave the other
+ *   cut at an end.
  */
 @Composable
 private fun LibraryByYouChip(
@@ -189,7 +222,8 @@ private fun LibraryByYouChip(
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
     rowWidth: () -> Int,
-    rowSettled: () -> Boolean
+    rowSettled: () -> Boolean,
+    leadingWidth: () -> Int
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -199,6 +233,7 @@ private fun LibraryByYouChip(
             YoinMotion.fadeOut(role = YoinMotionRole.Standard)
     ) {
         val enterExit = transition
+        val subChipGapPx = with(LocalDensity.current) { SubChipGap.roundToPx() }
         LibraryToggleChip(
             label = stringResource(R.string.library_filter_by_you),
             selected = selected,
@@ -211,21 +246,24 @@ private fun LibraryByYouChip(
                             enterExit.targetState == EnterExitState.Visible &&
                                 (enterExit.isRunning || !rowSettled())
                         },
-                        rowWidth = rowWidth
+                        rowWidth = rowWidth,
+                        leadingPx = { leadingWidth() + subChipGapPx }
                     )
                 )
         )
     }
 }
 
-/** What By You's reveal asks again on: the chip's size, the row's width, and whether it is still arriving. */
+/** What a reveal asks again on: the chip's size, the row's width, and whether it is still arriving. */
 private data class RevealFrame(val chip: IntSize, val rowWidth: Int, val arriving: Boolean)
 
 /**
- * Scrolls the chip it is on into the row's view as it arrives, [SubChipRevealMargin]
- * clear of either end. It asks for the chip's final bounds: the chip measures
- * full size while it unfolds, and the chips after it give the row room to
- * reach them, so the scroll runs alongside the unfold instead of after it.
+ * Scrolls the chip it is on into the row's view as it arrives, [ChipRevealMargin]
+ * clear of either end, with as much of the [leadingPx] before it as the row
+ * has room for (By You brings Playlists along). It asks for the chip's final
+ * bounds: an unfolding chip measures full size while it unfolds, and the
+ * chips after it give the row room to reach them, so the scroll runs
+ * alongside the unfold instead of after it.
  *
  * It asks again each time the row's width changes while the chip is
  * [arriving], and once more as it lands: from All, the ✕ unfolds in front of
@@ -236,12 +274,17 @@ private data class RevealFrame(val chip: IntSize, val rowWidth: Int, val arrivin
  * never pulls the chip back.
  */
 @Composable
-private fun rememberRevealOnArrival(arriving: () -> Boolean, rowWidth: () -> Int): Modifier {
+private fun rememberRevealOnArrival(
+    arriving: () -> Boolean,
+    rowWidth: () -> Int,
+    leadingPx: () -> Int = { 0 }
+): Modifier {
     val requester = remember { BringIntoViewRequester() }
     var size by remember { mutableStateOf(IntSize.Zero) }
-    val marginPx = with(LocalDensity.current) { SubChipRevealMargin.toPx() }
+    val marginPx = with(LocalDensity.current) { ChipRevealMargin.toPx() }
     val isArriving by rememberUpdatedState(arriving)
     val currentRowWidth by rememberUpdatedState(rowWidth)
+    val currentLeading by rememberUpdatedState(leadingPx)
     LaunchedEffect(requester) {
         snapshotFlow { RevealFrame(size, currentRowWidth(), isArriving()) }
             .filter { it.chip.width > 0 }
@@ -251,7 +294,11 @@ private fun rememberRevealOnArrival(arriving: () -> Boolean, rowWidth: () -> Int
                 frame.arriving
             }
             .collect { frame ->
-                val clear = Rect(-marginPx, 0f, frame.chip.width + marginPx, frame.chip.height.toFloat())
+                // The row before the chip comes along only as far as the row
+                // has room for it: the chip itself lands whole either way.
+                val room = (frame.rowWidth - frame.chip.width - 2 * marginPx).coerceAtLeast(0f)
+                val leading = currentLeading().toFloat().coerceIn(0f, room)
+                val clear = Rect(-(leading + marginPx), 0f, frame.chip.width + marginPx, frame.chip.height.toFloat())
                 try {
                     requester.bringIntoView(clear)
                 } catch (stopped: CancellationException) {
