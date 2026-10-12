@@ -42,13 +42,15 @@ internal fun ExpressiveBackdropArtwork(
     shadowElevation: Dp = 0.dp,
     extractBackdropColors: Boolean = true,
 ) {
-    // Keep color extraction active to populate the palette cache for page-level backgrounds
-    val backdropColors = rememberExpressiveBackdropColors(
-        model = model,
-        fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
-        fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
-        enabled = extractBackdropColors,
-    )
+    // This artwork does not draw palette colors; only warm them for page-level backgrounds
+    // when requested. Disabled Library cards need no color state or animations.
+    if (extractBackdropColors) {
+        rememberExpressiveBackdropColors(
+            model = model,
+            fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
+            fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
+        )
+    }
 
     Box(modifier = modifier) {
         ExpressiveMediaArtwork(
