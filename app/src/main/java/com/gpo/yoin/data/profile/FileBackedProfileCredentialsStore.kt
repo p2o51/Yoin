@@ -84,6 +84,20 @@ class FileBackedProfileCredentialsStore(
         File(storageDir, "${profileId}$TMP_SUFFIX").takeIf(File::exists)?.delete()
     }
 
+    /**
+     * The ids of the `.bin` files here, and of the `.bin.bak` / `.bin.tmp`
+     * a write cut short left. Nothing else in the directory is a profile's
+     * (QA's renamed copies, say), so nothing else is listed — or swept.
+     */
+    override fun storedProfileIds(): Set<String> {
+        val names = storageDir.list() ?: return emptySet()
+        return names.mapNotNullTo(mutableSetOf()) { name ->
+            STORE_SUFFIXES.firstOrNull { suffix -> name.endsWith(suffix) }
+                ?.let { suffix -> name.removeSuffix(suffix) }
+                ?.takeIf { id -> id.isNotEmpty() }
+        }
+    }
+
     private fun ensureStorageDir() {
         if (!storageDir.exists() && !storageDir.mkdirs() && !storageDir.exists()) {
             throw IOException("Couldn't create credentials directory at ${storageDir.absolutePath}")
@@ -116,5 +130,6 @@ class FileBackedProfileCredentialsStore(
         private const val BIN_SUFFIX = ".bin"
         private const val TMP_SUFFIX = ".bin.tmp"
         private const val BACKUP_SUFFIX = ".bin.bak"
+        private val STORE_SUFFIXES = listOf(BIN_SUFFIX, TMP_SUFFIX, BACKUP_SUFFIX)
     }
 }

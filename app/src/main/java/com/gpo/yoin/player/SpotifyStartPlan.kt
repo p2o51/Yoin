@@ -8,7 +8,7 @@ import com.gpo.yoin.data.repository.ActivityContext
  * One way to start a Yoin queue on Spotify through the Web API
  * (`PUT /me/player/play`). [spotifyStartAttempts] lists them best first;
  * the player tries each until one succeeds and only then falls back to App
- * Remote's bare `play` + `queue` path.
+ * Remote's single-track `play` path.
  *
  * Why not App Remote's `queue(uri)` loop for every list: Spotify's queue is
  * the user's own, persistent queue. Every Yoin play used to append the rest
@@ -38,7 +38,7 @@ internal sealed interface SpotifyStartAttempt {
  */
 internal const val SPOTIFY_LIKED_SONGS_CONTEXT_URI = "spotify:collection:tracks"
 
-/** Most URIs one `uris` start carries; the window keeps a little history for "previous". */
+/** Most URIs one `uris` start carries; the window keeps at least a little history for "previous" ([startWindow]). */
 internal const val SPOTIFY_START_MAX_URIS = 100
 internal const val SPOTIFY_START_HISTORY = 20
 
@@ -55,7 +55,8 @@ internal fun Track.spotifyTrackUri(): String? =
  *   track, so a position is exact there), else the URI. A shuffled list has
  *   no meaningful position, so it always uses the URI.
  * - Liked Songs: the collection context, then the plain list.
- * - Artist / none: the plain list. Spotify's artist context is artist radio,
+ * - A single track with no context: App Remote directly, with no Web API call.
+ * - Artist / other lists without context: the plain list. Spotify's artist context is artist radio,
  *   not the order Yoin shows.
  *
  * Empty when the start track isn't a Spotify track.
@@ -68,6 +69,7 @@ internal fun spotifyStartAttempts(
     playlistOffset: (playlistId: MediaId, visibleIndex: Int) -> Int?,
 ): List<SpotifyStartAttempt> {
     val startUri = tracks.getOrNull(startIndex)?.spotifyTrackUri() ?: return emptyList()
+    if (tracks.size == 1 && activityContext == ActivityContext.None) return emptyList()
     val list = tracksAttempt(tracks, startIndex)
     val context = when (activityContext) {
         is ActivityContext.Album -> spotifyId(activityContext.albumId)?.let { id ->
@@ -84,6 +86,9 @@ internal fun spotifyStartAttempts(
         }
 
         is ActivityContext.LikedSongs -> SpotifyStartAttempt.LikedSongs(offsetUri = startUri)
+        // An artist page's Play / Shuffle / Most Played says "playing from" the artist in Yoin
+        // only. Spotify's artist context plays Spotify's own order (artist radio), not the list
+        // Yoin queued, so Yoin's queue would no longer match what plays: the plain list it is.
         is ActivityContext.Artist, ActivityContext.None -> null
     }
     return listOfNotNull(context, list)
@@ -92,10 +97,9 @@ internal fun spotifyStartAttempts(
 private fun spotifyId(raw: String): MediaId? =
     MediaId.parseOrNull(raw)?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY }
 
-/** [tracks] as a `uris` start: at most [SPOTIFY_START_MAX_URIS], keeping a little history. */
+/** [tracks] as a `uris` start: the [startWindow] around [startIndex]. */
 private fun tracksAttempt(tracks: List<Track>, startIndex: Int): SpotifyStartAttempt.Tracks? {
-    val from = (startIndex - SPOTIFY_START_HISTORY).coerceAtLeast(0)
-    val window = tracks.subList(from, minOf(tracks.size, from + SPOTIFY_START_MAX_URIS))
-    val uris = window.map { it.spotifyTrackUri() ?: return null }
-    return SpotifyStartAttempt.Tracks(uris = uris, offsetPosition = startIndex - from)
+    val window = startWindow(tracks.size, startIndex)
+    val uris = tracks.slice(window).map { it.spotifyTrackUri() ?: return null }
+    return SpotifyStartAttempt.Tracks(uris = uris, offsetPosition = startIndex - window.first)
 }

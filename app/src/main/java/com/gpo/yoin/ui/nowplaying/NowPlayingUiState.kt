@@ -65,6 +65,13 @@ sealed interface NowPlayingUiState {
         val songId: String,
         val rating: Float,
         val isStarred: Boolean,
+        /**
+         * Spotify's answers that came in late and flipped [isStarred]: each
+         * crossfades the heart quietly instead of beating
+         * ([com.gpo.yoin.ui.component.FavoriteGlyph]); any other change
+         * animates it as ever.
+         */
+        val favoriteQuietFlips: Int = 0,
         val lyrics: List<LyricLine>,
         val showLyricsTranslation: Boolean,
         val lyricsActionInFlight: LyricsAction?,

@@ -133,10 +133,10 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.FavoriteGlyphIcon
 import com.gpo.yoin.ui.component.LyricsDisplay
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
@@ -145,7 +145,6 @@ import com.gpo.yoin.ui.component.NoteWriteBar
 import com.gpo.yoin.ui.component.NoteWriteBarDefaults
 import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.component.QueueSheet
-import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.SongInfoDisplay
 import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.WaveProgressBar
@@ -223,6 +222,7 @@ fun NowPlayingScreen(
     onTranslateLyrics: () -> Unit = {},
     onApplyLyrics: (String) -> Unit = {},
     onLyricsMessage: (String) -> Unit = {},
+    // Once per press on the rating bar, with the value it lifts at (NowPlayingRatingBar).
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onAddCurrentToLibrary: () -> Unit = {},
@@ -1551,9 +1551,10 @@ private fun CompactPlayingContent(
                                             translationX = 72.dp.toPx() * ratingRetreatProgress
                                         },
                                 ) {
-                                    RatingSlider(
+                                    NowPlayingRatingBar(
+                                        songId = state.songId,
                                         rating = state.rating,
-                                        onRatingChange = onRatingChange,
+                                        onRatingCommit = onRatingChange,
                                         modifier = Modifier.weight(1f),
                                     )
 
@@ -1562,6 +1563,7 @@ private fun CompactPlayingContent(
                                     if (state.serviceFeatures.supportsFavorites) {
                                         FavoriteButton(
                                             isStarred = state.isStarred,
+                                            quietFlips = state.favoriteQuietFlips,
                                             actionLabel = stringResource(
                                                 if (state.isStarred) {
                                                     state.serviceFeatures.removeLabel
@@ -1792,7 +1794,6 @@ private fun CompactPlayingContent(
                             playInteractionSource = playInteractionSource,
                             nextInteractionSource = nextInteractionSource,
                             playPressed = playPressed,
-                            nextPressed = nextPressed,
                             playMode = state.playMode,
                             onCyclePlayMode = playbackActions.onCyclePlayMode,
                             controlSize = stageControlSize,
@@ -2112,7 +2113,6 @@ private fun WidePlayingContent(
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
-    val nextPressed by nextInteractionSource.collectIsPressedAsState()
 
     val pagerState = rememberPagerState(
         initialPage = detailPage.ordinal,
@@ -2345,9 +2345,10 @@ private fun WidePlayingContent(
                                 .weight(1f)
                                 .height(48.dp),
                         ) {
-                            RatingSlider(
+                            NowPlayingRatingBar(
+                                songId = state.songId,
                                 rating = state.rating,
-                                onRatingChange = onRatingChange,
+                                onRatingCommit = onRatingChange,
                                 orientation = Orientation.Horizontal,
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -2356,6 +2357,7 @@ private fun WidePlayingContent(
                         if (state.serviceFeatures.supportsFavorites) {
                             FavoriteButton(
                                 isStarred = state.isStarred,
+                                quietFlips = state.favoriteQuietFlips,
                                 actionLabel = stringResource(
                                     if (state.isStarred) {
                                         state.serviceFeatures.removeLabel
@@ -2399,7 +2401,6 @@ private fun WidePlayingContent(
                         playInteractionSource = playInteractionSource,
                         nextInteractionSource = nextInteractionSource,
                         playPressed = playPressed,
-                        nextPressed = nextPressed,
                         playMode = state.playMode,
                         onCyclePlayMode = onCyclePlayMode,
                         modifier = Modifier.width(DualPaneStackWidth),
@@ -2799,7 +2800,6 @@ private fun LandscapePlayingContent(
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
-    val nextPressed by nextInteractionSource.collectIsPressedAsState()
     val resolvedStageProgress = stageProgress ?: rememberNowPlayingStageProgress(stageMode)
     val detailProgress = resolvedStageProgress.detail
     val expanded = stageMode == NowPlayingStageMode.Expanded
@@ -2899,9 +2899,10 @@ private fun LandscapePlayingContent(
                             .weight(1f)
                             .height(48.dp),
                     ) {
-                        RatingSlider(
+                        NowPlayingRatingBar(
+                            songId = state.songId,
                             rating = state.rating,
-                            onRatingChange = onRatingChange,
+                            onRatingCommit = onRatingChange,
                             orientation = Orientation.Horizontal,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -2910,6 +2911,7 @@ private fun LandscapePlayingContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         FavoriteButton(
                             isStarred = state.isStarred,
+                            quietFlips = state.favoriteQuietFlips,
                             actionLabel = stringResource(
                                 if (state.isStarred) {
                                     state.serviceFeatures.removeLabel
@@ -3135,7 +3137,6 @@ private fun LandscapePlayingContent(
                         playInteractionSource = playInteractionSource,
                         nextInteractionSource = nextInteractionSource,
                         playPressed = playPressed,
-                        nextPressed = nextPressed,
                         playMode = state.playMode,
                         onCyclePlayMode = onCyclePlayMode,
                         controlSize = LandscapeControlSize,
@@ -3369,7 +3370,6 @@ private fun TabletopPlayingContent(
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
-    val nextPressed by nextInteractionSource.collectIsPressedAsState()
 
     // The expand button shifts emphasis from the identity to the lyrics: the lyric
     // font grows and the title/artist shrink, in place — the control deck never
@@ -3606,7 +3606,6 @@ private fun TabletopPlayingContent(
                     playInteractionSource = playInteractionSource,
                     nextInteractionSource = nextInteractionSource,
                     playPressed = playPressed,
-                    nextPressed = nextPressed,
                     playMode = state.playMode,
                     onCyclePlayMode = onCyclePlayMode,
                     controlSize = 72.dp,
@@ -3939,7 +3938,7 @@ private fun DockedHeaderText(
             text = when (state.activityContext) {
                 is ActivityContext.Album -> stringResource(R.string.np_dock_playing_from_album)
                 is ActivityContext.Playlist -> stringResource(R.string.np_dock_playing_from_playlist)
-                is ActivityContext.Artist,
+                is ActivityContext.Artist -> stringResource(R.string.np_dock_playing_from_artist)
                 is ActivityContext.LikedSongs,
                 ActivityContext.None,
                 -> stringResource(R.string.np_dock_now_playing)
@@ -4395,7 +4394,6 @@ private fun TickingPlaybackControls(
     playInteractionSource: MutableInteractionSource,
     nextInteractionSource: MutableInteractionSource,
     playPressed: Boolean,
-    nextPressed: Boolean,
     playMode: PlayMode = PlayMode.RepeatAll,
     onCyclePlayMode: () -> Unit = {},
     controlSize: Dp = 56.dp,
@@ -4430,7 +4428,6 @@ private fun TickingPlaybackControls(
         playInteractionSource = playInteractionSource,
         nextInteractionSource = nextInteractionSource,
         playPressed = playPressed,
-        nextPressed = nextPressed,
         playMode = playMode,
         onCyclePlayMode = onCyclePlayMode,
         controlSize = controlSize,
@@ -4827,7 +4824,11 @@ private fun PlayingFromLabel(
             nameLabel = activityContext.playlistName
             clickAction = { onPlaylistClick(activityContext.playlistId) }
         }
-        is ActivityContext.Artist,
+        is ActivityContext.Artist -> {
+            kindLabel = stringResource(R.string.np_from_artist)
+            nameLabel = activityContext.artistName
+            clickAction = { onArtistClick(activityContext.artistId) }
+        }
         is ActivityContext.LikedSongs,
         ActivityContext.None,
         -> {
@@ -4920,6 +4921,8 @@ internal fun FavoriteButton(
         if (isStarred) R.string.np_cd_remove_favorite else R.string.np_cd_add_favorite,
     ),
     modifier: Modifier = Modifier,
+    // NowPlayingUiState.Playing.favoriteQuietFlips: late answers from Spotify crossfade, no beat.
+    quietFlips: Int = 0,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -4992,8 +4995,9 @@ internal fun FavoriteButton(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                painter = rememberFavoriteSymbolPainter(favorite = isStarred),
+            FavoriteGlyphIcon(
+                favorite = isStarred,
+                quietFlips = quietFlips,
                 contentDescription = actionLabel,
                 tint = heartColor,
                 modifier = Modifier.size(24.dp),
@@ -5288,7 +5292,6 @@ private fun PlaybackControlsPreview() {
             playInteractionSource = playInteractionSource,
             nextInteractionSource = nextInteractionSource,
             playPressed = false,
-            nextPressed = false,
         )
     }
 }

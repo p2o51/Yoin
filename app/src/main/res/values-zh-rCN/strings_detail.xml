@@ -5,6 +5,8 @@
     <string name="detail_menu_play_next">下一首播放</string>
     <string name="detail_menu_add_to_queue">加入队列</string>
     <string name="detail_menu_add_to_playlist">加入歌单</string>
+    <string name="detail_menu_save_to_library">保存到资料库</string>
+    <string name="detail_menu_remove_from_library">移出资料库</string>
     <string name="detail_menu_open_spotify">在 Spotify 中打开</string>
     <string name="detail_menu_open_apple_music">在 Apple Music 中打开</string>
     <plurals name="detail_menu_queued">
@@ -22,6 +24,8 @@
     <string name="detail_album_error_not_found">未找到专辑</string>
     <string name="detail_album_error_load">无法加载此专辑。</string>
     <string name="detail_album_neodb_failed">无法同步至 NeoDB</string>
+    <string name="detail_album_save_failed">无法保存到资料库</string>
+    <string name="detail_album_remove_failed">无法移出资料库</string>
     <string name="detail_artist_error_not_found">未找到艺术家</string>
     <string name="detail_artist_error_load">无法加载此艺术家。</string>
     <string name="detail_playlist_error_not_found">未找到歌单</string>
@@ -89,10 +93,6 @@
     <plurals name="detail_artist_releases">
         <item quantity="other">%1$d 张作品</item>
     </plurals>
-    <string name="detail_artist_last_play">上次播放</string>
-    <string name="detail_artist_never">从未播放</string>
-    <string name="detail_artist_no_albums_rated">暂无专辑评分</string>
-    <string name="detail_artist_album_average">专辑均分 %1$s，%3$d 张中已评分 %2$d 张</string>
     <string name="detail_artist_follow">关注</string>
     <string name="detail_artist_following">已关注</string>
     <string name="detail_artist_favorite">喜欢</string>

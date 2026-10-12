@@ -101,9 +101,9 @@ class ShadowReturnAuditActivity : ComponentActivity() {
                 // YoinNavHost's reverse-morph backstop, verbatim.
                 LaunchedEffect(lifecycleOwner) {
                     lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                        store.detailWindowSettledTick
+                        store.detailWindowSettledGeneration
                             .drop(1)
-                            .collect { store.setDetailChromeActive(false) }
+                            .collect { generation -> generation?.let(store::endDetailHandoff) }
                     }
                 }
                 Box(Modifier.fillMaxSize()) {
@@ -165,8 +165,7 @@ class ShadowReturnAuditActivity : ComponentActivity() {
         if (!gate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         val store = (application as YoinApplication).container.experienceSessionStore
         // The same arm YoinNavHost performs before a compact shell launch.
-        store.prepareDetailEnterSlide()
-        store.setDetailChromeActive(true)
+        store.beginDetailHandoff()
         try {
             launchDetailFromShell(this, AlbumDetailActivity.intent(this, "shadow-audit-album"))
         } catch (error: RuntimeException) {

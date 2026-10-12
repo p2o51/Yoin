@@ -10,6 +10,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -346,7 +347,7 @@ private fun LyricsFullscreenList(
     // title); lift this list's fade out of the way during the hand-over so the
     // title reads identically on both sides of the swap.
     val topEdgeFade by animateDpAsState(
-        targetValue = if (handingOver) 0.dp else 64.dp,
+        targetValue = if (handingOver) 0.dp else LyricsEdgeFade,
         animationSpec = YoinMotion.slowEffectsSpec(),
         label = "lyricsTopFade",
     )
@@ -405,8 +406,13 @@ private fun LyricsFullscreenList(
     // beat. Resets per song so a new track re-centres instantly.
     var hasCentered by remember(lyrics) { mutableStateOf(false) }
 
-    // Offset by ~38% of the viewport so the active line reads as the centre of
-    // attention rather than a literal midpoint. KEYED on currentIndex / showTranslation
+    // The active row's centre sits in the middle of the window's clean band
+    // (between the edge fades), by its laid-out size and below the list's top
+    // content padding — lyricsFocusScrollOffsetPx. (Until 2026-10 the row's TOP
+    // went to 48dp + 38% of the window whatever its height: about the middle of
+    // a ~600dp portrait page, but 59% down a landscape phone's ~227dp one, where
+    // a wrapped line and its translation ran into the bottom fade.)
+    // KEYED on currentIndex / showTranslation
     // so the effect RESTARTS and re-reads them when the line advances or the
     // translation layer toggles — a captured `val` read inside snapshotFlow never
     // re-emits (records no snapshot state), which is why the expanded pane stopped
@@ -422,26 +428,56 @@ private fun LyricsFullscreenList(
     // Covered by a Yoin window (its clock frozen): land the line at once, so the
     // frame kept for the reveal is current and nothing glides once it is seen.
     val windowCovered = LocalWindowCovered.current
+    val edgeFadePx = with(LocalDensity.current) { LyricsEdgeFade.roundToPx() }
+    val seatSettleSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     LaunchedEffect(lyrics, listState, autoScrollEnabled, recenterRequestKey, focusItem) {
         if (!autoScrollEnabled || focusItem < 0) return@LaunchedEffect
         val target = focusItem.coerceIn(0, lastIndex)
+        // The next song's title goes where its own list will open it (item 0,
+        // at rest), not to the focus seat.
+        val handOver = target == upNextHeaderIndex
+        val offsetPx = { if (handOver) 0 else listState.layoutInfo.lyricsFocusScrollOffsetPx(target, edgeFadePx) }
+
+        // scrollToItem remeasures the list at once, so a row first laid out by
+        // the jump (opened mid-song, its size only estimated) is seated on its
+        // real size before the frame draws.
+        suspend fun seatNow() {
+            val estimated = offsetPx()
+            listState.scrollToItem(target, estimated)
+            val measured = offsetPx()
+            if (measured != estimated) listState.scrollToItem(target, measured)
+        }
         var firstAnchor = true
         snapshotFlow { listState.layoutInfo.viewportSize.height }
             .filter { it > 0 }
-            .collect { vp ->
-                // The next song's title goes where its own list will open it
-                // (item 0, at rest), not to the 38% focus line.
-                val offsetPx = if (target == upNextHeaderIndex) 0 else -(vp * LyricsFocusFraction).toInt()
+            .collect {
                 when {
                     // Very first centre of the song: instant, no animation.
                     !hasCentered -> {
-                        listState.scrollToItem(target, offsetPx)
+                        seatNow()
                         hasCentered = true
                     }
                     // First reaction to this advance / translation toggle / recenter: glide.
-                    firstAnchor && !windowCovered.value -> listState.animateScrollToItem(target, offsetPx)
+                    firstAnchor && !windowCovered.value -> {
+                        // One frame first: the row's size is the seat's input,
+                        // and it is laid out in its active style only now.
+                        withFrameNanos { }
+                        listState.animateScrollToItem(target, offsetPx())
+                        // A row that was off screen glided to an estimate:
+                        // the rest of the way on the same family of spring.
+                        val rest = if (handOver) {
+                            null
+                        } else {
+                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx)
+                        }
+                        if (rest != null && rest != 0 &&
+                            (if (rest > 0) listState.canScrollForward else listState.canScrollBackward)
+                        ) {
+                            listState.animateScrollBy(rest.toFloat(), seatSettleSpec)
+                        }
+                    }
                     // Actual window/keyboard resizes still keep the line anchored.
-                    else -> listState.scrollToItem(target, offsetPx)
+                    else -> seatNow()
                 }
                 firstAnchor = false
             }
@@ -453,6 +489,9 @@ private fun LyricsFullscreenList(
     // instead of the active line being shoved down by the rows above it.
     // requestScrollToItem lands in THIS frame's remeasure (frame callbacks
     // run before layout), so the pin never trails the growth by a frame.
+    // The pin is the focus row's seat as it was before the toggle (its own
+    // translation opens below it, the line itself stays put); the next line
+    // advance seats rows by their new size.
     val lastShowTranslation = remember { booleanArrayOf(showTranslation) }
     LaunchedEffect(showTranslation) {
         if (lastShowTranslation[0] == showTranslation) return@LaunchedEffect
@@ -460,12 +499,22 @@ private fun LyricsFullscreenList(
         if (!autoScrollEnabled || focusItem < 0) return@LaunchedEffect
         var lastSignature = -1L
         var stableFrames = 0
+        var pinnedItem = -1
+        var pinnedOffset = 0
         while (stableFrames < TranslationSettleFrames) {
             val signature = withFrameNanos {
                 val info = listState.layoutInfo
-                val vp = info.viewportSize.height
-                if (vp > 0) {
-                    listState.requestScrollToItem(focusItem, -(vp * LyricsFocusFraction).toInt())
+                if (info.viewportSize.height > 0) {
+                    val focus = focusItem
+                    if (focus != pinnedItem) {
+                        pinnedItem = focus
+                        pinnedOffset = if (focus == upNextHeaderIndex) {
+                            0
+                        } else {
+                            info.lyricsFocusScrollOffsetPx(focus, edgeFadePx)
+                        }
+                    }
+                    listState.requestScrollToItem(focus, pinnedOffset)
                 }
                 info.visibleItemsInfo.fold(0L) { acc, item -> acc * 31 + item.size }
             }
@@ -491,7 +540,12 @@ private fun LyricsFullscreenList(
             modifier = Modifier
                 .fillMaxSize()
                 .lyricsWindowBelowBand(captionBand)
-                .verticalEdgeFadeOnScroll(listState, top = topEdgeFade, bottom = 64.dp)
+                .verticalEdgeFadeOnScroll(
+                    listState,
+                    top = topEdgeFade,
+                    bottom = LyricsEdgeFade,
+                    maxFraction = LyricsEdgeFadeMaxFraction
+                )
                 .clipToBounds()
                 .lyricsWindowContentAboveBand(captionBand),
         ) {

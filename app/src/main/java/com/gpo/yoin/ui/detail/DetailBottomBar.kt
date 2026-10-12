@@ -353,8 +353,8 @@ fun launchDetailFromShell(
     intent: Intent,
     mode: DetailLaunchMode = DetailLaunchMode.FullChoreography,
 ) {
-    val session = (context.applicationContext as YoinApplication)
-        .container.experienceSessionStore.state.value
+    val store = (context.applicationContext as YoinApplication).container.experienceSessionStore
+    val session = store.state.value
     when (mode) {
         DetailLaunchMode.PlainPush -> {
             intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
@@ -374,6 +374,8 @@ fun launchDetailFromShell(
             if (!session.hasOverlayHidingBottomBar) {
                 intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
                 intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+                // The hand-off the shell just armed: the page retires it when destroyed.
+                intent.putExtra(DETAIL_EXTRA_HANDOFF_GENERATION, store.detailHandoffGeneration)
             } else if (session.nowPlayingExpanded) {
                 intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, true)
             } else {

@@ -1,11 +1,14 @@
 package com.gpo.yoin.data.repository
 
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
@@ -99,6 +102,31 @@ class YoinRepositoryLibraryTest {
         completion.complete(LibraryMembership.Added)
         write.await().getOrThrow()
         assertEquals(LibraryMembership.Unknown, repository.observeLibraryMembership(track.id).first())
+    }
+
+    @Test
+    fun should_keepAKnownCheck_when_anAlbumLoadCouldNotConfirmTheRow() = runTest {
+        // POP DELIVERY: library search found the song in the library; its album page could not tell.
+        val library = mockk<MusicLibrary>()
+        every { source.library() } returns library
+        val albumId = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "1740294934")
+        val unconfirmed = track.copy(albumId = albumId, extras = mapOf("appleMusicLibraryChecked" to "false"))
+        val notAdded = track.copy(
+            id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "124"),
+            albumId = albumId,
+            extras = mapOf("appleMusicLibraryChecked" to "true")
+        )
+        coEvery { library.getAlbum(albumId) } returns Album(
+            id = albumId, name = "POP DELIVERY", artist = null, artistId = null, coverArt = null,
+            songCount = 2, durationSec = null, year = null, genre = null, tracks = listOf(unconfirmed, notAdded)
+        )
+        val repository = repository()
+        repository.refreshLibraryMembership(track).getOrThrow()
+
+        repository.getAlbum(albumId)
+
+        assertEquals(LibraryMembership.Added, repository.observeLibraryMembership(track.id).first())
+        assertEquals(LibraryMembership.NotAdded, repository.observeLibraryMembership(notAdded.id).first())
     }
 
     @Test

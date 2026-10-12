@@ -1,0 +1,223 @@
+package com.gpo.yoin.data.source.spotify
+
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+/**
+ * The coroutine edges of [SingleFlightValue]: a cancelled leader, and an
+ * invalidate while a load is out — dropping it, or keeping a recent one —
+ * when the request behind a value it serves started, and what [peek] sees.
+ */
+class SpotifySourceCachesTest {
+
+    @Test
+    fun should_tellWhenTheReadStarted_when_servingTheValueItLoadedEarlier() = runTest {
+        var now = 1_000L
+        val cache = SingleFlightValue<String>(clock = { now })
+
+        val loaded = cache.read {
+            now = 1_600L
+            "list"
+        }
+        now = 9_000L
+        val cached = cache.read { error("served from the cache") }
+
+        assertEquals("list" to 1_000L, loaded.value to loaded.readStartedAtMs)
+        assertEquals("list" to 1_000L, cached.value to cached.readStartedAtMs)
+    }
+
+    @Test
+    fun should_tellTheLoadsStart_when_joiningALoadAlreadyOut() = runTest {
+        var now = 1_000L
+        val cache = SingleFlightValue<String>(clock = { now })
+        val gate = CompletableDeferred<Unit>()
+        val leader = async {
+            cache.read {
+                gate.await()
+                "list"
+            }
+        }
+        runCurrent()
+        now = 3_000L
+        // A refresh keeps the read just started and joins it.
+        cache.invalidate(keepLoadStartedWithinMs = 5_000L)
+        val joined = async { cache.read { error("joins the read out") } }
+        runCurrent()
+
+        gate.complete(Unit)
+
+        assertEquals(1_000L, leader.await().readStartedAtMs)
+        assertEquals(1_000L, joined.await().readStartedAtMs)
+    }
+
+    @Test
+    fun should_loadAgainForWaiter_when_leaderCancelled() = runTest {
+        val cache = SingleFlightValue<String>()
+        var loads = 0
+        val leaderGate = CompletableDeferred<Unit>()
+        val leader = launch {
+            cache.get {
+                loads++
+                leaderGate.await()
+                "leader"
+            }
+        }
+        runCurrent()
+        val waiter = async {
+            cache.get {
+                loads++
+                "waiter"
+            }
+        }
+        runCurrent()
+
+        leader.cancel()
+
+        // The waiter isn't failed with the leader's cancellation; it loads once itself.
+        assertEquals("waiter", waiter.await())
+        assertEquals(2, loads)
+        assertEquals("waiter", cache.get { error("served from the cache") })
+    }
+
+    @Test
+    fun should_loadAgain_when_invalidatedWhileLoading() = runTest {
+        val cache = SingleFlightValue<String>()
+        val gate = CompletableDeferred<Unit>()
+        val stale = async {
+            cache.get {
+                gate.await()
+                "stale"
+            }
+        }
+        runCurrent()
+
+        cache.invalidate()
+        gate.complete(Unit)
+
+        // The load still answers its own caller, but isn't kept.
+        assertEquals("stale", stale.await())
+        var loads = 0
+        val fresh = cache.get {
+            loads++
+            "fresh"
+        }
+        assertEquals("fresh", fresh)
+        assertEquals(1, loads)
+    }
+
+    @Test
+    fun should_keepNewerValue_when_invalidatedLoadEndsLast() = runTest {
+        val cache = SingleFlightValue<String>()
+        val gate = CompletableDeferred<Unit>()
+        val stale = async {
+            cache.get {
+                gate.await()
+                "stale"
+            }
+        }
+        runCurrent()
+
+        cache.invalidate()
+        // A read after the invalidate doesn't join the load already out.
+        assertEquals("fresh", cache.get { "fresh" })
+        gate.complete(Unit)
+
+        assertEquals("stale", stale.await())
+        assertEquals("fresh", cache.get { error("served from the cache") })
+    }
+
+    @Test
+    fun should_joinLoadInFlight_when_invalidateKeepsARecentLoad() = runTest {
+        var now = 0L
+        val cache = SingleFlightValue<String>(clock = { now })
+        var loads = 0
+        val gate = CompletableDeferred<Unit>()
+        val first = async {
+            cache.get {
+                loads++
+                gate.await()
+                "first"
+            }
+        }
+        runCurrent()
+        now += 2_000L
+
+        cache.invalidate(keepLoadStartedWithinMs = 10_000L)
+        // The refresh rides the load already out rather than reading again.
+        val refresh = async { cache.get { error("joins the load in flight") } }
+        runCurrent()
+        gate.complete(Unit)
+
+        assertEquals("first", first.await())
+        assertEquals("first", refresh.await())
+        assertEquals(1, loads)
+        // And that load's value is kept.
+        assertEquals("first", cache.get { error("served from the cache") })
+    }
+
+    @Test
+    fun should_loadAgain_when_keptLoadStartedTooLongAgo() = runTest {
+        var now = 0L
+        val cache = SingleFlightValue<String>(clock = { now })
+        val gate = CompletableDeferred<Unit>()
+        val old = async {
+            cache.get {
+                gate.await()
+                "old"
+            }
+        }
+        runCurrent()
+        now += 10_001L
+
+        cache.invalidate(keepLoadStartedWithinMs = 10_000L)
+
+        assertEquals("fresh", cache.get { "fresh" })
+        gate.complete(Unit)
+        assertEquals("old", old.await())
+        assertEquals("fresh", cache.get { error("served from the cache") })
+    }
+
+    @Test
+    fun should_peekOnlyAValueOnHand_when_noneOrALoadInFlight() = runTest {
+        var now = 0L
+        val cache = SingleFlightValue<String>(maxAgeMs = 1_000L, clock = { now })
+        assertNull(cache.peek())
+        val gate = CompletableDeferred<Unit>()
+        val load = async {
+            cache.get {
+                gate.await()
+                "list"
+            }
+        }
+        runCurrent()
+
+        // A load out is neither waited for nor joined.
+        assertNull(cache.peek())
+        gate.complete(Unit)
+        load.await()
+        assertEquals("list", cache.peek())
+
+        now += 1_001L
+        assertNull(cache.peek())
+        assertEquals("fresh", cache.get { "fresh" })
+        cache.invalidate()
+        assertNull(cache.peek())
+    }
+
+    @Test
+    fun should_loadAgain_when_keepingRecentLoadsFindsNoneInFlight() = runTest {
+        val cache = SingleFlightValue<String>()
+        assertEquals("cached", cache.get { "cached" })
+
+        cache.invalidate(keepLoadStartedWithinMs = 10_000L)
+
+        // Nothing in flight to ride: the loaded value is still dropped.
+        assertEquals("fresh", cache.get { "fresh" })
+    }
+}

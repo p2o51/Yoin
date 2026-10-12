@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.landing.guide
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -120,6 +121,79 @@ internal fun guideSteps(kind: GuideKind): List<GuideStep> = when (kind) {
     GuideKind.Spotify -> SpotifyGuideSteps
     GuideKind.AppleMusic -> AppleMusicGuideSteps
 }
+
+/** What one of the guide window's actions does when tapped, drawn with [icon]. */
+internal enum class GuideCommand(@param:DrawableRes val icon: Int) {
+    Prev(R.drawable.ic_guide_prev),
+    Copy(R.drawable.ic_guide_copy),
+    Next(R.drawable.ic_guide_next),
+    Return(R.drawable.ic_guide_return),
+
+    /** A blank place that never fires. */
+    None(R.drawable.ic_guide_blank)
+}
+
+/**
+ * One place in the guide window's action row (the system's picture-in-picture menu: tap the window to see it).
+ * A place the step can't use stays in the row with [enabled] false, which the system draws greyed and ignores.
+ * [label] is what TalkBack reads; a blank place has none, so TalkBack passes over it as the eye does.
+ */
+@Immutable
+internal data class GuideActionSlot(
+    val command: GuideCommand,
+    @param:StringRes val label: Int?,
+    val enabled: Boolean
+)
+
+/** Every step of every guide has this many action places. */
+internal const val GUIDE_ACTION_SLOT_COUNT = 3
+
+/** The place › keeps on every step. */
+internal const val GUIDE_NEXT_SLOT = 2
+
+/**
+ * The guide window's action row on [step]: always [GUIDE_ACTION_SLOT_COUNT] places in the same order, so a quick
+ * second tap where › was finds › again (owner 2026-10-11). The system centres the row, so a row that grows or
+ * shrinks moves every button.
+ *
+ * - Spotify: ‹ | middle | ›. ‹ is greyed on the first step. The middle copies the step's value, greyed where there
+ *   is nothing to copy; on the last step it is "back to Yoin" and › is greyed, so tapping on stops there instead of
+ *   closing the guide.
+ * - Apple Music: Yoin drives the sign-in, so nothing to tap: blank, unlabelled places that never fire. An empty row
+ *   would let the system fill it with Yoin's own playback buttons, whose ⏭ skips a track.
+ */
+internal fun guideActionSlots(kind: GuideKind, step: Int): List<GuideActionSlot> {
+    val steps = guideSteps(kind)
+    val index = step.coerceIn(0, steps.lastIndex)
+    return when (kind) {
+        GuideKind.AppleMusic -> List(GUIDE_ACTION_SLOT_COUNT) { AppleMusicBlankSlot }
+        GuideKind.Spotify -> {
+            val last = index == steps.lastIndex
+            val copies = steps[index].copies
+            listOf(
+                GuideActionSlot(GuideCommand.Prev, R.string.guide_action_prev, enabled = index > 0),
+                when {
+                    last -> GuideActionSlot(GuideCommand.Return, R.string.guide_action_back, enabled = true)
+                    copies != null -> GuideActionSlot(GuideCommand.Copy, copies.actionLabel, enabled = true)
+                    else -> GuideActionSlot(GuideCommand.Copy, R.string.guide_action_copy, enabled = false)
+                },
+                GuideActionSlot(GuideCommand.Next, R.string.guide_action_next, enabled = !last)
+            )
+        }
+    }
+}
+
+private val AppleMusicBlankSlot = GuideActionSlot(GuideCommand.None, label = null, enabled = false)
+
+/**
+ * The row as the system takes it. [max] is its picture-in-picture action limit, 3 on phones and tablets, so this
+ * is normally the whole row. With fewer places the row loses places from the left (‹ first) and every kept place
+ * keeps its command, greyed or not: the last place is always ›, greyed on the last step, so tapping on stops there
+ * even when "back to Yoin" has no room (owner 2026-10-11; the system's expand button still goes back to Yoin).
+ * Cut here rather than by the system, which keeps the first places and would drop ›.
+ */
+internal fun fitGuideActionSlots(slots: List<GuideActionSlot>, max: Int): List<GuideActionSlot> =
+    slots.takeLast(max.coerceAtLeast(1))
 
 /** SHA-1 of this APK's signing certificate as Spotify's dashboard takes it: `E7:47:B5:…`, upper case. */
 internal fun signingCertificateSha1(context: Context): String? = runCatching {

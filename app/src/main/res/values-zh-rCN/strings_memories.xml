@@ -48,7 +48,7 @@
     <string name="mem_retry">重试</string>
     <string name="mem_snackbar_neodb_signin">先登录 NeoDB，才能同步评分和专辑评价。</string>
     <string name="mem_snackbar_neodb_signin_action">登录</string>
-    <string name="mem_snackbar_save_review">无法保存专辑评价，你的草稿已被保存。</string>
+    <string name="mem_snackbar_save_review">无法保存专辑评价，草稿暂时保留。</string>
     <string name="mem_snackbar_save_title">无法保存标题。</string>
     <string name="mem_snackbar_sync">无法同步到 NeoDB</string>
     <string name="mem_empty_title">暂无 Memories 记录</string>

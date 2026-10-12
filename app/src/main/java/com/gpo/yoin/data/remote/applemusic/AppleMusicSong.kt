@@ -3,6 +3,7 @@ package com.gpo.yoin.data.remote.applemusic
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -22,7 +23,20 @@ data class AppleMusicSong(
     val artworkTemplate: String?,
     val trackNumber: Int?,
     val albumId: MediaId? = null,
-    val artistId: MediaId? = null
+    val artistId: MediaId? = null,
+    /**
+     * A library song whose `catalog` relationship Apple answered with no catalog song while its
+     * play parameters still name a catalog id: the storefront has none for it (a song since
+     * pulled, or one from another storefront). MusicKit drops such an id from a queue without a
+     * word, so a start index past it lands that many songs further on. An import, which names no
+     * catalog id, is never this.
+     */
+    val catalogUnavailable: Boolean = false,
+    /**
+     * A catalog song that came with its own `library` relationship (the request included it), so
+     * [libraryId] says whether it is in the user's library: present, it is; absent, it isn't.
+     */
+    val libraryChecked: Boolean = false
 ) {
     fun toTrack(): Track = Track(
         id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, catalogId ?: "library:$resourceId"),
@@ -42,6 +56,8 @@ data class AppleMusicSong(
         extras = buildMap {
             libraryId?.let { put(EXTRA_LIBRARY_ID, it) }
             catalogId?.let { put(EXTRA_CATALOG_ID, it) }
+            if (catalogUnavailable) put(EXTRA_CATALOG_UNAVAILABLE, "true")
+            if (libraryChecked) put(EXTRA_LIBRARY_CHECKED, "true")
         }
     )
 
@@ -49,7 +65,15 @@ data class AppleMusicSong(
         const val EXTRA_LIBRARY_ID = "appleMusicLibraryId"
         const val EXTRA_CATALOG_ID = "appleMusicCatalogId"
 
-        /** Present when the album load resolved the user's library, so a missing library id means "not added". */
+        /** [catalogUnavailable]: the song can't play, though its catalog id still names it. */
+        const val EXTRA_CATALOG_UNAVAILABLE = "appleMusicCatalogUnavailable"
+
+        /**
+         * "true" when the album load confirmed the row's library membership (the song's own `library`
+         * relationship, or the user's copy of the album), so a missing library id means "not added".
+         * "false" when the load could ask but nothing answered for the row: unknown, not "not added".
+         * Absent from rows loaded without the user's library (and from albums cached before it was).
+         */
         const val EXTRA_LIBRARY_CHECKED = "appleMusicLibraryChecked"
 
         fun fromJson(resource: JsonObject): AppleMusicSong {
@@ -57,21 +81,25 @@ data class AppleMusicSong(
             val type = resource.string("type")
             require(type == "songs" || type == "library-songs") { "Expected an Apple Music song" }
             val attributes = resource["attributes"]?.jsonObject
-            val catalog = resource["relationships"]?.jsonObject?.get("catalog")?.jsonObject
-                ?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
-            val library = resource["relationships"]?.jsonObject?.get("library")?.jsonObject
-                ?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
+            // There only when the request included it, and then empty when Apple has no catalog song.
+            val catalogRelationship = resource["relationships"]?.jsonObject?.get("catalog")?.jsonObject
+                ?.get("data") as? JsonArray
+            val catalog = catalogRelationship?.firstOrNull()?.jsonObject
+            val libraryRelationship = resource["relationships"]?.jsonObject?.get("library")?.jsonObject
+                ?.get("data") as? JsonArray
+            val library = libraryRelationship?.firstOrNull()?.jsonObject
+            val catalogId = if (type == "songs") {
+                id
+            } else {
+                catalog?.string("id")
+                    ?: attributes?.get("playParams")?.jsonObject?.string("catalogId")
+            }
             return AppleMusicSong(
                 resourceId = id,
                 libraryId = if (type == "library-songs") id else {
                     library?.takeIf { it.string("type") == "library-songs" }?.string("id")
                 },
-                catalogId = if (type == "songs") {
-                    id
-                } else {
-                    catalog?.string("id")
-                        ?: attributes?.get("playParams")?.jsonObject?.string("catalogId")
-                },
+                catalogId = catalogId,
                 title = attributes?.string("name"),
                 artist = attributes?.string("artistName"),
                 album = attributes?.string("albumName"),
@@ -79,7 +107,11 @@ data class AppleMusicSong(
                 artworkTemplate = attributes?.get("artwork")?.jsonObject?.string("url"),
                 trackNumber = attributes?.get("trackNumber")?.jsonPrimitive?.intOrNull,
                 albumId = relatedId(resource, "albums") ?: catalog?.let { relatedId(it, "albums") },
-                artistId = relatedId(resource, "artists") ?: catalog?.let { relatedId(it, "artists") }
+                artistId = relatedId(resource, "artists") ?: catalog?.let { relatedId(it, "artists") },
+                // An import answers the relationship empty as well, but names no catalog id: it stays an import.
+                catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true &&
+                    catalogId != null,
+                libraryChecked = type == "songs" && libraryRelationship != null
             )
         }
 

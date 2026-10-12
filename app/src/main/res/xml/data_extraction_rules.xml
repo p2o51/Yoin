@@ -8,6 +8,10 @@
     - 不备份：所有凭据 —— 走 `noBackupFilesDir`（Android 自动排除）
         * profile_credentials/*.bin — Subsonic / Spotify 凭据
         * neodb/token.bin — NeoDB access token（v12 后从 Room 迁出）
+    - 不备份：Home 首页快照 —— 也走 `noBackupFilesDir`（不进备份，也不像
+      cacheDir 那样会被系统清掉）
+        * home_snapshot/<profileId>.json — 每个账号上次的首页内容（只存
+          CoverRef 的 storage key，不存带 Subsonic 凭据的封面 URL；可再拉）
     - 不备份：Media3 cache 等运行时产物（走 cacheDir，不在下方 include 范围内）
 
   已知局限（0.4 抛光期再处理）：

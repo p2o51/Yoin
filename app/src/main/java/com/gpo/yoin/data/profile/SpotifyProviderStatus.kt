@@ -39,9 +39,13 @@ sealed interface SpotifyProviderStatus {
     data object NoPremium : SpotifyProviderStatus
 
     /**
-     * Authentication failed for a reason we can't cleanly categorise
-     * (revoked token, missing scope observed at runtime, etc). Carries
-     * the underlying message for snackbar / dialog surfaces.
+     * App Remote's handshake with the Spotify app on this device was refused
+     * (not signed in there, Yoin not approved there, its authentication
+     * failed). Carries the underlying message for snackbar / dialog
+     * surfaces. Sticky until the app restarts, and Yoin's own sign-in (the
+     * OAuth flow) doesn't fix it, so it isn't "needs reconnect"
+     * ([needsReconnect], Home's dot): its label sends the owner to the
+     * Spotify app instead.
      */
     data class AuthFailure(val message: String) : SpotifyProviderStatus
 
@@ -74,7 +78,7 @@ sealed interface SpotifyProviderStatus {
             NoClientId -> "No Client ID"
             SpotifyAppMissing -> "Install Spotify"
             NoPremium -> "Premium required"
-            is AuthFailure -> "Reconnect"
+            is AuthFailure -> "Sign in to Spotify app"
             is NeedsReconnect -> when (reason) {
                 ReconnectReason.CredentialsRevoked -> "Reconnect"
                 ReconnectReason.BackupRestored -> "Restore sign-in"

@@ -8,6 +8,8 @@
     <string name="home_account_cd">账号：%1$s</string>
     <string name="home_account_close">关闭</string>
     <string name="home_account_manage">管理账号</string>
+    <string name="home_account_reconnect">重新连接</string>
+    <string name="home_account_reconnect_needed">账号需要重新连接</string>
     <string name="home_account_switch">切换账号</string>
     <string name="home_account_add">添加账号</string>
     <string name="home_account_settings">设置</string>
@@ -31,7 +33,7 @@
     <string name="home_section_activities_supporting">近期播放与访问记录</string>
     <string name="home_section_jump_back_in_supporting">专辑、歌曲与歌单</string>
     <string name="home_section_recently_added_supporting">本月加入资料库的唱片</string>
-    <string name="home_section_rediscover_supporting">给过高分或写过笔记，但已落灰多时的专辑与单曲</string>
+    <string name="home_section_rediscover_supporting">评过分或写过笔记，但已落灰多时的专辑与单曲</string>
     <string name="home_section_recently_played_supporting">你在各设备上最近播放的专辑</string>
     <string name="home_section_your_playlists_supporting">资料库中的歌单</string>
 

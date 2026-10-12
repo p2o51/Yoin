@@ -91,6 +91,7 @@
     <string name="settings_spotify_install">安装 Spotify</string>
     <string name="settings_spotify_premium_required">需要 Premium</string>
     <string name="settings_spotify_restore_sign_in">恢复登录</string>
+    <string name="settings_spotify_app_sign_in">登录 Spotify 应用</string>
     <string name="settings_add_sheet_title">添加账号</string>
     <string name="settings_provider_subsonic_summary">Navidrome、Airsonic 等自建服务器</string>
     <string name="settings_provider_spotify_summary">你的 Spotify 资料库</string>
@@ -259,7 +260,7 @@
     <string name="settings_sync_section_good_to_know">须知事项</string>
     <string name="settings_sync_know_drive">存放在你 Google Drive 的 Yoin 专属隐藏目录，仅 Yoin 可访问。受 Google 账号保护而非端到端加密，会占用网盘配额。</string>
     <string name="settings_sync_know_secrets">密码、登录凭据和 API 密钥永不离开此设备。服务器地址与用户名会同步以加快重新连接。</string>
-    <string name="settings_sync_know_history">收听记录仅保留在本机各设备。</string>
+    <string name="settings_sync_know_history">收听记录仅保留在各自设备上。</string>
     <string name="settings_sync_play_update">需更新 Google Play 服务以使用云同步。</string>
     <string name="settings_sync_play_missing">云同步需要 Google Play 服务，此设备缺少该组件。</string>
     <string name="settings_sync_unavailable">当前版本的 Yoin 暂不支持云同步。</string>

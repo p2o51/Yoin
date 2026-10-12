@@ -1,12 +1,37 @@
 package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.profile.ProfileCredentials
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -442,14 +467,244 @@ class SpotifyApiClientTest {
         assertEquals(0, revokeCallbacks)
     }
 
+    @Test
+    fun should_limitConcurrency_when_manyPagesRequested() = runTest {
+        val inFlight = AtomicInteger()
+        val peak = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val running = inFlight.incrementAndGet()
+                peak.accumulateAndGet(running) { a, b -> maxOf(a, b) }
+                Thread.sleep(150)
+                inFlight.decrementAndGet()
+                val offset = request.requestUrl?.queryParameter("offset")?.toInt() ?: 0
+                return MockResponse().setResponseCode(200)
+                    .setBody(playlistItemsPage(offset = offset, size = 50, total = 300))
+            }
+        }
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        val items = client.getPlaylistItems("pl1")
+
+        assertEquals(300, items.size)
+        // First page, then the other five side by side — never more than four at once.
+        assertEquals(6, server.requestCount)
+        assertTrue("peak ${peak.get()}", peak.get() in 2..4)
+    }
+
+    @Test
+    fun should_preserveOrder_when_artistAlbumPagesFetchedConcurrently() = runTest {
+        val offsets = CopyOnWriteArrayList<Int>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val offset = request.requestUrl?.queryParameter("offset")?.toInt() ?: 0
+                offsets += offset
+                // Later pages answer first.
+                Thread.sleep(((30 - offset) * 10L).coerceAtLeast(0L))
+                val items = (offset until minOf(offset + 10, 35))
+                    .joinToString(",") { """{"id":"a$it","name":"a$it"}""" }
+                val next = server.url("/v1/artists/ar1/albums?offset=${offset + 10}&limit=10")
+                    .takeIf { offset + 10 < 35 }
+                return MockResponse().setResponseCode(200)
+                    .setBody("""{"items":[$items],"next":${next?.let { "\"$it\"" }},"total":35}""")
+            }
+        }
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        val albums = client.getArtistAlbums("ar1")
+
+        assertEquals((0 until 35).map { "a$it" }, albums.map { it.id })
+        assertEquals(listOf(0, 10, 20, 30), offsets.sorted())
+    }
+
+    @Test
+    fun should_notSendQueuedRead_when_readAheadOfItDrew429() = runTest {
+        val gate = SpotifyRateLimitGate()
+        val served = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = if (served.getAndIncrement() == 0) {
+                // Headers late enough for the other read to queue on the slot,
+                // the body later still: the gate closes on the headers.
+                MockResponse()
+                    .setResponseCode(429)
+                    .addHeader("Retry-After", "30")
+                    .setBody("""{"error":{"status":429}}""")
+                    .setHeadersDelay(200, TimeUnit.MILLISECONDS)
+                    .setBodyDelay(500, TimeUnit.MILLISECONDS)
+            } else {
+                meResponse(id = "alice")
+            }
+        }
+        val client = newClient(
+            initialCredentials = credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            rateLimitGate = gate,
+            profileId = "profile-a",
+            readPermits = Semaphore(1)
+        )
+
+        val results = List(2) { async { runCatching { client.getMe() } } }.awaitAll()
+
+        assertEquals(1, server.requestCount)
+        assertTrue(results.all { it.exceptionOrNull() is SpotifyRateLimitException })
+        assertTrue(gate.isBlocked("profile-a"))
+    }
+
+    @Test
+    fun should_recordBackoff_when_a429CallbackArrivesAfterCancellation() = runTest {
+        val gate = SpotifyRateLimitGate()
+        val callbackReady = CompletableDeferred<Callback>()
+        val call = mockk<Call>(relaxed = true)
+        val httpClient = mockk<OkHttpClient>()
+        every { httpClient.newCall(any()) } returns call
+        every { call.enqueue(any()) } answers { callbackReady.complete(firstArg()) }
+        val client = newClient(
+            credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            rateLimitGate = gate,
+            profileId = "profile-a",
+            httpClient = httpClient
+        )
+        val old = launch { client.getMe() }
+        val callback = callbackReady.await()
+        old.cancelAndJoin()
+
+        // Cancellation can race with OkHttp after it has selected onResponse.
+        // The response must still close the shared gate when nobody awaits it.
+        callback.onResponse(
+            call,
+            Response.Builder()
+                .request(Request.Builder().url(server.url("/v1/me")).build())
+                .protocol(Protocol.HTTP_1_1)
+                .code(429)
+                .message("Too Many Requests")
+                .header("Retry-After", "30")
+                .body("{}".toResponseBody())
+                .build()
+        )
+
+        assertTrue(gate.isBlocked("profile-a"))
+        assertTrue(runCatching { client.getMe() }.exceptionOrNull() is SpotifyRateLimitException)
+        verify(exactly = 1) { httpClient.newCall(any()) }
+    }
+
+    @Test
+    fun should_preserveRateLimitFailure_when_the429BodyIsTruncated() = runTest {
+        val gate = SpotifyRateLimitGate()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(429)
+                .addHeader("Retry-After", "30")
+                .setBody("""{"error":{"status":429}}""")
+                .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+        )
+        val client = newClient(
+            credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            rateLimitGate = gate,
+            profileId = "profile-a"
+        )
+
+        val error = runCatching { client.getMe() }.exceptionOrNull()
+
+        assertTrue(error is SpotifyRateLimitException)
+        assertTrue(gate.isBlocked("profile-a"))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun should_notWaitForReadSlot_when_startingPlayback() = runTest {
+        val readArrived = CountDownLatch(1)
+        val playArrived = CountDownLatch(1)
+        val playArrivedDuringRead = AtomicBoolean(false)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl?.encodedPath) {
+                "/v1/me" -> {
+                    readArrived.countDown()
+                    // Holds the only read slot until playback starts, or gives up.
+                    playArrivedDuringRead.set(playArrived.await(2, TimeUnit.SECONDS))
+                    meResponse(id = "alice")
+                }
+                "/v1/me/player/play" -> {
+                    playArrived.countDown()
+                    MockResponse().setResponseCode(204)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val client = newClient(
+            initialCredentials = credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            readPermits = Semaphore(1)
+        )
+
+        val read = async { client.getMe() }
+        withContext(Dispatchers.IO) { readArrived.await(2, TimeUnit.SECONDS) }
+        client.startPlayback(contextUri = "spotify:album:a1")
+        read.await()
+
+        assertTrue(playArrivedDuringRead.get())
+    }
+
+    @Test
+    fun should_cancelTheOldStartPromptly_when_theServerNeverAnswers() = runTest {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        server.enqueue(MockResponse().setResponseCode(204))
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+        val old = launch(Dispatchers.IO) { client.startPlayback(uris = listOf("spotify:track:old")) }
+        val first = withContext(Dispatchers.IO) { server.takeRequest(2, TimeUnit.SECONDS) }
+        assertTrue(first != null)
+
+        // Real clock bound: a blocking execute() would wait for OkHttp's ten-second timeout.
+        withContext(Dispatchers.IO) {
+            withTimeout(2_000L) {
+                old.cancelAndJoin()
+                client.startPlayback(uris = listOf("spotify:track:new"))
+            }
+        }
+        assertEquals(2, server.requestCount)
+        val newest = server.takeRequest()
+        assertTrue(newest.body.readUtf8().contains("spotify:track:new"))
+    }
+
+    @Test
+    fun should_cancelDeviceLookupPromptly_when_headersArrivedButTheBodyIsStalled() = runTest {
+        val bodyStarted = CountDownLatch(1)
+        val httpClient = OkHttpClient.Builder().eventListener(object : EventListener() {
+            override fun responseBodyStart(call: Call) {
+                bodyStarted.countDown()
+            }
+        }).build()
+        server.enqueue(MockResponse().setBody("""{"devices":[]}""").throttleBody(7, 3, TimeUnit.SECONDS))
+        server.enqueue(MockResponse().setResponseCode(204))
+        val client = newClient(
+            credentials("t1", "r1", fakeNow + 10 * 60_000L),
+            httpClient = httpClient
+        )
+        val old = launch(Dispatchers.IO) { client.listDevices() }
+        withContext(Dispatchers.IO) { assertTrue(bodyStarted.await(2, TimeUnit.SECONDS)) }
+
+        withContext(Dispatchers.IO) {
+            withTimeout(2_000L) {
+                old.cancelAndJoin()
+                client.startPlayback(uris = listOf("spotify:track:new"))
+            }
+        }
+        assertEquals(2, server.requestCount)
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
+
+    private fun playlistItemsPage(offset: Int, size: Int, total: Int): String {
+        val end = minOf(offset + size, total)
+        val items = (offset until end).joinToString(",") { """{"track":{"id":"t$it","name":"T$it"}}""" }
+        val next = server.url("/v1/playlists/pl1/items?offset=$end&limit=$size").takeIf { end < total }
+        return """{"items":[$items],"next":${next?.let { "\"$it\"" }},"total":$total}"""
+    }
 
     private fun newClient(
         initialCredentials: ProfileCredentials.Spotify,
         rateLimitGate: SpotifyRateLimitGate? = null,
         profileId: String? = null,
+        readPermits: Semaphore = Semaphore(4),
+        httpClient: OkHttpClient = OkHttpClient.Builder().build()
     ): SpotifyApiClient {
-        val httpClient = OkHttpClient.Builder().build()
         val baseUrl = server.url("/")
         val authService = SpotifyAuthService(
             httpClient = httpClient,
@@ -467,6 +722,7 @@ class SpotifyApiClientTest {
             apiBaseUrl = baseUrl,
             rateLimitGate = rateLimitGate,
             rateLimitProfileId = profileId,
+            readPermits = readPermits,
         )
     }
 

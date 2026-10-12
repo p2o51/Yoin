@@ -196,6 +196,30 @@ class YoinRepositoryFavoriteTest {
         assertFalse(repository.favoriteOverrides.value.containsKey(trackId))
     }
 
+    @Test
+    fun should_stampAddedAt_when_newFavoriteWrittenOptimistically() = runTest {
+        now = 1_760_000_000_500L
+        writeActions.setFavoriteResult = Result.success(Unit)
+        var addedAtDuringWrite: String? = null
+        writeActions.onSetFavorite = { addedAtDuringWrite = dao.getTrack(profileId, trackId.rawId)?.addedAt }
+
+        repository.setFavorite(trackId, favorite = true)
+
+        // Spotify's added_at form, so the new like sorts first among them.
+        assertEquals("2025-10-09T08:53:20Z", addedAtDuringWrite)
+        assertEquals("2025-10-09T08:53:20Z", dao.getTrack(profileId, trackId.rawId)?.addedAt)
+    }
+
+    @Test
+    fun should_keepAddedAt_when_favoritingAlreadySavedTrack() = runTest {
+        dao.upsertTrack(savedRow().copy(addedAt = "2024-01-01T00:00:00Z"))
+        writeActions.setFavoriteResult = Result.success(Unit)
+
+        repository.setFavorite(trackId, favorite = true)
+
+        assertEquals("2024-01-01T00:00:00Z", dao.getTrack(profileId, trackId.rawId)?.addedAt)
+    }
+
     private fun savedRow() = SpotifyLibraryTrackCache(
         profileId = profileId,
         trackId = trackId.rawId,
@@ -215,10 +239,12 @@ class YoinRepositoryFavoriteTest {
         var setFavoriteResult: Result<Unit> = Result.success(Unit)
         var setFavoriteCalls = 0
         var lastSetFavorite: Pair<Boolean, MediaId>? = null
+        var onSetFavorite: suspend () -> Unit = {}
 
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> {
             setFavoriteCalls++
             lastSetFavorite = favorite to id
+            onSetFavorite()
             return setFavoriteResult
         }
 

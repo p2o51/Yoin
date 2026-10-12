@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.ConnectionPhase
@@ -79,7 +80,7 @@ class NowPlayingViewModelPlayWhenReadyTest {
         every { repository.currentCapabilities() } returns emptySet()
         every { repository.favoriteOverrides } returns MutableStateFlow(emptyMap())
         every { repository.getRating(any()) } returns flowOf(null)
-        every { repository.observeSpotifyFavorite(any()) } returns flowOf(null)
+        every { repository.observeFavoriteState(any()) } answers { flowOf(FavoriteState(firstArg<Track>().isStarred)) }
         every { repository.observeLibraryMembership(any()) } returns flowOf(LibraryMembership.Unknown)
         every { repository.resolveCoverUrl(any()) } returns null
         val viewModel = NowPlayingViewModel(playback, repository, mockk<CastManager>(relaxed = true))

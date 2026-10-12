@@ -5,18 +5,20 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.perf.YoinPerf
+import com.gpo.yoin.player.SPOTIFY_START_MAX_URIS
 import com.gpo.yoin.ui.common.UiText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -27,6 +29,10 @@ class ArtistDetailViewModel(
 
     private val _uiState = MutableStateFlow<ArtistDetailUiState>(ArtistDetailUiState.Loading)
     val uiState: StateFlow<ArtistDetailUiState> = _uiState.asStateFlow()
+
+    // Debug-only: `detail.content` marks the first Content only. Declared before
+    // init, whose load can publish a mem-cached Content synchronously.
+    private var perfContentMarked = false
 
     /** The loaded artist, kept so the personal layer can be re-read on resume. */
     private var loadedArtist: ArtistDetail? = null
@@ -47,24 +53,42 @@ class ArtistDetailViewModel(
         loadArtist()
     }
 
+    /** Debug-only `detail.content`: the first Content this VM publishes (docs/perf/yoinperf-logging.md). */
+    private fun markPerfContent(resolvedId: String) {
+        if (!YoinPerf.enabled || perfContentMarked) return
+        perfContentMarked = true
+        YoinPerf.mark(
+            "detail.content",
+            "kind" to "artist",
+            "id" to artistId,
+            "resolved" to resolvedId.takeIf { it != artistId }
+        )
+    }
+
     private fun loadArtist() {
         viewModelScope.launch {
             try {
+                repository.awaitActiveSource(DETAIL_SOURCE_WAIT_MS)
                 val artist = repository.getArtist(MediaId.parse(artistId))
                 if (artist == null) {
                     _uiState.value = ArtistDetailUiState.Error(UiText.Res(R.string.detail_artist_error_not_found))
                     return@launch
                 }
                 loadedArtist = artist
-                repository.recordArtistVisit(artist)
+                // The visit row feeds Home's activity and the widgets, not this page:
+                // Content doesn't wait on the Room insert.
+                launch { repository.recordArtistVisit(artist) }
+                // Newest first on every provider: the "Latest" tag, the year column,
+                // Play's queue and this preload all read this order.
+                val releases = artist.albums.newestReleasesFirst()
                 // Preload the newest releases so tapping a row opens instantly.
-                artist.albums.take(6).forEach { album -> repository.prefetchAlbum(album.id) }
+                releases.take(6).forEach { album -> repository.prefetchAlbum(album.id) }
                 _uiState.value = ArtistDetailUiState.Content(
                     artistId = artist.id.toString(),
                     artistName = artist.name,
                     heroCoverArtUrl = artist.coverArt?.let { repository.resolveCoverUrl(it) },
                     isStarred = artist.isStarred,
-                    albums = artist.albums.map { album ->
+                    albums = releases.map { album ->
                         ArtistAlbum(
                             id = album.id.toString(),
                             name = album.name,
@@ -75,6 +99,7 @@ class ArtistDetailViewModel(
                         )
                     },
                 )
+                markPerfContent(artist.id.toString())
                 loadPersonal(artist)
             } catch (e: Exception) {
                 _uiState.value = ArtistDetailUiState.Error(
@@ -85,9 +110,8 @@ class ArtistDetailViewModel(
     }
 
     /**
-     * Re-read the personal layer (ratings + listening) — the Activity calls this
-     * on resume, so a rating given on an album page or a play made meanwhile
-     * shows up when the user comes back.
+     * Re-read the personal layer (local listening) — the Activity calls this on
+     * resume, so a play made meanwhile shows up when the user comes back.
      */
     fun refreshPersonal() {
         val artist = loadedArtist ?: return
@@ -95,13 +119,12 @@ class ArtistDetailViewModel(
     }
 
     /**
-     * The user's own layer, merged in after the page paints: album ratings and
-     * local listening (plays, last play, most-played songs). Best-effort — a
-     * failed read leaves the page as the provider data alone.
+     * The user's own layer, merged in after the page paints: local listening
+     * (plays, most-played songs). Best-effort — a failed read leaves the page
+     * as the provider data alone.
      */
     private suspend fun loadPersonal(artist: ArtistDetail) {
         val albumIds = artist.albums.map { it.id }
-        val ratings = runCatching { repository.getAlbumRatings(albumIds) }.getOrDefault(emptyMap())
         val listening = runCatching {
             repository.getArtistListening(artist.id, artist.name, albumIds)
         }.getOrNull()
@@ -124,7 +147,6 @@ class ArtistDetailViewModel(
         val summary = listening?.let {
             ArtistListeningSummary(
                 playCount = it.playCount,
-                lastPlayedAt = it.lastPlayedAt,
                 mostPlayed = it.topSongs.map { row ->
                     ArtistPlayedSong(
                         id = MediaId(row.provider, row.songId).toString(),
@@ -137,19 +159,20 @@ class ArtistDetailViewModel(
                     )
                 },
             )
-        } ?: ArtistListeningSummary(playCount = 0, lastPlayedAt = null, mostPlayed = emptyList())
+        } ?: ArtistListeningSummary(playCount = 0, mostPlayed = emptyList())
         (_uiState.value as? ArtistDetailUiState.Content)?.let { current ->
-            _uiState.value = current.copy(
-                albums = current.albums.map { album ->
-                    album.copy(userRating = ratings[MediaId.parse(album.id).rawId])
-                },
-                listening = summary,
-            )
+            _uiState.value = current.copy(listening = summary)
         }
     }
 
     /** The "Most Played" rows as a play queue, in row order. */
     fun getMostPlayedTracks(): List<Track> = mostPlayedTracks
+
+    /**
+     * What Play, Shuffle and a Most Played row play from: this artist, so Now
+     * Playing and the queue say so. None until the artist has loaded.
+     */
+    fun playbackContext(): ActivityContext = loadedArtist?.toPlaybackActivityContext() ?: ActivityContext.None
 
     /**
      * Follow / unfollow the artist via the real follow endpoint (NOT setFavorite,
@@ -163,7 +186,8 @@ class ArtistDetailViewModel(
         val target = !current.isStarred
         _uiState.value = current.copy(isStarred = target)
         viewModelScope.launch {
-            repository.setArtistFollowed(id, followed = target).onFailure {
+            // The loaded artist files a new follow into Spotify's Library Artists.
+            repository.setArtistFollowed(id, followed = target, artist = loadedArtist).onFailure {
                 (_uiState.value as? ArtistDetailUiState.Content)?.let { c ->
                     _uiState.value = c.copy(isStarred = !target)
                 }
@@ -186,23 +210,41 @@ class ArtistDetailViewModel(
     }
 
     /**
-     * Every track across the artist's albums, for the toolbar's Play / Shuffle.
-     * Albums from the artist endpoint are summaries without tracks, so each is
-     * loaded on demand here (a handful of quick queries on tap).
+     * Every track across the artist's albums, in discography order (the
+     * menu's Add to queue). Albums from the artist endpoint are summaries
+     * without tracks, so each is loaded on demand, a few at a time
+     * ([loadArtistTracks]).
      */
-    suspend fun getAllTracks(): List<Track> {
-        val albums = (uiState.value as? ArtistDetailUiState.Content)?.albums ?: return emptyList()
-        // Load albums concurrently (cap via the repo's own gating) so Play/Shuffle
-        // doesn't stall on N serial network round-trips on a cold cache.
-        return coroutineScope {
-            albums.map { album ->
-                async {
-                    runCatching { repository.getAlbum(MediaId.parse(album.id))?.tracks }
-                        .getOrNull()
-                        .orEmpty()
-                }
-            }.awaitAll()
-        }.flatten()
+    suspend fun getAllTracks(): List<Track> = loadArtistTracks(releases(), ::albumTracks)
+
+    /**
+     * The toolbar's Play ([shuffle] false) or Shuffle queue, in play order.
+     * Spotify's `uris` start carries only the first [SPOTIFY_START_MAX_URIS]
+     * tracks of a list, and Apple Music's start is held to the same count
+     * (MusicKit asks for every id in one capped catalog request). Both
+     * buttons start at the list's top, so on those providers only the albums
+     * those tracks come from are loaded ([artistStartLimit],
+     * [loadArtistPlayTracks]); other providers queue the whole discography.
+     */
+    suspend fun getPlayTracks(shuffle: Boolean): List<Track> = loadArtistPlayTracks(
+        releases = releases(),
+        shuffle = shuffle,
+        startLimit = artistStartLimit(MediaId.parseOrNull(artistId)?.provider),
+        loadAlbum = ::albumTracks
+    )
+
+    private fun releases(): List<ArtistRelease> =
+        (uiState.value as? ArtistDetailUiState.Content)?.albums.orEmpty().mapNotNull { album ->
+            MediaId.parseOrNull(album.id)?.let { id -> ArtistRelease(id, album.songCount) }
+        }
+
+    /** An album's tracks; empty when it can't be read, so one bad album doesn't sink Play. */
+    private suspend fun albumTracks(id: MediaId): List<Track> = try {
+        repository.getAlbum(id)?.tracks.orEmpty()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        emptyList()
     }
 
     class Factory(
@@ -214,3 +256,54 @@ class ArtistDetailViewModel(
             ArtistDetailViewModel(artistId, container.repository) as T
     }
 }
+
+/**
+ * The artist page's Play ([shuffle] false) or Shuffle, in a window or the
+ * Wide column alike. [com.gpo.yoin.player.PlaybackManager] reads the queue
+ * ([ArtistDetailViewModel.getPlayTracks]) and starts it, so a rotation that
+ * rebuilds the page while the releases load doesn't drop the tap, and a play
+ * started meanwhile isn't overtaken when the reads land.
+ */
+internal fun ArtistDetailViewModel.playArtist(container: AppContainer, shuffle: Boolean) {
+    val source = container.profileManager.activeSource.value ?: return
+    container.playbackManager.playWhenLoaded(
+        source = source,
+        activityContext = playbackContext(),
+        // Play / Shuffle pick no song: an Apple Music import first in line
+        // gives way to the next that plays.
+        explicitStart = false
+    ) {
+        // Already in play order: Shuffle's order is drawn before its albums load.
+        getPlayTracks(shuffle)
+    }
+}
+
+/**
+ * An artist's releases newest first, whatever order the provider lists them
+ * in: Spotify sorts them, Subsonic and Apple Music pass the server's order on
+ * (Navidrome lists an artist's albums oldest first, by date inside a year).
+ * Only the year is known, so a list that reads oldest first (its first dated
+ * release older than its last) is turned round before the sort: releases of
+ * one year then come out newest first too. Any other list keeps its order
+ * inside a year. A release without a year goes last.
+ */
+internal fun List<Album>.newestReleasesFirst(): List<Album> {
+    val years = mapNotNull { album -> album.releaseYear() }
+    val listedOldestFirst = years.isNotEmpty() && years.first() < years.last()
+    return (if (listedOldestFirst) asReversed() else this)
+        .sortedByDescending { album -> album.releaseYear() ?: Int.MIN_VALUE }
+}
+
+private fun Album.releaseYear(): Int? = year?.takeIf { it > 0 }
+
+/**
+ * The artist as a play's "playing from" context. The id is the full [MediaId]
+ * string (Now Playing's label opens this page with it); the cover is a storage
+ * key, as the artist's visit row stores it. Spotify still starts the list as a
+ * plain `uris` list ([com.gpo.yoin.player.spotifyStartAttempts]).
+ */
+internal fun ArtistDetail.toPlaybackActivityContext(): ActivityContext.Artist = ActivityContext.Artist(
+    artistId = id.toString(),
+    artistName = name,
+    coverArtId = CoverRef.toStorageKey(coverArt)
+)

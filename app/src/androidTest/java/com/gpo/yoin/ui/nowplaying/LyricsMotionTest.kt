@@ -34,7 +34,7 @@ class LyricsMotionTest {
         LyricLine(startMs = 4_000L + i * 3_000L, text = "Paper line $i", translation = "纸飞机第 $i 行")
     }
 
-    // Mid-song, so the focus line can sit at its 38% anchor with rows above it.
+    // Mid-song, so the focus line can sit at its focus seat with rows above it.
     private val midSongMs = 2_000L + 5 * 3_000L + 500L
 
     @Test

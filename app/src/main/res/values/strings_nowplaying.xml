@@ -52,9 +52,11 @@
 
     <string name="np_dock_playing_from_album">PLAYING FROM ALBUM</string>
     <string name="np_dock_playing_from_playlist">PLAYING FROM PLAYLIST</string>
+    <string name="np_dock_playing_from_artist">PLAYING FROM ARTIST</string>
     <string name="np_dock_now_playing">NOW PLAYING</string>
     <string name="np_from_album">PLAYING FROM ALBUM</string>
     <string name="np_from_playlist">PLAYING FROM PLAYLIST</string>
+    <string name="np_from_artist">PLAYING FROM ARTIST</string>
     <string name="np_from_now_playing">NOW PLAYING</string>
 
     <string name="np_cd_back_to_panel">Back to side panel</string>

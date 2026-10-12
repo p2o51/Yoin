@@ -1,0 +1,599 @@
+package com.gpo.yoin.data.source.spotify
+
+import com.gpo.yoin.data.model.MediaId
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+/**
+ * Request shape of [SpotifyMusicSource] against a fake Web API: which
+ * requests an album, artist or playlist open makes, and how the library
+ * lists are shared and kept across likes.
+ */
+class SpotifyMusicSourceTest {
+
+    private lateinit var server: MockWebServer
+    private val requests = CopyOnWriteArrayList<RecordedRequest>()
+    private val routes = ConcurrentHashMap<String, () -> MockResponse>()
+    private var now = 1_000_000L
+
+    @Before
+    fun setUp() {
+        server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requests += request
+                val path = request.requestUrl?.encodedPath.orEmpty()
+                val offset = request.requestUrl?.queryParameter("offset")
+                return (routes["$path?offset=$offset"] ?: routes[path])?.invoke()
+                    ?: MockResponse().setResponseCode(404).setBody("""{"error":"unexpected $path"}""")
+            }
+        }
+        server.start()
+        savedTracks()
+        routes["/v1/me/following"] = { ok("""{"artists":{"items":[],"next":null}}""") }
+        routes["/v1/me"] = { ok("""{"id":"me"}""") }
+        routes["/v1/albums/a1"] = { ok(album(id = "a1", trackIds = listOf("t1", "t2"))) }
+        routes["/v1/albums/a2"] = { ok(album(id = "a2", trackIds = listOf("t3"))) }
+        routes["/v1/artists/r1"] = { ok("""{"id":"r1","name":"Artist"}""") }
+        routes["/v1/artists/r1/albums"] = {
+            ok("""{"items":[{"id":"a1","name":"Album","release_date":"2020"}],"next":null,"total":1}""")
+        }
+        routes["/v1/me/albums"] = { ok("""{"items":[],"next":null,"total":0}""") }
+        routes["/v1/me/playlists"] = { ok("""{"items":[],"next":null,"total":0}""") }
+        routes["/v1/me/library"] = { MockResponse().setResponseCode(200) }
+    }
+
+    @After
+    fun tearDown() {
+        server.shutdown()
+    }
+
+    @Test
+    fun should_notFetchSavedAlbums_when_openingAlbumOrArtist() = runTest {
+        val source = newSource()
+
+        source.library().getAlbum(MediaId.spotify("a1"))
+        source.library().getArtist(MediaId.spotify("r1"))
+
+        assertEquals(0, requestsTo("/v1/me/albums"))
+    }
+
+    @Test
+    fun should_useEmbeddedTracks_when_albumTracksHaveNoNextPage() = runTest {
+        val source = newSource()
+
+        val album = source.library().getAlbum(MediaId.spotify("a1"))
+
+        assertEquals(listOf("t1", "t2"), album?.tracks?.map { it.id.rawId })
+        assertEquals(0, requestsTo("/v1/albums/a1/tracks"))
+    }
+
+    @Test
+    fun should_fetchOnlyLaterPages_when_embeddedAlbumTracksHaveNextPage() = runTest {
+        routes["/v1/albums/a1"] = {
+            ok(
+                album(
+                    id = "a1",
+                    trackIds = listOf("t1", "t2"),
+                    next = server.url("/v1/albums/a1/tracks?offset=2&limit=2").toString(),
+                    total = 5
+                )
+            )
+        }
+        routes["/v1/albums/a1/tracks?offset=2"] = { ok(trackPage(listOf("t3", "t4", "t5"))) }
+        val source = newSource()
+
+        val album = source.library().getAlbum(MediaId.spotify("a1"))
+
+        assertEquals(listOf("t1", "t2", "t3", "t4", "t5"), album?.tracks?.map { it.id.rawId })
+        val trackRequests = requests.filter { it.requestUrl?.encodedPath == "/v1/albums/a1/tracks" }
+        assertEquals(1, trackRequests.size)
+        assertEquals("50", trackRequests.single().requestUrl?.queryParameter("limit"))
+    }
+
+    @Test
+    fun should_shareOneRequest_when_savedTracksRequestedConcurrently() = runTest {
+        routes["/v1/me/tracks"] = {
+            Thread.sleep(200)
+            ok(savedTrackPage(listOf("t1")))
+        }
+        val source = newSource()
+
+        // A library sync's warm-up and a profile switch's prime, side by side.
+        listOf(
+            async { source.warmLibraryCaches() },
+            async { source.prime() },
+            async { source.warmLibraryCaches() }
+        ).awaitAll()
+        val album = source.library().getAlbum(MediaId.spotify("a1"))
+
+        assertEquals(1, requestsTo("/v1/me/tracks"))
+        // An album opened after takes its likes from that list.
+        assertTrue(album!!.tracks.single { it.id.rawId == "t1" }.isStarred)
+    }
+
+    @Test
+    fun should_notReadTheLibraryLists_when_openingAnAlbumOrPlaylistCold() = runTest {
+        savedTracks("t1")
+        routes["/v1/playlists/p1"] = {
+            ok(
+                """{"id":"p1","name":"Mix","owner":{"id":"me"},""" +
+                    """"items":{"items":[{"item":${track("t1")}}],"next":null,"total":1}}"""
+            )
+        }
+        val source = newSource()
+
+        val album = source.library().getAlbum(MediaId.spotify("a1"))
+        val playlist = source.library().getPlaylist(MediaId.spotify("p1"))
+
+        assertEquals(listOf("t1", "t2"), album?.tracks?.map { it.id.rawId })
+        assertEquals(listOf("t1"), playlist?.tracks?.map { it.id.rawId })
+        assertEquals(0, requestsTo("/v1/me/tracks"))
+        assertEquals(0, requestsTo("/v1/me/albums"))
+        assertEquals(0, requestsTo("/v1/me/following"))
+        // No list read yet: the like comes from the mirror and contains, after the page is out.
+        assertFalse(album!!.tracks.first().isStarred)
+    }
+
+    @Test
+    fun should_openTheAlbum_when_savedTracksFail() = runTest {
+        routes["/v1/me/tracks"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        val album = source.library().getAlbum(MediaId.spotify("a1"))
+
+        assertEquals(listOf("t1", "t2"), album?.tracks?.map { it.id.rawId })
+    }
+
+    @Test
+    fun should_sendOnlyTheSearchRequest_when_libraryListsAreCold() = runTest {
+        routes["/v1/search"] = { ok(searchResponse()) }
+        val source = newSource()
+
+        val results = source.library().search("radiohead")
+
+        assertEquals(listOf("/v1/search"), requests.map { it.requestUrl?.encodedPath })
+        assertEquals(listOf("t1"), results.tracks.map { it.id.rawId })
+        assertFalse(results.tracks.single().isStarred)
+        assertFalse(results.albums.single().isStarred)
+        assertFalse(results.artists.single().isStarred)
+    }
+
+    @Test
+    fun should_markSearchResults_when_libraryListsWereRead() = runTest {
+        savedTracks("t1")
+        routes["/v1/me/albums"] = {
+            val saved = """{"added_at":"2026-01-01T00:00:00Z","album":${album(id = "a1", trackIds = listOf("t1"))}}"""
+            ok("""{"items":[$saved],"next":null,"total":1}""")
+        }
+        routes["/v1/me/following"] = { ok("""{"artists":{"items":[{"id":"r1","name":"Artist"}],"next":null}}""") }
+        routes["/v1/search"] = { ok(searchResponse()) }
+        val source = newSource()
+        source.warmLibraryCaches()
+        val listReads = requests.size
+
+        val results = source.library().search("radiohead")
+
+        assertTrue(results.tracks.single().isStarred)
+        assertTrue(results.albums.single().isStarred)
+        assertTrue(results.artists.single().isStarred)
+        // The lists already read are not read again.
+        assertEquals(listOf("/v1/search"), requests.drop(listReads).map { it.requestUrl?.encodedPath })
+    }
+
+    @Test
+    fun should_markALikeMadeHere_when_searchingBeforeAnyListRead() = runTest {
+        routes["/v1/search"] = { ok(searchResponse()) }
+        val source = newSource()
+
+        assertTrue(source.writeActions().setFavorite(MediaId.spotify("t1"), favorite = true).isSuccess)
+        val results = source.library().search("radiohead")
+
+        assertTrue(results.tracks.single().isStarred)
+        assertEquals(0, requestsTo("/v1/me/tracks"))
+    }
+
+    @Test
+    fun should_readTheListsSideBySide_when_priming() = runTest {
+        val started = CountDownLatch(3)
+        val release = CountDownLatch(1)
+        fun answerOnRelease(body: String): () -> MockResponse = {
+            started.countDown()
+            release.await(5, TimeUnit.SECONDS)
+            ok(body)
+        }
+        routes["/v1/me/albums"] = answerOnRelease("""{"items":[],"next":null,"total":0}""")
+        routes["/v1/me/following"] = answerOnRelease("""{"artists":{"items":[],"next":null}}""")
+        routes["/v1/me/tracks"] = answerOnRelease(savedTrackPage(listOf("t1")))
+        val source = newSource()
+
+        val primed = async(Dispatchers.IO) { source.prime() }
+        // Every list's first page is out before any of them answers.
+        val allOut = started.await(5, TimeUnit.SECONDS)
+        release.countDown()
+        primed.await()
+
+        assertTrue(allOut)
+        // The same requests as one after another: one per list page, no playlists.
+        assertEquals(
+            listOf("/v1/me/albums", "/v1/me/following", "/v1/me/tracks"),
+            requests.mapNotNull { it.requestUrl?.encodedPath }.sorted()
+        )
+    }
+
+    @Test
+    fun should_keepTheOtherListsWarm_when_oneFailsWhilePriming() = runTest {
+        routes["/v1/me/albums"] = { MockResponse().setResponseCode(500) }
+        savedTracks("t1")
+        val source = newSource()
+
+        source.prime()
+        val album = source.library().getAlbum(MediaId.spotify("a1"))
+
+        assertTrue(album!!.tracks.single { it.id.rawId == "t1" }.isStarred)
+        assertEquals(1, requestsTo("/v1/me/tracks"))
+        assertEquals(1, requestsTo("/v1/me/following"))
+        // A failed list isn't read again within the prime.
+        assertEquals(1, requestsTo("/v1/me/albums"))
+    }
+
+    @Test
+    fun should_keepFavoriteDelta_when_cacheNotRefreshedYet() = runTest {
+        val source = newSource()
+        assertFalse(starredOf(source, "t1"))
+
+        assertTrue(source.writeActions().setFavorite(MediaId.spotify("t1"), favorite = true).isSuccess)
+
+        assertTrue(starredOf(source, "t1"))
+        // The like is laid over the cached list: /me/tracks is not read again.
+        assertEquals(1, requestsTo("/v1/me/tracks"))
+    }
+
+    @Test
+    fun should_keepFavoriteDelta_when_rereadLagsBehindWrite() = runTest {
+        val source = newSource()
+        source.writeActions().setFavorite(MediaId.spotify("t1"), favorite = true)
+
+        // Spotify has not applied the like yet when the library is re-read.
+        source.invalidateLibraryCaches()
+        assertTrue(starredOf(source, "t1"))
+
+        // Past the grace period a re-read that still disagrees wins.
+        now += SavedTrackDelta.DEFAULT_GRACE_MS
+        source.invalidateLibraryCaches()
+        assertFalse(starredOf(source, "t1"))
+    }
+
+    @Test
+    fun should_followRemote_when_rereadAfterWriteAgreed() = runTest {
+        val source = newSource()
+        source.writeActions().setFavorite(MediaId.spotify("t1"), favorite = true)
+        savedTracks("t1")
+        source.invalidateLibraryCaches()
+        assertTrue(starredOf(source, "t1"))
+
+        // Unliked in another app: the delta was settled by the read above, so
+        // the next read is believed straight away.
+        savedTracks()
+        source.invalidateLibraryCaches()
+        assertFalse(starredOf(source, "t1"))
+    }
+
+    @Test
+    fun should_readSavedTracksOnce_when_resyncLandsOnAReadInFlight() = runTest {
+        val savedTracksRequests = savedTracksBehindLatch()
+        val source = newSource()
+
+        // A profile switch's prime starts the saved-tracks read; a TTL re-sync lands on it.
+        val primed = async(Dispatchers.IO) { source.prime() }
+        assertTrue(savedTracksRequests.started.await(5, TimeUnit.SECONDS))
+        source.invalidateLibraryCaches(keepRecentLoads = true)
+        val warm = async(Dispatchers.IO) { source.warmLibraryCaches() }
+        savedTracksRequests.release.countDown()
+        primed.await()
+        warm.await()
+
+        assertEquals(1, requestsTo("/v1/me/tracks"))
+    }
+
+    @Test
+    fun should_tellWhenEachListWasRead_when_aResyncLandsOnAReadInFlight() = runTest {
+        val savedTracksRequests = savedTracksBehindLatch()
+        val source = newSource()
+        val primedAt = now
+
+        val primed = async(Dispatchers.IO) { source.prime() }
+        assertTrue(savedTracksRequests.started.await(5, TimeUnit.SECONDS))
+        now += 3_000L
+        source.invalidateLibraryCaches(keepRecentLoads = true)
+        val warm = async(Dispatchers.IO) { source.warmLibraryCaches() }
+        savedTracksRequests.release.countDown()
+        primed.await()
+        val readTimes = warm.await()
+
+        // The saved tracks are the prime's read, from before the re-sync; the playlists its own.
+        assertEquals(primedAt, readTimes.savedTracksMs)
+        assertEquals(primedAt + 3_000L, readTimes.playlistsMs)
+    }
+
+    @Test
+    fun should_readSavedTracksAgain_when_invalidateDropsTheReadInFlight() = runTest {
+        val savedTracksRequests = savedTracksBehindLatch()
+        val source = newSource()
+
+        val primed = async(Dispatchers.IO) { source.prime() }
+        assertTrue(savedTracksRequests.started.await(5, TimeUnit.SECONDS))
+        // A forced refresh, or one after a like: the read out may predate a write.
+        source.invalidateLibraryCaches()
+        val warm = async(Dispatchers.IO) { source.warmLibraryCaches() }
+        savedTracksRequests.release.countDown()
+        primed.await()
+        warm.await()
+
+        assertEquals(2, requestsTo("/v1/me/tracks"))
+    }
+
+    /** /me/tracks answers once [release] opens; [started] opens on its first request. */
+    private class Latches {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+    }
+
+    private fun savedTracksBehindLatch(): Latches = Latches().also { latches ->
+        routes["/v1/me/tracks"] = {
+            latches.started.countDown()
+            latches.release.await(5, TimeUnit.SECONDS)
+            ok(savedTrackPage(listOf("t1")))
+        }
+    }
+
+    @Test
+    fun should_shareRecentlyPlayed_when_activitiesAndShelfLoadTogether() = runTest {
+        routes["/v1/me/player/recently-played"] = {
+            Thread.sleep(100)
+            ok("""{"items":[{"played_at":"2026-10-01T00:00:00Z","track":${track("t1", album = "a1")}}]}""")
+        }
+        val source = newSource()
+
+        val history = async { source.getRecentlyPlayed(limit = 50) }
+        val shelf = async { source.library().getRecentlyPlayedAlbums(size = 20) }
+
+        assertEquals(1, history.await().size)
+        assertEquals(listOf("a1"), shelf.await().map { it.id.rawId })
+        assertEquals(1, requestsTo("/v1/me/player/recently-played"))
+        assertEquals(0, requestsTo("/v1/me/albums"))
+
+        now += 31_000L
+        source.getRecentlyPlayed(limit = 50)
+        assertEquals(2, requestsTo("/v1/me/player/recently-played"))
+    }
+
+    @Test
+    fun should_continueFromEmbeddedPage_when_playlistHasMoreEntries() = runTest {
+        routes["/v1/playlists/p1"] = {
+            ok(
+                """
+                {"id":"p1","name":"Mix","owner":{"id":"me"},
+                 "items":{"items":[{"item":${track("x1")}},{"item":${track("x2")}}],
+                          "next":"${server.url("/v1/playlists/p1/items?offset=2&limit=2")}","total":3}}
+                """.trimIndent()
+            )
+        }
+        // The deprecated `track` name still reads.
+        routes["/v1/playlists/p1/items?offset=2"] = {
+            ok("""{"items":[{"track":${track("x3")}}],"next":null,"total":3}""")
+        }
+        val source = newSource()
+
+        val playlist = source.library().getPlaylist(MediaId.spotify("p1"))
+
+        assertEquals(listOf("x1", "x2", "x3"), playlist?.tracks?.map { it.id.rawId })
+        assertTrue(playlist?.canWrite == true)
+        assertEquals(2, source.resolvePlaylistContextOffset(MediaId.spotify("p1"), visibleStartIndex = 2))
+        val itemRequests = requests.filter { it.requestUrl?.encodedPath == "/v1/playlists/p1/items" }
+        assertEquals(listOf("2"), itemRequests.map { it.requestUrl?.queryParameter("offset") })
+    }
+
+    @Test
+    fun should_returnNull_when_artistAndItsReleasesNotFound() = runTest {
+        // The lookup answers first and the cancelled releases read fails after it...
+        routes["/v1/artists/gone"] = { notFound() }
+        routes["/v1/artists/gone/albums"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        // ...or the releases read fails while the lookup is still out.
+        routes["/v1/artists/gone2"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        routes["/v1/artists/gone2/albums"] = { notFound() }
+        val source = newSource()
+
+        assertNull(source.library().getArtist(MediaId.spotify("gone")))
+        assertNull(source.library().getArtist(MediaId.spotify("gone2")))
+    }
+
+    @Test
+    fun should_returnNullWithoutReadingSavedTracks_when_albumNotFound() = runTest {
+        // The saved-tracks list fails and would answer before the 404: an
+        // album open that awaited it would turn this null into an error.
+        routes["/v1/albums/gone"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        routes["/v1/me/tracks"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        assertNull(source.library().getAlbum(MediaId.spotify("gone")))
+        assertEquals(0, requestsTo("/v1/me/tracks"))
+    }
+
+    @Test
+    fun should_returnNull_when_playlistNotFoundAndProfileReadFails() = runTest {
+        routes["/v1/playlists/gone"] = {
+            Thread.sleep(200)
+            notFound()
+        }
+        routes["/v1/me"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        assertNull(source.library().getPlaylist(MediaId.spotify("gone")))
+    }
+
+    @Test
+    fun should_fail_when_artistFoundButReleasesFail() = runTest {
+        routes["/v1/artists/r1/albums"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        val error = runCatching { source.library().getArtist(MediaId.spotify("r1")) }.exceptionOrNull()
+
+        assertEquals(500, (error as? SpotifyAuthException)?.code)
+    }
+
+    @Test
+    fun should_reportUnsettledLike_when_noSavedTracksReadSinceIt() = runTest {
+        val source = newSource()
+        starredOf(source, "t1")
+
+        source.writeActions().setFavorite(MediaId.spotify("t1"), favorite = true)
+        assertTrue(source.hasUnsettledFavoriteWrites())
+
+        savedTracks("t1")
+        source.invalidateLibraryCaches()
+        starredOf(source, "t1")
+        assertFalse(source.hasUnsettledFavoriteWrites())
+    }
+
+    @Test
+    fun should_markOwnedByMe_when_ownerIdIsTheUser() = runTest {
+        routes["/v1/me/playlists"] = { ok(ownershipPlaylists()) }
+
+        val playlists = newSource().library().getPlaylists().associateBy { it.id.rawId }
+
+        assertEquals(true, playlists.getValue("mine").ownedByMe)
+        assertEquals(false, playlists.getValue("theirs").ownedByMe)
+        assertNull(playlists.getValue("nameless").ownedByMe)
+        val canWrite = listOf("mine", "theirs", "nameless").map { playlists.getValue(it).canWrite }
+        assertEquals(listOf(true, false, false), canWrite)
+    }
+
+    @Test
+    fun should_readOwnershipAsCanWrite_when_playlistComesBackFromTheLibraryCache() = runTest {
+        routes["/v1/me/playlists"] = { ok(ownershipPlaylists()) }
+        val synced = newSource().library().getPlaylists()
+
+        // The cache keeps canWrite only. It is the same owner.id == me comparison,
+        // so it reads back as ownership; a playlist with no owner id cached false.
+        val cached = synced.map { it.toSpotifyLibraryPlaylistCache(profileId = "p", cachedAt = 0L).toPlaylist() }
+            .associateBy { it.id.rawId }
+
+        cached.values.forEach { assertEquals(it.canWrite, it.ownedByMe) }
+        assertEquals(true, cached.getValue("mine").ownedByMe)
+        assertEquals(false, cached.getValue("theirs").ownedByMe)
+        assertEquals(false, cached.getValue("nameless").ownedByMe)
+        synced.filter { it.ownedByMe != null }.forEach { network ->
+            assertEquals(network.ownedByMe, cached.getValue(network.id.rawId).ownedByMe)
+        }
+    }
+
+    @Test
+    fun should_ownTheNewPlaylist_when_userCreatesOne() = runTest {
+        routes["/v1/me/playlists"] = { ok("""{"id":"new","name":"New","owner":{"id":"me"}}""") }
+
+        val created = newSource().writeActions().createPlaylist("New", null).getOrThrow()
+
+        assertEquals(true, created.ownedByMe)
+        assertTrue(created.canWrite)
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────
+
+    /** The user's own playlist, one they follow, and one whose owner has no id. */
+    private fun ownershipPlaylists(): String = """{"items":[""" +
+        """{"id":"mine","name":"Mine","owner":{"id":"me"}},""" +
+        """{"id":"theirs","name":"Theirs","owner":{"id":"someone"}},""" +
+        """{"id":"nameless","name":"Nameless","owner":{"display_name":"Nobody"}}""" +
+        """],"next":null,"total":3}"""
+
+    private fun newSource(): SpotifyMusicSource {
+        val httpClient = OkHttpClient()
+        val baseUrl = server.url("/")
+        return SpotifyMusicSource(
+            initialCredentials = spotifyTestCredentials(
+                accessToken = "t1",
+                refreshToken = "r1",
+                expiresAtEpochMs = Long.MAX_VALUE / 2
+            ),
+            clientIdProvider = { "test-client" },
+            onCredentialsPersisted = {},
+            httpClient = httpClient,
+            authService = SpotifyAuthService(httpClient = httpClient, authBaseUrl = baseUrl, apiBaseUrl = baseUrl),
+            apiBaseUrl = baseUrl,
+            clock = { now }
+        )
+    }
+
+    /**
+     * The track's like as album a1 shows it once the lists are read — the
+     * library sync's warm-up; an album open only takes the list on hand.
+     */
+    private suspend fun starredOf(source: SpotifyMusicSource, trackId: String): Boolean {
+        source.warmLibraryCaches()
+        return source.library().getAlbum(MediaId.spotify("a1"))!!.tracks.single { it.id.rawId == trackId }.isStarred
+    }
+
+    private fun savedTracks(vararg trackIds: String) {
+        routes["/v1/me/tracks"] = { ok(savedTrackPage(trackIds.toList())) }
+    }
+
+    private fun requestsTo(path: String): Int = requests.count { it.requestUrl?.encodedPath == path }
+
+    private fun ok(body: String) = MockResponse().setResponseCode(200).setBody(body)
+
+    private fun notFound() = MockResponse().setResponseCode(404).setBody("""{"error":{"status":404}}""")
+
+    private fun track(id: String, album: String? = null): String {
+        val albumJson = album?.let { ""","album":{"id":"$it","name":"Album $it"}""" }.orEmpty()
+        return """{"id":"$id","name":"Song $id","artists":[{"id":"r1","name":"Artist"}]$albumJson}"""
+    }
+
+    private fun trackPage(trackIds: List<String>, next: String? = null, total: Int = trackIds.size): String =
+        """{"items":[${trackIds.joinToString(",") { track(it) }}],"next":${next?.let { "\"$it\"" }},"total":$total}"""
+
+    private fun savedTrackPage(trackIds: List<String>): String {
+        val items = trackIds.joinToString(",") { """{"added_at":"2026-01-01T00:00:00Z","track":${track(it)}}""" }
+        return """{"items":[$items],"next":null,"total":${trackIds.size}}"""
+    }
+
+    /** One track (t1), album (a1) and artist (r1) found. */
+    private fun searchResponse(): String {
+        val album = """{"id":"a1","name":"Album a1","artists":[{"id":"r1","name":"Artist"}]}"""
+        return """{"tracks":${trackPage(listOf("t1"))},""" +
+            """"albums":{"items":[$album],"next":null,"total":1},""" +
+            """"artists":{"items":[{"id":"r1","name":"Artist"}],"next":null,"total":1},""" +
+            """"playlists":{"items":[],"next":null,"total":0}}"""
+    }
+
+    private fun album(id: String, trackIds: List<String>, next: String? = null, total: Int = trackIds.size): String =
+        """{"id":"$id","name":"Album $id","artists":[{"id":"r1","name":"Artist"}],"total_tracks":$total,""" +
+            """"tracks":${trackPage(trackIds, next, total)}}"""
+}

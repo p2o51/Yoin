@@ -497,13 +497,23 @@ private class OpenBottomShape(private val inner: Shape) : Shape {
  */
 @Composable
 internal fun animateSelectedRowShape(selected: Boolean): Shape {
-    val rowShape = LocalSettingsRowShape.current
-    val selectedShape = LocalSettingsRowSelectedShape.current
     val fraction by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
         animationSpec = YoinMotion.spatialSpring(),
         label = "rowSelectionShape",
     )
+    return selectedRowShape(fraction)
+}
+
+/**
+ * The row's segment shape [fraction] of the way to the detached all-round
+ * shape (0: the row's, 1: selected), for a caller that springs the
+ * selection itself.
+ */
+@Composable
+internal fun selectedRowShape(fraction: Float): Shape {
+    val rowShape = LocalSettingsRowShape.current
+    val selectedShape = LocalSettingsRowSelectedShape.current
     return when (fraction) {
         0f -> rowShape
         1f -> selectedShape

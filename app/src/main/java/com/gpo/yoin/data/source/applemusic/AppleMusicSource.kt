@@ -26,13 +26,21 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -48,24 +56,37 @@ class AppleMusicSource(
     private val api: AppleMusicApiClient = AppleMusicApiClient(tokenProvider::token, { credentials.musicUserToken })
 ) : MusicSource, MusicLibrary, MusicMetadata, MusicWriteActions, MusicPlayback {
     override val id = MediaId.PROVIDER_APPLE_MUSIC
-    override val capabilities = setOf(
-        Capability.SEARCH,
-        Capability.CATALOG_SEARCH,
-        Capability.LIBRARY_ADD,
-        Capability.LIBRARY_SONGS,
-        Capability.PLAYLISTS_READ
-    )
+    override val capabilities: Set<Capability> = ServiceFeatureCatalog.appleMusic.capabilities
 
     @Volatile var playbackDeveloperToken: String = ""
         private set
-    private var storefront: String? = null
+
+    @Volatile private var storefront: String? = null
+    private val storefrontMutex = Mutex()
+
+    // Apple answered recent/played's catalog include with a 400: later reads leave it out.
+    @Volatile private var recentPlayedRefusesCatalog = false
+
+    // Apple answered a catalog album's include[songs]=…,library with a 400 and the same read without the songs'
+    // `library` with the album: later albums leave it out.
+    @Volatile private var albumSongsRefuseLibrary = false
     private val libraryMutationMutex = Mutex()
     private val pendingLibraryAdds = ConcurrentHashMap.newKeySet<String>()
 
     suspend fun refreshPlaybackToken() {
         playbackDeveloperToken = tokenProvider.token()
     }
-    private suspend fun storefront(): String = storefront ?: api.storefront().also { storefront = it }
+
+    /**
+     * The account's storefront, read once per source. Every catalog request needs it, and a source that goes
+     * live without it (a delete's hand-off, a cold start: neither runs [ping]) used to send one storefront
+     * request per album its Home refresh read, 46 at once, which Apple answered with 429s. The first caller
+     * reads it and the rest wait for that answer; a failed read leaves it unread for the next caller.
+     */
+    private suspend fun storefront(): String = storefront ?: storefrontMutex.withLock {
+        storefront ?: api.storefront().also { storefront = it }
+    }
+
     override fun library() = this
     override fun metadata() = this
     override fun writeActions() = this
@@ -87,15 +108,34 @@ class AppleMusicSource(
         path: List<String>,
         query: Map<String, String> = emptyMap(),
         next: String? = null,
-        personal: Boolean = path.getOrNull(1) == "me"
-    ) = api.resourcePage(path, personal, query, next)
+        personal: Boolean = path.getOrNull(1) == "me",
+        excludedQueryParameters: Set<String> = emptySet()
+    ) = api.resourcePage(path, personal, query, next, excludedQueryParameters)
 
-    private suspend fun all(path: List<String>, query: Map<String, String> = emptyMap()): List<JsonObject> {
+    /**
+     * Every page of [path]. With a [fallback], a page Apple refuses as it may refuse an include
+     * ([mayRefuseInclude]) is retried at the same position with [fallback]. Later pages also use
+     * [fallback], excluding options dropped from [query] even if their next links carry them.
+     */
+    private suspend fun all(
+        path: List<String>,
+        query: Map<String, String> = emptyMap(),
+        fallback: Map<String, String>? = null
+    ): List<JsonObject> {
         val result = mutableListOf<JsonObject>()
         val visited = mutableSetOf<String>()
+        var pageQuery = query
+        var excludedQueryParameters = emptySet<String>()
         var next: String? = null
         do {
-            val response = page(path, query, next)
+            val response = try {
+                page(path, pageQuery, next, excludedQueryParameters = excludedQueryParameters)
+            } catch (error: AppleMusicApiException) {
+                if (fallback == null || pageQuery == fallback || !error.mayRefuseInclude()) throw error
+                pageQuery = fallback
+                excludedQueryParameters = query.keys - fallback.keys
+                page(path, pageQuery, next, excludedQueryParameters = excludedQueryParameters)
+            }
             result += response.resources()
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
@@ -103,14 +143,28 @@ class AppleMusicSource(
         return result
     }
 
-    /** recent/played mixes albums, playlists and stations, 10 a page: keep the albums. */
+    /**
+     * recent/played mixes albums, playlists and stations, 10 a page: keep the albums. A library album comes
+     * with its catalog album ([RecentPlayedCatalogQuery]), so it carries the catalog id it opens as and the
+     * user's ratings are kept under, as the library album list's do. Refused, the include costs only that:
+     * the page is read again without it (and, after a 400, later reads leave it out).
+     */
     override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> {
         if (size <= 0) return emptyList()
+        val path = listOf("v1", "me", "recent", "played")
         val albums = mutableListOf<Album>()
         val visited = mutableSetOf<String>()
+        var query = if (recentPlayedRefusesCatalog) RecentPlayedPageQuery else RecentPlayedCatalogQuery
         var next: String? = null
         do {
-            val response = page(listOf("v1", "me", "recent", "played"), mapOf("limit" to "10"), next)
+            val response = try {
+                page(path, query, next)
+            } catch (error: AppleMusicApiException) {
+                if (next != null || query == RecentPlayedPageQuery || !error.mayRefuseInclude()) throw error
+                if ((error.failure as? AppleMusicApiFailure.Http)?.status == 400) recentPlayedRefusesCatalog = true
+                query = RecentPlayedPageQuery
+                page(path, query, null)
+            }
             albums += response.resources().filter { it.text("type") in setOf("albums", "library-albums") }.map(::album)
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
@@ -124,8 +178,8 @@ class AppleMusicSource(
         val recent = type == "newest"
         val requestPath = if (recent) listOf("v1", "me", "library", "recently-added") else path("albums")
         // The catalog relationship lets a library album open as the full catalog album.
-        val query = if (recent) {
-            emptyMap()
+        var query = if (recent) {
+            RecentlyAddedPageQuery
         } else {
             mapOf("include" to "catalog", "limit" to "100", "offset" to offset.coerceAtLeast(0).toString())
         }
@@ -134,7 +188,15 @@ class AppleMusicSource(
         val skip = if (recent) offset.coerceAtLeast(0) else 0
         var next: String? = null
         do {
-            val response = page(requestPath, query, next)
+            val response = try {
+                page(requestPath, query, next)
+            } catch (error: AppleMusicApiException) {
+                // recently-added does not document its page size: if Apple refuses ours, page at its default.
+                val refused = (error.failure as? AppleMusicApiFailure.Http)?.status == 400
+                if (!recent || next != null || query.isEmpty() || !refused) throw error
+                query = emptyMap()
+                page(requestPath, query, null)
+            }
             albums += response.resources().filter { it.text("type") in setOf("albums", "library-albums") }.map(::album)
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
@@ -150,73 +212,122 @@ class AppleMusicSource(
      * for one catalog song, which would otherwise collide as one list key.
      */
     override suspend fun getAlbum(id: MediaId): Album? {
-        if (!id.rawId.startsWith("library:")) return catalogAlbum(id, libraryAlbumPath = null)
+        if (!id.rawId.startsWith("library:")) return catalogAlbum(id, libraryCopyTracks = null)
         val path = path("albums", id)
-        val resource = page(path, mapOf("include" to "artists,catalog")).resources().firstOrNull() ?: return null
-        val catalog = resource.related("catalog").firstOrNull { it.text("type") == "albums" }
-        if (catalog != null) {
-            try {
-                catalogAlbum(catalog.mediaId(), libraryAlbumPath = path)?.let { return it }
-            } catch (error: AppleMusicApiException) {
-                // A catalog match the storefront no longer serves still has the user's own tracklist.
-                if (error.failsCatalogToo()) throw error
+        return coroutineScope {
+            // The user's own tracklist is read however the album opens (the catalog album's marks, or the
+            // tracklist itself), and its path is known already: read it alongside the album, once.
+            val libraryTracks = async { attempt { all(path + "tracks", LibraryTracksQuery) } }
+            val resource = page(path, mapOf("include" to "artists,catalog")).resources().firstOrNull() ?: run {
+                libraryTracks.cancel()
+                return@coroutineScope null
             }
+            val catalog = resource.related("catalog").firstOrNull { it.text("type") == "albums" }
+            if (catalog != null) {
+                try {
+                    catalogAlbum(catalog.mediaId(), libraryTracks)?.let { return@coroutineScope it }
+                } catch (error: AppleMusicApiException) {
+                    // A catalog match the storefront no longer serves still has the user's own tracklist.
+                    if (error.failsCatalogToo()) throw error
+                }
+            }
+            // Unmatched, or matched to a catalog album that would not open: the library album is its own identity.
+            val mappedAlbum = album(resource).copy(id = id)
+            val tracks = libraryTracks.await().getOrThrow().songTracks()
+                .map { track ->
+                    track.copy(albumId = track.albumId ?: id, artistId = track.artistId ?: mappedAlbum.artistId)
+                }
+                .distinctBy { it.id }
+            mappedAlbum.withTracks(tracks)
         }
-        // Unmatched, or matched to a catalog album that would not open: the library album is its own identity.
-        val mappedAlbum = album(resource).copy(id = id)
-        val tracks = all(path + "tracks", mapOf("include" to "catalog")).songTracks()
-            .map { track -> track.copy(albumId = track.albumId ?: id, artistId = track.artistId ?: mappedAlbum.artistId) }
-            .distinctBy { it.id }
-        return mappedAlbum.withTracks(tracks)
     }
 
-    private suspend fun catalogAlbum(id: MediaId, libraryAlbumPath: List<String>?): Album? {
+    /**
+     * [libraryCopyTracks] is the read of the library album this catalog album was opened from, already in
+     * flight; without it (opened from the catalog, e.g. search) the copy comes from the `library` relationship.
+     */
+    private suspend fun catalogAlbum(id: MediaId, libraryCopyTracks: TracklistRead?): Album? = coroutineScope {
         val path = path("albums", id)
         // `library` is the user's copy of this catalog album; it needs the Music User Token.
         var libraryKnown = true
-        val resource = try {
-            page(path, mapOf("include" to "artists,library"), personal = true).resources().firstOrNull()
+        var tracklistRead: TracklistRead? = null
+        val query = if (albumSongsRefuseLibrary) CatalogAlbumWithSongsQuery else CatalogAlbumWithSongLibraryQuery
+        val response = try {
+            page(path, query, personal = true)
         } catch (error: AppleMusicApiException) {
-            // Membership only marks rows. Apple fails this personal lookup with 400, and with 500 for catalog
-            // albums it serves fine without it (207192046 from search, 2026-10-09): open the album unmarked.
             if (error.failsCatalogToo()) throw error
-            libraryKnown = false
-            page(path, mapOf("include" to "artists")).resources().firstOrNull()
-        } ?: return null
+            var failure = error
+            // A 400 may be Apple refusing the songs' `library`, or one of the 400s the reads below were built
+            // for: the album's own `library` lookup, or the songs' albums and artists. Only the same read without
+            // the songs' `library` tells them apart, and only its answer stops later albums asking for it.
+            val refused = (error.failure as? AppleMusicApiFailure.Http)?.status == 400
+            val withoutSongsLibrary = if (query === CatalogAlbumWithSongLibraryQuery && refused) {
+                try {
+                    page(path, CatalogAlbumWithSongsQuery, personal = true).also { albumSongsRefuseLibrary = true }
+                } catch (retryError: AppleMusicApiException) {
+                    if (retryError.failsCatalogToo()) throw retryError
+                    failure = retryError
+                    null
+                }
+            } else {
+                null
+            }
+            withoutSongsLibrary ?: run {
+                // Nothing read below asks for the songs' relationships, so the tracklist is a request of its
+                // own: start it now instead of after the album.
+                tracklistRead = async { attempt { catalogTracks(path) } }
+                personalAlbumWithoutSongs(path, failure) ?: run {
+                    // Membership only marks rows. Apple fails this personal lookup with 400, and with 500 for
+                    // catalog albums it serves fine without it (207192046 from search, 2026-10-09): open the
+                    // album unmarked.
+                    libraryKnown = false
+                    page(path, mapOf("include" to "artists"))
+                }
+            }
+        }
+        val resource = response.resources().firstOrNull() ?: run {
+            tracklistRead?.cancel()
+            return@coroutineScope null
+        }
         val mappedAlbum = album(resource)
-        val libraryPath = libraryAlbumPath
-            ?: resource.related("library").firstOrNull { it.text("type") == "library-albums" }
-                ?.let { path("albums", it.mediaId()) }
+        // The user's copy and the catalog tracklist don't depend on each other: both are read at once. Each
+        // outcome is then taken in the order a one-after-the-other read had, so the same failure wins.
+        val libraryRead = libraryCopyTracks
+            ?: resource.related("library").firstOrNull { it.text("type") == "library-albums" }?.let { copy ->
+                async { attempt { all(path("albums", copy.mediaId()) + "tracks", LibraryTracksQuery) } }
+            }
+        val catalogRead = tracklistRead
+            ?: resource.embeddedTracks()?.let { CompletableDeferred(Result.success(it)) }
+            ?: async { attempt { catalogTracks(path) } }
         // First library copy wins when Apple holds two library songs for one catalog song.
         val libraryIdsByCatalogId = mutableMapOf<String, String>()
         var libraryTracksRead = true
-        libraryPath?.let { libraryTracks ->
-            try {
-                all(libraryTracks + "tracks", mapOf("include" to "catalog")).songTracks().forEach { track ->
-                    val catalogId = track.extras[AppleMusicSong.EXTRA_CATALOG_ID] ?: return@forEach
-                    val libraryId = track.extras[AppleMusicSong.EXTRA_LIBRARY_ID] ?: return@forEach
-                    libraryIdsByCatalogId.putIfAbsent(catalogId, libraryId)
-                }
-            } catch (error: AppleMusicApiException) {
-                if (error.failsCatalogToo()) throw error
-                libraryIdsByCatalogId.clear()
-                libraryTracksRead = false
+        libraryRead?.await()?.onSuccess { libraryTracks ->
+            libraryTracks.songTracks().forEach { track ->
+                val catalogId = track.extras[AppleMusicSong.EXTRA_CATALOG_ID] ?: return@forEach
+                val libraryId = track.extras[AppleMusicSong.EXTRA_LIBRARY_ID] ?: return@forEach
+                libraryIdsByCatalogId.putIfAbsent(catalogId, libraryId)
             }
+        }?.onFailure { error ->
+            if (error !is AppleMusicApiException || error.failsCatalogToo()) throw error
+            libraryTracksRead = false
         }
-        val tracks = try {
-            all(path + "tracks", mapOf("include" to "albums,artists"))
-        } catch (error: AppleMusicApiException) {
-            // Apple 500s some tracklists' included relationships (catalog 207192046 from search, 2026-10-09)
-            // while serving the bare tracks; those fall back to this album and its artist below.
-            if (error.failure !is AppleMusicApiFailure.Http) throw error
-            all(path + "tracks", emptyMap())
-        }.songTracks()
+        // A row whose song came with its own `library` relationship knows its membership already
+        // (AppleMusicSong.libraryChecked). The others go by the user's copy: its tracklist when one was read,
+        // or none at all when Apple answered the album's `library` relationship naming no copy. Apple can also
+        // leave that relationship out while the library holds a copy (POP DELIVERY, whose copy has one song,
+        // 2026-10-11): that says nothing, so those rows stay unconfirmed ("false"), never all "not added".
+        val copyKnown = libraryTracksRead &&
+            (libraryCopyTracks != null || libraryKnown && resource.answers("library"))
+        val tracks = catalogRead.await().getOrThrow().songTracks()
             .distinctBy { it.id }
             .map { track ->
                 val extras = track.extras.toMutableMap()
                 libraryIdsByCatalogId[track.id.rawId]?.let { extras[AppleMusicSong.EXTRA_LIBRARY_ID] = it }
-                if (libraryTracksRead && (libraryKnown || libraryAlbumPath != null)) {
-                    extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "true"
+                when {
+                    extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] == "true" -> Unit
+                    copyKnown -> extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "true"
+                    libraryKnown && libraryTracksRead -> extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "false"
                 }
                 track.copy(
                     albumId = track.albumId ?: id,
@@ -224,7 +335,53 @@ class AppleMusicSource(
                     extras = extras
                 )
             }
-        return mappedAlbum.withTracks(tracks)
+        mappedAlbum.withTracks(tracks)
+    }
+
+    /**
+     * The personal album read again without the songs' relationships, when [failure] could have been Apple
+     * refusing that include (a 400, or a 5xx like those it answers some tracklists' includes with). Null when
+     * that is not the failure, or the read fails again.
+     */
+    private suspend fun personalAlbumWithoutSongs(path: List<String>, failure: AppleMusicApiException): JsonObject? {
+        if (!failure.mayRefuseInclude()) return null
+        return try {
+            page(path, CatalogAlbumQuery, personal = true)
+        } catch (error: AppleMusicApiException) {
+            if (error.failsCatalogToo()) throw error
+            null
+        }
+    }
+
+    /** The album's catalog tracklist, with its albums and artists when Apple will include them. */
+    private suspend fun catalogTracks(path: List<String>): List<JsonObject> = try {
+        all(path + "tracks", mapOf("include" to SongRelationshipsInclude))
+    } catch (error: AppleMusicApiException) {
+        // Apple 500s some tracklists' included relationships (catalog 207192046 from search, 2026-10-09)
+        // while serving the bare tracks; those fall back to this album and its artist below.
+        if (error.failure !is AppleMusicApiFailure.Http) throw error
+        all(path + "tracks", emptyMap())
+    }
+
+    /**
+     * [block]'s outcome as a Result, so one of two parallel reads failing doesn't cancel the other before the
+     * caller has weighed both. Cancellation still propagates.
+     */
+    private suspend fun <T> attempt(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
+    /**
+     * What Apple answers a request whose include it won't serve with: a 400, or a 5xx like those it answers
+     * some tracklists' includes with. A token, access or rate-limit failure is never that.
+     */
+    private fun AppleMusicApiException.mayRefuseInclude(): Boolean {
+        val status = (failure as? AppleMusicApiFailure.Http)?.status ?: return false
+        return status == 400 || status >= 500
     }
 
     /** A token or rate-limit failure fails the plain catalog request as well; any other failure is the lookup's. */
@@ -241,15 +398,27 @@ class AppleMusicSource(
         durationSec = tracks.sumOf { it.durationSec ?: 0 }
     )
 
-    override suspend fun getArtists(): List<ArtistIndex> = all(path("artists")).map(::artist)
-        .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
-        .map { (letter, artists) -> ArtistIndex(letter, artists) }
+    // An include Apple refuses costs the portraits, never the list: the artists are read again without it.
+    override suspend fun getArtists(): List<ArtistIndex> =
+        all(path("artists"), LibraryArtistsQuery, fallback = PageLimitQuery).map(::artist)
+            .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
+            .map { (letter, artists) -> ArtistIndex(letter, artists) }
 
     override suspend fun getArtist(id: MediaId): ArtistDetail? {
         val path = path("artists", id)
-        val resource = page(path).resources().firstOrNull() ?: return null
+        // A library artist's portrait is its catalog artist's; a catalog artist carries its own.
+        val query = if (id.rawId.startsWith("library:")) LibraryArtistQuery else emptyMap()
+        val response = try {
+            page(path, query)
+        } catch (error: AppleMusicApiException) {
+            // Refused, the include costs the portrait only: the page opens on its first release's cover.
+            if (query.isEmpty() || !error.mayRefuseInclude()) throw error
+            page(path)
+        }
+        val resource = response.resources().firstOrNull() ?: return null
         val artist = artist(resource)
-        val albums = all(path + "albums").map(::album)
+        // The albums relationship pages 25 by default, 100 at most.
+        val albums = all(path + "albums", PageLimitQuery).map(::album)
         return ArtistDetail(artist.id, artist.name, albums.size, artist.coverArt, albums = albums)
     }
 
@@ -422,6 +591,9 @@ class AppleMusicSource(
         require(track.id.provider == id)
         val catalogId = track.extras["appleMusicCatalogId"] ?: track.id.rawId.takeIf { it.matches(Regex("[0-9]+")) }
         requireNotNull(catalogId) { "This imported song has no Apple Music catalog version. Play it in Apple Music." }
+        // Handed over anyway, MusicKit would drop the id and start a song further on. The refusal carries no
+        // text of its own, so PlaybackManager shows its localized "Unable to play this song" for it.
+        if (track.extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE] == "true") throw IllegalArgumentException()
         return PlaybackHandle.ExternalController(PlaybackHandle.ControllerType.APPLE_MUSIC_KIT, catalogId)
     }
 
@@ -442,6 +614,31 @@ class AppleMusicSource(
         private fun JsonObject.resources() = get("data")?.jsonArray.orEmpty().map { it.jsonObject }
         private fun JsonObject.related(name: String) =
             get("relationships")?.jsonObject?.get(name)?.jsonObject?.resources().orEmpty()
+
+        /** Whether the response carries the [name] relationship's answer, even an empty one. */
+        private fun JsonObject.answers(name: String): Boolean =
+            ((get("relationships") as? JsonObject)?.get(name) as? JsonObject)?.get("data") is JsonArray
+
+        /**
+         * The album's whole tracklist as its own response embeds it (Albums `tracks` includes objects, 300 at
+         * most), or null when the tracklist must be read on its own: the relationship has a `next` page, is
+         * missing or empty, or a song lacks its attributes or the album and artist relationships the
+         * tracklist request includes.
+         */
+        private fun JsonObject.embeddedTracks(): List<JsonObject>? {
+            val tracks = (get("relationships") as? JsonObject)?.get("tracks") as? JsonObject ?: return null
+            if ((tracks["next"] as? JsonPrimitive)?.contentOrNull != null) return null
+            val data = (tracks["data"] as? JsonArray)?.map { it as? JsonObject ?: return null }
+            if (data.isNullOrEmpty()) return null
+            val songsComplete = data.filter { it.text("type") == "songs" }.all { song ->
+                val relationships = song["relationships"] as? JsonObject
+                song["attributes"] is JsonObject &&
+                    SongRelationships.all { name ->
+                        (relationships?.get(name) as? JsonObject)?.get("data") is JsonArray
+                    }
+            }
+            return data.takeIf { songsComplete }
+        }
         private fun JsonObject.attributes() = get("attributes")?.jsonObject ?: JsonObject(emptyMap())
         private fun JsonObject.mediaId() = MediaId(
             MediaId.PROVIDER_APPLE_MUSIC,
@@ -457,12 +654,22 @@ class AppleMusicSource(
             return Album(
                 catalog?.mediaId() ?: resource.mediaId(), a.text("name").orEmpty(), a.text("artistName"), artist?.mediaId(), a.cover(),
                 a["trackCount"]?.jsonPrimitive?.intOrNull, null, a.text("releaseDate")?.take(4)?.toIntOrNull(),
-                a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded")
+                a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
+                libraryAddedAt = a.text("dateAdded")
             )
         }
+
+        /**
+         * A library artist keeps its library id (it opens its library artist page), but has no artwork of its
+         * own: its portrait is the catalog artist's, when the request included the `catalog` relationship.
+         */
         internal fun artist(resource: JsonObject): Artist {
             val a = resource.attributes()
-            return Artist(resource.mediaId(), a.text("name").orEmpty(), null, a.cover())
+            val portrait = a.cover() ?: resource.related("catalog")
+                .firstOrNull { it.text("type") == "artists" }
+                ?.attributes()
+                ?.cover()
+            return Artist(resource.mediaId(), a.text("name").orEmpty(), null, portrait)
         }
         internal fun playlist(resource: JsonObject): Playlist {
             val a = resource.attributes()
@@ -474,11 +681,75 @@ class AppleMusicSource(
                 null,
                 null,
                 canWrite = false,
-                comment = a["description"]?.jsonObject?.text("standard")
+                comment = a["description"]?.jsonObject?.text("standard"),
+                // A library playlist's; a catalog playlist has none.
+                libraryAddedAt = a.text("dateAdded"),
+                // Apple names no owner, but only the user's own library playlists are editable
+                // (its Purchased and Favorites Mix are not). Never canWrite: Yoin writes none.
+                ownedByMe = if (resource.text("type") == "library-playlists") {
+                    a["canEdit"]?.jsonPrimitive?.booleanOrNull
+                } else {
+                    null
+                }
             )
         }
     }
 }
 
+/** One tracklist read in flight, its failure kept as a Result for the caller to weigh (`attempt`). */
+private typealias TracklistRead = Deferred<Result<List<JsonObject>>>
+
 /** recent/played pages (10 each) read at most: Apple keeps only a short history anyway. */
 private const val RecentPlayedMaxPages = 5
+
+/** recent/played's largest page. */
+private val RecentPlayedPageQuery = mapOf("limit" to "10")
+
+/**
+ * [RecentPlayedPageQuery] with each library album's catalog album. Scoped to `library-albums` (Apple's
+ * "Scoping Parameters"): the page mixes in catalog albums, playlists and stations, which have no
+ * `catalog` relationship to include.
+ */
+private val RecentPlayedCatalogQuery = RecentPlayedPageQuery + ("include[library-albums]" to "catalog")
+
+/** Apple's largest page for library collections and the artist albums relationship (default 25). */
+private val PageLimitQuery = mapOf("limit" to "100")
+
+/** A library artist with its catalog artist, the only one of the two that has a portrait. */
+private val LibraryArtistQuery = mapOf("include" to "catalog")
+
+/** Library › Artists: full pages, each artist with its catalog artist ([LibraryArtistQuery]). */
+private val LibraryArtistsQuery = PageLimitQuery + LibraryArtistQuery
+
+/** A library album's tracks, each with its catalog song: what marks the catalog album's rows. */
+private val LibraryTracksQuery = mapOf("include" to "catalog")
+
+/** The relationships a tracklist's songs carry: their album and artist, as navigation targets. */
+private val SongRelationships = listOf("albums", "artists")
+private val SongRelationshipsInclude = SongRelationships.joinToString(",")
+
+/** The catalog album with its artists and the user's copy (`library` needs the Music User Token). */
+private val CatalogAlbumQuery = mapOf("include" to "artists,library")
+
+/**
+ * [CatalogAlbumQuery] with the songs' relationships as well. A type-scoped include applies to every
+ * resource of that type in the response (Apple's "Scoping Parameters"), so the songs embedded in the
+ * album's `tracks` arrive as the tracklist request would return them, and that request is skipped.
+ */
+private val CatalogAlbumWithSongsQuery = CatalogAlbumQuery + ("include[songs]" to SongRelationshipsInclude)
+
+/**
+ * [CatalogAlbumWithSongsQuery] with each song's `library` relationship too: the row's own membership,
+ * whatever the album's `library` relationship says (Apple can leave that out while the library holds a
+ * copy of some of its songs). Navigation targets only need [SongRelationships], so a song that comes
+ * without `library` still counts as complete.
+ */
+private val CatalogAlbumWithSongLibraryQuery =
+    CatalogAlbumQuery + ("include[songs]" to "$SongRelationshipsInclude,library")
+
+/**
+ * recently-added pages 10 at a time by default, so filling Library › Albums took ~15 serial
+ * requests. Its page limit is undocumented: ask for 25, and [getAlbumList] falls back to Apple's
+ * default page if the size is refused.
+ */
+private val RecentlyAddedPageQuery = mapOf("limit" to "25")

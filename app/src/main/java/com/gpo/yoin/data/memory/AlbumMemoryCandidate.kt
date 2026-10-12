@@ -34,6 +34,11 @@ data class AlbumMemoryCandidate(
     val lastPlayedFromHistoryAt: Long? = null,
     /** play_history row count. [playCount] keeps its Memory meaning. */
     val playCountFromHistory: Int = 0,
+    /**
+     * [coverArtUrl]'s CoverRef storage key: the cover without the URL a source
+     * resolved it to (a Subsonic URL carries credentials), for Home's snapshot.
+     */
+    val coverArtKey: String? = null,
 ) {
     val sessionId: Long = stableAlbumMemorySessionId(profileId, provider, albumId)
 }

@@ -11,7 +11,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -23,9 +22,9 @@ import com.gpo.yoin.R
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
-import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
@@ -35,7 +34,6 @@ import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
-import kotlinx.coroutines.launch
 
 /**
  * Standalone Activity for an artist detail page. Opening an album from here
@@ -51,6 +49,8 @@ class ArtistDetailActivity : ComponentActivity() {
     }
 
     private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
+        // The page's load starts at the tap, ahead of this gate (DetailPrefetch.kt).
+        (application as YoinApplication).container.repository.prefetchDetail(intent)
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
             launchDetailFromDetail(this, intent, fromNowPlaying)
@@ -75,29 +75,12 @@ class ArtistDetailActivity : ComponentActivity() {
             YoinActivityRoot {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
-                val scope = rememberCoroutineScope()
                 val viewModel: ArtistDetailViewModel = viewModel(
                     factory = ArtistDetailViewModel.Factory(artistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
-
-                fun playArtist(shuffle: Boolean) {
-                    scope.launch {
-                        val tracks = viewModel.getAllTracks()
-                        if (tracks.isEmpty()) return@launch
-                        val ordered = if (shuffle) tracks.shuffled() else tracks
-                        app.container.profileManager.activeSource.value?.let { source ->
-                            app.container.playbackManager.play(
-                                tracks = ordered,
-                                startIndex = 0,
-                                source = source,
-                                activityContext = ActivityContext.None,
-                            )
-                        }
-                    }
-                }
 
                 // A "Most Played" row plays the user's own most-played songs
                 // from that row on (the list the page shows, in its order).
@@ -109,13 +92,13 @@ class ArtistDetailActivity : ComponentActivity() {
                             tracks = tracks,
                             startIndex = startIndex.coerceIn(0, tracks.lastIndex),
                             source = source,
-                            activityContext = ActivityContext.None,
+                            activityContext = viewModel.playbackContext(),
                         )
                     }
                 }
 
-                // Ratings given on an album page (or plays made) while this page
-                // was covered show up when the user comes back to it.
+                // Plays made while this page was covered show up in Most Played
+                // when the user comes back to it.
                 LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshPersonal() }
 
                 // Now Playing is hosted IN THIS window: the pill opens it in
@@ -133,6 +116,23 @@ class ArtistDetailActivity : ComponentActivity() {
                 val nowPlayingFrame = rememberNowPlayingFrame(nowPlayingViewModel)
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
+
+                // Now Playing in this window opens the page it names over this one. When it
+                // names this page (this artist's "Playing from"), the page is revealed instead.
+                fun openFromNowPlaying(kind: DetailPageKind, id: String) {
+                    openFromHostedNowPlaying(
+                        requested = kind,
+                        requestedId = id,
+                        shown = DetailPageKind.Artist,
+                        shownIds = listOf(artistId, (uiState as? ArtistDetailUiState.Content)?.artistId),
+                        panelAvailable = nowPlayingFrame.panelAvailable,
+                        onStepBackToPanel = { nowPlayingViewModel.setMediumFullscreen(false) },
+                        onCollapse = { nowPlayingOpen = false }
+                    ) {
+                        YoinPerf.detailClick(kind.perfKind, id, via = "push")
+                        launchChildDetail(kind.intent(this@ArtistDetailActivity, id), fromNowPlaying = true)
+                    }
+                }
 
                 // ▾: Add to queue, Open in Spotify / Apple Music; Share carries the link.
                 val webLink = rememberDetailWebLink(app.container, WebLinkKind.Artist, artistId)
@@ -157,10 +157,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     onLeavePage = {
                         // Pre-morph the covered shell bar to nav chrome so the reveal
                         // after the dissolve matches the scrubbed detail bar.
-                        if (intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-                            (application as YoinApplication).container.experienceSessionStore
-                                .setDetailChromeActive(false)
-                        }
+                        endShellHandoff()
                         finish()
                     },
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
@@ -170,14 +167,15 @@ class ArtistDetailActivity : ComponentActivity() {
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                     barExitsOnBack = intent.detailBarExitsOnBack(),
                     onAlbumClick = { albumId ->
+                        YoinPerf.detailClick("album", albumId, via = "push")
                         launchChildDetail(
                             AlbumDetailActivity.intent(this@ArtistDetailActivity, albumId),
                         )
                     },
                     onRetry = viewModel::retry,
                     onToggleFollow = viewModel::toggleFollow,
-                    onPlay = { playArtist(shuffle = false) },
-                    onShuffle = { playArtist(shuffle = true) },
+                    onPlay = { viewModel.playArtist(app.container, shuffle = false) },
+                    onShuffle = { viewModel.playArtist(app.container, shuffle = true) },
                     menu = menu,
                     onMostPlayedClick = { index -> playMostPlayed(index) },
                     onShare = {
@@ -209,15 +207,9 @@ class ArtistDetailActivity : ComponentActivity() {
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
-                    onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@ArtistDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@ArtistDetailActivity, id), fromNowPlaying = true)
-                    },
-                    onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@ArtistDetailActivity, id), fromNowPlaying = true)
-                    },
+                    onAlbumClick = { id -> openFromNowPlaying(DetailPageKind.Album, id) },
+                    onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
+                    onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
                 )
                 NowPlayingAccessories(
@@ -231,17 +223,16 @@ class ArtistDetailActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Only the outer detail launched from the shell owns this backstop.
-        // An inner translucent detail must not clear the shell pose while its
-        // outer detail is still on screen.
-        if (isFinishing && intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
-            (application as YoinApplication).container.experienceSessionStore
-                .noteDetailWindowSettled()
-        }
+        publishShellHandoffSettled()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        retireShellHandoff()
     }
 
     companion object {
-        private const val EXTRA_ARTIST_ID = "artistId"
+        internal const val EXTRA_ARTIST_ID = "artistId"
 
         fun intent(context: Context, artistId: String): Intent =
             Intent(context, ArtistDetailActivity::class.java)

@@ -108,7 +108,7 @@ internal fun queueSections(queue: List<QueueItem>, currentIndex: Int, upcoming: 
     return QueueSections(now, queued, next)
 }
 
-/** "Next from: Lantern Letters" — or "Next up" when the songs came from no album or playlist. */
+/** "Next from: Lantern Letters" — or "Next up" when the songs came from no album, playlist or artist. */
 internal fun queueNextFromLabel(
     context: ActivityContext,
     resources: android.content.res.Resources? = null,
@@ -119,20 +119,24 @@ internal fun queueNextFromLabel(
                 "Next from: ${context.albumName}" // i18n-allow: QueueSectionsTest asserts this English
             is ActivityContext.Playlist ->
                 "Next from: ${context.playlistName}" // i18n-allow: QueueSectionsTest asserts this English
+            is ActivityContext.Artist ->
+                "Next from: ${context.artistName}" // i18n-allow: QueueSectionsTest asserts this English
             else -> "Next up" // i18n-allow: QueueSectionsTest asserts this English
         }
     }
     return when (context) {
         is ActivityContext.Album -> resources.getString(R.string.cmp_queue_next_from_album, context.albumName)
         is ActivityContext.Playlist -> resources.getString(R.string.cmp_queue_next_from_playlist, context.playlistName)
+        is ActivityContext.Artist -> resources.getString(R.string.cmp_queue_next_from_artist, context.artistName)
         else -> resources.getString(R.string.cmp_queue_next_up)
     }
 }
 
-/** The header's name for what is playing; null without an album or playlist. */
-private fun queuePlayingFrom(context: ActivityContext): String? = when (context) {
+/** The header's name for what is playing; null without an album, playlist or artist. */
+internal fun queuePlayingFrom(context: ActivityContext): String? = when (context) {
     is ActivityContext.Album -> context.albumName
     is ActivityContext.Playlist -> context.playlistName
+    is ActivityContext.Artist -> context.artistName
     else -> null
 }
 

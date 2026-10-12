@@ -100,7 +100,8 @@ import com.gpo.yoin.data.integration.neodb.NeoDbShortCommentMax
 import com.gpo.yoin.data.integration.neodb.isNeoDbShortComment
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberEqualizerSymbolPainter
-import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
+import com.gpo.yoin.ui.component.FavoriteGlyph
+import com.gpo.yoin.ui.component.FavoriteGlyphIcon
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.RatingSlider
@@ -133,7 +134,6 @@ import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.TimeZone
 import kotlin.math.absoluteValue
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 // ---------------------------------------------------------------------------
@@ -621,7 +621,7 @@ internal fun AlbumTrackRow(
                 onClick = { showUnavailableReason = !showUnavailableReason },
             )
             features.supportsFavorites -> AlbumCircleToggle(
-                active = song.isStarred,
+                heart = FavoriteGlyph(song.isStarred, song.favoriteQuietFlips),
                 accent = accent,
                 onToggle = onToggleStar,
             )
@@ -643,16 +643,31 @@ internal fun AlbumTrackRow(
 
 @Composable
 private fun AlbumCircleToggle(
-    active: Boolean,
+    // The row's heart; its quiet flips (Spotify's late answers that flipped it, the first
+    // state correcting the album's own flag as the page catches up) crossfade in without the beat.
+    heart: FavoriteGlyph,
     accent: Color,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val active = heart.favorite
     val haptics = rememberYoinHaptics()
     val container by animateColorAsState(
         targetValue = if (active) accent else Color.Transparent,
         animationSpec = YoinMotion.effectsSpring(),
         label = "trackToggleContainer",
+    )
+    // The ring and the heart's ink change on the same effects spring as the
+    // container, so a late confirmation is a pure colour-and-fill change.
+    val ring by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.outline.copy(alpha = if (active) 0f else 0.5f),
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "trackToggleRing",
+    )
+    val ink by animateColorAsState(
+        targetValue = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "trackToggleInk",
     )
     // Same heart pop as Now Playing's FavoriteButton (the two toggle the same
     // repository favorite): a short over-peak snap, then a spatial-spring
@@ -686,29 +701,16 @@ private fun AlbumCircleToggle(
                 }
                 .clip(CircleShape)
                 .background(container)
-                .then(
-                    if (!active) {
-                        Modifier.border(
-                            width = 1.5.dp,
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                            shape = CircleShape,
-                        )
-                    } else {
-                        Modifier
-                    },
-                ),
+                .border(width = 1.5.dp, color = ring, shape = CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                painter = rememberFavoriteSymbolPainter(favorite = active),
+            FavoriteGlyphIcon(
+                favorite = active,
+                quietFlips = heart.quietFlips,
                 contentDescription = stringResource(
                     if (active) R.string.detail_album_cd_remove_favorite else R.string.detail_album_cd_add_favorite,
                 ),
-                tint = if (active) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                tint = ink,
                 modifier = Modifier.size(16.dp),
             )
         }
@@ -1070,13 +1072,6 @@ internal fun albumNeoDbLabel(state: AlbumNeoDbSync, resources: Resources? = null
 // ---------------------------------------------------------------------------
 // Formatting helpers.
 // ---------------------------------------------------------------------------
-
-/** Album / track 0–10 score rendered as "d.d" (e.g. 7 → "7.0", 8.5 → "8.5"). */
-internal fun formatAlbumScore(rating: Float): String {
-    val roundedTenths = (rating.coerceIn(0f, 10f) * 10f).roundToInt()
-    if (roundedTenths >= 100) return "10"
-    return "%d.%d".format(roundedTenths / 10, roundedTenths % 10)
-}
 
 /**
  * Album-level "last play" → (dayLabel, time), e.g. ("Yesterday", "16:04").

@@ -1,0 +1,653 @@
+package com.gpo.yoin.player
+
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.repository.ActivityContext
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Spotify's reports against the context a Yoin play set. Nothing counts before Spotify plays the
+ * song the start started (another song of Yoin's queue may be the one it played before); then no context, an empty or blank uri or one Yoin can't name leaves (or
+ * brings back) Yoin's, a different album or playlist Spotify names is shown, and a song outside
+ * Yoin's queue hands the context to Spotify, unless Spotify still names Yoin's own album or
+ * playlist on this connection (a relinked copy). Playback adopted from Spotify follows Spotify.
+ */
+class SpotifyContextSyncTest {
+
+    private val album = ActivityContext.Album(
+        albumId = MediaId.spotify("al1").toString(),
+        albumName = "TUNE & PLAY",
+        artistName = "TUIDE",
+        coverArtId = "https://i.scdn.co/image/al1"
+    )
+    private val artist = ActivityContext.Artist(artistId = MediaId.spotify("ar1").toString(), artistName = "TUIDE")
+    private val likedSongs = ActivityContext.LikedSongs()
+
+    private val queue = (1..5).map { track("t$it") }
+    private val before = track("before")
+    private val elsewhere = track("elsewhere")
+
+    /** What the manager shows: every non-null answer replaces it. */
+    private var shown: ActivityContext = ActivityContext.None
+    private var now = 1_000L
+    private val sync = SpotifyContextSync(clock = { now })
+
+    @Test
+    fun should_keepYoinsAlbum_when_spotifyReportsNoContextOrAnEmptyOrBlankUri() {
+        startAndConfirm(album)
+
+        listOf(null, report(null), report("", ""), report("  ", "x"), report("spotify:album:", "x"))
+            .forEach { reported -> context(reported) }
+
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_keepYoinsContext_when_spotifyReportsAContextYoinCannotName() {
+        startAndConfirm(album)
+
+        listOf("spotify:artist:ar1", "spotify:user:me:collection", "spotify:track:t1", "spotify:x")
+            .forEach { uri -> context(report(uri, "Radio")) }
+
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_keepYoinsRicherAlbum_when_spotifyReportsTheSameAlbum() {
+        startAndConfirm(album)
+
+        // Spotify's reading carries a bare title; Yoin's keeps its artist and cover.
+        assertNull(sync.onReported(shown, report("spotify:album:al1", "")))
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_ignoreEveryReport_when_spotifyHasNotPlayedASongOfYoinsQueueYet() {
+        start(artist)
+
+        // A cold connect: Spotify's first state and context are about what it played before.
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        assertEquals(artist, shown)
+
+        // The start lands and Spotify sends no new context for a `uris` list.
+        state(queue[0])
+        assertEquals(artist, shown)
+    }
+
+    @Test
+    fun should_keepPlayingFromTheArtist_when_aStaleAlbumThenNothingArrivesAroundTheStart() {
+        start(artist)
+
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        state(queue[0])
+        context(report("", ""))
+
+        assertEquals(artist, shown)
+    }
+
+    @Test
+    fun should_showSpotifysAlbum_when_itNamesAnotherWhileOnYoinsQueue() {
+        startAndConfirm(artist)
+
+        context(report("spotify:album:al2", "Other"))
+
+        assertEquals(ActivityContext.Album(albumId = "spotify:al2", albumName = "Other"), shown)
+    }
+
+    @Test
+    fun should_bringYoinsContextBack_when_anUnnamedReportFollowsANameWhileOnYoinsQueue() {
+        startAndConfirm(artist)
+        context(report("spotify:album:old", "Old"))
+        assertEquals(ActivityContext.Album(albumId = "spotify:old", albumName = "Old"), shown)
+
+        state(queue[2])
+        context(report("", ""))
+
+        assertEquals(artist, shown)
+    }
+
+    @Test
+    fun should_notConfirmTheStart_when_spotifyStillPlaysTheAlbumSongAboveTheTappedOne() {
+        // Walking down an album: the row above is what Spotify played before the tap.
+        start(album, at = 2)
+
+        state(queue[1])
+        context(report("spotify:album:old", "Old"))
+        assertFalse(sync.settled)
+        assertEquals(album, shown)
+
+        state(queue[2])
+        context(report("spotify:album:al1", ""))
+        assertTrue(sync.settled)
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_confirmTheStart_when_spotifyPlaysARelinkedCopyOfTheTappedSong() {
+        start(album, at = 2)
+
+        // Another market's copy: another id, the same title and artist.
+        state(track("t3-relinked", title = "t3"))
+
+        assertTrue(sync.settled)
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_followSpotify_when_anotherSongOfYoinsQueuePlaysLongAfterAnUnconfirmedStart() {
+        start(album, at = 2)
+        // The start never landed: Spotify plays on the album's song before it, from the user's playlist.
+        state(queue[1])
+        context(report("spotify:playlist:pl1", "Mix"))
+        assertEquals(album, shown)
+
+        now += SPOTIFY_START_CONFIRM_TIMEOUT_MS
+        state(queue[1])
+
+        assertEquals(ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = "Mix"), shown)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_followSpotify_when_aSongOutsideYoinsQueuePlaysAfterTheStart() {
+        startAndConfirm(album)
+        // Liked Songs in the Spotify app: a context Yoin can't name.
+        context(report("spotify:user:me:collection", "Liked Songs"))
+        assertEquals(album, shown)
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_nameSpotifysNewAlbum_when_itsContextArrivedBeforeTheSongOutsideYoinsQueue() {
+        startAndConfirm(album)
+        context(report("spotify:album:al2", "Other"))
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.Album(albumId = "spotify:al2", albumName = "Other"), shown)
+    }
+
+    @Test
+    fun should_handTheContextToSpotify_when_aSongOutsideTheQueueComesAfterADroppedConnection() {
+        startAndConfirm(album)
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+
+        // Back from the background: Spotify moved on while Yoin wasn't listening, and its old
+        // word about Yoin's album no longer vouches for the song. Its PlayerState comes first:
+        // the song waits for Spotify's fresh word, and isn't Yoin's to record meanwhile.
+        sync.onDisconnected()
+        state(elsewhere)
+        assertEquals(album, shown)
+        assertFalse(sync.settled)
+
+        // Its fresh report then names where it is.
+        context(report("spotify:playlist:pl1", "Mix"))
+        assertEquals(ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = "Mix"), shown)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_keepYoinsPlaylist_when_spotifyStillPlaysItAfterADroppedConnection() {
+        val playlist = ActivityContext.Playlist(
+            playlistId = MediaId.spotify("pl1").toString(),
+            playlistName = "Mix",
+            owner = "me",
+            coverArtId = "https://i.scdn.co/image/pl1"
+        )
+        startAndConfirm(playlist)
+
+        // A 300+ song playlist on shuffle: past the songs Yoin mirrors while Yoin was away.
+        sync.onDisconnected()
+        state(elsewhere)
+        context(report("spotify:playlist:pl1", "Mix"))
+
+        assertEquals(playlist, shown)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_keepYoinsLikedSongs_when_spotifyStillPlaysTheCollectionAfterADroppedConnection() {
+        startAndConfirm(likedSongs)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+
+        sync.onDisconnected()
+        state(elsewhere)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+        state(track("elsewhere-2"))
+
+        assertEquals(likedSongs, shown)
+    }
+
+    @Test
+    fun should_handTheContextToSpotify_when_noFreshReportComesAfterADroppedConnection() {
+        startAndConfirm(album)
+        sync.onDisconnected()
+        state(elsewhere)
+        assertTrue(sync.awaitingReport)
+
+        sync.onReportOverdue(shown)?.let { shown = it }
+
+        assertEquals(ActivityContext.None, shown)
+        assertFalse(sync.awaitingReport)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_stopWaiting_when_spotifyIsBackOnYoinsQueueBeforeItsReport() {
+        startAndConfirm(album)
+        sync.onDisconnected()
+        state(elsewhere)
+
+        state(queue[2])
+
+        assertFalse(sync.awaitingReport)
+        assertNull(sync.onReportOverdue(shown))
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_clearTheOldAlbumAfterTheGrace_when_anAdoptedTracksAlbumConflicts() {
+        sync.followSpotify()
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+
+        state(elsewhere.copy(albumId = MediaId.spotify("al2")))
+        assertTrue(sync.awaitingReport)
+        assertFalse(sync.settled)
+
+        sync.onReportOverdue(shown)?.let { shown = it }
+        assertEquals(ActivityContext.None, shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_dropTheOldAdoptedAlbum_when_aReconnectGetsNoFreshContext() {
+        sync.followSpotify()
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+        state(queue[0])
+
+        sync.onDisconnected()
+        state(elsewhere)
+        assertTrue(sync.awaitingReport)
+        assertFalse(sync.settled)
+
+        sync.onReportOverdue(shown)?.let { shown = it }
+        assertEquals(ActivityContext.None, shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_keepAConfirmedQueueSongOrRelink_when_itsAlbumMetadataDiffersFromTheReportedAlbum() {
+        startAndConfirm(album)
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+
+        state(queue[2].copy(albumId = MediaId.spotify("al2")))
+        state(queue[2].copy(id = MediaId.spotify("relinked"), albumId = MediaId.spotify("al2")))
+
+        assertEquals(album, shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_useTheFreshAlbumWithoutWaiting_when_itsReportPrecedesTheOutsideSong() {
+        startAndConfirm(album)
+        context(report("spotify:album:al2", "Other"))
+
+        state(elsewhere.copy(albumId = MediaId.spotify("al2")))
+
+        assertEquals(ActivityContext.Album("spotify:al2", "Other"), shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_notInferAnAlbumConflict_when_theTrackAlbumIsMissingOrFromAnotherProvider() {
+        listOf(null, MediaId.spotify(" "), MediaId.subsonic("al2")).forEach { albumId ->
+            startAndConfirm(album)
+            context(report("spotify:album:al1", "TUNE & PLAY"))
+
+            state(elsewhere.copy(albumId = albumId))
+
+            assertEquals(album, shown)
+            assertTrue(sync.settled)
+            assertFalse(sync.awaitingReport)
+        }
+    }
+
+    @Test
+    fun should_keepTheReportedPlaylist_when_anOutsideSongHasAnotherAlbum() {
+        startAndConfirm(album)
+        context(report("spotify:playlist:pl1", "Mix"))
+
+        state(elsewhere.copy(albumId = MediaId.spotify("al2")))
+
+        assertEquals(ActivityContext.Playlist("spotify:pl1", "Mix"), shown)
+        assertTrue(sync.settled)
+        assertFalse(sync.awaitingReport)
+    }
+
+    @Test
+    fun should_keepYoinsAlbum_when_spotifyStillNamesItForASongOutsideTheQueue() {
+        startAndConfirm(album)
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+
+        // A copy of an album song Spotify relinked, under another id and name.
+        state(track("t3-relinked", title = "t3 (JP ver.)"))
+        assertEquals(album, shown)
+
+        state(queue[3])
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_handTheContextToSpotify_when_itsNextReportNoLongerNamesYoinsAlbum() {
+        startAndConfirm(album)
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+        // The song arrives before the context the user switched to in the Spotify app.
+        state(elsewhere)
+        assertEquals(album, shown)
+
+        context(report("spotify:user:me:collection", "Liked Songs"))
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_keepYoinsArtist_when_spotifyPlaysARelinkedCopyOfASongInTheList() {
+        startAndConfirm(artist)
+        context(report("", ""))
+
+        state(track("t3-relinked", title = "T3"))
+
+        assertEquals(artist, shown)
+    }
+
+    @Test
+    fun should_notNameAStaleAlbum_when_spotifyLeavesYoinsQueueWithoutANewReport() {
+        start(artist)
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        state(queue[0])
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_followSpotifyFromThenOn_when_spotifyMovedOffYoinsQueue() {
+        startAndConfirm(artist)
+        state(elsewhere)
+        context(report("spotify:album:al2", "Other"))
+
+        // Back on a song of the old queue, Spotify's word is final: Yoin's start is over.
+        state(queue[1])
+        context(report("", ""))
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_keepYoinsContext_when_spotifyPlaysOnThroughYoinsQueue() {
+        startAndConfirm(album)
+
+        queue.forEach { song -> state(song) }
+
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_labelAndThenClearAnAdoptedContext_when_spotifyNamesOneAndThenNothing() {
+        sync.followSpotify()
+
+        context(report("spotify:playlist:pl1", "Mix"))
+        assertEquals(ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = "Mix"), shown)
+
+        listOf(null, report("", ""), report("spotify:artist:ar1", "Radio")).forEach { reported ->
+            context(report("spotify:album:al1", "TUNE & PLAY"))
+            context(reported)
+            assertEquals(ActivityContext.None, shown)
+        }
+        assertNull(sync.onReported(ActivityContext.None, null))
+    }
+
+    @Test
+    fun should_notTreatSongsAsATakeover_when_noYoinPlayStartedThem() {
+        sync.followSpotify()
+        context(report("spotify:album:al1", "TUNE & PLAY"))
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.Album(albumId = "spotify:al1", albumName = "TUNE & PLAY"), shown)
+    }
+
+    @Test
+    fun should_followSpotify_when_aSongOutsideYoinsQueuePlaysLongAfterAnUnconfirmedStart() {
+        // Started, then Yoin went to the background before Spotify played a song of its queue.
+        start(album)
+        sync.onDisconnected()
+        // Back: Spotify plays the user's playlist, picked in the Spotify app meanwhile.
+        state(track("p1"))
+        context(report("spotify:playlist:pl1", "Mix"))
+        assertEquals(album, shown)
+
+        now += SPOTIFY_START_CONFIRM_TIMEOUT_MS
+        state(track("p2"))
+
+        assertEquals(ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = "Mix"), shown)
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_followSpotify_when_aThirdSongOutsideYoinsQueuePlaysBeforeTheStartLands() {
+        start(artist)
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        state(track("before-2"))
+        assertEquals(artist, shown)
+
+        // The start never landed (its Web API call and the App Remote fallback both failed).
+        state(track("before-3"))
+
+        assertEquals(ActivityContext.Album(albumId = "spotify:old", albumName = "Old"), shown)
+    }
+
+    @Test
+    fun should_holdPlaysBack_when_theStartIsUnconfirmed() {
+        start(album)
+        assertFalse(sync.settled)
+        state(before)
+        assertFalse(sync.settled)
+
+        state(queue[0])
+
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_letPlaysBeRecorded_when_followingSpotify() {
+        start(album)
+
+        sync.followSpotify()
+
+        assertTrue(sync.settled)
+    }
+
+    @Test
+    fun should_keepWaiting_when_theStartIsSlowToLand() {
+        start(artist)
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        // The song before ends while the start is still landing.
+        now += SPOTIFY_START_CONFIRM_TIMEOUT_MS - 1
+        state(track("before-2"))
+        state(track("before-2"))
+        assertEquals(artist, shown)
+
+        state(queue[0])
+        context(report("", ""))
+
+        assertEquals(artist, shown)
+    }
+
+    @Test
+    fun should_restartTheWait_when_theConnectionDropsBeforeTheStartLands() {
+        start(album, at = 1)
+        state(before)
+        // The connect gave up in the background; the start runs again on the next connection.
+        sync.onDisconnected()
+        now += 10 * SPOTIFY_START_CONFIRM_TIMEOUT_MS
+        state(before)
+        context(report("spotify:album:old", "Old"))
+        assertEquals(album, shown)
+
+        state(queue[1])
+        context(report("spotify:album:al1", ""))
+
+        assertEquals(album, shown)
+    }
+
+    @Test
+    fun should_keepYoinsLikedSongs_when_spotifyPlaysALikedSongPastYoinsWindow() {
+        startAndConfirm(likedSongs)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+
+        // Shuffle (or ~80 songs on): a liked song outside the 100 Yoin handed Spotify.
+        state(elsewhere)
+        assertEquals(likedSongs, shown)
+
+        context(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs"))
+        state(track("elsewhere-2"))
+        context(report("", ""))
+        state(queue[2])
+        assertEquals(likedSongs, shown)
+    }
+
+    @Test
+    fun should_keepYoinsLikedSongs_when_spotifyWasAlreadyInTheCollectionBeforeTheStart() {
+        start(likedSongs)
+        // Spotify was on Liked Songs already: its context doesn't change, so this is its only word.
+        state(before)
+        context(report("spotify:user:me:collection", "Liked Songs"))
+        state(queue[0])
+
+        state(elsewhere)
+
+        assertEquals(likedSongs, shown)
+    }
+
+    @Test
+    fun should_handLikedSongsToSpotify_when_itMovesToAnotherContext() {
+        startAndConfirm(likedSongs)
+        context(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs"))
+
+        // The user picks an album in the Spotify app; its song arrives before its context.
+        state(elsewhere)
+        context(report("spotify:album:al2", "Other"))
+        state(track("elsewhere-2"))
+
+        assertEquals(ActivityContext.Album(albumId = "spotify:al2", albumName = "Other"), shown)
+    }
+
+    @Test
+    fun should_followSpotify_when_aSongPastTheWindowPlaysWithNoWordOfTheCollection() {
+        startAndConfirm(likedSongs)
+        context(report("spotify:artist:ar1", "Radio"))
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_keepAlbumsApartFromLikedSongs_when_spotifyReportsTheCollection() {
+        startAndConfirm(album)
+        context(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs"))
+
+        state(elsewhere)
+
+        assertEquals(ActivityContext.None, shown)
+    }
+
+    @Test
+    fun should_recogniseEveryFormOfTheCollection_when_readingALikedSongsUri() {
+        listOf(
+            SPOTIFY_LIKED_SONGS_CONTEXT_URI,
+            "spotify:collection",
+            "spotify:user:me:collection",
+            "spotify:user:31abc:collection:tracks",
+            " spotify:user:me:collection "
+        ).forEach { uri -> assertTrue(uri, isSpotifyLikedSongsUri(uri)) }
+        listOf(
+            null,
+            "",
+            "spotify:user::collection",
+            "spotify:user:me:collection:artist:ar1",
+            "spotify:collection:your-episodes",
+            "spotify:playlist:collection",
+            "spotify:album:al1"
+        ).forEach { uri -> assertFalse("$uri", isSpotifyLikedSongsUri(uri)) }
+    }
+
+    @Test
+    fun should_nameTheAlbumOrPlaylist_when_derivingSpotifysContext() {
+        assertEquals(
+            ActivityContext.Album(albumId = "spotify:al1", albumName = "TUNE & PLAY"),
+            deriveSpotifyActivityContext(report("spotify:album:al1", "TUNE & PLAY"))
+        )
+        assertEquals(
+            ActivityContext.Playlist(playlistId = "spotify:pl1", playlistName = ""),
+            deriveSpotifyActivityContext(report("spotify:playlist:pl1", "  "))
+        )
+        assertNull(deriveSpotifyActivityContext(report(SPOTIFY_LIKED_SONGS_CONTEXT_URI, "Liked Songs")))
+    }
+
+    /** A Yoin play of [queue] from [at]. */
+    private fun start(context: ActivityContext, at: Int = 0) {
+        shown = context
+        sync.onYoinStart(context, queue[at])
+    }
+
+    private fun startAndConfirm(context: ActivityContext) {
+        start(context, at = 1)
+        state(queue[1])
+    }
+
+    /** App Remote's PlayerState: Spotify plays [song]; Yoin mirrors [queue] for it. */
+    private fun state(song: Track) {
+        sync.onPlayerState(shown, song, queue)?.let { shown = it }
+    }
+
+    /** App Remote's PlayerContext. */
+    private fun context(reported: SpotifyPlaybackContext?) {
+        sync.onReported(shown, reported)?.let { shown = it }
+    }
+
+    private fun report(uri: String?, title: String? = null) = SpotifyPlaybackContext(uri = uri, title = title)
+
+    private fun track(rawId: String, title: String = rawId) = Track(
+        id = MediaId.spotify(rawId),
+        title = title,
+        artist = "TUIDE",
+        artistId = MediaId.spotify("ar1"),
+        album = "TUNE & PLAY",
+        albumId = MediaId.spotify("al1"),
+        coverArt = null,
+        durationSec = 180,
+        trackNumber = null,
+        year = null,
+        genre = null,
+        userRating = null
+    )
+}

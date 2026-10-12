@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="cmp_note_sort_timeline">时间线</string>
-    <string name="cmp_note_sort_created">按时间</string>
+    <string name="cmp_note_sort_created">创建时间</string>
     <string name="cmp_note_placeholder">记一笔</string>
     <string name="cmp_note_write_bar_cd">写笔记</string>
     <string name="cmp_note_stamp_cd_write">写笔记</string>
@@ -24,6 +24,7 @@
     <string name="cmp_queue_next_up">接下来</string>
     <string name="cmp_queue_next_from_album">接下来：%1$s</string>
     <string name="cmp_queue_next_from_playlist">接下来：%1$s</string>
+    <string name="cmp_queue_next_from_artist">接下来：%1$s</string>
     <string name="cmp_queue_section_now">正在播放</string>
     <string name="cmp_queue_section_queued">队列中待播</string>
     <string name="cmp_queue_playing_from">播放自</string>

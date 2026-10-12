@@ -18,6 +18,7 @@ import com.gpo.yoin.ui.landing.LandingHost
 import com.gpo.yoin.ui.landing.SharedPrefsLandingStore
 import com.gpo.yoin.ui.navigation.YoinNavHost
 import com.gpo.yoin.widget.WidgetLaunch
+import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -45,6 +46,7 @@ import kotlinx.coroutines.launch
  */
 class MainActivity : ComponentActivity() {
     private val landingGate = LandingGate()
+    private lateinit var shellHandoffHostKey: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must be called before super.onCreate(); also applies postSplashScreenTheme.
@@ -64,6 +66,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         enableYoinEdgeToEdge()
+        // Preserve a logical shell through recreation. Only the first fresh shell after the previous
+        // windows are gone clears the process-level pose; a second MainActivity cannot retire a live hand-off.
+        shellHandoffHostKey = savedInstanceState?.getString(STATE_SHELL_HANDOFF_HOST) ?: UUID.randomUUID().toString()
+        val store = (application as YoinApplication).container.experienceSessionStore
+        lifecycleScope.launch {
+            store.attachShellHandoffHost(shellHandoffHostKey, restored = savedInstanceState != null)
+        }
         // A detail Activity covers the shell but keeps it alive (translucent): freeze its animations meanwhile.
         installCoveredWindowAnimationGate(CoveredWindowAnimationGate.ShellWindowKey)
         // A fresh install holds the shell back until the landing check (a cheap prefs read).
@@ -87,6 +96,17 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) WidgetLaunch.handle(this, intent, (application as YoinApplication).container)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_SHELL_HANDOFF_HOST, shellHandoffHostKey)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        (application as YoinApplication).container.experienceSessionStore
+            .detachShellHandoffHost(shellHandoffHostKey, isChangingConfigurations)
+        super.onDestroy()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleLandingIntent(intent, fresh = true)
@@ -101,6 +121,8 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val STATE_SHELL_HANDOFF_HOST = "shellHandoffHost"
+
         /** Settings › About › Welcome guide: run the landing again. */
         const val EXTRA_WELCOME_GUIDE = "welcomeGuide"
 

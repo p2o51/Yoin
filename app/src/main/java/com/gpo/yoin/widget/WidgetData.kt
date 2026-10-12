@@ -13,9 +13,7 @@ import com.gpo.yoin.data.memory.memoryEligible
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** What a widget item points at; decides the backdrop shape and the image shape (artist = circle). */
 enum class WidgetEntity { ALBUM, PLAYLIST, ARTIST }
@@ -51,8 +49,7 @@ internal val Context.yoinContainer: AppContainer
  * A cold widget process has no active source yet ([com.gpo.yoin.data.profile.ProfileManager] fills it
  * asynchronously); every repository read returns empty until it lands.
  */
-private suspend fun AppContainer.awaitActiveSource(): Boolean =
-    withTimeoutOrNull(SOURCE_TIMEOUT_MS) { profileManager.activeSource.filterNotNull().first() } != null
+private suspend fun AppContainer.awaitActiveSource(): Boolean = repository.awaitActiveSource(SOURCE_TIMEOUT_MS) != null
 
 private const val SOURCE_TIMEOUT_MS = 8_000L
 
@@ -63,13 +60,22 @@ internal object WidgetData {
         if (!container.awaitActiveSource()) return emptyList()
         val repository = container.repository
         val events = runCatching { repository.getRecentActivities(limit * 3).first() }.getOrDefault(emptyList())
-        // Real plays lead (that is what "keep listening" resumes); visits only fill the gaps.
-        val ordered = events.filter { it.actionType == ActivityActionType.PLAYED.name } +
-            events.filter { it.actionType != ActivityActionType.PLAYED.name }
-        return ordered
+        return keepListeningOrder(events)
             .mapNotNull { it.toPlayItem(container) }
             .distinctBy { it.id }
             .take(limit)
+    }
+
+    /**
+     * Real plays of an album or playlist lead (that is what "keep listening" resumes); visits only
+     * fill the gaps, and so do an artist's plays: the button opens an artist's page, it has no
+     * queue to resume. Newest first within each, as [events] come.
+     */
+    internal fun keepListeningOrder(events: List<ActivityEvent>): List<ActivityEvent> {
+        val (resumable, rest) = events.partition { event ->
+            event.actionType == ActivityActionType.PLAYED.name && event.entityType != ActivityEntityType.ARTIST.name
+        }
+        return resumable + rest
     }
 
     private fun ActivityEvent.toPlayItem(container: AppContainer): PlayItem? {

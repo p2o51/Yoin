@@ -91,10 +91,43 @@ class SpotifyStartPlanTest {
     }
 
     @Test
+    fun should_startLikedSongsAtTheTappedSong_when_aSpotifySongsRowHandsOverItsWindow() {
+        // Library Songs on Spotify is Liked Songs, cut to the start window around the row.
+        val liked = (0 until 300).map { track("x$it") }
+        val window = startWindowQueue(liked, startIndex = 150)
+
+        val result = attempts(ActivityContext.LikedSongs(), list = window.tracks, start = window.startIndex)
+
+        // The collection itself first, at the tapped song; the window's uris only if that fails.
+        assertEquals(SpotifyStartAttempt.LikedSongs(offsetUri = "spotify:track:x150"), result[0])
+        val fallback = result[1] as SpotifyStartAttempt.Tracks
+        assertEquals((130 until 230).map { "spotify:track:x$it" }, fallback.uris)
+        assertEquals("spotify:track:x150", fallback.uris[fallback.offsetPosition])
+        assertEquals(2, result.size)
+    }
+
+    @Test
+    fun should_useAppRemoteWithoutHttp_when_aBareSingleTrackIsTapped() {
+        assertTrue(attempts(ActivityContext.None, list = tracks.take(1), start = 0).isEmpty())
+        assertEquals(2, attempts(album, list = tracks.take(1), start = 0).size)
+    }
+
+    @Test
     fun should_playThePlainListWithoutTouchingTheQueue_when_thereIsNoContext() {
         val result = attempts(ActivityContext.None, start = 4)
 
         assertEquals(listOf(SpotifyStartAttempt.Tracks(uris = tracks.map { "spotify:track:${it.id.rawId}" }, offsetPosition = 4)), result)
+    }
+
+    @Test
+    fun should_playThePlainList_when_playingFromAnArtist() {
+        // Spotify's artist context is its own order (artist radio); Yoin's queue is the artist page's list.
+        val artist = ActivityContext.Artist(artistId = "spotify:ar1", artistName = "Artist")
+
+        val result = attempts(artist, start = 0)
+
+        val uris = tracks.map { "spotify:track:${it.id.rawId}" }
+        assertEquals(listOf(SpotifyStartAttempt.Tracks(uris = uris, offsetPosition = 0)), result)
     }
 
     @Test

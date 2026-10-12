@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
 import coil3.SingletonImageLoader
+import coil3.request.ErrorResult
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -25,6 +26,7 @@ import com.gpo.yoin.ui.theme.CoverSeedExtractor
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -88,6 +90,7 @@ internal fun rememberExpressiveBackdropColors(
     fallbackBaseColor: Color,
     fallbackAccentColor: Color,
     enabled: Boolean = true,
+    holdUntilResolved: Boolean = false,
 ): ExpressiveBackdropColors {
     val context = LocalContext.current
     return rememberBackdropColorsLoadedBy(
@@ -95,20 +98,35 @@ internal fun rememberExpressiveBackdropColors(
         fallbackBaseColor = fallbackBaseColor,
         fallbackAccentColor = fallbackAccentColor,
         enabled = enabled,
+        holdUntilResolved = holdUntilResolved,
         load = { coverModel -> loadBackdropColors(context, coverModel) },
     )
 }
 
 /**
  * [rememberExpressiveBackdropColors] with the cover read injected ([load]: the
- * extracted colours, or null when the cover can't be read). Tests drive the
- * deferral with it; the app always reads through [loadBackdropColors].
+ * extracted colours, or null when the cover has none to give; it throws when
+ * the cover can't be read). Tests drive the deferral with it; the app always
+ * reads through [loadBackdropColors].
+ *
+ * A read that fails is read again on its cover's own retry beat — the same
+ * policy [ExpressiveMediaArtwork] retries the cover on ([ArtworkRetryPolicy]:
+ * a backoff for transient errors, and the network coming back or the app
+ * returning to the foreground for every failure). Before, a failed read was
+ * final: the cover healed (QA HOM-7/HOM-8) and its wash kept the theme's
+ * colours until a scroll closed and reopened the gate.
  *
  * [enabled] is the caller's performance gate, not a motion setting: Home closes
  * it until its first frames have settled and while the feed scrolls, so no
  * card decodes and quantises its cover during a fling (each read is a 200px
  * Coil decode plus a 16-colour Palette pass). It defers the read, never drops
  * it — it is an effect key, so the gate reopening reads the cover once.
+ *
+ * [holdUntilResolved]: a new [model] keeps the colours already up until its
+ * own read lands, and springs straight to them — for a card whose cover is
+ * replaced in place (an Activities artist whose portrait arrives: album →
+ * portrait, not album → theme → portrait). Off, a new model starts again from
+ * the fallback. Either way a model gone null returns to the fallback.
  */
 @Composable
 internal fun rememberBackdropColorsLoadedBy(
@@ -116,6 +134,7 @@ internal fun rememberBackdropColorsLoadedBy(
     fallbackBaseColor: Color,
     fallbackAccentColor: Color,
     enabled: Boolean,
+    holdUntilResolved: Boolean = false,
     load: suspend (model: String) -> ExpressiveBackdropColors?,
 ): ExpressiveBackdropColors {
     val fallbackColors = remember(fallbackBaseColor, fallbackAccentColor) {
@@ -131,10 +150,11 @@ internal fun rememberBackdropColorsLoadedBy(
     // cachedColors (null at first frame) instead of the colors that a sibling
     // composition already produced and wrote to the LruCache.
     val cacheHit = model?.let(ExpressiveBackdropPaletteCache::get)
-    // Monotonic "last resolved" state keyed on model. Persists across
-    // `enabled` flips so already-colored cards keep their colors when
+    // Monotonic "last resolved" state keyed on model (on nothing when held:
+    // the last model's colours stay until the new one's resolve). Persists
+    // across `enabled` flips so already-colored cards keep their colors when
     // scrolling pauses palette extraction.
-    var resolvedColors by remember(model) {
+    var resolvedColors by remember(if (holdUntilResolved) Unit else model) {
         mutableStateOf(cacheHit ?: fallbackColors)
     }
     if (cacheHit != null && resolvedColors !== cacheHit) {
@@ -148,12 +168,34 @@ internal fun rememberBackdropColorsLoadedBy(
     // colours. Only the caller's scroll gate ([enabled]) still defers it; the
     // hand-off below is a colour spring, which reduced motion keeps.
     LaunchedEffect(model, enabled) {
+        if (model.isNullOrBlank()) {
+            // No cover: a held colour has nothing left to stand for.
+            if (holdUntilResolved) resolvedColors = fallbackColors
+            return@LaunchedEffect
+        }
         if (!enabled) return@LaunchedEffect
-        if (model.isNullOrBlank()) return@LaunchedEffect
-        if (ExpressiveBackdropPaletteCache.get(model) != null) return@LaunchedEffect
-        resolvedColors = load(model)
-            ?.also { colors -> ExpressiveBackdropPaletteCache.put(model, colors) }
-            ?: fallbackColors
+        var retry = ArtworkRetryState(requestSignal = ArtworkRetrySignal.generation.value)
+        while (true) {
+            // Already read (here, or by another card of the same cover while this one waited).
+            ExpressiveBackdropPaletteCache.get(model)?.let { cached ->
+                resolvedColors = cached
+                return@LaunchedEffect
+            }
+            val colors = try {
+                load(model)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                // Not read: the theme's colours meanwhile, and again when the cover is retried.
+                resolvedColors = fallbackColors
+                retry = awaitArtworkRetry(retry.failed(error), ArtworkRetrySignal.generation)
+                continue
+            }
+            resolvedColors = colors
+                ?.also { read -> ExpressiveBackdropPaletteCache.put(model, read) }
+                ?: fallbackColors
+            return@LaunchedEffect
+        }
     }
     // Soften the hand-off when the palette resolves: spring the two
     // colors (effects bucket — the motion law for color/alpha) instead of
@@ -178,7 +220,8 @@ internal fun rememberBackdropColorsLoadedBy(
 
 /**
  * Decodes [model] the way the playback theme does (the same request size, so
- * the same Coil memory-cache entry and the same pixels) and reads its colours.
+ * the same Coil memory-cache entry and the same pixels) and reads its colours:
+ * null when it has none, a [BackdropReadException] when it can't be read.
  */
 private suspend fun loadBackdropColors(context: Context, model: String): ExpressiveBackdropColors? =
     withContext(Dispatchers.IO) {
@@ -189,10 +232,14 @@ private suspend fun loadBackdropColors(context: Context, model: String): Express
             .build()
         // App-wide singleton (YoinApplication is the factory) — palette pixel
         // reads stay safe because allowHardware(false) is set per-request.
-        val result = SingletonImageLoader.get(context).execute(request)
-        val bitmap = (result as? SuccessResult)?.image?.toBitmap()
-        bitmap?.let(::extractBackdropColors)
+        when (val result = SingletonImageLoader.get(context).execute(request)) {
+            is SuccessResult -> extractBackdropColors(result.image.toBitmap())
+            is ErrorResult -> throw BackdropReadException(result.throwable)
+        }
     }
+
+/** A cover read that failed, Coil's error as its cause — what [ArtworkRetryPolicy] classifies. */
+internal class BackdropReadException(cause: Throwable) : Exception(cause)
 
 /**
  * A cover's backdrop colours, read off the cover the way Now Playing reads it

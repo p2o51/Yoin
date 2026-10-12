@@ -55,4 +55,18 @@ class QueueSectionsTest {
         )
         assertEquals("Next up", queueNextFromLabel(ActivityContext.None))
     }
+
+    @Test
+    fun should_nameTheArtist_when_playingFromAnArtistPage() {
+        val artist = ActivityContext.Artist(artistId = "spotify:ar1", artistName = "TUIDE")
+
+        assertEquals("Next from: TUIDE", queueNextFromLabel(artist))
+        assertEquals("TUIDE", queuePlayingFrom(artist))
+    }
+
+    @Test
+    fun should_leaveTheHeaderUnnamed_when_nothingNamesWhereTheSongsCameFrom() {
+        assertNull(queuePlayingFrom(ActivityContext.None))
+        assertNull(queuePlayingFrom(ActivityContext.LikedSongs()))
+    }
 }

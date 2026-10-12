@@ -76,7 +76,7 @@
 | 6 | `home_greeting_morning` | Good morning | 早上好 | **早** | 极简、干脆、克制，带有 iPod 式的高级疏离感。 |
 | 7 | `home_placeholder_jump_back_in` | Nothing to jump back into | 没有可以接着听的 | **手头没有还没听完的唱片。** | 结合实体唱片意象，客观陈述。 |
 | 8 | `home_placeholder_activities` | No recent activity | 最近没有动态 | **最近没有播放记录。四周很安静。** | 适度画面感，幽默不过头。 |
-| 9 | `home_section_rediscover_supporting` | Albums and songs you rated or wrote about, not played in a while | 你评过或写过、有一阵子没播放的专辑和歌曲 | **给过高分或写过笔记，但已落灰多时的专辑与单曲。** | 消除 AI 废话，沉淀感十足。 |
+| 9 | `home_section_rediscover_supporting` | Albums and songs you rated or wrote about, not played in a while | 你评过或写过、有一阵子没播放的专辑和歌曲 | **评过分或写过笔记，但已落灰多时的专辑与单曲。** | 消除 AI 废话，沉淀感十足。 |
 | 10 | `home_edit_all_hidden_title` | Home is empty | 首页是空的 | **首页空空如也** | 用户审定：简练纯粹，不做多余发散。 |
 | 11 | `library_empty_search` | 没有找到结果 | No results found | **未找到匹配结果** | 干净专业的搜索空状态。 |
 | 12 | `library_empty_favorites` | No favorites yet | 还没有收藏 | **暂无收藏内容** | 克制客观。 |
@@ -88,7 +88,7 @@
 | 18 | `np_msg_already_language` | Lyrics already appear to be %1$s | 歌词看起来已经是 %1$s | **歌词本来就是 %1$s，无需翻译。** | 直率客观，避免机械感。 |
 | 19 | `np_msg_cant_save` | Can\'t save — track info unavailable | 无法保存 — 缺少曲目信息 | **无法保存：曲目信息不完整。** | 规范标点与用词。 |
 | 20 | `mem_empty_title` | No memories yet | 还没有回忆 | **暂无 Memories 记录** | 保持 Memories 专有名词。 |
-| 21 | `mem_snackbar_save_review` | Couldn\'t save the review. Your draft is kept. | 乐评没保存。草稿还在。 | **无法保存专辑评价，你的草稿已被保存。** | 用户审定：术语统一为「专辑评价」，提示规范。 |
+| 21 | `mem_snackbar_save_review` | Couldn\'t save the review. Your draft is kept. | 乐评没保存。草稿还在。 | **无法保存专辑评价，草稿暂时保留。** | 区分尚未保存的草稿与已保存内容，统一使用「专辑评价」。 |
 | 22 | `detail_album_never` | Never | 从未 | **从未播放** | 精准的播放历史状态。 |
 | 23 | `detail_scrap_not_yet` | Nothing yet | 还没有 | **暂无记录** | 拼贴手册空状态，克制典雅。 |
 | 24 | `detail_playlist_empty_hero` | This playlist is empty. | 播放列表是空的。 | **歌单是空的。** | 统一为「歌单」，简短有力。 |
