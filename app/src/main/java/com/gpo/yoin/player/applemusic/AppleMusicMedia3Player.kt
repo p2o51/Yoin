@@ -55,6 +55,7 @@ class AppleMusicMedia3Player(
             override fun getUserToken() = userToken
         }
     )
+    private val playModes = MusicKitPlayModes(controller)
     private var requestedItems: List<MediaItem> = emptyList()
     private var requestedIndex = 0
     private var desiredPlay = false
@@ -180,6 +181,7 @@ class AppleMusicMedia3Player(
 
     private fun publishState() {
         if (BuildConfig.DEBUG && preparedStartUnchecked && !preparing) logPreparedStart()
+        playModes.reapply()
         invalidateState()
         val item = controller.currentItem?.item
         onObservation(
@@ -283,20 +285,12 @@ class AppleMusicMedia3Player(
             Player.COMMAND_GET_CURRENT_MEDIA_ITEM, Player.COMMAND_GET_TIMELINE, Player.COMMAND_GET_METADATA,
             Player.COMMAND_SET_REPEAT_MODE, Player.COMMAND_SET_SHUFFLE_MODE
         ).apply {
-            if (controller.canSeek()) add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-            if (controller.canSkipToNextItem()) {
-                addAll(
-                    Player.COMMAND_SEEK_TO_NEXT,
-                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM
-                )
-            }
-            if (controller.canSkipToPreviousItem()) {
-                addAll(
-                    Player.COMMAND_SEEK_TO_PREVIOUS,
-                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM
-                )
-            }
-            if (controller.canSkipToQueueItem()) add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
+            musicKitTransportCommands(
+                canSeek = controller.canSeek(),
+                canSkipToPreviousItem = controller.canSkipToPreviousItem(),
+                canSkipToNextItem = controller.canSkipToNextItem(),
+                canSkipToQueueItem = controller.canSkipToQueueItem()
+            ).forEach(::add)
         }.build()
         val playlist = entries.mapIndexed { i, (uid, item) ->
             val durationMs = if (i == index && !preparing) {
@@ -426,11 +420,11 @@ class AppleMusicMedia3Player(
         return Futures.immediateVoidFuture()
     }
     override fun handleSetRepeatMode(repeatMode: Int): ListenableFuture<*> {
-        controller.setRepeatMode(repeatMode)
+        playModes.setRepeatMode(repeatMode)
         return Futures.immediateVoidFuture()
     }
     override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> {
-        controller.setShuffleMode(if (shuffleModeEnabled) 1 else 0)
+        playModes.setShuffleMode(if (shuffleModeEnabled) 1 else 0)
         return Futures.immediateVoidFuture()
     }
 
