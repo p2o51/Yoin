@@ -173,7 +173,7 @@ private fun MemoryAnchor(size: DpSize, item: MemoryItem, source: Bitmap?, palett
         contentAlignment = Alignment.Center,
     ) {
         Box(modifier = GlanceModifier.size(s)) {
-            Box(modifier = GlanceModifier.fillMaxSize().padding(top = (64 * u).dp)) {
+            Box(modifier = GlanceModifier.fillMaxSize().padding(start = (8 * u).dp, top = (64 * u).dp, bottom = (8 * u).dp)) {
                 Image(
                     provider = ImageProvider(bitmaps.of("cover:${item.sessionId}:${coverDp.value}") { WidgetArt.rounded(source, bitmaps.px(coverDp.value), bitmaps.px(4f).toFloat(), palette.base) }),
                     contentDescription = item.albumName,
