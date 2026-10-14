@@ -1,6 +1,7 @@
 # Spotoolfy → Yoin 迁移方案（最佳实践）
 
-状态：主要决策已定（owner 2026-10-14），剩余待定项见 §12
+状态：主要决策已定（owner 2026-10-14，两轮反馈），剩余待定项见 §12
+回顾页交互原型：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>
 基线：Yoin `main@e4bdd0d`（0.5.0 / Room v30）；Spotoolfy = `p2o51/spotoolfy_flutter@0a57d65`（1.3.7+18）
 
 > 「Spotoolfy」在本文指 Flutter 版 `spotoolfy_flutter`：Play 封闭测试 + TestFlight + Web。
@@ -14,11 +15,14 @@
 |---|---|---|
 | D1 | **导入只对新用户开放**：只在首次引导里出现，目标账号必须还没有任何用户数据 | §4.1、§5 |
 | D2 | **导入后展示一个好看的可视化回顾页**：多少条、写了什么、文字爆炸 | §6 |
-| D3 | **引导页新增「Using Spotoolfy?」一问**：选文件导入，或提示去 Spotoolfy 导出、经分享菜单交给 Yoin | §5 |
+| D3 | **引导页新增「Using Spotoolfy?」一问**，回答「在用」后打开 Spotoolfy 悬浮窗：一步一步复制 Client ID → 导出 → 分享给 Yoin；之后再进入 Spotify Client ID 填写 | §5 |
 | D4 | **Gemini API key 不导入** | §4.2 |
 | D5 | **评分映射 👎/😐/🔥 → 1/5/10**（含 😐） | §4.4 |
 | D6 | **Spotify 授权**：在原有 Spotify App 里加上 Yoin 一项即可，不做单独提醒或单独引导分支 | §7 |
 | D7 | **导入的数据要进回忆和 Rediscover**：采用「曲目 → 专辑」事实表方案 | §4.6 |
+| D10 | **Spotoolfy 悬浮窗用 Spotoolfy 的青绿色**，和 Yoin 自己的紫色 Spotify 悬浮窗区分开 | §5.3 |
+| D11 | **Rediscover 按比例混排**：一部分来自聆听记录，一部分来自笔记和评分；**不用「上次写下于」**这种让人一头雾水的说法 | §4.6 |
+| D12 | **Spotoolfy 歌词服务与 Yoin 同步**（今晚出 1.3.8+19） | §9 阶段 5 |
 | D8 | **翻译不迁移** | §4.2 |
 | D9 | **Spotoolfy 维护期一年** | §9 阶段 7 |
 
@@ -36,13 +40,14 @@
 3. **新用户限定让导入变简单。** 目标账号是空的，不存在和已有数据冲突的问题，也不需要复杂的撤销。
    - 引导中途可以「换一个文件」：删掉刚导入的那一批，再导一次。
    - 笔记 ID 仍然用确定性 UUID，防止与云同步拉回的数据重复。
-4. **导入的价值要被「看见」**，靠三件事：
+4. **引导顺序：先导入，再连 Spotify。** 从 Spotoolfy 回来时数据先暂存、看回顾，Client ID 也一起带回来；Spotify 连上后才写进账号（§5.1）。
+5. **导入的价值要被「看见」**，靠三件事：
    - 导入后立即展示回顾页（§6）；
    - 用「曲目 → 专辑」事实表让数据进入回忆和 Rediscover（§4.6）；
    - 现有的 Now Playing 笔记页和专辑剪贴簿本来就能显示这些数据。
-5. **Yoin 的前置清理只剩数据库卫生**：Room schema 导出、备份规则文件名、`activity_events` 触发器。
+6. **Yoin 的前置清理只剩数据库卫生**：Room schema 导出、备份规则文件名、`activity_events` 触发器。
    - Gemini key 不再随迁移搬家，它的加密存储降为「建议，不阻塞」。
-6. **Spotoolfy 进入一年维护期。** 期满后下架，但 Yoin 依赖的网易云代理 `api.spotoolfy.gojyuplus.com` **必须长期保留**。
+7. **Spotoolfy 进入一年维护期。** 期满后下架，但 Yoin 依赖的网易云代理 `api.spotoolfy.gojyuplus.com` **必须长期保留**。
 
 ---
 
@@ -57,7 +62,7 @@
 
 - 已经在用 Yoin 的老用户合并导入（D1）。
 - 翻译、AI 缓存、播放上下文迁移（D8）。
-- Spotoolfy 的 v2 导出格式或任何 Spotoolfy 侧改动。v1 已经够用，维护版只加一条公告（§9 阶段 5）。
+- Spotoolfy 的 v2 导出格式。v1 已经够用；迁移本身不需要改 Spotoolfy，维护版只加一条公告（§9 阶段 5）。
 - 跨 Profile 或跨 provider 的自动合并（`design.md:253`）。
 - iOS 和 Web 用户：Yoin 只有 Android 版。他们在维护期内可以导出留存。
 
@@ -89,7 +94,7 @@
   - `album_ratings` 为空（含书评）；
   - 没有已完成的导入批次（`import_batches`）。
 - **入口**：只在引导里出现。
-  - **首次引导**（`LandingMode.FirstRun`）：本次引导连上了 Spotify 时出现。
+  - **首次引导**（`LandingMode.FirstRun`）：「选服务」里选了 Spotify 时出现，排在 Spotify 连接页之前。资格在**写入时**按刚连上的账号再检查一次。
   - **重新引导**（`LandingMode.Rerun`，设置 › 关于 › 重新引导）：只在满足硬条件时出现。这样刚走完引导、还没来得及导出的用户有一次补救机会，同时没有放开合并导入。
 - **分享入口**：只在引导进行中有效。引导之外收到 Spotoolfy 文件时，一行提示「Spotoolfy 数据只能在引导中导入」，并删除文件（§5.3）。
 
@@ -177,12 +182,21 @@ data class TrackAlbumLink(
   - **只用单曲接口 `GET /v1/tracks/{id}`**：批量 `GET /v1/tracks?ids=` 已从新建的 Development Mode App 移除，存量 App 的移除只是延期（§7）。
   - 补全时一并修正「未知曲目」的标题，并记下 ISRC（`external_ids` 已于 2026-03-13 恢复），留作将来跨 provider 的线索，本期不用。
 
-**方案第 2 部分：从未在 Yoin 播放过的专辑或曲目，用「上次写下」作为离开时钟**
+**方案第 2 部分：Rediscover 按比例混排两种来源（D11）**
 
-- 没有播放记录时，用 `lastWrittenAt`（最新笔记或评分的时间）代替 `lastPlayedAt` 判断「离开 90 天」。
-- 卡片文案从「上次播放于…」改为「上次写下于…」。
-- 这样 Spotoolfy 里几个月前写过、在 Yoin 里还没重听的专辑，会如实以「你写过它」的身份回来。
-- 这一项改变了 Rediscover 的语义，需要同步写进 `design.md` 的 Rediscover 一节，见 §12 Q2。
+现在每张卡都要求 `lastPlayedFromHistoryAt`，没有就直接剔除（`RediscoverSelection.kt:100`、`:130`），从 Spotoolfy 带来、还没在 Yoin 里听过的专辑永远上不了架。改成两类卡按比例混排：
+
+| 类别 | 来源 | 进架条件 | 卡片第二行 |
+|---|---|---|---|
+| **聆听** | 现有规则 | 在 Yoin 里听过、留过评分或笔记、已经 90 天没听 | 保持现有文案 |
+| **笔记** | 笔记和评分（专辑归属来自第 1 部分的 `track_album_links`） | 写过笔记或打过分，最近 90 天没在 Yoin 里听过（包括从没听过） | **不写日期**，直接给内容：笔记摘录（「前奏一响就想起高中的夏天」）或 `ScoreEmblem` 分数 |
+
+- **比例**：约 2/3 聆听、1/3 笔记（`REDISCOVER_NOTE_SHARE = 1/3`；Compact 6 张时 4 + 2，Medium / Wide 张数少时按同一比例取整，至少 1 张笔记卡）。
+- **互相补位**：一类不够时由另一类补满。刚从 Spotoolfy 迁来、在 Yoin 里还没有播放记录的人，架子上先全是笔记卡；听得越多，聆听卡占得越多，最后稳定在比例上。
+- **排列**：两类交错（聆听、聆听、笔记……），每天按日期固定一次顺序，不在一天里来回跳。
+- **笔记卡内部排序**：有分的在前、分高的在前，同分时笔记多的在前。最近 90 天在 Yoin 里写过或改过的不出现，刚写的不算「重新发现」。
+- 为什么不用「上次写下于」：用户不知道「写下」指什么、什么时候写的；直接展示写过的那句话或打过的分，一眼就明白这张卡为什么回来了。
+- 实现后同步改 `design.md` 的 Rediscover 一节。
 
 **被否的备选**
 
@@ -192,12 +206,13 @@ data class TrackAlbumLink(
 ### 4.7 批次与「换一个文件」
 
 ```text
-import_batches(batchId PK, source="spotoolfy", profileId, fileSha256, importedAt,
-               noteCount, ratingCount, summaryJson)
+import_batches(batchId PK, source="spotoolfy", status, profileId?, fileSha256, importedAt,
+               noteCount, ratingCount, summaryJson)   -- status: staged | committed
 import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 ```
 
 - `summaryJson` 存回顾页数据（§6.3）。回顾页是独立的 Activity，只凭 `batchId` 就能从 Room 读到完整数据。
+- **暂存 → 写入**：文件解析后批次是 `staged`（还没有 profileId，`import_items` 为空，原文件留在 `noBackupFilesDir/spotoolfy-import/`）；Spotify 连上、资格检查通过后，在一个事务里写入笔记和评分、填上 profileId、改成 `committed`。引导结束时仍是 `staged` 的批次连同文件一起删除。
 - **换一个文件**：仅在同一次引导内可用。按 `batchId` 删除 `import_items` 指向的行，再导入新文件。由于是新用户，这一批就是该 Profile 的全部数据，不会误伤。
 - **同一个文件再导一次**（`fileSha256` 相同）：直接提示「已导入」，不重复写。
 - 两张表都是本地运维数据，不进云同步。
@@ -221,41 +236,55 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 
 ---
 
-## 5. 引导页：「Using Spotoolfy?」（D3）
+## 5. 引导页：「Using Spotoolfy?」与 Spotoolfy 悬浮窗（D3、D10）
 
-### 5.1 位置与形态
-
-插在 Spotify 连接页之后：
+### 5.1 位置与顺序
 
 ```text
-你好 → 选服务 → Yoin 负责/不负责 → 各服务连接页 → 【在用 Spotoolfy 吗？】 → 主页内容 → 顶部边缘 → 完成
+你好 → 选服务 → Yoin 负责/不负责 → 【在用 Spotoolfy 吗？】 → Spotify 连接页 → 其它服务连接页 → 主页内容 → 顶部边缘 → 完成
+                                         │
+                                         └─ Spotoolfy 悬浮窗：复制 Client ID → 导出 → 分享给 Yoin → 回顾页
 ```
 
-- 新增 `LandingStep.Spotoolfy`。只有当本次引导里 Spotify 连接成功、且满足 §4.1 的硬条件时，才进入 `landingSteps(...)`。
-- 返回分类沿用 **Pattern E（分步流程）**，不新写返回逻辑：返回 = 上一步。已经导入的数据不因返回而撤销，回到这一步时显示完成状态。
-- 角色（mascot）反应沿用 `design.md` 的既有语言：
-  - 选中选项时点头；
-  - 导入成功时举手蹦一下；
-  - 文件不认识时摇头。
+- 新增 `LandingStep.Spotoolfy`，**排在 Spotify 连接页之前**，只在「选服务」里选了 Spotify 时进入 `landingSteps(...)`（重新引导时另需满足 §4.1）。先导入、后连接：用户从 Spotoolfy 回来时已经带着 Client ID，连接页直接填好。
+- **暂存，连上再写**（§4.7）：解析完成即生成 `staged` 批次并打开回顾页；Spotify 连接成功后写入这个账号，连接页的成功状态多一行「已把 N 条笔记放进〈账号名〉」，角色举手蹦一下。
+- **没连上就想结束**：在「完成」前提示「不连接 Spotify，Spotoolfy 的数据不会保存」，按钮「回去连接」「不要这些数据」。选后者就删除暂存批次和文件。
+- 返回分类沿用 **Pattern E（分步流程）**，不新写返回逻辑：返回 = 上一步。暂存的数据不因返回而丢弃，回到这一步时显示已收到。
+- 角色反应沿用 `design.md` 的既有语言：选中选项时点头；收到文件时举手蹦一下；文件不认识时摇头。
 - 气泡：英文 `Using Spotoolfy?`，中文「在用 Spotoolfy 吗？」。
 
-### 5.2 浮动窗里的内容（单选，三行；形态同 Apple Music 连接页的两行单选）
+### 5.2 这一步的浮动窗（两行单选，形态同 Apple Music 连接页）
 
-1. **「我有导出文件」** → 系统文件选择器 `OpenDocument(arrayOf("application/json", "text/plain"))`。部分文件管理器会把 `.json` 标成 `text/plain`。
-2. **「还没导出」** → 展开一句说明：「打开 Spotoolfy › 设置 › 数据管理 › 导出数据，在分享菜单里选 Yoin」。
-   - 附一个「打开 Spotoolfy」按钮。这需要在 manifest 的 `<queries>` 里声明 Spotoolfy 包名；没装 Spotoolfy 时隐藏按钮。
-   - Yoin 停在这一步等待分享回来（§5.3）。
-3. **「没用过」** → 胶囊主按钮变为「下一步」。
+1. **「在用，带上我的数据」**：胶囊主按钮变成「打开 Spotoolfy」。点下后拉起 Spotoolfy，同时启动 Spotoolfy 悬浮窗（§5.3）。
+   - 需要在 manifest 的 `<queries>` 里声明 Spotoolfy 包名 `com.gojyuplusone.spotoolfy.spotoolfy_flutter`。
+   - 没装 Spotoolfy（比如在别的手机上导出过）：主按钮换成「选择导出文件」，打开系统文件选择器 `OpenDocument(arrayOf("application/json", "text/plain"))`（部分文件管理器会把 `.json` 标成 `text/plain`）。
+2. **「没用过」**：主按钮「下一步」。
 
-### 5.3 选好文件之后的状态
+收到文件之后这一步的状态：
 
 | 状态 | 表现 |
 |---|---|
 | 解析中 | 浮动窗显示进度；胶囊主按钮禁用 |
-| 待确认 | 一句话：「找到 N 条笔记、M 首歌的评分，导入到 〈账号名〉？」，主按钮「导入」。新用户没有冲突，所以只需这一次确认 |
-| 导入中 | 进度；不可返回中断（事务很短） |
-| 完成 | 自动打开回顾页（§6）。返回引导后浮动窗显示「✓ 已导入 N 条笔记」，附「再看一次回顾」「换一个文件」，主按钮「下一步」 |
+| 已收到 | 解析完自动打开回顾页（§6）。返回后浮动窗显示「✓ 已收到 N 条笔记，连上 Spotify 后放进你的 Yoin」，附「再看一次回顾」「换一个文件」，主按钮「下一步」（即 Spotify 连接页） |
 | 失败 | 角色摇头，给出原因（不是 Spotoolfy 文件、文件损坏、为空），提供「换一个文件」 |
+
+### 5.3 Spotoolfy 悬浮窗（`SpotoolfyGuide`，D10）
+
+- **复用 `ConnectGuideActivity`**：同一个画中画小窗（浮在 Spotoolfy 上，不要「显示在其他应用上层」权限），同一套交互约定：一步只说一件事，固定三格「上一步 / 复制 / 下一步」，用不上的格子由系统灰显占位；收尾走 `GuideSession`（先把小窗展开再回 Yoin）。
+- **用 Spotoolfy 的青绿色提升辨识度**：小窗的底色和强调色取 Spotoolfy 图标色板。
+  - 浅色：底 `#DDFFFF`，强调 `#4FA6B0`，深字 `#0B3438`；深色：底 `#12464C`，强调 `#8FD3DB`，浅字 `#DDFFFF`。图标底色是 `#71ACB3`。
+  - 左上角放 Spotoolfy 图标轮廓。
+  - 一眼看出「现在是在 Spotoolfy 里操作」，和 Yoin 自己的紫色 Spotify 悬浮窗区分开。
+  - 颜色作为一组 token 定义在悬浮窗里，不进 Yoin 的主题。
+- **步骤**（按 Spotoolfy 1.3.x 的实际界面）：
+  1. 「点右上角的设置」。
+  2. 「点『Spotify API』，复制客户端 ID」：长按输入框全选、复制。框是空的说明用的是 Spotoolfy 内置的 ID，**跳过这步**，稍后在 Yoin 里新建自己的 App（§7）。
+  3. 「滑到『数据管理』，点『导出数据』」。
+  4. 「在分享菜单里选『导入到 Yoin』」。这一步中间格换成「回到 Yoin」，给存了文件、想在 Yoin 里自己选的人。
+- **回到 Yoin**：
+  - 分享接收 Activity（§5.4）收下文件、拉起 Yoin，小窗随之关闭。
+  - 回到前台时读一次剪贴板：有 32 位十六进制 Client ID 就记下，到 Spotify 连接页时直接填好，和现有 Spotify 悬浮窗回来时的行为一致。
+  - Yoin 收到文件 → 解析 → 回顾页 → 返回这一步（已收到）→ 下一步就是 Spotify 连接页。
 
 ### 5.4 分享入口（从 Spotoolfy 的分享菜单进来）
 
@@ -263,13 +292,13 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
   - exported、透明主题、`excludeFromRecents`、`noHistory`；
   - intent-filter 为 `ACTION_SEND` + `application/json`；
   - 在分享菜单里显示为「导入到 Yoin」。
-- **收到后立刻**把流复制到 `noBackupFilesDir/spotoolfy-import/pending.json`（超过 32 MB 拒绝），然后用内部 action 拉起 `MainActivity`，不把外部 URI 往下传。这样做的原因：
+- **收到后立刻**把流复制到 `noBackupFilesDir/spotoolfy-import/pending.json`（超过 32 MB 拒绝），然后用内部 action 拉起 `MainActivity`，不把外部 URI 往下传。原因：
   - 分享来的 URI 读权限只属于接收它的 Activity，转交容易失效；
   - `MainActivity` 不必对外暴露新的 intent 入口。
 - `MainActivity` 拿到待导入文件后：
-  - **引导进行中**：保留文件。到 Spotoolfy 这一步时自动进入「待确认」，并提示「已收到你从 Spotoolfy 分享的文件」。用户先分享、后打开 Yoin 也一样适用，顺序无关。
+  - **引导进行中**：交给 Spotoolfy 这一步解析、暂存、打开回顾。用户先分享、后第一次打开 Yoin 也适用，文件留到这一步再处理，顺序无关。
   - **引导之外**：一行 snackbar「Spotoolfy 数据只能在引导中导入」，并删除文件。
-- 绝不静默导入，所有路径都要经过「待确认」。
+- 文件只会被暂存；写进账号永远发生在 Spotify 连接成功之后（§5.1），不存在静默写入。
 
 ### 5.5 实现落点
 
@@ -277,13 +306,14 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
   - `SpotoolfyExportParser`（流式、宽容）
   - `SpotoolfyImportMapper`（纯函数）
   - `SpotoolfyRecapCalculator`（纯函数，§6.3）
-  - `SpotoolfyImporter`（事务、批次、资格检查）
+  - `SpotoolfyImporter`（暂存、写入、资格检查、换文件）
   - `TrackAlbumLinkEnricher`（后台补全）
 - 界面层：
-  - 引导步骤放在 `ui/landing/LandingSpotoolfyStep.kt`，复用 `LandingViewModel` 的步骤机制；
-  - 分享接收放在 `ui/landing/import/`。
+  - 引导步骤：`ui/landing/LandingSpotoolfyStep.kt`，复用 `LandingViewModel` 的步骤机制；
+  - 悬浮窗：`ui/landing/guide/SpotoolfyGuide.kt`，挂在 `ConnectGuideActivity` 上；
+  - 分享接收：`ui/landing/import/`。
 - 写入经 `YoinRepository` 新增的方法，UI 不直接调用 DAO。
-- 实现完成后，把这一步补进 `design.md` §首次引导：那里是 UI 的事实来源（AGENTS.md）。
+- 实现完成后，把这一步和悬浮窗补进 `design.md` §首次引导：那里是 UI 的事实来源（AGENTS.md）。
 
 ---
 
@@ -291,10 +321,11 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 
 ### 6.1 定位
 
-- 新的全屏目的地 `SpotoolfyRecapActivity`，导入成功后由引导自动打开。
+- 新的全屏目的地 `SpotoolfyRecapActivity`，文件解析完成后由引导自动打开。此时数据还在暂存，连上 Spotify 后才写进账号（§5.1）。
+- **交互原型**：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>（虚构示例数据；可切换「重度 / 轻度用户」看数据不足时的退化）。
 - **返回分类：Pattern A（原生跨 Activity 预测性返回）**：没有共享 chrome，注册零个返回回调，返回落在引导的 Spotoolfy 步。
   - 页内**不加** `BackHandler`。展开的词卡点空白处收起，而不是用返回键收起，否则会压掉原生预览（predictive-back 不变式 13）。
-  - 结尾的「继续」按钮直接 `finish()`。
+  - 结尾的「连接 Spotify」按钮直接 `finish()`，回到引导后进入 Spotify 连接页。
 - 数据只凭 `batchId` 从 `import_batches.summaryJson` 读取，符合「Activity 边界即数据边界」。
 
 ### 6.2 页面结构（竖向分页，每屏一个场景，进入当前屏时才播放动画）
@@ -308,7 +339,7 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 | 5 | **时间** | 按月的笔记柱状图；「你最常在 23 点写笔记」；最长连续记录天数 | 柱子依次升起；一天 24 小时排成一圈，最高的那个钟点亮起 |
 | 6 | **写得最多的** | Top 3 曲目（封面 + 条数）、Top 3 艺人 | 卡片依次落下 |
 | 7 | **一切的开始** | 第一条笔记：日期、曲目、正文 | Big Bang 式：正文拆成词块散开，再按原顺序合拢成句 |
-| 8 | **都在 Yoin 里了** | 去哪里找：Now Playing 的笔记页、专辑剪贴簿、回忆；「N 条笔记会跟着歌词时间线出现」（有 `positionMs` 的） | 收尾，「继续」 |
+| 8 | **接下来** | 去哪里找：Now Playing 的笔记页、专辑剪贴簿、回忆和 Rediscover；「N 条笔记会跟着歌词时间线出现」（有 `positionMs` 的）；「还差一步：连接 Spotify，Client ID 已经从 Spotoolfy 带过来」 | 列表滑入，「连接 Spotify」 |
 
 数据不足时场景自动省略或退化：
 
@@ -381,6 +412,8 @@ data class SpotoolfyRecap(
   - Android package `com.gpo.yoin` + SHA-1；
   - 原来的 Client ID 照用。
 - Yoin 现有的连接引导和悬浮窗已经能复制这些值，包括本机安装包的签名 SHA-1（`ConnectGuide.kt:73-82`）。**不做单独的引导分支，也不加单独的提醒文案。**
+- Client ID 从 Spotoolfy 悬浮窗带回来时（§5.3），连接页直接填好；Spotify 悬浮窗从「两个回调地址」那步开始，跳过 Create app 和起名，只做「加一个」。
+- Spotoolfy 里客户端 ID 为空（用的是 Spotoolfy 内置的 ID）的用户，那个 App 不归他们，走现有的完整 9 步新建自己的 App。
 - 背景：Spotify 2026 年起，Development Mode 的规则对新旧 App 一律生效（2026-03-09 起）：
   - 每个开发者只能有 1 个 Client ID；
   - 每个 App 最多 5 个授权用户；
@@ -436,20 +469,30 @@ data class SpotoolfyRecap(
 ### 阶段 2：导入核心
 
 - [ ] Room 30→31：`track_album_links`、`import_batches`、`import_items`，加 migration 测试。
-- [ ] 两个专辑聚合查询改为并集；Rediscover 加「上次写下」时钟（§4.6）。
-- [ ] Parser、Mapper、RecapCalculator、Importer（含资格检查、换文件）。
+- [ ] 两个专辑聚合查询改为并集；Rediscover 按比例混排聆听卡和笔记卡（§4.6）。
+- [ ] Parser、Mapper、RecapCalculator、Importer（含暂存 / 写入、资格检查、换文件）。
 - [ ] `recordPlay` 和专辑详情加载时写 `track_album_links`；后台补全任务。
 
 ### 阶段 3：引导步骤与分享入口
 
-- [ ] `LandingStep.Spotoolfy`（§5）、分享接收 Activity、manifest 的 `<queries>`；补 `design.md` §首次引导。
+- [ ] `LandingStep.Spotoolfy`（§5），排在 Spotify 连接页之前；暂存批次在 Spotify 连上后写入。
+- [ ] Spotoolfy 悬浮窗 `SpotoolfyGuide`（青绿色，4 步），回到 Yoin 时读剪贴板里的 Client ID。
+- [ ] 分享接收 Activity、manifest 的 `<queries>`；补 `design.md` §首次引导。
 
 ### 阶段 4：回顾页
 
 - [ ] `SpotoolfyRecapActivity`（§6），中英文案，减少动态效果、平板、读屏三项验收。
+- 交互原型已做：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>。
 
 ### 阶段 5：Spotoolfy 维护版（不阻塞迁移）
 
+- [x] **歌词服务与 Yoin 同步**（D12，2026-10-14 已完成，`p2o51/spotoolfy_flutter` 分支 `claude/optimistic-albattani-xk14mj`，版本 1.3.8+19）：
+  - 移植 Yoin 的 `LyricCandidateMatcher`，QQ 与网易云的自动匹配都经过它；
+  - QQ 取词换成数字 songID + `GetPlayLyricInfo`，主机轮换，旧接口兜底，翻译去掉 `//` 和注音行；
+  - 歌词源顺序改为 QQ → 网易云 → LRCLIB；
+  - 新的 LRC 解析与音源翻译逐行配对；
+  - 手动选的歌词不再过期；
+  - 115 个测试通过，其中 Yoin 的测试用例和录制数据原样移植。
 - [ ] 一条可关闭的启动公告：
   - Spotoolfy 进入一年维护期；
   - Android 用户可以迁到 Yoin（导出 → 分享给 Yoin），并说明 Yoin 需要本机 Spotify；
@@ -504,13 +547,17 @@ data class SpotoolfyRecap(
 | 事务中途异常 | 全部回滚，没有批次记录 |
 | 5 万条合成文件 | Robolectric 下 < 10 s，内存峰值 < 64 MB |
 | 30→31 migration | 现有数据不变，新表可写 |
-| 只有 link、没有播放记录的曲目 | 进入回忆候选；Rediscover 按「上次写下」判断 90 天 |
+| 只有 link、没有播放记录的曲目 | 进入回忆候选；作为 Rediscover 的笔记卡出现 |
+| Rediscover 混排 | 两类都充足时笔记卡约占 1/3；一类不足时另一类补满；笔记卡第二行是笔记摘录或分数，没有日期 |
+| 暂存与写入 | 解析后只有 `staged` 批次，账号里没有任何笔记或评分；Spotify 连上后一次写入；放弃或引导结束时暂存批次和文件都被删除 |
+| 剪贴板 Client ID | 32 位十六进制才预填；其余内容忽略 |
 | `SpotoolfyRecapCalculator` | 中、英、日混排分词正确；停用词生效；数据不足时正确退化 |
 | 分享接收 | 超过 32 MB 拒绝；引导之外收到文件时提示并删除；从不自动导入 |
 
 ### 11.2 实机 QA
 
-- 先分享、后首次打开 Yoin；先打开 Yoin、再回 Spotoolfy 分享。两个顺序都能走到「待确认」。
+- 先分享、后首次打开 Yoin；先打开 Yoin、再跟着 Spotoolfy 悬浮窗分享。两个顺序都能走到回顾页，连上 Spotify 后数据写入。
+- Spotoolfy 悬浮窗：浅色 / 深色下的青绿色、四步的上一步 / 下一步、关屏锁屏后小窗的去留（与 Spotify 悬浮窗同一套规则）。
 - Spotoolfy 步的返回、手势取消、三键返回（Pattern E）；回顾页的原生预测性返回（Pattern A）。
 - 回顾页：减少动态效果、平板横屏、深色模式、TalkBack、离线时的封面退化。
 - 走完引导后，首页出现回忆气泡；打开有笔记的专辑，剪贴簿显示这些笔记。
@@ -520,7 +567,7 @@ data class SpotoolfyRecap(
 ## 12. 待定事项（附推荐）
 
 - **Q1. 日语和繁体中文界面**：先看 Spotoolfy 在 Play Console 的语言分布再定。
-- **Q2. Rediscover 用「上次写下于」**作为从未在 Yoin 播放过的内容的离开时钟（§4.6 第 2 部分）。推荐：采用，并写进 `design.md`。
+- **Q2. Rediscover 笔记卡占多少**：推荐 1/3，并且只要有笔记卡就至少给 1 张（§4.6）。
 - **Q3. 回顾页以后能否再打开**：推荐 P2，在设置 › 关于放一个「Spotoolfy 回顾」入口（只在有导入批次时显示）。
 - **Q4. 维护期一年从哪天起算**：推荐从 Yoin 公开上架日起算，而不是维护版发布日。否则封闭测试期间就在消耗用户的迁移窗口。
 
@@ -584,10 +631,11 @@ fun mapRating(v: Int): Float = when (v) { 5 -> 10f; 3 -> 5f; 0 -> 1f; else -> er
 
 > 适用于 Android 上的 Spotoolfy 用户。iOS 和网页版用户请在维护期内用 Spotoolfy 的「导出数据」留存数据。
 
-1. 在 Spotoolfy 里：设置 › 数据管理 › 导出数据，在分享菜单里选 **Yoin**。也可以先把文件存下来。
-2. 安装并打开 Yoin，按引导连接 Spotify：在你原来的 Spotify App 里加上 Yoin 的回调地址和 Android 包，Client ID 照用。
-3. 引导问「在用 Spotoolfy 吗？」：选文件，或者确认刚才分享过来的文件，点「导入」。
-4. 看完你的 Spotoolfy 回顾，继续完成引导。
+1. 安装并打开 Yoin，选服务时选上 Spotify。
+2. Yoin 问「在用 Spotoolfy 吗？」，选「在用，带上我的数据」，点「打开 Spotoolfy」。
+3. 跟着青绿色的 Spotoolfy 小窗做：复制 Spotify 客户端 ID → 导出数据 → 在分享菜单里选「导入到 Yoin」。
+4. 看完你的 Spotoolfy 回顾，连接 Spotify：Client ID 已经填好，在你原来的 Spotify App 里加上 Yoin 的回调地址和 Android 包就行。
+5. 连接成功，笔记和评分就放进了你的 Yoin。
 
 ---
 
