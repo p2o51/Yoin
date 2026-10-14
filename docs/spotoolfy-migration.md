@@ -1,192 +1,161 @@
 # Spotoolfy → Yoin 迁移方案（最佳实践）
 
-状态：提案，待 owner 拍板（2026-10-14）
+状态：主要决策已定（owner 2026-10-14），剩余待定项见 §12
 基线：Yoin `main@e4bdd0d`（0.5.0 / Room v30）；Spotoolfy = `p2o51/spotoolfy_flutter@0a57d65`（1.3.7+18）
 
 > 「Spotoolfy」在本文指 Flutter 版 `spotoolfy_flutter`：Play 封闭测试 + TestFlight + Web。
-> `p2o51/Spotoolfy` 是 2024 年的 React 原型，数据在 Firestore `users/{uid}/thoughts`，只在 §9.3 处理。
+> `p2o51/Spotoolfy` 是 2024 年的 React 原型，数据在 Firestore `users/{uid}/thoughts`，只在 §10 收尾时处理。
 
 ---
 
-## 0. 一页结论
+## 0. 已定决策（owner 2026-10-14）
+
+| # | 决策 | 落在本文 |
+|---|---|---|
+| D1 | **导入只对新用户开放**：只在首次引导里出现，目标账号必须还没有任何用户数据 | §4.1、§5 |
+| D2 | **导入后展示一个好看的可视化回顾页**：多少条、写了什么、文字爆炸 | §6 |
+| D3 | **引导页新增「Using Spotoolfy?」一问**：选文件导入，或提示去 Spotoolfy 导出、经分享菜单交给 Yoin | §5 |
+| D4 | **Gemini API key 不导入** | §4.2 |
+| D5 | **评分映射 👎/😐/🔥 → 1/5/10**（含 😐） | §4.4 |
+| D6 | **Spotify 授权**：在原有 Spotify App 里加上 Yoin 一项即可，不做单独提醒或单独引导分支 | §7 |
+| D7 | **导入的数据要进回忆和 Rediscover**：采用「曲目 → 专辑」事实表方案 | §4.6 |
+| D8 | **翻译不迁移** | §4.2 |
+| D9 | **Spotoolfy 维护期一年** | §9 阶段 7 |
+
+---
+
+## 1. 一页结论
 
 1. **两个 App 是不同的包，不存在原地升级。**
    - Spotoolfy 是 `com.gojyuplusone.spotoolfy.spotoolfy_flutter`，Yoin 是 `com.gpo.yoin`。
-   - Android 沙盒互不可读，所以数据迁移必须是**用户主动发起的文件交接**：Spotoolfy 导出 → Yoin 导入。
-   - 好消息是 Spotoolfy 已经有 JSON 导出（`local_database_provider.dart:524`）。Yoin 只需补一个导入器，Spotoolfy 端可以一行不改就先跑通。
-2. **只迁移用户亲手写下的东西**：笔记（`records.noteContent`）和评分（`records.rating`）。
-   - 其余都是缓存或可再生数据，不迁：翻译、歌词缓存、AI 缓存、播放上下文、token。
-   - 也**绝不伪造行为数据**：不造 `play_history`，不凭空生成专辑评分。
-3. **导入必须满足五条：可预览、幂等、可撤销、单事务、不覆盖更新的数据。**
-   - 笔记 ID 用确定性 UUID，重复导入、多设备导入加云同步都不会出现重复。
-   - 评分按时间戳后写胜出（LWW）。
-4. **Spotify 授权是最大的人为风险。** 2026-03-09 起，Development Mode 对存量 App 也生效三条限制：每个开发者只能有 1 个 Client ID、每个 App 最多 5 个用户、App 所有者必须是 Premium。
-   - 所以已经在 Spotoolfy 里自建过 Spotify App 的用户，**很可能无法再建第二个**。
-   - 最佳做法是**复用原来的 Client ID**：在同一个 Spotify App 里追加 Yoin 的 redirect URI、包名和 SHA-1。
-   - Yoin 的连接引导需要为此加一条「我已有 Spotify App」分支。
-5. **迁移前 Yoin 先补三个前置项。**
-   - Room schema 导出：目前没有 `app/schemas`。
-   - Gemini key 改为加密存储：目前是明文，而且会进 Auto Backup。
-   - 「专辑归属」缺口：导入的笔记和评分没有 Yoin 播放记录，进不了回忆和 Rediscover，见 §4.6。
-6. **分阶段上线，Spotoolfy 进入维护期而不是立刻下架。**
-   - iOS 和 Web 用户在 Yoin 里没有去处，他们的导出能力至少保留 12 个月。
-   - Yoin 的网易云歌词仍依赖 Spotoolfy 的代理 `api.spotoolfy.gojyuplus.com`，**下架 Spotoolfy 时不能关掉它**。
+   - 数据只能由用户主动交接一个 JSON 文件。
+   - Spotoolfy **现有的导出已经通过系统分享菜单发出 `application/json`**（`local_database_provider.dart:524-561`，`Share.shareXFiles`）。所以只要 Yoin 注册成分享目标、并能读 v1 格式，**Spotoolfy 一行代码都不用改**就能完成迁移。
+2. **只迁移用户亲手写下的东西**：笔记和评分。
+   - 翻译、歌词、AI 缓存、播放上下文、token、Gemini key 一律不迁。
+   - 绝不伪造行为数据：不造播放记录，不生成专辑评分。
+3. **新用户限定让导入变简单。** 目标账号是空的，不存在和已有数据冲突的问题，也不需要复杂的撤销。
+   - 引导中途可以「换一个文件」：删掉刚导入的那一批，再导一次。
+   - 笔记 ID 仍然用确定性 UUID，防止与云同步拉回的数据重复。
+4. **导入的价值要被「看见」**，靠三件事：
+   - 导入后立即展示回顾页（§6）；
+   - 用「曲目 → 专辑」事实表让数据进入回忆和 Rediscover（§4.6）；
+   - 现有的 Now Playing 笔记页和专辑剪贴簿本来就能显示这些数据。
+5. **Yoin 的前置清理只剩数据库卫生**：Room schema 导出、备份规则文件名、`activity_events` 触发器。
+   - Gemini key 不再随迁移搬家，它的加密存储降为「建议，不阻塞」。
+6. **Spotoolfy 进入一年维护期。** 期满后下架，但 Yoin 依赖的网易云代理 `api.spotoolfy.gojyuplus.com` **必须长期保留**。
 
 ---
 
-## 1. 范围与目标
+## 2. 范围
 
 **目标**
 
-- 现有 Spotoolfy Android 用户迁到 Yoin 后，零丢失地保留笔记和评分，并能在 Yoin 的现有界面里看到它们：
-  - Now Playing 的「笔记」页
-  - 专辑剪贴簿
-  - 回忆和 Rediscover
-- 用户侧迁移步骤 ≤ 5 步。Spotify 授权一次完成，不需要新建 Spotify App。
-- Spotoolfy 有序进入维护期，有明确的下架判据。
+- 新装 Yoin 的 Spotoolfy Android 用户，在首次引导里一步把笔记和评分带过来。
+- 导入后看到一份回顾，随后在 Now Playing、专辑剪贴簿、回忆和 Rediscover 里遇到这些数据。
 
-**非目标（YAGNI，对齐 AGENTS.md）**
+**非目标（YAGNI）**
 
-- 不把 Spotoolfy 的全部功能搬进 Yoin。功能取舍见 §7，按「影响已迁移数据可见性」排优先级。
-- 不做跨 Profile 或跨 provider 的自动合并（`design.md:253` 的阶段约束）。导入只写入一个 Spotify Profile。
-- 不迁移 iOS 和 Web 用户的设备内数据：Yoin 只有 Android 版。他们可以导出 JSON 留存，日后再导入。
+- 已经在用 Yoin 的老用户合并导入（D1）。
+- 翻译、AI 缓存、播放上下文迁移（D8）。
+- Spotoolfy 的 v2 导出格式或任何 Spotoolfy 侧改动。v1 已经够用，维护版只加一条公告（§9 阶段 5）。
+- 跨 Profile 或跨 provider 的自动合并（`design.md:253`）。
+- iOS 和 Web 用户：Yoin 只有 Android 版。他们在维护期内可以导出留存。
 
 ---
 
-## 2. 两边现状对照
+## 3. 两边现状对照
 
-| 维度 | Spotoolfy (Flutter) | Yoin (Kotlin/Compose) | 迁移含义 |
+| 维度 | Spotoolfy | Yoin | 迁移含义 |
 |---|---|---|---|
-| 平台 | Android / iOS / Web | 仅 Android（minSdk 26） | iOS 和 Web 用户无法迁移，只能保留导出 |
-| 包名 | `com.gojyuplusone.spotoolfy.spotoolfy_flutter` | `com.gpo.yoin` | 不是原地升级，必须走文件交接 |
-| Spotify 授权 | `spotify_sdk.getAccessToken`：只有 access token，没有 refresh token，55 分钟过期（`spotify_service.dart:375-487`） | Authorization Code + PKCE，有 refresh token，凭据 AES-GCM 加密（`SpotifyAuthService.kt`） | token 不迁，用户在 Yoin 里重新授权一次 |
-| Redirect URI | `spotoolfy://callback` | `yoin://auth/spotify/callback` | 需要在同一个 Spotify App 里**追加**，不要替换 |
-| Client ID | prefs `spotify_client_id` → 内置 `Env.clientId` | Room `spotify_config`（每设备一行）→ `BuildConfig` | 可以随迁移包带过去并预填 |
-| 播放控制 | Web API / Spotify Connect，可以遥控任意设备 | App Remote，要求本机装有 Spotify App；Web API 起播是备选路径 | 行为变化，需要在说明里讲清楚 |
-| 本地库 | sqflite `spotoolfy_database.db` v1，4 张表 | Room `yoin-database` v30 | 字段映射见 §4 |
-| 评分 | 三档：0 👎 / 3 😐 / 5 🔥，按「记录」存，最新一条生效 | 0–10 浮点，步长 0.1，每曲一行（`local_ratings`） | 映射见 §4.3 |
-| 笔记 | `records`：一条记录 = 评分 + 可选文本 + 歌词片段 + 播放位置 + 上下文 | `song_notes`：文本 + `positionMs` + 标题/艺人 | 歌词片段并入正文，上下文丢弃 |
-| 专辑评分 | 不存储，按曲目平均实时计算（`album_page.dart:395-414`） | `album_ratings` 存储，并同步 NeoDB | **不生成**，见 §4.5 |
-| 翻译 | Gemini 原文，按 (trackId, lang, style) 存 | `lyrics_translation_cache`，按 sourceHash 和 model 存 | 不迁（缓存，key 对不上） |
-| AI | `gemini-flash-latest` / `gemini-3-flash-preview`，key 在 secure storage | `gemini-3.1-flash-lite`，key 在 Room 里**明文** | key 让用户重新填；Yoin 先改为加密存储 |
-| 备份 | 手动 JSON 导出/导入（无版本号） | Google Drive appdata 云同步 + Auto Backup；**没有手动导入导出** | Yoin 新增的导入正好填上 `cloud-sync.md:107` 的待办 |
-| 语言 | en / ja / zh / zh_TW | en / zh-rCN | ja 和 zh-TW 用户会降级为英文，见 §7 |
-
----
-
-## 3. 指导原则（Best Practices）
-
-1. **先分清用户数据和缓存。** 只有用户亲手写下的内容不可再生，必须零丢失；缓存允许丢弃，代价只是重新拉取或一次 Gemini 调用。
-2. **映射有损时，要显式、可追溯。**
-   - 每个有损决策写进本文 §4 和导入报告。
-   - 保留原始导出文件（用户自己持有）作为最终真相源。
-   - 导入台账记录「源记录 → 目标行」。
-3. **不伪造行为数据。** 回忆、Rediscover、Most Played 都建立在真实播放之上。造播放记录会让这些功能「说谎」，所以缺口用新的事实表补（§4.6），而不是造数据。
-4. **导入要像数据库迁移一样严谨。**
-   - 先校验，再预览，最后在一个 Room 事务里提交。
-   - 失败整体回滚；成功的那批可以一键撤销。
-   - 重复执行结果不变（幂等）。
-5. **与云同步天然兼容。** Yoin 的同步适配器按扫描方式读表（`SongNoteSyncAdapter.readAll`）。导入只要写进正确的表、带对的时间戳和稳定的 ID，就会自动同步到其他设备，不需要特殊通道。
-6. **遵守 Yoin 的既有约束。**
-   - 每张引用远端 ID 的表都带 `provider`，并按 Profile 隔离。
-   - 新页面先归类返回面（导入页 = PushPage，走共享返回实现，见 `.claude/skills/predictive-back`）。
-   - 文案进 `values/` 和 `values-zh-rCN/`，不硬编码。
-   - 测试命名 `should_x_when_y`。
-7. **用版本化的契约加两端共用的 fixtures 锁定格式。** 导出格式写成文档（§10），并在两个仓库放同一批 golden 文件做测试。
-8. **灰度上线，先拿 owner 自己的数据演练。** 先 dogfood，再开放给封闭测试用户；以观测数据决定是否下架 Spotoolfy。
+| 平台 | Android / iOS / Web | 仅 Android（minSdk 26） | 只迁 Android 用户 |
+| 包名 | `com.gojyuplusone.spotoolfy.spotoolfy_flutter` | `com.gpo.yoin` | 文件交接 |
+| 导出 | 有：JSON，无版本号，走系统分享菜单 | 没有手动导入导出（`cloud-sync.md:107` 列为待办） | Yoin 只补导入 |
+| Spotify 授权 | `spotify_sdk` 只有 access token；redirect `spotoolfy://callback` | PKCE；redirect `yoin://auth/spotify/callback` | 在同一个 Spotify App 里加上 Yoin（§7） |
+| 播放 | Web API / Connect，遥控任意设备 | App Remote（要求本机装有 Spotify），Web API 起播是备选路径 | 行为差异写进说明 |
+| 本地库 | sqflite v1：`tracks`、`records`、`translations`、`play_contexts` | Room v30 | 映射见 §4 |
+| 评分 | 0 👎 / 3 😐 / 5 🔥，每条记录带一个评分 | 0–10 浮点，每曲一行 | 1 / 5 / 10（D5） |
+| 笔记 | 文本 + 歌词片段 + 播放位置 + 上下文 | 文本 + `positionMs` + 标题/艺人 | 片段并入正文，上下文丢弃 |
+| 引导 | 无 | 首次引导 `ui/landing/`：你好 → 选服务 → … → 完成 | 新增一步（§5） |
 
 ---
 
 ## 4. 数据迁移设计
 
-### 4.1 数据盘点与处置
+### 4.1 「新用户」的判定
 
-| Spotoolfy 存储 | 内容 | 处置 | 理由 |
-|---|---|---|---|
-| `records`（有 `noteContent`） | 笔记 | ✅ → `song_notes` | 用户手写，不可再生 |
-| `records.rating` | 评分历史 | ✅ 每曲取最新一条 → `local_ratings` | Yoin 每曲只存一个当前值；完整历史保留在原始文件里 |
-| `records`（`noteContent` 为空） | 快速评分 | ✅ 只贡献评分，不生成笔记 | 避免产生空笔记 |
-| `tracks` | 曲名、艺人、专辑名、封面 | ✅ 作为笔记的 `title`/`artist`，以及专辑关联的线索 | 冗余元数据，可以从 Spotify 补全 |
-| `translations` | Gemini 翻译 | ❌ 不迁 | key 对不上 `(sourceHash, model)`；属于缓存，可以重新生成 |
-| `play_contexts` | 最近播放的歌单/专辑 | ❌ 不迁 | 只有最后一次时间，不是真实的播放序列，导入会污染 Recents 和回忆 |
-| prefs `lyrics_cache_*` / `netease_translation_*` / `translation_cache_*` | 歌词与翻译缓存 | ❌ 不迁（本来也不在导出里） | 可再生 |
-| prefs `cached_song_info_*`、`album_insights_*`、`cached_music_insights` | AI 缓存 | ❌ 不迁 | 可再生；Yoin 的 About 表结构也不同 |
-| prefs `spotify_client_id` | 用户的 Client ID | ✅（v2 导出）→ `spotify_config`，**仅在设备上还没有的时候预填** | Client ID 是公开标识（PKCE 无 secret），复用它是关键 |
-| secure `target_translation_language` | 翻译目标语言 | ✅（v2 导出）→ `gemini_config.targetLanguage` | `en`/`zh-CN`/`zh-TW`/`ja` 都能一一对应 Yoin 的 8 种语言 |
-| secure `gemini_api_key` | API key | ❌ **不进导出文件**，让用户重新粘贴 | 导出文件会被分享和转存，不能装秘密 |
-| secure `spotify_access_token` | token | ❌ | 不同的 App 和授权流程，而且 1 小时就过期 |
-| `last_used_rating`、`selected_language` 等 | UI 偏好 | ❌ | Yoin 没有对应概念 |
+- **硬条件**（导入器强制检查，界面只是不显示入口）：目标 Spotify Profile 里没有任何用户写下的数据，即：
+  - `song_notes` 为空；
+  - `local_ratings` 为空；
+  - `album_ratings` 为空（含书评）；
+  - 没有已完成的导入批次（`import_batches`）。
+- **入口**：只在引导里出现。
+  - **首次引导**（`LandingMode.FirstRun`）：本次引导连上了 Spotify 时出现。
+  - **重新引导**（`LandingMode.Rerun`，设置 › 关于 › 重新引导）：只在满足硬条件时出现。这样刚走完引导、还没来得及导出的用户有一次补救机会，同时没有放开合并导入。
+- **分享入口**：只在引导进行中有效。引导之外收到 Spotoolfy 文件时，一行提示「Spotoolfy 数据只能在引导中导入」，并删除文件（§5.3）。
 
-### 4.2 记录级映射（`records` + `tracks` → `song_notes`）
+### 4.2 数据盘点与处置
 
-| `song_notes` 字段 | 来源 | 规则 |
+| Spotoolfy 存储 | 处置 | 理由 |
 |---|---|---|
-| `id` | 派生 | `UUID.nameUUIDFromBytes("spotoolfy:v1|$trackId|$recordedAt|${sha256(noteContent)}")`。不直接用 `records.id`：那是每台设备各自的自增 ID，两台手机的导出会撞号 |
-| `profileId` | 用户在预览页选择 | 默认当前激活的 Spotify Profile；没有 Spotify Profile 时先引导连接 |
-| `provider` | 常量 | `MediaId.PROVIDER_SPOTIFY` |
-| `trackId` | `records.trackId` | 去掉 `spotify:track:` 前缀，再校验 `^[0-9A-Za-z]{22}$`。不合格的跳过并计入报告，内置样例 `spotify:track:sample1/2` 会在这一步被滤掉 |
-| `content` | `noteContent` + `lyricsSnapshot` | 见 §4.4 |
-| `createdAt` / `updatedAt` | `recordedAt` | 保留原始时间（毫秒），让笔记在时间线、回忆和同步的 LWW 里处在正确的位置 |
-| `title` / `artist` | `tracks.trackName` / `artistName` | `artistName` 本来就是 `", "` 拼接的，原样保留 |
-| `positionMs` | `songTimestampMs` | 为 null 或 ≤ 0 时写 null；它让笔记自动挂到歌词时间线上 |
-| — | `contextUri` / `contextName` | 丢弃。Yoin 笔记没有上下文字段；而且 Spotoolfy 即使在歌单里播放也写入专辑名（`add_note.dart:137-140`），信息本来就不可靠 |
+| `records`（有正文） | ✅ → `song_notes` | 用户手写，不可再生 |
+| `records.rating` | ✅ 每曲取最新一条 → `local_ratings` | Yoin 每曲只存当前值 |
+| `records`（只有评分，没有正文） | ✅ 只贡献评分 | 不生成空笔记 |
+| `tracks` | ✅ 作为标题、艺人、回顾页素材和专辑关联线索 | 冗余元数据 |
+| `translations` | ❌（D8） | 缓存；key 对不上 `(sourceHash, model)` |
+| `play_contexts` | ❌ | 只有最后一次时间，导入会污染 Recents 和回忆 |
+| 歌词、翻译、AI 缓存（prefs） | ❌（本来也不在导出文件里） | 可再生 |
+| Spotify Client ID | ❌（不在 v1 导出里） | 用户照用原来的 ID（§7） |
+| Gemini API key | ❌（D4，本来也不在导出里） | — |
+| token、UI 偏好 | ❌ | 不同的 App |
 
-### 4.3 评分映射（三档 → 0–10）
+### 4.3 记录映射（`records` + `tracks` → `song_notes`）
 
-| Spotoolfy | 含义 | Yoin `local_ratings.rating` |
-|---|---|---|
-| 5 | 🔥 whatshot | **10.0** |
-| 3 | 😐 neutral | **5.0** |
-| 0 | 👎 thumb_down | **1.0** |
-| NULL / 其它 | 未评分 | 不写 |
+| `song_notes` 字段 | 来源与规则 |
+|---|---|
+| `id` | `UUID.nameUUIDFromBytes("spotoolfy:v1|$trackId|$recordedAt|${sha256(noteContent)}")`。不直接用 `records.id`：那是每台设备的自增 ID，不同设备会撞号；确定性 ID 还能防止与云同步拉回的同一条笔记重复 |
+| `profileId` | 本次引导连上的 Spotify Profile |
+| `provider` | `MediaId.PROVIDER_SPOTIFY` |
+| `trackId` | 去掉 `spotify:track:` 前缀，再校验 `^[0-9A-Za-z]{22}$`。不合格的跳过，内置样例 `spotify:track:sample1/2` 也在这一步被滤掉（`database_helper.dart:634-738`） |
+| `content` | 见 §4.5 |
+| `createdAt` / `updatedAt` | `recordedAt`（毫秒），保留原始时间 |
+| `title` / `artist` | `tracks.trackName` / `tracks.artistName`。找不到对应 track 时，标题占位为「未知曲目」，等补全任务修正 |
+| `positionMs` | `songTimestampMs`；为 null 或 ≤ 0 时写 null。有值的笔记会自动挂到歌词时间线上 |
+| — | `contextUri` / `contextName` 丢弃。Spotoolfy 在歌单里播放时也写入专辑名（`add_note.dart:137-140`），信息本身不可靠 |
 
-- **为什么是 1/5/10：** 这就是 Spotoolfy 自己算专辑分时用的映射（`album_page.dart:1140-1150` 的 `_mapRatingToScore`）。用户在 Yoin 里看到的专辑平均分和在 Spotoolfy 里看到的一致。
-- **为什么 👎 不映射成 0：** Yoin 把 `rating > 0` 当作「打过分」的信号（`LocalRatingDao.getRatedAlbumAggregates`），滑条上 0 也显示为空。映射成 0 会让「明确不喜欢」等同于「没评」。
-- **取哪一条：** 每个 `(profileId, trackId)` 取 `MAX(recordedAt)` 那条记录，和 Spotoolfy 的「最新评分」语义一致（`database_helper.dart:230-294`）。
-- **写入方式：**
-  - `updatedAt = recordedAt`。
-  - Spotify 不支持服务端评分（`SpotifyMusicSource.setRating` 返回 failure），所以写 `needsSync = false`，`serverRating` 按 `round(r/2)` 照常计算。
-- **与 Yoin 已有评分冲突时：**
-  - Yoin 那条的 `updatedAt` 更新，就保留 Yoin 的。
-  - 否则用 Spotoolfy 的。
-  - 预览页列出冲突数量。
-- **注意：** `records.rating` 的默认值是 3，而且添加笔记时会沿用上次的评分（`add_note.dart:30`），所以部分 😐 可能是顺手带上的。建议照常导入，这正是 Spotoolfy 界面上显示的「最新评分」；如果 owner 不同意，见 §11 待决问题 Q2。
+### 4.4 评分映射（D5）
 
-### 4.4 笔记正文的组装
+| Spotoolfy | Yoin `local_ratings.rating` |
+|---|---|
+| 5 🔥 | 10.0 |
+| 3 😐 | 5.0 |
+| 0 👎 | 1.0 |
+| NULL / 其它值 | 不写 |
 
-Yoin 的笔记是纯文本，不渲染 Markdown。`lyricsSnapshot` 可能是用户在歌词选择页选中的行，也可能是自动截取的 3 行，两者无法区分，所以保守地无损保留：
+- **为什么是这组数：** 和 Spotoolfy 自己算专辑分的 `_mapRatingToScore` 一致（`album_page.dart:1140-1150`）。👎 不映射成 0，因为 Yoin 把 `rating > 0` 当作「评过分」（`LocalRatingDao.getRatedAlbumAggregates`）。
+- **取哪一条：** 每曲取 `MAX(recordedAt)` 那条，与 Spotoolfy 的「最新评分」语义一致。
+- **写入方式：** `updatedAt = recordedAt`；`needsSync = false`，因为 Spotify 不支持服务端评分；`serverRating = round(r/2)`。
+
+### 4.5 笔记正文组装
+
+Yoin 笔记是纯文本。`lyricsSnapshot` 可能是用户选中的歌词，也可能是自动截取的 3 行，两者无法区分，所以保留并附在正文后面：
 
 ```text
 <noteContent，trim 后>
 
-「<歌词片段第 1 行>
-  <歌词片段第 2 行>」
+「<歌词片段，每行一行>」
 ```
 
-- 用正则 `^\[[^\]]*\]` 去掉片段里的 LRC 标签。在没有时间戳的分支里，Spotoolfy 会把整份 LRC 的前 3 行原样存下来，其中可能是 `[ti:…]` 这类元数据行，这类行整行丢掉。
-- 只有快速评分（`noteContent` 为空）时，片段直接丢弃，不生成笔记。
-- 预览页提供开关「附带当时的歌词片段」，默认开启。
+- 用正则 `^\[[^\]]*\]` 剥掉 LRC 时间标签；`[ti:…]` 这类纯元数据行整行丢弃。没有时间戳的分支会把整份 LRC 的前 3 行原样存下来，所以必须做这一步（`local_database_provider.dart:281-343`）。
+- 只有评分、没有正文的记录，歌词片段丢弃。
 
-### 4.5 不生成专辑评分
+### 4.6 让导入数据进入回忆和 Rediscover（D7）
 
-Spotoolfy 从未存储专辑评分。Yoin 一旦生成 `album_ratings` 行，就会：
+**现状有两道门。**
 
-1. 把用户从没打过的分推到 NeoDB（`NeoDBSyncService`）；
-2. 让回忆的写作门槛（专辑评分或书评）被一个推算值满足。
+1. **找不到专辑。** 笔记和评分不带专辑，专辑归属**只能**从 `play_history` JOIN 出来（`SongNoteDao.getNotedAlbumAggregates`、`LocalRatingDao.getRatedAlbumAggregates`）。没在 Yoin 里播过的曲目不属于任何专辑。
+2. **Rediscover 没有「离开时钟」。** 每张卡都要求 `lastPlayedFromHistoryAt`，没有就直接剔除（`RediscoverSelection.kt:100`）；单曲卡同理（`:130`）。
 
-两者都违反「不伪造」原则。曲目评分导入之后，专辑剪贴簿和回忆会按 Yoin 自己的规则计算平均分和覆盖率，效果等价而且诚实。
-
-### 4.6 关键缺口：导入的数据进不了回忆和 Rediscover
-
-现状是 `song_notes` 和 `local_ratings` 不带专辑。专辑归属**只能**通过 `play_history` 的 JOIN 得到（`SongNoteDao.getNotedAlbumAggregates`、`LocalRatingDao.getRatedAlbumAggregates`）。没在 Yoin 里播放过的曲目，导入的笔记和评分只会出现在：
-
-- ✅ Now Playing 的「笔记」页（按曲目查）；
-- ✅ 专辑详情的剪贴簿（按专辑曲目表查）；
-- ❌ 回忆候选和 Rediscover（依赖 play_history）。
-
-对一个刚迁移过来、有几百条笔记、但在 Yoin 里一首都还没播过的用户来说，回忆页会是空的，这是迁移体验的头号问题。
-
-**推荐方案：新增事实表 `track_album_links`**（Room 30→31）
+**方案第 1 部分：新增事实表 `track_album_links`**（Room 30→31）
 
 ```kotlin
 @Entity(tableName = "track_album_links", primaryKeys = ["profileId", "provider", "trackId"])
@@ -200,307 +169,366 @@ data class TrackAlbumLink(
 )
 ```
 
-- 它记录的是「这首曲属于哪张专辑」这一**客观事实**，不是行为数据。
-- 仍然要按 Profile 隔离：两个 Subsonic 服务器共用 provider token `subsonic`，但 ID 空间各自独立，和 `play_history` 带 `profileId` 是同一个原因。
-- 两个 DAO 查询把 `play_history` 子查询改成 `play_history ∪ track_album_links` 的去重并集。`recordPlay` 和专辑详情加载时也顺手写一份，这对迁移之外的场景同样有益：在专辑页直接打分、从未播放过的曲目也能进入 Rediscover。
-- 导入时由 Spotify API 补全，作为一个**独立的后台任务**：
-  - 导入本身只写本地数据，瞬间完成，不依赖网络。
-  - 补全任务可续跑，经 `SpotifyRateLimitGate` 限流，失败了就下次再试。
-  - **只用单曲接口 `GET /v1/tracks/{id}`。** 批量 `GET /v1/tracks?ids=` 已从新建的 Development Mode App 里移除，存量 App 的移除只是延期（见 §6.1），不能依赖。playground 的 `TrackMatchPlayground` 用的就是批量接口，同样受影响。
-  - 每次补全顺带拿到 `external_ids.isrc`（2026-03-13 已恢复），为将来的跨 provider 映射留好线索。**本期不用它做任何合并。**
-- 被拒的备选：
-  - 伪造 `play_history`：污染 Most Played 和 Rediscover 的「90 天未播放」判断。
-  - 给 `song_notes` 加 `albumId` 列：要改同步载荷版本，而且同一首曲的每条笔记都得冗余存一份。
+- 它记录的是「这首曲属于哪张专辑」这一客观事实。按 Profile 隔离：两个 Subsonic 服务器共用 provider token，但 ID 空间各自独立。
+- 两个聚合查询的 `play_history` 子查询改成「`play_history` ∪ `track_album_links`」的去重并集。
+- `recordPlay` 和专辑详情加载时也顺手写一份，迁移之外同样受益：在专辑页打过分、但从没播过的曲目也能被找到。
+- **由后台补全任务填充：**
+  - 导入后排队，经 `SpotifyRateLimitGate` 限流，可续跑。
+  - **只用单曲接口 `GET /v1/tracks/{id}`**：批量 `GET /v1/tracks?ids=` 已从新建的 Development Mode App 移除，存量 App 的移除只是延期（§7）。
+  - 补全时一并修正「未知曲目」的标题，并记下 ISRC（`external_ids` 已于 2026-03-13 恢复），留作将来跨 provider 的线索，本期不用。
 
-### 4.7 导入台账与撤销
+**方案第 2 部分：从未在 Yoin 播放过的专辑或曲目，用「上次写下」作为离开时钟**
 
-新增 `import_ledger`（与 4.6 同一个 migration）：
+- 没有播放记录时，用 `lastWrittenAt`（最新笔记或评分的时间）代替 `lastPlayedAt` 判断「离开 90 天」。
+- 卡片文案从「上次播放于…」改为「上次写下于…」。
+- 这样 Spotoolfy 里几个月前写过、在 Yoin 里还没重听的专辑，会如实以「你写过它」的身份回来。
+- 这一项改变了 Rediscover 的语义，需要同步写进 `design.md` 的 Rediscover 一节，见 §12 Q2。
+
+**被否的备选**
+
+- 伪造 `play_history`：污染 Most Played 和「90 天未播放」。
+- 给 `song_notes` 加 `albumId` 列：同步载荷要升版本，每条笔记都要冗余一份。
+
+### 4.7 批次与「换一个文件」
 
 ```text
-import_ledger(batchId, source="spotoolfy", sourceKey, targetKind, targetKey, previousJson?, importedAt)
+import_batches(batchId PK, source="spotoolfy", profileId, fileSha256, importedAt,
+               noteCount, ratingCount, summaryJson)
+import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 ```
 
-- **幂等：** 写入前按 `(source, sourceKey)` 查台账，已经导入过的直接跳过。笔记 ID 本身也是确定性的，这是双保险。
-- **撤销：** 「撤销这次导入」按 `batchId` 删除导入的笔记；被覆盖的评分用 `previousJson` 还原。撤销只针对**导入后未被用户编辑过**的行（比较 `updatedAt`），编辑过的视为用户已经接管，保留。
-- 台账是本地运维数据，不进云同步。
+- `summaryJson` 存回顾页数据（§6.3）。回顾页是独立的 Activity，只凭 `batchId` 就能从 Room 读到完整数据。
+- **换一个文件**：仅在同一次引导内可用。按 `batchId` 删除 `import_items` 指向的行，再导入新文件。由于是新用户，这一批就是该 Profile 的全部数据，不会误伤。
+- **同一个文件再导一次**（`fileSha256` 相同）：直接提示「已导入」，不重复写。
+- 两张表都是本地运维数据，不进云同步。
 
-### 4.8 与云同步、NeoDB 的交互
+### 4.8 与云同步、NeoDB
 
-- 笔记同步的 key 就是笔记 ID（`SongNoteSyncAdapter`），而且 ID 是确定性的。所以「A 机导入 → 同步 → B 机又导入同一文件」不会产生重复：B 机台账里没有记录，但写入时同 ID 的行已经存在，按 LWW 合并。
-- 评分同步 key 是 `provider␟songId`，按 Profile 隔离。导入时 `updatedAt` 用的是原始时间，所以任何设备上更新过的评分都会胜出，符合直觉。
-- 建议在导入页提示「只需在一台设备上导入，其余设备会自动同步」。
-- NeoDB 只同步专辑评分和书评，导入不碰这两样（§4.5），所以不会触发 NeoDB 推送。
+- 同步适配器按扫描读表（`SongNoteSyncAdapter.readAll`），导入的行会自动同步到其他设备。
+- 同一用户换新设备，又在新设备的引导里导入同一个文件：笔记 ID 是确定性的，不会重复；评分按 LWW 合并（`updatedAt` 用原始时间，所以 Yoin 里后来改过的评分胜出）。
+- 不生成专辑评分，所以不触发 NeoDB 推送。
 
-### 4.9 输入健壮性清单
+### 4.9 输入健壮性
 
-- **顶层：** v1 文件没有版本号，按「同时有 `tracks`、`records`、`translations`、`play_contexts` 四个顶层 key」判定为 v1。`translations` 和 `play_contexts` 会被读取但丢弃。
-- **类型宽容：** 和 Spotoolfy 自己的导入器（`local_database_provider.dart:563-676`）保持同等宽容。
-  - `rating` 可能是字符串（Spotoolfy 会把它当 3）或浮点。
+- **格式识别**：顶层同时有 `tracks`、`records`、`translations`、`play_contexts` 四个 key 即为 v1。其余字段一律忽略。
+- **类型宽容**：与 Spotoolfy 自己的导入器（`local_database_provider.dart:563-676`）同等宽容。
+  - `rating` 可能是字符串（按 3 处理）或浮点。
   - `lastPlayedAt` 可能是 int、string 或 double。
-  - 未知字段一律忽略。
-- **孤儿记录：** `records` 有、`tracks` 里没有的 trackId，用 `"未知曲目"` 占位标题导入，等补全任务修正，不丢弃。
-- **规模：** 用流式解析（kotlinx.serialization 的 `decodeFromStream`）。5 万条记录或 50 MB 文件不能 OOM；单事务分批 `insert`，每批 500 条。
-- **编码：** 只接受 UTF-8，遇到 BOM 去掉。
-- **隐私：**
-  - 文件经 SAF 读取，不复制到外部存储，日志里不打印正文。
-  - 解析出错时只报告行号和字段名，不回显内容。
+- **规模**：流式解析（`decodeFromStream`）；单事务、每批 500 条写入。5 万条记录不能 OOM。
+- **体积上限**：32 MB。
+- **编码**：UTF-8，遇到 BOM 去掉。
+- **隐私**：日志不打印正文；报错只给字段名和序号；临时文件导入完成或引导结束即删除。
 
 ---
 
-## 5. 交接通道设计
+## 5. 引导页：「Using Spotoolfy?」（D3）
 
-### 5.1 Yoin 侧：「从 Spotoolfy 导入」
+### 5.1 位置与形态
 
-- **入口：** 设置 → 存储（`settings_section_storage`）分组 → 从 Spotoolfy 导入，具体位置由设计定。这是一个 PushPage，有显式返回按钮，系统返回走共享实现。
-- 同时注册 `ACTION_SEND` / `ACTION_VIEW`（`application/json`）的 intent filter，用户在 Spotoolfy 里分享时可以直接选 Yoin。导入页在 intent 里收到 URI 后，**仍然先进预览**，绝不静默导入。
-- **流程：**
-  1. **选文件**：`ActivityResultContracts.OpenDocument(arrayOf("application/json", "text/plain"))`。部分文件管理器会把 `.json` 标成 `text/plain`。
-  2. **解析与校验**（后台线程）：识别 v1/v2，产出 `ImportPlan`，包含：
-     - 要新增的笔记数、要写入的评分数
-     - 与现有评分冲突的数量
-     - 跳过的记录数和原因（样例、无效 ID、空记录）
-     - 时间范围
-  3. **预览页**：
-     - 目标 Profile 选择器（只列 Spotify Profile）
-     - 计数和冲突摘要
-     - 「附带歌词片段」开关
-     - v2 文件含 Client ID 时，显示「将预填 Spotify Client ID」（仅当设备上还没有时）
-  4. **提交**：一个 `withTransaction` 写入笔记、评分和台账；提交后排队专辑补全任务。
-  5. **结果页**：
-     - 成功 N 条、跳过 M 条（可展开看原因）
-     - 「撤销这次导入」按钮
-     - 「去看看我的回忆」
-- **代码落点**（按 feature 分包）：
-  - `data/migration/spotoolfy/`
-    - `SpotoolfyExportParser`
-    - `SpotoolfyImportMapper`（纯函数，便于单测）
-    - `SpotoolfyImporter`（事务和台账）
-  - `ui/settings/importer/`
-  - 数据写入经 `YoinRepository` 的新方法，**不要**在 UI 层直接调 DAO。
+插在 Spotify 连接页之后：
 
-### 5.2 Spotoolfy 侧：最后一个功能版本（1.4.0「迁移桥」）
+```text
+你好 → 选服务 → Yoin 负责/不负责 → 各服务连接页 → 【在用 Spotoolfy 吗？】 → 主页内容 → 顶部边缘 → 完成
+```
 
-Yoin 导入器能吃 v1，所以 1.4.0 是锦上添花，不是阻塞项。建议内容：
+- 新增 `LandingStep.Spotoolfy`。只有当本次引导里 Spotify 连接成功、且满足 §4.1 的硬条件时，才进入 `landingSteps(...)`。
+- 返回分类沿用 **Pattern E（分步流程）**，不新写返回逻辑：返回 = 上一步。已经导入的数据不因返回而撤销，回到这一步时显示完成状态。
+- 角色（mascot）反应沿用 `design.md` 的既有语言：
+  - 选中选项时点头；
+  - 导入成功时举手蹦一下；
+  - 文件不认识时摇头。
+- 气泡：英文 `Using Spotoolfy?`，中文「在用 Spotoolfy 吗？」。
 
-1. **v2 导出**：在 v1 四个数组之外加一个信封（格式见 §10.2），带：
-   - `format`、`schemaVersion`、`exportedAt`、`appVersion`
-   - `spotifyUserId`：导出时调一次 `/v1/me`，供 Yoin 校验目标 Profile 是否是同一个 Spotify 账号，不一致时给出醒目警告
-   - `settings.spotifyClientId`、`settings.translationTargetLanguage`
-   - **不含** Gemini key
-2. **「迁移到 Yoin」入口**（设置 → 数据）：
-   - 已安装 Yoin 时，用 `Intent(ACTION_SEND).setPackage("com.gpo.yoin")` 直接投递。
-   - 否则走普通分享或保存，并给出 Yoin 封闭测试的加入链接。
-3. **启动横幅**（可关闭，一次性）：告知 Spotoolfy 进入维护期、数据如何带走。iOS 和 Web 显示「导出备份」而不是「迁移到 Yoin」。
-4. **顺手修两个会影响导出质量的问题：**
-   - 首次启动插入的样例数据（`database_helper.dart:634-738`）会混进真实导出。1.4.0 里删掉这些样例行，Yoin 端也要过滤。
-   - `AndroidManifest` 引用的 `@xml/locale_config` 不存在。
+### 5.2 浮动窗里的内容（单选，三行；形态同 Apple Music 连接页的两行单选）
 
-### 5.3 为什么不选其它通道
+1. **「我有导出文件」** → 系统文件选择器 `OpenDocument(arrayOf("application/json", "text/plain"))`。部分文件管理器会把 `.json` 标成 `text/plain`。
+2. **「还没导出」** → 展开一句说明：「打开 Spotoolfy › 设置 › 数据管理 › 导出数据，在分享菜单里选 Yoin」。
+   - 附一个「打开 Spotoolfy」按钮。这需要在 manifest 的 `<queries>` 里声明 Spotoolfy 包名；没装 Spotoolfy 时隐藏按钮。
+   - Yoin 停在这一步等待分享回来（§5.3）。
+3. **「没用过」** → 胶囊主按钮变为「下一步」。
 
-| 方案 | 结论 |
+### 5.3 选好文件之后的状态
+
+| 状态 | 表现 |
 |---|---|
-| Yoin 直接读 Spotoolfy 的数据库文件 | ❌ 沙盒隔离。两个 App 签名不同，也无法 `sharedUserId` |
-| ContentProvider 跨 App 直连 | ❌ 要给 Spotoolfy 加 provider 和权限校验，复杂度高；用户随后会卸载 Spotoolfy，一次性用途不值得 |
-| 云端中转（Firebase、Drive） | ❌ 引入账号、隐私和服务端，违背 local-first；Spotoolfy 也没有云端账号 |
-| Yoin 云同步格式直接导入 | ❌ 那是设备间的内部协议（`schema:1`），不应该承担外部格式的兼容负担 |
-| **JSON 文件 + 分享 intent** | ✅ 两端都已有基础，用户可控、可留档，iOS 和 Web 用户也能用同一个文件 |
+| 解析中 | 浮动窗显示进度；胶囊主按钮禁用 |
+| 待确认 | 一句话：「找到 N 条笔记、M 首歌的评分，导入到 〈账号名〉？」，主按钮「导入」。新用户没有冲突，所以只需这一次确认 |
+| 导入中 | 进度；不可返回中断（事务很短） |
+| 完成 | 自动打开回顾页（§6）。返回引导后浮动窗显示「✓ 已导入 N 条笔记」，附「再看一次回顾」「换一个文件」，主按钮「下一步」 |
+| 失败 | 角色摇头，给出原因（不是 Spotoolfy 文件、文件损坏、为空），提供「换一个文件」 |
+
+### 5.4 分享入口（从 Spotoolfy 的分享菜单进来）
+
+- 新增一个分享接收 Activity（暂名 `SpotoolfyShareReceiverActivity`）：
+  - exported、透明主题、`excludeFromRecents`、`noHistory`；
+  - intent-filter 为 `ACTION_SEND` + `application/json`；
+  - 在分享菜单里显示为「导入到 Yoin」。
+- **收到后立刻**把流复制到 `noBackupFilesDir/spotoolfy-import/pending.json`（超过 32 MB 拒绝），然后用内部 action 拉起 `MainActivity`，不把外部 URI 往下传。这样做的原因：
+  - 分享来的 URI 读权限只属于接收它的 Activity，转交容易失效；
+  - `MainActivity` 不必对外暴露新的 intent 入口。
+- `MainActivity` 拿到待导入文件后：
+  - **引导进行中**：保留文件。到 Spotoolfy 这一步时自动进入「待确认」，并提示「已收到你从 Spotoolfy 分享的文件」。用户先分享、后打开 Yoin 也一样适用，顺序无关。
+  - **引导之外**：一行 snackbar「Spotoolfy 数据只能在引导中导入」，并删除文件。
+- 绝不静默导入，所有路径都要经过「待确认」。
+
+### 5.5 实现落点
+
+- 数据层：`data/migration/spotoolfy/`
+  - `SpotoolfyExportParser`（流式、宽容）
+  - `SpotoolfyImportMapper`（纯函数）
+  - `SpotoolfyRecapCalculator`（纯函数，§6.3）
+  - `SpotoolfyImporter`（事务、批次、资格检查）
+  - `TrackAlbumLinkEnricher`（后台补全）
+- 界面层：
+  - 引导步骤放在 `ui/landing/LandingSpotoolfyStep.kt`，复用 `LandingViewModel` 的步骤机制；
+  - 分享接收放在 `ui/landing/import/`。
+- 写入经 `YoinRepository` 新增的方法，UI 不直接调用 DAO。
+- 实现完成后，把这一步补进 `design.md` §首次引导：那里是 UI 的事实来源（AGENTS.md）。
 
 ---
 
-## 6. 账号与授权迁移
+## 6. 导入回顾页（D2）
 
-### 6.1 2026 年 Spotify 开发者规则（必须先读）
+### 6.1 定位
 
-依据 Spotify 2026-02-06 的公告及后续社区更新：
+- 新的全屏目的地 `SpotoolfyRecapActivity`，导入成功后由引导自动打开。
+- **返回分类：Pattern A（原生跨 Activity 预测性返回）**：没有共享 chrome，注册零个返回回调，返回落在引导的 Spotoolfy 步。
+  - 页内**不加** `BackHandler`。展开的词卡点空白处收起，而不是用返回键收起，否则会压掉原生预览（predictive-back 不变式 13）。
+  - 结尾的「继续」按钮直接 `finish()`。
+- 数据只凭 `batchId` 从 `import_batches.summaryJson` 读取，符合「Activity 边界即数据边界」。
 
-- Development Mode 下：
-  - App 所有者必须有 Premium；
-  - **每个开发者只能有 1 个 Client ID**；
-  - **每个 App 最多 5 个授权用户**。
-- 2026-02-11 起对新建 App 生效，**2026-03-09 起对存量 App 同样生效**。只有「接口裁剪」对存量 App 延期了，时间另行公布。
-- 新 App 已经失去批量元数据接口（如 Get Several Tracks）。`external_ids`（ISRC）于 2026-03-13 恢复。Yoin 代码里已经记录了部分裁剪（`SpotifyApiClient.kt:193,449`）。
+### 6.2 页面结构（竖向分页，每屏一个场景，进入当前屏时才播放动画）
 
-> 落地前请 owner 在 Spotify Developer Dashboard 核对一次当前规则；本节是 2026-10 的调研结论。
+| # | 场景 | 内容 | 动效 |
+|---|---|---|---|
+| 1 | **开场** | 大数字「N 条笔记」；副标题「M 首歌 · K 位艺人 · 2024-11-06 → 2026-07-16」 | 数字滚动计数；最多 24 张专辑封面从中心**爆炸**散开、落成拼贴 |
+| 2 | **你最常写的词** | 笔记正文分词后的关键词，最多 48 个；字号按词频分 5 档 | 文字爆炸：词从中心按名次错开弹出，落到螺旋排布的位置；点一个词 → 词卡展开，列出最多 3 条包含它的笔记片段和曲名 |
+| 3 | **你截下的歌词** | `lyricsSnapshot` 去重后的歌词行，最多 20 行，每行带小字曲名 | 行级爆炸：歌词行像便签一样飞散落位；点一行展开整段 |
+| 4 | **打分** | 🔥 / 😐 / 👎 三堆计数 | 三根柱子长出后变形为 Yoin 的 `ScoreEmblem` 10 / 5 / 1，一句话说明映射 |
+| 5 | **时间** | 按月的笔记柱状图；「你最常在 23 点写笔记」；最长连续记录天数 | 柱子依次升起；一天 24 小时排成一圈，最高的那个钟点亮起 |
+| 6 | **写得最多的** | Top 3 曲目（封面 + 条数）、Top 3 艺人 | 卡片依次落下 |
+| 7 | **一切的开始** | 第一条笔记：日期、曲目、正文 | Big Bang 式：正文拆成词块散开，再按原顺序合拢成句 |
+| 8 | **都在 Yoin 里了** | 去哪里找：Now Playing 的笔记页、专辑剪贴簿、回忆；「N 条笔记会跟着歌词时间线出现」（有 `positionMs` 的） | 收尾，「继续」 |
 
-### 6.2 推荐路径：复用同一个 Spotify App
+数据不足时场景自动省略或退化：
 
-Spotoolfy 用户分两类：
+- 笔记少于 20 条：第 2 屏退化为笔记卡片墙。
+- 没有歌词片段：省略第 3 屏。
+- 没有评分：省略第 4 屏。
+- 时间跨度不到 30 天：第 5 屏只保留钟点圈。
 
-| 用户类型 | 在 Spotoolfy 里的 Client ID | 迁移到 Yoin 的做法 |
+### 6.3 哪些内容适合做「文字爆炸」
+
+| 素材 | 适合度 | 说明 |
 |---|---|---|
-| A. 自建 App（用户指南让大多数人这样做） | prefs `spotify_client_id` | **在原 App 上追加**：Redirect URI `yoin://auth/spotify/callback`；Android package `com.gpo.yoin` + Yoin 的 SHA-1；勾选 Web API 和 Android。保留 `spotoolfy://callback`，过渡期两个 App 都能用。然后把同一个 Client ID 填进 Yoin，v2 迁移包会自动预填 |
-| B. 用内置共享 ID `Env.clientId` | owner 的 App | 这个 App 最多 5 个授权用户，无法承载迁移。引导用户**自建**（这是他们的第 1 个 Client ID，额度允许），走 Yoin 现有的 9 步引导 |
+| 专辑封面（图片爆炸） | ★★★ | 视觉冲击最强，放开场 |
+| 笔记正文关键词 | ★★★ | 最个人化；需要分词、停用词和最低词频（≥ 2） |
+| 歌词片段 | ★★★ | 行级、天然好看，且多为用户亲手选的 |
+| 第一条笔记逐词拆分 | ★★ | 单条，仪式感强，放在结尾前 |
+| 艺人名 | ★★ | 短、辨识度高，可以并进第 6 屏 |
+| 曲名 | ★ | 太长，挤在一起不好看 |
+| 歌单或上下文名 | ✗ | 数据不可靠（§4.3） |
 
-对 Yoin 的改动：
+**分词**：用 `android.icu.text.BreakIterator.getWordInstance(ULocale.ROOT)`（API 24+，基于词典，能处理中、日、英混排）。
 
-1. `ConnectGuide` 在第 1 步前加一个分支：「我在 Spotoolfy 里已经建过 Spotify App」。
-   - 跳过「Create app」，直接进入「Edit settings」。
-   - 只做追加 Redirect URI、追加 Android package/SHA-1 两步。
-   - 引导里已经能复制本机的包名和**本机安装包的签名 SHA-1**（`ConnectGuide.kt:73-82`）。Play 分发版本读到的是 Play App Signing 证书，正好就是 Spotify 需要的那个，不需要额外说明。
-2. 引导文案明确写出「每个 Spotify 开发者账号只能有一个 Client ID，请不要删除旧 App」。删掉旧 App 会同时废掉 Spotoolfy，而且可能拿不回额度。
-3. 预填规则与云同步一致：只有设备上**没有**自定义 Client ID、也**没有** Spotify 账号时，才写入 `spotify_config`（`cloud-sync.md:20,31`）。
+- 过滤规则：
+  - 中日文词长 ≥ 2，拉丁词长 ≥ 3；
+  - 去掉纯数字和标点；
+  - 停用词表（中、英、日各一份小表，放 `res/raw`）。
+- emoji 单独计数，最多取 3 个进词云：🔥 在 Spotoolfy 用户的笔记里很常见，留着反而有味道。
+- 全部在本地计算，不调用 Gemini。新用户此时也还没有 key。
 
-### 6.3 其它授权与凭据
+**`summaryJson` 结构**（`SpotoolfyRecapCalculator` 在导入时一次算好）：
 
-- **Spotify token：** 不迁。Yoin 里走一次 PKCE 授权即可。Spotoolfy 的 token 本来就没有 refresh token，1 小时过期。
-- **Premium 与 Spotify App：** 两边都要求 Premium。Yoin 用 App Remote，**要求本机安装 Spotify App**；Spotoolfy 是 Web API 遥控任意设备。习惯用 Spotoolfy 遥控电脑或音箱的用户要在说明里提示：Yoin 有设备面板（`DevicesSheet`），但主路径是本机 Spotify。
-- **Gemini key：** 用户在 Yoin 设置 → Gemini 重新粘贴。
-  - **前置修复：** Yoin 目前把 key 明文存在 Room `gemini_config`（`GeminiConfig.kt:9`），而整个 `yoin-database` 会进 Auto Backup 和设备迁移（`data_extraction_rules.xml`）。
-  - Spotoolfy 的 key 存在 secure storage。在动员用户把 key 搬过来之前，Yoin 应先把它挪到 AndroidKeyStore 加密的 `noBackupFilesDir` 文件，与 Spotify 凭据同一套 `CredentialsCipher`。否则迁移会让 key 的保护等级**降级**。
-- **语言：**
-  - Spotoolfy 的 `en`/`zh-CN`/`zh-TW`/`ja` 分别映射到 Yoin 的 `English`/`Simplified Chinese`/`Traditional Chinese`/`Japanese`。
-  - **改语言会删除所有 About/Ask 行**（`SettingsViewModel.kt:232-240`），所以导入时只在 `gemini_config` 还不存在时写入目标语言。
+```kotlin
+@Serializable
+data class SpotoolfyRecap(
+    val noteCount: Int, val ratedTrackCount: Int, val trackCount: Int, val artistCount: Int,
+    val firstRecordAt: Long, val lastRecordAt: Long, val totalChars: Int,
+    val anchoredNoteCount: Int,                       // 有 positionMs 的笔记
+    val ratingCounts: Map<Int, Int>,                  // 5 / 3 / 0 → 曲目数
+    val monthly: List<MonthBucket>, val hourOfDay: List<Int>, val longestStreakDays: Int,
+    val topTracks: List<TrackStat>, val topArtists: List<ArtistStat>,
+    val keywords: List<Keyword>,                      // text, count, noteIds（≤ 3）
+    val lyricLines: List<LyricLine>,                  // text, trackTitle
+    val firstNote: NoteRef?, val coverUrls: List<String>,
+)
+```
+
+### 6.4 动效与工程约束（对齐 AGENTS.md）
+
+- **全部用弹簧**：位置和尺寸用 spatial spring，颜色和透明度用 effect spring。爆炸的错开节奏用 Yoin 现有 motion token，不新增魔法数。
+- **触感**：爆炸起点一拍（`YoinHaptics`）；词落位不逐个震，免得吵。
+- **性能**：
+  - 每个词块的位移和缩放只在 `graphicsLayer` 里读取，动画期间不重组；
+  - 封面按 128px 解码；
+  - 动画进行时投票高帧率；
+  - 排布在后台线程计算，以 `batchId` 作随机种子，旋转屏幕后布局不变。
+- **减少动态效果**：系统关闭动画时，直接淡入最终布局。
+- **自适应**：平板横屏时，每屏左侧是可视化、右侧是文字（`docs/adaptive-principles.md`）。
+- **颜色**：动态色，深浅模式都适用。词块轮流使用 primary / secondary / tertiary 的 container 色。
+- **无障碍**：每屏提供一句完整的摘要给读屏；飞散的词块 `clearAndSetSemantics`，另外给读屏一个按词频排序的列表。
+- **文案**：进 `values/` 和 `values-zh-rCN/`；数字和日期按 locale 格式化；通过 `scripts/check-hardcoded-strings.sh`。
+- **封面**：来自 Spotify CDN 的 `albumCoverUrl`。离线或加载失败时退化为色块拼贴，不留白洞。
+- **分享回顾图**：P2。可以复用歌词分享卡的 GraphicsLayer 录制管线。
 
 ---
 
-## 7. 功能对等矩阵与取舍
+## 7. Spotify 授权（D6）
 
-只把「影响已迁移数据能否被看见、被使用」的缺口列为迁移阻塞项（P0）。其余按用户价值排，并受 YAGNI 约束。
+- Spotoolfy 用户**在原来的 Spotify App 里加上 Yoin**：
+  - Redirect URI `yoin://auth/spotify/callback`；
+  - Android package `com.gpo.yoin` + SHA-1；
+  - 原来的 Client ID 照用。
+- Yoin 现有的连接引导和悬浮窗已经能复制这些值，包括本机安装包的签名 SHA-1（`ConnectGuide.kt:73-82`）。**不做单独的引导分支，也不加单独的提醒文案。**
+- 背景：Spotify 2026 年起，Development Mode 的规则对新旧 App 一律生效（2026-03-09 起）：
+  - 每个开发者只能有 1 个 Client ID；
+  - 每个 App 最多 5 个授权用户；
+  - App 所有者必须有 Premium。
 
-| Spotoolfy 功能 | Yoin 现状 | 建议 |
+  这正是「加一个」而不是「新建一个」的原因。批量元数据接口对新 App 已移除、对存量 App 的移除只是延期，所以补全任务只用单曲接口（§4.6）。
+- token 不迁移：Yoin 里走一次 PKCE 授权即可。
+- Premium 与本机 Spotify App：两边都要求 Premium；Yoin 走 App Remote，需要本机安装 Spotify。这一点写在维护版公告里（§9 阶段 5）。
+
+---
+
+## 8. 功能对等矩阵
+
+| Spotoolfy 功能 | Yoin 现状 | 处理 |
 |---|---|---|
-| 笔记 + 评分录入 | ✅ Now Playing 笔记页 + 评分条 | — |
-| 按曲查看笔记、同名不同版本 | ✅ 笔记页；`observeCrossProviderNotes` 按标题+艺人匹配 | — |
-| **Roam：全部记录列表 + 评分筛选 + 搜索** | ❌ 没有全局笔记列表（只有按曲、按专辑、按回忆） | **P0**。导入几百条笔记后，用户需要一个总览来确认「都过来了」。最小实现是导入结果页上的「查看导入的笔记」列表；完整的「我的笔记」入口另立项，并先按 AGENTS.md 归类返回面 |
-| 专辑评分（按曲平均）与专辑海报 | ✅ 剪贴簿 + `ScoreEmblem`；海报 ❌ | 海报 P2 |
-| 歌词：网易云 / QQ / LRCLIB、手动搜索、LRC 编辑 | ✅ 已移植，Yoin 还多了华为 | — |
-| 歌词选择、复制、海报（4 种配色、15 行） | ✅ 已移植（`LyricsShareCard.kt`、`LyricsSelection.kt`） | — |
-| **带歌词写笔记** | ❌ 明确没有移植（`design.md:350`） | **P1**。迁移过来的笔记里带着歌词片段（§4.4），用户会期待能继续这样写 |
-| 拿选中歌词问 Gemini / 复制成单行 | ❌ 明确没有移植 | P2，等用户反馈 |
-| 翻译：原生 + Gemini，3 种风格 | 原生 + Gemini，单一风格 | P2，风格不迁 |
-| 歌曲信息（创作背景等） | ✅ About + Ask Gemini | — |
-| 专辑洞察 | ≈ 回忆的 AI 标题和旁白 | — |
-| 音乐性格洞察 | ❌ | 不做（YAGNI） |
-| Time Machine（那年今日，基于 `/me/tracks` 的 `added_at`） | ❌（Rediscover 是「90 天未播」，概念不同） | P2。Yoin 只同步 200 首 Liked Songs（`SpotifyApiClient.kt:826`），做不了完整的那年今日 |
-| 随机回顾卡 | ≈ Rediscover / 回忆 | — |
-| Spotify Connect 设备切换 | ✅ `DevicesSheet` | QA 时验证 |
-| 播放模式三态循环 | ✅ 已对齐 | — |
-| 桌面小组件 | ✅ Glance（播放 + 回忆） | — |
-| 日语 / 繁体中文界面 | ❌（en + zh-rCN） | P1，取决于 Spotoolfy 的 ja/zh-TW 用户占比，先看 Play Console 的语言分布 |
-| iOS / Web | ❌ | 不做；Spotoolfy 保留导出能力（§8 阶段 6） |
+| 笔记 + 评分录入、按曲查看 | ✅ | — |
+| Roam：全部记录总览 | ❌ | 导入后由回顾页（§6）承担「确认都过来了」；完整的「我的笔记」入口另立项 |
+| 歌词三源、手动搜索、选择、海报 | ✅ 已移植 | — |
+| 带歌词写笔记 | ❌（`design.md:350` 明确未移植） | P1：导入的笔记里带着歌词片段，用户会期待能继续这样写 |
+| 拿歌词问 Gemini / 复制成单行 | ❌ | P2 |
+| 翻译三种风格 | 原生 + Gemini 单一风格 | 不迁（D8） |
+| 歌曲信息 / 专辑洞察 | ✅ About / Ask；≈ 回忆的 AI 文案 | — |
+| 音乐性格洞察 | ❌ | 不做 |
+| Time Machine（那年今日） | ❌ | P2：Yoin 只同步 200 首 Liked Songs（`SpotifyApiClient.kt:826`） |
+| 设备切换、播放模式、桌面小组件 | ✅ | QA 时验证 |
+| 日语 / 繁体中文界面 | ❌ | 待定（§12 Q1） |
+| iOS / Web | ❌ | 维护期内保留导出 |
 
 ---
 
-## 8. 分阶段路线图
+## 9. 分阶段路线图
 
-每个阶段都有可验证的退出标准。前一阶段没达标，不进入下一阶段。
+### 阶段 0：Yoin 前置清理
 
-### 阶段 0：Yoin 前置清理（约 1 周）
+- [ ] **启用 Room schema 导出，并提交 v30 基线**：必须在写 30→31 之前完成（`app/build.gradle.kts:119` 至今只有注释）。
+  - 目前没有应用 `androidx.room` Gradle 插件：要么引入插件并配置 `room { schemaDirectory(...) }`，要么给 KSP 传 `room.schemaLocation`。
+  - 同时把 `schemas/` 加进 `androidTest` 的 assets。
+- [ ] 修正 `data_extraction_rules.xml`：规则里写的是 `profile_active_id.xml`，实际文件是 `yoin_profiles`（`ProfileActiveIdStore.kt:29`）。
+- [ ] 全新安装时补建 `activity_events` 的上限触发器：现在只在 10→11 migration 里创建（`AppContainer.kt:1108-1131`）。
+- [ ] 更新 AGENTS.md 的过时描述：第 9 行称 Spotify 为 planned，第 89 行称凭据是明文 codec。
+- 建议，不阻塞迁移：Gemini key 改为加密存储并移出备份（目前明文存在 `GeminiConfig.kt:9`）。
 
-- [ ] **启用 Room schema 导出：** 提交 v30 基线 JSON。这必须在写 30→31 之前完成，否则新 migration 没有可比对的基线（`app/build.gradle.kts:119` 至今只有注释）。
-  - 目前没有应用 `androidx.room` Gradle 插件，有两种做法：引入插件并配置 `room { schemaDirectory("$projectDir/schemas") }`；或者给 KSP 传 `room.schemaLocation`。
-  - 同时把 `schemas/` 加进 `androidTest` 的 assets，供 `MigrationTestHelper` 使用。
-- [ ] Gemini key 改为加密存储，并移出备份（§6.3）。
-- [ ] `data_extraction_rules.xml` 引用的是 `profile_active_id.xml`，实际文件是 `yoin_profiles`（`ProfileActiveIdStore.kt:29`），修正。
-- [ ] `activity_events` 的 1 万行上限触发器只在 10→11 migration 里创建，全新安装没有（`AppContainer.kt:1108-1131`）。补一个 `RoomDatabase.Callback.onCreate`。导入不写这张表，但同属数据卫生。
-- [ ] 更新 AGENTS.md 的过时描述：第 9 行仍说 Spotify 是「planned」，第 89 行仍说凭据用明文 codec。避免后续 agent 按错误前提实现导入。
+### 阶段 1：契约与样本
 
-**退出标准：** CI 绿；`YoinDatabaseMigrationTest` 覆盖 schema 基线。
+- [ ] 把 §13 的 v1 格式抽成 `docs/integrations/spotoolfy-export-format.md`。
+- [ ] 准备脱敏 fixtures：
+  - owner 的真实导出；
+  - 含样例行的全新安装导出；
+  - 含字符串评分的导出；
+  - Web 版导出；
+  - 5 万条的合成文件。
 
-### 阶段 1：契约与样本（2–3 天）
+### 阶段 2：导入核心
 
-- [ ] 把 §10 抽成 `docs/integrations/spotoolfy-export-format.md`，定稿 v1 和 v2。
-- [ ] 收集 fixtures 并脱敏（曲名、正文替换，结构和边界值保留），放进两个仓库：
-  - owner 自己的真实导出
-  - 含样例行的全新安装导出
-  - 含字符串 rating 的导出
-  - 由 Web 版导出的文件
-  - 一个 5 万条的合成大文件
+- [ ] Room 30→31：`track_album_links`、`import_batches`、`import_items`，加 migration 测试。
+- [ ] 两个专辑聚合查询改为并集；Rediscover 加「上次写下」时钟（§4.6）。
+- [ ] Parser、Mapper、RecapCalculator、Importer（含资格检查、换文件）。
+- [ ] `recordPlay` 和专辑详情加载时写 `track_album_links`；后台补全任务。
 
-**退出标准：** fixtures 和期望映射结果（golden JSON）评审通过。
+### 阶段 3：引导步骤与分享入口
 
-### 阶段 2：Yoin 导入核心（约 1.5 周）
+- [ ] `LandingStep.Spotoolfy`（§5）、分享接收 Activity、manifest 的 `<queries>`；补 `design.md` §首次引导。
 
-- [ ] Room 30→31：`track_album_links`、`import_ledger`，外加 migration 测试。
-- [ ] 改写两个专辑聚合查询（并集），加单测。
-- [ ] `SpotoolfyExportParser`（流式、宽容）、`SpotoolfyImportMapper`（纯函数）、`SpotoolfyImporter`（事务、台账、撤销）。
-- [ ] `recordPlay` 和专辑详情加载时顺手写 `track_album_links`。
-- [ ] 专辑补全后台任务：单曲接口、限流、可续跑，持久化在 `import_ledger` 或独立游标表。
+### 阶段 4：回顾页
 
-**退出标准：** §9 的测试矩阵全绿；用 owner 的真实导出跑 `./gradlew test`。
+- [ ] `SpotoolfyRecapActivity`（§6），中英文案，减少动态效果、平板、读屏三项验收。
 
-### 阶段 3：Yoin 界面（约 1 周）
+### 阶段 5：Spotoolfy 维护版（不阻塞迁移）
 
-- [ ] 导入页、预览、结果、撤销（PushPage，共享返回实现），文案中英双语，通过 `check-hardcoded-strings.sh`。
-- [ ] 「查看导入的笔记」最小列表（P0，§7）。
-- [ ] `ConnectGuide` 的「已有 Spotify App」分支，以及 Client ID 预填。
-- [ ] `ACTION_SEND` / `ACTION_VIEW` 的 intent filter。
+- [ ] 一条可关闭的启动公告：
+  - Spotoolfy 进入一年维护期；
+  - Android 用户可以迁到 Yoin（导出 → 分享给 Yoin），并说明 Yoin 需要本机 Spotify；
+  - iOS 和 Web 用户请导出留存。
+- [ ] 去掉首次启动插入的样例数据。
+- [ ] 除此之外不加任何功能。
 
-**退出标准：** 在 Pixel 实机（含平板）完成端到端演练：导出 → 导入 → 回忆出现 → 撤销 → 重新导入。
-
-### 阶段 4：Spotoolfy 1.4.0 迁移桥（约 3–4 天，可与阶段 3 并行）
-
-- [ ] v2 导出、「迁移到 Yoin」入口、维护期横幅、去掉样例数据（§5.2）。
-- [ ] 发布到 Spotoolfy 现有的 Play 封闭测试、TestFlight 和 Web。
-
-**退出标准：** v2 文件通过 Yoin 阶段 1 的 golden 测试。
-
-### 阶段 5：灰度迁移（2–4 周）
+### 阶段 6：灰度
 
 1. owner 自己迁移，至少用 1 周。
-2. 邀请 Spotoolfy 封闭测试用户加入 Yoin 封闭测试，复用同一个测试者 Google Group 或邮件列表。
-   - 这同时满足 Yoin 个人开发者账号「12 名测试者连续 14 天」的上架门槛（`release-0.5-closed-test.md:60`），一举两得。
-3. **观测**（Yoin 没有遥测，靠结果页上的可选反馈加人工回访）：
-   - 导入成功率；
-   - 跳过原因分布；
-   - 「已有 Spotify App」分支的成功率；
-   - 撤销率。撤销率高，说明映射不符合预期。
+2. 邀请 Spotoolfy 封闭测试用户加入 Yoin 封闭测试，复用同一个测试者名单。这同时满足 Yoin「12 名测试者连续 14 天」的门槛（`release-0.5-closed-test.md:60`）。
+3. 收集反馈：导入成功率、跳过原因、回顾页停留与分享意愿。
 
-**退出标准：** ≥ 90% 的受邀用户完成导入，并且没有数据丢失报告。
+### 阶段 7：维护期一年，然后下架（D9）
 
-### 阶段 6：Spotoolfy 维护期与下架
-
-- **维护期（≥ 12 个月）：**
-  - 只修崩溃和 Spotify API 兼容问题，不加功能。
-  - 导出功能必须一直可用。
-  - Play 商店描述改为「已由 Yoin 接替」。
-- **基础设施不能随之下线：**
-  - `api.spotoolfy.gojyuplus.com`：Yoin 的网易云歌词依赖它，`NetEaseLyricsProvider.kt:224`。
-  - 用户保存在 owner Spotify App 下的授权。
-  - 隐私政策页 `spotoolfy-privacy.pages.dev`：已安装用户仍然受它约束。
-  - `lyrics.gojyuplus.com` 只服务 Spotoolfy Web 版，可以随 Web 版一起下线。
-- **下架判据：** 封闭测试里活跃的 Spotoolfy Android 用户，在 Yoin 正式版上线后 3 个月内降到接近 0；并且 iOS/Web 用户已收到至少两次「导出备份」提醒。
-- **下架动作：**
-  - 最后一版 Spotoolfy 只保留导出页；
-  - Play 上撤销发布但不删除应用记录；
+- **起算点**：建议从 Yoin 公开上架（任何人都能安装）那天起算，见 §12 Q4。
+- **维护期内**：只修崩溃和 Spotify API 兼容问题；导出必须一直可用。
+- **期满下架**：
+  - 最后一版只保留导出页；
+  - Play 上撤销发布，但不删除应用记录；
   - 仓库归档，README 指向 Yoin。
+- **长期保留的基础设施**：
+  - `api.spotoolfy.gojyuplus.com`：Yoin 的网易云歌词依赖它（`NetEaseLyricsProvider.kt:224`）。
+  - 隐私政策页：期满后再保留至少半年。
+  - `lyrics.gojyuplus.com` 只服务 Spotoolfy Web 版，可以随 Web 版一起下线。
 
 ---
 
-## 9. 测试与验收
+## 10. 收尾：React 原型 `p2o51/Spotoolfy`
 
-### 9.1 自动化（JUnit / Robolectric，命名 `should_x_when_y`）
+- 它的数据在 Firestore `users/{uid}/thoughts`，字段为 `content`、`createdAt`、`trackId`、`trackName`、`artistName`、`rating`、`albumCover`。
+- 用的是 Spotify 已废弃的 implicit grant，不可能还有真实用户在用。
+- **建议**：
+  - 若 owner 自己在 Firestore 里有数据，写一次性脚本转成 Spotoolfy v1 的 JSON，走同一个导入器；
+  - 然后归档仓库，README 指向 Yoin。
+
+---
+
+## 11. 测试与验收
+
+### 11.1 自动化（命名 `should_x_when_y`）
 
 | 场景 | 期望 |
 |---|---|
-| v1 fixture 全量导入 | 笔记数 = 非空 `noteContent` 的记录数 − 无效 ID 数；每曲评分 = 最新记录的映射值 |
-| 同一文件导入两次 | 第二次 0 新增，台账不变 |
-| A 机导入 → 模拟同步 apply → B 机再导入 | 无重复笔记（ID 确定性） |
-| Yoin 已有更新的评分 | 保留 Yoin 的；预览冲突数正确 |
-| 样例行 `spotify:track:sample*` | 全部跳过，原因为 `SAMPLE_DATA` |
-| 字符串或浮点 `rating`、缺字段、未知字段 | 不崩溃，行为与 Spotoolfy 导入器一致 |
-| 歌词片段含 `[00:12.34]` 和 `[ti:xx]` | 时间标签剥离，元数据行丢弃 |
-| 只有评分、没有正文的记录 | 只写评分，不生成笔记 |
-| 事务中途抛异常 | 全部回滚，台账为空 |
-| 撤销：未编辑的行 / 已编辑的行 | 前者删除或还原，后者保留 |
+| v1 fixture 全量导入 | 笔记数 = 有正文的记录数 − 无效 ID 数；每曲评分 = 最新记录的映射值 |
+| 目标 Profile 已有笔记、评分或专辑评分 | 资格检查拒绝，不写任何数据 |
+| 同一文件再导一次 | 提示「已导入」，数据不变 |
+| 换一个文件 | 上一批全部删除，新一批写入 |
+| 云同步拉回同一批笔记 | 无重复（确定性 ID） |
+| 样例行、无效 ID、字符串评分、缺字段 | 不崩溃，计入跳过原因 |
+| 歌词片段含 LRC 标签或元数据行 | 剥离或丢弃 |
+| 事务中途异常 | 全部回滚，没有批次记录 |
 | 5 万条合成文件 | Robolectric 下 < 10 s，内存峰值 < 64 MB |
 | 30→31 migration | 现有数据不变，新表可写 |
-| 聚合查询并集 | 只有 `track_album_links`、没有 `play_history` 的曲目，也会进入 Rediscover 候选 |
+| 只有 link、没有播放记录的曲目 | 进入回忆候选；Rediscover 按「上次写下」判断 90 天 |
+| `SpotoolfyRecapCalculator` | 中、英、日混排分词正确；停用词生效；数据不足时正确退化 |
+| 分享接收 | 超过 32 MB 拒绝；引导之外收到文件时提示并删除；从不自动导入 |
 
-### 9.2 人工 QA（实机）
+### 11.2 实机 QA
 
-- 手机和平板各走一遍完整的用户路径（§12）。
-- 「已有 Spotify App」分支：同一个 Client ID 下，Spotoolfy 和 Yoin 能同时登录、同时控制播放。
-- 导入后打开一张有笔记的专辑：剪贴簿显示笔记；补全完成后，回忆出现该专辑。
-- 进程被杀时正在导入：重启后没有半截数据，可以重新导入。
+- 先分享、后首次打开 Yoin；先打开 Yoin、再回 Spotoolfy 分享。两个顺序都能走到「待确认」。
+- Spotoolfy 步的返回、手势取消、三键返回（Pattern E）；回顾页的原生预测性返回（Pattern A）。
+- 回顾页：减少动态效果、平板横屏、深色模式、TalkBack、离线时的封面退化。
+- 走完引导后，首页出现回忆气泡；打开有笔记的专辑，剪贴簿显示这些笔记。
 
 ---
 
-## 10. 附录：导出格式
+## 12. 待定事项（附推荐）
 
-### 10.1 v1（Spotoolfy ≤ 1.3.7，现状，无版本号）
+- **Q1. 日语和繁体中文界面**：先看 Spotoolfy 在 Play Console 的语言分布再定。
+- **Q2. Rediscover 用「上次写下于」**作为从未在 Yoin 播放过的内容的离开时钟（§4.6 第 2 部分）。推荐：采用，并写进 `design.md`。
+- **Q3. 回顾页以后能否再打开**：推荐 P2，在设置 › 关于放一个「Spotoolfy 回顾」入口（只在有导入批次时显示）。
+- **Q4. 维护期一年从哪天起算**：推荐从 Yoin 公开上架日起算，而不是维护版发布日。否则封闭测试期间就在消耗用户的迁移窗口。
 
-文件名 `spotoolfy_backup_<ISO8601, ':'→'-'>.json`，结构如下：
+---
+
+## 13. 附录：Spotoolfy v1 导出格式（现状，无版本号）
+
+文件名 `spotoolfy_backup_<ISO8601，':' 替换为 '-'>.json`，经系统分享菜单发出，MIME 为 `application/json`。
 
 ```json
 {
@@ -511,39 +539,16 @@ Spotoolfy 用户分两类：
                       "rating": 5, "songTimestampMs": 83000, "recordedAt": 1730000000000,
                       "contextUri": "spotify:album:…", "contextName": "…", "lyricsSnapshot": "…或 null" }],
   "translations":  [{ "trackId": "…", "languageCode": "zh-CN", "style": "faithful",
-                      "translatedLyrics": "[L0]…[/L0]…", "generatedAt": 1730000000000 }],
+                      "translatedLyrics": "…", "generatedAt": 1730000000000 }],
   "play_contexts": [{ "contextUri": "spotify:playlist:…", "contextType": "playlist",
                       "contextName": "…", "imageUrl": "…", "lastPlayedAt": 1730000000000 }]
 }
 ```
 
-### 10.2 v2（Spotoolfy 1.4.0 起，向后兼容 v1 的四个数组）
-
-```json
-{
-  "format": "spotoolfy-export",
-  "schemaVersion": 2,
-  "exportedAt": "2026-11-01T12:00:00Z",
-  "app": { "name": "spotoolfy", "version": "1.4.0+19", "platform": "android" },
-  "account": { "provider": "spotify", "userId": "<from /v1/me>" },
-  "settings": {
-    "spotifyClientId": "<可选，公开标识>",
-    "translationTargetLanguage": "zh-CN"
-  },
-  "tracks": [], "records": [], "translations": [], "play_contexts": []
-}
-```
-
-兼容规则：
-
-- Yoin 遇到 `schemaVersion > 2` 时拒绝导入，并提示升级 Yoin。
-- 遇到未知字段一律忽略。
-- 新增字段只能加，不能改变已有字段的含义。
-
-### 10.3 映射伪代码
+映射伪代码：
 
 ```kotlin
-fun map(file: SpotoolfyExport, opts: ImportOptions): ImportPlan {
+fun map(file: SpotoolfyExport, profileId: String, now: Long): ImportPlan {
     val tracks = file.tracks.associateBy { normalize(it.trackId) }
     val valid = file.records.mapNotNull { r ->
         val id = normalize(r.trackId) ?: return@mapNotNull skip(r, Reason.INVALID_ID)  // 含 sample 行
@@ -552,8 +557,8 @@ fun map(file: SpotoolfyExport, opts: ImportOptions): ImportPlan {
     val notes = valid.filter { !it.noteContent.isNullOrBlank() }.map { r ->
         SongNote(
             id = deterministicNoteId(r),
-            profileId = opts.profileId, trackId = r.trackId, provider = PROVIDER_SPOTIFY,
-            content = composeContent(r.noteContent!!, r.lyricsSnapshot.takeIf { opts.includeLyrics }),
+            profileId = profileId, trackId = r.trackId, provider = PROVIDER_SPOTIFY,
+            content = composeContent(r.noteContent!!, r.lyricsSnapshot),
             createdAt = r.recordedAt, updatedAt = r.recordedAt,
             title = tracks[r.trackId]?.trackName ?: UNKNOWN_TITLE,
             artist = tracks[r.trackId]?.artistName.orEmpty(),
@@ -562,60 +567,34 @@ fun map(file: SpotoolfyExport, opts: ImportOptions): ImportPlan {
     }
     val ratings = valid.filter { it.rating in setOf(0, 3, 5) }
         .groupBy { it.trackId }
-        .mapValues { (_, rs) -> rs.maxBy { it.recordedAt } }
-        .map { (trackId, r) -> RatingImport(trackId, mapRating(r.rating!!), updatedAt = r.recordedAt) }
-    return ImportPlan(notes, ratings, skipped, conflicts = detectRatingConflicts(ratings))
+        .map { (trackId, rs) -> rs.maxBy { it.recordedAt }.let { r ->
+            LocalRating(profileId, trackId, PROVIDER_SPOTIFY, rating = mapRating(r.rating!!),
+                        serverRating = (mapRating(r.rating) / 2f).roundToInt(),
+                        needsSync = false, updatedAt = r.recordedAt)
+        } }
+    return ImportPlan(notes, ratings, skipped, recap = SpotoolfyRecapCalculator.compute(file, notes, ratings))
 }
 
-fun mapRating(v: Int): Float = when (v) { 5 -> 10f; 3 -> 5f; 0 -> 1f; else -> error("unreachable") }
+fun mapRating(v: Int): Float = when (v) { 5 -> 10f; 3 -> 5f; 0 -> 1f; else -> error("filtered above") }
 ```
 
 ---
 
-## 11. 风险与待决问题
+## 14. 给用户的迁移指引（草稿）
 
-### 11.1 风险
+> 适用于 Android 上的 Spotoolfy 用户。iOS 和网页版用户请在维护期内用 Spotoolfy 的「导出数据」留存数据。
 
-| 风险 | 概率 | 影响 | 缓解 |
-|---|---|---|---|
-| 用户删掉旧 Spotify App 后建不了新的 | 中 | 高：两个 App 都不能用 | 引导文案强调「追加，不要删」；Client ID 预填 |
-| owner 的共享 Client ID 超过 5 人 | 高 | 中 | B 类用户引导自建（§6.2） |
-| Spotify 继续裁剪存量 App 的接口 | 中 | 中：补全变慢或失败 | 只用单曲接口；补全失败不影响导入本身 |
-| 映射不符合预期（如 😐 = 5 分） | 中 | 中 | 撤销 + 重新导入；预览展示映射规则 |
-| 回忆页迁移后为空 | 高（如不做 §4.6） | 高：用户觉得数据丢了 | §4.6 列为阶段 2 必做 |
-| Gemini key 保护等级降级 | 确定（如不做前置） | 中 | 阶段 0 修复 |
-| 网易云代理随 Spotoolfy 一起下线 | 低 | 高：Yoin 歌词退化 | §8 阶段 6 明确保留 |
-
-### 11.2 待 owner 拍板（附推荐）
-
-- **Q1. 评分映射用 1/5/10？** 推荐：是，与 Spotoolfy 的专辑分一致。备选 2/6/9，更保守，给 Yoin 的细粒度评分留出余地。
-- **Q2. 😐（可能是默认值）要不要导入？** 推荐：导入。它是 Spotoolfy 界面上展示过的状态；不想要的用户可以在 Yoin 里逐首改。
-- **Q3. 「我的笔记」总览做到什么程度？** 推荐：本期只在导入结果页做最小列表，完整入口另立项。
-- **Q4. 翻译要不要迁？** 推荐：不迁。如果用户反馈重新翻译太费 Gemini 额度，再做一个按 `(trackId, targetLanguage)` 回填、`model = "spotoolfy-import"` 的兼容层。
-- **Q5. 繁体中文和日语要不要提前做？** 推荐：先看 Spotoolfy 的 Play Console 语言分布再定。
-- **Q6. Spotoolfy 维护期多长？** 推荐：Yoin 正式版之后 12 个月。
+1. 在 Spotoolfy 里：设置 › 数据管理 › 导出数据，在分享菜单里选 **Yoin**。也可以先把文件存下来。
+2. 安装并打开 Yoin，按引导连接 Spotify：在你原来的 Spotify App 里加上 Yoin 的回调地址和 Android 包，Client ID 照用。
+3. 引导问「在用 Spotoolfy 吗？」：选文件，或者确认刚才分享过来的文件，点「导入」。
+4. 看完你的 Spotoolfy 回顾，继续完成引导。
 
 ---
 
-## 12. 附录：给用户的迁移指引（草稿）
-
-> 适用于 Android 上的 Spotoolfy 用户。iOS 和网页版用户请先在 Spotoolfy 里「导出数据」并妥善保存文件。
-
-1. **在 Spotoolfy 里导出**：设置 → 数据 → 迁移到 Yoin（旧版本为「导出」）。
-2. **安装 Yoin**：通过封闭测试链接加入并安装。
-3. **连接 Spotify**：
-   - 选「我在 Spotoolfy 里已经建过 Spotify App」。
-   - 按提示在**原来的** Spotify App 里**追加**一个 Redirect URI 和一个 Android 包。
-   - ⚠️ 不要删除旧 App：每个 Spotify 开发者账号只能有一个 Client ID。
-4. **导入**：Yoin 设置 → 存储 → 从 Spotoolfy 导入。选中第 1 步的文件，确认预览后点「导入」。
-5. **（可选）重新填写 Gemini API key**：Yoin 设置 → Gemini。
-
----
-
-## 13. 参考
+## 15. 参考
 
 - Spotify for Developers，*Update on Developer Access and Platform Security*（2026-02-06）：<https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security>
 - Spotify，*February 2026 Web API Dev Mode Changes – Migration Guide*：<https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide>
 - Spotify Community，*February 2026 Spotify for Developers update thread*：<https://community.spotify.com/t5/Spotify-for-Developers/February-2026-Spotify-for-Developers-update-thread/td-p/7330564>
-- rspotify issue #550（受影响接口与字段清单，含 2026-03-13 恢复 `external_ids`）：<https://github.com/ramsayleung/rspotify/issues/550>
-- 仓库内：`docs/cloud-sync.md`、`docs/design.md` §回忆 / §歌词、`docs/release-0.5-closed-test.md`、`AGENTS.md`
+- rspotify issue #550（受影响接口与字段，含 2026-03-13 恢复 `external_ids`）：<https://github.com/ramsayleung/rspotify/issues/550>
+- 仓库内：`docs/design.md`（§首次引导、§回忆、§Rediscover）、`.claude/skills/predictive-back`（Pattern A / E）、`docs/cloud-sync.md`、`AGENTS.md`
