@@ -1,6 +1,6 @@
 # Spotoolfy → Yoin 迁移方案（最佳实践）
 
-状态：主要决策已定（owner 2026-10-14，两轮反馈），剩余待定项见 §12
+状态：决策全部已定（owner 2026-10-14，三轮反馈）
 回顾页交互原型：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>
 基线：Yoin `main@e4bdd0d`（0.5.0 / Room v30）；Spotoolfy = `p2o51/spotoolfy_flutter@0a57d65`（1.3.7+18）
 
@@ -23,8 +23,11 @@
 | D10 | **Spotoolfy 悬浮窗用 Spotoolfy 的青绿色**，和 Yoin 自己的紫色 Spotify 悬浮窗区分开 | §5.3 |
 | D11 | **Rediscover 按比例混排**：一部分来自聆听记录，一部分来自笔记和评分；**不用「上次写下于」**这种让人一头雾水的说法 | §4.6 |
 | D12 | **Spotoolfy 歌词服务与 Yoin 同步**（今晚出 1.3.8+19） | §9 阶段 5 |
+| D13 | **不做日语和繁体中文界面**：简体中文都还没做完，先把它做好 | §8 |
+| D14 | **Rediscover 笔记卡约占 1/3**，有笔记卡时至少放 1 张 | §4.6 |
+| D15 | **回顾页可以随时再打开**：导入后在 Yoin 里保留入口 | §6.1 |
 | D8 | **翻译不迁移** | §4.2 |
-| D9 | **Spotoolfy 维护期一年** | §9 阶段 7 |
+| D9 | **Spotoolfy 维护期一年，从 2026-10-14 起算，到 2027-10-14 为止** | §9 阶段 7 |
 
 ---
 
@@ -47,7 +50,7 @@
    - 现有的 Now Playing 笔记页和专辑剪贴簿本来就能显示这些数据。
 6. **Yoin 的前置清理只剩数据库卫生**：Room schema 导出、备份规则文件名、`activity_events` 触发器。
    - Gemini key 不再随迁移搬家，它的加密存储降为「建议，不阻塞」。
-7. **Spotoolfy 进入一年维护期。** 期满后下架，但 Yoin 依赖的网易云代理 `api.spotoolfy.gojyuplus.com` **必须长期保留**。
+7. **Spotoolfy 从 2026-10-14 起进入一年维护期，到 2027-10-14 为止。** 期满后下架，但 Yoin 依赖的网易云代理 `api.spotoolfy.gojyuplus.com` **必须长期保留**。
 
 ---
 
@@ -327,6 +330,11 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
   - 页内**不加** `BackHandler`。展开的词卡点空白处收起，而不是用返回键收起，否则会压掉原生预览（predictive-back 不变式 13）。
   - 结尾的「连接 Spotify」按钮直接 `finish()`，回到引导后进入 Spotify 连接页。
 - 数据只凭 `batchId` 从 `import_batches.summaryJson` 读取，符合「Activity 边界即数据边界」。
+- **随时再打开**（D15）：
+  - 入口放在 设置 › 关于 › 「Spotoolfy 回顾」，只在当前账号有 `committed` 的导入批次时显示。
+  - 同一个 Activity，同样是 Pattern A；从设置打开时返回落在设置。
+  - 从设置打开时最后一屏不再出现「还差一步：连接 Spotify」，按钮换成「完成」。
+  - 每次打开都重播动画，数据用导入时存下的那份，不重新计算。
 
 ### 6.2 页面结构（竖向分页，每屏一个场景，进入当前屏时才播放动画）
 
@@ -439,7 +447,7 @@ data class SpotoolfyRecap(
 | 音乐性格洞察 | ❌ | 不做 |
 | Time Machine（那年今日） | ❌ | P2：Yoin 只同步 200 首 Liked Songs（`SpotifyApiClient.kt:826`） |
 | 设备切换、播放模式、桌面小组件 | ✅ | QA 时验证 |
-| 日语 / 繁体中文界面 | ❌ | 待定（§12 Q1） |
+| 日语 / 繁体中文界面 | ❌ | 不做（D13）：先把简体中文做好 |
 | iOS / Web | ❌ | 维护期内保留导出 |
 
 ---
@@ -482,6 +490,7 @@ data class SpotoolfyRecap(
 ### 阶段 4：回顾页
 
 - [ ] `SpotoolfyRecapActivity`（§6），中英文案，减少动态效果、平板、读屏三项验收。
+- [ ] 设置 › 关于 里的「Spotoolfy 回顾」入口（D15）。
 - 交互原型已做：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>。
 
 ### 阶段 5：Spotoolfy 维护版（不阻塞迁移）
@@ -494,7 +503,7 @@ data class SpotoolfyRecap(
   - 手动选的歌词不再过期；
   - 115 个测试通过，其中 Yoin 的测试用例和录制数据原样移植。
 - [ ] 一条可关闭的启动公告：
-  - Spotoolfy 进入一年维护期；
+  - Spotoolfy 进入维护期，到 2027-10-14 为止；
   - Android 用户可以迁到 Yoin（导出 → 分享给 Yoin），并说明 Yoin 需要本机 Spotify；
   - iOS 和 Web 用户请导出留存。
 - [ ] 去掉首次启动插入的样例数据。
@@ -508,7 +517,7 @@ data class SpotoolfyRecap(
 
 ### 阶段 7：维护期一年，然后下架（D9）
 
-- **起算点**：建议从 Yoin 公开上架（任何人都能安装）那天起算，见 §12 Q4。
+- **起止**：2026-10-14 起算，2027-10-14 结束（D9）。
 - **维护期内**：只修崩溃和 Spotify API 兼容问题；导出必须一直可用。
 - **期满下架**：
   - 最后一版只保留导出页；
@@ -564,12 +573,14 @@ data class SpotoolfyRecap(
 
 ---
 
-## 12. 待定事项（附推荐）
+## 12. 待定事项
 
-- **Q1. 日语和繁体中文界面**：先看 Spotoolfy 在 Play Console 的语言分布再定。
-- **Q2. Rediscover 笔记卡占多少**：推荐 1/3，并且只要有笔记卡就至少给 1 张（§4.6）。
-- **Q3. 回顾页以后能否再打开**：推荐 P2，在设置 › 关于放一个「Spotoolfy 回顾」入口（只在有导入批次时显示）。
-- **Q4. 维护期一年从哪天起算**：推荐从 Yoin 公开上架日起算，而不是维护版发布日。否则封闭测试期间就在消耗用户的迁移窗口。
+全部已定（2026-10-14）：
+
+- Q1 日语和繁体中文界面 → 不做（D13）
+- Q2 Rediscover 笔记卡比例 → 约 1/3，至少 1 张（D14）
+- Q3 回顾页能否再打开 → 可以，设置 › 关于 里保留入口（D15）
+- Q4 维护期起算 → 2026-10-14，至 2027-10-14（D9）
 
 ---
 
