@@ -85,7 +85,7 @@ class CloudSyncTextsTest {
             summary(synced.copy(phase = CloudSyncPhase.StorageFull)),
         )
         assertEquals(
-            CloudSyncEntryText("Needs review", "3 notes disappeared"),
+            CloudSyncEntryText("Needs review", "3 notes removed"),
             summary(synced.copy(phase = CloudSyncPhase.NeedsReview("demo", 3))),
         )
         assertEquals(
