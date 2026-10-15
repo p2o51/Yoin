@@ -1,6 +1,6 @@
 # Spotoolfy → Yoin 迁移方案（最佳实践）
 
-状态：决策全部已定（owner 2026-10-14，三轮反馈）
+状态：决策全部已定（owner 2026-10-14 三轮反馈；2026-10-15 回顾页精简为两页）
 回顾页交互原型：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>
 基线：Yoin `main@e4bdd0d`（0.5.0 / Room v30）；Spotoolfy = `p2o51/spotoolfy_flutter@0a57d65`（1.3.7+18）
 
@@ -26,6 +26,7 @@
 | D13 | **不做日语和繁体中文界面**：简体中文都还没做完，先把它做好 | §8 |
 | D14 | **Rediscover 笔记卡约占 1/3**，有笔记卡时至少放 1 张 | §4.6 |
 | D15 | **回顾页可以随时再打开**：导入后在 Yoin 里保留入口 | §6.1 |
+| D16 | **回顾页只做两页**（2026-10-15）：开场（封面墙 + 笔记数），和关键词爆炸 + 歌词片段；第二页底部引导加入 Yoin。打分、时间、Top 榜、第一条笔记都不做 | §6.2 |
 | D8 | **翻译不迁移** | §4.2 |
 | D9 | **Spotoolfy 维护期一年，从 2026-10-14 起算，到 2027-10-14 为止** | §9 阶段 7 |
 
@@ -320,53 +321,54 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 
 ---
 
-## 6. 导入回顾页（D2）
+## 6. 导入回顾页（D2、D16）
 
 ### 6.1 定位
 
 - 新的全屏目的地 `SpotoolfyRecapActivity`，文件解析完成后由引导自动打开。此时数据还在暂存，连上 Spotify 后才写进账号（§5.1）。
-- **交互原型**：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>（虚构示例数据；可切换「重度 / 轻度用户」看数据不足时的退化）。
-- **返回分类：Pattern A（原生跨 Activity 预测性返回）**：没有共享 chrome，注册零个返回回调，返回落在引导的 Spotoolfy 步。
-  - 页内**不加** `BackHandler`。展开的词卡点空白处收起，而不是用返回键收起，否则会压掉原生预览（predictive-back 不变式 13）。
-  - 结尾的「连接 Spotify」按钮直接 `finish()`，回到引导后进入 Spotify 连接页。
+- **只有两页**（D16）：开场，和「你写下的，和你截下的」。第二页底部引导用户加入 Yoin。
+- **交互原型**：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>（虚构示例数据；可切换「重度 / 轻度用户」看数据不足时的退化，切换「引导里 / 从设置打开」看底部的两种结尾）。
+- **返回分类：Pattern A（原生跨 Activity 预测性返回）**：没有共享 chrome，注册零个返回回调。
+  - 页内**不加** `BackHandler`。点词、点歌词弹出的底部卡片点空白处收起，而不是用返回键收起，否则会压掉原生预览（predictive-back 不变式 13）。
+  - 系统返回落在引导的 Spotoolfy 步（「已收到」状态，§5.2）。
+  - 第二页底部的「加入 Yoin」按钮 `setResult(RESULT_OK)` 后 `finish()`，引导收到结果直接进入 Spotify 连接页，Client ID 已经填好。
 - 数据只凭 `batchId` 从 `import_batches.summaryJson` 读取，符合「Activity 边界即数据边界」。
 - **随时再打开**（D15）：
   - 入口放在 设置 › 关于 › 「Spotoolfy 回顾」，只在当前账号有 `committed` 的导入批次时显示。
   - 同一个 Activity，同样是 Pattern A；从设置打开时返回落在设置。
-  - 从设置打开时最后一屏不再出现「还差一步：连接 Spotify」，按钮换成「完成」。
+  - 从设置打开时第二页底部不再引导加入，换成一句「它们都在你的 Yoin 里」和「完成」。
   - 每次打开都重播动画，数据用导入时存下的那份，不重新计算。
 
-### 6.2 页面结构（竖向分页，每屏一个场景，进入当前屏时才播放动画）
+### 6.2 页面结构（两页，竖向分页，进入当前页时才播放动画）
 
-| # | 场景 | 内容 | 动效 |
-|---|---|---|---|
-| 1 | **开场** | 大数字「N 条笔记」；副标题「M 首歌 · K 位艺人 · 2024-11-06 → 2026-07-16」 | 数字滚动计数；最多 24 张专辑封面从中心**爆炸**散开、落成拼贴 |
-| 2 | **你最常写的词** | 笔记正文分词后的关键词，最多 48 个；字号按词频分 5 档 | 文字爆炸：词从中心按名次错开弹出，落到螺旋排布的位置；点一个词 → 词卡展开，列出最多 3 条包含它的笔记片段和曲名 |
-| 3 | **你截下的歌词** | `lyricsSnapshot` 去重后的歌词行，最多 20 行，每行带小字曲名 | 行级爆炸：歌词行像便签一样飞散落位；点一行展开整段 |
-| 4 | **打分** | 🔥 / 😐 / 👎 三堆计数 | 三根柱子长出后变形为 Yoin 的 `ScoreEmblem` 10 / 5 / 1，一句话说明映射 |
-| 5 | **时间** | 按月的笔记柱状图；「你最常在 23 点写笔记」；最长连续记录天数 | 柱子依次升起；一天 24 小时排成一圈，最高的那个钟点亮起 |
-| 6 | **写得最多的** | Top 3 曲目（封面 + 条数）、Top 3 艺人 | 卡片依次落下 |
-| 7 | **一切的开始** | 第一条笔记：日期、曲目、正文 | Big Bang 式：正文拆成词块散开，再按原顺序合拢成句 |
-| 8 | **接下来** | 去哪里找：Now Playing 的笔记页、专辑剪贴簿、回忆和 Rediscover；「N 条笔记会跟着歌词时间线出现」（有 `positionMs` 的）；「还差一步：连接 Spotify，Client ID 已经从 Spotoolfy 带过来」 | 列表滑入，「连接 Spotify」 |
-
-数据不足时场景自动省略或退化：
-
-- 笔记少于 20 条：第 2 屏退化为笔记卡片墙。
-- 没有歌词片段：省略第 3 屏。
-- 没有评分：省略第 4 屏。
-- 时间跨度不到 30 天：第 5 屏只保留钟点圈。
-
-### 6.3 哪些内容适合做「文字爆炸」
-
-| 素材 | 适合度 | 说明 |
+| 页 | 内容 | 动效 |
 |---|---|---|
-| 专辑封面（图片爆炸） | ★★★ | 视觉冲击最强，放开场 |
-| 笔记正文关键词 | ★★★ | 最个人化；需要分词、停用词和最低词频（≥ 2） |
-| 歌词片段 | ★★★ | 行级、天然好看，且多为用户亲手选的 |
-| 第一条笔记逐词拆分 | ★★ | 单条，仪式感强，放在结尾前 |
-| 艺人名 | ★★ | 短、辨识度高，可以并进第 6 屏 |
-| 曲名 | ★ | 太长，挤在一起不好看 |
-| 歌单或上下文名 | ✗ | 数据不可靠（§4.3） |
+| 1 **开场** | 「来自 Spotoolfy」小标签；大数字「N 条笔记」；「M 首歌 · K 位艺人 · R 首打过分」；首末日期；底部「向上滑」 | 最多 24 张专辑封面从中心**炸开**，落成封面墙；数字从 0 计数 |
+| 2 **你写下的，和你截下的** | 笔记关键词（≤ 30 个）和常用 emoji（≤ 3 个）；最多 2 段歌词片段；底部的加入卡片 | 词块从中心按名次错开炸开，落到螺旋排布的位置，避开两张歌词卡；歌词卡随后飞到左上角和右下角；最后底部卡片升起。点一个词 → 底部卡片列出最多 3 条包含它的笔记和曲名；点一段歌词 → 截取时间和当时写的笔记 |
+
+第二页底部的两种结尾：
+
+| 打开方式 | 文案 | 按钮 |
+|---|---|---|
+| 引导里 | 「带着它们，加入 Yoin」；「连接 Spotify 之后，这 N 条笔记和 R 首歌的评分会放进你的 Yoin，出现在 Now Playing、专辑剪贴簿、回忆和 Rediscover 里。」 | 主按钮「加入 Yoin」→ Spotify 连接页 |
+| 设置 › 关于 | 「它们都在你的 Yoin 里：Now Playing 的笔记页、专辑剪贴簿、回忆和 Rediscover。」 | tonal 按钮「完成」→ 回到设置 |
+
+数据不足时第二页自动退化：
+
+- 笔记少于 20 条，或关键词少于 8 个：关键词换成笔记卡片（最多 6 张，放不下的不放），标题改成「你写下的」。
+- 没有歌词片段：只有词，标题改成「你最常写的词」。
+- 没有封面（离线或全部加载失败）：第一页用色块拼成封面墙。
+
+**不做**（D16）：打分分布、按月和按钟点的时间图、Top 曲目和艺人、第一条笔记、「接下来去哪里找」清单。「去哪里找」压成第二页底部的那一句话；导入的评分会在 Now Playing 和 Rediscover 里遇到。
+
+### 6.3 素材、分词和 `summaryJson`
+
+| 素材 | 放在 | 说明 |
+|---|---|---|
+| 专辑封面 | 第 1 页 | 图片爆炸，视觉冲击最强 |
+| 笔记关键词 | 第 2 页 | 最个人化；需要分词、停用词和最低词频（≥ 2） |
+| emoji | 第 2 页 | 单独计数，最多 3 个混进词里。🔥 在 Spotoolfy 用户的笔记里很常见，留着反而有味道 |
+| 歌词片段 | 第 2 页 | `lyricsSnapshot` 去重；取最早和最近各一段，来自不同的歌；超过 40 个字的跳过，免得一张卡占掉半屏 |
 
 **分词**：用 `android.icu.text.BreakIterator.getWordInstance(ULocale.ROOT)`（API 24+，基于词典，能处理中、日、英混排）。
 
@@ -374,7 +376,7 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
   - 中日文词长 ≥ 2，拉丁词长 ≥ 3；
   - 去掉纯数字和标点；
   - 停用词表（中、英、日各一份小表，放 `res/raw`）。
-- emoji 单独计数，最多取 3 个进词云：🔥 在 Spotoolfy 用户的笔记里很常见，留着反而有味道。
+- 按词频排序，取前 30 个；字号按名次分 4 档。
 - 全部在本地计算，不调用 Gemini。新用户此时也还没有 key。
 
 **`summaryJson` 结构**（`SpotoolfyRecapCalculator` 在导入时一次算好）：
@@ -382,34 +384,37 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 ```kotlin
 @Serializable
 data class SpotoolfyRecap(
-    val noteCount: Int, val ratedTrackCount: Int, val trackCount: Int, val artistCount: Int,
-    val firstRecordAt: Long, val lastRecordAt: Long, val totalChars: Int,
-    val anchoredNoteCount: Int,                       // 有 positionMs 的笔记
-    val ratingCounts: Map<Int, Int>,                  // 5 / 3 / 0 → 曲目数
-    val monthly: List<MonthBucket>, val hourOfDay: List<Int>, val longestStreakDays: Int,
-    val topTracks: List<TrackStat>, val topArtists: List<ArtistStat>,
-    val keywords: List<Keyword>,                      // text, count, noteIds（≤ 3）
-    val lyricLines: List<LyricLine>,                  // text, trackTitle
-    val firstNote: NoteRef?, val coverUrls: List<String>,
+    val noteCount: Int, val trackCount: Int, val artistCount: Int, val ratedTrackCount: Int,
+    val firstRecordAt: Long, val lastRecordAt: Long,
+    val coverUrls: List<String>,                      // ≤ 24，第 1 页
+    val keywords: List<Keyword>,                      // ≤ 30：text、count、snippets（≤ 3 条 NoteSnippet）
+    val emoji: List<EmojiCount>,                      // ≤ 3
+    val lyricSnippets: List<LyricSnippet>,            // ≤ 2：lyric、trackTitle、artist、capturedAt、note
+    val fallbackNotes: List<NoteSnippet>,             // ≤ 6，只在数据不足时有值
 )
+
+@Serializable
+data class NoteSnippet(val text: String, val trackTitle: String, val artist: String, val at: Long)
 ```
+
+- 笔记片段直接存进 `summaryJson`，不存 noteId：引导里打开回顾时笔记还在暂存，没写进笔记表。片段截到 120 个字以内。
+- 退化与否由 Calculator 判断：`fallbackNotes` 非空就走笔记卡片。
 
 ### 6.4 动效与工程约束（对齐 AGENTS.md）
 
 - **全部用弹簧**：位置和尺寸用 spatial spring，颜色和透明度用 effect spring。爆炸的错开节奏用 Yoin 现有 motion token，不新增魔法数。
-- **触感**：爆炸起点一拍（`YoinHaptics`）；词落位不逐个震，免得吵。
+- **触感**：只有两处，各一拍 `YoinHaptics`：第 1 页封面炸开、第 2 页词块炸开。词落位不逐个震，免得吵。
 - **性能**：
   - 每个词块的位移和缩放只在 `graphicsLayer` 里读取，动画期间不重组；
   - 封面按 128px 解码；
   - 动画进行时投票高帧率；
-  - 排布在后台线程计算，以 `batchId` 作随机种子，旋转屏幕后布局不变。
-- **减少动态效果**：系统关闭动画时，直接淡入最终布局。
-- **自适应**：平板横屏时，每屏左侧是可视化、右侧是文字（`docs/adaptive-principles.md`）。
-- **颜色**：动态色，深浅模式都适用。词块轮流使用 primary / secondary / tertiary 的 container 色。
-- **无障碍**：每屏提供一句完整的摘要给读屏；飞散的词块 `clearAndSetSemantics`，另外给读屏一个按词频排序的列表。
+  - 排布在后台线程计算，以 `batchId` 作随机种子，旋转屏幕后布局不变；螺旋放不下的词直接不放。
+- **减少动态效果**：系统关闭动画时，不炸开，直接淡入最终布局。
+- **自适应**：平板横屏时，每页左侧是可视化、右侧是文字和按钮（`docs/adaptive-principles.md`）。
+- **颜色**：动态色，深浅模式都适用。词块按名次轮流使用 primary / secondary / tertiary 的 container 色，歌词卡用 tertiaryContainer。
+- **无障碍**：每页提供一句完整的摘要给读屏；飞散的词块 `clearAndSetSemantics`，另外给读屏一个按词频排序的列表。
 - **文案**：进 `values/` 和 `values-zh-rCN/`；数字和日期按 locale 格式化；通过 `scripts/check-hardcoded-strings.sh`。
 - **封面**：来自 Spotify CDN 的 `albumCoverUrl`。离线或加载失败时退化为色块拼贴，不留白洞。
-- **分享回顾图**：P2。可以复用歌词分享卡的 GraphicsLayer 录制管线。
 
 ---
 
@@ -489,7 +494,7 @@ data class SpotoolfyRecap(
 
 ### 阶段 4：回顾页
 
-- [ ] `SpotoolfyRecapActivity`（§6），中英文案，减少动态效果、平板、读屏三项验收。
+- [ ] `SpotoolfyRecapActivity`（§6，两页），中英文案，减少动态效果、平板、读屏三项验收。
 - [ ] 设置 › 关于 里的「Spotoolfy 回顾」入口（D15）。
 - 交互原型已做：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>。
 
@@ -560,7 +565,7 @@ data class SpotoolfyRecap(
 | Rediscover 混排 | 两类都充足时笔记卡约占 1/3；一类不足时另一类补满；笔记卡第二行是笔记摘录或分数，没有日期 |
 | 暂存与写入 | 解析后只有 `staged` 批次，账号里没有任何笔记或评分；Spotify 连上后一次写入；放弃或引导结束时暂存批次和文件都被删除 |
 | 剪贴板 Client ID | 32 位十六进制才预填；其余内容忽略 |
-| `SpotoolfyRecapCalculator` | 中、英、日混排分词正确；停用词生效；数据不足时正确退化 |
+| `SpotoolfyRecapCalculator` | 中、英、日混排分词正确；停用词生效；歌词片段取最早和最近两段且来自不同的歌；数据不足时正确退化 |
 | 分享接收 | 超过 32 MB 拒绝；引导之外收到文件时提示并删除；从不自动导入 |
 
 ### 11.2 实机 QA
