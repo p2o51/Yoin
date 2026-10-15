@@ -57,7 +57,7 @@ class CloudSyncScreenTest {
     fun should_callResolveReviewTrue_when_restoreHereTapped() {
         val fake = showScreen(CloudSyncSamples.needsReview(now))
 
-        rule.onNodeWithText("3 notes disappeared on this device").performScrollTo().performClick()
+        rule.onNodeWithText("3 notes removed on this device").performScrollTo().performClick()
         rule.onNodeWithText("Restore here").performClick()
         rule.waitForIdle()
 
@@ -68,7 +68,7 @@ class CloudSyncScreenTest {
     fun should_callResolveReviewFalse_when_deleteOnAllDevicesTapped() {
         val fake = showScreen(CloudSyncSamples.needsReview(now))
 
-        rule.onNodeWithText("3 notes disappeared on this device").performScrollTo().performClick()
+        rule.onNodeWithText("3 notes removed on this device").performScrollTo().performClick()
         rule.onNodeWithText("Delete on all devices").performClick()
         rule.waitForIdle()
 
@@ -135,7 +135,7 @@ class CloudSyncScreenTest {
     @Test
     fun should_notReopenReviewDialog_when_theReviewWasSettledMeanwhile() {
         val fake = showScreen(CloudSyncSamples.needsReview(now))
-        rule.onNodeWithText("3 notes disappeared on this device").performScrollTo().performClick()
+        rule.onNodeWithText("3 notes removed on this device").performScrollTo().performClick()
         rule.onNodeWithText("Restore here").assertIsDisplayed()
 
         fake.setState(CloudSyncSamples.upToDate(now))
@@ -152,7 +152,7 @@ class CloudSyncScreenTest {
     @Test
     fun should_keepReviewDialogOpen_when_aSyncRunsWhileDeciding() {
         val fake = showScreen(CloudSyncSamples.needsReview(now))
-        rule.onNodeWithText("3 notes disappeared on this device").performScrollTo().performClick()
+        rule.onNodeWithText("3 notes removed on this device").performScrollTo().performClick()
 
         fake.setState(CloudSyncSamples.syncing(now))
         rule.waitForIdle()

@@ -161,7 +161,7 @@ internal fun cloudSyncEntrySummary(
             is CloudSyncPhase.NeedsReview ->
                 line(
                     "Needs review", // i18n-allow: CloudSyncTextsTest asserts this English
-                    "${notesCount(phase.count)} disappeared", // i18n-allow: CloudSyncTextsTest asserts this English
+                    "${notesCount(phase.count)} removed", // i18n-allow: CloudSyncTextsTest asserts this English
                 )
             CloudSyncPhase.CloudCopyRemoved ->
                 line("Paused", "Drive copy removed") // i18n-allow: CloudSyncTextsTest asserts this English

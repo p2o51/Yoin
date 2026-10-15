@@ -227,7 +227,11 @@ private fun DeviceRow(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = device.name,
+                    text = if (device is YoinDevice.LocalPlayback) {
+                        stringResource(R.string.cmp_devices_this_device)
+                    } else {
+                        device.name
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
