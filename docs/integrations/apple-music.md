@@ -75,6 +75,24 @@ Configure an HTTPS endpoint returning HTTP 200 JSON:
 - The session callback accepts URI-less items carrying `appleMusicCatalogId`; Media3's default `onAddMediaItems` rejects items without a `localConfiguration`.
 - Library membership is not a favorite. Apple Music currently has no FAVORITES, RANDOM_SONGS or PLAYLISTS_WRITE capability in Yoin. Unsupported hearts, random-song and favorite tabs, and playlist creation/edit affordances are gated. The Songs tab browses the saved library and the distinct library-add control confirms the write. Library imports without a catalog playback ID fail with a clear message. Favorite mutation, library removal, offline downloads, Cast and quality claims are not enabled.
 
+### Catalog ids above 2^31 (2026-10-16)
+
+Songs Apple added from mid-2026 on carry catalog ids above `Int.MAX_VALUE` (2147483647). Pop Sound is 6805970194, on album 6805970041; older albums that gained tracks later have them too, such as 6767146998 on album 1896400727. In Yoin these songs buffered at 0:00 for good, with no error, while the Apple Music app played them. A tester first read this as region rights. It wasn't that, and it wasn't an audio format change either.
+
+MusicKit for Android has not been updated since December 2021, so the cause sits in mediaplayback 1.1.1. The chain, read from its bytecode:
+
+1. `playback.g.f` requests `play.itunes.apple.com/WebObjects/MZPlay.woa/wa/webPlayback` and writes `salableAdamId` as a long. That part is fine.
+2. `playback.g.h.a(InputStream)` parses the reply. It reads `songList[].songId` through the private helper `a(JsonReader, int)I`, which calls `JsonReader.nextInt()`. For an id above `Int.MAX_VALUE` that throws `NumberFormatException`.
+3. `g.f.a()` catches the exception and stores failureType `"REQUEST EXCEPTION"`. `playback.a.a(long, String[], boolean)` (requestAsset) then runs `Integer.valueOf(failureType)`, which throws again, and nothing catches it.
+4. The asset task, `c.c.d.run()`, catches only `IOException`, and `c.c.h` submitted it with `ExecutorService.submit`. So the exception ends up in a Future that nothing reads. MusicKit receives no asset and calls no `onPlaybackError`. `c.c.h` also keeps the dead request in its in-flight map, so tapping the same song again hangs again.
+5. The parsed `songId` goes into `g.b.f` (`g.b.a(J)`), a field nothing in the SDK reads. Every other path handles the large id: the catalog metadata keeps ids as strings, the license request's `adamId` and the FootHill/FairPlay native calls take strings, and the SDK's other `l2i` casts split 64-bit values into two halves.
+
+**Fix:** `build-logic`'s `yoin.musickit-large-id` plugin uses AGP's `AsmClassVisitorFactory` to rewrite that one call to `(int) nextLong()`. It applies to the app and its test components, and the AAR on disk stays unmodified. If the class or method doesn't match exactly one call, the build fails, so an SDK update can't silently undo the fix. That holds even when the class is renamed or removed: `verifyMusicKitLargeIdTarget` runs before `preBuild`, reads `app/libs/mediaplayback-release-*.aar` directly, and fails when the class is missing, because in that case no visitor would ever run. `MusicKitLargeCatalogIdTest` parses a reply through the SDK's own class. Build with `-Pyoin.musickit.largeIdFix=false` to reproduce the old behaviour.
+
+**Backstop:** `MusicKitStallWatch` covers other silent failures like this one. If playback is wanted and MusicKit stays buffering for 30 s with no movement in the item, the position or the buffered position, the player raises its timeout error instead of spinning forever.
+
+**When upgrading the SDK:** check whether `playback.g.h` still reads `songId` with `nextInt`. If it doesn't, remove the plugin.
+
 ### Native process-memory guard (2026-10-01)
 
 Physical Pixel Tablet playback followed by responsive size changes and an Apple Music → Spotify account switch hit the vendor decoder's `SVAudioDecoderJNI.reset` with `physicalBytes (515M) > maxPhysicalBytes (512M)`. This account-switch crash is captured in `outputs/provider-alignment-20261001/account-switch-crash-sanitized.log`.
