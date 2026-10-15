@@ -6,7 +6,7 @@ This file applies to the entire repository.
 
 ## Project
 
-This repository is **Yoin**, an Android Compose music client focused on MD3 Expressive, immersive surfaces, and continuous motion. The app is multi- provider by design — Subsonic/OpenSubsonic is the only shipped backend today, Spotify (via Android App Remote + Web API) is planned as the second implementation.
+This repository is **Yoin**, an Android Compose music client focused on MD3 Expressive, immersive surfaces, and continuous motion. The app is multi-provider by design: Subsonic/OpenSubsonic, Spotify (Android App Remote + Web API) and Apple Music (MusicKit) all ship behind the same `MusicSource` interface.
 
 `docs/design.md` is the source of truth for UI and product decisions. If the design doc and local code disagree, follow the design doc unless the task explicitly requires a different direction.
 
@@ -86,7 +86,7 @@ The data layer is built to support multiple music backends behind a single provi
 
 - `data/local/Profile` + `ProfileDao` — Room-backed list of configured accounts. Each profile carries a `provider` token and an opaque `credentialsJson` blob. Multiple profiles per provider are allowed (e.g. two Subsonic servers).
 - `data/profile/ProfileCredentials` — sealed, `@Serializable`. Add a subtype per provider (`Subsonic`, `Spotify`, ...).
-- `data/profile/ProfileCredentialsCodec` — serialises credentials. v1 uses `PlaintextProfileCredentialsCodec` matching the existing posture; an encrypted impl (EncryptedSharedPreferences / Tink) should replace it before shipping.
+- `data/profile/ProfileCredentialsCodec` — serialises credentials. Profiles store them through `EncryptedProfileCredentialsCodec` (AndroidKeyStore AES-GCM) as per-profile files under `noBackupFilesDir/profile_credentials/`; `PlaintextProfileCredentialsCodec` only reads rows written before encryption landed.
 - `data/profile/ProfileManager` — owns the profile list and the active profile. Exposes `activeProfile: StateFlow<Profile?>` and `activeSource: StateFlow<MusicSource?>`. On profile switch, disposes the previous source and builds a new one. `migrateLegacyServerConfigIfNeeded()`is idempotent and runs on app start to seed a Subsonic Profile from a v3 `server_config` row.
 
 ### Room schema & the `provider` column

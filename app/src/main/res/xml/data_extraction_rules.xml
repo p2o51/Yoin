@@ -32,8 +32,8 @@
         <include domain="database" path="yoin-database-shm" />
         <include domain="database" path="yoin-database-wal" />
 
-        <!-- Profile 行元数据保留（作为重连引导的线索），但凭据文件不会被打进 -->
-        <include domain="sharedpref" path="profile_active_id.xml" />
+        <!-- 当前账号 id（yoin_profiles.xml，ProfileActiveIdStore）随 Profile 行一起保留，作为重连引导的线索；凭据文件不会被打进 -->
+        <include domain="sharedpref" path="yoin_profiles.xml" />
         <exclude domain="database" path="yoin-database-journal" />
     </cloud-backup>
 
@@ -41,7 +41,7 @@
         <include domain="database" path="yoin-database" />
         <include domain="database" path="yoin-database-shm" />
         <include domain="database" path="yoin-database-wal" />
-        <include domain="sharedpref" path="profile_active_id.xml" />
+        <include domain="sharedpref" path="yoin_profiles.xml" />
         <exclude domain="database" path="yoin-database-journal" />
     </device-transfer>
 </data-extraction-rules>
