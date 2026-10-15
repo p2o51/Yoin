@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.album.AlbumScrapbookSource
+import com.gpo.yoin.data.album.TrackAlbumLinkEnricher
 import com.gpo.yoin.data.cache.DetailCacheStore
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.home.HomeSnapshotStore
@@ -134,6 +135,20 @@ class AppContainer(private val context: Context) {
             directory = File(context.noBackupFilesDir, "spotoolfy-import"),
             segmenter = IcuWordSegmenter(),
         )
+    }
+
+    /** Albums for tracks noted or rated but never played here (imports above all), looked up in the background. */
+    val trackAlbumLinkEnricher: TrackAlbumLinkEnricher by lazy {
+        TrackAlbumLinkEnricher(
+            links = database.trackAlbumLinkDao(),
+            notes = database.songNoteDao(),
+            activeSource = profileManager.activeSource,
+            activeProfileId = profileManager.activeProfileId,
+            scope = applicationScope,
+        ).also { enricher ->
+            // A newly active account (one just added in the landing included) gets its pass at once.
+            applicationScope.launch { profileManager.activeProfileId.collect { enricher.kick() } }
+        }
     }
 
     private val _musicConfigurationRevision = MutableStateFlow(0L)

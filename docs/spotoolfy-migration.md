@@ -462,41 +462,37 @@ data class NoteSnippet(val text: String, val trackTitle: String, val artist: Str
 
 ### 阶段 0：Yoin 前置清理
 
-- [ ] **启用 Room schema 导出，并提交 v30 基线**：必须在写 30→31 之前完成（`app/build.gradle.kts:119` 至今只有注释）。
-  - 目前没有应用 `androidx.room` Gradle 插件：要么引入插件并配置 `room { schemaDirectory(...) }`，要么给 KSP 传 `room.schemaLocation`。
-  - 同时把 `schemas/` 加进 `androidTest` 的 assets。
-- [ ] 修正 `data_extraction_rules.xml`：规则里写的是 `profile_active_id.xml`，实际文件是 `yoin_profiles`（`ProfileActiveIdStore.kt:29`）。
-- [ ] 全新安装时补建 `activity_events` 的上限触发器：现在只在 10→11 migration 里创建（`AppContainer.kt:1108-1131`）。
-- [ ] 更新 AGENTS.md 的过时描述：第 9 行称 Spotify 为 planned，第 89 行称凭据是明文 codec。
+- [x] **启用 Room schema 导出**：KSP 参数 `room.schemaLocation` 指向 `app/schemas/`（2026-10-15）。
+  - 这个环境拉不到 Google Maven，没能生成 schema JSON。下一次本地构建会写出 `31.json`，请一起提交；v30 基线没有补上，迁移测试沿用仓库现有的「手建旧库 → 迁移 → Room 打开时校验」方式。
+- [x] 修正 `data_extraction_rules.xml`：备份的是 `yoin_profiles.xml`。
+- [x] `activity_events` 上限触发器：全新安装由 `createCallback` 建，31 的迁移再补一次。
+- [x] 更新 AGENTS.md 的过时描述。
 - 建议，不阻塞迁移：Gemini key 改为加密存储并移出备份（目前明文存在 `GeminiConfig.kt:9`）。
 
 ### 阶段 1：契约与样本
 
-- [ ] 把 §13 的 v1 格式抽成 `docs/integrations/spotoolfy-export-format.md`。
-- [ ] 准备脱敏 fixtures：
-  - owner 的真实导出；
-  - 含样例行的全新安装导出；
-  - 含字符串评分的导出；
-  - Web 版导出；
-  - 5 万条的合成文件。
+- [x] 把 §13 的 v1 格式抽成 `docs/integrations/spotoolfy-export-format.md`。
+- [x] fixtures：`app/src/test/resources/spotoolfy/export_v1.json`（样例行、字符串评分、字符串和浮点时间、带标签的歌词片段、坏行）；5 万条和超过 32 MB 在测试里现场生成。
+- [ ] 还缺：owner 的真实导出（脱敏后放进 fixtures）、Web 版导出各一份。
 
 ### 阶段 2：导入核心
 
-- [ ] Room 30→31：`track_album_links`、`import_batches`、`import_items`，加 migration 测试。
-- [ ] 两个专辑聚合查询改为并集；Rediscover 按比例混排聆听卡和笔记卡（§4.6）。
-- [ ] Parser、Mapper、RecapCalculator、Importer（含暂存 / 写入、资格检查、换文件）。
-- [ ] `recordPlay` 和专辑详情加载时写 `track_album_links`；后台补全任务。
+- [x] Room 30→31：`track_album_links`、`import_batches`、`import_items`，加 migration 测试。
+- [x] 两个专辑聚合查询改为并集；Rediscover 按比例混排聆听卡和笔记卡（§4.6，笔记卡 = 从没在 Yoin 里播过的专辑）。
+- [x] Parser、Mapper、RecapCalculator、Importer（含暂存 / 写入、资格检查、换文件）。
+- [x] `recordPlay` 和专辑详情加载时写 `track_album_links`；后台补全 `TrackAlbumLinkEnricher`（单曲接口，逐首，出错即停、下次续跑，顺手补上「未知曲目」的曲名）。
 
 ### 阶段 3：引导步骤与分享入口
 
-- [ ] `LandingStep.Spotoolfy`（§5），排在 Spotify 连接页之前；暂存批次在 Spotify 连上后写入。
-- [ ] Spotoolfy 悬浮窗 `SpotoolfyGuide`（青绿色，4 步），回到 Yoin 时读剪贴板里的 Client ID。
-- [ ] 分享接收 Activity、manifest 的 `<queries>`；补 `design.md` §首次引导。
+- [x] `LandingStep.Spotoolfy`（§5），排在 Spotify 连接页之前；暂存批次在 Spotify 连上后写入。
+- [x] Spotoolfy 悬浮窗 `GuideKind.Spotoolfy`（青绿色，4 步），回到 Yoin 时读剪贴板里的 Client ID。
+- [x] 分享接收 Activity、manifest 的 `<queries>`；补 `design.md` §首次引导。
 
 ### 阶段 4：回顾页
 
-- [ ] `SpotoolfyRecapActivity`（§6，两页），中英文案，减少动态效果、平板、读屏三项验收。
-- [ ] 设置 › 关于 里的「Spotoolfy 回顾」入口（D15）。
+- [x] `SpotoolfyRecapActivity`（§6，两页），中英文案。
+- [ ] 真机验收：减少动态效果、平板横屏、读屏、深色模式、离线封面。
+- [x] 设置 › 关于 里的「Spotoolfy 回顾」入口（D15）。
 - 交互原型已做：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>。
 
 ### 阶段 5：Spotoolfy 维护版（不阻塞迁移）

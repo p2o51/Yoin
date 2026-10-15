@@ -133,6 +133,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
                 if (started.onStarted()) {
                     container.playbackManager.onHostStart(activity)
                     container.cloudSync.onAppForeground()
+                    container.trackAlbumLinkEnricher.kick()
                 }
             }
 

@@ -417,6 +417,7 @@ class RediscoverSelectionTest {
         noteCount: Int = 0,
         lastPlayedFromHistoryAt: Long? = NOW - 120 * DAY_MS,
         lastPlayedAt: Long? = lastPlayedFromHistoryAt,
+        lastWrittenAt: Long? = null,
     ): AlbumMemoryCandidate = AlbumMemoryCandidate(
         profileId = "profile-a",
         provider = MediaId.PROVIDER_SUBSONIC,
@@ -443,7 +444,77 @@ class RediscoverSelectionTest {
         firstPlayedFromHistoryAt = lastPlayedFromHistoryAt,
         lastPlayedFromHistoryAt = lastPlayedFromHistoryAt,
         playCountFromHistory = if (lastPlayedFromHistoryAt == null) 0 else 4,
+        lastWrittenAt = lastWrittenAt,
     )
+
+    // ── Note cards (D11, D14) ──────────────────────────────────────────
+
+    @Test
+    fun should_offerNeverPlayedAlbumsWrittenLongAgo_when_selectingNoteCards() {
+        val old = NOW - 400 * DAY_MS
+        val picks = selectRediscoverNotes(
+            candidates = listOf(
+                candidate("imported", albumRating = null, noteCount = 3, lastPlayedFromHistoryAt = null, lastWrittenAt = old),
+                candidate("scored", albumRating = 8f, lastPlayedFromHistoryAt = null, lastWrittenAt = old),
+                candidate("best", albumRating = 10f, lastPlayedFromHistoryAt = null, lastWrittenAt = old),
+                // Played in Yoin: a listening card's, not a note card's.
+                candidate("played", albumRating = 9f, lastWrittenAt = old),
+                // Written this week: not being rediscovered yet.
+                candidate("fresh", albumRating = 9f, lastPlayedFromHistoryAt = null, lastWrittenAt = NOW - 3 * DAY_MS),
+                // Nothing kept on it.
+                candidate("empty", albumRating = null, lastPlayedFromHistoryAt = null, lastWrittenAt = old),
+                candidate("shown", albumRating = 9f, lastPlayedFromHistoryAt = null, lastWrittenAt = old),
+            ),
+            nowMillis = NOW,
+            excludeRawAlbumIds = setOf("shown"),
+        )
+
+        assertEquals(listOf("best", "scored", "imported"), picks.map { it.candidate.albumId })
+        assertTrue(picks.all { it.fromNotes && it.lastPlayedAt == 0L })
+        assertNull(picks.last().score)
+    }
+
+    @Test
+    fun should_makeEveryThirdCardANoteCard_when_bothKindsAreAvailable() {
+        val listening = (1..8).map { RediscoverPick(candidate("l$it"), score = 9f, lastPlayedAt = NOW - 100 * DAY_MS) }
+        val notes = (1..5).map {
+            RediscoverPick(candidate("n$it", lastPlayedFromHistoryAt = null), score = 8f, lastPlayedAt = 0L, fromNotes = true)
+        }
+
+        val shelf = mixRediscoverShelf(listening, notes)
+
+        assertEquals(
+            listOf("l1", "l2", "n1", "l3", "l4", "n2"),
+            shelf.map { (it as RediscoverPick).candidate.albumId },
+        )
+    }
+
+    @Test
+    fun should_fillWithTheOtherKind_when_oneRunsShort() {
+        val notes = (1..5).map {
+            RediscoverPick(candidate("n$it", lastPlayedFromHistoryAt = null), score = null, lastPlayedAt = 0L, fromNotes = true)
+        }
+        val oneListening = listOf(RediscoverPick(candidate("l1"), score = 9f, lastPlayedAt = NOW - 100 * DAY_MS))
+
+        // Fresh from Spotoolfy: the shelf is note cards until plays come in.
+        assertEquals(5, mixRediscoverShelf(emptyList(), notes).size)
+        assertEquals(
+            listOf("l1", "n1", "n2", "n3", "n4", "n5"),
+            mixRediscoverShelf(oneListening, notes).map { (it as RediscoverPick).candidate.albumId },
+        )
+        // No note cards: the listening shelf as it was.
+        assertEquals(oneListening, mixRediscoverShelf(oneListening, emptyList()))
+    }
+
+    @Test
+    fun should_keepAtLeastOneNoteCard_when_theShelfIsShort() {
+        val listening = (1..5).map { RediscoverPick(candidate("l$it"), score = 9f, lastPlayedAt = NOW - 100 * DAY_MS) }
+        val notes = listOf(RediscoverPick(candidate("n1", lastPlayedFromHistoryAt = null), 8f, 0L, fromNotes = true))
+
+        val shelf = mixRediscoverShelf(listening, notes, limit = 2)
+
+        assertEquals(listOf("l1", "n1"), shelf.map { (it as RediscoverPick).candidate.albumId })
+    }
 
     private companion object {
         const val DAY_MS = 24L * 60 * 60 * 1000

@@ -153,6 +153,14 @@ class SpotifyApiClient(
             next = { response -> response.artists.next },
         )
 
+    /** `GET /tracks/{id}`: the single-track endpoint, which Development Mode apps keep (the batch one is gone). */
+    suspend fun getTrack(id: String): SpotifyTrackObject = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "tracks", id),
+            deserializer = SpotifyTrackObject.serializer(),
+        )
+    }
+
     suspend fun getAlbum(id: String): SpotifyAlbumObject = withContext(Dispatchers.IO) {
         getDecoded(
             url = apiUrl("v1", "albums", id),

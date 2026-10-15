@@ -171,7 +171,8 @@ private fun HomeRediscoverItem.toSnapshotItem(): HomeRediscoverDto = HomeRedisco
     noteCount = noteCount,
     ratedTrackCount = ratedTrackCount,
     song = song?.let(::snapshotTrack),
-    noteSnippet = noteSnippet
+    noteSnippet = noteSnippet,
+    fromNotes = fromNotes
 )
 
 private fun HomeRediscoverDto.toItem(coverArtUrl: String?): HomeRediscoverItem = HomeRediscoverItem(
@@ -190,7 +191,8 @@ private fun HomeRediscoverDto.toItem(coverArtUrl: String?): HomeRediscoverItem =
     ratedTrackCount = ratedTrackCount,
     song = song?.toDomain(),
     noteSnippet = noteSnippet,
-    coverKey = coverKey
+    coverKey = coverKey,
+    fromNotes = fromNotes
 )
 
 private fun HomeMemoryPill.toSnapshotPill(): HomeMemoryPillDto = HomeMemoryPillDto(

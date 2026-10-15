@@ -505,8 +505,11 @@ private fun RediscoverEyebrowBlock(
     reserve: RediscoverEyebrowReserve,
 ) {
     val resources = LocalContext.current.resources
-    val away = remember(item.lastPlayedAt, nowMillis, resources.configuration) {
-        rediscoverEyebrow(item, nowMillis, resources)
+    // A note card never played here: what was kept is the whole eyebrow, with no "away" line (D11).
+    val away = if (item.fromNotes) {
+        null
+    } else {
+        remember(item.lastPlayedAt, nowMillis, resources.configuration) { rediscoverEyebrow(item, nowMillis, resources) }
     }
     val notes = rediscoverNoteCount(item)
     val reason = if (notes == null) rediscoverReason(item, resources) else null
@@ -531,13 +534,15 @@ private fun RediscoverEyebrowBlock(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Text(
-            text = away,
-            style = MaterialTheme.typography.labelMedium,
-            color = ink,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        away?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelMedium,
+                color = ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -673,7 +678,8 @@ internal fun rediscoverScoreText(score: Float): String = String.format(Locale.US
  * when nothing is known.
  */
 internal fun rediscoverReason(item: HomeRediscoverItem, resources: Resources? = null): String? = when {
-    item.scoreText != null -> null
+    // A note card has no away line: the reason is its whole eyebrow, beside the badge too.
+    item.scoreText != null && !item.fromNotes -> null
     item.song != null -> null
     item.hasReview -> resources?.getString(R.string.home_rediscover_reviewed)
         ?: "Reviewed" // i18n-allow: RediscoverCopyTest asserts this English
@@ -695,12 +701,17 @@ internal fun rediscoverReason(item: HomeRediscoverItem, resources: Resources? = 
 }
 
 /** Notes shown as [MetaGroup.Stat] above the away label. Null when a score, review, or song card says it instead. */
-internal fun rediscoverNoteCount(item: HomeRediscoverItem): Int? =
-    if (item.scoreText == null && item.song == null && !item.hasReview && item.noteCount > 0) item.noteCount else null
+internal fun rediscoverNoteCount(item: HomeRediscoverItem): Int? {
+    val unbadged = item.scoreText == null || item.fromNotes
+    return if (unbadged && item.song == null && !item.hasReview && item.noteCount > 0) item.noteCount else null
+}
 
 /** Two lines when a reason sits above the away label, otherwise the away label alone. */
-internal fun rediscoverEyebrowLineCount(item: HomeRediscoverItem): Int =
-    if (rediscoverReason(item) != null) 2 else 1
+internal fun rediscoverEyebrowLineCount(item: HomeRediscoverItem): Int = when {
+    item.fromNotes -> 1
+    rediscoverReason(item) != null -> 2
+    else -> 1
+}
 
 /** "7 months away" / "1 year away". The reason, when there is one, is a separate line. */
 internal fun rediscoverEyebrow(

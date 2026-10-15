@@ -148,6 +148,10 @@ class SpotifyMusicSource(
             )
         }
 
+        override suspend fun getTrack(id: MediaId): Track? = withSpotifyId(id) { rawId ->
+            orNullIfNotFound { apiClient.getTrack(rawId) }?.takeIf { it.id != null }?.toTrack()
+        }
+
         override suspend fun getArtists(): List<ArtistIndex> =
             libraryArtists().toArtistIndices()
 

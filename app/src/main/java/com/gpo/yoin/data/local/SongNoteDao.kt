@@ -133,4 +133,14 @@ interface SongNoteDao {
 
     @Query("DELETE FROM song_notes WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
+
+    /**
+     * Names the song of notes imported without one (the export had no row for the track: blank artist, a
+     * placeholder title) once the provider says what it is.
+     */
+    @Query(
+        "UPDATE song_notes SET title = :title, artist = :artist " +
+            "WHERE profileId = :profileId AND provider = :provider AND trackId = :trackId AND artist = ''",
+    )
+    suspend fun fillMissingSong(trackId: String, provider: String, profileId: String, title: String, artist: String): Int
 }

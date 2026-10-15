@@ -139,6 +139,8 @@ internal class SpotoolfyStepViewModel(
     private val openStream: (Uri) -> InputStream?,
     installed: () -> Boolean,
     private val unknownTitle: String,
+    /** The file went into an account: its tracks' albums can be looked up now. */
+    private val onWritten: () -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
@@ -222,8 +224,10 @@ internal class SpotoolfyStepViewModel(
         val received = _state.value.takeIf { it.unwritten }?.import as? SpotoolfyImport.Received ?: return
         viewModelScope.launch {
             val next = when (val result = importer.commit(received.batchId, profileId, unknownTitle)) {
-                is CommitResult.Committed ->
+                is CommitResult.Committed -> {
+                    onWritten()
                     SpotoolfyImport.Written(received.batchId, result.noteCount, result.ratingCount, accountName)
+                }
                 CommitResult.NotEligible -> SpotoolfyImport.NotWritten
                 CommitResult.Missing -> SpotoolfyImport.Failed(SpotoolfyFailure.Unreadable)
             }
@@ -285,6 +289,7 @@ internal class SpotoolfyStepViewModel(
                 openStream = { uri -> app.contentResolver.openInputStream(uri) },
                 installed = { spotoolfyLaunchIntent(app) != null },
                 unknownTitle = app.getString(R.string.landing_spotoolfy_unknown_title),
+                onWritten = { container.trackAlbumLinkEnricher.kick() },
             ) as T
         }
     }

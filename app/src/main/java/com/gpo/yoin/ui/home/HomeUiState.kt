@@ -169,6 +169,9 @@ data class HomeRediscoverItem(
     val noteSnippet: String? = null,
     // [coverArtUrl]'s CoverRef storage key (see HomeWidgetCard.coverKey).
     val coverKey: String? = null,
+    // A note card (D11): an album written about but never played in Yoin.
+    // Its eyebrow says what was kept, never how long it has been away.
+    val fromNotes: Boolean = false,
 ) {
     /** The card's title: the song's for a song card, else the album's. */
     val title: String get() = song?.title?.takeIf(String::isNotBlank) ?: albumName
