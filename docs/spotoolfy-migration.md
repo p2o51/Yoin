@@ -343,7 +343,7 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 
 | 页 | 内容 | 动效 |
 |---|---|---|
-| 1 **开场** | 「来自 Spotoolfy」小标签；大数字「N 条笔记」；「M 首歌 · K 位艺人 · R 首打过分」；首末日期；底部「向上滑」 | 最多 24 张专辑封面从中心**炸开**，落成封面墙；数字从 0 计数 |
+| 1 **开场** | 「来自 Spotoolfy」小标签；大数字「N 条笔记」；一句话「写给 K 位艺人的 M 首歌，其中 R 首打了分」（全部打过分时说「每一首都打了分」，没打分时不提）；「2024.11.06 到 2026.07.16」；底部「向上滑」 | 最多 24 张专辑封面从中心**炸开**，落成封面墙；数字从 0 计数 |
 | 2 **你写下的，和你截下的** | 笔记关键词（≤ 30 个）和常用 emoji（≤ 3 个）；最多 2 段歌词片段；底部的加入卡片 | 词块从中心按名次错开炸开，落到螺旋排布的位置，避开两张歌词卡；歌词卡随后飞到左上角和右下角；最后底部卡片升起。点一个词 → 底部卡片列出最多 3 条包含它的笔记和曲名；点一段歌词 → 截取时间和当时写的笔记 |
 
 第二页底部的两种结尾：
@@ -375,7 +375,7 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
 - 过滤规则：
   - 中日文词长 ≥ 2，拉丁词长 ≥ 3；
   - 去掉纯数字和标点；
-  - 停用词表（中、英、日各一份小表，放 `res/raw`）。
+  - 停用词表（中、英、日各一份小表，在 `SpotoolfyStopwords`）。
 - 按词频排序，取前 30 个；字号按名次分 4 档。
 - 全部在本地计算，不调用 Gemini。新用户此时也还没有 key。
 
@@ -414,6 +414,7 @@ data class NoteSnippet(val text: String, val trackTitle: String, val artist: Str
 - **颜色**：动态色，深浅模式都适用。词块按名次轮流使用 primary / secondary / tertiary 的 container 色，歌词卡用 tertiaryContainer。
 - **无障碍**：每页提供一句完整的摘要给读屏；飞散的词块 `clearAndSetSemantics`，另外给读屏一个按词频排序的列表。
 - **文案**：进 `values/` 和 `values-zh-rCN/`；数字和日期按 locale 格式化；通过 `scripts/check-hardcoded-strings.sh`。
+  - 不用「·」或破折号把数字、曲名、艺人拼成一串，写成一句话：「写给 10 位艺人的 32 首歌」「2026.06.20 写给《第七个路口》」。
 - **封面**：来自 Spotify CDN 的 `albumCoverUrl`。离线或加载失败时退化为色块拼贴，不留白洞。
 
 ---

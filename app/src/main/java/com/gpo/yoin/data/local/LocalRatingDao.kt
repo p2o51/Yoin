@@ -35,17 +35,19 @@ interface LocalRatingDao {
     ): Flow<List<LocalRating>>
 
     /**
-     * Per album, this profile's track ratings (above 0) on tracks it played
-     * in Yoin: how many tracks and the newest rating. A rating carries no
-     * album, so the album is the one play_history recorded for the track; a
-     * track never played in Yoin (or played with no album id) belongs to none.
-     * Most-rated albums first.
+     * Per album, this profile's track ratings (above 0): how many tracks and
+     * the newest rating. A rating carries no album, so the album is the one
+     * play_history recorded for the track, or the one track_album_links knows
+     * (rated on an album page, or imported, but never played in Yoin); a track
+     * known to neither belongs to none. Most-rated albums first.
      */
     @Query(
         "SELECT ph.albumId AS albumId, COUNT(DISTINCT r.songId) AS signalCount, " +
             "MAX(r.updatedAt) AS lastWrittenAt " +
             "FROM local_ratings r " +
-            "JOIN (SELECT DISTINCT songId, albumId FROM play_history " +
+            "JOIN (SELECT songId, albumId FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider AND albumId != '' " +
+            "UNION SELECT trackId AS songId, albumId FROM track_album_links " +
             "WHERE profileId = :profileId AND provider = :provider AND albumId != '') ph " +
             "ON ph.songId = r.songId " +
             "WHERE r.profileId = :profileId AND r.provider = :provider AND r.rating > 0 " +
@@ -76,6 +78,12 @@ interface LocalRatingDao {
 
     @Upsert
     suspend fun upsert(rating: LocalRating)
+
+    @Upsert
+    suspend fun upsertAll(ratings: List<LocalRating>)
+
+    @Query("DELETE FROM local_ratings WHERE profileId = :profileId AND provider = :provider AND songId IN (:songIds)")
+    suspend fun deleteForSongs(songIds: List<String>, provider: String, profileId: String)
 
     /**
      * The provider took [rating]: clear the row's needsSync — only while the
