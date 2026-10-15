@@ -3,6 +3,7 @@ package com.gpo.yoin.player.applemusic
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.Trace
 import android.util.Log
 import androidx.media3.common.C
@@ -65,6 +66,7 @@ class AppleMusicMedia3Player(
     private var released = false
     private var published: PlayOrder? = null
     private val playRequest = MusicKitPlayRequest()
+    private val stallWatch = MusicKitStallWatch()
 
     /**
      * A queue Yoin prepared must start its first song at 0:00. MusicKit
@@ -140,6 +142,7 @@ class AppleMusicMedia3Player(
     private val ticker = object : Runnable {
         override fun run() {
             if (!released) {
+                watchForStall()
                 publish("ticker")
                 handler.postDelayed(this, 1000)
             }
@@ -149,6 +152,28 @@ class AppleMusicMedia3Player(
     init {
         controller.addListener(listener)
         handler.post(ticker)
+    }
+
+    /** See [MusicKitStallWatch]: a song MusicKit never starts and never fails ends as an error, not a spinner. */
+    private fun watchForStall() {
+        val stalled = stallWatch.observe(
+            nowMs = SystemClock.elapsedRealtime(),
+            wantsPlay = desiredPlay && queuePrepared && !preparing && failure == null,
+            buffering = controller.isBuffering,
+            itemKey = controller.currentItem?.playbackQueueId,
+            positionMs = controller.currentPosition,
+            bufferedMs = controller.bufferedPosition
+        )
+        if (!stalled) return
+        Log.w(
+            "YoinMusicKitError",
+            "stalled: buffering ${MUSICKIT_STALL_MS}ms without progress " +
+                "(state=${controller.playbackState} item=${controller.currentItem?.item?.subscriptionStoreId})"
+        )
+        playRequest.clear()
+        failure = appContext.getString(R.string.player_apple_music_timeout)
+        // pause, not stop: see startFromTop.
+        controller.pause()
     }
 
     fun playCatalogSong(id: String) {
