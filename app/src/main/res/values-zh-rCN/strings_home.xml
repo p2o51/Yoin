@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="home_title">首页</string>
-    <string name="home_greeting_morning">早</string>
+    <string name="home_greeting_morning">早上好</string>
     <string name="home_greeting_noon">中午好</string>
     <string name="home_greeting_afternoon">下午好</string>
     <string name="home_greeting_evening">晚上好</string>
@@ -21,28 +21,28 @@
     <string name="home_cd_settings">设置</string>
     <string name="home_error_settings">设置</string>
     <string name="home_error_retry">重试</string>
-    <string name="home_error_load_failed">首页内容加载失败</string>
+    <string name="home_error_load_failed">无法加载首页内容</string>
 
     <string name="home_section_activities">动态</string>
     <string name="home_section_jump_back_in">接着听</string>
     <string name="home_section_recently_added">最近添加</string>
     <string name="home_section_rediscover">重温</string>
     <string name="home_section_recently_played">最近播放</string>
-    <string name="home_section_your_playlists">你的歌单</string>
+    <string name="home_section_your_playlists">你的播放列表</string>
 
     <string name="home_section_activities_supporting">近期播放与访问记录</string>
-    <string name="home_section_jump_back_in_supporting">专辑、歌曲与歌单</string>
-    <string name="home_section_recently_added_supporting">本月加入资料库的唱片</string>
-    <string name="home_section_rediscover_supporting">评过分或写过笔记，但已落灰多时的专辑与单曲</string>
-    <string name="home_section_recently_played_supporting">你在各设备上最近播放的专辑</string>
-    <string name="home_section_your_playlists_supporting">资料库中的歌单</string>
+    <string name="home_section_jump_back_in_supporting">专辑、歌曲与播放列表</string>
+    <string name="home_section_recently_added_supporting">本月添加至资料库</string>
+    <string name="home_section_rediscover_supporting">评过分或写过笔记、有一阵子未播放的专辑与歌曲</string>
+    <string name="home_section_recently_played_supporting">近期在任意设备上播放过的专辑</string>
+    <string name="home_section_your_playlists_supporting">资料库中的播放列表</string>
 
-    <string name="home_placeholder_activities">最近没有播放记录。四周很安静。</string>
-    <string name="home_placeholder_jump_back_in">手头没有还没听完的唱片。</string>
-    <string name="home_placeholder_recently_added">本月暂无新入库唱片</string>
-    <string name="home_placeholder_rediscover">暂无久未重温的记录</string>
-    <string name="home_placeholder_recently_played">最近暂无播放</string>
-    <string name="home_placeholder_your_playlists">资料库中暂无歌单</string>
+    <string name="home_placeholder_activities">近期无动态</string>
+    <string name="home_placeholder_jump_back_in">暂无可接着听的内容</string>
+    <string name="home_placeholder_recently_added">本月暂无添加</string>
+    <string name="home_placeholder_rediscover">暂无可重温的内容</string>
+    <string name="home_placeholder_recently_played">近期无播放记录</string>
+    <string name="home_placeholder_your_playlists">资料库中无播放列表</string>
 
     <string name="home_activities_empty_title">暂无动态</string>
 
@@ -50,22 +50,22 @@
     <string name="home_edit_hidden_empty">无隐藏分区</string>
     <string name="home_edit_reset">重置首页</string>
     <string name="home_edit_new">新</string>
-    <string name="home_edit_all_hidden_title">首页空空如也</string>
+    <string name="home_edit_all_hidden_title">首页是空的</string>
     <string name="home_cd_hide_section">隐藏 %1$s</string>
     <string name="home_cd_show_section">显示 %1$s</string>
     <string name="home_action_show_section">显示 %1$s</string>
     <string name="home_edit_move_up">上移</string>
     <string name="home_edit_move_down">下移</string>
-    <string name="home_edit_more_rows">更多行</string>
-    <string name="home_edit_fewer_rows">更少行</string>
+    <string name="home_edit_more_rows">增加行数</string>
+    <string name="home_edit_fewer_rows">减少行数</string>
     <string name="home_edit_hide">隐藏</string>
-    <string name="home_cd_section_index">第 %1$d 块，共 %2$d 块</string>
-    <string name="home_cd_section_index_rows">第 %1$d 块，共 %2$d 块，%3$s</string>
+    <string name="home_cd_section_index">第 %1$d 个分区，共 %2$d 个</string>
+    <string name="home_cd_section_index_rows">第 %1$d 个分区，共 %2$d 个，%3$s</string>
     <plurals name="home_edit_rows">
         <item quantity="other">%1$d 行</item>
     </plurals>
 
-    <string name="home_widget_basis_tracks">基于 %1$d/%2$d 首</string>
+    <string name="home_widget_basis_tracks">基于 %1$d/%2$d 首曲目</string>
     <string name="home_widget_rating_na">暂无</string>
     <plurals name="home_unit_songs">
         <item quantity="other">首</item>
@@ -77,15 +77,15 @@
         <item quantity="other">条笔记</item>
     </plurals>
     <plurals name="home_unit_plays">
-        <item quantity="other">次</item>
+        <item quantity="other">次播放</item>
     </plurals>
 
     <string name="home_activity_type_album">专辑</string>
     <string name="home_activity_type_artist">艺术家</string>
-    <string name="home_activity_type_playlist">歌单</string>
-    <string name="home_activity_type_track">歌曲</string>
+    <string name="home_activity_type_playlist">播放列表</string>
+    <string name="home_activity_type_track">曲目</string>
     <string name="home_activity_fallback_artist">艺术家</string>
-    <string name="home_activity_fallback_recent">最近活跃</string>
+    <string name="home_activity_fallback_recent">近期活跃</string>
     <string name="home_time_just_now">刚刚</string>
     <plurals name="home_time_minutes_ago">
         <item quantity="other">%1$d 分钟前</item>
@@ -103,12 +103,12 @@
         <item quantity="other">%1$d 首</item>
     </plurals>
 
-    <string name="home_rediscover_reviewed">已写评价</string>
+    <string name="home_rediscover_reviewed">已写评论</string>
     <plurals name="home_rediscover_notes">
         <item quantity="other">%1$d 条笔记</item>
     </plurals>
     <plurals name="home_rediscover_tracks_rated">
-        <item quantity="other">评过 %1$d 首</item>
+        <item quantity="other">已评 %1$d 首</item>
     </plurals>
     <plurals name="home_rediscover_months">
         <item quantity="other">%1$d 个月</item>
@@ -117,10 +117,10 @@
         <item quantity="other">%1$d 年</item>
     </plurals>
     <plurals name="home_rediscover_eyebrow_months">
-        <item quantity="other">%1$d 个月没听</item>
+        <item quantity="other">%1$d 个月未听</item>
     </plurals>
     <plurals name="home_rediscover_eyebrow_years">
-        <item quantity="other">%1$d 年没听</item>
+        <item quantity="other">%1$d 年未听</item>
     </plurals>
     <string name="home_rediscover_cd_your_rating">你的评分 %1$s</string>
     <string name="home_rediscover_cd_track_average">曲目均分 %1$s</string>
@@ -131,7 +131,7 @@
     <string name="home_cd_memories_chevron">Memories</string>
     <string name="home_cd_memories_arrow">Memories</string>
     <string name="home_cd_memories">Memories</string>
-    <string name="home_cd_memories_empty">Memories，暂无记录</string>
+    <string name="home_cd_memories_empty">Memories，空白</string>
     <string name="home_cd_memories_notes">Memories，%1$s</string>
     <string name="home_notes_capped">999+ 条笔记</string>
     <plurals name="home_notes">
@@ -141,14 +141,14 @@
     <string name="home_cd_pill_rating_artist">Memories。最新：%1$s，%2$s。你的专辑评分 %3$s。</string>
     <string name="home_cd_pill_average_artist_notes">Memories。最新：%1$s，%2$s。曲目均分 %3$s。%4$s。</string>
     <string name="home_cd_pill_average_artist">Memories。最新：%1$s，%2$s。曲目均分 %3$s。</string>
-    <string name="home_cd_pill_unrated_artist_notes">Memories。最新：%1$s，%2$s。暂未评分。%3$s。</string>
-    <string name="home_cd_pill_unrated_artist">Memories。最新：%1$s，%2$s。暂未评分。</string>
+    <string name="home_cd_pill_unrated_artist_notes">Memories。最新：%1$s，%2$s。未评分。%3$s。</string>
+    <string name="home_cd_pill_unrated_artist">Memories。最新：%1$s，%2$s。未评分。</string>
     <string name="home_cd_pill_rating_notes">Memories。最新：%1$s。你的专辑评分 %2$s。%3$s。</string>
     <string name="home_cd_pill_rating">Memories。最新：%1$s。你的专辑评分 %2$s。</string>
     <string name="home_cd_pill_average_notes">Memories。最新：%1$s。曲目均分 %2$s。%3$s。</string>
     <string name="home_cd_pill_average">Memories。最新：%1$s。曲目均分 %2$s。</string>
-    <string name="home_cd_pill_unrated_notes">Memories。最新：%1$s。暂未评分。%2$s。</string>
-    <string name="home_cd_pill_unrated">Memories。最新：%1$s。暂未评分。</string>
+    <string name="home_cd_pill_unrated_notes">Memories。最新：%1$s。未评分。%2$s。</string>
+    <string name="home_cd_pill_unrated">Memories。最新：%1$s。未评分。</string>
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>

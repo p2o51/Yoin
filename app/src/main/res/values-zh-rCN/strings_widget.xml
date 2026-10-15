@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="widget_play_label">播放</string>
-    <string name="widget_play_description">最近在听</string>
+    <string name="widget_play_description">最近收听</string>
     <string name="widget_play_empty">暂无播放记录</string>
     <string name="widget_memory_label">Memories</string>
-    <string name="widget_memory_description">专辑 Memories</string>
-    <string name="widget_memory_empty">暂无 Memories 记录</string>
+    <string name="widget_memory_description">你的专辑 Memories</string>
+    <string name="widget_memory_empty">暂无 Memories</string>
     <string name="widget_last_heard_today">今天</string>
     <plurals name="widget_last_heard_days">
         <item quantity="other">%d 天前</item>

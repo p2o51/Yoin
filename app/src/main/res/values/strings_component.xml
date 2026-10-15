@@ -51,8 +51,8 @@
 
     <string name="cmp_devices_title">Devices</string>
     <string name="cmp_devices_subtitle_spotify">Spotify Connect</string>
-    <string name="cmp_devices_subtitle_subsonic">Local + Cast status</string>
-    <string name="cmp_devices_subtitle_other">Current playback targets</string>
+    <string name="cmp_devices_subtitle_subsonic">This device and Cast</string>
+    <string name="cmp_devices_subtitle_other">Playback devices</string>
     <string name="cmp_devices_cd_refresh">Refresh devices</string>
     <string name="cmp_devices_empty_spotify">No Spotify devices found.</string>
     <string name="cmp_devices_empty_subsonic">Only local playback is available right now.</string>
@@ -124,7 +124,7 @@
     <string name="cmp_lyrics_empty">No lyrics available</string>
     <string name="cmp_wave_note">Note</string>
     <string name="cmp_unavailable_cd">Why can\'t this play</string>
-    <string name="cmp_unavailable_apple_import">This song was imported into your Apple Music library and has no Apple Music catalog version. MusicKit can only play catalog songs, so play it in the Apple Music app.</string>
+    <string name="cmp_unavailable_apple_import">This song was imported to your library and isn\'t in the Apple Music catalog. Play it in the Apple Music app.</string>
     <string name="cmp_library_cd_added">In Apple Music library</string>
     <string name="cmp_library_cd_pending">Check library addition</string>
     <string name="cmp_library_cd_add">Add to Apple Music library</string>
