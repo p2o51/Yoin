@@ -6,12 +6,6 @@
     <string name="settings_service_name_apple" translatable="false">Apple Music</string>
     <string name="settings_service_name_local">Files on this device</string>
     <!-- Feature catalog: support labels -->
-    <string name="settings_feature_support_available">Available</string>
-    <string name="settings_feature_support_partial">Limited</string>
-    <string name="settings_feature_support_local">By Yoin</string>
-    <string name="settings_feature_support_not_implemented">Not in Yoin yet</string>
-    <string name="settings_feature_support_unavailable">Not exposed by service</string>
-    <string name="settings_feature_support_unverified">Not verified</string>
 
     <!-- Feature catalog: names and summaries -->
     <string name="settings_feature_name_subsonic" translatable="false">Subsonic</string>
@@ -24,55 +18,9 @@
     <string name="settings_feature_save_spotify">Save to Spotify liked songs</string>
     <string name="settings_feature_remove_spotify">Remove from Spotify liked songs</string>
 
-    <string name="settings_feature_subsonic_playback_title">Playback</string>
-    <string name="settings_feature_subsonic_playback_body">Stream from your server in Yoin, with background and system playback controls.</string>
-    <string name="settings_feature_subsonic_favorites_title">Favorites</string>
-    <string name="settings_feature_subsonic_favorites_body">The heart stars or unstars music on your server.</string>
-    <string name="settings_feature_subsonic_playlists_title">Playlists</string>
-    <string name="settings_feature_subsonic_playlists_body">Browse and edit writable playlists. Permissions and supported operations depend on your server.</string>
-    <string name="settings_feature_subsonic_lyrics_title">Lyrics</string>
-    <string name="settings_feature_subsonic_lyrics_body">Use server lyrics when available, with Yoin\'s additional lyric sources. Matches are not guaranteed.</string>
-    <string name="settings_feature_subsonic_ratings_title">Ratings &amp; notes</string>
-    <string name="settings_feature_subsonic_ratings_body">Saved separately for each profile. Track ratings also sync to servers that support ratings.</string>
-    <string name="settings_feature_subsonic_quality_title">Audio quality</string>
-    <string name="settings_feature_subsonic_quality_body">Your server supplies the stream and may transcode it. The original file format does not confirm the current output.</string>
-    <string name="settings_feature_subsonic_devices_title">Devices &amp; cache</string>
-    <string name="settings_feature_subsonic_devices_body">Yoin supports Cast and automatic playback caching. The cache is not a managed offline download library.</string>
 
-    <string name="settings_feature_spotify_playback_title">Playback</string>
-    <string name="settings_feature_spotify_playback_body">Requires the Spotify app and Premium. Spotify handles audio and system playback controls; Yoin controls playback remotely.</string>
-    <string name="settings_feature_spotify_saved_title">Saved music</string>
-    <string name="settings_feature_spotify_saved_body">The heart saves or removes a song from your Spotify liked songs.</string>
-    <string name="settings_feature_spotify_playlists_title">Playlists</string>
-    <string name="settings_feature_spotify_playlists_body">Browse playlists and edit those you can write to. Removing your playlist in Yoin unfollows it on Spotify.</string>
-    <string name="settings_feature_spotify_lyrics_title">Lyrics</string>
-    <string name="settings_feature_spotify_lyrics_body">Yoin uses additional lyric sources. Spotify\'s official lyrics are not available through this integration; matches may differ.</string>
-    <string name="settings_feature_spotify_ratings_title">Ratings &amp; notes</string>
-    <string name="settings_feature_spotify_ratings_body">Saved separately for each Yoin profile. Ratings do not sync to Spotify.</string>
-    <string name="settings_feature_spotify_quality_title">Audio quality</string>
-    <string name="settings_feature_spotify_quality_body">Managed in Spotify. Yoin cannot select or confirm the current stream\'s audio quality.</string>
-    <string name="settings_feature_spotify_devices_title">Devices &amp; cache</string>
-    <string name="settings_feature_spotify_devices_body">Use Spotify Connect for playback targets. Yoin\'s Cast and audio cache do not apply to Spotify; manage downloads in Spotify.</string>
 
-    <string name="settings_feature_apple_playback_title">Playback</string>
-    <string name="settings_feature_apple_playback_body">MusicKit plays catalog songs in Yoin, with background and system controls. Imported songs without a catalog match must be played in Apple Music.</string>
-    <string name="settings_feature_apple_library_title">Library &amp; search</string>
-    <string name="settings_feature_apple_library_body">Browse library songs, albums, artists and playlists. Search your library or the Apple Music catalog.</string>
-    <string name="settings_feature_apple_add_title">Add to library</string>
-    <string name="settings_feature_apple_add_body">Add catalog songs to your library; Yoin confirms membership before showing a checkmark. Library membership is separate from favorites.</string>
-    <string name="settings_feature_apple_playlists_title">Playlists</string>
-    <string name="settings_feature_apple_playlists_body">Browse and play playlists. Edit them in Apple Music.</string>
-    <string name="settings_feature_apple_lyrics_title">Lyrics, ratings &amp; notes</string>
-    <string name="settings_feature_apple_lyrics_body">Yoin\'s additional lyric sources, local ratings and notes. Apple\'s official lyrics are not included.</string>
-    <string name="settings_feature_apple_quality_title">Audio quality</string>
-    <string name="settings_feature_apple_quality_body">MusicKit manages the stream. Yoin does not confirm lossless or spatial audio output.</string>
-    <string name="settings_feature_apple_offline_title">Offline &amp; devices</string>
-    <string name="settings_feature_apple_offline_body">Yoin\'s Cast and audio cache are not available for Apple Music.</string>
 
-    <string name="settings_feature_local_library_title">Local library</string>
-    <string name="settings_feature_local_library_body">Browsing and importing local files is not implemented in Yoin yet.</string>
-    <string name="settings_feature_unknown_title">Service features</string>
-    <string name="settings_feature_unknown_body">No verified feature information is available for this service.</string>
 
     <!-- Settings shell -->
     <string name="settings_title">Settings</string>
@@ -283,7 +231,7 @@
     <string name="settings_sync_benefit_settings">Home layout and settings</string>
     <string name="settings_sync_benefit_offline">Works offline</string>
     <string name="settings_sync_section_good_to_know">Good to know</string>
-    <string name="settings_sync_know_drive">Saved in a hidden Yoin folder in your own Google Drive, and counts toward your storage.</string>
+    <string name="settings_sync_know_drive">Saved in a hidden Yoin folder in your own Google Drive. It\'s protected by your Google account, not end-to-end encrypted, and counts toward your storage.</string>
     <string name="settings_sync_know_secrets">Only server addresses and usernames sync; passwords, sign-ins and API keys stay on this device.</string>
     <string name="settings_sync_know_history">Listening history stays on each device.</string>
     <string name="settings_sync_play_update">Update Google Play services to use Cloud sync.</string>
@@ -419,16 +367,16 @@
         <item quantity="other">%1$d notes</item>
     </plurals>
     <plurals name="settings_sync_summary_needs_review">
-        <item quantity="one">%1$d note disappeared</item>
-        <item quantity="other">%1$d notes disappeared</item>
+        <item quantity="one">%1$d note removed</item>
+        <item quantity="other">%1$d notes removed</item>
     </plurals>
     <plurals name="settings_sync_review_row_title">
-        <item quantity="one">%1$d note disappeared on this device</item>
-        <item quantity="other">%1$d notes disappeared on this device</item>
+        <item quantity="one">%1$d note removed on this device</item>
+        <item quantity="other">%1$d notes removed on this device</item>
     </plurals>
     <plurals name="settings_sync_review_dialog_title">
-        <item quantity="one">%1$d note disappeared</item>
-        <item quantity="other">%1$d notes disappeared</item>
+        <item quantity="one">%1$d note removed</item>
+        <item quantity="other">%1$d notes removed</item>
     </plurals>
     <plurals name="settings_sync_review_dialog_body">
         <item quantity="one">It was removed on this device from %1$s. Restore it here, or delete it on all your devices.</item>

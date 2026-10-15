@@ -54,6 +54,7 @@
     <string name="cmp_devices_subtitle_subsonic">This device and Cast</string>
     <string name="cmp_devices_subtitle_other">Playback devices</string>
     <string name="cmp_devices_cd_refresh">Refresh devices</string>
+    <string name="cmp_devices_this_device">This device</string>
     <string name="cmp_devices_empty_spotify">No Spotify devices found.</string>
     <string name="cmp_devices_empty_subsonic">Only local playback is available right now.</string>
     <string name="cmp_devices_empty_other">No devices found.</string>

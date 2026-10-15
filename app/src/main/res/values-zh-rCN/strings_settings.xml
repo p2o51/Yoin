@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_service_name_local">本机文件</string>
-    <string name="settings_feature_support_available">可用</string>
-    <string name="settings_feature_support_partial">受限</string>
-    <string name="settings_feature_support_local">由 Yoin 提供</string>
-    <string name="settings_feature_support_not_implemented">Yoin 尚未支持</string>
-    <string name="settings_feature_support_unavailable">服务未开放</string>
-    <string name="settings_feature_support_unverified">未验证</string>
 
     <string name="settings_feature_name_local">本机文件</string>
     <string name="settings_feature_name_unknown">音乐服务</string>
@@ -15,55 +9,9 @@
     <string name="settings_feature_save_spotify">保存到 Spotify「已点赞的歌曲」</string>
     <string name="settings_feature_remove_spotify">从 Spotify「已点赞的歌曲」移除</string>
 
-    <string name="settings_feature_subsonic_playback_title">播放</string>
-    <string name="settings_feature_subsonic_playback_body">在 Yoin 中从你的服务器串流播放，支持后台与系统播放控制。</string>
-    <string name="settings_feature_subsonic_favorites_title">收藏</string>
-    <string name="settings_feature_subsonic_favorites_body">心形图标会在你的服务器上加星标或取消星标。</string>
-    <string name="settings_feature_subsonic_playlists_title">播放列表</string>
-    <string name="settings_feature_subsonic_playlists_body">浏览并编辑可写的播放列表。权限与支持的操作取决于你的服务器。</string>
-    <string name="settings_feature_subsonic_lyrics_title">歌词</string>
-    <string name="settings_feature_subsonic_lyrics_body">有服务器歌词时优先使用，同时配合 Yoin 的附加歌词源。不保证都能匹配。</string>
-    <string name="settings_feature_subsonic_ratings_title">评分与笔记</string>
-    <string name="settings_feature_subsonic_ratings_body">按账号分别保存。若服务器支持评分，曲目评分也会同步过去。</string>
-    <string name="settings_feature_subsonic_quality_title">音质</string>
-    <string name="settings_feature_subsonic_quality_body">音频流由你的服务器提供，可能会经过转码。原始文件格式不代表当前实际输出。</string>
-    <string name="settings_feature_subsonic_devices_title">设备与缓存</string>
-    <string name="settings_feature_subsonic_devices_body">Yoin 支持 Cast 投播与自动播放缓存。缓存并非可管理的离线下载库。</string>
 
-    <string name="settings_feature_spotify_playback_title">播放</string>
-    <string name="settings_feature_spotify_playback_body">需要安装 Spotify 应用并开通 Premium。Spotify 负责音频与系统播放控制；Yoin 进行远程控制。</string>
-    <string name="settings_feature_spotify_saved_title">已保存的音乐</string>
-    <string name="settings_feature_spotify_saved_body">心形图标会将歌曲保存到你的 Spotify「已点赞的歌曲」或从中移除。</string>
-    <string name="settings_feature_spotify_playlists_title">播放列表</string>
-    <string name="settings_feature_spotify_playlists_body">浏览播放列表，并编辑你有写入权限的播放列表。在 Yoin 中移除播放列表等于在 Spotify 上取消关注。</string>
-    <string name="settings_feature_spotify_lyrics_title">歌词</string>
-    <string name="settings_feature_spotify_lyrics_body">Yoin 使用附加歌词源。此接入方式无法获取 Spotify 官方歌词，匹配结果可能存在差异。</string>
-    <string name="settings_feature_spotify_ratings_title">评分与笔记</string>
-    <string name="settings_feature_spotify_ratings_body">按 Yoin 账号分别保存。评分不会同步到 Spotify。</string>
-    <string name="settings_feature_spotify_quality_title">音质</string>
-    <string name="settings_feature_spotify_quality_body">在 Spotify 中管理。Yoin 无法选择或确认当前音频流的音质。</string>
-    <string name="settings_feature_spotify_devices_title">设备与缓存</string>
-    <string name="settings_feature_spotify_devices_body">通过 Spotify Connect 切换播放设备。Yoin 的 Cast 投播与音频缓存不适用于 Spotify；请在 Spotify 中管理下载。</string>
 
-    <string name="settings_feature_apple_playback_title">播放</string>
-    <string name="settings_feature_apple_playback_body">通过 MusicKit 在 Yoin 中播放目录歌曲，支持后台与系统控制。没有目录匹配的导入歌曲需在 Apple Music 中播放。</string>
-    <string name="settings_feature_apple_library_title">资料库与搜索</string>
-    <string name="settings_feature_apple_library_body">浏览资料库中的歌曲、专辑、艺术家与播放列表。可搜索你的个人资料库或 Apple Music 目录。</string>
-    <string name="settings_feature_apple_add_title">加入资料库</string>
-    <string name="settings_feature_apple_add_body">将目录歌曲加入你的资料库；Yoin 确认已加入后才会显示对勾。加入资料库与收藏相互独立。</string>
-    <string name="settings_feature_apple_playlists_title">播放列表</string>
-    <string name="settings_feature_apple_playlists_body">浏览并播放播放列表。请在 Apple Music 中编辑。</string>
-    <string name="settings_feature_apple_lyrics_title">歌词、评分与笔记</string>
-    <string name="settings_feature_apple_lyrics_body">使用 Yoin 的附加歌词源、本地评分与笔记。不包含 Apple 官方歌词。</string>
-    <string name="settings_feature_apple_quality_title">音质</string>
-    <string name="settings_feature_apple_quality_body">音频流由 MusicKit 管理。Yoin 无法确认是否为无损或空间音频输出。</string>
-    <string name="settings_feature_apple_offline_title">离线与设备</string>
-    <string name="settings_feature_apple_offline_body">Yoin 的 Cast 投播与音频缓存不适用于 Apple Music。</string>
 
-    <string name="settings_feature_local_library_title">本地资料库</string>
-    <string name="settings_feature_local_library_body">Yoin 尚未实现本地文件的浏览与导入。</string>
-    <string name="settings_feature_unknown_title">服务功能</string>
-    <string name="settings_feature_unknown_body">暂无该服务的已验证功能信息。</string>
 
     <string name="settings_title">设置</string>
     <string name="settings_section_features">功能</string>
@@ -258,7 +206,7 @@
     <string name="settings_sync_benefit_settings">首页布局与设置</string>
     <string name="settings_sync_benefit_offline">支持离线记录</string>
     <string name="settings_sync_section_good_to_know">说明</string>
-    <string name="settings_sync_know_drive">保存在你 Google Drive 的隐藏 Yoin 文件夹中，并计入你的网盘存储空间。</string>
+    <string name="settings_sync_know_drive">保存在你 Google Drive 的隐藏 Yoin 文件夹中。由 Google 账号保护，不是端到端加密，并计入你的网盘存储空间。</string>
     <string name="settings_sync_know_secrets">仅同步服务器地址与用户名；密码、登录状态与 API 密钥始终保存在本地。</string>
     <string name="settings_sync_know_history">播放记录仅保存在本地。</string>
     <string name="settings_sync_play_update">请更新 Google Play 服务以使用云同步。</string>

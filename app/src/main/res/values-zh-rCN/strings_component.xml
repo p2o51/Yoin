@@ -40,6 +40,7 @@
     <string name="cmp_devices_subtitle_subsonic">此设备与投播</string>
     <string name="cmp_devices_subtitle_other">播放设备</string>
     <string name="cmp_devices_cd_refresh">刷新设备</string>
+    <string name="cmp_devices_this_device">此设备</string>
     <string name="cmp_devices_empty_spotify">未找到 Spotify 设备。</string>
     <string name="cmp_devices_empty_subsonic">当前仅可在本机播放。</string>
     <string name="cmp_devices_empty_other">未找到设备。</string>

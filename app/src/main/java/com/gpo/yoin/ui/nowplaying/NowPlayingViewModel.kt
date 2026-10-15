@@ -1597,10 +1597,14 @@ private fun fallbackDevices(
     else -> emptyList()
 }
 
-/** English keys stored on [YoinDevice.statusText]; the sheet resolves them. */
-internal const val NpDeviceStatusSwitchBack = "Not casting"
-internal const val NpDeviceStatusConnected = "Casting"
-internal const val NpDeviceStatusUsePill = "Not casting"
+/**
+ * Keys stored on [YoinDevice.statusText]; the sheet resolves them to text
+ * ([localizedForSheet]). They must stay distinct even where two resolve to
+ * the same words, or the sheet's `when` never reaches the later one.
+ */
+internal const val NpDeviceStatusSwitchBack = "status:local-while-casting"
+internal const val NpDeviceStatusConnected = "status:casting"
+internal const val NpDeviceStatusUsePill = "status:cast-available"
 
 private fun userMessage(
     raw: String?,
