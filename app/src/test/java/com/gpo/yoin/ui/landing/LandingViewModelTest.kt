@@ -74,7 +74,17 @@ class LandingViewModelTest {
         assertEquals(LandingStep.Pick, vm.state.value.step)
         vm.next()
         vm.next()
+        assertEquals(LandingStep.Spotoolfy, vm.state.value.step)
+        vm.next()
         assertEquals(LandingStep.Spotify, vm.state.value.step)
+    }
+
+    @Test
+    fun should_ask_about_spotoolfy_right_before_spotify_when_spotify_is_picked() {
+        val steps = landingSteps(setOf(SetupService.Subsonic, SetupService.Spotify), hasAccount = false)
+        assertEquals(steps.indexOf(LandingStep.Spotify) - 1, steps.indexOf(LandingStep.Spotoolfy))
+        assertTrue(steps.indexOf(LandingStep.Subsonic) < steps.indexOf(LandingStep.Spotoolfy))
+        assertFalse(LandingStep.Spotoolfy in landingSteps(setOf(SetupService.AppleMusic), hasAccount = false))
     }
 
     @Test

@@ -68,6 +68,44 @@
     <string name="landing_ready_in_use">正在使用</string>
     <string name="landing_ready_empty">未连接任何账号</string>
 
+    <string name="landing_spotoolfy_title">在用 Spotoolfy 吗？</string>
+    <string name="landing_spotoolfy_body">笔记和评分可以一起带过来。</string>
+    <string name="landing_spotoolfy_yes_title">在用，带上我的数据</string>
+    <string name="landing_spotoolfy_yes_body">笔记和评分会放进新连接的 Spotify 账号</string>
+    <string name="landing_spotoolfy_no_title">没用过</string>
+    <string name="landing_spotoolfy_no_body">从头开始</string>
+    <string name="landing_spotoolfy_open">打开 Spotoolfy</string>
+    <string name="landing_spotoolfy_pick">选择导出文件</string>
+    <string name="landing_spotoolfy_pick_instead">已经导出过？选择文件</string>
+    <string name="landing_spotoolfy_reading">正在读取文件…</string>
+    <plurals name="landing_spotoolfy_received_notes">
+        <item quantity="other">已收到 %1$d 条笔记</item>
+    </plurals>
+    <plurals name="landing_spotoolfy_received_ratings">
+        <item quantity="other">已收到 %1$d 首歌的评分</item>
+    </plurals>
+    <string name="landing_spotoolfy_received_body">连上 Spotify 后放进你的 Yoin。</string>
+    <string name="landing_spotoolfy_recap_again">再看一次回顾</string>
+    <string name="landing_spotoolfy_replace">换一个文件</string>
+    <plurals name="landing_spotoolfy_written_notes">
+        <item quantity="other">已把 %1$d 条笔记放进 %2$s</item>
+    </plurals>
+    <plurals name="landing_spotoolfy_written_ratings">
+        <item quantity="other">已把 %1$d 首歌的评分放进 %2$s</item>
+    </plurals>
+    <string name="landing_spotoolfy_not_written">这个账号里已经有笔记或评分了，Spotoolfy 的数据没有放进去。</string>
+    <string name="landing_spotoolfy_failed_not_spotoolfy">这不是 Spotoolfy 导出的文件。</string>
+    <string name="landing_spotoolfy_failed_corrupt">文件损坏了，重新导出一次试试。</string>
+    <string name="landing_spotoolfy_failed_too_large">文件超过 32 MB。</string>
+    <string name="landing_spotoolfy_failed_empty">这个文件里没有笔记或评分。</string>
+    <string name="landing_spotoolfy_failed_already">这个文件已经导入过了。</string>
+    <string name="landing_spotoolfy_failed_unreadable">读不了这个文件。</string>
+    <string name="landing_spotoolfy_unknown_title">未知曲目</string>
+    <string name="landing_spotoolfy_finish_title">不连接 Spotify，Spotoolfy 的数据不会保存</string>
+    <string name="landing_spotoolfy_finish_body">这些数据要放进一个 Spotify 账号。没有连接账号，就不留了。</string>
+    <string name="landing_spotoolfy_finish_connect">回去连接</string>
+    <string name="landing_spotoolfy_finish_drop">不要这些数据</string>
+
     <string name="guide_step">第 %1$d 步，共 %2$d 步</string>
     <string name="guide_create">登录后点击 %1$s</string>
     <string name="guide_name">名称与描述可随意填写，例如 %1$s</string>
@@ -98,4 +136,16 @@
     <string name="guide_apple_sign_in">使用 Apple ID 登录并授权 Yoin 访问</string>
     <string name="guide_apple_then_tries">授权可能需要尝试两次或更多次</string>
     <string name="guide_apple_retry">尚未完成，请在 Yoin 中再次点击连接</string>
+    <string name="guide_spotoolfy_settings">点右上角的 ⚙</string>
+    <string name="guide_spotoolfy_then_client_id">下一步：复制 Client ID</string>
+    <string name="guide_spotoolfy_client_id">打开 %1$s，长按 %2$s 复制</string>
+    <string name="guide_spotoolfy_then_empty">框是空的就跳过这步</string>
+    <string name="guide_spotoolfy_export">在 %1$s 里点 %2$s</string>
+    <string name="guide_spotoolfy_then_share">下一步：发给 Yoin</string>
+    <string name="guide_spotoolfy_share">在分享菜单里选 %1$s</string>
+    <string name="guide_spotoolfy_label_client_id">客户端 ID</string>
+    <string name="guide_spotoolfy_label_data">数据管理</string>
+    <string name="guide_spotoolfy_label_export">导出数据</string>
+    <string name="spotoolfy_share_label">导入到 Yoin</string>
+    <string name="spotoolfy_share_outside_landing">Spotoolfy 数据只能在引导中导入。</string>
 </resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spotoolfy's launcher glyph (a note with three lines), traced from its monochrome icon. Tinted where used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="432"
+    android:viewportHeight="432">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M86,288a47,47 0,1 0,94 0a47,47 0,1 0,-94 0z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M168,288L168,128L222,92"
+        android:strokeWidth="26"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M215,167L300,167M240,227L335,227M215,287L285,287"
+        android:strokeWidth="28"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round" />
+</vector>

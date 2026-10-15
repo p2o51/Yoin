@@ -100,7 +100,7 @@
 - **入口**：只在引导里出现。
   - **首次引导**（`LandingMode.FirstRun`）：「选服务」里选了 Spotify 时出现，排在 Spotify 连接页之前。资格在**写入时**按刚连上的账号再检查一次。
   - **重新引导**（`LandingMode.Rerun`，设置 › 关于 › 重新引导）：只在满足硬条件时出现。这样刚走完引导、还没来得及导出的用户有一次补救机会，同时没有放开合并导入。
-- **分享入口**：只在引导进行中有效。引导之外收到 Spotoolfy 文件时，一行提示「Spotoolfy 数据只能在引导中导入」，并删除文件（§5.3）。
+- **分享入口**：只在引导进行中有效。引导之外收到 Spotoolfy 文件时，一行提示「Spotoolfy 数据只能在引导中导入」，文件不收（§5.4）。
 
 ### 4.2 数据盘点与处置
 
@@ -301,7 +301,7 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
   - `MainActivity` 不必对外暴露新的 intent 入口。
 - `MainActivity` 拿到待导入文件后：
   - **引导进行中**：交给 Spotoolfy 这一步解析、暂存、打开回顾。用户先分享、后第一次打开 Yoin 也适用，文件留到这一步再处理，顺序无关。
-  - **引导之外**：一行 snackbar「Spotoolfy 数据只能在引导中导入」，并删除文件。
+  - **引导之外**：分享接收 Activity 自己弹一行 Toast「Spotoolfy 数据只能在引导中导入」，不拷文件、不拉起 Yoin。「引导中」= 当前进程里有引导在显示（`LandingPresence`），或者这台机器还没走过引导（先分享、后第一次打开 Yoin）。
 - 文件只会被暂存；写进账号永远发生在 Spotify 连接成功之后（§5.1），不存在静默写入。
 
 ### 5.5 实现落点
@@ -313,9 +313,9 @@ import_items(batchId, targetKind, targetKey)   -- PK (targetKind, targetKey)
   - `SpotoolfyImporter`（暂存、写入、资格检查、换文件）
   - `TrackAlbumLinkEnricher`（后台补全）
 - 界面层：
-  - 引导步骤：`ui/landing/LandingSpotoolfyStep.kt`，复用 `LandingViewModel` 的步骤机制；
-  - 悬浮窗：`ui/landing/guide/SpotoolfyGuide.kt`，挂在 `ConnectGuideActivity` 上；
-  - 分享接收：`ui/landing/import/`。
+  - 引导步骤：`ui/landing/LandingSpotoolfyStep.kt`（`SpotoolfyStepViewModel` + 场景），步骤本身走 `LandingViewModel` 的步骤机制；
+  - 悬浮窗：`GuideKind.Spotoolfy`（`ui/landing/guide/ConnectGuide.kt` 的步骤和色板），由 `ConnectGuideActivity` 承载；
+  - 分享接收和回顾页：`ui/spotoolfy/`（`SpotoolfyShareReceiverActivity`、`SpotoolfyRecapActivity`）。
 - 写入经 `YoinRepository` 新增的方法，UI 不直接调用 DAO。
 - 实现完成后，把这一步和悬浮窗补进 `design.md` §首次引导：那里是 UI 的事实来源（AGENTS.md）。
 
