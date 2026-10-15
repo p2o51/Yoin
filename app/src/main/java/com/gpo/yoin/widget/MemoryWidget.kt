@@ -147,11 +147,14 @@ private fun MemoryStrip(size: DpSize, item: MemoryItem, source: Bitmap?, palette
     }
 }
 
-/** 2×2 anchor: a big cover bottom-left, the Cookie12 score badge top-right biting its corner. Transparent. */
+/**
+ * 2×2 anchor: a big cover bottom-left, the Cookie12 score badge top-right biting its corner. Transparent, so the
+ * square keeps clear of the launcher's corner clip ([widgetCornerClearance]).
+ */
 @Composable
 private fun MemoryAnchor(size: DpSize, item: MemoryItem, source: Bitmap?, palette: WidgetPalette, lastHeard: String?, bitmaps: WidgetBitmaps) {
     val context = LocalContext.current
-    val s = min(size.width.value, size.height.value).dp
+    val s = (min(size.width.value, size.height.value) - 2 * widgetCornerClearance(context).value).dp
     val u = s.value / 184f
     val coverDp = (120 * u).dp
     val badgeDp = (110 * u).dp
@@ -173,7 +176,7 @@ private fun MemoryAnchor(size: DpSize, item: MemoryItem, source: Bitmap?, palett
         contentAlignment = Alignment.Center,
     ) {
         Box(modifier = GlanceModifier.size(s)) {
-            Box(modifier = GlanceModifier.fillMaxSize().padding(start = (8 * u).dp, top = (64 * u).dp, bottom = (8 * u).dp)) {
+            Box(modifier = GlanceModifier.fillMaxSize().padding(top = (64 * u).dp)) {
                 Image(
                     provider = ImageProvider(bitmaps.of("cover:${item.sessionId}:${coverDp.value}") { WidgetArt.rounded(source, bitmaps.px(coverDp.value), bitmaps.px(4f).toFloat(), palette.base) }),
                     contentDescription = item.albumName,
