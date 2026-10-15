@@ -22,7 +22,9 @@ import org.objectweb.asm.Opcodes
  * buffers at 0:00 forever. The parsed `songId` is stored in a field nothing reads, so reading it as a long and
  * narrowing it is enough. The AAR on disk stays untouched; this rewrites that one call at build time.
  *
- * `-Pyoin.musickit.largeIdFix=false` builds without the rewrite.
+ * The rewrite fails the build if the parser it visits has changed, and [VerifyMusicKitLargeIdTarget] (before
+ * `preBuild`) fails it if the parser is gone from the shipped AAR, where no visitor would ever run.
+ * `-Pyoin.musickit.largeIdFix=false` builds without either.
  */
 class MusicKitLargeIdPlugin : Plugin<Project> {
     override fun apply(target: Project) {
@@ -31,6 +33,11 @@ class MusicKitLargeIdPlugin : Plugin<Project> {
             return
         }
         target.pluginManager.withPlugin("com.android.application") {
+            val verify = target.tasks.register("verifyMusicKitLargeIdTarget", VerifyMusicKitLargeIdTarget::class.java) {
+                playbackAars.from(target.fileTree("libs") { include("mediaplayback-release-*.aar") })
+                report.set(target.layout.buildDirectory.file("musickit-large-id/target.txt"))
+            }
+            target.tasks.configureEach { if (name == "preBuild") dependsOn(verify) }
             target.extensions.getByType(ApplicationAndroidComponentsExtension::class.java).onVariants { variant ->
                 // The variant and its unit / instrumented tests, so a JVM test can parse with the fixed class.
                 variant.components.forEach { component ->
@@ -72,7 +79,7 @@ private class SongIdAsLong(private val asmApi: Int, next: ClassVisitor) : ClassV
         exceptions: Array<out String>?,
     ): MethodVisitor? {
         val visitor = super.visitMethod(access, name, descriptor, signature, exceptions)
-        if (name != INT_HELPER_NAME || descriptor != INT_HELPER_DESCRIPTOR) return visitor
+        if (!isIntHelper(name, descriptor)) return visitor
         return object : MethodVisitor(asmApi, visitor) {
             override fun visitMethodInsn(
                 opcode: Int,
@@ -81,7 +88,7 @@ private class SongIdAsLong(private val asmApi: Int, next: ClassVisitor) : ClassV
                 descriptor: String,
                 isInterface: Boolean,
             ) {
-                if (opcode == Opcodes.INVOKEVIRTUAL && owner == JSON_READER && name == "nextInt" && descriptor == "()I") {
+                if (isSongIdIntRead(opcode, owner, name, descriptor)) {
                     super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JSON_READER, "nextLong", "()J", false)
                     super.visitInsn(Opcodes.L2I)
                     rewritten++
@@ -104,7 +111,14 @@ private class SongIdAsLong(private val asmApi: Int, next: ClassVisitor) : ClassV
     }
 }
 
-private const val WEB_PLAYBACK_PARSER = "com.apple.android.music.playback.g.h"
-private const val INT_HELPER_NAME = "a"
-private const val INT_HELPER_DESCRIPTOR = "(Landroid/util/JsonReader;I)I"
+internal const val WEB_PLAYBACK_PARSER = "com.apple.android.music.playback.g.h"
+internal const val INT_HELPER_NAME = "a"
+internal const val INT_HELPER_DESCRIPTOR = "(Landroid/util/JsonReader;I)I"
 private const val JSON_READER = "android/util/JsonReader"
+
+/** The parser's private int helper, the only caller of which reads `songId`. */
+internal fun isIntHelper(name: String, descriptor: String): Boolean =
+    name == INT_HELPER_NAME && descriptor == INT_HELPER_DESCRIPTOR
+
+internal fun isSongIdIntRead(opcode: Int, owner: String, name: String, descriptor: String): Boolean =
+    opcode == Opcodes.INVOKEVIRTUAL && owner == JSON_READER && name == "nextInt" && descriptor == "()I"
