@@ -46,7 +46,14 @@ class TrackAlbumLinkEnricher(
         job = scope.launch {
             while (again) {
                 again = false
-                runPass()
+                // A database failure ends this pass like a network one; it must not take the app down.
+                try {
+                    runPass()
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    return@launch
+                }
             }
         }
     }

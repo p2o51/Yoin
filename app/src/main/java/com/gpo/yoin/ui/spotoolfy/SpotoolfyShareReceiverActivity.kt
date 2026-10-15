@@ -61,8 +61,8 @@ class SpotoolfyShareReceiverActivity : ComponentActivity() {
     }
 
     private fun sharedUri(intent: Intent?): Uri? {
-        if (intent?.action != Intent.ACTION_SEND) return null
-        return IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-            ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+        val send = intent?.takeIf { it.action == Intent.ACTION_SEND } ?: return null
+        return IntentCompat.getParcelableExtra(send, Intent.EXTRA_STREAM, Uri::class.java)
+            ?: send.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
     }
 }
