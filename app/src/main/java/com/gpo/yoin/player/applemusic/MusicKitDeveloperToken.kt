@@ -1,6 +1,7 @@
 package com.gpo.yoin.player.applemusic
 
 import android.content.Context
+import androidx.core.content.edit
 import com.gpo.yoin.data.remote.applemusic.developerTokenExpiry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -107,7 +108,7 @@ internal class MusicKitDeveloperToken(
  */
 internal fun installMusicKitDeveloperToken(context: Context, token: String) {
     context.applicationContext.getSharedPreferences(MUSICKIT_AUTH_PREFERENCES, Context.MODE_PRIVATE)
-        .edit().putString(MUSICKIT_DEVELOPER_TOKEN_KEY, token).apply()
+        .edit { putString(MUSICKIT_DEVELOPER_TOKEN_KEY, token) }
 }
 
 internal const val MUSICKIT_AUTH_PREFERENCES = "com.apple.android.music.auth_preferences"
