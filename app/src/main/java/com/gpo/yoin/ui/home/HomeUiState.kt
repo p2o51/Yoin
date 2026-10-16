@@ -196,6 +196,11 @@ data class HomeMemoryPill(
     // time or the note count. The Memories bubble speaks when it differs from
     // the last one it showed (HomeMemoryBubble.kt).
     val newsKey: String = "",
+    // The profile's other memories, newest written first: what the bubble's
+    // idle reminder brings back, a different one each time (owner 2026-10-15:
+    // Memory 提醒做得更加多样). News is always [latest]. Live only — a
+    // restored snapshot has none, and the reminder says [latest] meanwhile.
+    val recall: List<Latest> = emptyList(),
 ) {
     @Immutable
     data class Latest(

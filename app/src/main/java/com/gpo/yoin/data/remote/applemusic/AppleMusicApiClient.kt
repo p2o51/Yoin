@@ -245,13 +245,9 @@ class AppleMusicApiClient(
                 429 -> AppleMusicApiFailure.RateLimited
                 else -> AppleMusicApiFailure.Http(response.code)
             }
-            // Path and includes only: catalog ids, never tokens or bodies. Which request failed is otherwise lost.
-            if (BuildConfig.DEBUG) {
-                val includes = target.queryParameterNames.filter { it.startsWith("include") }
-                    .joinToString(" ") { "$it=${target.queryParameter(it)}" }
-                Log.w(TAG, "${response.code} ${target.encodedPath} $includes")
-            }
-            throw AppleMusicApiException(failure)
+            val request = diagnosticRequest(target)
+            if (BuildConfig.DEBUG) Log.w(TAG, "${response.code} $request")
+            throw AppleMusicApiException(failure, response.code, request, appleErrorCode(response))
         }
         return response.body.string()
     }
@@ -260,6 +256,33 @@ class AppleMusicApiClient(
         segments.forEach(::addPathSegment)
     }.build()
 }
+
+/**
+ * Which request failed, for a diagnostic the user copies: the path and its includes. The user's own library ids
+ * are masked; catalog ids and the storefront are Apple's public names and say which song or storefront it was.
+ * Never a token, never a body.
+ */
+internal fun diagnosticRequest(target: HttpUrl): String {
+    val segments = target.pathSegments
+    val personal = segments.getOrNull(1) == "me"
+    val path = segments.mapIndexed { index, segment ->
+        if (personal && segments.getOrNull(index - 1) in DiagnosticResourceTypes) "{id}" else segment
+    }.joinToString("/", prefix = "/")
+    val includes = target.queryParameterNames.filter { it.startsWith("include") }.sorted()
+        .joinToString(" ") { "$it=${target.queryParameter(it)}" }
+    return if (includes.isEmpty()) path else "$path $includes"
+}
+
+/** Apple's own code for the refusal (`errors[0].code`, as "40300"): digits only, none of the error's prose. */
+private fun appleErrorCode(response: Response): String? = runCatching {
+    val errors = Json.parseToJsonElement(response.peekBody(APPLE_ERROR_PEEK_BYTES).string())
+        .jsonObject["errors"]?.jsonArray
+    errors?.firstOrNull()?.jsonObject?.get("code")?.jsonPrimitive?.contentOrNull
+}.getOrNull()?.takeIf { code -> code.isNotEmpty() && code.length <= 8 && code.all(Char::isDigit) }
+
+private val DiagnosticResourceTypes =
+    setOf("songs", "albums", "artists", "playlists", "music-videos", "stations", "library-songs")
+private const val APPLE_ERROR_PEEK_BYTES = 4_096L
 
 /**
  * This call's response, through [read] before it is closed, cancelled with the caller: cancelling the caller
@@ -297,7 +320,16 @@ sealed interface AppleMusicApiFailure {
     data class Http(val status: Int) : AppleMusicApiFailure
 }
 
-class AppleMusicApiException(val failure: AppleMusicApiFailure) : IOException("Apple Music: $failure")
+/**
+ * [status], [request] ([diagnosticRequest]) and [appleCode] are what a copied diagnostic says of an HTTP refusal;
+ * a failure raised before any request (no token) has none of them.
+ */
+class AppleMusicApiException(
+    val failure: AppleMusicApiFailure,
+    val status: Int? = null,
+    val request: String? = null,
+    val appleCode: String? = null,
+) : IOException("Apple Music: $failure")
 
 private const val TAG = "AppleMusicApi"
 

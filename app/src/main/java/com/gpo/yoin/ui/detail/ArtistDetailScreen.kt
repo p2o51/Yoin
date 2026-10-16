@@ -268,6 +268,7 @@ fun ArtistDetailScreen(
                                     DetailErrorState(
                                         message = state.message.asString(),
                                         onRetry = onRetry,
+                                        diagnostics = state.diagnostics,
                                     )
 
                                 is ArtistDetailUiState.Content ->

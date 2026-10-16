@@ -60,7 +60,7 @@ sealed interface AlbumDetailUiState {
         val trackTotal: Int get() = if (songs.isNotEmpty()) songs.size else (songCount ?: 0)
     }
 
-    data class Error(val message: UiText) : AlbumDetailUiState
+    data class Error(val message: UiText, val diagnostics: String? = null) : AlbumDetailUiState
 }
 
 /** Bun 评分卡要显示的三态。 */

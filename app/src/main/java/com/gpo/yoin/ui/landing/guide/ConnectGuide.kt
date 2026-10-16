@@ -1,8 +1,6 @@
 package com.gpo.yoin.ui.landing.guide
 
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -55,7 +53,6 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
-import java.security.MessageDigest
 
 // Turn-by-turn floating windows for the places that send people out of Yoin,
 // like a maps app's: one instruction at a time, what to tap named the way the
@@ -77,11 +74,11 @@ internal enum class GuideCopy(@param:StringRes val actionLabel: Int) {
     ;
 
     /** The value for this install: the package and signing certificate are this APK's own. */
-    fun value(context: Context): String? = when (this) {
+    fun value(context: Context, fingerprint: String? = null): String? = when (this) {
         RedirectUri -> SpotifyAuthConfig.REDIRECT_URI
         AppRemoteRedirectUri -> SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI
         PackageName -> context.packageName
-        Sha1 -> signingCertificateSha1(context)
+        Sha1 -> fingerprint
     }
 }
 
@@ -98,23 +95,53 @@ internal data class GuideStep(
     /** What this step's copy action puts on the clipboard, if it has one. */
     val copies: GuideCopy? = null,
     val labelRes: List<Int> = emptyList(),
-)
+    val fingerprint: String? = null,
+) {
+    fun copyValue(context: Context): String? = copies?.value(context, fingerprint)
+}
 
 /**
  * Spotify for Developers, Create app. Ticking Android opens the "Android packages" rows: without this
  * install's package name and signing fingerprint there, App Remote refuses to control playback.
  */
-internal val SpotifyGuideSteps: List<GuideStep> = listOf(
+private val SpotifyGuideIntro: List<GuideStep> = listOf(
     GuideStep(R.string.guide_create, listOf("Create app"), R.string.guide_then_name),
     GuideStep(R.string.guide_name, listOf("Yoin"), R.string.guide_then_uris),
     GuideStep(R.string.guide_uri_first, listOf("Redirect URIs", "Add"), R.string.guide_then_second, copies = GuideCopy.RedirectUri),
     GuideStep(R.string.guide_uri_second, emptyList(), R.string.guide_then_apis, copies = GuideCopy.AppRemoteRedirectUri),
     GuideStep(R.string.guide_apis, listOf("Web API", "Android"), R.string.guide_then_package),
-    GuideStep(R.string.guide_package, listOf("Android packages"), R.string.guide_then_sha1, copies = GuideCopy.PackageName),
-    GuideStep(R.string.guide_sha1, listOf("Add"), R.string.guide_then_save, copies = GuideCopy.Sha1),
-    GuideStep(R.string.guide_save, listOf("Save"), R.string.guide_then_client_id),
-    GuideStep(R.string.guide_client_id, listOf("Client ID"), null),
 )
+
+internal fun spotifyGuideSteps(fingerprints: List<String>): List<GuideStep> = buildList {
+    addAll(SpotifyGuideIntro)
+    val certificates = fingerprints.distinct().ifEmpty { listOf(null) }
+    certificates.forEachIndexed { index, fingerprint ->
+        // Each dashboard entry needs the same package name and one distinct certificate.
+        add(
+            GuideStep(
+                R.string.guide_package,
+                listOf("Android packages"),
+                R.string.guide_then_sha1,
+                copies = GuideCopy.PackageName,
+            ),
+        )
+        add(
+            GuideStep(
+                text = if (fingerprint == null) R.string.guide_sha1_unavailable else R.string.guide_sha1,
+                labels = if (fingerprint == null) emptyList() else listOf("Add"),
+                then = if (index == certificates.lastIndex) {
+                    R.string.guide_then_save
+                } else {
+                    R.string.guide_then_package
+                },
+                copies = if (fingerprint == null) null else GuideCopy.Sha1,
+                fingerprint = fingerprint,
+            ),
+        )
+    }
+    add(GuideStep(R.string.guide_save, listOf("Save"), R.string.guide_then_client_id))
+    add(GuideStep(R.string.guide_client_id, listOf("Client ID"), null))
+}
 
 /** Apple's sign-in. Step 0 while it's open; step [AppleMusicRetryStep] after an attempt that didn't take. */
 internal val AppleMusicGuideSteps: List<GuideStep> = listOf(
@@ -146,8 +173,8 @@ internal val SpotoolfyGuideSteps: List<GuideStep> = listOf(
     GuideStep(R.string.guide_spotoolfy_share, emptyList(), null, labelRes = listOf(R.string.spotoolfy_share_label)),
 )
 
-internal fun guideSteps(kind: GuideKind): List<GuideStep> = when (kind) {
-    GuideKind.Spotify -> SpotifyGuideSteps
+internal fun guideSteps(kind: GuideKind, fingerprints: List<String>): List<GuideStep> = when (kind) {
+    GuideKind.Spotify -> spotifyGuideSteps(fingerprints)
     GuideKind.AppleMusic -> AppleMusicGuideSteps
     GuideKind.Spotoolfy -> SpotoolfyGuideSteps
 }
@@ -192,8 +219,7 @@ internal const val GUIDE_NEXT_SLOT = 2
  * - Apple Music: Yoin drives the sign-in, so nothing to tap: blank, unlabelled places that never fire. An empty row
  *   would let the system fill it with Yoin's own playback buttons, whose ⏭ skips a track.
  */
-internal fun guideActionSlots(kind: GuideKind, step: Int): List<GuideActionSlot> {
-    val steps = guideSteps(kind)
+internal fun guideActionSlots(kind: GuideKind, step: Int, steps: List<GuideStep>): List<GuideActionSlot> {
     val index = step.coerceIn(0, steps.lastIndex)
     return when (kind) {
         GuideKind.AppleMusic -> List(GUIDE_ACTION_SLOT_COUNT) { AppleMusicBlankSlot }
@@ -224,19 +250,6 @@ private val AppleMusicBlankSlot = GuideActionSlot(GuideCommand.None, label = nul
  */
 internal fun fitGuideActionSlots(slots: List<GuideActionSlot>, max: Int): List<GuideActionSlot> =
     slots.takeLast(max.coerceAtLeast(1))
-
-/** SHA-1 of this APK's signing certificate as Spotify's dashboard takes it: `E7:47:B5:…`, upper case. */
-internal fun signingCertificateSha1(context: Context): String? = runCatching {
-    val pm = context.packageManager
-    val certificate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-            .signingInfo?.apkContentsSigners?.firstOrNull()
-    } else {
-        @Suppress("DEPRECATION")
-        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures?.firstOrNull()
-    } ?: return null
-    formatFingerprint(MessageDigest.getInstance("SHA-1").digest(certificate.toByteArray()))
-}.getOrNull()
 
 internal fun formatFingerprint(digest: ByteArray): String = digest.joinToString(":") { "%02X".format(it) }
 
@@ -306,13 +319,14 @@ private fun guidePalette(kind: GuideKind): GuidePalette = when (kind) {
 @Composable
 internal fun ConnectGuideScreen(
     kind: GuideKind,
+    steps: List<GuideStep>,
     inPictureInPicture: Boolean,
     stepIndex: Int,
     flash: String?,
     onCardBounds: (Rect) -> Unit,
 ) {
     if (inPictureInPicture) {
-        ConnectGuideCard(kind = kind, stepIndex = stepIndex, flash = flash)
+        ConnectGuideCard(kind = kind, steps = steps, stepIndex = stepIndex, flash = flash)
         return
     }
     Box(
@@ -323,6 +337,7 @@ internal fun ConnectGuideScreen(
     ) {
         ConnectGuideCard(
             kind = kind,
+            steps = steps,
             stepIndex = stepIndex,
             flash = flash,
             modifier = Modifier
@@ -346,6 +361,7 @@ internal const val GuideAspectRatio = 4f / 3f
 @Composable
 internal fun ConnectGuideCard(
     kind: GuideKind,
+    steps: List<GuideStep>,
     stepIndex: Int,
     flash: String?,
     modifier: Modifier = Modifier,
@@ -353,15 +369,14 @@ internal fun ConnectGuideCard(
     // Everything scales with the window: the system decides how big the picture-in-picture window is (and the
     // user can pinch it), so the card is laid out for 240 x 180dp and scaled to fit.
     val scale = minOf(maxWidth / GuideDesignWidth, maxHeight / GuideDesignHeight).coerceIn(0.55f, 1.8f)
-    GuideCardContent(kind, stepIndex, flash, scale)
+    GuideCardContent(kind, steps, stepIndex, flash, scale)
 }
 
 private val GuideDesignWidth = 240.dp
 private val GuideDesignHeight = 180.dp
 
 @Composable
-private fun GuideCardContent(kind: GuideKind, stepIndex: Int, flash: String?, scale: Float) {
-    val steps = guideSteps(kind)
+private fun GuideCardContent(kind: GuideKind, steps: List<GuideStep>, stepIndex: Int, flash: String?, scale: Float) {
     val step = steps[stepIndex.coerceIn(0, steps.lastIndex)]
     val palette = guidePalette(kind)
     Box(
@@ -504,19 +519,24 @@ internal fun SpotoolfyMark(size: Dp, fill: Color = SpotoolfyIconTeal) {
 @Preview(widthDp = 240, heightDp = 180)
 @Composable
 private fun SpotoolfyGuideCardPreview() {
-    ConnectGuideCard(kind = GuideKind.Spotoolfy, stepIndex = 1, flash = null)
+    ConnectGuideCard(kind = GuideKind.Spotoolfy, steps = SpotoolfyGuideSteps, stepIndex = 1, flash = null)
 }
 
 @Preview(widthDp = 240, heightDp = 180)
 @Composable
 private fun SpotifyGuideCardPreview() {
-    ConnectGuideCard(kind = GuideKind.Spotify, stepIndex = 6, flash = null)
+    ConnectGuideCard(
+        kind = GuideKind.Spotify,
+        steps = spotifyGuideSteps(listOf("00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33")),
+        stepIndex = 6,
+        flash = null,
+    )
 }
 
 @Preview(widthDp = 252, heightDp = 162)
 @Composable
 private fun AppleMusicGuideCardPreview() {
     Column(Modifier.height(162.dp).width(252.dp)) {
-        ConnectGuideCard(kind = GuideKind.AppleMusic, stepIndex = 0, flash = null)
+        ConnectGuideCard(kind = GuideKind.AppleMusic, steps = AppleMusicGuideSteps, stepIndex = 0, flash = null)
     }
 }

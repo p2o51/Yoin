@@ -29,7 +29,7 @@ sealed interface ArtistDetailUiState {
         val listening: ArtistListeningSummary? = null,
     ) : ArtistDetailUiState
 
-    data class Error(val message: UiText) : ArtistDetailUiState
+    data class Error(val message: UiText, val diagnostics: String? = null) : ArtistDetailUiState
 }
 
 data class ArtistAlbum(

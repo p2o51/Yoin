@@ -99,7 +99,8 @@ class ConnectGuideActivityTest {
         // P10-1: starting Yoin from the floating window is blocked on Android 17, and the guide finished anyway.
         val controller = floatingSpotifyGuide()
         val guide = controller.get()
-        val back = guideRemoteActions(context, GuideKind.Spotify, SpotifyGuideSteps.lastIndex, max = 3)[1]
+        val steps = guideSteps(GuideKind.Spotify, signingCertificateSha1s(context))
+        val back = guideRemoteActions(context, GuideKind.Spotify, steps.lastIndex, max = 3, steps = steps)[1]
 
         controller.newIntent(shadowOf(back.actionIntent).savedIntent)
 

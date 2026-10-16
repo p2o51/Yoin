@@ -113,6 +113,7 @@
     <string name="guide_apis">勾选 %1$s 与 %2$s</string>
     <string name="guide_package">在 %1$s 下粘贴包名</string>
     <string name="guide_sha1">再粘贴 SHA1 指纹，点按 %1$s</string>
+    <string name="guide_sha1_unavailable">无法读取签名指纹</string>
     <string name="guide_save">同意条款，点按 %1$s</string>
     <string name="guide_client_id">复制 %1$s，然后返回</string>
     <string name="guide_then_name">下一步：填写名称</string>

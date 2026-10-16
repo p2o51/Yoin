@@ -14,6 +14,8 @@
     <string name="home_account_add">添加账号</string>
     <string name="home_account_settings">设置</string>
     <string name="home_edit_title">编辑首页</string>
+    <string name="home_jbi_hide_three_days">3 天内不显示</string>
+    <string name="home_jbi_hide_week">一周内不显示</string>
     <string name="home_edit_action_header">编辑首页</string>
     <string name="home_edit_action_section">编辑首页</string>
     <string name="home_edit_action_card">编辑首页</string>

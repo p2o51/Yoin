@@ -276,6 +276,7 @@ fun PlaylistDetailScreen(
                                     DetailErrorState(
                                         message = state.message.asString(),
                                         onRetry = onRetry,
+                                        diagnostics = state.diagnostics,
                                     )
 
                                 is PlaylistDetailUiState.Content ->
