@@ -29,7 +29,8 @@ import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.FavoriteGlyph
-import com.gpo.yoin.ui.component.toUserMessage
+import com.gpo.yoin.ui.component.diagnosticReport
+import com.gpo.yoin.ui.component.toUserMessageText
 import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -349,6 +350,7 @@ class AlbumDetailViewModel(
                 Log.w(TAG, "Album load failed for $albumId", e)
                 _uiState.value = AlbumDetailUiState.Error(
                     e.toDetailMessage(R.string.detail_album_error_load),
+                    diagnostics = e.diagnosticReport(),
                 )
             }
         }
@@ -831,13 +833,10 @@ internal fun Throwable.toLibrarySaveMessage(@StringRes fallback: Int): UiText =
     if (this is SpotifyRateLimitException) UiText.Res(R.string.cmp_error_spotify_busy) else toDetailMessage(fallback)
 
 /**
- * [toUserMessage] owns the connectivity lines. A sentinel fallback means this
- * screen's own load line, which is a resource.
+ * [toUserMessageText] owns the connectivity and provider lines, in the app's
+ * language; a failure with none says this screen's own load line.
  */
-internal fun Throwable.toDetailMessage(@StringRes fallback: Int): UiText {
-    val resolved = toUserMessage("\u0000")
-    return if (resolved == "\u0000") UiText.Res(fallback) else UiText.Raw(resolved)
-}
+internal fun Throwable.toDetailMessage(@StringRes fallback: Int): UiText = toUserMessageText() ?: UiText.Res(fallback)
 
 /** Page 2's title from the shared resolver; none over the bare album name (the header already says it). */
 internal fun ResolvedMemoryTitle.toScrapTitle(): ScrapTitle? =

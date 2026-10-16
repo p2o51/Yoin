@@ -123,6 +123,9 @@
     <string name="cmp_error_spotify_reconnect">Spotify 授权已过期。请在设置中重新连接。</string>
     <string name="cmp_error_apple_reconnect">Apple Music 授权已过期。请在设置中重新连接。</string>
     <string name="cmp_error_apple_token">Apple Music 拒绝了开发者令牌。请检查令牌服务。</string>
-    <string name="cmp_error_apple_denied">Apple Music 拒绝访问。请检查你的订阅。</string>
+    <string name="cmp_error_apple_denied">Apple Music 拒绝了这次请求。请稍后再试。</string>
     <string name="cmp_error_apple_busy">Apple Music 当前繁忙。请稍后再试。</string>
+    <string name="cmp_error_copy_details">复制诊断信息</string>
+    <string name="cmp_error_details_copied">已复制</string>
+    <string name="cmp_error_details_clip_label">Yoin 诊断信息</string>
 </resources>

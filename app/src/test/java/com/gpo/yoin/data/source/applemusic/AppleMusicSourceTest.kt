@@ -114,6 +114,93 @@ class AppleMusicSourceTest {
         assertEquals(3, server.requestCount)
     }
 
+    @Test fun should_openCatalogPlaylist_when_libraryRefusesASavedPlaylist() = runTest {
+        val catalogTracks = mutableListOf<RecordedRequest>()
+        server.dispatcher = playlistDispatcher(
+            libraryPlaylist = MockResponse().setResponseCode(403),
+            onCatalogTracks = { catalogTracks += it },
+        )
+        source.getPlaylists()
+        val playlist = source.getPlaylist(MediaId("applemusic", "library:p.saved"))!!
+        // The library's id and name, the catalog playlist's tracks, read without the music user token.
+        assertEquals(MediaId("applemusic", "library:p.saved"), playlist.id)
+        assertEquals("Saved", playlist.name)
+        assertEquals(listOf("123"), playlist.tracks.map { it.id.rawId })
+        assertEquals(1, playlist.songCount)
+        assertNull(catalogTracks.single().getHeader("Music-User-Token"))
+    }
+
+    @Test fun should_openCatalogPlaylist_when_libraryRefusesOnlyTheTracks() = runTest {
+        server.dispatcher = playlistDispatcher(
+            libraryPlaylist = json("""{"data":[$SavedLibraryPlaylist]}"""),
+            libraryTracks = MockResponse().setResponseCode(403),
+        )
+        // Not listed first: the library playlist's own answer names its catalog playlist.
+        val playlist = source.getPlaylist(MediaId("applemusic", "library:p.saved"))!!
+        assertEquals(listOf("123"), playlist.tracks.map { it.id.rawId })
+    }
+
+    @Test fun should_failAsBefore_when_aLibraryOnlyPlaylistIsRefused() = runTest {
+        server.dispatcher = playlistDispatcher(
+            listed = """{"id":"p.mine","type":"library-playlists","attributes":{"name":"Mine",""" +
+                """"playParams":{"id":"p.mine","isLibrary":true,"kind":"playlist"}}}""",
+            libraryPlaylist = MockResponse().setResponseCode(403),
+        )
+        source.getPlaylists()
+        val error = runCatching { source.getPlaylist(MediaId("applemusic", "library:p.mine")) }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.AccessDenied, (error as AppleMusicApiException).failure)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_keepTheLibraryFailure_when_theCatalogPlaylistFailsToo() = runTest {
+        server.dispatcher = playlistDispatcher(
+            libraryPlaylist = MockResponse().setResponseCode(403),
+            catalogPlaylist = MockResponse().setResponseCode(404),
+        )
+        source.getPlaylists()
+        val error = runCatching { source.getPlaylist(MediaId("applemusic", "library:p.saved")) }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.AccessDenied, (error as AppleMusicApiException).failure)
+        assertEquals(
+            AppleMusicApiFailure.Http(404),
+            (error.suppressed.single() as AppleMusicApiException).failure,
+        )
+    }
+
+    @Test fun should_notReadTheCatalog_when_appleRateLimitsTheLibrary() = runTest {
+        server.dispatcher = playlistDispatcher(libraryPlaylist = MockResponse().setResponseCode(429))
+        source.getPlaylists()
+        val error = runCatching { source.getPlaylist(MediaId("applemusic", "library:p.saved")) }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.RateLimited, (error as AppleMusicApiException).failure)
+        assertEquals(2, server.requestCount)
+    }
+
+    /** A library with one playlist saved from the catalog (`pl.u-shared`), each read answered by path. */
+    private fun playlistDispatcher(
+        listed: String = SavedLibraryPlaylist,
+        libraryPlaylist: MockResponse,
+        libraryTracks: MockResponse = json("""{"data":[]}"""),
+        catalogPlaylist: MockResponse = json(
+            """{"data":[{"id":"pl.u-shared","type":"playlists",""" +
+                """"attributes":{"name":"Saved","curatorName":"Someone"}}]}"""
+        ),
+        onCatalogTracks: (RecordedRequest) -> Unit = {},
+    ) = object : Dispatcher() {
+        override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+            "/v1/me/library/playlists" -> json("""{"data":[$listed]}""")
+            "/v1/me/library/playlists/p.saved", "/v1/me/library/playlists/p.mine" -> libraryPlaylist
+            "/v1/me/library/playlists/p.saved/tracks" -> libraryTracks
+            "/v1/me/storefront" -> json("""{"data":[{"id":"jp"}]}""")
+            "/v1/catalog/jp/playlists/pl.u-shared" -> catalogPlaylist
+            "/v1/catalog/jp/playlists/pl.u-shared/tracks" -> {
+                onCatalogTracks(request)
+                json("""{"data":[{"id":"123","type":"songs","attributes":{"name":"One"}}]}""")
+            }
+            else -> MockResponse().setResponseCode(404)
+        }
+    }
+
+    private fun json(body: String) = MockResponse().setBody(body)
+
     @Test fun should_rejectCrossOriginRelationshipPagination_beforeSendingSecrets() = runTest {
         reply(
             """
@@ -1036,3 +1123,7 @@ class AppleMusicSourceTest {
     }
     private fun reply(body: String) = server.enqueue(MockResponse().setBody(body))
 }
+
+private const val SavedLibraryPlaylist =
+    """{"id":"p.saved","type":"library-playlists","attributes":{"name":"Saved","canEdit":false,"hasCatalog":true,""" +
+        """"playParams":{"id":"p.saved","isLibrary":true,"kind":"playlist","globalId":"pl.u-shared"}}}"""

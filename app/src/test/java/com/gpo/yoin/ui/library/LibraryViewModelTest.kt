@@ -10,6 +10,8 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.SubsonicException
@@ -1332,6 +1334,23 @@ class LibraryViewModelTest {
             state.allItems.orEmpty().map(LibraryItem::key).toSet()
         )
         assertEquals(listOf("albums down"), messages)
+    }
+
+    @Test
+    fun should_sayTheSharedLine_when_appleRefusesOneList() = runTest {
+        val repository = subsonicLibrary()
+        coEvery { repository.getAlbumList("newest", size = 500) } throws
+            AppleMusicApiException(AppleMusicApiFailure.AccessDenied, status = 403)
+        val viewModel = libraryViewModel(repository)
+        val messages = mutableListOf<String>()
+        backgroundScope.launch { viewModel.messages.collect { messages += it } }
+        advanceUntilIdle()
+
+        viewModel.ensureSelectedTabLoaded()
+        advanceUntilIdle()
+
+        // Not the exception's own "Apple Music: AccessDenied".
+        assertEquals(listOf("Apple Music refused this request. Try again later."), messages)
     }
 
     @Test
