@@ -80,6 +80,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -449,6 +450,7 @@ fun SettingsContent(
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
                                         item { WelcomeGuideItem() }
+                                        item { PrivacyPolicyItem(snackbarHostState) }
                                         item {
                                             SettingsItem(
                                                 icon = YoinSymbols.Info,
@@ -1605,6 +1607,21 @@ private fun WelcomeGuideItem() {
         title = stringResource(R.string.settings_about_welcome_guide),
         summary = stringResource(R.string.settings_about_welcome_guide_summary),
         onClick = { context.startActivity(MainActivity.welcomeGuideIntent(context)) },
+    )
+}
+
+@Composable
+private fun PrivacyPolicyItem(snackbarHostState: SnackbarHostState) {
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    val openFailed = stringResource(R.string.settings_about_privacy_open_failed)
+    SettingsItem(
+        icon = YoinSymbols.Launch,
+        title = stringResource(R.string.settings_about_privacy_policy),
+        onClick = {
+            runCatching { uriHandler.openUri("https://yoin.gojyuplus.com/privacy") }
+                .onFailure { scope.launch { snackbarHostState.showSnackbar(openFailed) } }
+        },
     )
 }
 

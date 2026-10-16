@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="How Yoin stores and uses information, connects to music and optional services, and handles synchronization, backup and deletion." />
+  <title>Yoin Privacy Policy</title>
+</head>
+<body>
+  <header>
+    <p><a href="index.html">Yoin</a></p>
+    <h1>Yoin Privacy Policy</h1>
+    <p>Last updated: <time datetime="2026-10-13">October 13, 2026</time></p>
+  </header>
+  <main>
+    <p>Yoin is an Android music client developed by GojyuPlusOne. It stores your music profiles, settings, listening history, ratings, reviews, notes and cached content on your device. It also connects to music providers and optional services to browse and play music, find lyrics, generate text and synchronize selected data. Yoin does not provide a hosted music catalog.</p>
+
+    <h2>Music providers</h2>
+    <p>When you connect a Subsonic/OpenSubsonic or Navidrome server, Spotify, or Apple Music, Yoin exchanges the authentication information and requests needed for that service. These can include searches, library and catalog identifiers, artwork requests, playback commands, and supported library or rating changes. The provider receives requests made while you use its features, including automatic content loading. Music streams and artwork may be delivered by the provider's content servers. Spotify playback uses the Spotify app; Apple Music playback uses MusicKit.</p>
+    <p>Apple Music also needs a developer token. Yoin offers a default token service hosted on Cloudflare Workers at <code>yoin-apple-music-token.p2o51willam.workers.dev</code>; you can supply another token service. The default service provides an app developer token. Yoin's token request does not include your Music User Token, listening history, notes or reviews. The service and its hosting provider receive the network request and may process connection and operational information such as IP address and request timing. Operational logs may be retained by the service or its host. Apple account authorization is handled separately with Apple.</p>
+
+    <h2>Google Cast</h2>
+    <p>Yoin initializes Google's Cast SDK as part of its playback infrastructure, before you choose to cast. The SDK sends information about Cast discovery and session events, the mobile device, and the app and SDK to Google for Cast usage and performance analysis. According to <a href="https://developers.google.com/cast/docs/android_sender/data_disclosure">Google's Cast SDK data disclosure</a>, this data is collected anonymously, is encrypted in transit, and is not used to model a specific user's behavior. Google states that neither app developers nor users can opt out of this SDK collection or delete its data.</p>
+
+    <h2>Lyrics</h2>
+    <p>Yoin can send song titles, artist names and selected song identifiers to QQ Music, the Spotoolfy gateway for NetEase lyrics at <code>api.spotoolfy.gojyuplus.com</code>, Huawei Music and LRCLIB. Search terms you enter in the lyrics search panel are also sent to the queried services. These services and their hosts receive your network requests and may retain operational logs under their own policies.</p>
+    <p>For non-Subsonic music, missing or expired cached lyrics can trigger automatic lookups through QQ Music, NetEase and LRCLIB, including when the song changes or the next song's lyrics are prefetched. Subsonic playback normally uses the connected server's lyrics unless you select another source. Manual lyrics search queries all four sources; Huawei is used only in manual search. Retrieved lyrics and available translations are cached locally.</p>
+
+    <h2>Gemini</h2>
+    <p>Gemini features require an API key that you provide. Requests go directly to Google's Gemini API and include your key for authentication. The information sent depends on the feature:</p>
+    <ul>
+      <li>Opening About can generate missing song information using the song title, artist, album and language. Ask Gemini sends that metadata and your question, including a separate request to generate a question heading. About and question answers use Google Search grounding.</li>
+      <li>Requesting lyric translation can send the lyrics text, song title, artist and target language when a suitable provider translation or cached result is unavailable. This includes lyrics you have entered yourself.</li>
+      <li>Loading Memories can automatically generate narration from listening facts, such as play counts, date spans, seasons, track names, rating signals and note counts. Narration does not send the text of your notes or reviews.</li>
+      <li>Loading Memories can also automatically generate an album title from the selected review or note, together with album metadata. <strong>This sends that selected writing's text to Gemini</strong>, which may be the full note or review. Other surfaces reuse the cached title without generating it.</li>
+    </ul>
+    <p>These automatic requests can occur after you have configured a key; they do not require a separate generation tap each time. Cached results reduce repeat requests. Removing your Gemini key stops new Gemini generation requests from Yoin, but does not delete previous requests from Google's systems. Google's applicable terms and privacy policies govern its processing and retention.</p>
+
+    <h2>NeoDB</h2>
+    <p>After you connect NeoDB, saving an album review in Yoin automatically sends album lookup information, your rating and review text to the selected instance. This includes closing the album's rating panel or saving a review in Memories; a separate sync tap is not required. Yoin can also read your own records back.</p>
+    <p>Long reviews are sent with public visibility (<code>visibility=0</code>). Short reviews keep the shelf record's existing visibility, or use public visibility for a new record. Yoin does not offer a visibility selector. Yoin does not request a separate Fediverse broadcast, but that does not make these records private. Synchronized reviews should not be treated as private backups or local-only notes. The selected NeoDB instance's access and retention policies also apply.</p>
+
+    <h2>Optional Google Drive sync</h2>
+    <p>Cloud sync requires you to turn it on and authorize Google Drive's app-data permission. Yoin reads and writes its own hidden app-data files rather than your general Drive documents. While enabled, synchronization can run automatically when the app enters the foreground or background and after local changes, as well as when you request it.</p>
+    <p>Synced data includes song notes and their text, song and album ratings, album reviews, Home layouts, selected settings, generated Memory and album titles, Memory narration, and About/Ask Gemini questions and answers. Cached lyric translations can include their source lyrics. Records include music identifiers, timestamps and synchronization metadata. Account descriptors include provider, display name, creation time, a Subsonic username/server-host hint when applicable, and an Apple storefront when known. Files also identify the writing device and app version.</p>
+    <p>Selected synced settings are translation language, Spotify Client ID and scroll-edge style. Drive sync excludes provider passwords and access/refresh tokens, the Gemini API key, NeoDB token, Apple token-service endpoint, audio files and raw playback history. Album notes currently stay outside Drive sync. Generated text may still reflect listening activity or writing. Hand-entered source lyrics are excluded from source-lyrics snapshots, although their translations can sync.</p>
+    <p>Files are compressed JSON sent over HTTPS. Yoin does not add end-to-end encryption to these Drive files. Turning sync off stops synchronization on that device and keeps the existing cloud copy. The app's Delete cloud data action deletes Yoin's synchronized content and tells other devices to stop syncing; it leaves a small reset marker containing device identification and timing to prevent old content from being uploaded again. Local data remains. Google's storage and retention policies also apply.</p>
+
+    <h2>Local storage and Android backup</h2>
+    <p>Profile credentials and NeoDB tokens are encrypted in Android app-private storage excluded from Android backup. Other app data is stored in local databases and app storage.</p>
+    <p>Android cloud backup and device-to-device transfer are separate from optional Google Drive sync. Yoin's main database is eligible for Android backup, subject to device and system settings. This can include profile metadata, listening history, ratings, reviews, notes, cached lyrics and generated text. <strong>The current Gemini API key is stored in this database and may be included in Android backup.</strong> The Drive sync exclusions above do not change Android backup behavior.</p>
+
+    <h2>Audio and network security</h2>
+    <p>The current app does not request microphone access at runtime, record microphone audio or upload microphone recordings. Playing music still involves the selected music provider and its playback services.</p>
+    <p>Yoin supports user-configured HTTP music servers. HTTP does not protect requests or content in transit as HTTPS does. Use HTTPS server addresses where available.</p>
+
+    <h2>This website</h2>
+    <p>These pages contain no JavaScript or analytics code and do not set cookies themselves. Cloudflare hosts the website and receives connection and request information, such as IP address, requested page and request timing, to deliver and protect the site. Cloudflare may retain operational logs under its own policies.</p>
+
+    <h2>Deletion</h2>
+    <p>You can clear Yoin's local data through Android's app-storage controls or uninstall the app. This does not automatically delete Google Drive copies, Android backups, content synchronized to a music provider or NeoDB, or requests processed by Gemini and lyrics services. Use the relevant cloud-deletion action, Android/Google account controls or the service's own controls for those copies. Yoin cannot specify or enforce third-party server retention from the app.</p>
+
+    <h2>Contact</h2>
+    <p>Developer: GojyuPlusOne</p>
+    <p>For privacy questions or support, contact <a href="mailto:lastnatsu51@gmail.com">lastnatsu51@gmail.com</a>.</p>
+  </main>
+  <footer>
+    <p><a href="index.html">Back to Yoin</a></p>
+  </footer>
+</body>
+</html>
