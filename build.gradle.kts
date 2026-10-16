@@ -6,3 +6,8 @@ plugins {
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.ktlint) apply false
 }
+
+// build-logic's own tests (the MusicKit native-library patch) run with everyone else's: `./gradlew test`.
+tasks.register("test") {
+    dependsOn(gradle.includedBuild("build-logic").task(":test"))
+}
