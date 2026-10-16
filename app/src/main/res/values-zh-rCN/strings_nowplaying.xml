@@ -5,22 +5,22 @@
     <string name="np_cd_collapse_lyrics">收起歌词</string>
     <string name="np_cd_expand_lyrics">展开歌词</string>
     <string name="np_cd_play_mode">播放模式</string>
-    <string name="np_transport_repeat_all">全部循环</string>
+    <string name="np_transport_repeat_all">列表循环</string>
     <string name="np_transport_shuffle">随机播放</string>
     <string name="np_transport_repeat_one">单曲循环</string>
 
     <string name="np_pill_queue">队列</string>
     <string name="np_pill_devices">设备</string>
-    <string name="np_pill_write">记一笔</string>
+    <string name="np_pill_write">写笔记</string>
 
     <string name="np_tab_lyrics">歌词</string>
-    <string name="np_tab_about">档案</string>
+    <string name="np_tab_about">关于</string>
     <string name="np_tab_note">笔记</string>
     <string name="np_text_tab_lyrics">歌词</string>
-    <string name="np_text_tab_about">档案</string>
+    <string name="np_text_tab_about">关于</string>
     <string name="np_text_tab_note">笔记</string>
 
-    <string name="np_empty_nothing_playing">没有正在播放的内容</string>
+    <string name="np_empty_nothing_playing">未在播放</string>
     <string name="np_cd_launching_collapse">收起</string>
     <string name="np_cd_connect_error_collapse">收起</string>
     <string name="np_cd_tabletop_close">关闭</string>
@@ -42,20 +42,20 @@
     <string name="np_lyric_loading">正在加载歌词</string>
     <string name="np_lyrics_none">暂无歌词</string>
 
-    <string name="np_dock_playing_from_album">来自专辑</string>
-    <string name="np_dock_playing_from_playlist">来自歌单</string>
-    <string name="np_dock_playing_from_artist">来自歌手</string>
+    <string name="np_dock_playing_from_album">播放自专辑</string>
+    <string name="np_dock_playing_from_playlist">播放自播放列表</string>
+    <string name="np_dock_playing_from_artist">播放自艺术家</string>
     <string name="np_dock_now_playing">正在播放</string>
-    <string name="np_from_album">来自专辑</string>
-    <string name="np_from_playlist">来自歌单</string>
-    <string name="np_from_artist">来自歌手</string>
+    <string name="np_from_album">播放自专辑</string>
+    <string name="np_from_playlist">播放自播放列表</string>
+    <string name="np_from_artist">播放自艺术家</string>
     <string name="np_from_now_playing">正在播放</string>
 
     <string name="np_cd_back_to_panel">返回侧栏</string>
     <string name="np_cd_full_screen">全屏</string>
 
-    <string name="np_about_searching">正在查找歌曲档案…</string>
-    <string name="np_about_api_key">未配置 Gemini 密钥，背景资料无法查询。</string>
+    <string name="np_about_searching">正在查找歌曲信息…</string>
+    <string name="np_about_api_key">未设置 Gemini API 密钥</string>
     <string name="np_about_open_settings">设置</string>
     <string name="np_about_retry">重试</string>
     <string name="np_about_creation_time">创作时间</string>
@@ -63,7 +63,7 @@
     <string name="np_about_lyricist">作词</string>
     <string name="np_about_composer">作曲</string>
     <string name="np_about_producer">制作人</string>
-    <string name="np_about_review">档案</string>
+    <string name="np_about_review">关于</string>
 
     <string name="np_ask_placeholder">问 Gemini</string>
     <string name="np_ask_gemini">问 Gemini</string>
@@ -72,10 +72,10 @@
     <string name="np_lyrics_search_placeholder">歌曲或艺术家</string>
     <string name="np_cd_close_lyrics_search">关闭歌词搜索</string>
     <string name="np_cd_clear">清除</string>
-    <string name="np_lyrics_searching_providers">正在搜索歌词来源…</string>
+    <string name="np_lyrics_searching_providers">正在搜索歌词源…</string>
     <string name="np_lyrics_none_found">未找到歌词。</string>
     <string name="np_lyrics_searching">正在搜索…</string>
-    <string name="np_lyrics_no_results">无搜索结果</string>
+    <string name="np_lyrics_no_results">无结果</string>
     <string name="np_lyrics_apply_title">应用歌词</string>
     <string name="np_lyrics_field_placeholder">歌词</string>
     <string name="np_lyrics_apply">应用</string>
@@ -95,7 +95,7 @@
     <string name="np_cd_share_lyrics_image">将所选歌词分享为图片</string>
     <string name="np_cd_edit_lyrics">编辑歌词</string>
     <string name="np_lyrics_clip_label">歌词</string>
-    <string name="np_lyrics_select_tap">选择行</string>
+    <string name="np_lyrics_select_tap">选择歌词行</string>
     <string name="np_lyrics_select_count">%1$d / %2$d</string>
     <plurals name="np_lyrics_copied">
         <item quantity="other">已复制 %1$d 行</item>
@@ -108,10 +108,10 @@
     <string name="np_share_saving">正在保存…</string>
     <string name="np_share_saved">已保存</string>
     <string name="np_share_try_again">重试</string>
-    <string name="np_share_failed">无法分享此图片</string>
+    <string name="np_share_failed">无法分享图片</string>
     <string name="np_share_action">分享</string>
     <string name="np_share_format_card">卡片</string>
-    <string name="np_share_format_story">故事</string>
+    <string name="np_share_format_story">Story</string>
     <string name="np_cd_tone_soft">柔和配色</string>
     <string name="np_cd_tone_deep">深色配色</string>
     <string name="np_cd_tone_vivid">鲜艳配色</string>
@@ -119,7 +119,7 @@
     <string name="np_share_file_untitled">Yoin 歌词 %1$s.png</string>
     <string name="np_share_file_named">Yoin 歌词 - %1$s - %2$s.png</string>
 
-    <string name="np_note_tap_to_write">记一笔</string>
+    <string name="np_note_tap_to_write">写笔记</string>
     <plurals name="np_note_count">
         <item quantity="other">%1$d 条笔记</item>
     </plurals>
@@ -129,49 +129,49 @@
     <string name="np_note_delete">删除</string>
     <string name="np_note_deleted">已删除</string>
     <string name="np_note_undo">撤销</string>
-    <string name="np_note_writing">正在记录…</string>
+    <string name="np_note_writing">正在写…</string>
     <string name="np_note_empty">暂无笔记</string>
 
-    <string name="np_msg_playback_interrupted">播放被打断了。</string>
+    <string name="np_msg_playback_interrupted">播放已中断。</string>
     <string name="np_msg_connecting_spotify">正在连接 Spotify…</string>
     <string name="np_msg_couldnt_start">无法开始播放。</string>
-    <string name="np_msg_need_title_artist">搜索歌词需要曲名或艺术家</string>
+    <string name="np_msg_need_title_artist">搜索歌词需要歌曲名或艺术家</string>
     <string name="np_msg_couldnt_search">无法搜索歌词</string>
-    <string name="np_msg_lyrics_applied_qq">已应用 QQ 音乐歌词</string>
-    <string name="np_msg_lyrics_applied_netease">已应用网易云音乐歌词</string>
-    <string name="np_msg_lyrics_applied_huawei">已应用华为音乐歌词</string>
-    <string name="np_msg_lyrics_applied_lrclib">已应用 LRCLIB 歌词</string>
+    <string name="np_msg_lyrics_applied_qq">已应用来自 QQ 音乐的歌词</string>
+    <string name="np_msg_lyrics_applied_netease">已应用来自网易云的歌词</string>
+    <string name="np_msg_lyrics_applied_huawei">已应用来自华为音乐的歌词</string>
+    <string name="np_msg_lyrics_applied_lrclib">已应用来自 LRCLIB 的歌词</string>
     <string name="np_msg_lyrics_applied_from">已应用来自 %1$s 的歌词</string>
     <string name="np_msg_couldnt_apply">无法应用歌词</string>
     <string name="np_msg_lyrics_applied">已应用歌词</string>
-    <string name="np_msg_already_language">歌词本来就是 %1$s，无需翻译。</string>
-    <string name="np_msg_lyrics_translated">歌词已翻译</string>
-    <string name="np_msg_lyrics_translated_qq">已换上来自 QQ 音乐的翻译</string>
-    <string name="np_msg_lyrics_translated_netease">已换上来自网易云音乐的翻译</string>
-    <string name="np_msg_lyrics_translated_huawei">已换上来自华为音乐的翻译</string>
-    <string name="np_msg_lyrics_translated_lrclib">已换上来自 LRCLIB 的翻译</string>
-    <string name="np_msg_lyrics_translated_from">已换上来自 %1$s 的翻译</string>
-    <string name="np_msg_cant_save">无法保存：曲目信息不完整。</string>
-    <string name="np_msg_couldnt_save_favorite">无法加入收藏</string>
-    <string name="np_msg_couldnt_remove_favorite">无法取消收藏</string>
+    <string name="np_msg_already_language">歌词似乎已经是 %1$s</string>
+    <string name="np_msg_lyrics_translated">已翻译歌词</string>
+    <string name="np_msg_lyrics_translated_qq">已使用 QQ 音乐翻译</string>
+    <string name="np_msg_lyrics_translated_netease">已使用网易云翻译</string>
+    <string name="np_msg_lyrics_translated_huawei">已使用华为音乐翻译</string>
+    <string name="np_msg_lyrics_translated_lrclib">已使用 LRCLIB 翻译</string>
+    <string name="np_msg_lyrics_translated_from">已使用 %1$s 翻译</string>
+    <string name="np_msg_cant_save">无法保存 — 缺少曲目信息</string>
+    <string name="np_msg_couldnt_save_favorite">无法保存到收藏</string>
+    <string name="np_msg_couldnt_remove_favorite">无法从收藏移除</string>
     <string name="np_msg_added_apple">已加入 Apple Music 资料库</string>
     <string name="np_msg_apple_pending">已加入 Apple Music</string>
-    <string name="np_msg_check">查看</string>
+    <string name="np_msg_check">检查</string>
     <string name="np_msg_couldnt_add_apple">无法加入 Apple Music 资料库</string>
-    <string name="np_msg_spotify_devices_permission">获取设备列表需要重新连接 Spotify（新权限）。</string>
+    <string name="np_msg_spotify_devices_permission">列出设备需要重新连接 Spotify（新权限）。</string>
     <string name="np_msg_couldnt_load_devices">无法加载设备。</string>
     <string name="np_msg_couldnt_switch_devices">无法切换设备。</string>
-    <string name="np_msg_added_to">已加入 %1$s</string>
-    <string name="np_msg_added_to_playlist">已加入歌单</string>
-    <string name="np_msg_couldnt_add_to">无法加入 %1$s</string>
-    <string name="np_msg_couldnt_add_to_playlist">无法加入歌单</string>
+    <string name="np_msg_added_to">已添加到 %1$s</string>
+    <string name="np_msg_added_to_playlist">已添加到播放列表</string>
+    <string name="np_msg_couldnt_add_to">无法添加到 %1$s</string>
+    <string name="np_msg_couldnt_add_to_playlist">无法添加到播放列表</string>
     <string name="np_msg_couldnt_create">无法创建“%1$s”</string>
-    <string name="np_msg_created_but_failed">已创建 %1$s，但未能加入曲目</string>
-    <string name="np_msg_translation_qq">QQ 音乐翻译可用</string>
-    <string name="np_msg_translation_netease">网易云音乐翻译可用</string>
-    <string name="np_msg_translation_huawei">华为音乐翻译可用</string>
-    <string name="np_msg_translation_lrclib">LRCLIB 翻译可用</string>
-    <string name="np_msg_translation_available">%1$s 翻译可用</string>
+    <string name="np_msg_created_but_failed">已创建 %1$s，但无法添加曲目</string>
+    <string name="np_msg_translation_qq">有可用的 QQ 音乐翻译</string>
+    <string name="np_msg_translation_netease">有可用的网易云翻译</string>
+    <string name="np_msg_translation_huawei">有可用的华为音乐翻译</string>
+    <string name="np_msg_translation_lrclib">有可用的 LRCLIB 翻译</string>
+    <string name="np_msg_translation_available">有可用的 %1$s 翻译</string>
     <string name="np_msg_switch">切换</string>
 
     <string name="np_device_switch_back_cast">未投播</string>

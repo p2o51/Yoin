@@ -2,19 +2,19 @@
 <resources>
     <!-- First-run landing. The bubble lines are the mascot speaking (the one place copy talks). -->
     <string name="landing_hello_title">Hi, I\'m Yoin.</string>
-    <string name="landing_hello_body">I play the music you already have, from your own server, Spotify or Apple Music.</string>
+    <string name="landing_hello_body">I play your music library, from your server, Spotify or Apple Music.</string>
     <string name="landing_pick_title">What do you listen with?</string>
     <string name="landing_about_title">Here\'s my part, and what stays with your service.</string>
     <string name="landing_subsonic_title">Where\'s your server?</string>
     <string name="landing_spotify_title">Spotify wants an app ID from you.</string>
     <string name="landing_spotify_body">I\'ll walk you through it.</string>
     <string name="landing_apple_title">Apple Music needs a developer token.</string>
-    <string name="landing_apple_body">Apple charges developers for one. Mine is free to use.</string>
+    <string name="landing_apple_body">You need a developer token to use Apple MusicKit. If you don\'t have one, you can use the one provided by Yoin.</string>
     <string name="landing_home_title">What goes on Home?</string>
     <string name="landing_edge_title">When you scroll, how should things slip under the top bar?</string>
     <string name="landing_ready_title">All set.</string>
     <string name="landing_ready_none_title">No account yet.</string>
-    <string name="landing_ready_none_body">Settings has the same setup.</string>
+    <string name="landing_ready_none_body">You can add one anytime in Settings.</string>
 
     <string name="landing_get_started">Get started</string>
     <string name="landing_next">Next</string>
@@ -35,7 +35,6 @@
     <string name="landing_does_passwords">Keep passwords on this device</string>
     <string name="landing_dont_sell">Sell music or subscriptions</string>
     <string name="landing_dont_host">Host or upload your files</string>
-    <string name="landing_dont_bill">Bill you for your service</string>
     <string name="landing_need_subsonic">A Subsonic-compatible server</string>
     <string name="landing_need_spotify">Spotify Premium and the Spotify app</string>
     <string name="landing_need_apple">An Apple Music subscription</string>
@@ -58,7 +57,7 @@
     <string name="landing_apple_yoin_title">Yoin\'s token service</string>
     <string name="landing_apple_yoin_body">Shared by everyone on Yoin</string>
     <string name="landing_apple_own_title">Your own token service</string>
-    <string name="landing_apple_own_body">Needs an Apple Developer Program membership, US$99 a year</string>
+    <string name="landing_apple_own_body">Needs an Apple Developer Program membership</string>
     <string name="landing_apple_need">Needs an Apple Music subscription</string>
 
     <string name="landing_home_rows_note">To change how many rows a section shows, long-press Home later.</string>

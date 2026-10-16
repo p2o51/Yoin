@@ -214,7 +214,7 @@ internal fun AboutScene(picked: Set<SetupService>) {
         }
         LandingLabel(R.string.landing_about_doesnt)
         LandingGroup {
-            listOf(R.string.landing_dont_sell, R.string.landing_dont_host, R.string.landing_dont_bill)
+            listOf(R.string.landing_dont_sell, R.string.landing_dont_host)
                 .forEach { MarkRow(text = it, yes = false) }
         }
         LandingLabel(R.string.landing_about_need)

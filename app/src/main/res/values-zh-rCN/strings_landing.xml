@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="landing_hello_title">嗨，我是 Yoin。</string>
-    <string name="landing_hello_body">我只会播放你已拥有的音乐：来自你的服务器、Spotify 或 Apple Music。</string>
+    <string name="landing_hello_title">你好，我是 Yoin。</string>
+    <string name="landing_hello_body">我播放你的音乐资料库：你的服务器、Spotify 或 Apple Music。</string>
     <string name="landing_pick_title">你平时用什么听歌？</string>
-    <string name="landing_about_title">有些事归 Yoin，剩下的依然由你的音乐服务打理。</string>
+    <string name="landing_about_title">Yoin 负责这些，其余的与你的音乐服务有关。</string>
     <string name="landing_subsonic_title">你的服务器在哪里？</string>
-    <string name="landing_spotify_title">Spotify 需要你申请一个 Client ID。</string>
-    <string name="landing_spotify_body">跟着指引来，几步就好。</string>
+    <string name="landing_spotify_title">Spotify 需要你申请一个应用 ID。</string>
+    <string name="landing_spotify_body">我会一步一步带你弄好。</string>
     <string name="landing_apple_title">Apple Music 需要一个开发者令牌。</string>
-    <string name="landing_apple_body">您需要一个开发者令牌使用 Apple Music Kit。如果没有，您也可以选择由 Yoin 提供。</string>
+    <string name="landing_apple_body">你需要一个开发者令牌来使用 Apple MusicKit。如果没有，也可以直接使用 Yoin 提供的。</string>
     <string name="landing_home_title">首页上放些什么？</string>
-    <string name="landing_edge_title">向上滑动时，内容穿过顶栏的样式：</string>
-    <string name="landing_ready_title">设置完成。</string>
-    <string name="landing_ready_none_title">尚未连接账号。</string>
+    <string name="landing_edge_title">滚动时，内容怎样移入顶栏下方？</string>
+    <string name="landing_ready_title">都准备好了。</string>
+    <string name="landing_ready_none_title">还没有连接账号。</string>
     <string name="landing_ready_none_body">之后随时可以在设置中添加。</string>
 
     <string name="landing_get_started">开始</string>
@@ -21,52 +21,51 @@
     <string name="landing_open_yoin">进入 Yoin</string>
     <string name="landing_back">返回</string>
 
-    <string name="landing_pick_subsonic">Navidrome、Gonic 等自建服务器</string>
-    <string name="landing_pick_spotify">需要 Premium 订阅</string>
+    <string name="landing_pick_subsonic">Navidrome、Gonic 等其他服务器</string>
+    <string name="landing_pick_spotify">Premium 账号</string>
     <string name="landing_pick_apple">需要订阅</string>
 
     <string name="landing_about_does">Yoin 负责</string>
     <string name="landing_about_doesnt">Yoin 不负责</string>
     <string name="landing_about_need">你需要</string>
-    <string name="landing_does_play">播放你的资料库，包含同步歌词</string>
+    <string name="landing_does_play">播放你的资料库，带同步歌词</string>
     <string name="landing_does_notes">评分、笔记与 Memories</string>
-    <string name="landing_does_accounts">支持多个账号，一键快速切换</string>
-    <string name="landing_does_passwords">密码仅保存在本机</string>
-    <string name="landing_dont_sell">出售音乐或订阅服务</string>
+    <string name="landing_does_accounts">多个账号，点按以切换账号</string>
+    <string name="landing_does_passwords">将密码保存在本地</string>
+    <string name="landing_dont_sell">出售音乐或订阅</string>
     <string name="landing_dont_host">托管或上传你的音频文件</string>
-    <string name="landing_dont_bill">代收你的流媒体账单</string>
     <string name="landing_need_subsonic">一台兼容 Subsonic 的服务器</string>
-    <string name="landing_need_spotify">Spotify Premium 及 Spotify 应用</string>
+    <string name="landing_need_spotify">Spotify Premium 与 Spotify 应用</string>
     <string name="landing_need_apple">Apple Music 订阅</string>
-    <string name="landing_need_none">上述任意一项服务</string>
+    <string name="landing_need_none">以上任意一项服务</string>
 
     <string name="landing_spotify_create">创建应用</string>
-    <string name="landing_spotify_create_body">拥有 Premium 账号即可免费创建。</string>
-    <string name="landing_spotify_open">打开 Spotify 开发者控制台</string>
+    <string name="landing_spotify_create_body">有 Premium 账号即可免费创建。</string>
+    <string name="landing_spotify_open">打开 Spotify for Developers</string>
     <string name="landing_spotify_paste">粘贴 Client ID</string>
     <string name="landing_spotify_pasted">已从剪贴板粘贴</string>
-    <string name="landing_spotify_uris">控制台中需填写的项</string>
+    <string name="landing_spotify_uris">控制台填写项</string>
     <string name="landing_connected">已连接</string>
     <string name="landing_copy">复制</string>
     <string name="landing_copied">已复制</string>
 
     <string name="landing_apple_token">开发者令牌</string>
-    <string name="landing_apple_yoin_title">Yoin 提供的令牌服务</string>
-    <string name="landing_apple_yoin_body">由所有 Yoin 用户共享</string>
-    <string name="landing_apple_own_title">自建令牌服务</string>
-    <string name="landing_apple_own_body">需要加入 Apple 开发者计划（每年 99 美元）</string>
+    <string name="landing_apple_yoin_title">Yoin 的令牌服务</string>
+    <string name="landing_apple_yoin_body">所有 Yoin 用户共用</string>
+    <string name="landing_apple_own_title">你自己的令牌服务</string>
+    <string name="landing_apple_own_body">需要 Apple 开发者计划会员资格</string>
     <string name="landing_apple_need">需要 Apple Music 订阅</string>
 
-    <string name="landing_home_rows_note">每个分区展示的行数，之后在首页长按即可随时调整。</string>
-    <string name="landing_home_drag">调整“%1$s”的位置</string>
+    <string name="landing_home_rows_note">要更改分区显示的行数，之后长按首页即可。</string>
+    <string name="landing_home_drag">调整“%1$s”的顺序</string>
 
-    <string name="landing_edge_tide_short">内容沉入两道柔和的微澜。</string>
-    <string name="landing_edge_dots_short">封面碎成细密的半色调网点。</string>
-    <string name="landing_edge_cookie_short">封面离开时上缘化为曲奇波形。</string>
+    <string name="landing_edge_tide_short">内容沉入两道柔和的波浪之下。</string>
+    <string name="landing_edge_dots_short">封面散成细密的网点。</string>
+    <string name="landing_edge_cookie_short">封面离开时，上缘化作曲奇花边。</string>
 
     <string name="landing_ready_accounts">账号</string>
-    <string name="landing_ready_in_use">正在使用</string>
-    <string name="landing_ready_empty">未连接任何账号</string>
+    <string name="landing_ready_in_use">使用中</string>
+    <string name="landing_ready_empty">未连接账号</string>
 
     <string name="landing_spotoolfy_title">在用 Spotoolfy 吗？</string>
     <string name="landing_spotoolfy_body">笔记和评分可以一起带过来。</string>
@@ -107,35 +106,35 @@
     <string name="landing_spotoolfy_finish_drop">不要这些数据</string>
 
     <string name="guide_step">第 %1$d 步，共 %2$d 步</string>
-    <string name="guide_create">登录后点击 %1$s</string>
-    <string name="guide_name">名称与描述可随意填写，例如 %1$s</string>
-    <string name="guide_uri_first">粘贴至 %1$s，点击 %2$s</string>
-    <string name="guide_uri_second">按同样方式填入第二个地址</string>
+    <string name="guide_create">登录后，点按 %1$s</string>
+    <string name="guide_name">名称与描述随意填写，例如 %1$s</string>
+    <string name="guide_uri_first">粘贴到 %1$s，点按 %2$s</string>
+    <string name="guide_uri_second">第二个地址也按同样方式填入</string>
     <string name="guide_apis">勾选 %1$s 与 %2$s</string>
     <string name="guide_package">在 %1$s 下粘贴包名</string>
-    <string name="guide_sha1">接着粘贴 SHA1 指纹，点击 %1$s</string>
-    <string name="guide_save">同意条款并点击 %1$s</string>
-    <string name="guide_client_id">复制 %1$s，然后返回 Yoin</string>
-    <string name="guide_then_name">下一步：填写应用名称</string>
-    <string name="guide_then_uris">下一步：填写重定向 URI</string>
-    <string name="guide_then_second">下一步：填写第二个 URI</string>
+    <string name="guide_sha1">再粘贴 SHA1 指纹，点按 %1$s</string>
+    <string name="guide_save">同意条款，点按 %1$s</string>
+    <string name="guide_client_id">复制 %1$s，然后返回</string>
+    <string name="guide_then_name">下一步：填写名称</string>
+    <string name="guide_then_uris">下一步：重定向 URI</string>
+    <string name="guide_then_second">下一步：第二个地址</string>
     <string name="guide_then_apis">下一步：勾选 API</string>
-    <string name="guide_then_package">下一步：填写 Android 包名</string>
-    <string name="guide_then_sha1">下一步：填写 SHA1 指纹</string>
-    <string name="guide_then_save">下一步：保存配置</string>
-    <string name="guide_then_client_id">最后：复制 Client ID</string>
+    <string name="guide_then_package">下一步：Android 包名</string>
+    <string name="guide_then_sha1">下一步：签名指纹</string>
+    <string name="guide_then_save">下一步：保存</string>
+    <string name="guide_then_client_id">最后：Client ID</string>
     <string name="guide_action_prev">上一步</string>
     <string name="guide_action_next">下一步</string>
     <string name="guide_action_copy">复制</string>
-    <string name="guide_action_copy_first">复制首个重定向 URI</string>
-    <string name="guide_action_copy_second">复制第二个重定向 URI</string>
+    <string name="guide_action_copy_first">复制第一个地址</string>
+    <string name="guide_action_copy_second">复制第二个地址</string>
     <string name="guide_action_copy_package">复制包名</string>
     <string name="guide_action_copy_sha1">复制 SHA1 指纹</string>
     <string name="guide_action_back">返回 Yoin</string>
     <string name="guide_copied">已复制</string>
-    <string name="guide_apple_sign_in">使用 Apple ID 登录并授权 Yoin 访问</string>
-    <string name="guide_apple_then_tries">授权可能需要尝试两次或更多次</string>
-    <string name="guide_apple_retry">尚未完成，请在 Yoin 中再次点击连接</string>
+    <string name="guide_apple_sign_in">使用 Apple ID 登录并允许 Yoin 访问</string>
+    <string name="guide_apple_then_tries">可能需要尝试两次或更多次</string>
+    <string name="guide_apple_retry">尚未成功，请再点一次连接</string>
     <string name="guide_spotoolfy_settings">点右上角的 ⚙</string>
     <string name="guide_spotoolfy_then_client_id">下一步：复制 Client ID</string>
     <string name="guide_spotoolfy_client_id">打开 %1$s，长按 %2$s 复制</string>

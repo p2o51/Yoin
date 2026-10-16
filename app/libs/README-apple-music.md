@@ -14,3 +14,7 @@ explicit loading of `c++_shared` and `appleMusicSDK` before controller creation.
 The SDK's manifest predates Android 12, so Yoin declares the authentication URI
 handler exported to receive Apple's callback. No Apple signing keys or tokens
 are bundled. See `docs/integrations/apple-music.md` for current validation limits.
+
+The AARs stay byte-for-byte as downloaded. At build time, the `yoin.musickit-large-id` plugin in `build-logic/`
+rewrites one call in the playback SDK so that songs with catalog ids above 2^31 can play. See "Catalog ids above
+2^31" in `docs/integrations/apple-music.md`.
