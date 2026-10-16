@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -82,7 +83,7 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.landing.guide.AppleMusicSignInWithGuide
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
 import com.gpo.yoin.ui.landing.guide.SpotoolfyMark
-import com.gpo.yoin.ui.landing.guide.signingCertificateSha1
+import com.gpo.yoin.ui.landing.guide.signingCertificateSha1s
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationViewModel
 import com.gpo.yoin.ui.settings.provider
@@ -535,7 +536,7 @@ private fun GuideStep(number: Int, @StringRes title: Int, content: @Composable (
     }
 }
 
-/** The two redirect URIs, folded away: the guide copies them; this is for setting up from a computer. */
+/** Dashboard values, folded away: the guide also copies these one at a time. */
 @Composable
 private fun RedirectUris(open: Boolean, onToggle: () -> Unit) {
     Surface(
@@ -581,8 +582,19 @@ private fun RedirectUris(open: Boolean, onToggle: () -> Unit) {
                     CopyRow(SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI)
                     DashboardFieldLabel(R.string.landing_spotify_packages_label)
                     CopyRow(context.packageName)
-                    remember(context) { signingCertificateSha1(context) }?.let { CopyRow(it) }
+                    SigningFingerprintRows(remember(context) { signingCertificateSha1s(context) })
                 }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SigningFingerprintRows(fingerprints: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        fingerprints.forEach { fingerprint ->
+            key(fingerprint) {
+                CopyRow(fingerprint)
             }
         }
     }

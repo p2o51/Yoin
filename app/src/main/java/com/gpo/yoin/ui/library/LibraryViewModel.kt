@@ -16,6 +16,7 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.YoinRepository
@@ -23,7 +24,9 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.FastScrollSection
+import com.gpo.yoin.ui.component.diagnosticReport
 import com.gpo.yoin.ui.component.toUserMessage
+import com.gpo.yoin.ui.component.toUserMessageText
 import java.text.Normalizer
 import java.time.Instant
 import java.time.ZoneId
@@ -363,6 +366,7 @@ class LibraryViewModel(
                     // beat after the source settled, so the page follows it
                     // rather than reading it once — while it still shows this error.
                     val fallback = e.uiTextOr(UiText.Res(R.string.library_error_load_library))
+                    val diagnostics = e.diagnosticReport()
                     var shown: LibraryUiState? = null
                     fun stillShown(): Boolean =
                         isDataLoadCurrent(generation, profileId) && (shown == null || _uiState.value == shown)
@@ -370,7 +374,8 @@ class LibraryViewModel(
                         .takeWhile { stillShown() }
                         .collect { needsReconnect ->
                             val error = LibraryUiState.Error(
-                                if (needsReconnect) UiText.Res(R.string.home_account_reconnect_needed) else fallback
+                                if (needsReconnect) UiText.Res(R.string.home_account_reconnect_needed) else fallback,
+                                diagnostics,
                             )
                             shown = error
                             _uiState.value = error
@@ -378,6 +383,7 @@ class LibraryViewModel(
                 } else {
                     _uiState.value = LibraryUiState.Error(
                         e.uiTextOr(UiText.Res(R.string.library_error_load_library)),
+                        diagnostics = e.diagnosticReport(),
                     )
                 }
             }
@@ -519,6 +525,7 @@ class LibraryViewModel(
                 if (content == null || nowhereBack) {
                     _uiState.value = LibraryUiState.Error(
                         e.uiTextOr(tab.loadFailure()),
+                        diagnostics = e.diagnosticReport(),
                     )
                     return@launch
                 }
@@ -2051,13 +2058,15 @@ class LibraryViewModel(
         return if (args.isEmpty()) resources.getString(id) else resources.getString(id, *args)
     }
 
-    private fun Throwable.uiTextOr(fallback: UiText): UiText {
-        val raw = message
-        return if (raw != null) UiText.Raw(raw) else fallback
-    }
+    // The shared lines first, in the app's language. Other failures still say their own message, but never an
+    // Apple failure: its message is a type name ("Apple Music: AccessDenied").
+    private fun Throwable.uiTextOr(fallback: UiText): UiText =
+        toUserMessageText() ?: message?.takeUnless { this is AppleMusicApiException }?.let(UiText::Raw) ?: fallback
 
     private fun Throwable.snackbarOr(id: Int, english: String): String =
-        message?.takeIf { it.isNotBlank() } ?: shownCopy(id, english)
+        toUserMessageText()?.let { toUserMessage(shownCopy(id, english), copyResources) }
+            ?: message?.takeIf { it.isNotBlank() && this !is AppleMusicApiException }
+            ?: shownCopy(id, english)
 
     private fun Throwable.searchFailure(): UiText {
         val resolved = shownCopy(R.string.library_error_search, "Search failed.")

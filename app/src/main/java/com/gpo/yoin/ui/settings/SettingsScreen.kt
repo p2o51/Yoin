@@ -80,6 +80,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -454,6 +455,8 @@ fun SettingsContent(
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
                                         item { WelcomeGuideItem() }
+                                        item { FeedbackItem(snackbarHostState) }
+                                        item { PrivacyPolicyItem(snackbarHostState) }
                                         spotoolfyRecapBatchId?.let { batchId ->
                                             item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
                                         }
@@ -1613,6 +1616,50 @@ private fun WelcomeGuideItem() {
         title = stringResource(R.string.settings_about_welcome_guide),
         summary = stringResource(R.string.settings_about_welcome_guide_summary),
         onClick = { context.startActivity(MainActivity.welcomeGuideIntent(context)) },
+    )
+}
+
+/** Settings › About › Send feedback: the public feedback form, in the browser. */
+@Composable
+private fun FeedbackItem(snackbarHostState: SnackbarHostState) {
+    ExternalPageItem(
+        icon = YoinSymbols.Send,
+        title = stringResource(R.string.settings_about_feedback),
+        url = YoinLinks.FEEDBACK_FORM,
+        openFailed = stringResource(R.string.settings_about_feedback_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+@Composable
+private fun PrivacyPolicyItem(snackbarHostState: SnackbarHostState) {
+    ExternalPageItem(
+        icon = YoinSymbols.Launch,
+        title = stringResource(R.string.settings_about_privacy_policy),
+        url = YoinLinks.PRIVACY_POLICY,
+        openFailed = stringResource(R.string.settings_about_privacy_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+/** A row that opens one of [YoinLinks] in the browser; [openFailed] when nothing can open it. */
+@Composable
+private fun ExternalPageItem(
+    icon: ImageVector,
+    title: String,
+    url: String,
+    openFailed: String,
+    snackbarHostState: SnackbarHostState,
+) {
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    SettingsItem(
+        icon = icon,
+        title = title,
+        onClick = {
+            runCatching { uriHandler.openUri(url) }
+                .onFailure { scope.launch { snackbarHostState.showSnackbar(openFailed) } }
+        },
     )
 }
 

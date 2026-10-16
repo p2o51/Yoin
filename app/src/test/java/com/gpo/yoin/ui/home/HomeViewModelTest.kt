@@ -443,8 +443,12 @@ class HomeViewModelTest {
 
         val content = viewModel.uiState.value as HomeUiState.Content
         assertEquals("b", content.memoryPill?.latest?.albumId?.rawId)
-        val after = content.widgetGrid.single { it.target is HomeWidgetTarget.MemoryFocus }
+        // The first memory 1×2 (the default shelf's) stays b; a, no longer the
+        // pill's, now follows it as an extra for the longer shelves.
+        val memories = content.widgetGrid.filter { it.target is HomeWidgetTarget.MemoryFocus }
+        val after = memories.first()
         assertEquals("grid-memory:${MediaId.PROVIDER_SUBSONIC}:b", after.stableId)
+        assertEquals(listOf("grid-memory:${MediaId.PROVIDER_SUBSONIC}:a"), memories.drop(1).map { it.stableId })
         assertEquals("9.1", after.ratingText)
     }
 

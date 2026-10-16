@@ -123,6 +123,7 @@
     <string name="guide_apis">Tick %1$s and %2$s</string>
     <string name="guide_package">Under %1$s, paste the package name</string>
     <string name="guide_sha1">Then the SHA1 fingerprint, tap %1$s</string>
+    <string name="guide_sha1_unavailable">Unable to read signing fingerprints</string>
     <string name="guide_save">Agree to the terms, tap %1$s</string>
     <string name="guide_client_id">Copy the %1$s, then come back</string>
     <string name="guide_then_name">Next: the name</string>

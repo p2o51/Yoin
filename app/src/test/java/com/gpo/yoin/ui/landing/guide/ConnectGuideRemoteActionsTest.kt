@@ -25,6 +25,7 @@ import org.robolectric.Shadows.shadowOf
 class ConnectGuideRemoteActionsTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
+    private val spotifySteps = spotifyGuideSteps(listOf("00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33"))
 
     /** The command the action sends when tapped, read back from its PendingIntent. */
     private fun RemoteAction.command(): String? {
@@ -56,8 +57,8 @@ class ConnectGuideRemoteActionsTest {
             "Prev Copy- Next",
             "Prev Return Next-"
         )
-        val actual = SpotifyGuideSteps.indices.map { step ->
-            val actions = guideRemoteActions(context, GuideKind.Spotify, step, max = 3)
+        val actual = spotifySteps.indices.map { step ->
+            val actions = guideRemoteActions(context, GuideKind.Spotify, step, max = 3, steps = spotifySteps)
             assertEquals(GUIDE_ACTION_SLOT_COUNT, actions.size)
             actions.joinToString(" ") { action -> action.command() + if (action.isEnabled) "" else "-" }
         }
@@ -66,9 +67,9 @@ class ConnectGuideRemoteActionsTest {
 
     @Test
     fun should_drawEachPlaceWithItsOwnIconAndLabel_when_spotifyGuideStepsAreShown() {
-        SpotifyGuideSteps.indices.forEach { step ->
-            val slots = guideActionSlots(GuideKind.Spotify, step)
-            val actions = guideRemoteActions(context, GuideKind.Spotify, step, max = 3)
+        spotifySteps.indices.forEach { step ->
+            val slots = guideActionSlots(GuideKind.Spotify, step, spotifySteps)
+            val actions = guideRemoteActions(context, GuideKind.Spotify, step, max = 3, steps = spotifySteps)
             slots.zip(actions).forEach { (slot, action) ->
                 assertEquals(slot.command.icon, action.icon.resId)
                 val label = context.getString(requireNotNull(slot.label))
@@ -83,7 +84,7 @@ class ConnectGuideRemoteActionsTest {
     fun should_handTheSystemThreeBlankSilentPlaces_when_appleMusicGuideIsShown() {
         // Never an empty list: the system would put Yoin's own playback buttons there (⏭ skips a track).
         AppleMusicGuideSteps.indices.forEach { step ->
-            val actions = guideRemoteActions(context, GuideKind.AppleMusic, step, max = 3)
+            val actions = guideRemoteActions(context, GuideKind.AppleMusic, step, max = 3, steps = AppleMusicGuideSteps)
             assertEquals(GUIDE_ACTION_SLOT_COUNT, actions.size)
             actions.forEach { action ->
                 assertFalse(action.isEnabled)
@@ -99,7 +100,7 @@ class ConnectGuideRemoteActionsTest {
     @Test
     fun should_launchTheGuideWindowNotYoin_when_backToYoinIsTapped() {
         // P10-1: a broadcast left the start of Yoin to a window that only floats, which Android 17 blocks.
-        val actions = guideRemoteActions(context, GuideKind.Spotify, SpotifyGuideSteps.lastIndex, max = 3)
+        val actions = guideRemoteActions(context, GuideKind.Spotify, spotifySteps.lastIndex, max = 3, steps = spotifySteps)
         val back = actions[1]
         assertTrue(back.isEnabled)
         val pending = shadowOf(back.actionIntent)
@@ -126,13 +127,13 @@ class ConnectGuideRemoteActionsTest {
     @Test
     fun should_neverHandTheSystemMoreThanItsLimit_when_itTakesFewerActions() {
         (1..GUIDE_ACTION_SLOT_COUNT).forEach { max ->
-            SpotifyGuideSteps.indices.forEach { step ->
-                val actions = guideRemoteActions(context, GuideKind.Spotify, step, max)
+            spotifySteps.indices.forEach { step ->
+                val actions = guideRemoteActions(context, GuideKind.Spotify, step, max, spotifySteps)
                 assertEquals(max, actions.size)
                 assertEquals(GuideCommand.Next.name, actions.last().command())
-                assertEquals(step != SpotifyGuideSteps.lastIndex, actions.last().isEnabled)
+                assertEquals(step != spotifySteps.lastIndex, actions.last().isEnabled)
             }
-            assertEquals(max, guideRemoteActions(context, GuideKind.AppleMusic, 0, max).size)
+            assertEquals(max, guideRemoteActions(context, GuideKind.AppleMusic, 0, max, AppleMusicGuideSteps).size)
         }
     }
 
