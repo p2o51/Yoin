@@ -278,6 +278,7 @@ fun AlbumDetailScreen(
                                         message = state.message.asString(),
                                         onRetry = onRetry,
                                         onBack = onBackClick,
+                                        diagnostics = state.diagnostics,
                                     )
                                 }
 

@@ -3,6 +3,7 @@ package com.gpo.yoin.data.remote.applemusic
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -100,6 +101,45 @@ class AppleMusicApiClientTest {
         val catalog = server.takeRequest()
         assertEquals("/v1/catalog/jp/songs/123", catalog.path)
         assertNull(catalog.getHeader("Music-User-Token"))
+    }
+
+    @Test
+    fun should_reportStatusAppleCodeAndMaskedRequest_when_appleRefuses() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(403).setBody(
+                """{"errors":[{"id":"X","title":"Forbidden","detail":"Invalid authentication",""" +
+                    """"status":"403","code":"40300"}]}"""
+            )
+        )
+        val error = runCatching {
+            client.resourcePage(
+                listOf("v1", "me", "library", "playlists", "p.mine", "tracks"),
+                personal = true,
+                query = mapOf("include" to "catalog"),
+            )
+        }.exceptionOrNull() as AppleMusicApiException
+        assertEquals(AppleMusicApiFailure.AccessDenied, error.failure)
+        assertEquals(403, error.status)
+        assertEquals("40300", error.appleCode)
+        // The user's own library id is masked; nothing of the error's prose is kept.
+        assertEquals("/v1/me/library/playlists/{id}/tracks include=catalog", error.request)
+    }
+
+    @Test
+    fun should_keepCatalogIds_when_describingACatalogRequest() {
+        assertEquals(
+            "/v1/catalog/jp/songs/6805970194",
+            diagnosticRequest("https://api.music.apple.com/v1/catalog/jp/songs/6805970194".toHttpUrl()),
+        )
+    }
+
+    @Test
+    fun should_leaveAppleCodeOut_when_bodyIsNotAppleError() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("<html>Server error</html>"))
+        val error = runCatching { client.resourcePage(listOf("v1", "catalog", "jp", "songs", "1"), false) }
+            .exceptionOrNull() as AppleMusicApiException
+        assertEquals(500, error.status)
+        assertNull(error.appleCode)
     }
 
     @Test

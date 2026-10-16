@@ -118,6 +118,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.component.CopyDiagnosticsButton
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -523,6 +524,7 @@ fun LibraryContent(
                                         Text(stringResource(R.string.library_error_settings))
                                     }
                                 }
+                                state.diagnostics?.let { CopyDiagnosticsButton(report = it) }
                             }
                         }
                     }

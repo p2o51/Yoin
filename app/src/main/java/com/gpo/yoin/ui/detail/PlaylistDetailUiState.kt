@@ -19,7 +19,7 @@ sealed interface PlaylistDetailUiState {
         val canWrite: Boolean = false,
     ) : PlaylistDetailUiState
 
-    data class Error(val message: UiText) : PlaylistDetailUiState
+    data class Error(val message: UiText, val diagnostics: String? = null) : PlaylistDetailUiState
 }
 
 data class PlaylistSong(

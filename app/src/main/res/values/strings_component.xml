@@ -138,6 +138,9 @@
     <string name="cmp_error_spotify_reconnect">Spotify access expired. Reconnect in Settings.</string>
     <string name="cmp_error_apple_reconnect">Apple Music access expired. Reconnect in Settings.</string>
     <string name="cmp_error_apple_token">Apple Music rejected the developer token. Check the token service.</string>
-    <string name="cmp_error_apple_denied">Apple Music denied access. Check your subscription.</string>
+    <string name="cmp_error_apple_denied">Apple Music refused this request. Try again later.</string>
     <string name="cmp_error_apple_busy">Apple Music is busy right now. Try again in a moment.</string>
+    <string name="cmp_error_copy_details">Copy details</string>
+    <string name="cmp_error_details_copied">Copied</string>
+    <string name="cmp_error_details_clip_label">Yoin diagnostics</string>
 </resources>
