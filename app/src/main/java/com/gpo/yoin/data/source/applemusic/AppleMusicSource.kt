@@ -85,9 +85,14 @@ class AppleMusicSource(
     // with that library playlist: what a playlist Apple won't read from the library opens as instead.
     private val catalogPlaylists = ConcurrentHashMap<String, CatalogPlaylist>()
 
-    suspend fun refreshPlaybackToken() {
-        playbackDeveloperToken = tokenProvider.token()
-    }
+    /**
+     * A developer token for MusicKit with [PlaybackTokenMinValiditySeconds] left. The token service replaces its JWT
+     * once it has five minutes left, so a cached token that runs shorter is swapped for a fresh one. MusicKit renews
+     * its token with less time left than that ([com.gpo.yoin.player.applemusic.MusicKitDeveloperToken]), so what
+     * this returns always counts as fresh there.
+     */
+    suspend fun refreshPlaybackToken(): String =
+        tokenProvider.token(PlaybackTokenMinValiditySeconds).also { playbackDeveloperToken = it }
 
     /**
      * The account's storefront, read once per source. Every catalog request needs it, and a source that goes
@@ -815,6 +820,9 @@ private data class CatalogPlaylist(val catalogId: String, val listed: Playlist)
 
 /** One tracklist read in flight, its failure kept as a Result for the caller to weigh (`attempt`). */
 private typealias TracklistRead = Deferred<Result<List<JsonObject>>>
+
+/** See [AppleMusicSource.refreshPlaybackToken]. */
+private const val PlaybackTokenMinValiditySeconds = 300L
 
 /** recent/played pages (10 each) read at most: Apple keeps only a short history anyway. */
 private const val RecentPlayedMaxPages = 5

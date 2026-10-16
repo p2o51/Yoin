@@ -7,6 +7,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -28,6 +29,30 @@ class AppleMusicDeveloperTokenProviderTest {
             assertEquals(second, provider.token())
             assertEquals(2, server.requestCount)
         }
+    }
+
+    @Test
+    fun should_refetch_when_cachedTokenHasLessThanAskedFor() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            val provider = AppleMusicDeveloperTokenProvider(server.url("/token"), nowEpochSeconds = { 1000 })
+            val cached = jwt(1200)
+            val fresh = jwt(4600)
+            server.enqueue(MockResponse().setBody("""{"developerToken":"$cached"}"""))
+            server.enqueue(MockResponse().setBody("""{"developerToken":"$fresh"}"""))
+            assertEquals(cached, provider.token())
+            // Playback asks for five minutes: 200 s left isn't enough.
+            assertEquals(fresh, provider.token(minValiditySeconds = 300))
+            assertEquals(fresh, provider.token(minValiditySeconds = 300))
+            assertEquals(2, server.requestCount)
+        }
+    }
+
+    @Test
+    fun should_readExpiry_when_tokenIsAnEs256Jwt() {
+        assertEquals(1234L, developerTokenExpiry(jwt(1234)))
+        assertNull(developerTokenExpiry("not-a-jwt"))
+        assertNull(developerTokenExpiry("a.b.c"))
     }
 
     @Test
