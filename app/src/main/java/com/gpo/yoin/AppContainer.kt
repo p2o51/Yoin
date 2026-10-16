@@ -3,14 +3,18 @@ package com.gpo.yoin
 import android.content.Context
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.album.AlbumScrapbookSource
+import com.gpo.yoin.data.album.TrackAlbumLinkEnricher
 import com.gpo.yoin.data.cache.DetailCacheStore
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.home.HomeSnapshotStore
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
+import com.gpo.yoin.data.migration.spotoolfy.IcuWordSegmenter
+import com.gpo.yoin.data.migration.spotoolfy.SpotoolfyImporter
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.AndroidKeyStoreCredentialsCipher
@@ -57,6 +61,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -114,12 +119,53 @@ class AppContainer(private val context: Context) {
                 MIGRATION_27_28,
                 MIGRATION_28_29,
                 MIGRATION_29_30,
+                MIGRATION_30_31,
             )
+            .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
             // 崩溃到用户面前可接受。
             .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = false)
             .build()
+    }
+
+    /** Spotoolfy → Yoin (docs/spotoolfy-migration.md): staged in the landing, written once Spotify connects. */
+    val spotoolfyImporter: SpotoolfyImporter by lazy {
+        SpotoolfyImporter(
+            database = database,
+            directory = File(context.noBackupFilesDir, "spotoolfy-import"),
+            segmenter = IcuWordSegmenter(),
+        )
+    }
+
+    /**
+     * A first run that ended between Spotify connecting and its Spotoolfy file going in: the landing never comes
+     * back once an account exists, so the staged file goes into the Spotify account that run added, here, off any
+     * screen's lifetime. Nothing staged, nothing happens.
+     */
+    fun resumeInterruptedSpotoolfyImport() {
+        applicationScope.launch {
+            val spotify = profileManager.profiles.first()
+                .filter { it.provider == MediaId.PROVIDER_SPOTIFY }
+                .maxByOrNull { it.createdAt }
+            val unknownTitle = context.getString(R.string.landing_spotoolfy_unknown_title)
+            val result = runCatching { spotoolfyImporter.resumeInterrupted(spotify?.id, unknownTitle) }.getOrNull()
+            if (result is SpotoolfyImporter.CommitResult.Committed) trackAlbumLinkEnricher.kick()
+        }
+    }
+
+    /** Albums for tracks noted or rated but never played here (imports above all), looked up in the background. */
+    val trackAlbumLinkEnricher: TrackAlbumLinkEnricher by lazy {
+        TrackAlbumLinkEnricher(
+            links = database.trackAlbumLinkDao(),
+            notes = database.songNoteDao(),
+            activeSource = profileManager.activeSource,
+            activeProfileId = profileManager.activeProfileId,
+            scope = applicationScope,
+        ).also { enricher ->
+            // A newly active account (one just added in the landing included) gets its pass at once.
+            applicationScope.launch { profileManager.activeProfileId.collect { enricher.kick() } }
+        }
     }
 
     private val _musicConfigurationRevision = MutableStateFlow(0L)
@@ -612,6 +658,56 @@ class AppContainer(private val context: Context) {
                     "UPDATE album_ratings SET reviewUpdatedAt = updatedAt " +
                         "WHERE review IS NOT NULL AND TRIM(review) != ''",
                 )
+            }
+        }
+
+        // v30 → v31: Spotoolfy import (docs/spotoolfy-migration.md §4.6, §4.7). track_album_links lets a track
+        // noted or rated but never played in Yoin find its album; import_batches / import_items are the import's
+        // own bookkeeping. All three are additive. Also re-creates the activity_events cap trigger, which fresh
+        // installs before v31 never got.
+        val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `track_album_links` (
+                        `profileId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `trackId` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `provider`, `trackId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `import_batches` (
+                        `batchId` TEXT NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `profileId` TEXT,
+                        `fileSha256` TEXT NOT NULL,
+                        `importedAt` INTEGER NOT NULL,
+                        `noteCount` INTEGER NOT NULL,
+                        `ratingCount` INTEGER NOT NULL,
+                        `summaryJson` TEXT NOT NULL,
+                        PRIMARY KEY(`batchId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `import_items` (
+                        `batchId` TEXT NOT NULL,
+                        `targetKind` TEXT NOT NULL,
+                        `targetKey` TEXT NOT NULL,
+                        PRIMARY KEY(`targetKind`, `targetKey`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_import_items_batchId` ON `import_items` (`batchId`)")
+                createActivityEventsCapTrigger(db)
             }
         }
 
@@ -1109,26 +1205,41 @@ class AppContainer(private val context: Context) {
                 // 就按 (timestamp ASC, id ASC) 顺序淘汰最老的。触发器
                 // 全局（不按 provider 分），因为 Memory 的候选池由 provider
                 // 过滤决定；整表容量才是真正的上限。
-                db.execSQL(
-                    """
-                    CREATE TRIGGER IF NOT EXISTS `trg_activity_events_cap`
-                    AFTER INSERT ON `activity_events`
-                    WHEN (SELECT COUNT(*) FROM `activity_events`) > $ACTIVITY_EVENTS_CAP
-                    BEGIN
-                        DELETE FROM `activity_events`
-                        WHERE `id` IN (
-                            SELECT `id` FROM `activity_events`
-                            ORDER BY `timestamp` ASC, `id` ASC
-                            LIMIT ((SELECT COUNT(*) FROM `activity_events`) - $ACTIVITY_EVENTS_CAP)
-                        );
-                    END
-                    """.trimIndent(),
-                )
+                createActivityEventsCapTrigger(db)
             }
         }
 
         /** 滚动淘汰 activity_events 的目标上限。 */
         const val ACTIVITY_EVENTS_CAP: Int = 10_000
+
+        /**
+         * activity_events 的滚动淘汰触发器。Room 只建实体表，不建触发器：v11 起的老库由
+         * MIGRATION_10_11 建，全新安装由 [createCallback] 建，v31 再补一次（之前的全新安装缺它）。
+         */
+        fun createActivityEventsCapTrigger(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TRIGGER IF NOT EXISTS `trg_activity_events_cap`
+                AFTER INSERT ON `activity_events`
+                WHEN (SELECT COUNT(*) FROM `activity_events`) > $ACTIVITY_EVENTS_CAP
+                BEGIN
+                    DELETE FROM `activity_events`
+                    WHERE `id` IN (
+                        SELECT `id` FROM `activity_events`
+                        ORDER BY `timestamp` ASC, `id` ASC
+                        LIMIT ((SELECT COUNT(*) FROM `activity_events`) - $ACTIVITY_EVENTS_CAP)
+                    );
+                END
+                """.trimIndent(),
+            )
+        }
+
+        /** 全新安装：Room 建完表之后补上实体之外的东西。 */
+        val createCallback = object : RoomDatabase.Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                createActivityEventsCapTrigger(db)
+            }
+        }
 
         /**
          * v11 → v12：把 `neodb_config.accessToken` 列干掉。Token 改走

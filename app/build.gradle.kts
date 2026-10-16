@@ -117,8 +117,6 @@ android {
         buildConfig = true
     }
 
-    // Room schema export — will be configured in Phase 3 with androidx.room plugin
-
     testOptions {
         unitTests {
             // Production code (e.g. the detail-cache android.util.LruCache) touches
@@ -149,6 +147,11 @@ android {
         warningsAsErrors = false
         checkDependencies = false
     }
+}
+
+// Room writes each schema version to app/schemas/ (commit them): the record later migrations are checked against.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 ktlint {

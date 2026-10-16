@@ -33,6 +33,7 @@ import com.gpo.yoin.data.local.toGridPoolRow
 import com.gpo.yoin.data.local.toPlaylist
 import com.gpo.yoin.data.local.toTrack
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.data.local.TrackAlbumLink
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.SongNoteKey
 import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
@@ -759,7 +760,27 @@ class YoinRepository(
                 detailCacheStore?.writeAlbum(profileId, album.id.toString(), album, stillCurrent)
             }
         )
-    )?.also(::seedLibraryMembership)
+    )?.also { album ->
+        seedLibraryMembership(album)
+        linkAlbumTracks(album)
+    }
+
+    /** Albums whose tracks were linked in this process: an album read many times (Home, Memories) writes once. */
+    private val linkedAlbums: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * Records which album each of [album]'s tracks belongs to (track_album_links), so a track rated or noted on
+     * this album without ever playing in Yoin still counts for it in Memories and Rediscover.
+     */
+    private suspend fun linkAlbumTracks(album: Album) {
+        val profileId = activeProfileId.value ?: return
+        if (album.tracks.isEmpty() || !linkedAlbums.add("$profileId|${album.id}")) return
+        val now = clock()
+        val rows = album.tracks.map { track ->
+            TrackAlbumLink(profileId, track.id.provider, track.id.rawId, album.id.rawId, TrackAlbumLink.SOURCE_DETAIL, now)
+        }
+        runCatching { database.trackAlbumLinkDao().upsertAll(rows) }
+    }
 
     private fun isPreMembershipAppleAlbum(album: Album): Boolean =
         album.tracks.isNotEmpty() && album.tracks.none { it.extras.containsKey("appleMusicLibraryChecked") }
@@ -3019,6 +3040,11 @@ class YoinRepository(
             ),
         )
         database.activityEventDao().insert(buildPlaybackActivity(track, activityContext, profileId))
+        track.albumId?.rawId?.takeIf { it.isNotBlank() }?.let { albumId ->
+            database.trackAlbumLinkDao().upsert(
+                TrackAlbumLink(profileId, track.id.provider, track.id.rawId, albumId, TrackAlbumLink.SOURCE_PLAY, clock()),
+            )
+        }
     }
 
     fun getRecentHistory(limit: Int = 50): Flow<List<PlayHistory>> =

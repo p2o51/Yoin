@@ -20,6 +20,8 @@ import com.gpo.yoin.data.memory.RediscoverSongPick
 import com.gpo.yoin.data.memory.RediscoverSongSource
 import com.gpo.yoin.data.memory.memoryEligible
 import com.gpo.yoin.data.memory.selectRediscover
+import com.gpo.yoin.data.memory.mixRediscoverShelf
+import com.gpo.yoin.data.memory.selectRediscoverNotes
 import com.gpo.yoin.data.memory.selectRediscoverShelf
 import com.gpo.yoin.data.memory.selectRediscoverSongs
 import com.gpo.yoin.data.model.Album
@@ -1737,7 +1739,9 @@ class HomeViewModel(
             // Recently Added shows is that album twice on the page.
             excludeRawAlbumIds = playedAlbums + addedAlbums,
         )
-        return selectRediscoverShelf(albums, songs).mapNotNull { entry ->
+        // Albums written about but never played here (Spotoolfy imports above all) take about a third (D11, D14).
+        val notes = selectRediscoverNotes(signals.pool, now, exclude)
+        return mixRediscoverShelf(selectRediscoverShelf(albums, songs), notes).mapNotNull { entry ->
             when (entry) {
                 is RediscoverPick -> toRediscoverItem(entry)
                 is RediscoverSongPick -> toRediscoverSongItem(entry)
@@ -2567,6 +2571,7 @@ private fun toRediscoverItem(pick: RediscoverPick): HomeRediscoverItem? {
         hasReview = candidate.hasAlbumReview,
         noteCount = candidate.noteCount,
         ratedTrackCount = candidate.ratedTrackCount,
+        fromNotes = pick.fromNotes,
     )
 }
 

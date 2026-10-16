@@ -92,6 +92,9 @@ internal class LandingViewModel(
         _state.update { s -> if (s.index > 0) s.copy(index = s.index - 1) else s }
     }
 
+    /** Accounts there before this landing opened: any other one was added here. Null until the list first loads. */
+    fun profilesAtStart(): Set<String>? = profilesAtStart
+
     /** Jumps straight to [step] if it is in the current list (QA and the spec page's step list). */
     fun goTo(step: LandingStep) {
         _state.update { s -> s.steps.indexOf(step).takeIf { it >= 0 }?.let { s.copy(index = it) } ?: s }

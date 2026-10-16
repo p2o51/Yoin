@@ -10,7 +10,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <queries><package android:name="com.apple.android.music" /></queries>
+    <queries>
+        <package android:name="com.apple.android.music" />
+        <!-- The landing's Spotoolfy step opens it when installed (docs/spotoolfy-migration.md §5.2). -->
+        <package android:name="com.gojyuplusone.spotoolfy.spotoolfy_flutter" />
+    </queries>
 
     <application
         android:name=".YoinApplication"
@@ -137,6 +141,28 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation" />
+
+        <!-- "Import to Yoin" in the share sheet, for a Spotoolfy export (docs/spotoolfy-migration.md §5.4): copies
+             the file into Yoin, then brings MainActivity forward. The shared URI never travels further. -->
+        <activity
+            android:name=".ui.spotoolfy.SpotoolfyShareReceiverActivity"
+            android:exported="true"
+            android:label="@string/spotoolfy_share_label"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Yoin.WidgetTrampoline">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+        </activity>
+        <!-- The Spotoolfy recap (docs/spotoolfy-migration.md §6). Plain Activity: native cross-Activity
+             predictive back to the landing or to Settings. -->
+        <activity
+            android:name=".ui.spotoolfy.SpotoolfyRecapActivity"
+            android:exported="false" />
 
         <!-- Activity Embedding 开关：声明本应用的分栏由自己负责（规则见
              res/xml/main_split_config.xml，YoinApplication 里注册）。 -->
