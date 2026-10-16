@@ -175,35 +175,58 @@ internal fun buildHomeMemoryPill(
     scope: String = "",
 ): HomeMemoryPill {
     val latestCandidate = pickLatestMemory(candidates)
-    val latest = latestCandidate?.let { candidate ->
-        val kind = memoryScoreKindOf(candidate)
-        HomeMemoryPill.Latest(
-            sessionId = candidate.sessionId,
-            albumId = MediaId(
-                candidate.provider,
-                MediaId.storedRawId(candidate.provider, candidate.albumId),
-            ),
-            albumName = candidate.albumName,
-            artistName = candidate.artistName?.takeIf { it.isNotBlank() },
-            coverArtUrl = candidate.coverArtUrl,
-            coverKey = candidate.coverArtKey,
-            scoreKind = kind,
-            scoreText = when (kind) {
-                MemoryScoreKind.ALBUM_RATING -> formatPillScore(candidate.albumRating)
-                MemoryScoreKind.AVERAGE_TRACK_RATING -> formatPillScore(candidate.averageSongRating)
-                MemoryScoreKind.NONE -> null
-            },
-            writtenAtMillis = candidate.lastWrittenAt,
-        )
-    }
+    val latest = latestCandidate?.let(::pillLatestOf)
     val notes = noteCount.coerceAtLeast(0)
     return HomeMemoryPill(
         latest = latest,
         noteCount = notes,
         scope = scope,
         newsKey = memoryNewsKey(latestCandidate, notes),
+        recall = pickMemoryRecall(candidates, latestCandidate).map(::pillLatestOf),
     )
 }
+
+private fun pillLatestOf(candidate: AlbumMemoryCandidate): HomeMemoryPill.Latest {
+    val kind = memoryScoreKindOf(candidate)
+    return HomeMemoryPill.Latest(
+        sessionId = candidate.sessionId,
+        albumId = MediaId(
+            candidate.provider,
+            MediaId.storedRawId(candidate.provider, candidate.albumId),
+        ),
+        albumName = candidate.albumName,
+        artistName = candidate.artistName?.takeIf { it.isNotBlank() },
+        coverArtUrl = candidate.coverArtUrl,
+        coverKey = candidate.coverArtKey,
+        scoreKind = kind,
+        scoreText = when (kind) {
+            MemoryScoreKind.ALBUM_RATING -> formatPillScore(candidate.albumRating)
+            MemoryScoreKind.AVERAGE_TRACK_RATING -> formatPillScore(candidate.averageSongRating)
+            MemoryScoreKind.NONE -> null
+        },
+        writtenAtMillis = candidate.lastWrittenAt,
+    )
+}
+
+/**
+ * The memories the bubble's idle reminder brings back: every one but
+ * [latest] (news tells that one), newest written first — plays only, never
+ * written on, after them — one per album, at most [MEMORY_RECALL_LIMIT].
+ */
+internal fun pickMemoryRecall(
+    candidates: List<AlbumMemoryCandidate>,
+    latest: AlbumMemoryCandidate?,
+): List<AlbumMemoryCandidate> {
+    fun AlbumMemoryCandidate.rawAlbumId() = MediaId.storedRawId(provider, albumId)
+    val latestAlbum = latest?.rawAlbumId()
+    return candidates
+        .filter { it.rawAlbumId() != latestAlbum }
+        .distinctBy { it.rawAlbumId() }
+        .sortedByDescending { it.lastWrittenAt ?: it.lastPlayedAt ?: it.firstPlayedAt ?: 0L }
+        .take(MEMORY_RECALL_LIMIT)
+}
+
+internal const val MEMORY_RECALL_LIMIT = 8
 
 /**
  * What "something new" is keyed on: the newest write on any memory (the

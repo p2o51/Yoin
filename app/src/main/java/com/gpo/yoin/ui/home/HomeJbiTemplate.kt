@@ -335,14 +335,15 @@ internal fun jbiLayoutSeed(cards: List<HomeWidgetCard>): Int =
 
 /**
  * The packed shelf of [cells] cells (the phone's 3 × 4 = 12 by default): up
- * to [maxSignals] wide cards first, then covers for the cells left.
+ * to [maxSignals] wide cards first (two at the phone's twelve; a longer shelf
+ * takes more, see jbiSignalLimit), then covers for the cells left.
  */
 internal fun trimToPhoneShelf(
     cards: List<HomeWidgetCard>,
     cells: Int = JBI_PHONE_CELLS,
     maxSignals: Int = JBI_MAX_SIGNALS,
 ): List<HomeWidgetCard> {
-    val wide = cards.filter { it.expanded }.take(maxSignals.coerceIn(0, JBI_MAX_SIGNALS))
+    val wide = cards.filter { it.expanded }.take(maxSignals.coerceAtLeast(0))
     val compacts = cards.filterNot { it.expanded }
     return wide + compacts.take((cells - wide.size * JBI_SIGNAL_CELLS).coerceAtLeast(0))
 }
@@ -351,9 +352,14 @@ internal fun trimToPhoneShelf(
  * [layout] at [rows] rows (D1 row presets), keeping every card it can where it
  * is, so neighbouring presets interpolate card by card.
  *
- * More rows: whole rows of covers are appended at the bottom of every lane,
- * seated with the next covers in [cards] in reading order (a row the shelf
- * can't fill is left off); the template's own rows, offsets and cards stay.
+ * More rows: whole rows are appended at the bottom of every lane, seated
+ * with the next covers in [cards] in reading order (a row the shelf can't
+ * fill is left off); the template's own rows and offsets stay. The rows
+ * added bring signal cards of their own when [cards] has more than the
+ * template seated ([jbiGrowSignals]): each stands in a lane away from the
+ * others, over the old bottom row and the first new one, and the cover it
+ * stands on moves down into the new rows — first of them, so the order of
+ * every card the smaller layout seated holds.
  *
  * Fewer rows: the bottom rows are cut. A signal card past the new bottom
  * moves up in its own lane (a standing one on a single row lies down across
@@ -374,22 +380,93 @@ internal fun jbiPresetLayout(layout: JbiLayout, cards: List<HomeWidgetCard>, row
 private fun growJbiLayout(layout: JbiLayout, cards: List<HomeWidgetCard>, rows: Int): JbiLayout {
     val template = layout.template
     val columns = template.columns
+    val oldRows = template.rows
     val seated = layout.cells.mapTo(HashSet()) { it.card.stableId }
     val spare = cards.filter { !it.expanded && it.stableId !in seated }
-    val fullRows = minOf(rows - template.rows, spare.size / columns)
-    if (fullRows <= 0) return layout
-    val added = buildList {
-        for (r in template.rows until template.rows + fullRows) for (c in 0 until columns) {
+    val spareSignals = cards.filter { it.expanded && it.stableId !in seated }
+    // As many whole rows as the shelf fills: each standing card covers one new
+    // cell and lends its old cover another, so it takes no extra cover.
+    var addedRows = rows - oldRows
+    var standing = emptyList<Int>()
+    while (addedRows > 0) {
+        val wanted = minOf(spareSignals.size, jbiGrowSignals(addedRows, columns))
+        standing = growSignalColumns(layout, wanted)
+        if (spare.size >= addedRows * columns - 2 * standing.size) break
+        addedRows--
+    }
+    if (addedRows <= 0) return layout
+    val offsets = template.offsets
+    val reading = compareBy<JbiPiece>({ it.row + offsets[it.column] }, { it.column })
+    val bottom = oldRows - 1
+    // The covers the new cards stand on, in the old reading order: they move down first.
+    val lent = layout.cells
+        .filter { it.piece.kind == JbiPieceKind.Cover && it.piece.row == bottom && it.piece.column in standing }
+        .sortedWith(compareBy(reading) { it.piece })
+    val kept = layout.cells - lent.toSet()
+    val signalCells = standing.sorted().mapIndexed { i, column ->
+        JbiCell(spareSignals[i], JbiPiece(JbiPieceKind.TallSignal, column, bottom))
+    }
+    val newCovers = buildList {
+        for (r in oldRows until oldRows + addedRows) for (c in 0 until columns) {
+            if (r == oldRows && c in standing) continue
             add(JbiPiece(JbiPieceKind.Cover, c, r))
         }
-    }.sortedWith(compareBy<JbiPiece>({ it.row + template.offsets[it.column] }, { it.column }))
-    // Every added cover sits below every old piece (offsets are under one row), so reading order holds.
-    val next = spare.iterator()
-    val cells = layout.cells + added.map { JbiCell(next.next(), it) }
+    }.sortedWith(reading)
+    val next = (lent.map { it.card } + spare).iterator()
+    val cells = (kept + signalCells + newCovers.map { JbiCell(next.next(), it) })
+        .sortedWith(compareBy(reading) { it.piece })
     return JbiLayout(
-        template = template.copy(rows = template.rows + fullRows, pieces = cells.map { it.piece }),
+        template = template.copy(rows = oldRows + addedRows, pieces = cells.map { it.piece }),
         cells = cells,
     )
+}
+
+/**
+ * Signal cards [addedRows] rows of [columns] lanes bring along: one for every
+ * [JbiCellsPerExtraSignal] cells they add, rounded to the nearest, at least
+ * one (the same rate as the packed shelves past twelve cells).
+ */
+internal fun jbiGrowSignals(addedRows: Int, columns: Int): Int =
+    maxOf(1, (addedRows * columns + JbiCellsPerExtraSignal / 2) / JbiCellsPerExtraSignal)
+
+/**
+ * Up to [count] lanes for new standing cards over [layout]'s bottom row: a
+ * lane whose bottom cell is a cover, never beside another signal card on
+ * that row or another new one, farthest from the signals already there
+ * first (ties by a seed from the template, so the same shelf grows the same
+ * way). Fewer when the lanes run out.
+ */
+private fun growSignalColumns(layout: JbiLayout, count: Int): List<Int> {
+    if (count <= 0) return emptyList()
+    val template = layout.template
+    val bottom = template.rows - 1
+    val signalColumns = layout.cells
+        .filter { it.piece.kind.isSignal }
+        .flatMap { cell -> cell.piece.column until cell.piece.endColumn }
+        .toSet()
+    val bottomSignal = layout.cells
+        .filter { it.piece.kind.isSignal && bottom in it.piece.row until it.piece.endRow }
+        .flatMap { cell -> cell.piece.column until cell.piece.endColumn }
+        .toSet()
+    val coverOnBottom = layout.cells
+        .filter { it.piece.kind == JbiPieceKind.Cover && it.piece.row == bottom }
+        .mapTo(HashSet()) { it.piece.column }
+    val random = Random(template.columns * 7_919 + template.rows * 104_729 + template.pieces.size)
+    val picked = mutableListOf<Int>()
+    repeat(count) {
+        val taken = signalColumns + picked
+        val open = (0 until template.columns).filter { c ->
+            c in coverOnBottom && c !in picked &&
+                (c - 1) !in bottomSignal && (c + 1) !in bottomSignal &&
+                (c - 1) !in picked && (c + 1) !in picked
+        }
+        if (open.isEmpty()) return picked
+        fun distance(c: Int) = taken.minOfOrNull { kotlin.math.abs(it - c) } ?: template.columns
+        val best = open.maxOf(::distance)
+        val ties = open.filter { distance(it) == best }
+        picked += ties[random.nextInt(ties.size)]
+    }
+    return picked
 }
 
 private fun shrinkJbiLayout(layout: JbiLayout, rows: Int): JbiLayout {

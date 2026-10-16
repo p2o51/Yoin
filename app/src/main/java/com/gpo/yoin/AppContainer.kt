@@ -409,6 +409,11 @@ class AppContainer(private val context: Context) {
         com.gpo.yoin.ui.home.SharedPrefsHomeEditHintStore(context)
     }
 
+    /** Jump Back In cards hidden for a while from Home edit mode, per account. */
+    val jbiHiddenStore: com.gpo.yoin.ui.home.JbiHiddenStore by lazy {
+        com.gpo.yoin.ui.home.SharedPrefsJbiHiddenStore(context)
+    }
+
     val experienceSessionStore: ExperienceSessionStore by lazy {
         ExperienceSessionStore()
     }
