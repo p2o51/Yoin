@@ -46,10 +46,10 @@ class LyricsProviderRegistry(
             .map(LyricProvider::name)
     }
 
-    suspend fun fetchLyric(title: String, artist: String): Hit? {
+    suspend fun fetchLyric(title: String, artist: String, durationMs: Long? = null): Hit? {
         for (p in providers) {
             if (!p.automatic) continue
-            val match = p.search(title, artist) ?: continue
+            val match = p.search(title, artist, durationMs) ?: continue
             val lrc = p.fetchNormalizedLyric(match.songId) ?: continue
             return Hit(lrc = lrc, providerName = p.name, providerSongId = match.songId)
         }

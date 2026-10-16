@@ -215,7 +215,7 @@ private class FakeProvider(
 
     override fun canFetch(songId: String): Boolean = fetchableIds(songId)
 
-    override suspend fun search(title: String, artist: String): SongMatch? {
+    override suspend fun search(title: String, artist: String, durationMs: Long?): SongMatch? {
         searches += 1
         return matches.firstOrNull()
     }

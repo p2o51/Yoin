@@ -12,6 +12,7 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -1034,5 +1035,33 @@ class AppleMusicSourceTest {
         assertEquals(credentials, codec.decode(codec.encode(credentials)))
         assertEquals("applemusic", credentials.providerId)
     }
+    @Test fun should_readEnglishNames_when_storefrontLanguageIsJapanese() = runTest {
+        reply("""{"data":[{"id":"jp","attributes":{"defaultLanguageTag":"ja","supportedLanguageTags":["ja","en-US"]}}]}""")
+        reply("""{"data":[{"id":"6805970194","type":"songs","attributes":{"name":"Pop Sound","artistName":"Kim Petras"}}]}""")
+        val track = MediaId(MediaId.PROVIDER_APPLE_MUSIC, "6805970194")
+
+        val names = source.alternateNames(track)
+        val again = source.alternateNames(track)
+
+        assertEquals(TrackNames("Pop Sound", "Kim Petras"), names)
+        assertEquals(names, again)
+        assertEquals("/v1/me/storefront", server.takeRequest().path)
+        assertEquals("/v1/catalog/jp/songs/6805970194?l=en-US", server.takeRequest().path)
+        // Kept per catalog id: the second ask sends nothing.
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_haveNoAlternateNames_when_storefrontIsAlreadyEnglish() = runTest {
+        reply("""{"data":[{"id":"us","attributes":{"defaultLanguageTag":"en-US","supportedLanguageTags":["en-US","es-MX"]}}]}""")
+
+        assertNull(source.alternateNames(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "6805970194")))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun should_haveNoAlternateNames_when_songIsOnlyInTheLibrary() = runTest {
+        assertNull(source.alternateNames(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.abc")))
+        assertEquals(0, server.requestCount)
+    }
+
     private fun reply(body: String) = server.enqueue(MockResponse().setBody(body))
 }

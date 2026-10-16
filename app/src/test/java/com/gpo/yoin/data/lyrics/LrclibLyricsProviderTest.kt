@@ -40,6 +40,38 @@ class LrclibLyricsProviderTest {
     }
 
     @Test
+    fun should_pickSameLength_when_firstResultIsAnotherCut() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"id":1,"trackName":"Pop Sound","artistName":"Kim Petras","duration":150.0},
+                  {"id":2,"trackName":"Pop Sound","artistName":"Kim Petras","duration":171.0}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("2", provider.search("Pop Sound", "Kim Petras", durationMs = 171_172)?.songId)
+    }
+
+    @Test
+    fun should_keepFirstResult_when_noResultHasTheLength() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"id":1,"trackName":"Pop Sound","artistName":"Kim Petras","duration":150.0},
+                  {"id":2,"trackName":"Pop Sound","artistName":"Kim Petras"}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("1", provider.search("Pop Sound", "Kim Petras", durationMs = 171_172)?.songId)
+    }
+
+    @Test
     fun search_returns_first_match() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(

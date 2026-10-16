@@ -2,6 +2,9 @@ package com.gpo.yoin.data.lyrics
 
 import android.util.Log
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
+import kotlin.math.roundToLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -17,7 +20,10 @@ import okhttp3.Request
 /**
  * LRCLIB 歌词源（https://lrclib.net）—— FOSS、无 key、无速率限制，LRC 同步歌词。
  * 两次 HTTP GET：
- * 1. 搜索：`/api/search?track_name=&artist_name=`，返回数组，取第一条 `.id`
+ * 1. 搜索：`/api/search?track_name=&artist_name=`，返回数组。自动匹配取第一条长度对得上
+ *    （`duration` 和播放的这首相差不超过 [LYRIC_DURATION_TOLERANCE_MS]）的
+ *    `.id`，没有长度对得上的、或者不知道时长时取第一条——同一首歌在 LRCLIB 常有单曲、专辑、
+ *    合辑好几条，第一条不一定是正在播的那个版本。
  * 2. 取词：`/api/get/{id}`，返回 `{syncedLyrics, plainLyrics, ...}`
  *    优先 `syncedLyrics`（带时间戳），兜底 `plainLyrics`。
  *
@@ -32,14 +38,27 @@ class LrclibLyricsProvider(
 
     override val name: String = "lrclib"
 
-    override suspend fun search(title: String, artist: String): SongMatch? =
-        searchMultiple(title, artist, limit = 1).firstOrNull()
+    override suspend fun search(title: String, artist: String, durationMs: Long?): SongMatch? {
+        val tracks = findTracks(title, artist, limit = SEARCH_PAGE_SIZE)
+        val sameLength = durationMs?.let { wanted ->
+            tracks.firstOrNull { track ->
+                track.durationMs != null && abs(track.durationMs - wanted) <= LYRIC_DURATION_TOLERANCE_MS
+            }
+        }
+        return (sameLength ?: tracks.firstOrNull())?.match
+    }
 
     override suspend fun searchMultiple(
         title: String,
         artist: String,
         limit: Int,
-    ): List<SongMatch> = withContext(Dispatchers.IO) {
+    ): List<SongMatch> = findTracks(title, artist, limit).map(LrclibTrack::match)
+
+    private suspend fun findTracks(
+        title: String,
+        artist: String,
+        limit: Int,
+    ): List<LrclibTrack> = withContext(Dispatchers.IO) {
         val url = "$baseUrl/api/search".toHttpUrl().newBuilder()
             .addQueryParameter("track_name", title)
             .addQueryParameter("artist_name", artist)
@@ -50,7 +69,7 @@ class LrclibLyricsProvider(
             client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "LRCLIB search failed: ${response.code}")
-                    return@use emptyList<SongMatch>()
+                    return@use emptyList<LrclibTrack>()
                 }
                 val raw = response.body?.string().orEmpty()
                 val arr = json.parseToJsonElement(raw).jsonArray
@@ -59,14 +78,22 @@ class LrclibLyricsProvider(
                     val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                     val songTitle = obj["trackName"]?.jsonPrimitive?.contentOrNull ?: title
                     val songArtist = obj["artistName"]?.jsonPrimitive?.contentOrNull ?: artist
-                    SongMatch(songId = id, title = songTitle, artist = songArtist)
+                    // `duration`：秒，可能带小数。
+                    val seconds = obj["duration"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
+                    LrclibTrack(
+                        match = SongMatch(songId = id, title = songTitle, artist = songArtist),
+                        durationMs = seconds?.takeIf { it > 0.0 }?.let { (it * 1_000).roundToLong() },
+                    )
                 }.toList()
             }
         }.getOrElse { e ->
+            if (e is CancellationException) throw e
             Log.w(TAG, "LRCLIB search error: ${e.message}")
             emptyList()
         }
     }
+
+    private class LrclibTrack(val match: SongMatch, val durationMs: Long?)
 
     override suspend fun fetchLyric(songId: String): String? = withContext(Dispatchers.IO) {
         val url = "$baseUrl/api/get/$songId".toHttpUrl()
@@ -93,6 +120,9 @@ class LrclibLyricsProvider(
     companion object {
         private const val TAG = "LrclibLyricsProvider"
         private const val DEFAULT_BASE_URL = "https://lrclib.net"
+
+        /** 自动匹配看这么多条，在里面找长度对得上的。 */
+        private const val SEARCH_PAGE_SIZE = 10
 
         private val HEADERS: Headers = Headers.Builder()
             .add("user-agent", "Yoin/0.1.0 (https://github.com/p2o51/Yoin)")

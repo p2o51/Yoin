@@ -43,13 +43,16 @@ class NetEaseLyricsProvider(
 
     private val matcher = LyricCandidateMatcher()
 
-    override suspend fun search(title: String, artist: String): SongMatch? =
+    override suspend fun search(title: String, artist: String, durationMs: Long?): SongMatch? =
         withContext(Dispatchers.IO) {
             val songs = findSongs(title, artist, SEARCH_PAGE_SIZE) ?: return@withContext null
             val picked = matcher.pick(
-                candidates = songs.map { LyricCandidateMatcher.Candidate(it.title.orEmpty(), it.artists, it.album) },
+                candidates = songs.map {
+                    LyricCandidateMatcher.Candidate(it.title.orEmpty(), it.artists, it.album, it.durationMs)
+                },
                 title = title,
                 artist = artist,
+                durationMs = durationMs,
             ) ?: return@withContext null
             songs[picked].toMatch(fallbackTitle = title, fallbackArtist = artist)
         }
@@ -110,6 +113,8 @@ class NetEaseLyricsProvider(
             album = ((obj["al"] as? JsonObject)?.get("name") as? JsonPrimitive)?.contentOrNull
                 ?.trim()
                 ?.takeIf(String::isNotEmpty),
+            // `dt`：毫秒。
+            durationMs = (obj["dt"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull()?.takeIf { it > 0L },
         )
     }
 
@@ -123,6 +128,7 @@ class NetEaseLyricsProvider(
         val title: String?,
         val artists: List<String>,
         val album: String?,
+        val durationMs: Long? = null,
     ) {
         fun toMatch(fallbackTitle: String, fallbackArtist: String): SongMatch = SongMatch(
             songId = id,
