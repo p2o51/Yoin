@@ -101,7 +101,7 @@ sealed interface LibraryUiState {
         val libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
     ) : LibraryUiState
 
-    data class Error(val message: UiText) : LibraryUiState
+    data class Error(val message: UiText, val diagnostics: String? = null) : LibraryUiState
 }
 
 /**

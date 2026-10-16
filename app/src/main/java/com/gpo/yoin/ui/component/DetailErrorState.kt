@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -23,7 +24,8 @@ import com.gpo.yoin.ui.theme.YoinTheme
 /**
  * Shared error surface for detail pages (album / artist / playlist): a
  * centered message with a Retry action, plus the standard [DetailBackButton]
- * when [onBack] is provided so a failed load never strands the user.
+ * when [onBack] is provided so a failed load never strands the user. With
+ * [diagnostics] ([diagnosticReport]) it also offers to copy them.
  *
  * [backPadding] must mirror the page's Content-state back-button slot so an
  * Error → Content transition after Retry doesn't make the button jump. The
@@ -39,6 +41,7 @@ fun DetailErrorState(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     backPadding: PaddingValues = PaddingValues(start = 8.dp, top = 4.dp),
+    diagnostics: String? = null,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         if (onBack != null) {
@@ -61,7 +64,10 @@ fun DetailErrorState(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.error,
             )
-            TextButton(onClick = onRetry) { Text(stringResource(R.string.cmp_detail_retry)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onRetry) { Text(stringResource(R.string.cmp_detail_retry)) }
+                diagnostics?.let { CopyDiagnosticsButton(report = it) }
+            }
         }
     }
 }
@@ -74,6 +80,7 @@ private fun DetailErrorStatePreview() {
             message = "Can't reach the server. Check your connection.",
             onRetry = {},
             onBack = {},
+            diagnostics = "Yoin 0.5.0 (8)",
         )
     }
 }
