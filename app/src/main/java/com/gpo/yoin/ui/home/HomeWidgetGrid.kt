@@ -191,7 +191,11 @@ internal fun HomeWidgetGridSection(
             null
         }
     }
-    val content = JbiContent(gridSpec, cards, layout, rows)
+    // A card taken off the shelf (edit mode's "not now") re-packs it like a template change
+    // does — the crossfade below on the effects springs, the height on the spatial one —
+    // instead of its neighbours snapping into its place.
+    val removals = rememberShelfRemovals(cards)
+    val content = JbiContent(gridSpec, cards, layout, rows, removals)
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val heightSpec = YoinMotion.spatialSpring<Float>()
     val cardScope = LocalHomeEditCardScope.current
@@ -513,15 +517,43 @@ private fun JbiPackedGrid(
  * One grid composition with the cards it seats — the outgoing layer keeps its
  * own while it fades. [key] is what a crossfade answers to: the L template
  * when there is one (a re-seat on the same template updates in place), else
- * the packed path's spec — never the row preset, which updates in place.
+ * the packed path's spec, and each card taken off the shelf — never the row
+ * preset, which updates in place.
  */
 private data class JbiContent(
     val spec: JbiGridSpec,
     val cards: List<HomeWidgetCard>,
     val layout: JbiLayout?,
     val rows: HomeRowPreset,
+    // How many times cards have been taken off the shelf ([ShelfRemovals]).
+    val removals: Int = 0,
 ) {
-    val key: Any get() = layout?.template ?: spec
+    val key: Any get() = (layout?.template ?: spec) to removals
+}
+
+/**
+ * Counts the shelf's removals: a new card list that is the last one minus some
+ * cards (a card hidden for a while). Any other change — a rotation of the
+ * pools, a signal card arriving — leaves the count, so it updates in place as
+ * before. Fed each new list once, in order.
+ */
+internal class ShelfRemovals {
+    private var ids: Set<String>? = null
+    private var count = 0
+
+    fun next(cards: List<HomeWidgetCard>): Int {
+        val now = cards.mapTo(HashSet()) { it.stableId }
+        val before = ids
+        if (before != null && now.size < before.size && before.containsAll(now)) count++
+        ids = now
+        return count
+    }
+}
+
+@Composable
+private fun rememberShelfRemovals(cards: List<HomeWidgetCard>): Int {
+    val removals = remember { ShelfRemovals() }
+    return remember(cards) { removals.next(cards) }
 }
 
 /** Each card's edit-mode index (wiggle parity, tap target) by stable id, in this list's order. */

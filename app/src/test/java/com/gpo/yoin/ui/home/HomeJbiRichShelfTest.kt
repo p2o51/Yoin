@@ -157,6 +157,19 @@ class HomeJbiRichShelfTest {
         assertEquals(7L * 24 * 60 * 60 * 1000, JbiHideSpan.OneWeek.millis)
     }
 
+    @Test
+    fun should_countOnlyCardsTakenOff_when_theShelfChanges() {
+        val removals = ShelfRemovals()
+        val shelf = shelf(signals = 2, covers = 6)
+        assertEquals(0, removals.next(shelf))
+        // A hidden card: the same shelf, one card short.
+        assertEquals(1, removals.next(shelf.filterNot { it.stableId == "c3" }))
+        // A rotation (new covers) or a card arriving updates in place.
+        assertEquals(1, removals.next(shelf.filterNot { it.stableId == "c3" } + cover(40)))
+        assertEquals(1, removals.next(shelf.drop(1) + cover(41) + cover(42)))
+        assertEquals(2, removals.next(shelf.drop(1) + cover(41)))
+    }
+
     // ---- memories ----
 
     private fun candidate(
@@ -164,6 +177,7 @@ class HomeJbiRichShelfTest {
         lastWrittenAt: Long? = null,
         review: Boolean = false,
         rating: Float? = 8f,
+        lastPlayedAt: Long? = null,
     ) = AlbumMemoryCandidate(
         profileId = "p1",
         provider = MediaId.PROVIDER_SUBSONIC,
@@ -179,7 +193,7 @@ class HomeJbiRichShelfTest {
         noteCount = 0,
         askAiCount = 0,
         firstPlayedAt = null,
-        lastPlayedAt = null,
+        lastPlayedAt = lastPlayedAt,
         lastWrittenAt = lastWrittenAt,
         playCount = 1,
         neoDbSynced = false,
@@ -220,6 +234,22 @@ class HomeJbiRichShelfTest {
         )
         assertEquals("new", pill.latest?.albumName?.removePrefix("Album "))
         assertEquals(listOf("Album mid", "Album old"), pill.recall.map { it.albumName })
+    }
+
+    @Test
+    fun should_keepPlaysOnlyMemoriesAfterWrittenOnes_when_aPlayIsNewerThanEveryWrite() {
+        val latest = candidate("new", lastWrittenAt = 300L)
+        val recall = pickMemoryRecall(
+            listOf(
+                latest,
+                candidate("playedToday", lastPlayedAt = 10_000L),
+                candidate("writtenLongAgo", lastWrittenAt = 50L),
+                candidate("playedYesterday", lastPlayedAt = 9_000L),
+                candidate("writtenLater", lastWrittenAt = 200L),
+            ),
+            latest,
+        )
+        assertEquals(listOf("writtenLater", "writtenLongAgo", "playedToday", "playedYesterday"), recall.map { it.albumId })
     }
 
     @Test

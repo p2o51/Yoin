@@ -222,7 +222,12 @@ internal fun pickMemoryRecall(
     return candidates
         .filter { it.rawAlbumId() != latestAlbum }
         .distinctBy { it.rawAlbumId() }
-        .sortedByDescending { it.lastWrittenAt ?: it.lastPlayedAt ?: it.firstPlayedAt ?: 0L }
+        .sortedWith(
+            // Every written memory first, newest write first; plays-only ones after them,
+            // newest play first — a recent play never outranks an older write.
+            compareByDescending<AlbumMemoryCandidate> { it.lastWrittenAt != null }
+                .thenByDescending { it.lastWrittenAt ?: it.lastPlayedAt ?: it.firstPlayedAt ?: 0L },
+        )
         .take(MEMORY_RECALL_LIMIT)
 }
 
