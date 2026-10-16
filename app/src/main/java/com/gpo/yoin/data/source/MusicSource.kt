@@ -126,6 +126,14 @@ interface MusicMetadata {
     suspend fun getLyrics(trackId: MediaId): Lyrics?
 
     /**
+     * [trackId]'s title and artist in English, where the service shows them in another language: Apple Music's
+     * Japan storefront writes Kim Petras as キム・ペトラス and "I LUV IT" as アイ・ラヴ・イット. Lyrics sources
+     * index the names a song came out under, so a lookup that found nothing under the shown names tries these.
+     * Null when there are none (the default).
+     */
+    suspend fun alternateNames(trackId: MediaId): TrackNames? = null
+
+    /**
      * A public web link to [id] (an album, artist, playlist or track) for
      * Share and "Open in …" — the provider's own app opens it where one is
      * installed. Null where there is none: a self-hosted server, or an item
@@ -246,3 +254,6 @@ interface MusicWriteActions {
 interface MusicPlayback {
     suspend fun handleFor(track: Track): PlaybackHandle
 }
+
+/** A song's title and artist under one set of names; see [MusicMetadata.alternateNames]. */
+data class TrackNames(val title: String, val artist: String)
