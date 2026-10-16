@@ -53,6 +53,8 @@ import kotlin.math.roundToInt
  * - [GuideKind.AppleMusic] (owner 2026-10-10): Yoin opens Apple's sign-in itself once the window is in the
  *   corner ([ConnectGuide.openAndAwaitReady]); the window follows the attempts — a try that didn't take turns
  *   it to "once more", a connection closes it.
+ * - [GuideKind.Spotoolfy] (D3, D10): opens Spotoolfy and walks it to the share sheet in Spotoolfy's teal: the
+ *   Client ID, the export, then "Import to Yoin". The file arriving closes it ([ConnectGuide.finishIfOpen]).
  *
  * Expanding the window (the system's full-screen button) or "back to Yoin" returns to Yoin; closing it just ends
  * the guide, and opening it again from Yoin starts it over ([GuideSession]). A separate task (taskAffinity,
@@ -210,6 +212,7 @@ class ConnectGuideActivity : ComponentActivity() {
             GuideKind.Spotify -> runCatching { startActivity(spotifyDashboardIntent()) }
             // Yoin is waiting in openAndAwaitReady and now opens the sign-in beneath the window.
             GuideKind.AppleMusic -> ConnectGuide.ready.tryEmit(kind)
+            GuideKind.Spotoolfy -> spotoolfyLaunchIntent(this)?.let { runCatching { startActivity(it) } }
         }
     }
 
@@ -261,6 +264,7 @@ class ConnectGuideActivity : ComponentActivity() {
                     when (kind) {
                         GuideKind.Spotify -> R.string.landing_spotify_open
                         GuideKind.AppleMusic -> R.string.guide_apple_title
+                        GuideKind.Spotoolfy -> R.string.guide_spotoolfy_title
                     },
                 ),
             )
@@ -305,6 +309,10 @@ internal fun guideReturnIntent(context: Context): Intent = Intent(context, Conne
 /** Spotify for Developers in the browser, in its own task. */
 internal fun spotifyDashboardIntent(): Intent =
     Intent(Intent.ACTION_VIEW, SpotifyDashboardUrl.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+/** Spotoolfy's launcher activity in its own task; null when it isn't installed. */
+internal fun spotoolfyLaunchIntent(context: Context): Intent? =
+    context.packageManager.getLaunchIntentForPackage(SpotoolfyPackage)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
 /**
  * The guide window's actions on [step] as handed to the system: [guideActionSlots] fitted to its limit [max], one
@@ -379,6 +387,20 @@ internal object ConnectGuide {
         } else {
             context.startActivity(intent(context, GuideKind.Spotify))
         }
+    }
+
+    /**
+     * "Open Spotoolfy", the same way: already in the corner, only Spotoolfy comes forward again beneath it.
+     * Returns false when Spotoolfy isn't installed (the landing offers the file picker then).
+     */
+    fun openSpotoolfy(context: Context): Boolean {
+        val launch = spotoolfyLaunchIntent(context) ?: return false
+        if (floatingKind.value == GuideKind.Spotoolfy) {
+            runCatching { context.startActivity(launch) }
+        } else {
+            context.startActivity(intent(context, GuideKind.Spotoolfy))
+        }
+        return true
     }
 
     /**

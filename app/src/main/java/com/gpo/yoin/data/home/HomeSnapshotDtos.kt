@@ -213,7 +213,8 @@ internal data class HomeRediscoverDto(
     val noteCount: Int = 0,
     val ratedTrackCount: Int = 0,
     val song: TrackDto? = null,
-    val noteSnippet: String? = null
+    val noteSnippet: String? = null,
+    val fromNotes: Boolean = false
 )
 
 /** The header's Memories pill. */

@@ -104,6 +104,33 @@ class ConnectGuideTest {
     }
 
     @Test
+    fun should_showTheFixedRowWithNothingToCopy_when_eachSpotoolfyStepIsShown() {
+        // The user copies the Client ID inside Spotoolfy: the middle stays greyed until it is back to Yoin.
+        val expected = listOf(
+            "Prev- Copy- Next",
+            "Prev Copy- Next",
+            "Prev Copy- Next",
+            "Prev Return Next-",
+        )
+        val actual = SpotoolfyGuideSteps.indices.map { step ->
+            guideActionSlots(GuideKind.Spotoolfy, step, SpotoolfyGuideSteps).joinToString(" ") { slot ->
+                slot.command.name + if (slot.enabled) "" else "-"
+            }
+        }
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun should_askForTheClientIdBeforeTheExport_when_spotoolfyGuideIsWalked() {
+        // Back in Yoin the Spotify step then finds the ID on the clipboard; the file arrives through the share sheet.
+        val clientId = SpotoolfyGuideSteps.indexOfFirst { R.string.guide_spotoolfy_label_client_id in it.labelRes }
+        val export = SpotoolfyGuideSteps.indexOfFirst { R.string.guide_spotoolfy_label_export in it.labelRes }
+        assertTrue(clientId in 0 until export)
+        assertEquals(listOf(R.string.spotoolfy_share_label), SpotoolfyGuideSteps.last().labelRes)
+        assertTrue(SpotoolfyGuideSteps.all { it.copies == null })
+    }
+
+    @Test
     fun should_neverHandTheSystemAnEmptyRow_when_guidingAppleMusicSignIn() {
         // An empty row lets the system fall back to Yoin's own playback buttons, whose ⏭ skips a track.
         AppleMusicGuideSteps.indices.forEach { step ->

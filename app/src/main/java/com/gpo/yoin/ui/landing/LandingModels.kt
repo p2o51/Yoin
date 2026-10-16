@@ -16,6 +16,9 @@ enum class LandingStep {
     Pick,
     About,
     Subsonic,
+
+    /** "Using Spotoolfy?" (docs/spotoolfy-migration.md §5): right before Spotify's connect step. */
+    Spotoolfy,
     Spotify,
     AppleMusic,
     Home,
@@ -45,13 +48,18 @@ enum class LandingMode { FirstRun, Rerun }
 
 /**
  * The step list for a selection. One connect step per picked service, in the
- * catalog's order; Home only once an account exists to own the layout.
+ * catalog's order, Spotify's preceded by the Spotoolfy question (its notes go
+ * into the Spotify account connected next); Home only once an account exists
+ * to own the layout.
  */
 internal fun landingSteps(picked: Set<SetupService>, hasAccount: Boolean): List<LandingStep> = buildList {
     add(LandingStep.Hello)
     add(LandingStep.Pick)
     add(LandingStep.About)
-    SetupService.entries.filter { it in picked }.forEach { add(LandingStep.connectStep(it)) }
+    SetupService.entries.filter { it in picked }.forEach { service ->
+        if (service == SetupService.Spotify) add(LandingStep.Spotoolfy)
+        add(LandingStep.connectStep(service))
+    }
     if (hasAccount) add(LandingStep.Home)
     add(LandingStep.Edge)
     add(LandingStep.Ready)

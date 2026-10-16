@@ -119,6 +119,58 @@ class RediscoverSignalDaoTest {
         assertEquals(listOf("album-2"), rows.map(AlbumTrackSignalAggregate::albumId))
     }
 
+    @Test
+    fun should_findAlbumThroughTrackAlbumLink_when_notedTrackNeverPlayed() = runTest {
+        val links = database.trackAlbumLinkDao()
+        plays.insert(play("a1", albumId = "album-1", playedAt = 10L))
+        // Played and linked to the same album: counted once.
+        links.upsert(link("a1", "album-1"))
+        links.upsert(link("imported", "album-2"))
+        // A lookup that found no album, and another profile's link: neither counts.
+        links.upsert(link("unknown", ""))
+        links.upsert(link("elsewhere", "album-3", profileId = "profile-b"))
+        notes.insert(note("n1", trackId = "a1", content = "played", updatedAt = 100L))
+        notes.insert(note("n2", trackId = "imported", content = "from Spotoolfy", updatedAt = 200L))
+        notes.insert(note("n3", trackId = "unknown", content = "kept", updatedAt = 300L))
+        notes.insert(note("n4", trackId = "elsewhere", content = "kept", updatedAt = 400L))
+        ratings.upsert(rating("imported", 10f, updatedAt = 250L))
+
+        val noted = notes.getNotedAlbumAggregates(MediaId.PROVIDER_SUBSONIC, "profile-a", limit = 10)
+        val rated = ratings.getRatedAlbumAggregates(MediaId.PROVIDER_SUBSONIC, "profile-a", limit = 10)
+
+        assertEquals(
+            listOf(
+                AlbumTrackSignalAggregate(albumId = "album-2", signalCount = 1, lastWrittenAt = 200L),
+                AlbumTrackSignalAggregate(albumId = "album-1", signalCount = 1, lastWrittenAt = 100L),
+            ),
+            noted,
+        )
+        assertEquals(
+            listOf(AlbumTrackSignalAggregate(albumId = "album-2", signalCount = 1, lastWrittenAt = 250L)),
+            rated,
+        )
+    }
+
+    @Test
+    fun should_listNotedTracksWithoutAlbum_when_enricherAsksForWork() = runTest {
+        val links = database.trackAlbumLinkDao()
+        plays.insert(play("played", albumId = "album-1", playedAt = 10L))
+        links.upsert(link("linked", "album-2"))
+        links.upsert(link("looked-up", ""))
+        notes.insert(note("n1", trackId = "played", content = "a", updatedAt = 100L))
+        notes.insert(note("n2", trackId = "linked", content = "b", updatedAt = 200L))
+        notes.insert(note("n3", trackId = "looked-up", content = "c", updatedAt = 300L))
+        notes.insert(note("n4", trackId = "noted", content = "d", updatedAt = 500L))
+        notes.insert(note("n5", trackId = "noted", content = "e", updatedAt = 50L))
+        ratings.upsert(rating("rated", 8f, updatedAt = 400L))
+        ratings.upsert(rating("noted", 8f, updatedAt = 900L))
+
+        val queue = links.getUnlinkedTracks("profile-a", MediaId.PROVIDER_SUBSONIC, limit = 10)
+
+        // Oldest first, each track once.
+        assertEquals(listOf("noted", "rated"), queue)
+    }
+
     // ── Rediscover songs ─────────────────────────────────────────────────
 
     @Test
@@ -235,6 +287,16 @@ class RediscoverSignalDaoTest {
         serverRating = 0,
         updatedAt = updatedAt,
     )
+
+    private fun link(trackId: String, albumId: String, profileId: String = "profile-a"): TrackAlbumLink =
+        TrackAlbumLink(
+            profileId = profileId,
+            provider = MediaId.PROVIDER_SUBSONIC,
+            trackId = trackId,
+            albumId = albumId,
+            source = TrackAlbumLink.SOURCE_IMPORT,
+            updatedAt = 1L,
+        )
 
     private companion object {
         const val NOW = 1_800_000_000_000L

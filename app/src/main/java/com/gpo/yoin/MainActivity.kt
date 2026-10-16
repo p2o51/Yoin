@@ -132,6 +132,14 @@ class MainActivity : ComponentActivity() {
         /** The splash never waits on the landing longer than this. */
         private const val SplashHoldLimitMs = 1_500L
 
+        /**
+         * Yoin forward as it is, a landing keeping its step (the Spotoolfy share receiver: the landing picks the file
+         * up itself); started when it isn't running.
+         */
+        fun bringForwardIntent(context: Context): Intent =
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+
         fun welcomeGuideIntent(context: Context): Intent =
             Intent(context, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)

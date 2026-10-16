@@ -71,6 +71,49 @@
     <string name="landing_ready_in_use">In use</string>
     <string name="landing_ready_empty">No accounts connected</string>
 
+    <!-- Spotoolfy step (docs/spotoolfy-migration.md §5): only when Spotify is picked, before its connect step. -->
+    <string name="landing_spotoolfy_title">Using Spotoolfy?</string>
+    <string name="landing_spotoolfy_body">Your notes and ratings can come along.</string>
+    <string name="landing_spotoolfy_yes_title">Yes, bring my data</string>
+    <string name="landing_spotoolfy_yes_body">Notes and ratings go into your new Spotify account</string>
+    <string name="landing_spotoolfy_no_title">No</string>
+    <string name="landing_spotoolfy_no_body">Start fresh</string>
+    <string name="landing_spotoolfy_open">Open Spotoolfy</string>
+    <string name="landing_spotoolfy_pick">Choose the export file</string>
+    <string name="landing_spotoolfy_pick_instead">Exported already? Choose the file</string>
+    <string name="landing_spotoolfy_reading">Reading the file…</string>
+    <plurals name="landing_spotoolfy_received_notes">
+        <item quantity="one">%1$d note received</item>
+        <item quantity="other">%1$d notes received</item>
+    </plurals>
+    <plurals name="landing_spotoolfy_received_ratings">
+        <item quantity="one">%1$d rating received</item>
+        <item quantity="other">%1$d ratings received</item>
+    </plurals>
+    <string name="landing_spotoolfy_received_body">They go into your Yoin once Spotify is connected.</string>
+    <string name="landing_spotoolfy_recap_again">See the recap again</string>
+    <string name="landing_spotoolfy_replace">Use another file</string>
+    <plurals name="landing_spotoolfy_written_notes">
+        <item quantity="one">%1$d note is now in %2$s</item>
+        <item quantity="other">%1$d notes are now in %2$s</item>
+    </plurals>
+    <plurals name="landing_spotoolfy_written_ratings">
+        <item quantity="one">%1$d rating is now in %2$s</item>
+        <item quantity="other">%1$d ratings are now in %2$s</item>
+    </plurals>
+    <string name="landing_spotoolfy_not_written">This account already has notes or ratings, so Spotoolfy\'s data stayed out.</string>
+    <string name="landing_spotoolfy_failed_not_spotoolfy">That isn\'t a Spotoolfy export.</string>
+    <string name="landing_spotoolfy_failed_corrupt">The file is damaged. Try exporting it again.</string>
+    <string name="landing_spotoolfy_failed_too_large">The file is over 32 MB.</string>
+    <string name="landing_spotoolfy_failed_empty">There are no notes or ratings in this file.</string>
+    <string name="landing_spotoolfy_failed_already">This file is already in Yoin.</string>
+    <string name="landing_spotoolfy_failed_unreadable">Couldn\'t read the file.</string>
+    <string name="landing_spotoolfy_unknown_title">Unknown track</string>
+    <string name="landing_spotoolfy_finish_title">Spotoolfy\'s data won\'t be kept</string>
+    <string name="landing_spotoolfy_finish_body">It goes into a Spotify account. With none connected, it\'s left out.</string>
+    <string name="landing_spotoolfy_finish_connect">Go back and connect</string>
+    <string name="landing_spotoolfy_finish_drop">Don\'t keep it</string>
+
     <!-- The picture-in-picture guide over Spotify for Developers. %s = the site's own label, kept in English. -->
     <string name="guide_step">Step %1$d of %2$d</string>
     <string name="guide_create">Log in, then tap %1$s</string>
@@ -104,4 +147,20 @@
     <string name="guide_apple_sign_in">Sign in with your Apple ID and allow Yoin</string>
     <string name="guide_apple_then_tries">It can take two or more tries</string>
     <string name="guide_apple_retry">Not through yet. Tap Connect again</string>
+    <!-- The picture-in-picture guide over Spotoolfy. %s = Spotoolfy's own words, drawn as keys. -->
+    <string name="guide_spotoolfy_title" translatable="false">Spotoolfy</string>
+    <string name="guide_spotoolfy_settings">Tap ⚙ at the top right</string>
+    <string name="guide_spotoolfy_then_client_id">Next: your Client ID</string>
+    <string name="guide_spotoolfy_client_id">Open %1$s, long-press %2$s and copy it</string>
+    <string name="guide_spotoolfy_then_empty">Box empty? Skip this step</string>
+    <string name="guide_spotoolfy_export">Under %1$s, tap %2$s</string>
+    <string name="guide_spotoolfy_then_share">Next: send it to Yoin</string>
+    <string name="guide_spotoolfy_share">In the share sheet, pick %1$s</string>
+    <!-- Spotoolfy's own labels, in Spotoolfy's English -->
+    <string name="guide_spotoolfy_label_client_id">Client ID</string>
+    <string name="guide_spotoolfy_label_data">Data Management</string>
+    <string name="guide_spotoolfy_label_export">Export Data</string>
+    <!-- How Yoin shows up in the share sheet for a Spotoolfy export -->
+    <string name="spotoolfy_share_label">Import to Yoin</string>
+    <string name="spotoolfy_share_outside_landing">Spotoolfy data can only come in during the welcome guide.</string>
 </resources>

@@ -113,6 +113,13 @@ interface MusicLibrary {
      */
     suspend fun getRecentlyPlayedAlbums(size: Int = 20): List<Album> =
         throw UnsupportedOperationException("Recently played is unavailable")
+
+    /**
+     * One track by id, for what a stored id doesn't say by itself: the album of a track noted or rated but never
+     * played in Yoin (docs/spotoolfy-migration.md §4.6). Null when the track is gone, or the provider has no
+     * single-track lookup (the default).
+     */
+    suspend fun getTrack(id: MediaId): Track? = null
 }
 
 interface MusicMetadata {

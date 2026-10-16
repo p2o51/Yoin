@@ -15,6 +15,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.ui.common.UiText
 import java.net.URI
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -24,6 +25,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -134,6 +137,14 @@ class SettingsViewModel(
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState.Loading)
 
     val switchingState: StateFlow<ProfileManager.SwitchState> = profileManager.switchingState
+
+    /** The newest Spotoolfy import into the account in use; Settings › About reopens its recap (D15). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val spotoolfyRecapBatchId: StateFlow<String?> = profileManager.activeProfileId
+        .flatMapLatest { id ->
+            if (id == null) flowOf(null) else container.spotoolfyImporter.observeLatestCommitted(id).map { it?.batchId }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     init {
         // Keep the account in use's Spotify picture fresh (it can change, and

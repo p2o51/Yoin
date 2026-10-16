@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.MainActivity
+import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
 import com.gpo.yoin.R
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
@@ -149,6 +150,7 @@ fun SettingsScreen(
     val switchingState by viewModel.switchingState.collectAsState()
     val providerPicker by viewModel.providerPickerState.collectAsState()
     val deleteConfirm by viewModel.deleteConfirmState.collectAsState()
+    val spotoolfyRecapBatchId by viewModel.spotoolfyRecapBatchId.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -257,6 +259,7 @@ fun SettingsScreen(
             )
         },
         cloudSyncSelected = cloudSyncMark.open == true,
+        spotoolfyRecapBatchId = spotoolfyRecapBatchId,
         modifier = modifier,
     )
 }
@@ -294,6 +297,8 @@ fun SettingsContent(
     // Settings › Storage › Cloud sync; null in previews/tests that have no app container.
     cloudSyncRow: (@Composable () -> Unit)? = null,
     cloudSyncSelected: Boolean = false,
+    // Settings › About › Spotoolfy recap: the account in use's newest import, null when it has none (D15).
+    spotoolfyRecapBatchId: String? = null,
 ) {
     // Large title → app-bar title handoff (Pixel's collapsing header): the
     // positions land in plain float state and are read only in the bar
@@ -452,6 +457,9 @@ fun SettingsContent(
                                         item { WelcomeGuideItem() }
                                         item { FeedbackItem(snackbarHostState) }
                                         item { PrivacyPolicyItem(snackbarHostState) }
+                                        spotoolfyRecapBatchId?.let { batchId ->
+                                            item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
+                                        }
                                         item {
                                             SettingsItem(
                                                 icon = YoinSymbols.Info,
@@ -1652,6 +1660,18 @@ private fun ExternalPageItem(
             runCatching { uriHandler.openUri(url) }
                 .onFailure { scope.launch { snackbarHostState.showSnackbar(openFailed) } }
         },
+    )
+}
+
+/** Settings › About › Spotoolfy recap: the import's two pages again, ending with Done (D15). */
+@Composable
+private fun SpotoolfyRecapItem(batchId: String) {
+    val context = LocalContext.current
+    SettingsItem(
+        icon = YoinSymbols.Info,
+        title = stringResource(R.string.settings_spotoolfy_recap),
+        summary = stringResource(R.string.settings_spotoolfy_recap_body),
+        onClick = { context.startActivity(SpotoolfyRecapActivity.intent(context, batchId, fromSettings = true)) },
     )
 }
 

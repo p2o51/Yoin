@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -81,6 +82,7 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.landing.guide.AppleMusicSignInWithGuide
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
+import com.gpo.yoin.ui.landing.guide.SpotoolfyMark
 import com.gpo.yoin.ui.landing.guide.signingCertificateSha1s
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationViewModel
@@ -111,7 +113,7 @@ internal interface LandingReactions {
 }
 
 @Composable
-private fun rememberSetupViewModel(container: AppContainer, service: SetupService): ServiceSetupViewModel =
+internal fun rememberSetupViewModel(container: AppContainer, service: SetupService): ServiceSetupViewModel =
     viewModel(
         key = "landing-setup-${service.key}",
         factory = ServiceSetupViewModel.Factory(container, ServiceSetupRequest(service)),
@@ -211,7 +213,7 @@ private fun ServiceCta(
 }
 
 @Composable
-private fun ErrorLine(text: String?) {
+internal fun ErrorLine(text: String?) {
     AnimatedVisibility(
         visible = text != null,
         enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + expandVertically(YoinMotion.defaultSpatialSpec()),
@@ -317,13 +319,15 @@ internal fun SubsonicConnectScene(
 
 /**
  * Spotify needs the user's own app on Spotify for Developers: the picture-in-picture guide walks them through
- * it, and coming back here reads the Client ID they copied.
+ * it, and coming back here reads the Client ID they copied. [imported]: the Spotoolfy file written into the
+ * account just connected, said under the button.
  */
 @Composable
 internal fun SpotifyConnectScene(
     container: AppContainer,
     connected: Boolean,
     reactions: LandingReactions,
+    imported: SpotoolfyImport.Written? = null,
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -451,6 +455,42 @@ internal fun SpotifyConnectScene(
                 }
             },
         )
+        AnimatedVisibility(
+            visible = connected && imported != null,
+            enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + expandVertically(YoinMotion.defaultSpatialSpec()),
+            exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast) +
+                shrinkVertically(YoinMotion.defaultSpatialSpec()),
+        ) {
+            imported?.let { SpotoolfyWrittenLine(it) }
+        }
+    }
+}
+
+/** "12 notes are now in <account>": the Spotoolfy file went into the account this step connected. */
+@Composable
+private fun SpotoolfyWrittenLine(imported: SpotoolfyImport.Written) {
+    val text = if (imported.noteCount > 0) {
+        pluralStringResource(
+            R.plurals.landing_spotoolfy_written_notes,
+            imported.noteCount,
+            imported.noteCount,
+            imported.accountName,
+        )
+    } else {
+        pluralStringResource(
+            R.plurals.landing_spotoolfy_written_ratings,
+            imported.ratingCount,
+            imported.ratingCount,
+            imported.accountName,
+        )
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(start = 8.dp, top = 10.dp),
+    ) {
+        SpotoolfyMark(size = 20.dp)
+        Text(text = text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
 
@@ -458,7 +498,7 @@ private const val ClientIdSettleMs = 3_000L
 
 private val ClientIdPattern = Regex("[0-9a-fA-F]{32}")
 
-private fun readClientIdFromClipboard(context: Context): String? {
+internal fun readClientIdFromClipboard(context: Context): String? {
     val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return null
     val text = runCatching { clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() }.getOrNull() ?: return null
     return ClientIdPattern.find(text.trim())?.value?.takeIf { it.length == text.trim().length }
@@ -744,7 +784,7 @@ internal fun AppleConnectScene(
 private const val AppleDeveloperProgramUrl = "https://developer.apple.com/programs/"
 
 @Composable
-private fun TokenOption(
+internal fun TokenOption(
     @StringRes title: Int,
     @StringRes body: Int,
     selected: Boolean,
