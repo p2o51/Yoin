@@ -450,6 +450,7 @@ fun SettingsContent(
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
                                         item { WelcomeGuideItem() }
+                                        item { FeedbackItem(snackbarHostState) }
                                         item { PrivacyPolicyItem(snackbarHostState) }
                                         item {
                                             SettingsItem(
@@ -1610,16 +1611,45 @@ private fun WelcomeGuideItem() {
     )
 }
 
+/** Settings › About › Send feedback: the public feedback form, in the browser. */
+@Composable
+private fun FeedbackItem(snackbarHostState: SnackbarHostState) {
+    ExternalPageItem(
+        icon = YoinSymbols.Send,
+        title = stringResource(R.string.settings_about_feedback),
+        url = YoinLinks.FEEDBACK_FORM,
+        openFailed = stringResource(R.string.settings_about_feedback_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
 @Composable
 private fun PrivacyPolicyItem(snackbarHostState: SnackbarHostState) {
-    val uriHandler = LocalUriHandler.current
-    val scope = rememberCoroutineScope()
-    val openFailed = stringResource(R.string.settings_about_privacy_open_failed)
-    SettingsItem(
+    ExternalPageItem(
         icon = YoinSymbols.Launch,
         title = stringResource(R.string.settings_about_privacy_policy),
+        url = YoinLinks.PRIVACY_POLICY,
+        openFailed = stringResource(R.string.settings_about_privacy_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+/** A row that opens one of [YoinLinks] in the browser; [openFailed] when nothing can open it. */
+@Composable
+private fun ExternalPageItem(
+    icon: ImageVector,
+    title: String,
+    url: String,
+    openFailed: String,
+    snackbarHostState: SnackbarHostState,
+) {
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    SettingsItem(
+        icon = icon,
+        title = title,
         onClick = {
-            runCatching { uriHandler.openUri("https://yoin.gojyuplus.com/privacy") }
+            runCatching { uriHandler.openUri(url) }
                 .onFailure { scope.launch { snackbarHostState.showSnackbar(openFailed) } }
         },
     )
