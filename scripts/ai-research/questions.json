@@ -1,0 +1,68 @@
+{
+  "_comment": "Five music questions for docs/research/ai-provider-search.md. `expect` lists the facts a grader checks; entries marked (verify) were not confirmed from a primary source when this file was written (2026-10-16) and must be checked against liner notes / label pages before scoring.",
+  "questions": [
+    {
+      "id": "q1-mandopop",
+      "segment": "华语主流",
+      "title": "晴天",
+      "artist": "周杰伦",
+      "album": "叶惠美",
+      "lang": "zh",
+      "question": "周杰伦《晴天》的作词、作曲分别是谁？收录在哪张专辑，哪一年发行？",
+      "expect": ["作词：周杰伦", "作曲：周杰伦", "专辑《叶惠美》", "2003 年"]
+    },
+    {
+      "id": "q2-mandarin-indie",
+      "segment": "华语独立",
+      "title": "大風吹",
+      "artist": "草東沒有派對",
+      "album": "醜奴兒",
+      "lang": "zh",
+      "question": "草东没有派对的《大风吹》收录在哪张专辑？这首歌和这张专辑拿过什么奖？歌词想表达什么？",
+      "expect": [
+        "专辑《醜奴兒》，2016 年",
+        "第 28 届金曲奖（2017）：《大风吹》年度歌曲；乐团另获最佳乐团、最佳新人",
+        "词曲署名 (verify)",
+        "歌词解读应引用可追溯来源（乐评 / 访谈 / 知乎），不能凭空编造"
+      ]
+    },
+    {
+      "id": "q3-anisong",
+      "segment": "日语主流",
+      "title": "残酷な天使のテーゼ",
+      "artist": "高橋洋子",
+      "album": "残酷な天使のテーゼ",
+      "lang": "ja",
+      "question": "高橋洋子「残酷な天使のテーゼ」の作詞・作曲・編曲は誰ですか？発売は何年ですか？",
+      "expect": ["作詞：及川眠子", "作曲：佐藤英敏", "編曲：大森俊之", "1995 年"]
+    },
+    {
+      "id": "q4-japanese-indie",
+      "segment": "日语独立 / 小众",
+      "title": "空洞です",
+      "artist": "ゆらゆら帝国",
+      "album": "空洞です",
+      "lang": "ja",
+      "question": "ゆらゆら帝国のアルバム『空洞です』のプロデューサーとレコーディング・エンジニアは誰？発売日とレーベルも教えて。",
+      "expect": [
+        "発売日 2007-10-10、ソニー・ミュージックアソシエイテッドレコーズ（AICL-1877）",
+        "サウンド・プロデューサー：石原洋",
+        "エンジニア：中村宗一郎 (verify)"
+      ]
+    },
+    {
+      "id": "q5-english-niche",
+      "segment": "英语小众独立",
+      "title": "Earthmover",
+      "artist": "Have a Nice Life",
+      "album": "Deathconsciousness",
+      "lang": "en",
+      "question": "Who made Have a Nice Life's album Deathconsciousness, on what label was it released, when, and how was it recorded?",
+      "expect": [
+        "Dan Barrett and Tim Macuga",
+        "2008, Enemies List Home Recordings (the duo's own label)",
+        "home-recorded lo-fi over several years, very small budget (Wikipedia: under $1,000)"
+      ]
+    }
+  ]
+}
