@@ -62,7 +62,12 @@ internal class SessionQuickActions(
     private val libraryWrites = MutableStateFlow<Set<MediaId>>(emptySet())
     private var attached: Job? = null
 
-    /** Session callback with the quick-action commands; wrap it with `by` to add more. */
+    /**
+     * Session callback with the quick-action commands. To add more, forward
+     * onConnect and onCustomCommand to it from a callback of your own — not
+     * with `by`: MediaSession.Callback's members are Java default methods,
+     * which Kotlin's delegation never forwards (see CatalogItemsCallback).
+     */
     val callback: MediaSession.Callback = object : MediaSession.Callback {
         override fun onConnect(
             session: MediaSession,

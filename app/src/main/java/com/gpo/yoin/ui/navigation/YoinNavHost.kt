@@ -1175,6 +1175,7 @@ private fun YoinShell(
                             onAddSongToPlaylist = { song ->
                                 nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                             },
+                            accountSwitcher = accountSwitcher,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(edgeContentPadding),

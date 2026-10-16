@@ -206,11 +206,17 @@ internal val LocalMemoryBubbleDwellMs = staticCompositionLocalOf { MemoryBubbleD
 
 // ── What the bubble remembers ──────────────────────────────────────────
 
-/** The last [HomeMemoryPill.newsKey] the bubble spoke, per profile scope. */
+/**
+ * The last [HomeMemoryPill.newsKey] the bubble spoke, per profile scope — and
+ * how far its idle reminder has got through [HomeMemoryPill.recall].
+ */
 internal interface MemoryBubbleSeenStore {
     fun lastSeen(scope: String): String?
 
     fun markSeen(scope: String, newsKey: String)
+
+    /** The idle reminder's turn in [scope]: 0, 1, 2… one more each time it is asked. */
+    fun nextRecallTurn(scope: String): Int
 }
 
 internal class SharedPrefsMemoryBubbleSeenStore(context: Context) : MemoryBubbleSeenStore {
@@ -222,10 +228,17 @@ internal class SharedPrefsMemoryBubbleSeenStore(context: Context) : MemoryBubble
         prefs.edit { putString(KEY_PREFIX + scope, newsKey) }
     }
 
+    override fun nextRecallTurn(scope: String): Int {
+        val turn = prefs.getInt(RECALL_PREFIX + scope, 0)
+        prefs.edit { putInt(RECALL_PREFIX + scope, if (turn == Int.MAX_VALUE) 0 else turn + 1) }
+        return turn
+    }
+
     private companion object {
         // Shared with the lyric idle hint: UI hints that remember they've spoken.
         const val PREFS_NAME = "yoin_ui_hints"
         const val KEY_PREFIX = "memory_bubble_seen:"
+        const val RECALL_PREFIX = "memory_bubble_recall:"
     }
 }
 
@@ -237,6 +250,25 @@ internal class InMemoryMemoryBubbleSeenStore : MemoryBubbleSeenStore {
     override fun markSeen(scope: String, newsKey: String) {
         seen[scope] = newsKey
     }
+
+    private val turns = mutableMapOf<String, Int>()
+
+    override fun nextRecallTurn(scope: String): Int {
+        val turn = turns[scope] ?: 0
+        turns[scope] = turn + 1
+        return turn
+    }
+}
+
+/**
+ * What the bubble says for [reason]: news is always the latest memory; the
+ * idle reminder brings back one of the others, the next in line on each
+ * [turn] — the latest itself when there are no others yet.
+ */
+internal fun memoryBubbleSubject(pill: HomeMemoryPill?, reason: BubbleReason, turn: Int): HomeMemoryPill.Latest? {
+    if (pill == null) return null
+    if (reason == BubbleReason.News || pill.recall.isEmpty()) return pill.latest
+    return pill.recall[Math.floorMod(turn, pill.recall.size)]
 }
 
 /** Null = the SharedPreferences store; the QA harness provides an in-memory one. */
@@ -790,11 +822,24 @@ internal fun MemoryBubbleOverlay(
     }
 
     var reason by remember { mutableStateOf<BubbleReason?>(null) }
+    // The memory it is saying, picked as it starts to speak: kept while it
+    // tucks away, so it says the same thing all the way back.
+    var subject by remember { mutableStateOf<HomeMemoryPill.Latest?>(null) }
     val hasSomething = pill.hasSomethingToSay()
     if (!hasSomething && reason != null) reason = null
     // Every change of what it says goes through the rules (MemoryBubbleTurn.after).
     val cue: (MemoryBubbleCue) -> Unit = { what ->
         val next = MemoryBubbleTurn(reason, shell.spokeThisForeground).after(what)
+        val starts = next.reason
+        if (starts != null && starts != reason) {
+            val shownPill = currentPill
+            val turn = if (starts == BubbleReason.Idle && shownPill != null && shownPill.recall.isNotEmpty()) {
+                store.nextRecallTurn(shownPill.scope)
+            } else {
+                0
+            }
+            subject = memoryBubbleSubject(shownPill, starts, turn)
+        }
         reason = next.reason
         shell.spokeThisForeground = next.spokeThisForeground
     }
@@ -902,7 +947,7 @@ internal fun MemoryBubbleOverlay(
     val tapBubble: () -> Unit = {
         haptics.performContextClick()
         cue(MemoryBubbleCue.Touch)
-        val session = pill?.latest?.sessionId
+        val session = (subject ?: pill?.latest)?.sessionId
         if (session != null) onOpenMemoryFocus(session) else onNavigateToMemories()
     }
 
@@ -938,6 +983,7 @@ internal fun MemoryBubbleOverlay(
             if (composedBubble) {
                 MemoryBubble(
                     pill = pill,
+                    subject = subject,
                     controller = controller,
                     speaking = speaking,
                     reduced = reduced,
@@ -1258,6 +1304,8 @@ private const val MarkArmStagger = 0.12f
 @Composable
 private fun MemoryBubble(
     pill: HomeMemoryPill?,
+    // The memory it says ([memoryBubbleSubject]); null = the pill's latest.
+    subject: HomeMemoryPill.Latest?,
     controller: MemoryBubbleController,
     speaking: Boolean,
     reduced: Boolean,
@@ -1269,7 +1317,7 @@ private fun MemoryBubble(
     val colors = MaterialTheme.colorScheme
     // While it tucks away it keeps saying what it said.
     val shown = rememberLastNonNull(pill?.takeIf { it.hasSomethingToSay() })
-    val latest = shown?.latest
+    val latest = subject ?: shown?.latest
     val backdrop = rememberExpressiveBackdropColors(
         model = latest?.coverArtUrl,
         fallbackBaseColor = colors.secondary,

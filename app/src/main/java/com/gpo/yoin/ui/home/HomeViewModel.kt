@@ -12,6 +12,7 @@ import com.gpo.yoin.data.home.HomeSnapshotStore
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.SongMemoryAggregate
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.memory.AlbumMemoryTitleSource
 import com.gpo.yoin.data.memory.REDISCOVER_AWAY_MS
@@ -110,7 +111,9 @@ class HomeViewModel(
     // none (previews, tests).
     private val snapshotStore: HomeSnapshotStore? = null,
     // Where a snapshot and its account's layout are read ([readSnapshot]).
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    // Jump Back In cards hidden for a while from edit mode (HomeJbiHidden.kt).
+    private val jbiHiddenStore: JbiHiddenStore = JbiHiddenStore.InMemory(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -1072,6 +1075,8 @@ class HomeViewModel(
         private var pools: YoinRepository.HomeGridPoolSnapshot? = null
         private var poolsRead = false
         private var notedTrack: Pair<HomeWidgetCard, MediaId>? = null
+        // The notes after it, for the longer shelves (jbiSignalLimit).
+        private var notedExtras: List<Pair<HomeWidgetCard, MediaId>> = emptyList()
         private var notedTrackRead = false
 
         // The activity log as read, and Spotify's endpoint feed: in (answered
@@ -1169,8 +1174,9 @@ class HomeViewModel(
             }
             pools = persisted.getOrNull()
             poolsRead = persisted.isSuccess
-            val note = loadNotedTrackCard()
-            notedTrack = note.getOrNull()
+            val note = loadNotedTrackCards()
+            notedTrack = note.getOrNull()?.primary
+            notedExtras = note.getOrNull()?.extras.orEmpty()
             notedTrackRead = note.isSuccess
             localActivities = activities
             localTierIn = true
@@ -1201,7 +1207,8 @@ class HomeViewModel(
                 // Unscoped / failed: keep the pill, memory 1×2 and cover marks up.
                 val pill = built?.pill ?: latest.memoryPill
                 val memory = if (built != null) built.memoryCard else latest.memoryCard()
-                val grid = gridWith(latest, memory)
+                val memoryExtras = if (built != null) built.extraMemoryCards else latest.widgetGrid.extraMemoryCards()
+                val grid = gridWith(latest, memory, memoryExtras)
                 latest.copy(
                     widgetGrid = grid,
                     memoryPill = pill,
@@ -1219,7 +1226,12 @@ class HomeViewModel(
             // The wide cards up stay as they are, so Rediscover's dedupe stands.
             splice { latest ->
                 latest.copy(
-                    widgetGrid = buildWidgetGrid(rotated, memory = latest.memoryCard(), note = latest.notedTrackCard())
+                    widgetGrid = buildWidgetGrid(
+                        rotated,
+                        memory = latest.memoryCard(),
+                        note = latest.notedTrackCard(),
+                        extras = latest.widgetGrid.extraSignalCards(),
+                    )
                 )
             }
         }
@@ -1375,13 +1387,17 @@ class HomeViewModel(
          */
         private fun gridWith(
             latest: HomeUiState.Content,
-            memory: Pair<HomeWidgetCard, MediaId?>?
+            memory: Pair<HomeWidgetCard, MediaId?>?,
+            memoryExtras: List<Pair<HomeWidgetCard, MediaId?>> = latest.widgetGrid.extraMemoryCards(),
         ): List<HomeWidgetCard> {
-            val note = if (localTierIn && notedTrackRead) notedTrack else latest.notedTrackCard()
+            val noteRead = localTierIn && notedTrackRead
+            val note = if (noteRead) notedTrack else latest.notedTrackCard()
+            val noteExtras = if (noteRead) notedExtras else latest.widgetGrid.extraNoteCards()
+            val extras = interleaveSignals(memoryExtras, noteExtras)
             return if (localTierIn && poolsRead) {
-                buildWidgetGrid(pools, memory = memory, note = note)
+                buildWidgetGrid(pools, memory = memory, note = note, extras = extras)
             } else {
-                repackWidgetGrid(latest.widgetGrid, memory = memory, note = note)
+                repackWidgetGrid(latest.widgetGrid, memory = memory, note = note, extras = extras)
             }
         }
 
@@ -1785,27 +1801,41 @@ class HomeViewModel(
         signals: MemorySignals?,
     ): List<HomeWidgetCard> {
         val memory = if (signals != null) signals.memoryCard else current.memoryCard()
-        val note = loadNotedTrackCard().getOrElse { current.notedTrackCard() }
-        return repackWidgetGrid(current, memory = memory, note = note)
+        val memoryExtras = if (signals != null) signals.extraMemoryCards else current.extraMemoryCards()
+        val notes = loadNotedTrackCards().getOrNull()
+        val note = if (notes != null) notes.primary else current.notedTrackCard()
+        val noteExtras = notes?.extras ?: current.extraNoteCards()
+        return repackWidgetGrid(
+            current,
+            memory = memory,
+            note = note,
+            extras = interleaveSignals(memoryExtras, noteExtras),
+        )
     }
 
     /**
-     * [current]'s compact cards behind the wide [memory] and [note] cards,
-     * deduping any compact the wide cards now cover, within the cover budget.
+     * [current]'s compact cards behind the wide [memory] and [note] cards (and
+     * the [extras] the longer shelves take), deduping any compact the wide
+     * cards now cover, within the cover budget. Hidden cards stay out.
      */
     private fun repackWidgetGrid(
         current: List<HomeWidgetCard>,
         memory: Pair<HomeWidgetCard, MediaId?>?,
-        note: Pair<HomeWidgetCard, MediaId>?
+        note: Pair<HomeWidgetCard, MediaId>?,
+        extras: List<Pair<HomeWidgetCard, MediaId?>> = emptyList(),
     ): List<HomeWidgetCard> {
-        val wideCards = listOfNotNull(memory?.first, note?.first)
-        if (wideCards.isEmpty() && current.none { it.expanded }) return current
+        val hidden = jbiHiddenKeys()
+        val wideCards = (listOfNotNull(memory?.first, note?.first) + extras.map { it.first })
+            .filterNot { it.jbiHideKey() in hidden }
+        if (wideCards.isEmpty() && current.none { it.expanded } && hidden.isEmpty()) return current
         val coveredIds = buildSet {
             memory?.second?.let { add(it.toString()) }
             note?.second?.let { add(it.toString()) }
+            extras.forEach { (_, id) -> id?.let { add(it.toString()) } }
         }
         val compacts = current
             .filterNot { it.expanded }
+            .filterNot { it.jbiHideKey() in hidden }
             .filterNot { card ->
                 when (val target = card.target) {
                     is HomeWidgetTarget.AlbumDetail -> target.albumId in coveredIds
@@ -1814,6 +1844,61 @@ class HomeViewModel(
                 }
             }
         return wideCards + compacts.take(GRID_MAX_COMPACTS)
+    }
+
+    /** The grid's memory 1×2s after its first (the longer shelves' extras), with their albums. */
+    private fun List<HomeWidgetCard>.extraMemoryCards(): List<Pair<HomeWidgetCard, MediaId?>> =
+        filter { it.target is HomeWidgetTarget.MemoryFocus }.drop(1).map { card -> card to memoryCardAlbumId(card) }
+
+    /** The grid's noted-track 1×2s after its first, with their tracks. */
+    private fun List<HomeWidgetCard>.extraNoteCards(): List<Pair<HomeWidgetCard, MediaId>> =
+        mapNotNull { card ->
+            (card.target as? HomeWidgetTarget.PlaySong)?.song?.id?.takeIf { card.expanded }?.let { card to it }
+        }.drop(1)
+
+    /** Every wide card past the grid's memory and note 1×2s, in the grid's order. */
+    private fun List<HomeWidgetCard>.extraSignalCards(): List<Pair<HomeWidgetCard, MediaId?>> =
+        interleaveSignals(extraMemoryCards(), extraNoteCards())
+
+    /** The extra wide cards in rank order: a memory, a note, a memory… */
+    private fun interleaveSignals(
+        memories: List<Pair<HomeWidgetCard, MediaId?>>,
+        notes: List<Pair<HomeWidgetCard, MediaId>>,
+    ): List<Pair<HomeWidgetCard, MediaId?>> = buildList {
+        for (i in 0 until maxOf(memories.size, notes.size)) {
+            memories.getOrNull(i)?.let(::add)
+            notes.getOrNull(i)?.let(::add)
+        }
+    }
+
+    /** The active account's hidden Jump Back In cards ([JbiHiddenStore]); none while unscoped. */
+    private fun jbiHiddenKeys(): Set<String> {
+        val providerId = repository.currentProviderId() ?: return emptySet()
+        val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return emptySet()
+        return jbiHiddenStore.hidden(homeScopeKey(providerId, profileId), nowMillis())
+    }
+
+    /**
+     * Hide [card] from Jump Back In for [span] (edit mode's bubble): off the
+     * shelf at once — edit mode or not, and in the feed queued behind the
+     * edit — and out of every shelf built until then. The next card in line
+     * steps up; a memory or note 1×2 makes way for the next one.
+     */
+    fun hideJbiCard(card: HomeWidgetCard, span: JbiHideSpan) {
+        val providerId = repository.currentProviderId() ?: return
+        val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return
+        val scopeKey = homeScopeKey(providerId, profileId)
+        if (contentScopeKey != scopeKey) return
+        val key = card.jbiHideKey()
+        jbiHiddenStore.hide(scopeKey, key, nowMillis() + span.millis)
+        fun HomeUiState.withoutIt(): HomeUiState =
+            (this as? HomeUiState.Content)?.let { content ->
+                content.copy(widgetGrid = content.widgetGrid.filterNot { it.jbiHideKey() == key })
+            } ?: this
+        frozenState = frozenState?.withoutIt()
+        published = published.withoutIt()
+        show()
+        currentContent()?.let { content -> keep(scopeKey, providerId, profileId, content) }
     }
 
     /** The grid's memory 1×2 with its album, as on screen. */
@@ -1920,8 +2005,16 @@ class HomeViewModel(
         // Null: none persisted yet — the wide cards alone.
         pools: YoinRepository.HomeGridPoolSnapshot?,
         memory: Pair<HomeWidgetCard, MediaId?>?,
-        note: Pair<HomeWidgetCard, MediaId>?
+        note: Pair<HomeWidgetCard, MediaId>?,
+        // The wide cards after those two, for the longer shelves (jbiSignalLimit).
+        extras: List<Pair<HomeWidgetCard, MediaId?>> = emptyList(),
     ): List<HomeWidgetCard> {
+        val hidden = jbiHiddenKeys()
+        val wideIds = buildSet {
+            memory?.second?.let(::add)
+            note?.second?.let(::add)
+            extras.forEach { (_, id) -> id?.let(::add) }
+        }
         // Covers first: an artless item (an Apple Music library playlist with
         // no artwork) reads as a grey hole in the shelf, so it only fills in
         // behind the ones with art — inside each pool here, and across the
@@ -1930,18 +2023,22 @@ class HomeViewModel(
         // each group, and the 2+2+3+3+2 recipe is unchanged whenever there is
         // enough art to fill it.
         val albumPool = pools?.albums.orEmpty()
-            .filterNot { album -> album.id == memory?.second }
+            .filterNot { album -> album.id in wideIds }
             .map { album -> album.toWidgetCard() }
+            .filterNot { card -> card.jbiHideKey() in hidden }
             .sortedBy { card -> card.coverArtUrl == null }
         val trackPool = pools?.tracks.orEmpty()
-            .filterNot { track -> track.id == note?.second }
+            .filterNot { track -> track.id in wideIds }
             .map { track -> track.toWidgetCard() }
+            .filterNot { card -> card.jbiHideKey() in hidden }
             .sortedBy { card -> card.coverArtUrl == null }
         val playlistPool = pools?.playlists.orEmpty()
             .map { playlist -> playlist.toWidgetCard() }
+            .filterNot { card -> card.jbiHideKey() in hidden }
             .sortedBy { card -> card.coverArtUrl == null }
 
-        val wideCards = listOfNotNull(memory?.first, note?.first)
+        val wideCards = (listOfNotNull(memory?.first, note?.first) + extras.map { it.first })
+            .filterNot { card -> card.jbiHideKey() in hidden }
         val primary = interleaveCards(
             albumPool.take(3),
             trackPool.take(2),
@@ -1996,34 +2093,45 @@ class HomeViewModel(
         if (!matchesCurrentScope(providerId, profileId)) return null
         val pill = buildHomeMemoryPill(candidates, noteCount, scope = homeScopeKey(providerId, profileId))
             .withMemoryTitle(candidates)
-        val memoryCard = pickJbiMemoryCandidate(
-            candidates = candidates,
+        // Jump Back In's memory 1×2s: the first as before, then a few more for
+        // the longer shelves — none of them an album hidden from it for now.
+        val hidden = jbiHiddenStore.hidden(homeScopeKey(providerId, profileId), nowMillis())
+        val memoryPicks = pickJbiMemoryCandidates(
+            candidates = candidates.filterNot { candidate ->
+                val albumId = MediaId(candidate.provider, MediaId.storedRawId(candidate.provider, candidate.albumId))
+                jbiAlbumHideKey(albumId.toString()) in hidden
+            },
             avoidRawAlbumId = pill.latest?.albumId?.rawId,
             preferRawAlbumId = preferJbiRawAlbumId,
-        )?.let { candidate -> toMemoryCard(candidate) }
-        return MemorySignals(pill = pill, memoryCard = memoryCard, pool = pool, songs = songs, stamp = stamp)
+            count = 1 + JBI_EXTRA_MEMORY_CARDS,
+        ).map { candidate -> toMemoryCard(candidate) }
+        return MemorySignals(
+            pill = pill,
+            memoryCard = memoryPicks.firstOrNull(),
+            extraMemoryCards = memoryPicks.drop(1),
+            pool = pool,
+            songs = songs,
+            stamp = stamp,
+        )
     }
 
     /** The album a memory 1×2 points at, recovered from its stable id. */
-    private fun memoryCardAlbumId(card: HomeWidgetCard): MediaId? {
-        // stableId = "grid-memory:<provider>:<rawAlbumId>"; raw ids may hold ':'.
-        val rest = card.stableId.removePrefix("grid-memory:")
-        val provider = rest.substringBefore(':', missingDelimiterValue = "")
-        val rawId = rest.substringAfter(':', missingDelimiterValue = "")
-        return if (provider.isNotBlank() && rawId.isNotBlank()) MediaId(provider, rawId) else null
-    }
+    private fun memoryCardAlbumId(card: HomeWidgetCard): MediaId? = memoryCardAlbum(card.stableId)
 
     /**
      * The bubble's latest memory with its Memory title, resolved as the card's
      * is (cache-only on the AI side); the bare album name doesn't count.
      */
     private suspend fun HomeMemoryPill.withMemoryTitle(candidates: List<AlbumMemoryCandidate>): HomeMemoryPill {
-        val shown = latest ?: return this
-        val candidate = candidates.firstOrNull { it.sessionId == shown.sessionId } ?: return this
-        val resolved = guardedOrNull { memoryTitle(candidate) }
-            ?.takeIf { it.source != AlbumMemoryTitleSource.ALBUM }
-            ?: return this
-        return copy(latest = shown.copy(memoryTitle = resolved.text))
+        suspend fun HomeMemoryPill.Latest.titled(): HomeMemoryPill.Latest {
+            val candidate = candidates.firstOrNull { it.sessionId == sessionId } ?: return this
+            val resolved = guardedOrNull { memoryTitle(candidate) }
+                ?.takeIf { it.source != AlbumMemoryTitleSource.ALBUM }
+                ?: return this
+            return copy(memoryTitle = resolved.text)
+        }
+        // The idle reminder's memories read their titles the same way (cache only).
+        return copy(latest = latest?.titled(), recall = recall.map { it.titled() })
     }
 
     /**
@@ -2052,7 +2160,7 @@ class HomeViewModel(
         }
         val (subtitle, subtitleText) = albumSubtitle(candidate.artistName)
         val card = HomeWidgetCard(
-            stableId = "grid-memory:${candidate.provider}:$rawAlbumId",
+            stableId = "$MEMORY_CARD_PREFIX${candidate.provider}:$rawAlbumId",
             entityType = MemoryEntityType.ALBUM,
             title = candidate.albumName,
             subtitle = subtitle,
@@ -2081,16 +2189,33 @@ class HomeViewModel(
         return card to albumId
     }
 
+    /** Jump Back In's noted-track 1×2s: the newest first, then the ones the longer shelves take. */
+    private data class NotedCards(
+        val primary: Pair<HomeWidgetCard, MediaId>?,
+        val extras: List<Pair<HomeWidgetCard, MediaId>>,
+    )
+
     /**
-     * The noted-track 1×2: the most recently touched song note, enriched
+     * The noted-track 1×2s: the most recently touched song notes, one per
+     * song and none of a song hidden from Jump Back In for now, enriched
      * best-effort with the track's rating and last-play metadata (cover,
-     * duration) so the card can play the song on tap. Success(null): no
-     * note; a failed note read is a failure (the card up stays).
+     * duration) so the card can play the song on tap. The first is the
+     * default shelf's; up to [JBI_EXTRA_NOTE_CARDS] more follow. Success with
+     * no primary: no note; a failed note read is a failure (the cards up stay).
      */
-    private suspend fun loadNotedTrackCard(): Result<Pair<HomeWidgetCard, MediaId>?> {
-        val notes = guardedListResult { repository.getRecentSongNotes(limit = 1) }
+    private suspend fun loadNotedTrackCards(): Result<NotedCards> {
+        val notes = guardedListResult { repository.getRecentSongNotes(limit = JBI_NOTE_READ_LIMIT) }
             .getOrElse { return Result.failure(it) }
-        val note = notes.firstOrNull() ?: return Result.success(null)
+        val hidden = jbiHiddenKeys()
+        val picked = notes
+            .distinctBy { note -> note.provider to note.trackId }
+            .filterNot { note -> jbiSongHideKey(MediaId(note.provider, note.trackId)) in hidden }
+            .take(1 + JBI_EXTRA_NOTE_CARDS)
+        val cards = picked.map { note -> notedTrackCard(note) }
+        return Result.success(NotedCards(primary = cards.firstOrNull(), extras = cards.drop(1)))
+    }
+
+    private suspend fun notedTrackCard(note: SongNote): Pair<HomeWidgetCard, MediaId> {
         val trackId = MediaId(note.provider, note.trackId)
         val rating = guardedOrNull { repository.getRating(trackId).first()?.rating }
         val recentPlay = guardedOrNull { repository.getMostRecentPlay(trackId) }
@@ -2129,7 +2254,7 @@ class HomeViewModel(
             expanded = true,
             target = HomeWidgetTarget.PlaySong(song),
         )
-        return Result.success(card to trackId)
+        return card to trackId
     }
 
     private suspend fun loadGridTracks(): List<Track> =
@@ -2321,7 +2446,8 @@ class HomeViewModel(
                 memoryTitle = { candidate -> container.albumMemoryTitleResolver.resolve(candidate) },
                 configurationRevision = container.musicConfigurationRevision,
                 switchingState = container.profileManager.switchingState,
-                snapshotStore = container.homeSnapshotStore
+                snapshotStore = container.homeSnapshotStore,
+                jbiHiddenStore = container.jbiHiddenStore,
             ) as T
     }
 
@@ -2334,6 +2460,16 @@ class HomeViewModel(
         // columns take — 10 columns × 3 rows at XL (D1 row presets) less the
         // two signal cards is the deepest, 26 covers (HomeRowPresets.kt).
         private const val GRID_MAX_COMPACTS = 28
+
+        // Wide cards past the memory and the note 1×2 (owner 2026-10-13: a
+        // shelf pulled longer keeps its memories and notes coming): the
+        // phone's XL seats one more, a tablet's XL rows one or two
+        // (jbiSignalLimit, jbiGrowSignals). Each costs a Room read or two.
+        private const val JBI_EXTRA_MEMORY_CARDS = 2
+        private const val JBI_EXTRA_NOTE_CARDS = 2
+
+        // Recent notes read to find that many songs (a song keeps several).
+        private const val JBI_NOTE_READ_LIMIT = 12
 
         /** Your Playlists shelf: enough to scroll on a tablet, not the whole library. */
         private const val HOME_PLAYLIST_LIMIT = 20
@@ -2506,6 +2642,8 @@ private class NoActiveSourceException : IllegalStateException("No source for the
 private data class MemorySignals(
     val pill: HomeMemoryPill,
     val memoryCard: Pair<HomeWidgetCard, MediaId?>?,
+    // Jump Back In's further memory 1×2s, for its longer shelves (jbiSignalLimit).
+    val extraMemoryCards: List<Pair<HomeWidgetCard, MediaId?>> = emptyList(),
     val pool: List<AlbumMemoryCandidate> = emptyList(),
     val songs: List<SongMemoryAggregate> = emptyList(),
     // The memory-signal stamp read before the build (null: unread).
@@ -2600,6 +2738,31 @@ internal fun pickJbiMemoryCandidate(
     }
     val others = candidates.filterNot { candidate -> candidate.rawAlbumId() == avoidRawAlbumId }
     return pick(others) ?: pick(candidates)
+}
+
+/**
+ * Up to [count] memory 1×2s for Jump Back In: [pickJbiMemoryCandidate]'s pick
+ * first (what the default shelf shows), then the other qualifying albums —
+ * reviewed ones before rated ones, each in [candidates]' order — never the
+ * header's latest memory ([avoidRawAlbumId]) among the extras.
+ */
+internal fun pickJbiMemoryCandidates(
+    candidates: List<AlbumMemoryCandidate>,
+    avoidRawAlbumId: String?,
+    preferRawAlbumId: String? = null,
+    count: Int = 1,
+): List<AlbumMemoryCandidate> {
+    val first = pickJbiMemoryCandidate(candidates, avoidRawAlbumId, preferRawAlbumId) ?: return emptyList()
+    if (count <= 1) return listOf(first)
+    fun AlbumMemoryCandidate.rawAlbumId(): String = MediaId.storedRawId(provider, albumId)
+    val firstAlbum = first.rawAlbumId()
+    val rest = candidates.filter { candidate ->
+        val raw = candidate.rawAlbumId()
+        raw != firstAlbum && raw != avoidRawAlbumId &&
+            (candidate.hasAlbumReview || candidate.albumRating != null || candidate.averageSongRating != null)
+    }.distinctBy { it.rawAlbumId() }
+    val (reviewed, rated) = rest.partition { it.hasAlbumReview }
+    return listOf(first) + (reviewed + rated).take(count - 1)
 }
 
 /** [layout]'s appended-hidden sections whose ids aren't in [seenIds], in layout order. */

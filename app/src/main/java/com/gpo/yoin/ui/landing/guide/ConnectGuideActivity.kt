@@ -71,7 +71,8 @@ class ConnectGuideActivity : ComponentActivity() {
     private var flashJob: Job? = null
     private var enterJob: Job? = null
 
-    private val steps get() = guideSteps(kind)
+    private var fingerprints = emptyList<String>()
+    private var steps by mutableStateOf(guideSteps(GuideKind.Spotify, emptyList()))
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -86,7 +87,10 @@ class ConnectGuideActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         kind = intent.guideKind()
-        step = savedInstanceState?.getInt(STATE_STEP) ?: 0
+        fingerprints = savedInstanceState?.getStringArrayList(STATE_FINGERPRINTS)
+            ?: readFingerprints()
+        steps = guideSteps(kind, fingerprints)
+        step = (savedInstanceState?.getInt(STATE_STEP) ?: 0).coerceIn(0, steps.lastIndex)
         session = GuideSession(
             // A "back to Yoin" that finds no window (the process went): straight back, nothing to hand off.
             handedOff = savedInstanceState?.getBoolean(STATE_HANDED_OFF) ?: intent.isGuideReturn(),
@@ -107,6 +111,7 @@ class ConnectGuideActivity : ComponentActivity() {
         setContent {
             ConnectGuideScreen(
                 kind = kind,
+                steps = steps,
                 inPictureInPicture = inPictureInPicture,
                 stepIndex = step,
                 flash = flash,
@@ -131,6 +136,8 @@ class ConnectGuideActivity : ComponentActivity() {
             ConnectGuide.opened(next)
         }
         enterJob?.cancel()
+        fingerprints = readFingerprints()
+        steps = guideSteps(kind, fingerprints)
         step = 0
         if (isInPictureInPictureMode) setPictureInPictureParams(pipParams())
     }
@@ -162,6 +169,7 @@ class ConnectGuideActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(STATE_STEP, step)
+        outState.putStringArrayList(STATE_FINGERPRINTS, ArrayList(fingerprints))
         outState.putBoolean(STATE_HANDED_OFF, session.handedOff)
         outState.putBoolean(STATE_FLOATED, session.floated)
     }
@@ -216,7 +224,7 @@ class ConnectGuideActivity : ComponentActivity() {
     }
 
     private fun copyStepValue() {
-        val value = steps[step].copies?.value(this) ?: return
+        val value = steps.getOrNull(step)?.copyValue(this) ?: return
         getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Yoin", value))
         YoinHaptics(window.decorView).performConfirm()
         flashJob?.cancel()
@@ -226,6 +234,9 @@ class ConnectGuideActivity : ComponentActivity() {
             flash = null
         }
     }
+
+    private fun readFingerprints(): List<String> =
+        if (kind == GuideKind.Spotify) signingCertificateSha1s(this) else emptyList()
 
     /** From full screen only: a window that only floats may not start Yoin, and finishing would strand the user. */
     private fun returnToYoin() {
@@ -240,7 +251,7 @@ class ConnectGuideActivity : ComponentActivity() {
     private fun pipParams(): PictureInPictureParams {
         // The same three places every step, so › never moves; Apple's are blank (it has nothing to tap, and an
         // empty list would let the system put Yoin's own playback buttons there).
-        val actions = guideRemoteActions(this, kind, step, maxNumPictureInPictureActions)
+        val actions = guideRemoteActions(this, kind, step, maxNumPictureInPictureActions, steps)
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(4, 3))
             .setActions(actions)
@@ -263,6 +274,7 @@ class ConnectGuideActivity : ComponentActivity() {
 
     private companion object {
         const val STATE_STEP = "step"
+        const val STATE_FINGERPRINTS = "fingerprints"
         const val STATE_HANDED_OFF = "handedOff"
         const val STATE_FLOATED = "floated"
         const val EnterDelayMs = 450L
@@ -308,8 +320,8 @@ internal fun spotoolfyLaunchIntent(context: Context): Intent? =
  * and ignores taps on, so the place stays; a live one broadcasts its [GuideCommand] to the open guide, except
  * "back to Yoin", which launches the window again ([guideReturnIntent]).
  */
-internal fun guideRemoteActions(context: Context, kind: GuideKind, step: Int, max: Int): List<RemoteAction> =
-    fitGuideActionSlots(guideActionSlots(kind, step), max).map { remoteAction(context, it) }
+internal fun guideRemoteActions(context: Context, kind: GuideKind, step: Int, max: Int, steps: List<GuideStep>): List<RemoteAction> =
+    fitGuideActionSlots(guideActionSlots(kind, step, steps), max).map { remoteAction(context, it) }
 
 private fun remoteAction(context: Context, slot: GuideActionSlot): RemoteAction {
     val command = slot.command.name

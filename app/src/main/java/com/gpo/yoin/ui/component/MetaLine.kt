@@ -26,7 +26,7 @@ sealed interface MetaGroup {
     /** Plain text at the line's normal emphasis. [muted] draws it at 60%. */
     data class Plain(val text: String, val muted: Boolean = false) : MetaGroup
 
-    /** A kind label (Album, Single). [accent] uses the theme accent; otherwise muted. */
+    /** A kind label (Album, Single), at the line's size. [accent] uses the theme accent; otherwise muted. */
     data class Kind(val text: String, val accent: Boolean = false) : MetaGroup
 }
 
@@ -122,9 +122,12 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink
             maxLines = maxLines,
             softWrap = false,
         )
+        // The line's own size (a fixed labelSmall read a size smaller than the
+        // artist and year beside it, owner 2026-10-15); the colour and the
+        // label weight set it apart.
         is MetaGroup.Kind -> Text(
             text = group.text,
-            style = MaterialTheme.typography.labelSmall,
+            style = style.copy(fontWeight = FontWeight.Medium),
             color = when {
                 group.accent -> scheme.primary
                 inkIsTheme -> scheme.onSurfaceVariant

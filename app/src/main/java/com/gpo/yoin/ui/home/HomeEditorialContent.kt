@@ -326,6 +326,8 @@ internal fun HomeEditorialContent(
     // Home asks Spotify for those portraits only, and only then (owner Q16).
     onActivityArtistsShown: (List<String>) -> Unit = {},
     onFeedAtRestChanged: (Boolean) -> Unit = {},
+    // Edit mode's "not now" on a Jump Back In card; null = no bubble.
+    onHideJbiCard: ((HomeWidgetCard, JbiHideSpan) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val haptics = rememberYoinHaptics()
@@ -1119,6 +1121,7 @@ internal fun HomeEditorialContent(
                                     memoryMarks = albumMemoryMarks,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onCardClick = onWidgetCardClick,
+                                    onHideCard = onHideJbiCard,
                                     modifier = remember(firstReveal) {
                                         Modifier
                                             .fillMaxWidth()
