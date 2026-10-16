@@ -12,15 +12,11 @@ import com.gpo.yoin.player.PlaybackService.Companion.yoinNotificationProvider
 import com.gpo.yoin.player.SessionQuickActions
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** The same session drives Yoin, Bluetooth and lock-screen controls; MusicKit owns audio/DRM. */
@@ -29,7 +25,6 @@ class AppleMusicPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var source: AppleMusicSource? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var refreshJob: Job? = null
     private val quickActions by lazy {
         val container = (application as YoinApplication).container
         SessionQuickActions(this, { container.playbackManager }, { container.repository })
@@ -65,8 +60,8 @@ class AppleMusicPlaybackService : MediaSessionService() {
                 this,
                 active.playbackDeveloperToken,
                 active.credentials.musicUserToken,
-                onObservation = {},
-                currentDeveloperToken = { active.playbackDeveloperToken }
+                refreshDeveloperToken = { active.refreshPlaybackToken() },
+                onObservation = {}
             )
             session = MediaSession.Builder(this, player)
                 .setId("apple-music")
@@ -74,16 +69,6 @@ class AppleMusicPlaybackService : MediaSessionService() {
                 .build()
                 .also(quickActions::attach)
             source = active
-            refreshJob = scope.launch {
-                while (isActive) {
-                    delay(30_000)
-                    try {
-                        active.refreshPlaybackToken()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) { /* The next API/play request reports a failed refresh. */ }
-                }
-            }
         }
         return session
     }
@@ -92,7 +77,6 @@ class AppleMusicPlaybackService : MediaSessionService() {
         if (session?.player?.playWhenReady != true) stopSelf()
     }
     private fun releaseSession() {
-        refreshJob?.cancel()
         quickActions.detach()
         session?.run {
             player.stop()

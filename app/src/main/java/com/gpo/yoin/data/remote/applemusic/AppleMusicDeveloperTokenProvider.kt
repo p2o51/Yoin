@@ -37,8 +37,9 @@ class AppleMusicDeveloperTokenProvider(
         require(endpoint.username.isEmpty() && endpoint.password.isEmpty())
     }
 
-    suspend fun token(): String = mutex.withLock {
-        cached?.takeIf { expiresAt > nowEpochSeconds() + 60 }?.let { return@withLock it }
+    /** A token with more than [minValiditySeconds] left: the cached one while it has that long, else a new one. */
+    suspend fun token(minValiditySeconds: Long = 60): String = mutex.withLock {
+        cached?.takeIf { expiresAt > nowEpochSeconds() + minValiditySeconds }?.let { return@withLock it }
         val token = withContext(Dispatchers.IO) {
             http.newCall(Request.Builder().url(endpoint).header("Accept", "application/json").build())
                 .execute().use { response ->
@@ -58,15 +59,8 @@ class AppleMusicDeveloperTokenProvider(
                     }
                 }
         }
-        // Local validation is only a freshness/shape check. Apple verifies the JWT signature.
-        val expiry = runCatching {
-            val parts = token.split('.')
-            require(parts.size == 3 && parts.all { it.isNotBlank() })
-            val header = Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(parts[0]))).jsonObject
-            require(header["alg"]?.jsonPrimitive?.contentOrNull == "ES256")
-            val payload = Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(parts[1]))).jsonObject
-            requireNotNull(payload["exp"]?.jsonPrimitive?.longOrNull)
-        }.getOrElse { throw IOException("Developer token service returned an invalid token") }
+        val expiry = developerTokenExpiry(token)
+            ?: throw IOException("Developer token service returned an invalid token")
         if (expiry <= nowEpochSeconds() + 60) throw IOException("Developer token is expired or expires too soon")
         cached = token
         expiresAt = expiry
@@ -78,3 +72,16 @@ class AppleMusicDeveloperTokenProvider(
         expiresAt = 0
     }
 }
+
+/**
+ * The `exp` (epoch seconds) of an ES256 developer JWT, or null for anything else. Only a freshness/shape check:
+ * Apple verifies the signature.
+ */
+fun developerTokenExpiry(token: String): Long? = runCatching {
+    val parts = token.split('.')
+    require(parts.size == 3 && parts.all { it.isNotBlank() })
+    val header = Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(parts[0]))).jsonObject
+    require(header["alg"]?.jsonPrimitive?.contentOrNull == "ES256")
+    val payload = Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(parts[1]))).jsonObject
+    requireNotNull(payload["exp"]?.jsonPrimitive?.longOrNull)
+}.getOrNull()
