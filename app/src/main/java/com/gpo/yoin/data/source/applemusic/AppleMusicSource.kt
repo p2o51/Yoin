@@ -86,10 +86,11 @@ class AppleMusicSource(
     private val catalogPlaylists = ConcurrentHashMap<String, CatalogPlaylist>()
 
     /**
-     * A developer token for MusicKit with [PlaybackTokenMinValiditySeconds] left. The token service replaces its JWT
-     * once it has five minutes left, so a cached token that runs shorter is swapped for a fresh one. MusicKit renews
-     * its token with less time left than that ([com.gpo.yoin.player.applemusic.MusicKitDeveloperToken]), so what
-     * this returns always counts as fresh there.
+     * A developer token for MusicKit, cached only while it has [PlaybackTokenMinValiditySeconds] left. Our token
+     * service replaces its JWT once it has five minutes left, so a cached token that runs shorter is swapped for a
+     * fresh one, and MusicKit renews its token with less time left than that
+     * ([com.gpo.yoin.player.applemusic.MusicKitDeveloperToken]): what this returns counts as fresh there. A service
+     * that hands out a shorter one has it used as it is, and MusicKit asks again shortly after.
      */
     suspend fun refreshPlaybackToken(): String =
         tokenProvider.token(PlaybackTokenMinValiditySeconds).also { playbackDeveloperToken = it }

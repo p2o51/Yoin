@@ -37,7 +37,12 @@ class AppleMusicDeveloperTokenProvider(
         require(endpoint.username.isEmpty() && endpoint.password.isEmpty())
     }
 
-    /** A token with more than [minValiditySeconds] left: the cached one while it has that long, else a new one. */
+    /**
+     * The cached token while it has more than [minValiditySeconds] left, else the service's. What the service hands
+     * out only has to have more than a minute left: it decides when to sign a new JWT (ours does once its own has
+     * five minutes left), so asking again would get the same one, and a short token still serves the request at
+     * hand where an error would fail it.
+     */
     suspend fun token(minValiditySeconds: Long = 60): String = mutex.withLock {
         cached?.takeIf { expiresAt > nowEpochSeconds() + minValiditySeconds }?.let { return@withLock it }
         val token = withContext(Dispatchers.IO) {

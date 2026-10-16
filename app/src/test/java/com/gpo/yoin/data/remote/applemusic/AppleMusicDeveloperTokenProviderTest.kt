@@ -49,6 +49,22 @@ class AppleMusicDeveloperTokenProviderTest {
     }
 
     @Test
+    fun should_returnTheServicesToken_when_itHasLessThanAskedForButMoreThanAMinute() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            val provider = AppleMusicDeveloperTokenProvider(server.url("/token"), nowEpochSeconds = { 1000 })
+            val short = jwt(1200)
+            server.enqueue(MockResponse().setBody("""{"developerToken":"$short"}"""))
+            server.enqueue(MockResponse().setBody("""{"developerToken":"$short"}"""))
+            // 200 s left of the five minutes asked for: the service has no newer one, and it still serves a request.
+            assertEquals(short, provider.token(minValiditySeconds = 300))
+            // Not cached as fresh for that ask: the next one asks the service again.
+            assertEquals(short, provider.token(minValiditySeconds = 300))
+            assertEquals(2, server.requestCount)
+        }
+    }
+
+    @Test
     fun should_readExpiry_when_tokenIsAnEs256Jwt() {
         assertEquals(1234L, developerTokenExpiry(jwt(1234)))
         assertNull(developerTokenExpiry("not-a-jwt"))
