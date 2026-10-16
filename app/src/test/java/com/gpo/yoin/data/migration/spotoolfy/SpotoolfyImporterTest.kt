@@ -8,6 +8,7 @@ import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.MediaId
 import java.io.ByteArrayInputStream
 import java.io.File
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -245,6 +246,64 @@ class SpotoolfyImporterTest {
         assertEquals(SpotoolfyImporter.CommitResult.AlreadyInYoin, result)
         assertEquals(ImportBatch.STATUS_STAGED, importer.batch(second.batchId)!!.status)
         assertTrue(importer.isEligible("profile-b"))
+    }
+
+    @Test
+    fun should_leaveNothing_when_fileIsDroppedWhileItIsBeingCommitted() = runTest {
+        val staged = stageFixture()
+
+        val commit = async { importer.commit(staged.batchId, "profile-a", unknownTitle = "Unknown") }
+        val drop = async { importer.discard(staged.batchId) }
+        commit.await()
+        drop.await()
+
+        // Whichever went first, the file is not in the account and no batch is left behind.
+        val tracks = listOf(trackA, trackB)
+        assertTrue(database.songNoteDao().getForTracks(tracks, MediaId.PROVIDER_SPOTIFY, "profile-a").isEmpty())
+        assertTrue(database.localRatingDao().getRatings(tracks, MediaId.PROVIDER_SPOTIFY, "profile-a").isEmpty())
+        assertNull(importer.batch(staged.batchId))
+        assertTrue(importer.isEligible("profile-a"))
+    }
+
+    @Test
+    fun should_reportMissing_when_committingADroppedBatch() = runTest {
+        val staged = stageFixture()
+        importer.discard(staged.batchId)
+
+        assertEquals(
+            SpotoolfyImporter.CommitResult.Missing,
+            importer.commit(staged.batchId, "profile-a", unknownTitle = "Unknown"),
+        )
+        assertTrue(importer.isEligible("profile-a"))
+    }
+
+    @Test
+    fun should_writeStagedFile_when_firstRunEndedAfterSpotifyConnected() = runTest {
+        val staged = stageFixture()
+
+        val result = importer.resumeInterrupted("profile-a", unknownTitle = "Unknown")
+
+        assertEquals(SpotoolfyImporter.CommitResult.Committed(noteCount = 2, ratingCount = 2), result)
+        assertEquals(ImportBatch.STATUS_COMMITTED, importer.batch(staged.batchId)!!.status)
+        assertNull(importer.staged())
+        assertTrue(directory.list()!!.isEmpty())
+    }
+
+    @Test
+    fun should_dropStagedFile_when_firstRunEndedWithoutSpotify() = runTest {
+        val staged = stageFixture()
+        receive()
+
+        assertNull(importer.resumeInterrupted(spotifyProfileId = null, unknownTitle = "Unknown"))
+        assertNull(importer.batch(staged.batchId))
+        assertFalse(importer.hasPending())
+        assertTrue(directory.list()!!.isEmpty())
+    }
+
+    @Test
+    fun should_doNothing_when_noFileWasStaged() = runTest {
+        assertNull(importer.resumeInterrupted("profile-a", unknownTitle = "Unknown"))
+        assertTrue(importer.isEligible("profile-a"))
     }
 
     @Test

@@ -61,6 +61,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -135,6 +136,22 @@ class AppContainer(private val context: Context) {
             directory = File(context.noBackupFilesDir, "spotoolfy-import"),
             segmenter = IcuWordSegmenter(),
         )
+    }
+
+    /**
+     * A first run that ended between Spotify connecting and its Spotoolfy file going in: the landing never comes
+     * back once an account exists, so the staged file goes into the Spotify account that run added, here, off any
+     * screen's lifetime. Nothing staged, nothing happens.
+     */
+    fun resumeInterruptedSpotoolfyImport() {
+        applicationScope.launch {
+            val spotify = profileManager.profiles.first()
+                .filter { it.provider == MediaId.PROVIDER_SPOTIFY }
+                .maxByOrNull { it.createdAt }
+            val unknownTitle = context.getString(R.string.landing_spotoolfy_unknown_title)
+            val result = runCatching { spotoolfyImporter.resumeInterrupted(spotify?.id, unknownTitle) }.getOrNull()
+            if (result is SpotoolfyImporter.CommitResult.Committed) trackAlbumLinkEnricher.kick()
+        }
     }
 
     /** Albums for tracks noted or rated but never played here (imports above all), looked up in the background. */

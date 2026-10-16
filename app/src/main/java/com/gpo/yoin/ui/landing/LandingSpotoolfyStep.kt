@@ -182,12 +182,13 @@ internal class SpotoolfyStepViewModel(
     }
 
     fun choose(choice: SpotoolfyChoice) {
-        val previous = _state.value
+        val batchId = _state.value.batchId
         _state.update { it.copy(choice = choice) }
-        // "No" after a file was read: it must not reach the account.
-        if (choice == SpotoolfyChoice.NotUsing && previous.import is SpotoolfyImport.Received) {
+        // "No" after a file was read: it must not reach the account, or comes back out of it. A commit still
+        // running finishes first (the importer takes turns), so either way nothing of the file stays.
+        if (choice == SpotoolfyChoice.NotUsing && batchId != null) {
             viewModelScope.launch {
-                importer.discard(previous.import.batchId)
+                importer.discard(batchId)
                 _state.update { it.copy(import = SpotoolfyImport.None) }
             }
         }
@@ -208,7 +209,10 @@ internal class SpotoolfyStepViewModel(
         }
     }
 
-    /** "Use another file": the current file goes, from the account too if it was already written (§4.7). */
+    /**
+     * "Use another file": the current file goes, from the account too if it was already written (§4.7), including
+     * by a commit still running (it finishes first, then this takes it back).
+     */
     fun replace() {
         val batchId = _state.value.batchId
         _state.update { it.copy(choice = SpotoolfyChoice.Using, import = SpotoolfyImport.None) }

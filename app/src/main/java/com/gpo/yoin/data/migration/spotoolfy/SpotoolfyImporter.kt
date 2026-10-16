@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
@@ -30,7 +32,8 @@ import kotlinx.serialization.json.Json
  *   if the account holds nothing of the user's yet (D1).
  *
  * Files live in [directory] (noBackupFilesDir): [pendingFile] while one waits for the landing, then
- * `<batchId>.json` until the batch is committed or dropped.
+ * `<batchId>.json` until the batch is committed or dropped. Staging, committing and dropping take turns ([writes]):
+ * "use another file" tapped while a commit runs waits for it, then takes back what it wrote.
  */
 class SpotoolfyImporter(
     private val database: YoinDatabase,
@@ -80,6 +83,7 @@ class SpotoolfyImporter(
     }
 
     private val batches get() = database.importBatchDao()
+    private val writes = Mutex()
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _arrivals = MutableStateFlow(0)
@@ -144,33 +148,35 @@ class SpotoolfyImporter(
      * Reads [file] and records it as the staged batch, replacing an earlier staged one. The file is moved into
      * the batch's keeping (or deleted when it can't be used). The same file again returns the batch it already is.
      */
-    suspend fun stage(file: File): StageResult = withContext(io) {
-        if (!file.isFile) return@withContext StageResult.Corrupt
+    suspend fun stage(file: File): StageResult = withContext(io) { writes.withLock { stageLocked(file) } }
+
+    private suspend fun stageLocked(file: File): StageResult {
+        if (!file.isFile) return StageResult.Corrupt
         val sha = sha256(file)
         batches.getStaged().firstOrNull { it.fileSha256 == sha }?.let { staged ->
             val recap = decode(staged)
             if (recap != null && batchFile(staged.batchId).isFile) {
                 if (file != batchFile(staged.batchId)) file.delete()
-                return@withContext StageResult.Staged(staged.batchId, recap)
+                return StageResult.Staged(staged.batchId, recap)
             }
         }
         if (batches.findCommittedByFile(sha) != null) {
             file.delete()
-            return@withContext StageResult.AlreadyImported
+            return StageResult.AlreadyImported
         }
         val export = when (val parsed = file.inputStream().buffered().use(SpotoolfyExportParser::parse)) {
             is SpotoolfyParseResult.Parsed -> parsed.export
-            SpotoolfyParseResult.NotSpotoolfy -> return@withContext StageResult.NotSpotoolfy.also { file.delete() }
-            SpotoolfyParseResult.Corrupt -> return@withContext StageResult.Corrupt.also { file.delete() }
-            SpotoolfyParseResult.TooLarge -> return@withContext StageResult.TooLarge.also { file.delete() }
+            SpotoolfyParseResult.NotSpotoolfy -> return StageResult.NotSpotoolfy.also { file.delete() }
+            SpotoolfyParseResult.Corrupt -> return StageResult.Corrupt.also { file.delete() }
+            SpotoolfyParseResult.TooLarge -> return StageResult.TooLarge.also { file.delete() }
         }
         val plan = SpotoolfyImportMapper.map(export)
         if (plan.isEmpty) {
             file.delete()
-            return@withContext StageResult.Empty
+            return StageResult.Empty
         }
         val recap = SpotoolfyRecapCalculator(segmenter).compute(plan)
-        discardStaged()
+        discardStagedLocked()
         val batchId = UUID.randomUUID().toString()
         val kept = batchFile(batchId)
         if (!file.renameTo(kept)) {
@@ -190,7 +196,7 @@ class SpotoolfyImporter(
                 summaryJson = json.encodeToString(SpotoolfyRecap.serializer(), recap),
             ),
         )
-        StageResult.Staged(batchId, recap)
+        return StageResult.Staged(batchId, recap)
     }
 
     /** The batch waiting for an account, if any. */
@@ -214,18 +220,22 @@ class SpotoolfyImporter(
      * wrote.
      */
     suspend fun commit(batchId: String, profileId: String, unknownTitle: String): CommitResult = withContext(io) {
-        val batch = batches.get(batchId) ?: return@withContext CommitResult.Missing
+        writes.withLock { commitLocked(batchId, profileId, unknownTitle) }
+    }
+
+    private suspend fun commitLocked(batchId: String, profileId: String, unknownTitle: String): CommitResult {
+        val batch = batches.get(batchId) ?: return CommitResult.Missing
         if (batch.status == ImportBatch.STATUS_COMMITTED) {
-            return@withContext if (batch.profileId == profileId) {
+            return if (batch.profileId == profileId) {
                 CommitResult.Committed(batch.noteCount, batch.ratingCount)
             } else {
                 CommitResult.NotEligible
             }
         }
         val file = batchFile(batchId)
-        if (!file.isFile) return@withContext CommitResult.Missing
+        if (!file.isFile) return CommitResult.Missing
         val parsed = file.inputStream().buffered().use(SpotoolfyExportParser::parse)
-        val export = (parsed as? SpotoolfyParseResult.Parsed)?.export ?: return@withContext CommitResult.Missing
+        val export = (parsed as? SpotoolfyParseResult.Parsed)?.export ?: return CommitResult.Missing
         val plan = SpotoolfyImportMapper.map(export)
         val provider = MediaId.PROVIDER_SPOTIFY
         val notes = plan.notes.map { note ->
@@ -253,8 +263,26 @@ class SpotoolfyImporter(
                 updatedAt = rating.recordedAt,
             )
         }
-        val result: CommitResult = database.withTransaction {
+        val result: CommitResult = try {
+            writeBatch(batchId, profileId, notes, ratings)
+        } catch (_: BatchGone) {
+            CommitResult.Missing
+        }
+        if (result is CommitResult.Committed) file.delete()
+        return result
+    }
+
+    /** [commitLocked]'s transaction. */
+    private suspend fun writeBatch(
+        batchId: String,
+        profileId: String,
+        notes: List<SongNote>,
+        ratings: List<LocalRating>,
+    ): CommitResult {
+        val provider = MediaId.PROVIDER_SPOTIFY
+        return database.withTransaction {
             // Checked again inside the transaction: cloud sync may have brought this account's data down meanwhile.
+            if (batches.get(batchId)?.status != ImportBatch.STATUS_STAGED) return@withTransaction CommitResult.Missing
             if (batches.countUserData(profileId) > 0) return@withTransaction CommitResult.NotEligible
             val writtenNotes = notes.chunked(WRITE_CHUNK).flatMap { chunk ->
                 val rowIds = database.songNoteDao().insertAllIfAbsent(chunk)
@@ -268,18 +296,21 @@ class SpotoolfyImporter(
                     ImportItem(batchId, ImportItem.KIND_LOCAL_RATING, key)
                 }
             items.chunked(WRITE_CHUNK).forEach { batches.insertItems(it) }
-            batches.markCommitted(batchId, profileId, writtenNotes.size, ratings.size)
+            // Checked above in this same transaction; should the row still be gone, the writes roll back.
+            if (batches.markCommitted(batchId, profileId, writtenNotes.size, ratings.size) != 1) throw BatchGone()
             CommitResult.Committed(writtenNotes.size, ratings.size)
         }
-        if (result is CommitResult.Committed) file.delete()
-        result
     }
+
+    private class BatchGone : RuntimeException()
 
     /**
      * Drops [batchId] whatever its state: a staged batch and its file go; a committed one first takes back every
      * row it wrote ("use another file", §4.7: in a new user's account those rows are all there is).
      */
-    suspend fun discard(batchId: String): Unit = withContext(io) {
+    suspend fun discard(batchId: String): Unit = withContext(io) { writes.withLock { discardLocked(batchId) } }
+
+    private suspend fun discardLocked(batchId: String) {
         val batch = batches.get(batchId)
         if (batch?.status == ImportBatch.STATUS_COMMITTED) {
             database.withTransaction {
@@ -302,11 +333,32 @@ class SpotoolfyImporter(
             batches.delete(batchId)
         }
         batchFile(batchId).delete()
-        Unit
     }
 
     /** Every staged batch and its file: the landing ended without an account to put them in. */
-    suspend fun discardStaged(): Unit = withContext(io) {
+    suspend fun discardStaged(): Unit = withContext(io) { writes.withLock { discardStagedLocked() } }
+
+    /**
+     * A first run that ended between Spotify connecting and its file going in (the process went, and with an
+     * account in place the landing never comes back): the staged batch goes into [spotifyProfileId], the account
+     * that run connected, as the landing would have put it. Whatever can't go in is dropped, as at a landing's end.
+     * Null when nothing was staged or that run connected no Spotify account.
+     */
+    suspend fun resumeInterrupted(spotifyProfileId: String?, unknownTitle: String): CommitResult? = withContext(io) {
+        writes.withLock {
+            val staged = batches.getStaged().firstOrNull()
+            val result = if (staged != null && spotifyProfileId != null) {
+                commitLocked(staged.batchId, spotifyProfileId, unknownTitle)
+            } else {
+                null
+            }
+            discardStagedLocked()
+            clearPending()
+            result
+        }
+    }
+
+    private suspend fun discardStagedLocked() {
         batches.getStaged().forEach { staged ->
             batches.delete(staged.batchId)
             batchFile(staged.batchId).delete()

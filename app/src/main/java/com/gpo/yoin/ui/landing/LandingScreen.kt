@@ -168,9 +168,11 @@ fun LandingHost(gate: LandingGate) {
             mode = LandingMode.FirstRun
             session += 1
         } else {
-            // An existing install: it never sees the landing, even after deleting every account.
+            // An existing install: it never sees the landing, even after deleting every account. Or a first run
+            // that ended after adding an account: a Spotoolfy file it staged still goes in (§5.1).
             store.markDone()
             gate.holdShell = false
+            container.resumeInterruptedSpotoolfyImport()
         }
         gate.decided = true
     }
