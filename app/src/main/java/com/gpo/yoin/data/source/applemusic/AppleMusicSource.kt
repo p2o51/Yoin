@@ -20,6 +20,7 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
+import com.gpo.yoin.data.remote.applemusic.AppleMusicStorefront
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicMetadata
@@ -27,6 +28,7 @@ import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -61,8 +63,14 @@ class AppleMusicSource(
     @Volatile var playbackDeveloperToken: String = ""
         private set
 
-    @Volatile private var storefront: String? = null
+    @Volatile private var storefront: AppleMusicStorefront? = null
     private val storefrontMutex = Mutex()
+
+    /** Catalog id → its English names (null: the same as shown, or none); see [alternateNames]. */
+    private val alternateNamesByCatalogId = object : LinkedHashMap<String, TrackNames?>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TrackNames?>?) =
+            size > ALTERNATE_NAMES_MEMORY
+    }
 
     // Apple answered recent/played's catalog include with a 400: later reads leave it out.
     @Volatile private var recentPlayedRefusesCatalog = false
@@ -87,8 +95,10 @@ class AppleMusicSource(
      * request per album its Home refresh read, 46 at once, which Apple answered with 429s. The first caller
      * reads it and the rest wait for that answer; a failed read leaves it unread for the next caller.
      */
-    private suspend fun storefront(): String = storefront ?: storefrontMutex.withLock {
-        storefront ?: api.storefront().also { storefront = it }
+    private suspend fun storefront(): String = storefrontDetails().id
+
+    private suspend fun storefrontDetails(): AppleMusicStorefront = storefront ?: storefrontMutex.withLock {
+        storefront ?: api.storefrontDetails().also { storefront = it }
     }
 
     override fun library() = this
@@ -640,6 +650,32 @@ class AppleMusicSource(
     override suspend fun getRandomSongs(size: Int) = emptyList<Track>()
     override suspend fun getLyrics(trackId: MediaId): Lyrics? = null
 
+    /**
+     * A storefront whose own language isn't English names songs in it: on Japan's, Kim Petras is キム・ペトラス.
+     * Its catalog answers in English when asked with `l=en-US` (one of the languages it lists), which is what
+     * lyrics sources index for songs released in English. Catalog songs only; a storefront already in English,
+     * or one that can't answer in it, has nothing to add. Answers are kept per catalog id, misses too.
+     */
+    override suspend fun alternateNames(trackId: MediaId): TrackNames? {
+        if (trackId.provider != MediaId.PROVIDER_APPLE_MUSIC) return null
+        val catalogId = trackId.rawId.takeIf { it.isNotEmpty() && it.all(Char::isDigit) } ?: return null
+        synchronized(alternateNamesByCatalogId) {
+            if (catalogId in alternateNamesByCatalogId) return alternateNamesByCatalogId[catalogId]
+        }
+        val shop = storefrontDetails()
+        if (shop.defaultLanguage?.startsWith("en") == true || ENGLISH !in shop.languages) return null
+        val song = api.resourcePage(
+            segments = listOf("v1", "catalog", shop.id, "songs", catalogId),
+            personal = false,
+            query = mapOf("l" to ENGLISH),
+        )["data"]?.jsonArray?.firstOrNull()?.jsonObject?.get("attributes") as? JsonObject
+        val title = (song?.get("name") as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+        val artist = (song?.get("artistName") as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+        val names = TrackNames(title, artist).takeIf { title.isNotEmpty() && artist.isNotEmpty() }
+        synchronized(alternateNamesByCatalogId) { alternateNamesByCatalogId[catalogId] = names }
+        return names
+    }
+
     // Catalog ids only (digits; "pl." for curated playlists): a library id
     // ("l.", "i.", "p.") has no public page.
     override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? {
@@ -782,6 +818,12 @@ private typealias TracklistRead = Deferred<Result<List<JsonObject>>>
 
 /** recent/played pages (10 each) read at most: Apple keeps only a short history anyway. */
 private const val RecentPlayedMaxPages = 5
+
+/** The language [AppleMusicSource.alternateNames] asks the catalog for. */
+private const val ENGLISH = "en-US"
+
+/** Songs whose English names [AppleMusicSource.alternateNames] keeps: a few albums' worth. */
+private const val ALTERNATE_NAMES_MEMORY = 256
 
 /** recent/played's largest page. */
 private val RecentPlayedPageQuery = mapOf("limit" to "10")

@@ -251,7 +251,7 @@ class YoinRepositoryLyricsTranslationTest {
         var searches = 0
             private set
 
-        override suspend fun search(title: String, artist: String): SongMatch? {
+        override suspend fun search(title: String, artist: String, durationMs: Long?): SongMatch? {
             searches += 1
             return searchHit
         }
