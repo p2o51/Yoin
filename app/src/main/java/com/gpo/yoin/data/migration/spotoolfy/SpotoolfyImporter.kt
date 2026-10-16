@@ -69,6 +69,12 @@ class SpotoolfyImporter(
         /** The account already holds notes, ratings or an import: imports only go into a new user's account. */
         data object NotEligible : CommitResult
 
+        /**
+         * Everything in the file is in Yoin already, under another account (an earlier export of the same notes):
+         * note ids are global, so those notes stay where they are and nothing was written.
+         */
+        data object AlreadyInYoin : CommitResult
+
         /** The batch or its file is gone (dropped meanwhile, or storage was cleared). */
         data object Missing : CommitResult
     }
@@ -202,8 +208,10 @@ class SpotoolfyImporter(
 
     /**
      * Writes [batchId] into [profileId]: every note (titled [unknownTitle] when Spotoolfy had no title) and every
-     * track's latest rating, each recorded as the batch's, then the batch is committed and its file deleted.
-     * Committing a batch already in [profileId] again is a no-op that reports what it wrote.
+     * track's latest rating, each recorded as the batch's, then the batch is committed and its file deleted. A note
+     * whose id another account already holds stays there and is neither written nor recorded, so taking this batch
+     * back out never touches it. Committing a batch already in [profileId] again is a no-op that reports what it
+     * wrote.
      */
     suspend fun commit(batchId: String, profileId: String, unknownTitle: String): CommitResult = withContext(io) {
         val batch = batches.get(batchId) ?: return@withContext CommitResult.Missing
@@ -245,23 +253,26 @@ class SpotoolfyImporter(
                 updatedAt = rating.recordedAt,
             )
         }
-        val items = notes.map { ImportItem(batchId, ImportItem.KIND_SONG_NOTE, it.id) } +
-            ratings.map { rating ->
-                val key = ImportItem.ratingKey(profileId, provider, rating.songId)
-                ImportItem(batchId, ImportItem.KIND_LOCAL_RATING, key)
-            }
-        val written = database.withTransaction {
+        val result: CommitResult = database.withTransaction {
             // Checked again inside the transaction: cloud sync may have brought this account's data down meanwhile.
-            if (batches.countUserData(profileId) > 0) return@withTransaction false
-            notes.chunked(WRITE_CHUNK).forEach { database.songNoteDao().insertAllIfAbsent(it) }
+            if (batches.countUserData(profileId) > 0) return@withTransaction CommitResult.NotEligible
+            val writtenNotes = notes.chunked(WRITE_CHUNK).flatMap { chunk ->
+                val rowIds = database.songNoteDao().insertAllIfAbsent(chunk)
+                chunk.filterIndexed { index, _ -> rowIds[index] != -1L }
+            }
+            if (writtenNotes.isEmpty() && ratings.isEmpty()) return@withTransaction CommitResult.AlreadyInYoin
             ratings.chunked(WRITE_CHUNK).forEach { database.localRatingDao().upsertAll(it) }
+            val items = writtenNotes.map { ImportItem(batchId, ImportItem.KIND_SONG_NOTE, it.id) } +
+                ratings.map { rating ->
+                    val key = ImportItem.ratingKey(profileId, provider, rating.songId)
+                    ImportItem(batchId, ImportItem.KIND_LOCAL_RATING, key)
+                }
             items.chunked(WRITE_CHUNK).forEach { batches.insertItems(it) }
-            batches.markCommitted(batchId, profileId)
-            true
+            batches.markCommitted(batchId, profileId, writtenNotes.size, ratings.size)
+            CommitResult.Committed(writtenNotes.size, ratings.size)
         }
-        if (!written) return@withContext CommitResult.NotEligible
-        file.delete()
-        CommitResult.Committed(notes.size, ratings.size)
+        if (result is CommitResult.Committed) file.delete()
+        result
     }
 
     /**
@@ -274,7 +285,7 @@ class SpotoolfyImporter(
             database.withTransaction {
                 batches.getItemKeys(batchId, ImportItem.KIND_SONG_NOTE)
                     .chunked(WRITE_CHUNK)
-                    .forEach { database.songNoteDao().deleteByIds(it) }
+                    .forEach { database.songNoteDao().deleteByIds(it, batch.profileId.orEmpty()) }
                 batches.getItemKeys(batchId, ImportItem.KIND_LOCAL_RATING)
                     .mapNotNull { key -> key.split('|').takeIf { it.size == 3 } }
                     .groupBy({ (profileId, provider, _) -> profileId to provider }, { (_, _, songId) -> songId })

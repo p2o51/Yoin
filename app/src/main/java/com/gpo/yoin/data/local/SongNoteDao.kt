@@ -121,9 +121,12 @@ interface SongNoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(note: SongNote)
 
-    /** Imported notes: an id already present (the same note synced down from another device) stays as it is. */
+    /**
+     * Imported notes. Note ids are global: an id already present (the same note, under another account) stays where
+     * it is, as cloud sync leaves it, and its row id comes back as -1.
+     */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertAllIfAbsent(notes: List<SongNote>)
+    suspend fun insertAllIfAbsent(notes: List<SongNote>): List<Long>
 
     @Update
     suspend fun update(note: SongNote)
@@ -131,8 +134,8 @@ interface SongNoteDao {
     @Query("DELETE FROM song_notes WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM song_notes WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<String>)
+    @Query("DELETE FROM song_notes WHERE profileId = :profileId AND id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>, profileId: String)
 
     /**
      * Names the song of notes imported without one (the export had no row for the track: blank artist, a

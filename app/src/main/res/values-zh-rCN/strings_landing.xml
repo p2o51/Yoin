@@ -135,11 +135,11 @@
     <string name="guide_apple_sign_in">使用 Apple ID 登录并允许 Yoin 访问</string>
     <string name="guide_apple_then_tries">可能需要尝试两次或更多次</string>
     <string name="guide_apple_retry">尚未成功，请再点一次连接</string>
-    <string name="guide_spotoolfy_settings">点右上角的 ⚙</string>
+    <string name="guide_spotoolfy_settings">点按右上角的 ⚙</string>
     <string name="guide_spotoolfy_then_client_id">下一步：复制 Client ID</string>
     <string name="guide_spotoolfy_client_id">打开 %1$s，长按 %2$s 复制</string>
     <string name="guide_spotoolfy_then_empty">框是空的就跳过这步</string>
-    <string name="guide_spotoolfy_export">在 %1$s 里点 %2$s</string>
+    <string name="guide_spotoolfy_export">在 %1$s 里点按 %2$s</string>
     <string name="guide_spotoolfy_then_share">下一步：发给 Yoin</string>
     <string name="guide_spotoolfy_share">在分享菜单里选 %1$s</string>
     <string name="guide_spotoolfy_label_client_id">客户端 ID</string>

@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.spotoolfy
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -199,11 +201,22 @@ private fun PageDots(current: Int, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = modifier.clearAndSetSemantics { }) {
         repeat(RECAP_PAGES) { page ->
+            val selected = page == current
+            val length by animateDpAsState(
+                if (selected) 22.dp else 6.dp,
+                YoinMotion.defaultSpatialSpec(),
+                label = "recapDot",
+            )
+            val color by animateColorAsState(
+                if (selected) scheme.primary else scheme.outlineVariant,
+                YoinMotion.defaultEffectsSpec(),
+                label = "recapDotColor",
+            )
             Box(
                 modifier = Modifier
                     .width(6.dp)
-                    .height(if (page == current) 22.dp else 6.dp)
-                    .background(if (page == current) scheme.primary else scheme.outlineVariant, CircleShape),
+                    .height(length)
+                    .background(color, CircleShape),
             )
         }
     }
@@ -947,7 +960,7 @@ private fun ColumnScope.WideOrTall(
     BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
         if (maxWidth > maxHeight && maxWidth >= WideMinWidth) {
             Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                visual(Modifier.weight(1.2f).fillMaxSize().padding(vertical = 16.dp))
+                visual(Modifier.weight(1.2f).fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp))
                 text(Modifier.weight(1f).verticalScroll(rememberScrollState()))
             }
         } else {

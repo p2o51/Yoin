@@ -1383,7 +1383,7 @@ class YoinDatabaseMigrationTest {
                 summaryJson = "{}",
             ),
         )
-        assertEquals(1, batches.markCommitted("b1", "p"))
+        assertEquals(1, batches.markCommitted("b1", "p", noteCount = 1, ratingCount = 0))
         assertEquals(1, batches.countUserData("p"))
         migrated.trackAlbumLinkDao().upsert(
             TrackAlbumLink("p", MediaId.PROVIDER_SPOTIFY, "t1", "a1", TrackAlbumLink.SOURCE_IMPORT, 1L),

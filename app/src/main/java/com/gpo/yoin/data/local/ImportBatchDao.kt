@@ -28,8 +28,12 @@ interface ImportBatchDao {
     )
     fun observeLatestCommitted(profileId: String): Flow<ImportBatch?>
 
-    @Query("UPDATE import_batches SET status = 'committed', profileId = :profileId WHERE batchId = :batchId")
-    suspend fun markCommitted(batchId: String, profileId: String): Int
+    /** The batch is in [profileId], with what it actually wrote there. */
+    @Query(
+        "UPDATE import_batches SET status = 'committed', profileId = :profileId, noteCount = :noteCount, " +
+            "ratingCount = :ratingCount WHERE batchId = :batchId",
+    )
+    suspend fun markCommitted(batchId: String, profileId: String, noteCount: Int, ratingCount: Int): Int
 
     @Query("DELETE FROM import_batches WHERE batchId = :batchId")
     suspend fun delete(batchId: String)

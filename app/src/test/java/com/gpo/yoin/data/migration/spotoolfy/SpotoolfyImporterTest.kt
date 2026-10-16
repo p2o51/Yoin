@@ -207,6 +207,47 @@ class SpotoolfyImporterTest {
     }
 
     @Test
+    fun should_leaveNotesWithTheirAccount_when_anotherAccountAlreadyHoldsThem() = runTest {
+        val first = stageFixture()
+        importer.commit(first.batchId, "profile-a", unknownTitle = "Unknown")
+        // Exported again later: another file, the same notes.
+        receive(fixtureBytes() + "\n".toByteArray())
+        val second = importer.stagePending() as SpotoolfyImporter.StageResult.Staged
+
+        val result = importer.commit(second.batchId, "profile-b", unknownTitle = "Unknown")
+
+        assertEquals(SpotoolfyImporter.CommitResult.Committed(noteCount = 0, ratingCount = 2), result)
+        val tracks = listOf(trackA, trackB)
+        assertEquals(2, database.songNoteDao().getForTracks(tracks, MediaId.PROVIDER_SPOTIFY, "profile-a").size)
+        assertTrue(database.songNoteDao().getForTracks(tracks, MediaId.PROVIDER_SPOTIFY, "profile-b").isEmpty())
+        assertEquals(0, importer.batch(second.batchId)!!.noteCount)
+
+        // Taking the second file back out leaves the first account's notes alone.
+        importer.discard(second.batchId)
+
+        assertEquals(2, database.songNoteDao().getForTracks(tracks, MediaId.PROVIDER_SPOTIFY, "profile-a").size)
+        assertEquals(2, database.localRatingDao().getRatings(tracks, MediaId.PROVIDER_SPOTIFY, "profile-a").size)
+        assertTrue(database.localRatingDao().getRatings(tracks, MediaId.PROVIDER_SPOTIFY, "profile-b").isEmpty())
+    }
+
+    @Test
+    fun should_writeNothing_when_everyNoteIsAlreadyInAnotherAccount() = runTest {
+        val notesOnly = """{"tracks":[],"translations":[],"play_contexts":[],"records":[""" +
+            """{"trackId":"$trackA","noteContent":"only words","recordedAt":1730000000000}]}"""
+        receive(notesOnly.toByteArray())
+        val first = importer.stagePending() as SpotoolfyImporter.StageResult.Staged
+        importer.commit(first.batchId, "profile-a", unknownTitle = "Unknown")
+        receive((notesOnly + "\n").toByteArray())
+        val second = importer.stagePending() as SpotoolfyImporter.StageResult.Staged
+
+        val result = importer.commit(second.batchId, "profile-b", unknownTitle = "Unknown")
+
+        assertEquals(SpotoolfyImporter.CommitResult.AlreadyInYoin, result)
+        assertEquals(ImportBatch.STATUS_STAGED, importer.batch(second.batchId)!!.status)
+        assertTrue(importer.isEligible("profile-b"))
+    }
+
+    @Test
     fun should_dropStagedBatchesAndFiles_when_landingEndsWithoutAnAccount() = runTest {
         stageFixture()
 

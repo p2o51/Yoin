@@ -118,7 +118,8 @@ class SpotoolfyRecapCalculator(private val segmenter: WordSegmenter) {
         if (word in SpotoolfyStopwords.all || word.any { it.isDigit() }) return false
         val length = word.codePointCount(0, word.length)
         return when {
-            word.all { isCjk(it) } -> length >= 2
+            // "一个人的晚上" can split as 一个 / 人的 / 晚上: a word ending in the possessive 的 is a fragment.
+            word.all { isCjk(it) } -> length >= 2 && !word.endsWith('的')
             word.all { it.isLetter() && Character.UnicodeScript.of(it.code) == Character.UnicodeScript.LATIN } ->
                 length >= 3
             else -> false

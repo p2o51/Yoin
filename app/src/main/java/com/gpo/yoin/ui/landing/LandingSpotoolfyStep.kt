@@ -229,6 +229,7 @@ internal class SpotoolfyStepViewModel(
                     SpotoolfyImport.Written(received.batchId, result.noteCount, result.ratingCount, accountName)
                 }
                 CommitResult.NotEligible -> SpotoolfyImport.NotWritten
+                CommitResult.AlreadyInYoin -> SpotoolfyImport.Failed(SpotoolfyFailure.AlreadyImported)
                 CommitResult.Missing -> SpotoolfyImport.Failed(SpotoolfyFailure.Unreadable)
             }
             _state.update { state -> if (state.import == received) state.copy(import = next) else state }
@@ -457,8 +458,11 @@ private fun SpotoolfyImportStatus(
         )
         is SpotoolfyImport.Failed -> Column {
             ErrorLine(stringResource(import.failure.message))
-            TextButton(onClick = onPickFile, modifier = Modifier.padding(top = 4.dp)) {
-                Text(stringResource(R.string.landing_spotoolfy_pick))
+            // Without Spotoolfy the pill already chooses a file; with it, the pill opens Spotoolfy.
+            if (installed) {
+                TextButton(onClick = onPickFile, modifier = Modifier.padding(top = 4.dp)) {
+                    Text(stringResource(R.string.landing_spotoolfy_pick))
+                }
             }
         }
     }

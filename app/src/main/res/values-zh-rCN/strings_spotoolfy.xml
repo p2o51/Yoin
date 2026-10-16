@@ -15,7 +15,7 @@
         <item quantity="other">%1$d 首歌</item>
     </plurals>
     <plurals name="spotoolfy_recap_artists">
-        <item quantity="other">%1$d 位艺人</item>
+        <item quantity="other">%1$d 位艺术家</item>
     </plurals>
     <string name="spotoolfy_recap_for_songs_by">写给 %2$s的 %1$s</string>
     <string name="spotoolfy_recap_for_songs">写给 %1$s</string>
@@ -53,9 +53,9 @@
     <string name="spotoolfy_recap_list_separator">、</string>
 
     <string name="spotoolfy_recap_join_title">带着它们，加入 Yoin</string>
-    <string name="spotoolfy_recap_join_body">连接 Spotify 之后，这些笔记和评分会放进你的 Yoin，出现在 Now Playing、专辑剪贴簿、回忆和 Rediscover 里。</string>
+    <string name="spotoolfy_recap_join_body">连接 Spotify 之后，这些笔记和评分会放进你的 Yoin，出现在 Now Playing、专辑剪贴簿、Memories 和 Rediscover 里。</string>
     <string name="spotoolfy_recap_join">加入 Yoin</string>
-    <string name="spotoolfy_recap_done_body">它们都在你的 Yoin 里：Now Playing 的笔记页、专辑剪贴簿、回忆和 Rediscover。</string>
+    <string name="spotoolfy_recap_done_body">它们都在你的 Yoin 里：Now Playing 的笔记页、专辑剪贴簿、Memories 和 Rediscover。</string>
     <string name="spotoolfy_recap_done">完成</string>
     <string name="spotoolfy_recap_missing">找不到这份回顾了。</string>
 

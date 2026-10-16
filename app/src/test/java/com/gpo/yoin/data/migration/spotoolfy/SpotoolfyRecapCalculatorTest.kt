@@ -104,6 +104,13 @@ class SpotoolfyRecapCalculatorTest {
     }
 
     @Test
+    fun should_dropPossessiveFragments_when_countingKeywords() {
+        val notes = (0 until 3).map { note("人的 夏天的 夏天", at = it.toLong()) }
+
+        assertEquals(listOf("夏天"), calculator.keywords(notes).map { it.text })
+    }
+
+    @Test
     fun should_showNoteCards_when_thereAreTooFewNotes() {
         val notes = (0 until 9).map { note("note $it", at = it.toLong()) }
 

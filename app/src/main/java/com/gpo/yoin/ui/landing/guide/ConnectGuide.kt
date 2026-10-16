@@ -245,14 +245,14 @@ internal const val SpotifyDashboardUrl = "https://developer.spotify.com/dashboar
 /** Spotoolfy's Android package (declared under <queries>). */
 internal const val SpotoolfyPackage = "com.gojyuplusone.spotoolfy.spotoolfy_flutter"
 
+/** Spotoolfy's icon tile colour. */
+internal val SpotoolfyIconTeal = Color(0xFF71ACB3)
+
 /**
  * A guide's colours. Yoin's own guides: the mark's navy into violet, the same in light and dark (they float over any
  * app). Spotoolfy's (D10): its icon's teal, light or dark with the system, so it reads as "in Spotoolfy now" and
  * never as Yoin's violet Spotify window. Local to the window, not Yoin's theme.
  */
-/** Spotoolfy's icon tile colour. */
-internal val SpotoolfyIconTeal = Color(0xFF71ACB3)
-
 @Immutable
 private data class GuidePalette(
     val card: List<Color>,

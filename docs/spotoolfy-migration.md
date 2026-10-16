@@ -463,7 +463,7 @@ data class NoteSnippet(val text: String, val trackTitle: String, val artist: Str
 ### 阶段 0：Yoin 前置清理
 
 - [x] **启用 Room schema 导出**：KSP 参数 `room.schemaLocation` 指向 `app/schemas/`（2026-10-15）。
-  - 这个环境拉不到 Google Maven，没能生成 schema JSON。下一次本地构建会写出 `31.json`，请一起提交；v30 基线没有补上，迁移测试沿用仓库现有的「手建旧库 → 迁移 → Room 打开时校验」方式。
+  - `31.json` 由 2026-10-16 的本地构建写出，已提交。v30 基线没有补上，迁移测试沿用仓库现有的「手建旧库 → 迁移 → Room 打开时校验」方式。
 - [x] 修正 `data_extraction_rules.xml`：备份的是 `yoin_profiles.xml`。
 - [x] `activity_events` 上限触发器：全新安装由 `createCallback` 建，31 的迁移再补一次。
 - [x] 更新 AGENTS.md 的过时描述。
@@ -492,6 +492,8 @@ data class NoteSnippet(val text: String, val trackTitle: String, val artist: Str
 
 - [x] `SpotoolfyRecapActivity`（§6，两页），中英文案。
 - [ ] 真机验收：减少动态效果、平板横屏、读屏、深色模式、离线封面。
+  - 2026-10-16 已在模拟器（API 36，手机宽度）走过：选文件导入、三种失败提示、回顾两页（封面墙缺图色块补位、关键词爆炸、点词详情）、系统返回落回「已收到」、「加入 Yoin」进 Spotify 连接页、不连 Spotify 结束时的确认框和丢弃、引导外分享被拒、重新引导中从「文件」应用分享进来。
+  - 还没验：写进 Spotify 账号（需要真实 Spotify 登录）、Spotoolfy 悬浮窗（需要装 Spotoolfy）、平板横屏、深色模式、TalkBack。
 - [x] 设置 › 关于 里的「Spotoolfy 回顾」入口（D15）。
 - 交互原型已做：<https://claude.ai/artifact/PohjTmhwmz3MTkehDUu5it>。
 
