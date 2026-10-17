@@ -20,17 +20,22 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
+import com.gpo.yoin.data.source.spotify.SpotifyResponseDecodeException
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.launch
+import kotlinx.serialization.MissingFieldException
+import kotlinx.serialization.SerializationException
 import retrofit2.HttpException
 
 /**
  * What a tester pastes back when a page fails, since a release build logs nothing: the build, the device, and
  * the failure — for an Apple Music refusal its status, Apple's code and which request it was, then the
- * failures it was retried through (a library playlist's catalog read). Never a message (a server's or an
+ * failures it was retried through (a library playlist's catalog read); for a Spotify one its status, Spotify's
+ * reason with ids taken out, the request as a template and whose developer app it went out under; for a
+ * response that wouldn't decode, where in the JSON it stopped. Never a raw message (a server's or an
  * exception's can quote a URL, a host or a name), a token, or an id from the user's library.
  */
 fun Throwable.diagnosticReport(
@@ -47,6 +52,15 @@ fun Throwable.diagnosticReport(
 private fun StringBuilder.appendDiagnostic(failure: Throwable, prefix: String) {
     appendLine(prefix + failure.diagnosticLine())
     (failure as? AppleMusicApiException)?.request?.let { appendLine("GET $it") }
+    val spotifyRequest = when (failure) {
+        is SpotifyAuthException -> failure.request?.let { it to failure.clientIdKind }
+        is SpotifyResponseDecodeException -> failure.request to failure.clientIdKind
+        else -> null
+    }
+    spotifyRequest?.let { (request, clientIdKind) ->
+        appendLine(request)
+        clientIdKind?.let { appendLine("Spotify client ID ${it.label}") }
+    }
     failure.cause?.takeIf { it !== failure }?.let { appendLine("cause ${it.diagnosticLine()}") }
 }
 
@@ -57,10 +71,24 @@ private fun Throwable.diagnosticLine(): String = when (this) {
         appleCode?.let { "Apple $it" },
     ).joinToString(", ")
     is SubsonicException -> "Subsonic $code"
-    is SpotifyAuthException -> "Spotify auth $code" + (oauthError?.let { " $it" } ?: "")
+    // A Web API refusal says Spotify's reason; the token endpoint, its OAuth error.
+    is SpotifyAuthException -> if (request != null) {
+        "Spotify HTTP $code" + (reason?.let { ": $it" } ?: "")
+    } else {
+        "Spotify auth $code" + (oauthError?.let { " $it" } ?: "")
+    }
+    is SpotifyResponseDecodeException -> "Spotify response unreadable"
+    // Where in the JSON decoding stopped, never the JSON itself (the message quotes it).
+    is SerializationException -> listOfNotNull(
+        javaClass.simpleName.ifEmpty { javaClass.name },
+        (this as? MissingFieldException)?.missingFields?.joinToString(prefix = "missing ", separator = ", "),
+        message?.let(JSON_PATH_REGEX::find)?.groupValues?.get(1)?.let { "at $it" },
+    ).joinToString(" ")
     is HttpException -> "HTTP ${code()}"
     else -> javaClass.simpleName.ifEmpty { javaClass.name }
 }
+
+private val JSON_PATH_REGEX = Regex("at path: (\\$[^\\s]*)")
 
 private fun deviceLine(): String =
     "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}"
