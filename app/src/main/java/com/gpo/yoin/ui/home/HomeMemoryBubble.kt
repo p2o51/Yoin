@@ -998,7 +998,15 @@ internal fun MemoryBubbleOverlay(
         fly = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard)
     )
     LaunchedEffect(speaking, reduced) {
-        controller.settle(speaking = speaking, reduced = reduced, springs = springs)
+        controller.settle(speaking = speaking, reduced = reduced, springs = springs, flyHome = say !is BubbleSay.Tip)
+    }
+    // A tip is a plain capsule (owner 2026-10-17): no tail, fully round ends. A line that turns
+    // into a tip mid-speech (or back) reshapes on the spatial spring; from rest it starts in shape.
+    val capsule = remember { Animatable(0f) }
+    val isTip = say is BubbleSay.Tip
+    LaunchedEffect(isTip) {
+        val target = if (isTip) 1f else 0f
+        if (reduced || controller.unroll.value < BubbleGoneBelow) capsule.snapTo(target) else capsule.animateTo(target, springs.out)
     }
     val composedBubble by remember {
         derivedStateOf {
@@ -1056,6 +1064,7 @@ internal fun MemoryBubbleOverlay(
                 MemoryBubble(
                     pill = pill,
                     say = say,
+                    capsule = { capsule.value },
                     controller = controller,
                     speaking = speaking,
                     reduced = reduced,
@@ -1211,7 +1220,14 @@ internal class MemoryBubbleSprings(
  * and come late — by the wall clock the whole flight would fall between two
  * of them and read as a cut.
  */
-internal suspend fun MemoryBubbleController.settle(speaking: Boolean, reduced: Boolean, springs: MemoryBubbleSprings) {
+internal suspend fun MemoryBubbleController.settle(
+    speaking: Boolean,
+    reduced: Boolean,
+    springs: MemoryBubbleSprings,
+    // A tip is a plain capsule with no tail (owner 2026-10-17): it folds back into the title
+    // instead of flying off into the arrow.
+    flyHome: Boolean = true,
+) {
     val target = if (speaking) 1f else 0f
     var departure: MemoryBubbleGeometry? = null
     try {
@@ -1238,12 +1254,12 @@ internal suspend fun MemoryBubbleController.settle(speaking: Boolean, reduced: B
                     unroll.animateTo(1f, springs.out)
                 }
                 // Spoken: it flies off into the arrow and the title comes back.
-                unroll.value >= FlyAwayFrom -> {
+                flyHome && unroll.value >= FlyAwayFrom -> {
                     departure = geometry
                     flightGeometry = departure
                     flyAway.animateTo(1f, springs.fly)
                 }
-                // Still only the mark beside the title: it folds away.
+                // Still only the mark beside the title (or a tip): it folds away.
                 else -> {
                     unroll.animateTo(0f, springs.back)
                     markIn.animateTo(0f, springs.back)
@@ -1378,6 +1394,8 @@ private fun MemoryBubble(
     pill: HomeMemoryPill?,
     // What it says (a memory, [memoryBubbleSubject], or a tip); null = the pill's latest.
     say: BubbleSay?,
+    // 0 = the speech bubble with its tail, 1 = a tip's plain capsule.
+    capsule: () -> Float,
     controller: MemoryBubbleController,
     speaking: Boolean,
     reduced: Boolean,
@@ -1457,12 +1475,14 @@ private fun MemoryBubble(
                     val s = controller.unroll.value
                     if (s < BubbleGoneBelow) return@onDrawBehind
                     val body = geometry.bodyAt(s, markHalf)
-                    memoryBubbleOutline(bodyPath, body, corner, null, 0f, flank, lean, drop)
+                    val c = capsule()
+                    val round = corner + (body.height / 2f - corner).coerceAtLeast(0f) * c
+                    memoryBubbleOutline(bodyPath, body, round, null, 0f, flank, lean, drop)
                     drawPath(bodyPath, color = fill)
                     // The tail rises last, out of the body's top, its point
                     // over the chevron — pulled along if the body hasn't
                     // reached it yet.
-                    val rise = smoothstep(TailRisesFrom, 1f, s)
+                    val rise = smoothstep(TailRisesFrom, 1f, s) * (1f - c)
                     if (rise > 0f) {
                         val tailX = minOf(geometry.tailX, body.right - reach)
                         memoryBubbleOutline(tailPath, body, corner, tailX, geometry.tailTop, flank, lean, drop)

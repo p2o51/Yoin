@@ -180,4 +180,5 @@
     <string name="np_device_use_cast_pill">未投播</string>
     <string name="np_keep_screen_on">屏幕常亮</string>
     <string name="np_cd_cover_menu">歌曲选项</string>
+    <string name="np_cd_play_mode_split">分开随机和循环</string>
 </resources>

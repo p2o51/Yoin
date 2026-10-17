@@ -201,4 +201,5 @@
     <string name="np_device_use_cast_pill">Not casting</string>
     <string name="np_keep_screen_on">Keep screen on</string>
     <string name="np_cd_cover_menu">Song options</string>
+    <string name="np_cd_play_mode_split">Separate shuffle and repeat</string>
 </resources>

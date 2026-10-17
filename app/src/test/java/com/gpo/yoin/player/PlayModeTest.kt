@@ -87,6 +87,14 @@ class PlayModeTest {
     }
 
     @Test
+    fun should_keepShuffleAxis_when_onlyRepeatIsToggled() {
+        assertEquals(PlayMode.ShuffleRepeatOne, PlayMode.Shuffle.withRepeatOne(true))
+        assertEquals(PlayMode.Shuffle, PlayMode.ShuffleRepeatOne.withRepeatOne(false))
+        assertEquals(PlayMode.RepeatOne, PlayMode.RepeatAll.withRepeatOne(true))
+        assertEquals(PlayMode.RepeatAll, PlayMode.RepeatOne.withRepeatOne(false))
+    }
+
+    @Test
     fun should_defaultToRepeatAll_when_playbackStateIsFresh() {
         assertEquals(PlayMode.RepeatAll, PlaybackState().playMode)
     }

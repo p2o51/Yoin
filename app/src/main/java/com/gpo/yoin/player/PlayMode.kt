@@ -30,8 +30,12 @@ enum class PlayMode(val repeatMode: Int, val shuffle: Boolean) {
     /** The mode the next tap moves to. */
     fun next(): PlayMode = entries[(ordinal + 1) % entries.size]
 
-    /** This mode with only the shuffle axis changed (the notification's shuffle button). */
+    /** This mode with only the shuffle axis changed (the notification's shuffle button, the split pill). */
     fun withShuffle(on: Boolean): PlayMode = of(repeatMode, on)
+
+    /** This mode with only the repeat axis changed (the split pill's repeat segment). */
+    fun withRepeatOne(on: Boolean): PlayMode =
+        of(if (on) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_ALL, shuffle)
 
     companion object {
         /**

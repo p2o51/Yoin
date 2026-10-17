@@ -604,7 +604,7 @@ fun NowPlayingOverlayHost(
                                 onClearQueued = viewModel::clearUserQueue,
                             )
                         },
-                        onCyclePlayMode = viewModel::cyclePlayMode,
+                        onSetPlayMode = viewModel::setPlayMode,
                         onAlbumClick = onAlbumClick,
                         onArtistClick = onArtistClick,
                         onPlaylistClick = onPlaylistClick,

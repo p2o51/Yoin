@@ -1,17 +1,11 @@
 package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,9 +23,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -43,28 +39,40 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.player.PlayMode
@@ -80,6 +88,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import kotlinx.coroutines.delay
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -97,7 +106,7 @@ internal fun PlaybackControls(
     nextInteractionSource: MutableInteractionSource,
     playPressed: Boolean,
     playMode: PlayMode = PlayMode.RepeatAll,
-    onCyclePlayMode: () -> Unit = {},
+    onSetPlayMode: (PlayMode) -> Unit = {},
     controlSize: Dp = 56.dp,
     lyricsExpanded: Boolean = false,
     onExpandLyrics: (() -> Unit)? = null,
@@ -358,14 +367,11 @@ internal fun PlaybackControls(
                             Spacer(modifier = Modifier.width(8.dp))
                         }
 
-                        PlayModeSegmentedButton(
+                        PlayModeButton(
                             playMode = playMode,
-                            onClick = {
-                                haptics.performTick()
-                                onCyclePlayMode()
-                            },
+                            onSetPlayMode = onSetPlayMode,
                             height = controlSize,
-                            width = fit.playModeWidth,
+                            splitWidth = fit.playModeWidth,
                             iconSize = controlIconSize,
                         )
                     }
@@ -494,116 +500,229 @@ private fun PlayMode.stateDescription(): String = when (this) {
 }
 
 /**
- * The play-mode button: one pill, two segments — shuffle on the left, repeat
- * on the right (docs/design.md, 播放模式). A segment lights up (`primary`) when
- * its axis leaves the default: shuffle on, or repeat one; the default stays in
- * the resting tertiary colours. The whole pill is one tap target that steps
- * [PlayMode.next], which always flips exactly one segment. Pressing rounds the
- * two inner corners up toward the outer ones (spatial spring), the colour
- * changes ride the effects spring.
+ * The play-mode button (owner 2026-10-17): a round button by default, its symbol showing the
+ * mode ([PlayMode.toSymbol]); a tap steps [PlayMode.next]. A long-press splits it into a pill of
+ * two segments — shuffle on the left, repeat on the right — each tap on a segment switching only
+ * its own axis; left alone for [PlayModeSplitHoldMs] (or long-pressed again) it merges back into
+ * the circle. Splitting, the circle's symbol becomes two copies that move apart into the segments
+ * while they morph — the left into the crossing strands, the right into the loop (with its 1 for
+ * repeat one); merging runs the same morph back into one symbol. Width, gap, inner corners and the
+ * symbols' travel share one spatial spring; colours ride the effects spring. A segment lights up
+ * (`primary`) when its axis leaves the default; the circle lights up for any mode but repeat all.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PlayModeSegmentedButton(
+private fun PlayModeButton(
     playMode: PlayMode,
-    onClick: () -> Unit,
+    onSetPlayMode: (PlayMode) -> Unit,
     height: Dp,
-    width: Dp,
+    splitWidth: Dp,
     iconSize: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val innerCorner by animateDpAsState(
-        targetValue = if (pressed) height / 2 else height * PlayModeInnerCornerRatio,
-        animationSpec = YoinMotion.fastSpatialSpec(),
-        label = "playModeInnerCorner",
+    val haptics = rememberYoinHaptics()
+    var split by rememberSaveable { mutableStateOf(false) }
+    // One more on every tap while split: the merge waits for a quiet spell.
+    var splitTouches by remember { mutableIntStateOf(0) }
+    LaunchedEffect(split, splitTouches) {
+        if (split) {
+            delay(PlayModeSplitHoldMs)
+            split = false
+        }
+    }
+    val f by animateFloatAsState(
+        targetValue = if (split) 1f else 0f,
+        animationSpec = YoinMotion.defaultSpatialSpec(),
+        label = "playModeSplit",
     )
-    val segmentWidth = (width - PlayModeSegmentGap) / 2
-    val glyph = minOf(iconSize, segmentWidth - PlayModeGlyphInset)
+    val width = lerp(height, splitWidth, f)
+    val gap = PlayModeSegmentGap * f
+    val segment = (width - gap) / 2
     val outer = height / 2
+    // Square inner edges at rest, so the two halves close into one circle.
+    val inner = height * PlayModeInnerCornerRatio * f
+    val glyphSplit = minOf(iconSize, (splitWidth - PlayModeSegmentGap) / 2 - PlayModeGlyphInset)
+    val glyph = lerp(iconSize, glyphSplit, f)
+
+    val merged = playMode.toSymbol()
+    val leftLit = if (split) playMode.shuffle else playMode != PlayMode.RepeatAll
+    val rightLit = if (split) playMode.repeatOne else playMode != PlayMode.RepeatAll
+    val leftPainter = rememberPlayModeSymbolPainter(if (split) SymbolPlayMode.Shuffle else merged)
+    val rightPainter = rememberPlayModeSymbolPainter(
+        when {
+            !split -> merged
+            playMode.repeatOne -> SymbolPlayMode.RepeatOne
+            else -> SymbolPlayMode.RepeatAll
+        },
+    )
+    val leftColors = playModeColors(leftLit)
+    val rightColors = playModeColors(rightLit)
+
     val label = stringResource(R.string.np_cd_play_mode)
     val state = playMode.stateDescription()
-    Row(
+    val splitLabel = stringResource(R.string.np_cd_play_mode_split)
+    val shuffleLabel = stringResource(R.string.np_transport_shuffle)
+    val repeatOneLabel = stringResource(R.string.np_transport_repeat_one)
+    val leftShape = RoundedCornerShape(topStart = outer, bottomStart = outer, topEnd = inner, bottomEnd = inner)
+    val rightShape = RoundedCornerShape(topStart = inner, bottomStart = inner, topEnd = outer, bottomEnd = outer)
+    val merge = {
+        haptics.performLongPress()
+        split = false
+    }
+
+    Box(
         modifier = modifier
             .width(width)
             .height(height)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                role = Role.Button,
-                onClick = onClick,
-            )
-            .semantics(mergeDescendants = true) {
-                contentDescription = label
-                stateDescription = state
-            },
-        horizontalArrangement = Arrangement.spacedBy(PlayModeSegmentGap),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        PlayModeSegment(
-            lit = playMode.shuffle,
-            shape = RoundedCornerShape(
-                topStart = outer,
-                bottomStart = outer,
-                topEnd = innerCorner,
-                bottomEnd = innerCorner,
+            .then(
+                if (split) {
+                    Modifier
+                } else {
+                    Modifier
+                        .clip(CircleShape)
+                        .combinedClickable(
+                            role = Role.Button,
+                            onClickLabel = null,
+                            onLongClickLabel = splitLabel,
+                            onLongClick = {
+                                haptics.performLongPress()
+                                split = true
+                                splitTouches = 0
+                            },
+                            onClick = {
+                                haptics.performTick()
+                                onSetPlayMode(playMode.next())
+                            },
+                        )
+                        .semantics {
+                            contentDescription = label
+                            stateDescription = state
+                        }
+                },
             ),
-            width = segmentWidth,
-        ) {
-            Icon(
-                imageVector = YoinSymbols.Shuffle,
-                contentDescription = null,
-                modifier = Modifier.size(glyph),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(gap), modifier = Modifier.fillMaxHeight()) {
+            PlayModeHalf(
+                color = leftColors.first,
+                shape = leftShape,
+                width = segment,
+                split = split,
+                label = shuffleLabel,
+                on = playMode.shuffle,
+                onToggle = {
+                    haptics.performTick()
+                    splitTouches += 1
+                    onSetPlayMode(playMode.withShuffle(!playMode.shuffle))
+                },
+                onMerge = merge,
+            )
+            PlayModeHalf(
+                color = rightColors.first,
+                shape = rightShape,
+                width = segment,
+                split = split,
+                label = repeatOneLabel,
+                on = playMode.repeatOne,
+                onToggle = {
+                    haptics.performTick()
+                    splitTouches += 1
+                    onSetPlayMode(playMode.withRepeatOne(!playMode.repeatOne))
+                },
+                onMerge = merge,
             )
         }
-        PlayModeSegment(
-            lit = playMode.repeatOne,
-            shape = RoundedCornerShape(
-                topStart = innerCorner,
-                bottomStart = innerCorner,
-                topEnd = outer,
-                bottomEnd = outer,
-            ),
-            width = segmentWidth,
-        ) {
+        // The symbols: one in the middle of the circle; split, two copies travel out to their
+        // segments' middles (and back) while they morph.
+        val density = LocalDensity.current
+        val centre = width / 2
+        val leftCentre = lerp(centre, segment / 2, f)
+        val rightCentre = lerp(centre, width - segment / 2, f)
+        Icon(
+            painter = leftPainter,
+            contentDescription = null,
+            tint = leftColors.second,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset { IntOffset(with(density) { (leftCentre - glyph / 2).roundToPx() }, 0) }
+                .size(glyph),
+        )
+        if (f > PlayModeSplitShownFrom || split) {
             Icon(
-                painter = rememberPlayModeSymbolPainter(
-                    if (playMode.repeatOne) SymbolPlayMode.RepeatOne else SymbolPlayMode.RepeatAll,
-                ),
+                painter = rightPainter,
                 contentDescription = null,
-                modifier = Modifier.size(glyph),
+                tint = rightColors.second,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset { IntOffset(with(density) { (rightCentre - glyph / 2).roundToPx() }, 0) }
+                    .size(glyph),
             )
         }
     }
 }
 
+/** One half of the play-mode button; split, it is its own switch (a tap toggles, a long-press merges). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PlayModeSegment(
-    lit: Boolean,
+private fun PlayModeHalf(
+    color: Color,
     shape: Shape,
     width: Dp,
-    content: @Composable () -> Unit,
+    split: Boolean,
+    label: String,
+    on: Boolean,
+    onToggle: () -> Unit,
+    onMerge: () -> Unit,
 ) {
-    val container by animateColorAsState(
-        targetValue = if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "playModeSegmentContainer",
-    )
-    val contentColor by animateColorAsState(
-        targetValue = if (lit) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "playModeSegmentContent",
-    )
     Box(
         modifier = Modifier
             .width(width)
             .fillMaxHeight()
-            .background(container, shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        CompositionLocalProvider(LocalContentColor provides contentColor) { content() }
-    }
+            .background(color, shape)
+            .then(
+                if (split) {
+                    Modifier
+                        .clip(shape)
+                        .combinedClickable(onLongClick = onMerge, onClick = onToggle)
+                        .semantics {
+                            contentDescription = label
+                            role = Role.Switch
+                            toggleableState = ToggleableState(on)
+                        }
+                } else {
+                    Modifier
+                },
+            ),
+    )
 }
+
+/** Container and symbol colours for a lit (`primary`) or resting (`tertiaryContainer`) part. */
+@Composable
+private fun playModeColors(lit: Boolean): Pair<Color, Color> {
+    val container by animateColorAsState(
+        targetValue = if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "playModeContainer",
+    )
+    val content by animateColorAsState(
+        targetValue = if (lit) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "playModeContent",
+    )
+    return container to content
+}
+
+private fun PlayMode.toSymbol(): SymbolPlayMode = when (this) {
+    PlayMode.RepeatAll -> SymbolPlayMode.RepeatAll
+    PlayMode.Shuffle -> SymbolPlayMode.Shuffle
+    PlayMode.ShuffleRepeatOne -> SymbolPlayMode.ShuffleRepeatOne
+    PlayMode.RepeatOne -> SymbolPlayMode.RepeatOne
+}
+
+/** Split, the pill merges back into the circle after this long without a tap. */
+internal const val PlayModeSplitHoldMs = 3_000L
+
+/** Below this much split the second symbol sits exactly under the first: one is drawn. */
+private const val PlayModeSplitShownFrom = 0.02f
 
 /** How the transport rows fit a column; see [rememberPlaybackControlsFit]. */
 internal data class PlaybackControlsFit(
@@ -612,7 +731,7 @@ internal data class PlaybackControlsFit(
     val playModeWidth: Dp = playModeNaturalWidth(controlSize),
 )
 
-/** The two-segment play-mode pill at rest: two segments of 0.8 × the control size. */
+/** The play-mode pill when split: two segments of 0.8 × the control size. */
 internal fun playModeNaturalWidth(controlSize: Dp): Dp = controlSize * 1.6f + PlayModeSegmentGap
 
 /** The narrowest the play-mode pill may get before it would stop reading as two segments. */

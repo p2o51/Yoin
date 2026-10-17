@@ -11,6 +11,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import com.gpo.yoin.player.PlayMode
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -83,13 +87,53 @@ class NowPlayingControlsFitTest {
         playMode.assertIsDisplayed()
         val bounds = playMode.getBoundsInRoot()
         assertTrue("play mode ends inside the column", bounds.right <= NarrowColumn)
-        // A whole two-segment pill: 56 or the 48 step tall, and never narrower
-        // than playModeMinWidth (1.1 × its height).
+        // At rest a whole circle: 56, or the 48 step — never squeezed below it.
         val height = (bounds.bottom - bounds.top).value
         val width = (bounds.right - bounds.left).value
         assertTrue("play mode keeps a whole height ($height dp)", height >= 47.5f && height <= 56.5f)
-        assertTrue("play mode stays a pill ($width × $height dp)", width >= height * 1.1f - 0.5f)
+        assertTrue("play mode is a circle at rest ($width × $height dp)", kotlin.math.abs(width - height) < 1f)
         rule.onNodeWithContentDescription("Skip next").assertIsDisplayed()
+    }
+
+    @Test
+    fun should_stepTheModeOnATap_and_switchOneAxisPerSegment_when_split() {
+        val set = mutableListOf<PlayMode>()
+        rule.setContent {
+            YoinTheme {
+                Box(modifier = Modifier.width(400.dp)) {
+                    PlaybackControls(
+                        isPlaying = true,
+                        onTogglePlayPause = {},
+                        onSkipNext = {},
+                        onSkipPrevious = {},
+                        positionMs = 0L,
+                        durationMs = 200_000L,
+                        progress = 0f,
+                        buffered = 0f,
+                        onSeek = {},
+                        playInteractionSource = remember { MutableInteractionSource() },
+                        nextInteractionSource = remember { MutableInteractionSource() },
+                        playPressed = false,
+                        playMode = PlayMode.Shuffle,
+                        onSetPlayMode = { set += it },
+                    )
+                }
+            }
+        }
+        // The round button: a tap steps to the next mode.
+        rule.onNodeWithContentDescription("Play mode").performClick()
+        rule.runOnIdle { assertEquals(listOf(PlayMode.ShuffleRepeatOne), set) }
+
+        // A long-press splits it; each segment switches only its own axis.
+        rule.onNodeWithContentDescription("Play mode").performTouchInput { longClick() }
+        rule.onNodeWithContentDescription("Repeat one").performClick()
+        rule.onNodeWithContentDescription("Shuffle").performClick()
+        rule.runOnIdle {
+            assertEquals(
+                listOf(PlayMode.ShuffleRepeatOne, PlayMode.ShuffleRepeatOne, PlayMode.RepeatAll),
+                set,
+            )
+        }
     }
 
     @Test
