@@ -18,20 +18,29 @@ import com.apple.android.music.playback.model.MediaPlayerException
 import com.apple.android.music.playback.model.PlaybackState as ApplePlaybackState
 import com.apple.android.music.playback.model.PlayerQueueItem
 import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
+import com.apple.android.music.playback.queue.PlaybackQueueInsertionType
 import com.apple.android.sdk.authentication.TokenProvider
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.R
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.gpo.yoin.data.remote.applemusic.developerTokenExpiry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
 import org.bytedeco.javacpp.Pointer
 
-/** MusicKit owns DRM/audio. Media3 exposes only observed state and supported commands. */
+/**
+ * MusicKit owns DRM/audio. Media3 exposes only observed state and supported commands.
+ *
+ * [refreshDeveloperToken] returns a developer token with at least five minutes left; see [MusicKitDeveloperToken].
+ */
 @UnstableApi
 class AppleMusicMedia3Player(
     context: Context,
     developerToken: String,
     userToken: String,
-    private val currentDeveloperToken: () -> String = { developerToken },
+    refreshDeveloperToken: suspend () -> String = { developerToken },
     private val onObservation: (AppleMusicPlaybackObservation) -> Unit
 ) : SimpleBasePlayer(Looper.getMainLooper()) {
     private val appContext = context.applicationContext
@@ -52,10 +61,38 @@ class AppleMusicMedia3Player(
     private val controller = MediaPlayerControllerFactory.createLocalController(
         appContext,
         object : TokenProvider {
-            override fun getDeveloperToken() = currentDeveloperToken()
+            // Read once, here: later tokens reach MusicKit through musicKitToken.
+            override fun getDeveloperToken() = developerToken
             override fun getUserToken() = userToken
         }
     )
+    private val scope = MainScope()
+
+    /** Every MusicKit call that sends it to Apple for a song goes through [MusicKitDeveloperToken.run]. */
+    private val musicKitToken = MusicKitDeveloperToken(
+        installed = developerToken,
+        scope = scope,
+        fetch = {
+            try {
+                refreshDeveloperToken()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                Log.w("YoinMusicKitToken", "developer token refresh failed: ${e.javaClass.simpleName}")
+                throw e
+            }
+        },
+        install = { token ->
+            installMusicKitDeveloperToken(appContext, token)
+            logDeveloperTokenExpiry("renewed", token)
+        }
+    ).also { logDeveloperTokenExpiry("created", developerToken) }
+
+    /** The expiry only, never the token. */
+    private fun logDeveloperTokenExpiry(what: String, token: String) {
+        val left = developerTokenExpiry(token)?.minus(System.currentTimeMillis() / 1000)
+        Log.i("YoinMusicKitToken", "developer token $what, expires in ${left}s")
+    }
     private val playModes = MusicKitPlayModes(controller)
     private var requestedItems: List<MediaItem> = emptyList()
     private var requestedIndex = 0
@@ -88,7 +125,8 @@ class AppleMusicMedia3Player(
             publish()
         }
         override fun onPlaybackStateChanged(c: MediaPlayerController, old: Int, new: Int) {
-            if (new != ApplePlaybackState.STOPPED) {
+            // While a call waits for a token, MusicKit's state is still the old queue's: it ends no prepare.
+            if (new != ApplePlaybackState.STOPPED && !musicKitToken.holding) {
                 preparing = false
                 rewindRestoredStart()
             }
@@ -142,6 +180,7 @@ class AppleMusicMedia3Player(
     private val ticker = object : Runnable {
         override fun run() {
             if (!released) {
+                musicKitToken.keepFresh()
                 watchForStall()
                 publish("ticker")
                 handler.postDelayed(this, 1000)
@@ -376,6 +415,7 @@ class AppleMusicMedia3Player(
         // next prepare's start position (see startFromTop). The new queue's
         // prepare replaces the old song's source anyway.
         controller.pause()
+        musicKitToken.dropWaiting()
         requestedItems = items.toList()
         requestedIndex = startIndex.takeIf { it in items.indices } ?: 0
         queuePrepared = false
@@ -390,19 +430,22 @@ class AppleMusicMedia3Player(
             failure = null
             queuePrepared = true
             handler.removeCallbacks(prepareTimeout)
-            handler.postDelayed(prepareTimeout, 30_000)
-            startFromTop = true
-            preparedStartUnchecked = true
-            // A new queue replaces everything, Play next included. The plain prepare() is REPLACE, which
-            // MusicKit (1.1.1, `queue.b`) refuses with a queue error while an added Up Next sits after a
-            // non-last item: after any Play next / Add to queue, tapping a song failed until the queue ran out.
-            controller.prepare(
-                CatalogPlaybackQueueItemProvider.Builder()
-                    .items(MediaItemType.SONG, *requestedItems.map(::catalogId).toTypedArray())
-                    .startItemIndex(requestedIndex).build(),
-                com.apple.android.music.playback.queue.PlaybackQueueInsertionType.INSERTION_TYPE_CLEAR_AND_REPLACE,
-                desiredPlay
-            )
+            val queue = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *requestedItems.map(::catalogId).toTypedArray())
+                .startItemIndex(requestedIndex).build()
+            musicKitToken.run {
+                handler.postDelayed(prepareTimeout, 30_000)
+                startFromTop = true
+                preparedStartUnchecked = true
+                // A new queue replaces everything, Play next included. The plain prepare() is REPLACE, which
+                // MusicKit (1.1.1, `queue.b`) refuses with a queue error while an added Up Next sits after a
+                // non-last item: after any Play next / Add to queue, tapping a song failed until the queue ran out.
+                controller.prepare(
+                    queue,
+                    PlaybackQueueInsertionType.INSERTION_TYPE_CLEAR_AND_REPLACE,
+                    desiredPlay
+                )
+            }
         }
         return Futures.immediateVoidFuture()
     }
@@ -412,15 +455,18 @@ class AppleMusicMedia3Player(
         requestedItems = requestedItems + items
         if (queuePrepared) {
             val afterCurrent = published?.let { index == it.currentIndex + 1 } == true
-            controller.addQueueItems(
-                CatalogPlaybackQueueItemProvider.Builder()
-                    .items(MediaItemType.SONG, *ids.toTypedArray()).build(),
-                if (afterCurrent) {
-                    com.apple.android.music.playback.queue.PlaybackQueueInsertionType.INSERTION_TYPE_AFTER_CURRENT_ITEM
-                } else {
-                    com.apple.android.music.playback.queue.PlaybackQueueInsertionType.INSERTION_TYPE_AT_END
-                }
-            )
+            val added = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *ids.toTypedArray()).build()
+            musicKitToken.run {
+                controller.addQueueItems(
+                    added,
+                    if (afterCurrent) {
+                        PlaybackQueueInsertionType.INSERTION_TYPE_AFTER_CURRENT_ITEM
+                    } else {
+                        PlaybackQueueInsertionType.INSERTION_TYPE_AT_END
+                    }
+                )
+            }
         }
         return Futures.immediateVoidFuture()
     }
@@ -428,6 +474,7 @@ class AppleMusicMedia3Player(
         val order = published
         if (fromIndex == 0 && toIndex >= (order?.entries?.size ?: requestedItems.size)) {
             playRequest.clear()
+            musicKitToken.dropWaiting()
             controller.stop()
             requestedItems = emptyList()
             queuePrepared = false
@@ -467,12 +514,27 @@ class AppleMusicMedia3Player(
             // Published until MusicKit's state catches up (see MusicKitPlayRequest).
             // Arm before calling MusicKit: a synchronous callback must see the request too.
             playRequest.request(playWhenReady, controller.playbackState == ApplePlaybackState.PLAYING)
-            if (playWhenReady) controller.play() else controller.pause()
             handler.removeCallbacks(playRequestTimeout)
-            if (playRequest.pending) handler.postDelayed(playRequestTimeout, PLAY_REQUEST_ANSWER_MS)
+            if (playWhenReady) {
+                // Resuming can send MusicKit to Apple for the song's stream and key. A pause while it waits wins.
+                musicKitToken.run {
+                    if (desiredPlay) {
+                        controller.play()
+                        armPlayRequestTimeout()
+                    }
+                }
+            } else {
+                controller.pause()
+                armPlayRequestTimeout()
+            }
         }
         return Futures.immediateVoidFuture()
     }
+    private fun armPlayRequestTimeout() {
+        handler.removeCallbacks(playRequestTimeout)
+        if (playRequest.pending) handler.postDelayed(playRequestTimeout, PLAY_REQUEST_ANSWER_MS)
+    }
+
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
         // A seek of the user's own (a note's moment, the bar) is never undone.
         startFromTop = false
@@ -484,11 +546,15 @@ class AppleMusicMedia3Player(
             mediaItemIndex == order.currentIndex -> if (positionMs != C.TIME_UNSET && controller.canSeek()) {
                 controller.seekToPosition(positionMs.coerceAtLeast(0))
             }
+            // Another song: MusicKit goes to Apple for its stream and key.
             mediaItemIndex > order.currentIndex ->
                 order.upcomingQueueIds.getOrNull(mediaItemIndex - order.currentIndex - 1)
-                    ?.let(controller::skipToQueueItemWithId)
+                    ?.let { queueId -> musicKitToken.run { controller.skipToQueueItemWithId(queueId) } }
             // Played items have no queue ids; MusicKit steps back one item at a time.
-            else -> repeat(order.currentIndex - mediaItemIndex) { controller.skipToPreviousItem() }
+            else -> {
+                val steps = order.currentIndex - mediaItemIndex
+                musicKitToken.run { repeat(steps) { controller.skipToPreviousItem() } }
+            }
         }
         return Futures.immediateVoidFuture()
     }
@@ -496,12 +562,15 @@ class AppleMusicMedia3Player(
         preparing = false
         desiredPlay = false
         playRequest.clear()
+        musicKitToken.dropWaiting()
         queuePrepared = false
         controller.stop()
         return Futures.immediateVoidFuture()
     }
     override fun handleRelease(): ListenableFuture<*> {
         released = true
+        musicKitToken.dropWaiting()
+        scope.cancel()
         handler.removeCallbacksAndMessages(null)
         controller.removeListener(listener)
         controller.stop()
