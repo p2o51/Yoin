@@ -79,7 +79,7 @@ class SpotifyApiClient(
      * ([Lane.Control]).
      */
     private val readPermits: Semaphore = SHARED_READ_PERMITS,
-    /** The Client ID this build ships with, against which a failure says whose app it went out under. */
+    /** The Client ID this build ships with, against which a failure says whose app its tokens belong to. */
     private val builtInClientId: String = SpotifyAuthConfig.FALLBACK_CLIENT_ID,
 ) {
 
@@ -717,8 +717,12 @@ class SpotifyApiClient(
         )
     }
 
+    /**
+     * Whose app the current tokens belong to, from the Client ID they were issued under — not the global
+     * setting, which may have changed since. Null (unknown) for credentials saved before it was recorded.
+     */
     private fun clientIdKind(): SpotifyClientIdKind? =
-        runCatching { SpotifyClientIdKind.of(clientIdProvider(), builtInClientId) }.getOrNull()
+        credentials.clientId?.let { SpotifyClientIdKind.of(it, builtInClientId) }
 
     private fun Response.retryAfterSeconds(): Long = header(HEADER_RETRY_AFTER)
         ?.toLongOrNull()
@@ -826,6 +830,8 @@ class SpotifyApiClient(
                 refreshToken = response.refreshToken ?: inside.refreshToken,
                 expiresAtEpochMs = now() + response.expiresInSec * 1_000,
                 scopes = response.scope?.split(' ')?.filter { it.isNotBlank() } ?: inside.scopes,
+                // The refresh token only refreshes under the app that issued it.
+                clientId = clientId,
                 // Successful refresh implicitly clears any prior revoked
                 // marker — the credentials are alive again.
                 revoked = false,

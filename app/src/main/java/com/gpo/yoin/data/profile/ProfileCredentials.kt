@@ -42,7 +42,13 @@ sealed class ProfileCredentials {
         val refreshToken: String,
         val expiresAtEpochMs: Long,
         val scopes: List<String>,
-        val revoked: Boolean = false
+        val revoked: Boolean = false,
+        /**
+         * The Client ID the tokens were issued under (set on authorization and on every refresh). Only for
+         * diagnostics: the global Client ID setting can change after a profile is authorized. Null for
+         * credentials saved before it was recorded.
+         */
+        val clientId: String? = null
     ) : ProfileCredentials()
 
     @Serializable

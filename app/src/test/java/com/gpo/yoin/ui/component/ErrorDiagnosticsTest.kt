@@ -69,6 +69,18 @@ class ErrorDiagnosticsTest {
         )
     }
 
+    @Test fun should_sayUnknown_when_itIsNotKnownWhoseAppTheTokensBelongTo() {
+        val failure = SpotifyAuthException(
+            code = 500,
+            message = "Spotify request failed: 500",
+            request = "GET /v1/me",
+        )
+        assertEquals(
+            listOf("Spotify HTTP 500", "GET /v1/me", "Spotify client ID unknown"),
+            failure.diagnosticReport(now, device).lines().subList(2, 5),
+        )
+    }
+
     @Test fun should_keepTheOAuthLine_when_theTokenEndpointRefused() {
         val failure = SpotifyAuthException(code = 400, message = "refresh failed", oauthError = "invalid_grant")
         assertEquals("Spotify auth 400 invalid_grant", failure.diagnosticReport(now, device).lines()[2])

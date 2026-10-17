@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.source.spotify
 
+import com.gpo.yoin.data.profile.ProfileCredentials
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.SerializationException
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -50,6 +51,14 @@ class SpotifyFailureDetailsTest {
     }
 
     @Test
+    fun should_takeTheWholeLocalTrackUriOut_when_spotifyEchoesOne() {
+        val body = """
+            {"error":{"status":400,"message":"Unsupported uri spotify:local:Some+Artist:My+Album:Secret+Song:215, try again"}}
+        """.trimIndent()
+        assertEquals("Unsupported uri spotify:{id} try again", spotifyErrorReason(body))
+    }
+
+    @Test
     fun should_returnNull_when_theBodyNamesNoReason() {
         assertNull(spotifyErrorReason(null))
         assertNull(spotifyErrorReason("<html>Bad gateway</html>"))
@@ -71,7 +80,8 @@ class SpotifyFailureDetailsTest {
                 """{"error":{"status":403,"message":"Forbidden"}}""",
             ),
         )
-        val error = runCatching { newClient().getPlaylist("6ufG1wUMBYX8FQ0Kx82VoE") }.exceptionOrNull()
+        val error = runCatching { newClient(issuedUnder = "own-client").getPlaylist("6ufG1wUMBYX8FQ0Kx82VoE") }
+            .exceptionOrNull()
 
         assertTrue(error is SpotifyAuthException)
         error as SpotifyAuthException
@@ -88,22 +98,51 @@ class SpotifyFailureDetailsTest {
                 """{"id":"pl","name":"Mine","images":[{"url":null,"width":null,"height":null}]}""",
             ),
         )
-        val error = runCatching { newClient().getPlaylist("6ufG1wUMBYX8FQ0Kx82VoE") }.exceptionOrNull()
+        val error = runCatching { newClient(issuedUnder = "built-in-client").getPlaylist("6ufG1wUMBYX8FQ0Kx82VoE") }
+            .exceptionOrNull()
 
         assertTrue(error is SpotifyResponseDecodeException)
         error as SpotifyResponseDecodeException
         assertEquals("GET /v1/playlists/{id}", error.request)
-        assertEquals(SpotifyClientIdKind.Own, error.clientIdKind)
+        assertEquals(SpotifyClientIdKind.BuiltIn, error.clientIdKind)
         assertTrue(error.cause is SerializationException)
     }
 
-    private fun newClient(): SpotifyApiClient = newSpotifyTestClient(
+    @Test
+    fun should_notGuessWhoseAppItIs_when_theCredentialsPredateTheRecord() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(403).setBody("""{"error":{"status":403,"message":"Forbidden"}}"""),
+        )
+        val error = runCatching { newClient(issuedUnder = null).getPlaylist("pl") }.exceptionOrNull()
+
+        assertNull((error as SpotifyAuthException).clientIdKind)
+    }
+
+    @Test
+    fun should_recordTheClientId_when_tokensAreRefreshed() = runTest {
+        server.enqueue(spotifyTokenResponse(accessToken = "t2", refreshToken = null))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"id":"alice"}"""))
+        val refreshed = mutableListOf<ProfileCredentials.Spotify>()
+        val client = newSpotifyTestClient(
+            server = server,
+            initialCredentials = spotifyTestCredentials("t1", "r1", expiresAtEpochMs = SPOTIFY_TEST_BASE_EPOCH),
+            callbacks = refreshed,
+            revokeCallbacks = {},
+        )
+
+        client.getMe()
+
+        assertEquals("test-client", refreshed.single().clientId)
+        assertEquals("test-client", client.currentCredentials().clientId)
+    }
+
+    private fun newClient(issuedUnder: String?): SpotifyApiClient = newSpotifyTestClient(
         server = server,
         initialCredentials = spotifyTestCredentials(
             accessToken = "t1",
             refreshToken = "r1",
             expiresAtEpochMs = SPOTIFY_TEST_BASE_EPOCH + 3_600_000L,
-        ),
+        ).copy(clientId = issuedUnder),
         callbacks = mutableListOf(),
         revokeCallbacks = {},
         builtInClientId = "built-in-client",

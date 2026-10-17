@@ -26,6 +26,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.launch
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.MissingFieldException
 import kotlinx.serialization.SerializationException
 import retrofit2.HttpException
@@ -59,11 +60,12 @@ private fun StringBuilder.appendDiagnostic(failure: Throwable, prefix: String) {
     }
     spotifyRequest?.let { (request, clientIdKind) ->
         appendLine(request)
-        clientIdKind?.let { appendLine("Spotify client ID ${it.label}") }
+        appendLine("Spotify client ID ${clientIdKind?.label ?: "unknown"}")
     }
     failure.cause?.takeIf { it !== failure }?.let { appendLine("cause ${it.diagnosticLine()}") }
 }
 
+@OptIn(ExperimentalSerializationApi::class) // MissingFieldException.missingFields
 private fun Throwable.diagnosticLine(): String = when (this) {
     is AppleMusicApiException -> listOfNotNull(
         "Apple Music ${failure::class.simpleName}",

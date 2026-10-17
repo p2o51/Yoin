@@ -84,7 +84,8 @@ private val ID_COLLECTIONS = setOf(
     "users",
 )
 private val REASON_JSON = Json { isLenient = true }
-private val SPOTIFY_URI_REGEX = Regex("spotify:[A-Za-z]+:[A-Za-z0-9]+")
+// The whole URI up to whitespace or a quote: a local track's carries artist, album and title fields.
+private val SPOTIFY_URI_REGEX = Regex("spotify:[^\\s'\"]+")
 private val SPOTIFY_ID_REGEX = Regex("\\b[0-9A-Za-z]{22}\\b")
 private val WHITESPACE_REGEX = Regex("\\s+")
 private const val MAX_REASON_LENGTH = 160
