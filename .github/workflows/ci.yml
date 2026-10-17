@@ -42,7 +42,7 @@ jobs:
         run: ./gradlew ktlintCheck -PyoinSymbolsDir=yoin-symbols
       - name: Upload ktlint reports
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ktlint-reports
           path: '**/build/reports/ktlint/**'
@@ -75,7 +75,7 @@ jobs:
         run: ./gradlew test -PyoinSymbolsDir=yoin-symbols
       - name: Upload test reports
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-test-reports
           path: '**/build/reports/tests/**'
@@ -108,7 +108,7 @@ jobs:
         run: ./gradlew :app:lintDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload lint report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-lint-report
           path: app/build/reports/lint-results-debug.*
@@ -141,7 +141,7 @@ jobs:
         run: ./gradlew assembleDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload debug APK
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
