@@ -36,6 +36,7 @@ import com.gpo.yoin.ui.detail.DetailMenuRows
 import com.gpo.yoin.ui.detail.PlaylistDetailScreen
 import com.gpo.yoin.ui.detail.PlaylistDetailUiState
 import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
+import com.gpo.yoin.ui.detail.TrackMenuHost
 import com.gpo.yoin.ui.detail.detailShareText
 import com.gpo.yoin.ui.detail.hasQueueableSongs
 import com.gpo.yoin.ui.detail.playArtist
@@ -102,8 +103,6 @@ internal fun AlbumPaneEntry(
     )
     val uiState by viewModel.uiState.collectAsState()
     val notedSongIds by viewModel.notedSongIds.collectAsState()
-    val expandedSongId by viewModel.expandedSongId.collectAsState()
-    val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
     val scrapbook by viewModel.scrapbook.collectAsState()
     val neoDb by viewModel.neoDb.collectAsState()
     val currentOnMessage by rememberUpdatedState(onMessage)
@@ -157,6 +156,18 @@ internal fun AlbumPaneEntry(
         onToggleLibrary = viewModel::toggleLibrarySaved,
         queueAvailable = content?.hasQueueableSongs() == true,
     )
+    val currentOnOpenArtist by rememberUpdatedState(onOpenArtist)
+    val currentOnAddToPlaylist by rememberUpdatedState(onAddToPlaylist)
+    // A song row's long-press menu; the column is the album, so no Go to album.
+    val trackMenu = remember(app.container, viewModel) {
+        TrackMenuHost(
+            container = app.container,
+            trackFor = { id -> viewModel.getAlbumSongs().firstOrNull { it.id.toString() == id } },
+            onMessage = { currentOnMessage(it) },
+            onAddToPlaylist = { ids -> currentOnAddToPlaylist(ids) },
+            onGoToArtist = { id -> currentOnOpenArtist(id) },
+        )
+    }
     val share = {
         val title = content?.let {
             context.getString(R.string.shell_share_album_title, it.albumName, it.artistName)
@@ -206,9 +217,7 @@ internal fun AlbumPaneEntry(
         onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
         notedSongIds = notedSongIds,
         currentTrackId = playback.currentTrackId,
-        expandedSongId = expandedSongId,
-        expandedNoteBundle = expandedNoteBundle,
-        onToggleExpandedSong = viewModel::toggleExpandedSong,
+        trackMenu = trackMenu,
         onRatingCommit = viewModel::setUserRating,
         onReviewDraftChange = viewModel::onReviewDraftChange,
         neoDb = neoDb,

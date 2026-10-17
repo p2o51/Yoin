@@ -32,6 +32,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,6 +66,7 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
+import com.gpo.yoin.ui.detail.TrackMenuHost
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -121,6 +123,22 @@ fun NowPlayingOverlayHost(
     val lyricsSearchState by viewModel.lyricsSearchState.collectAsState()
     val castState by container.castManager.castState.collectAsState()
     val skipDirection by viewModel.skipDirection.collectAsState()
+    // The cover's long-press song menu (LocalNowPlayingCoverMenu): this
+    // window's navigation, playlist sheet and snackbar.
+    val currentOnAlbumClick by rememberUpdatedState(onAlbumClick)
+    val currentOnArtistClick by rememberUpdatedState(onArtistClick)
+    val coverMenuHost = remember(container, viewModel) {
+        TrackMenuHost(
+            container = container,
+            trackFor = { id ->
+                container.playbackManager.playbackState.value.currentTrack?.takeIf { it.id.toString() == id }
+            },
+            onMessage = viewModel::postMessage,
+            onAddToPlaylist = viewModel::requestAddTracksToPlaylist,
+            onGoToAlbum = { id -> currentOnAlbumClick(id) },
+            onGoToArtist = { id -> currentOnArtistClick(id) },
+        )
+    }
 
     // The frame this window gives Now Playing (断点交接 §3.4 / §14.1) — the
     // same resolution the host content beside a side panel reads.
@@ -438,6 +456,10 @@ fun NowPlayingOverlayHost(
         val songScopedPosition = remember { SongScopedPosition() }
         val nowPlayingBufferedMs = viewModel.bufferedMs.collectAsState()
         val nowPlayingIsPlaying by viewModel.isPlayingLive.collectAsState()
+        // Keep screen on (the cover menu's player setting): only while Now
+        // Playing is open and music plays.
+        val keepScreenOn = rememberNowPlayingKeepScreenOn()
+        KeepScreenOnWhile(active = expanded && keepScreenOn && nowPlayingIsPlaying)
         // The raw FFT stream updates 10–30Hz; NowPlayingScreen only needs
         // "is a spectrum present", so subscribe to that distinct Boolean
         // and keep the frames out of composition entirely.
@@ -537,133 +559,135 @@ fun NowPlayingOverlayHost(
                 // before this composition catches up; a late release still owns
                 // the displayed song, never whichever song is current by then.
                 val ratingSongId = (nowPlayingUiState as? NowPlayingUiState.Playing)?.songId
-                NowPlayingScreen(
-                    // Playing.isPlaying is overridden with the EAGER projection:
-                    // uiState's combine can serve a stale cached snapshot after a
-                    // cold resubscribe (see isPlayingLive) and the wave bar must
-                    // never disagree with the ticking playhead.
-                    uiState = when (val s = nowPlayingUiState) {
-                        is NowPlayingUiState.Playing ->
-                            if (s.isPlaying == nowPlayingIsPlaying) s
-                            else s.copy(isPlaying = nowPlayingIsPlaying)
-                        else -> s
-                    },
-                    // Mirrors the dismissFraction pattern below: reader lambdas
-                    // over collected State, invoked only at the consuming leaves.
-                    positionMs = {
-                        songScopedPosition.resolve(nowPlayingPlayhead.value, renderedSongId.value)
-                    },
-                    bufferedMs = { nowPlayingBufferedMs.value },
-                    hasAudioSpectrum = hasAudioSpectrum,
-                    onTogglePlayPause = viewModel::togglePlayPause,
-                    onSkipNext = viewModel::skipNext,
-                    onSkipPrevious = viewModel::skipPrevious,
-                    onSeek = viewModel::seekTo,
-                    onSeekToMs = viewModel::seekToMs,
-                    lyricsSearchState = lyricsSearchState,
-                    onOpenLyricsSearch = viewModel::openLyricsSearch,
-                    onLyricsSearchQueryChange = viewModel::updateLyricsSearchQuery,
-                    onSearchLyrics = viewModel::searchLyrics,
-                    onApplyLyricsSearchResult = viewModel::applyLyricsSearchResult,
-                    onDismissLyricsSearch = viewModel::dismissLyricsSearch,
-                    onTranslateLyrics = viewModel::translateLyrics,
-                    onApplyLyrics = viewModel::applyLyrics,
-                    onLyricsMessage = viewModel::showMessage,
-                    onRatingChange = { rating -> ratingSongId?.let { viewModel.setRating(it, rating) } },
-                    onToggleFavorite = viewModel::toggleFavorite,
-                    onAddCurrentToLibrary = viewModel::addCurrentToLibrary,
-                    onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,
-                    onSkipToQueueItem = viewModel::skipToQueueItem,
-                    queueEditor = remember(viewModel) {
-                        QueueEditActions(
-                            onMove = viewModel::moveQueueItem,
-                            onRemove = viewModel::removeQueueItem,
-                            onClearQueued = viewModel::clearUserQueue,
-                        )
-                    },
-                    onCyclePlayMode = viewModel::cyclePlayMode,
-                    onAlbumClick = onAlbumClick,
-                    onArtistClick = onArtistClick,
-                    onPlaylistClick = onPlaylistClick,
-                    onDismiss = closeNowPlaying,
-                    dismissFraction = {
-                        val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
-                        maxOf(dragProgress, predictiveBackProgress).coerceIn(0f, 1f)
-                    },
-                    aboutUiState = aboutUiState,
-                    onRetryFetchSongInfo = viewModel::retryFetchSongInfo,
-                    askState = askState,
-                    onAboutOpened = viewModel::onAboutOpened,
-                    onAskQuestion = viewModel::askQuestion,
-                    onAskBarFocused = viewModel::onAskBarFocused,
-                    onAskBarCollapseRequested = viewModel::onAskBarCollapseRequested,
-                    onDismissAskError = viewModel::dismissAskError,
-                    stageMode = stageMode,
-                    stageProgress = stageProgress,
-                    detailPage = detailPage,
-                    onStageModeChange = viewModel::setStageMode,
-                    onStageBack = viewModel::stepBackStage,
-                    onDetailPageChange = viewModel::setDetailPage,
-                    notesState = notesState,
-                    noteDraft = viewModel.noteDraft,
-                    onSaveNote = viewModel::saveCurrentNote,
-                    onDeleteNote = viewModel::deleteNote,
-                    onRealignNote = viewModel::realignNote,
-                    devicesState = devicesState,
-                    onRefreshDevices = viewModel::refreshDevices,
-                    onSelectDevice = viewModel::selectDevice,
-                    castState = castState,
-                    onCastClick = { showCastDevicesSheet = true },
-                    // The pill → cover morph only where the phone column fills
-                    // the window; panel / enlarged / two-column bodies drop it
-                    // (bounded, lookahead-safe, and the pill folds away there).
-                    sharedTransitionScope = sharedTransitionScope.takeIf {
-                        presentation == NowPlayingPresentation.Phone ||
-                            presentation == NowPlayingPresentation.Tabletop
-                    },
-                    animatedVisibilityScope = npAvScope,
-                    // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
-                    // over the full-screen aurora) — NOT the whole overlay, which
-                    // would reveal the host behind and read as the app shrinking.
-                    backPreview = stageBack,
-                    skipDirection = skipDirection,
-                    presentation = bodyPresentation,
-                    // Built only where it is used (the enlarged phone): on Wide
-                    // a per-frame spec would recompose the player all spring long.
-                    enlarged = if (bodyPresentation != NowPlayingPresentation.Enlarged) null else nowPlayingEnlargedSpec(frame.windowWidth).let { spec ->
-                        // Grows in with the container, so the panel → full
-                        // screen change never pops the rating column.
-                        spec.copy(
-                            ratingColumn = 56.dp + (spec.ratingColumn - 56.dp) * fullFraction,
-                            controlSize = if (fullFraction > 0.5f) spec.controlSize else 56.dp,
-                        )
-                    },
-                    topBarAction = if (panelFamily) {
-                        {
-                            PanelToggleButton(
-                                fullscreen = !panelMode,
-                                onClick = { viewModel.setMediumFullscreen(panelMode) },
+                CompositionLocalProvider(LocalNowPlayingCoverMenu provides coverMenuHost) {
+                    NowPlayingScreen(
+                        // Playing.isPlaying is overridden with the EAGER projection:
+                        // uiState's combine can serve a stale cached snapshot after a
+                        // cold resubscribe (see isPlayingLive) and the wave bar must
+                        // never disagree with the ticking playhead.
+                        uiState = when (val s = nowPlayingUiState) {
+                            is NowPlayingUiState.Playing ->
+                                if (s.isPlaying == nowPlayingIsPlaying) s
+                                else s.copy(isPlaying = nowPlayingIsPlaying)
+                            else -> s
+                        },
+                        // Mirrors the dismissFraction pattern below: reader lambdas
+                        // over collected State, invoked only at the consuming leaves.
+                        positionMs = {
+                            songScopedPosition.resolve(nowPlayingPlayhead.value, renderedSongId.value)
+                        },
+                        bufferedMs = { nowPlayingBufferedMs.value },
+                        hasAudioSpectrum = hasAudioSpectrum,
+                        onTogglePlayPause = viewModel::togglePlayPause,
+                        onSkipNext = viewModel::skipNext,
+                        onSkipPrevious = viewModel::skipPrevious,
+                        onSeek = viewModel::seekTo,
+                        onSeekToMs = viewModel::seekToMs,
+                        lyricsSearchState = lyricsSearchState,
+                        onOpenLyricsSearch = viewModel::openLyricsSearch,
+                        onLyricsSearchQueryChange = viewModel::updateLyricsSearchQuery,
+                        onSearchLyrics = viewModel::searchLyrics,
+                        onApplyLyricsSearchResult = viewModel::applyLyricsSearchResult,
+                        onDismissLyricsSearch = viewModel::dismissLyricsSearch,
+                        onTranslateLyrics = viewModel::translateLyrics,
+                        onApplyLyrics = viewModel::applyLyrics,
+                        onLyricsMessage = viewModel::showMessage,
+                        onRatingChange = { rating -> ratingSongId?.let { viewModel.setRating(it, rating) } },
+                        onToggleFavorite = viewModel::toggleFavorite,
+                        onAddCurrentToLibrary = viewModel::addCurrentToLibrary,
+                        onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,
+                        onSkipToQueueItem = viewModel::skipToQueueItem,
+                        queueEditor = remember(viewModel) {
+                            QueueEditActions(
+                                onMove = viewModel::moveQueueItem,
+                                onRemove = viewModel::removeQueueItem,
+                                onClearQueued = viewModel::clearUserQueue,
                             )
-                        }
-                    } else {
-                        null
-                    },
-                    onClaimLyricIdleHint = { viewModel.claimLyricIdleHint() },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .offset {
-                            // Phone / enlarged: back / drag carry the player
-                            // down; the panel's travel is on its container.
-                            if (panelMode) {
-                                IntOffset.Zero
-                            } else {
-                                IntOffset(
-                                    x = 0,
-                                    y = (overlayOffsetPx + dismissDragPx).roundToInt(),
+                        },
+                        onCyclePlayMode = viewModel::cyclePlayMode,
+                        onAlbumClick = onAlbumClick,
+                        onArtistClick = onArtistClick,
+                        onPlaylistClick = onPlaylistClick,
+                        onDismiss = closeNowPlaying,
+                        dismissFraction = {
+                            val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
+                            maxOf(dragProgress, predictiveBackProgress).coerceIn(0f, 1f)
+                        },
+                        aboutUiState = aboutUiState,
+                        onRetryFetchSongInfo = viewModel::retryFetchSongInfo,
+                        askState = askState,
+                        onAboutOpened = viewModel::onAboutOpened,
+                        onAskQuestion = viewModel::askQuestion,
+                        onAskBarFocused = viewModel::onAskBarFocused,
+                        onAskBarCollapseRequested = viewModel::onAskBarCollapseRequested,
+                        onDismissAskError = viewModel::dismissAskError,
+                        stageMode = stageMode,
+                        stageProgress = stageProgress,
+                        detailPage = detailPage,
+                        onStageModeChange = viewModel::setStageMode,
+                        onStageBack = viewModel::stepBackStage,
+                        onDetailPageChange = viewModel::setDetailPage,
+                        notesState = notesState,
+                        noteDraft = viewModel.noteDraft,
+                        onSaveNote = viewModel::saveCurrentNote,
+                        onDeleteNote = viewModel::deleteNote,
+                        onRealignNote = viewModel::realignNote,
+                        devicesState = devicesState,
+                        onRefreshDevices = viewModel::refreshDevices,
+                        onSelectDevice = viewModel::selectDevice,
+                        castState = castState,
+                        onCastClick = { showCastDevicesSheet = true },
+                        // The pill → cover morph only where the phone column fills
+                        // the window; panel / enlarged / two-column bodies drop it
+                        // (bounded, lookahead-safe, and the pill folds away there).
+                        sharedTransitionScope = sharedTransitionScope.takeIf {
+                            presentation == NowPlayingPresentation.Phone ||
+                                presentation == NowPlayingPresentation.Tabletop
+                        },
+                        animatedVisibilityScope = npAvScope,
+                        // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
+                        // over the full-screen aurora) — NOT the whole overlay, which
+                        // would reveal the host behind and read as the app shrinking.
+                        backPreview = stageBack,
+                        skipDirection = skipDirection,
+                        presentation = bodyPresentation,
+                        // Built only where it is used (the enlarged phone): on Wide
+                        // a per-frame spec would recompose the player all spring long.
+                        enlarged = if (bodyPresentation != NowPlayingPresentation.Enlarged) null else nowPlayingEnlargedSpec(frame.windowWidth).let { spec ->
+                            // Grows in with the container, so the panel → full
+                            // screen change never pops the rating column.
+                            spec.copy(
+                                ratingColumn = 56.dp + (spec.ratingColumn - 56.dp) * fullFraction,
+                                controlSize = if (fullFraction > 0.5f) spec.controlSize else 56.dp,
+                            )
+                        },
+                        topBarAction = if (panelFamily) {
+                            {
+                                PanelToggleButton(
+                                    fullscreen = !panelMode,
+                                    onClick = { viewModel.setMediumFullscreen(panelMode) },
                                 )
                             }
+                        } else {
+                            null
                         },
-                )
+                        onClaimLyricIdleHint = { viewModel.claimLyricIdleHint() },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .offset {
+                                // Phone / enlarged: back / drag carry the player
+                                // down; the panel's travel is on its container.
+                                if (panelMode) {
+                                    IntOffset.Zero
+                                } else {
+                                    IntOffset(
+                                        x = 0,
+                                        y = (overlayOffsetPx + dismissDragPx).roundToInt(),
+                                    )
+                                }
+                            },
+                    )
+                }
 
                 if (showCastDevicesSheet) {
                     // Pixel-twin of NowPlayingScreen's own Devices-pill mount:

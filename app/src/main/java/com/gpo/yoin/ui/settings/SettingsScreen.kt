@@ -78,6 +78,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -455,6 +456,8 @@ fun SettingsContent(
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
                                         item { WelcomeGuideItem() }
+                                        item { WebsiteItem(snackbarHostState) }
+                                        item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
                                         item { PrivacyPolicyItem(snackbarHostState) }
                                         spotoolfyRecapBatchId?.let { batchId ->
@@ -1627,6 +1630,32 @@ private fun FeedbackItem(snackbarHostState: SnackbarHostState) {
         title = stringResource(R.string.settings_about_feedback),
         url = YoinLinks.FEEDBACK_FORM,
         openFailed = stringResource(R.string.settings_about_feedback_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+/** Settings › About › Website: yoin.gojyuplus.com, in the app's language. */
+@Composable
+private fun WebsiteItem(snackbarHostState: SnackbarHostState) {
+    val language = LocalConfiguration.current.locales[0].language
+    ExternalPageItem(
+        icon = YoinSymbols.Launch,
+        title = stringResource(R.string.settings_about_website),
+        url = YoinLinks.website(language),
+        openFailed = stringResource(R.string.settings_about_website_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+/** Settings › About › Docs: the user docs on the website, in the app's language. */
+@Composable
+private fun DocsItem(snackbarHostState: SnackbarHostState) {
+    val language = LocalConfiguration.current.locales[0].language
+    ExternalPageItem(
+        icon = YoinSymbols.Note,
+        title = stringResource(R.string.settings_about_docs),
+        url = YoinLinks.docs(language),
+        openFailed = stringResource(R.string.settings_about_docs_open_failed),
         snackbarHostState = snackbarHostState,
     )
 }

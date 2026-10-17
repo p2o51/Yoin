@@ -1,6 +1,15 @@
 package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -349,47 +358,16 @@ internal fun PlaybackControls(
                             Spacer(modifier = Modifier.width(8.dp))
                         }
 
-                        // Play mode: repeat all (the default) keeps the resting tertiary
-                        // colours; shuffle and repeat one light up like shuffle-on used to.
-                        val playModeLit = playMode != PlayMode.RepeatAll
-                        val playModeContainer by animateColorAsState(
-                            targetValue = if (playModeLit) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.tertiaryContainer
-                            },
-                            animationSpec = YoinMotion.defaultEffectsSpec(),
-                            label = "playModeContainer",
-                        )
-                        val playModeContent by animateColorAsState(
-                            targetValue = if (playModeLit) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onTertiaryContainer
-                            },
-                            animationSpec = YoinMotion.defaultEffectsSpec(),
-                            label = "playModeContent",
-                        )
-                        val playModeState = playMode.stateDescription()
-                        FilledIconButton(
+                        PlayModeSegmentedButton(
+                            playMode = playMode,
                             onClick = {
                                 haptics.performTick()
                                 onCyclePlayMode()
                             },
-                            modifier = Modifier
-                                .size(controlSize)
-                                .semantics { stateDescription = playModeState },
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = playModeContainer,
-                                contentColor = playModeContent,
-                            ),
-                        ) {
-                            Icon(
-                                painter = rememberPlayModeSymbolPainter(playMode.toSymbol()),
-                                contentDescription = stringResource(R.string.np_cd_play_mode),
-                                modifier = Modifier.size(controlIconSize),
-                            )
-                        }
+                            height = controlSize,
+                            width = fit.playModeWidth,
+                            iconSize = controlIconSize,
+                        )
                     }
                 }
 
@@ -506,25 +484,139 @@ private fun PlaybackTimeLabel(
     )
 }
 
-private fun PlayMode.toSymbol(): SymbolPlayMode = when (this) {
-    PlayMode.RepeatAll -> SymbolPlayMode.RepeatAll
-    PlayMode.Shuffle -> SymbolPlayMode.Shuffle
-    PlayMode.RepeatOne -> SymbolPlayMode.RepeatOne
-}
-
 /** TalkBack reads the button as "Play mode, <state>, button". */
 @Composable
 private fun PlayMode.stateDescription(): String = when (this) {
     PlayMode.RepeatAll -> stringResource(R.string.np_transport_repeat_all)
     PlayMode.Shuffle -> stringResource(R.string.np_transport_shuffle)
+    PlayMode.ShuffleRepeatOne -> stringResource(R.string.np_transport_shuffle_repeat_one)
     PlayMode.RepeatOne -> stringResource(R.string.np_transport_repeat_one)
+}
+
+/**
+ * The play-mode button: one pill, two segments — shuffle on the left, repeat
+ * on the right (docs/design.md, 播放模式). A segment lights up (`primary`) when
+ * its axis leaves the default: shuffle on, or repeat one; the default stays in
+ * the resting tertiary colours. The whole pill is one tap target that steps
+ * [PlayMode.next], which always flips exactly one segment. Pressing rounds the
+ * two inner corners up toward the outer ones (spatial spring), the colour
+ * changes ride the effects spring.
+ */
+@Composable
+private fun PlayModeSegmentedButton(
+    playMode: PlayMode,
+    onClick: () -> Unit,
+    height: Dp,
+    width: Dp,
+    iconSize: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val innerCorner by animateDpAsState(
+        targetValue = if (pressed) height / 2 else height * PlayModeInnerCornerRatio,
+        animationSpec = YoinMotion.fastSpatialSpec(),
+        label = "playModeInnerCorner",
+    )
+    val segmentWidth = (width - PlayModeSegmentGap) / 2
+    val glyph = minOf(iconSize, segmentWidth - PlayModeGlyphInset)
+    val outer = height / 2
+    val label = stringResource(R.string.np_cd_play_mode)
+    val state = playMode.stateDescription()
+    Row(
+        modifier = modifier
+            .width(width)
+            .height(height)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics(mergeDescendants = true) {
+                contentDescription = label
+                stateDescription = state
+            },
+        horizontalArrangement = Arrangement.spacedBy(PlayModeSegmentGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PlayModeSegment(
+            lit = playMode.shuffle,
+            shape = RoundedCornerShape(
+                topStart = outer,
+                bottomStart = outer,
+                topEnd = innerCorner,
+                bottomEnd = innerCorner,
+            ),
+            width = segmentWidth,
+        ) {
+            Icon(
+                imageVector = YoinSymbols.Shuffle,
+                contentDescription = null,
+                modifier = Modifier.size(glyph),
+            )
+        }
+        PlayModeSegment(
+            lit = playMode.repeatOne,
+            shape = RoundedCornerShape(
+                topStart = innerCorner,
+                bottomStart = innerCorner,
+                topEnd = outer,
+                bottomEnd = outer,
+            ),
+            width = segmentWidth,
+        ) {
+            Icon(
+                painter = rememberPlayModeSymbolPainter(
+                    if (playMode.repeatOne) SymbolPlayMode.RepeatOne else SymbolPlayMode.RepeatAll,
+                ),
+                contentDescription = null,
+                modifier = Modifier.size(glyph),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayModeSegment(
+    lit: Boolean,
+    shape: Shape,
+    width: Dp,
+    content: @Composable () -> Unit,
+) {
+    val container by animateColorAsState(
+        targetValue = if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "playModeSegmentContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (lit) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "playModeSegmentContent",
+    )
+    Box(
+        modifier = Modifier
+            .width(width)
+            .fillMaxHeight()
+            .background(container, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        CompositionLocalProvider(LocalContentColor provides contentColor) { content() }
+    }
 }
 
 /** How the transport rows fit a column; see [rememberPlaybackControlsFit]. */
 internal data class PlaybackControlsFit(
     val controlSize: Dp,
     val playPaddingScale: Float,
+    val playModeWidth: Dp = playModeNaturalWidth(controlSize),
 )
+
+/** The two-segment play-mode pill at rest: two segments of 0.8 × the control size. */
+internal fun playModeNaturalWidth(controlSize: Dp): Dp = controlSize * 1.6f + PlayModeSegmentGap
+
+/** The narrowest the play-mode pill may get before it would stop reading as two segments. */
+internal fun playModeMinWidth(controlSize: Dp): Dp = controlSize * 1.1f
 
 /**
  * Pure fit rule (unit-tested): the natural row is
@@ -537,15 +629,27 @@ internal fun fitPlaybackControls(
     playTextWidth: Dp,
     hasExpandToggle: Boolean,
 ): PlaybackControlsFit {
-    fun needs(size: Dp, paddingScale: Float): Dp {
+    // Everything but the play-mode pill.
+    fun rest(size: Dp, paddingScale: Float): Dp {
         val play = playTextWidth * PlayTextStretchMax + PlayRestPadding * 2 * paddingScale
-        val trailing = size + if (hasExpandToggle) size + TransportGap else 0.dp
-        return play + TransportGap + size + TransportGap + trailing
+        val expand = if (hasExpandToggle) size + TransportGap else 0.dp
+        return play + TransportGap + size + TransportGap + expand
     }
+    fun fits(size: Dp, paddingScale: Float) = rest(size, paddingScale) + playModeNaturalWidth(size) <= maxWidth
     return when {
-        needs(controlSize, 1f) <= maxWidth -> PlaybackControlsFit(controlSize, 1f)
-        needs(controlSize, 0.5f) <= maxWidth -> PlaybackControlsFit(controlSize, 0.5f)
-        else -> PlaybackControlsFit(minOf(controlSize, CompactControlSize), 0.5f)
+        fits(controlSize, 1f) -> PlaybackControlsFit(controlSize, 1f)
+        fits(controlSize, 0.5f) -> PlaybackControlsFit(controlSize, 0.5f)
+        else -> {
+            // Last step: 48dp controls, and the pill narrows into what is left —
+            // never below playModeMinWidth, so it stays a whole control.
+            val size = minOf(controlSize, CompactControlSize)
+            val left = maxWidth - rest(size, 0.5f)
+            PlaybackControlsFit(
+                controlSize = size,
+                playPaddingScale = 0.5f,
+                playModeWidth = left.coerceIn(playModeMinWidth(size), playModeNaturalWidth(size)),
+            )
+        }
     }
 }
 
@@ -596,6 +700,11 @@ private val CompactControlSize = 48.dp
 /** PLAY's text stretch peaks at 1.10 while pressed. */
 private const val PlayTextStretchMax = 1.1f
 
+/** The play-mode pill's split, its inner corners at rest, and the glyph's breathing room. */
+private val PlayModeSegmentGap = 2.dp
+private const val PlayModeInnerCornerRatio = 0.18f
+private val PlayModeGlyphInset = 10.dp
+
 // ── Previews: one per play mode ─────────────────────────────────────────
 
 @Composable
@@ -629,6 +738,12 @@ private fun PlaybackControlsRepeatAllPreview() {
 @Composable
 private fun PlaybackControlsShufflePreview() {
     PlayModePreviewControls(PlayMode.Shuffle)
+}
+
+@Preview(name = "Play mode · shuffle + repeat one", showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun PlaybackControlsShuffleRepeatOnePreview() {
+    PlayModePreviewControls(PlayMode.ShuffleRepeatOne)
 }
 
 @Preview(name = "Play mode · repeat one", showBackground = true, backgroundColor = 0xFF1C1B1F)

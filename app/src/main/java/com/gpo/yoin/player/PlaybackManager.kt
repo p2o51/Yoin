@@ -467,7 +467,7 @@ class PlaybackManager(
                             // context, so Spotify does the shuffling; a plain
                             // list is played in the order Yoin already shuffled.
                             playMode = if (shuffled && activityContext.isSpotifyContext()) {
-                                PlayMode.Shuffle
+                                preferredPlayMode.withShuffle(true)
                             } else {
                                 preferredPlayMode
                             },

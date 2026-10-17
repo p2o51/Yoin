@@ -8,6 +8,7 @@
     <string name="np_transport_repeat_all">列表循环</string>
     <string name="np_transport_shuffle">随机播放</string>
     <string name="np_transport_repeat_one">单曲循环</string>
+    <string name="np_transport_shuffle_repeat_one">随机播放，单曲循环</string>
 
     <string name="np_pill_queue">队列</string>
     <string name="np_pill_devices">设备</string>
@@ -177,4 +178,6 @@
     <string name="np_device_switch_back_cast">未投播</string>
     <string name="np_device_connected_cast">正在投播</string>
     <string name="np_device_use_cast_pill">未投播</string>
+    <string name="np_keep_screen_on">屏幕常亮</string>
+    <string name="np_cd_cover_menu">歌曲选项</string>
 </resources>
