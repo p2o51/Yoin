@@ -128,19 +128,21 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
   - 先出页面再确认：Spotify 的已保存镜像只有最新 200 首，所以页面先按已知状态显示，确认结果晚到时静默翻转。不加载中样式，不加文字。
   - 专辑页打开时的第一次对齐也静默：曲目行先按专辑自带的标记画出来（专辑可能来自 7 天磁盘缓存，标记是旧的）。页面打开时发出的那次查询（`refreshFavoriteStates`）回来之前，每行第一次由非用户来源（已保存镜像、叠加层、远端回答）带来的、和初值不同的状态，按静默翻转处理（`FavoriteGlyph.settle`），这期间落地的资料库同步、页面打开前就写好的喜欢都算；和初值相同的状态不算对齐，这一行接着等。查询回来时，读到过状态的行就算对齐完了，之后的资料库同步照常 beat；还没读到过状态的行，第一份状态照样静默对齐。每行只静默对齐一次，之后的变化照上面的规则走。用户自己的变化不算对齐：在这一页点过的行、Now Playing 正在写的那一首，照常 beat，写入失败的回退也照常 beat。Now Playing 的心形直接从仓库的第一份状态起步（`FavoriteGlyph.of`），没有这一步。
 
-**播放模式**（一个按钮三个状态，点一下按顺序切换，默认列表循环）
+**播放模式**（2026-10-17 owner「上线冲刺」重新抽象：随机和循环是两条独立的轴，2 × 2 = 4 种组合；默认是一颗圆形按钮，点一下按顺序切换，长按分裂成左随机、右循环两段，默认列表循环）
 
-| 模式 | 图标 `SymbolPlayMode` | Media3 | Spotify App Remote |
-| --- | --- | --- | --- |
-| 列表循环（默认） | `RepeatAll` | `REPEAT_MODE_ALL`，shuffle 关 | `setRepeat(ALL)` + `setShuffle(false)` |
-| 随机 | `Shuffle` | `REPEAT_MODE_ALL`，shuffle 开 | `setRepeat(ALL)` + `setShuffle(true)` |
-| 单曲循环 | `RepeatOne` | `REPEAT_MODE_ONE`，shuffle 关 | `setRepeat(ONE)` + `setShuffle(false)` |
+| 模式 | 随机 | 循环 | Media3 | Spotify App Remote |
+| --- | --- | --- | --- | --- |
+| 列表循环（默认） | 关 | 全部 | `REPEAT_MODE_ALL`，shuffle 关 | `setRepeat(ALL)` + `setShuffle(false)` |
+| 随机 | 开 | 全部 | `REPEAT_MODE_ALL`，shuffle 开 | `setRepeat(ALL)` + `setShuffle(true)` |
+| 随机 + 单曲循环 | 开 | 单曲 | `REPEAT_MODE_ONE`，shuffle 开 | `setRepeat(ONE)` + `setShuffle(true)` |
+| 单曲循环 | 关 | 单曲 | `REPEAT_MODE_ONE`，shuffle 关 | `setRepeat(ONE)` + `setShuffle(false)` |
 
-- 顺序：列表循环 → 随机 → 单曲循环 → 列表循环。repeat 和 shuffle 每次一起写。
-- 读回：`REPEAT_MODE_ONE` → 单曲循环；shuffle 开 → 随机；其它（含 `REPEAT_MODE_OFF`）→ 列表循环。
+- 顺序：列表循环 → 随机 → 随机 + 单曲循环 → 单曲循环 → 列表循环。每一下只翻一段（格雷码），按钮上总是只有一段在变。开播时 repeat 和 shuffle 一起写；播放中点按钮只写变了的那一条轴（MusicKit 收到多余的 repeat 写入会先把 shuffle 恢复成旧值，暂停一会儿后的第一下会因此落空，2026-10-17 平板实测）。
+- 「随机 + 单曲循环」：这首歌一直重复；手动 NEXT / PREVIOUS 时按随机顺序跳。
+- 读回：两条轴分别读——`REPEAT_MODE_ONE` → 单曲，其它（含 `REPEAT_MODE_OFF`）→ 全部；shuffle 开 → 随机。
+- 按钮（2026-10-17 owner 批注改）：**默认还是原来那颗圆形按钮**，图标是四态的 `rememberPlayModeSymbolPainter`（随机 + 单曲循环 = 交叉的两股，「1」缩到 0.72 倍、待在交叉左边的空隙里；从单曲循环转过去时「1」跟着两股一起滑过去），点一下按上面的顺序走一格。**长按分裂**成一颗两段的胶囊：左段随机、右段循环，各自点一下只切自己那条轴，亮成 `primary` / `onPrimary` 表示偏离默认（随机开、单曲循环），默认留在 `tertiaryContainer` / `onTertiaryContainer`；3 秒没人点（或再长按一次）**融合**回圆形。分裂时圆里的图标变成两份，一边往各自段的中心走一边变形——左边变成交叉的两股，右边变成循环（单曲时带 1）；融合时反过来，两份一边靠拢一边变回同一个四态图标。宽度、间隙、内角和图标位移共用一条空间弹簧，颜色走效果弹簧；圆形时两半内角为 0，正好拼成一个圆。圆形亮起的条件是「不是列表循环」。实现 `PlaybackControls.PlayModeButton`，图标动画在 yoin-symbols 的 `AnimatedSymbols.kt`。
 - Apple Music：MusicKit（1.1.1）在队列还没有当前歌曲时会不声不响地丢掉 repeat / shuffle 的写入。冷启动或 Apple Music 会话重建后，Yoin 和第一次 prepare 同一批写模式，可能碰到这个时序。`MusicKitPlayModes` 记住 Yoin 要的模式，每次状态变化时 MusicKit 和它不一致、又能写，就再写一次。
 - Yoin 自己开播的队列（任何后端）开播后套用用户选的模式；在 Spotify App 等别处开始的播放只观察、不写。模式不跨进程保存。
-- 配色：列表循环用 `tertiaryContainer` / `onTertiaryContainer`，随机和单曲循环亮成 `primary` / `onPrimary`，Effects Spring 过渡。
 - 详情页的「Shuffle play」是把列表本身打乱，不碰播放模式。
 
 **`docs/icons/`**：第一轮图标草稿，已被 yoin-symbols 取代，留着存档，不要删。
@@ -193,6 +195,9 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - 页面用 `LocalShellChromeInsets` 给 Button Group 让位（底部两种形态留栏高，分离式留左侧 84dp + 右侧挖孔）
 - 被拿出来单独放的动作一律从 ▾ 菜单里去掉，不重复
 - **详情页 ▾ 菜单的功能（2026-10-05 owner F1「split button 里那些功能的实装」）**：Shuffle play 之后依次是 Play next（Spotify 不显示——它只有一个队列，本来就排在 context 前面）、Add to queue、Add to playlist（只在服务能写歌单时出现，打开 NP 的加入歌单面板）、Open in Spotify / Open in Apple Music（有公开链接时），再后面是可被拿出来的 Go to artist / Share。专辑页对整张专辑、艺人页对艺人全部曲目（艺人页不给 Add to playlist）。Share 发「标题 + 链接」，链接来自 `MusicMetadata.webUrl`（Spotify open.spotify.com；Apple Music 只对目录 id，带账号 storefront；Subsonic 没有，只发标题）。入队后 snackbar 一行「Added 12 songs to the queue」/「12 songs will play next」；Apple Music 里 MusicKit 播不了的歌（导入的、店面里没有目录版本的）不进队列，也不算进这个数，整页都是这种歌时同样回一行「Added 0 songs to the queue」，不再点了没反应（2026-10-12 真机 PLY-30）。窗口页和 Wide 详情列共用 `ui/detail/DetailMenu.kt`
+- **歌曲长按面板（2026-10-17 owner「上线冲刺」，参考 Spotify 的歌曲长按面板；owner 当天改口：从底部升起的 bottom sheet，不用下拉菜单）**：正在播放长按封面（四种布局：手机、双栏、横屏、桌面模式都一样；点封面照旧是聚焦）和专辑页长按一首歌，从底部升起同一个面板 `ui/detail/TrackMenu.kt` 的 `TrackMenuSheet`（基于 `YoinModalBottomSheet`，所以 Wide 详情列里系统返回也能关它；预测性返回的收缩、遮罩、下拉关闭都是 M3 自带的）。顶上是这首歌：56dp 封面、歌名、艺术家。下面按组排，组内是和设置页一样的分段行（外角 20dp、内角 4dp、行间 2dp，组间 12dp）：第一组「下一首播放 / 加入队列 / 加入播放列表」（就是详情页 ▾ 那几行，只对这一首；Spotify 不显示下一首播放，Apple Music 播不了的导入歌曲不给入队，能写歌单的服务才有加入播放列表，snackbar 一行同 ▾）；第二组「前往专辑 / 在剪贴簿里查看 / 前往艺术家 / 分享 / 在 Spotify 或 Apple Music 中打开」（专辑页里没有前往专辑——它就是这张专辑；「在剪贴簿里查看」在专辑页上直接翻到第二页剪贴簿，把这首歌的卡片滚进视野并轻轻放大一下；在正在播放里则留一个 10 秒内有效的 `ScrapbookFocusRequest`，再走前往专辑，列着这首歌的专辑页接到请求后翻到第二页（owner 2026-10-17 追加）；分享发「歌名 — 艺术家」加链接；打开链接要等 `webUrl` 解析回来才出现）；第三组只有正在播放有：「屏幕常亮」，整行是一个开关（`YoinSymbols.LightMode`，右边 M3 Switch，切换时面板不收）。点一行立刻执行，同时面板滑下去。专辑页原来的长按展开笔记删掉了——笔记都在第二页剪贴簿里管。
+- **屏幕常亮（2026-10-17，测试者反馈）**：在封面长按菜单里开关，存在本机（`yoin_ui_preferences` / `now_playing_keep_screen_on`），默认关。打开后，正在播放展开、而且在放歌时，这个窗口不灭屏（宿主 view 的 `keepScreenOn`）；暂停就恢复系统的灭屏时间，免得忘了关的平板亮一整夜。实现 `ui/nowplaying/NowPlayingKeepScreenOn.kt`，由 `NowPlayingOverlayHost` 套用，所以 shell 和每个详情页窗口都一样。
+- **设置 › 关于（2026-10-17）**：欢迎引导、官网、使用文档、发送反馈、隐私政策、版本。官网和文档按 app 的语言打开英文页或 `/zh/` 页；隐私政策只有英文页（`https://yoin.gojyuplus.com/privacy`），本来就在官网上。链接常量在 `ui/settings/YoinLinks.kt`。
 - **不可播放专辑的队列入口（2026-10-12 owner 拍板，FXAP-5）**：整张专辑没有可播放曲目时，隐藏「加入队列」和「下一首播放」；混有可播放曲目时只把可播放的部分加入队列。推入页和分栏共用同一规则，不显示「已加入 0 首」。
 
 ### 🌱 首次引导（Landing，2026-10-09 定稿，原型 artifact PQQMmjTG9SHaoESTaWftEG v3）
@@ -218,7 +223,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - Mix / 推荐区块（从 Navidrome 获取随机专辑、最近添加等；「最常播放」排序依赖 Scrobble，MVP 阶段使用服务端已有数据）
 - 辅助可视化区域（当有曲目播放时，显示实时音频可视化效果）
 - Memory teaser 只显示一条轻提示，点入 shell-owned Memories surface；Feed 不承载重型 Memory 卡片流
-- **Memories 气泡什么时候说、什么时候走（2026-10-11 owner 拍板）**：写下新的评分、乐评或笔记后，回到首页说一次；首页看得见、15 秒没人碰也说一次，但这条闲置提醒每次打开 app（Activity 进入 STARTED）最多一次，本次前台已经说过（包括说过新内容）就不再提醒，从详情页返回、切到 Library 再切回都不重新给次数。气泡完全展开、弹簧停稳后停 6 秒（系统无障碍里把「操作时长」调得更长就按系统的来），沿现有的 flyAway 弹簧飞回箭头；手指按在气泡上没松开时不走，松开再算。碰屏幕任何地方（包括底栏的播放胶囊和 Home / Library 按钮）、滚动、下拉 Memories、打开 Now Playing 或详情、别的窗口挡在前面（账号卡片、通知栏）都会提前飞走，闲置计时也从头算；app 退到后台（STOPPED）时悄悄复位，这时窗口看不见，不算硬切。点气泡打开这条记忆。规则是纯函数 `MemoryBubbleTurn.after`，实现在 `ui/home/HomeMemoryBubble.kt`。
+- **气泡什么时候说、什么时候走（2026-10-11 owner 拍板，2026-10-17「上线冲刺」改节奏、加提示）**：写下新的评分、乐评或笔记后，回到首页说一次（新内容），完全展开、弹簧停稳后停 6 秒。除此之外，首页看得见、**4–5 秒没人碰就说**，说完停 **2–3 秒**飞回箭头，再没人碰又过 4–5 秒再说——每次的等待和停留都在区间里随机取，像脉冲不像节拍器；不再是「每次打开 app 最多一次」。闲聊有 35% 的概率说完不走、原地「翻译」成下一句（旧的一行往上滑出、新的一行从下面升起，位移走空间弹簧、透明度走效果弹簧，底色跟着新内容的封面色过渡），再停一轮才走，每轮最多翻一次。闲聊的内容是 Memories 和提示轮流：有记忆就记忆、提示交替（记忆按 `recall` 顺序轮，提示按 `HomeBubbleTip` 的顺序轮，轮完一圈才重复），没有记忆就只说提示。提示一条只讲一件事：一个藏起来的手势（长按首页排版、首页下拉打开 Memories、长按封面打开歌曲面板、长按专辑里的歌、播放模式按钮、笔记钉在那一秒、长按底栏资料库搜索、屏幕常亮在封面菜单里、滚动边缘），或者一个 app 的小细节（名字来自「余韻」）；左边是圆形符号块（记忆是封面），右边一到两行字；**提示是一颗普通胶囊**（owner 批注：不用向上的气泡）——没有尾巴、两端全圆，收的时候折回标题，不飞进箭头；一句记忆原地换成提示（或反过来）时，形状在空间弹簧上过渡。点记忆打开这条记忆；点「首页下拉」那条打开 Memories；点别的提示只是让它飞走。系统无障碍里把「操作时长」调得更长就按系统的来；手指按在气泡上没松开时不走，松开再算。碰屏幕任何地方（包括底栏的播放胶囊和 Home / Library 按钮）、滚动、下拉 Memories、打开 Now Playing 或详情、编辑首页、别的窗口挡在前面（账号卡片、通知栏）都会提前飞走，闲置计时也从头算；app 退到后台（STOPPED）时悄悄复位。规则是纯函数 `MemoryBubbleTurn.after`，内容在 `ui/home/HomeBubbleSay.kt`，实现在 `ui/home/HomeMemoryBubble.kt`。
 - 右上角 ⚙️ 设置入口
 - **版块与布局**：Activities、Jump Back In、Recently Added、Rediscover，顺序和开关按 profile 存（`home_layout`）。只在真的改变时写入；改回默认就删掉这一行，等于「从未定制」。定制过的用户遇到新版块时，新版块以关闭状态追加进托盘并标 "New"；没定制过的按各版块的默认开关（Rediscover 默认开、排在最后）。
 - **页头：两行问候（2026-10-09 owner 定，原型 artifact GWEBwdavGiwS1ngqmcqTyF）**：上面一行是按时段换的小字问候（titleMedium，次要文字色：5–11 点早上好、11–13 中午好、13–18 下午好、其余晚上好；英文只有 morning / afternoon / evening，整点自动更新），下面一行是 Home（headlineMedium，比原来的 headlineLarge 小一号；手机横屏再小一号 headlineSmall），两行都用 Google Sans Flex 的圆体（ROND 100，Medium）——中文没有这个字形，落到系统字体。编辑模式里问候语跟页头图标一起淡出，Edit Home 照旧盖在 Home 上。**冷启动开场**：Yoin 标志（三臂，tertiary / primary / secondary）在标题位置依次弹开（带回弹），停一拍后转 70° 缩小淡出，问候语和 Home 依次浮上来，约 1.4 秒；每个进程只播一次（切回 Home、转屏不重播）。首页加载时会临时报「动效压力」（AdaptiveReduced），开场最多等 0.4 秒让它解除；一次加载最多报 3 秒（`HOME_LOADING_PRESSURE_MAX_MS`），挂住的加载不会让整个 app 一直停在降级动效；真正的减少动态（低内存、省电）直接显示两行字。实现 `ui/home/HomeGreetingTitle.kt`。

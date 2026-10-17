@@ -19,6 +19,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.ConnectionPhase
+import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.data.model.Track
@@ -609,9 +610,12 @@ class NowPlayingViewModel(
         if (state.playWhenReady) playbackManager.pause() else playbackManager.resume()
     }
 
-    /** Repeat all → shuffle → repeat one → repeat all, from what the player reports. */
-    fun cyclePlayMode() {
-        playbackManager.setPlayMode(playbackManager.playbackState.value.playMode.next())
+    /**
+     * The play-mode button's choice: the next mode on a tap of the round button, or one axis
+     * changed from a segment of the split pill (see PlaybackControls).
+     */
+    fun setPlayMode(mode: PlayMode) {
+        playbackManager.setPlayMode(mode)
     }
 
     /**

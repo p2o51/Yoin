@@ -229,7 +229,7 @@ fun NowPlayingScreen(
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     queueEditor: QueueEditActions = QueueEditActions.None,
-    onCyclePlayMode: () -> Unit = {},
+    onSetPlayMode: (PlayMode) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -410,7 +410,7 @@ fun NowPlayingScreen(
                     onAddCurrentToPlaylist = onAddCurrentToPlaylist,
                     onSkipToQueueItem = onSkipToQueueItem,
                     queueEditor = queueEditor,
-                    onCyclePlayMode = onCyclePlayMode,
+                    onSetPlayMode = onSetPlayMode,
                     onAlbumClick = onAlbumClick,
                     onArtistClick = onArtistClick,
                     onPlaylistClick = onPlaylistClick,
@@ -619,7 +619,7 @@ private data class NowPlayingPlaybackActions(
     val onSkipNext: () -> Unit,
     val onSkipPrevious: () -> Unit,
     val onSeek: (Float) -> Unit,
-    val onCyclePlayMode: () -> Unit,
+    val onSetPlayMode: (PlayMode) -> Unit,
 )
 
 private data class NowPlayingLyricsActions(
@@ -681,7 +681,7 @@ private fun PlayingContent(
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     queueEditor: QueueEditActions = QueueEditActions.None,
-    onCyclePlayMode: () -> Unit = {},
+    onSetPlayMode: (PlayMode) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -789,7 +789,7 @@ private fun PlayingContent(
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
             queueEditor = queueEditor,
-            onCyclePlayMode = onCyclePlayMode,
+            onSetPlayMode = onSetPlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -852,7 +852,7 @@ private fun PlayingContent(
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
             queueEditor = queueEditor,
-            onCyclePlayMode = onCyclePlayMode,
+            onSetPlayMode = onSetPlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -910,7 +910,7 @@ private fun PlayingContent(
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
             queueEditor = queueEditor,
-            onCyclePlayMode = onCyclePlayMode,
+            onSetPlayMode = onSetPlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -971,7 +971,7 @@ private fun PlayingContent(
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
             queueEditor = queueEditor,
-            onCyclePlayMode = onCyclePlayMode,
+            onSetPlayMode = onSetPlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -1054,7 +1054,7 @@ private fun CompactPlayingContent(
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     queueEditor: QueueEditActions = QueueEditActions.None,
-    onCyclePlayMode: () -> Unit = {},
+    onSetPlayMode: (PlayMode) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -1119,7 +1119,7 @@ private fun CompactPlayingContent(
         onSkipNext = onSkipNext,
         onSkipPrevious = onSkipPrevious,
         onSeek = onSeek,
-        onCyclePlayMode = onCyclePlayMode,
+        onSetPlayMode = onSetPlayMode,
     )
     val lyricsActions = NowPlayingLyricsActions(
         onSeekToMs = onSeekToMs,
@@ -1474,6 +1474,7 @@ private fun CompactPlayingContent(
                             verticalAlignment = Alignment.Top,
                         ) {
                             val coverClickSource = remember { MutableInteractionSource() }
+                            val coverMenu = rememberCoverMenuState()
                             // Always a square: size by the slot HEIGHT (AlbumCover adds
                             // aspectRatio(1f)) instead of weighting the WIDTH. On wide
                             // viewports a width-weighted box exceeded the height-capped
@@ -1493,6 +1494,7 @@ private fun CompactPlayingContent(
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     sharedTransitionEnabled = detailProgress <= HiddenLayerVisibilityThreshold,
                                     interactionSource = coverClickSource,
+                                    menu = coverMenu,
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .graphicsLayer {
@@ -1506,28 +1508,27 @@ private fun CompactPlayingContent(
                                             scaleY = coverScale
                                             transformOrigin = TransformOrigin(0.5f, 0f)
                                         }
-                                        .then(
-                                            // Tap = focus the artwork, only where it
-                                            // visibly grows; else a plain image.
-                                            if (focusOffered || stageMode == NowPlayingStageMode.Immersive) {
-                                                Modifier.noRippleClickable(
-                                                    interactionSource = coverClickSource,
-                                                    onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
-                                                        stringResource(R.string.np_cd_show_lyrics_rating)
-                                                    } else {
-                                                        stringResource(R.string.np_cd_focus_artwork)
-                                                    },
-                                                    onClick = {
-                                                        if (stageMode == NowPlayingStageMode.Immersive) {
-                                                            onStageModeChange(NowPlayingStageMode.Compact)
-                                                        } else {
-                                                            onDetailPageChange(NowPlayingDetailPage.Lyrics)
-                                                            onStageModeChange(NowPlayingStageMode.Immersive)
-                                                        }
-                                                    },
-                                                )
+                                        // Tap = focus the artwork, only where it visibly
+                                        // grows; long-press = the song menu, always.
+                                        .nowPlayingCoverGestures(
+                                            interactionSource = coverClickSource,
+                                            menu = coverMenu,
+                                            onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
+                                                stringResource(R.string.np_cd_show_lyrics_rating)
                                             } else {
-                                                Modifier
+                                                stringResource(R.string.np_cd_focus_artwork)
+                                            },
+                                            onClick = if (focusOffered || stageMode == NowPlayingStageMode.Immersive) {
+                                                {
+                                                    if (stageMode == NowPlayingStageMode.Immersive) {
+                                                        onStageModeChange(NowPlayingStageMode.Compact)
+                                                    } else {
+                                                        onDetailPageChange(NowPlayingDetailPage.Lyrics)
+                                                        onStageModeChange(NowPlayingStageMode.Immersive)
+                                                    }
+                                                }
+                                            } else {
+                                                null
                                             },
                                         ),
                                 )
@@ -1795,7 +1796,7 @@ private fun CompactPlayingContent(
                             nextInteractionSource = nextInteractionSource,
                             playPressed = playPressed,
                             playMode = state.playMode,
-                            onCyclePlayMode = playbackActions.onCyclePlayMode,
+                            onSetPlayMode = playbackActions.onSetPlayMode,
                             controlSize = stageControlSize,
                             live = stageControlsLive,
                             modifier = Modifier
@@ -2060,7 +2061,7 @@ private fun WidePlayingContent(
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     queueEditor: QueueEditActions = QueueEditActions.None,
-    onCyclePlayMode: () -> Unit = {},
+    onSetPlayMode: (PlayMode) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -2192,6 +2193,7 @@ private fun WidePlayingContent(
     // and title retreat, the inner gaps close and the cover grows — offered
     // only where it visibly does (NowPlayingBudget.kt).
     val coverInteraction = remember { MutableInteractionSource() }
+    val coverMenu = rememberCoverMenuState()
     val castVisible = state.serviceFeatures.supportsYoinCast && castState !is CastState.NotAvailable
     val density = LocalDensity.current
     val navBottom = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
@@ -2306,18 +2308,19 @@ private fun WidePlayingContent(
                         sharedTransitionScope = null,
                         animatedVisibilityScope = null,
                         interactionSource = coverInteraction,
+                        menu = coverMenu,
                         modifier = Modifier
                             .size(coverSize)
-                            .then(
-                                if (focusOffered || stageMode == NowPlayingStageMode.Immersive) {
-                                    Modifier.noRippleClickable(
-                                        interactionSource = coverInteraction,
-                                        onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
-                                            stringResource(R.string.np_cd_show_lyrics_rating_wide)
-                                        } else {
-                                            stringResource(R.string.np_cd_focus_artwork_wide)
-                                        },
-                                    ) {
+                            .nowPlayingCoverGestures(
+                                interactionSource = coverInteraction,
+                                menu = coverMenu,
+                                onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
+                                    stringResource(R.string.np_cd_show_lyrics_rating_wide)
+                                } else {
+                                    stringResource(R.string.np_cd_focus_artwork_wide)
+                                },
+                                onClick = if (focusOffered || stageMode == NowPlayingStageMode.Immersive) {
+                                    {
                                         onStageModeChange(
                                             if (stageMode == NowPlayingStageMode.Immersive) {
                                                 NowPlayingStageMode.Compact
@@ -2327,7 +2330,7 @@ private fun WidePlayingContent(
                                         )
                                     }
                                 } else {
-                                    Modifier
+                                    null
                                 },
                             ),
                     )
@@ -2402,7 +2405,7 @@ private fun WidePlayingContent(
                         nextInteractionSource = nextInteractionSource,
                         playPressed = playPressed,
                         playMode = state.playMode,
-                        onCyclePlayMode = onCyclePlayMode,
+                        onSetPlayMode = onSetPlayMode,
                         modifier = Modifier.width(DualPaneStackWidth),
                     )
                     if (!titleInBar) {
@@ -2751,7 +2754,7 @@ private fun LandscapePlayingContent(
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     queueEditor: QueueEditActions = QueueEditActions.None,
-    onCyclePlayMode: () -> Unit,
+    onSetPlayMode: (PlayMode) -> Unit,
     onAlbumClick: (String) -> Unit,
     onArtistClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
@@ -2839,6 +2842,7 @@ private fun LandscapePlayingContent(
         val focus = if (focusOffered) resolvedStageProgress.immersive else 0f
         val coverSide = lerpDp(coverBudget.rest, coverBudget.focus ?: coverBudget.rest, focus)
         val coverInteraction = remember { MutableInteractionSource() }
+        val coverMenu = rememberCoverMenuState()
         val endCutout = WindowInsets.displayCutout.only(WindowInsetsSides.End).asPaddingValues()
             .calculateEndPadding(LocalLayoutDirection.current)
         val rightColumnWidth = maxWidth - coverSide - LandscapeColumnGap - endCutout
@@ -2857,18 +2861,19 @@ private fun LandscapePlayingContent(
                     sharedTransitionScope = null,
                     animatedVisibilityScope = null,
                     interactionSource = coverInteraction,
+                    menu = coverMenu,
                     modifier = Modifier
                         .size(coverSide)
-                        .then(
-                            if (focusOffered || stageMode == NowPlayingStageMode.Immersive) {
-                                Modifier.noRippleClickable(
-                                    interactionSource = coverInteraction,
-                                    onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
-                                        stringResource(R.string.np_cd_show_lyrics_rating_landscape)
-                                    } else {
-                                        stringResource(R.string.np_cd_focus_artwork_landscape)
-                                    },
-                                ) {
+                        .nowPlayingCoverGestures(
+                            interactionSource = coverInteraction,
+                            menu = coverMenu,
+                            onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
+                                stringResource(R.string.np_cd_show_lyrics_rating_landscape)
+                            } else {
+                                stringResource(R.string.np_cd_focus_artwork_landscape)
+                            },
+                            onClick = if (focusOffered || stageMode == NowPlayingStageMode.Immersive) {
+                                {
                                     if (stageMode == NowPlayingStageMode.Immersive) {
                                         onStageModeChange(NowPlayingStageMode.Compact)
                                     } else {
@@ -2877,7 +2882,7 @@ private fun LandscapePlayingContent(
                                     }
                                 }
                             } else {
-                                Modifier
+                                null
                             },
                         ),
                 )
@@ -3138,7 +3143,7 @@ private fun LandscapePlayingContent(
                         nextInteractionSource = nextInteractionSource,
                         playPressed = playPressed,
                         playMode = state.playMode,
-                        onCyclePlayMode = onCyclePlayMode,
+                        onSetPlayMode = onSetPlayMode,
                         controlSize = LandscapeControlSize,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3329,7 +3334,7 @@ private fun TabletopPlayingContent(
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     queueEditor: QueueEditActions = QueueEditActions.None,
-    onCyclePlayMode: () -> Unit = {},
+    onSetPlayMode: (PlayMode) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -3429,6 +3434,8 @@ private fun TabletopPlayingContent(
                 ) {
                     val coverSize = minOf(paneWidth * 0.42f - 32.dp, topHeight - 104.dp)
                         .coerceAtLeast(96.dp)
+                    val tabletopCoverInteraction = remember { MutableInteractionSource() }
+                    val tabletopCoverMenu = rememberCoverMenuState()
                     AlbumCover(
                         songId = state.songId,
                         coverArtUrl = state.coverArtUrl,
@@ -3437,10 +3444,16 @@ private fun TabletopPlayingContent(
                         // as Wide — see WidePlayingContent).
                         sharedTransitionScope = null,
                         animatedVisibilityScope = null,
+                        menu = tabletopCoverMenu,
                         // 16dp breathing room on all four sides.
                         modifier = Modifier
                             .padding(16.dp)
-                            .size(coverSize),
+                            .size(coverSize)
+                            .nowPlayingCoverGestures(
+                                interactionSource = tabletopCoverInteraction,
+                                menu = tabletopCoverMenu,
+                                onClick = null,
+                            ),
                     )
                     Spacer(modifier = Modifier.width(20.dp))
                     Column(
@@ -3607,7 +3620,7 @@ private fun TabletopPlayingContent(
                     nextInteractionSource = nextInteractionSource,
                     playPressed = playPressed,
                     playMode = state.playMode,
-                    onCyclePlayMode = onCyclePlayMode,
+                    onSetPlayMode = onSetPlayMode,
                     controlSize = 72.dp,
                     lyricsExpanded = lyricsExpanded,
                     onExpandLyrics = { lyricsExpanded = !lyricsExpanded },
@@ -4395,7 +4408,7 @@ private fun TickingPlaybackControls(
     nextInteractionSource: MutableInteractionSource,
     playPressed: Boolean,
     playMode: PlayMode = PlayMode.RepeatAll,
-    onCyclePlayMode: () -> Unit = {},
+    onSetPlayMode: (PlayMode) -> Unit = {},
     controlSize: Dp = 56.dp,
     lyricsExpanded: Boolean = false,
     onExpandLyrics: (() -> Unit)? = null,
@@ -4429,7 +4442,7 @@ private fun TickingPlaybackControls(
         nextInteractionSource = nextInteractionSource,
         playPressed = playPressed,
         playMode = playMode,
-        onCyclePlayMode = onCyclePlayMode,
+        onSetPlayMode = onSetPlayMode,
         controlSize = controlSize,
         lyricsExpanded = lyricsExpanded,
         onExpandLyrics = onExpandLyrics,
@@ -5019,6 +5032,8 @@ internal fun AlbumCover(
     // Press dip: the biggest tap target on the screen shouldn't be the only
     // silent one — forwarded to ExpressiveMediaArtwork's elasticPress.
     interactionSource: MutableInteractionSource? = null,
+    // The long-press song sheet (see nowPlayingCoverGestures).
+    menu: CoverMenuState? = null,
 ) {
     val baseModifier = modifier
         .aspectRatio(1f)
@@ -5050,19 +5065,24 @@ internal fun AlbumCover(
         baseModifier
     }
 
-    ExpressiveMediaArtwork(
-        model = coverArtUrl,
-        reveal = com.gpo.yoin.ui.component.ArtworkReveal.DotDissolve,
-        revealDirection = revealDirection,
-        contentDescription = stringResource(R.string.np_cd_album_cover),
-        modifier = finalModifier,
-        shape = YoinArtworkShapes.NowPlayingCover,
-        fallbackIcon = YoinSymbols.PlayArrow,
-        interactionSource = interactionSource,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        border = null,
-    )
+    val artwork: @Composable (Modifier) -> Unit = { artworkModifier ->
+        ExpressiveMediaArtwork(
+            model = coverArtUrl,
+            reveal = com.gpo.yoin.ui.component.ArtworkReveal.DotDissolve,
+            revealDirection = revealDirection,
+            contentDescription = stringResource(R.string.np_cd_album_cover),
+            modifier = artworkModifier,
+            shape = YoinArtworkShapes.NowPlayingCover,
+            fallbackIcon = YoinSymbols.PlayArrow,
+            interactionSource = interactionSource,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            border = null,
+        )
+    }
+    artwork(finalModifier)
+    // The song sheet is its own window; it only needs to be composed here while open.
+    if (menu != null) NowPlayingCoverMenu(songId = songId, menu = menu)
 }
 
 @Composable

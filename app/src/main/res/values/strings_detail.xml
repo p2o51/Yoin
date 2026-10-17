@@ -41,7 +41,6 @@
     <string name="detail_playlist_deleted">Playlist deleted</string>
     <string name="detail_playlist_error_delete">Couldn\'t delete playlist</string>
     <string name="detail_playlist_error_remove">Couldn\'t remove track</string>
-    <string name="detail_provider_local">Local</string>
 
     <!-- Album page -->
     <string name="detail_album_go_to_artist">Go to artist</string>
@@ -55,9 +54,6 @@
         <item quantity="one">%1$d day ago</item>
         <item quantity="other">%1$d days ago</item>
     </plurals>
-    <string name="detail_album_notes">Notes</string>
-    <string name="detail_album_no_notes">No notes yet</string>
-    <string name="detail_album_note_cross">%1$s: %2$s</string>
     <string name="detail_album_cd_edit_comment">Edit comment</string>
     <string name="detail_album_cd_write_comment">Write a comment</string>
     <string name="detail_album_rate">Rate</string>
@@ -220,4 +216,8 @@
     <string name="detail_scrap_receipt_date" translatable="false">Mar 14</string>
     <string name="detail_scrap_receipt_date_year" translatable="false">Mar 14, 2025</string>
     <string name="detail_scrap_q" translatable="false">Q</string>
+    <string name="track_menu_go_to_album">Go to album</string>
+    <string name="track_menu_go_to_artist">Go to artist</string>
+    <string name="track_menu_share">Share</string>
+    <string name="track_menu_view_in_scrapbook">View in Scrapbook</string>
 </resources>
