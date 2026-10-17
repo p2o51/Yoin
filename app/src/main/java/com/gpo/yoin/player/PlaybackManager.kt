@@ -546,9 +546,13 @@ class PlaybackManager(
     }
 
     /**
-     * Switches the play mode. Repeat and shuffle are always written together
-     * (see [PlayMode]); the mode is also remembered for the next queue Yoin
-     * starts, on any backend.
+     * Switches the play mode; the mode is also remembered for the next queue
+     * Yoin starts, on any backend. A queue start writes repeat and shuffle
+     * together (see [PlayMode]); a switch on the local player writes only the
+     * axis that changed — one per tap in the 2 × 2 cycle. MusicKit answers a
+     * redundant repeat write by briefly restoring its previous shuffle, and the
+     * first tap after a pause could end on that restored value (tablet QA,
+     * 2026-10-17).
      */
     fun setPlayMode(mode: PlayMode) {
         preferredPlayMode = mode
@@ -557,7 +561,7 @@ class PlaybackManager(
                 spotifyRemotePlayer.setRepeatMode(mode.repeatMode)
                 spotifyRemotePlayer.setShuffle(mode.shuffle)
             }
-            else -> executeOrQueue { it.applyPlayMode(mode) }
+            else -> executeOrQueue { it.switchPlayMode(mode) }
         }
     }
 
@@ -864,6 +868,12 @@ class PlaybackManager(
     private fun Player.applyPlayMode(mode: PlayMode) {
         repeatMode = mode.repeatMode
         shuffleModeEnabled = mode.shuffle
+    }
+
+    /** [mode] on a playing queue: only the axes that differ (see [setPlayMode]). */
+    private fun Player.switchPlayMode(mode: PlayMode) {
+        if (repeatMode != mode.repeatMode) repeatMode = mode.repeatMode
+        if (shuffleModeEnabled != mode.shuffle) shuffleModeEnabled = mode.shuffle
     }
 
     private fun flushPendingCommands(player: MediaController) {

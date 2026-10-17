@@ -137,7 +137,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 | 随机 + 单曲循环 | 开 | 单曲 | `REPEAT_MODE_ONE`，shuffle 开 | `setRepeat(ONE)` + `setShuffle(true)` |
 | 单曲循环 | 关 | 单曲 | `REPEAT_MODE_ONE`，shuffle 关 | `setRepeat(ONE)` + `setShuffle(false)` |
 
-- 顺序：列表循环 → 随机 → 随机 + 单曲循环 → 单曲循环 → 列表循环。每一下只翻一段（格雷码），按钮上总是只有一段在变。repeat 和 shuffle 每次一起写。
+- 顺序：列表循环 → 随机 → 随机 + 单曲循环 → 单曲循环 → 列表循环。每一下只翻一段（格雷码），按钮上总是只有一段在变。开播时 repeat 和 shuffle 一起写；播放中点按钮只写变了的那一条轴（MusicKit 收到多余的 repeat 写入会先把 shuffle 恢复成旧值，暂停一会儿后的第一下会因此落空，2026-10-17 平板实测）。
 - 「随机 + 单曲循环」：这首歌一直重复；手动 NEXT / PREVIOUS 时按随机顺序跳。
 - 读回：两条轴分别读——`REPEAT_MODE_ONE` → 单曲，其它（含 `REPEAT_MODE_OFF`）→ 全部；shuffle 开 → 随机。
 - 按钮：一颗胶囊里并排两段，左段 `YoinSymbols.Shuffle`，右段 `rememberPlayModeSymbolPainter(RepeatAll / RepeatOne)`（单曲时 1 弹出来）。哪段偏离默认（随机开、单曲循环）哪段亮成 `primary` / `onPrimary`，默认的那段留在 `tertiaryContainer` / `onTertiaryContainer`，Effects Spring 过渡。整颗胶囊是一个点按目标。
