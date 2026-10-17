@@ -46,8 +46,6 @@
     <plurals name="detail_relative_days_ago">
         <item quantity="other">%1$d 天前</item>
     </plurals>
-    <string name="detail_album_no_notes">暂无笔记</string>
-    <string name="detail_album_note_cross">%1$s：%2$s</string>
     <string name="detail_album_cd_edit_comment">编辑评论</string>
     <string name="detail_album_cd_write_comment">写评论</string>
     <string name="detail_album_rate">评分</string>

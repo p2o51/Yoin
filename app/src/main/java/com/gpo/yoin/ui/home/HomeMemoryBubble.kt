@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -1558,7 +1559,7 @@ private fun BubbleMemoryLine(
     headline: TextStyle,
 ) {
     val colors = MaterialTheme.colorScheme
-    val resources = LocalContext.current.resources
+    val resources = LocalResources.current
     val writtenAgo = latest?.writtenAtMillis?.let { remember(it) { formatTimeAgo(it, resources) } }
     Layout(
         content = {

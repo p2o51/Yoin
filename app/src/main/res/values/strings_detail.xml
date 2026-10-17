@@ -54,8 +54,6 @@
         <item quantity="one">%1$d day ago</item>
         <item quantity="other">%1$d days ago</item>
     </plurals>
-    <string name="detail_album_no_notes">No notes yet</string>
-    <string name="detail_album_note_cross">%1$s: %2$s</string>
     <string name="detail_album_cd_edit_comment">Edit comment</string>
     <string name="detail_album_cd_write_comment">Write a comment</string>
     <string name="detail_album_rate">Rate</string>
