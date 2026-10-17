@@ -84,7 +84,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.lifecycle.Lifecycle
@@ -1292,8 +1291,13 @@ private fun AlbumTrackList(
     footer: (@Composable () -> Unit)? = null,
 ) {
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    var menuRowKey by remember { mutableStateOf<String?>(null) }
-    var menuOpen by remember { mutableStateOf(false) }
+    // The song whose long-press sheet is up (null = none).
+    var menuSongId by remember { mutableStateOf<String?>(null) }
+    if (trackMenu != null) {
+        menuSongId?.let { songId ->
+            TrackMenuSheet(songId = songId, onDismissRequest = { menuSongId = null }, host = trackMenu)
+        }
+    }
     LazyColumn(
         state = listState,
         // The seam is the list's top edge (the docked band's lower edge in the
@@ -1323,38 +1327,20 @@ private fun AlbumTrackList(
         // Index-qualified: a provider can list the same track twice on one
         // album (seen on Apple Music), and a repeated lazy key is fatal.
         itemsIndexed(content.songs, key = { index, song -> "${song.id}#$index" }) { index, song ->
-            val rowKey = "${song.id}#$index"
-            Box {
-                AlbumTrackRow(
-                    index = index,
-                    song = song,
-                    hasNote = song.id in notedSongIds,
-                    isNowPlaying = song.id == currentTrackId,
-                    isPlaying = isPlaying,
-                    accent = accent,
-                    onClick = { onSongClick(song.id) },
-                    // Long-press opens the song menu; notes live on the Scrapbook page now.
-                    onLongClick = {
-                        if (trackMenu != null) {
-                            menuRowKey = rowKey
-                            menuOpen = true
-                        }
-                    },
-                    onToggleStar = { onToggleStar(song.id) },
-                    showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
-                    modifier = Modifier.seamFade(),
-                )
-                // The row keeps its menu composed while it animates out.
-                if (trackMenu != null && menuRowKey == rowKey) {
-                    TrackMenu(
-                        songId = song.id,
-                        expanded = menuOpen,
-                        onDismissRequest = { menuOpen = false },
-                        host = trackMenu,
-                        offset = DpOffset(x = 24.dp, y = 0.dp),
-                    )
-                }
-            }
+            AlbumTrackRow(
+                index = index,
+                song = song,
+                hasNote = song.id in notedSongIds,
+                isNowPlaying = song.id == currentTrackId,
+                isPlaying = isPlaying,
+                accent = accent,
+                onClick = { onSongClick(song.id) },
+                // Long-press opens the song sheet; notes live on the Scrapbook page now.
+                onLongClick = { if (trackMenu != null) menuSongId = song.id },
+                onToggleStar = { onToggleStar(song.id) },
+                showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
+                modifier = Modifier.seamFade(),
+            )
         }
         if (footer != null) {
             item(key = "album-liner-notes") {

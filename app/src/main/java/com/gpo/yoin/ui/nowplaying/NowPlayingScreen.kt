@@ -5032,7 +5032,7 @@ internal fun AlbumCover(
     // Press dip: the biggest tap target on the screen shouldn't be the only
     // silent one — forwarded to ExpressiveMediaArtwork's elasticPress.
     interactionSource: MutableInteractionSource? = null,
-    // The long-press song menu, anchored to the cover (see nowPlayingCoverGestures).
+    // The long-press song sheet (see nowPlayingCoverGestures).
     menu: CoverMenuState? = null,
 ) {
     val baseModifier = modifier
@@ -5080,15 +5080,9 @@ internal fun AlbumCover(
             border = null,
         )
     }
-    if (menu?.host == null) {
-        artwork(finalModifier)
-    } else {
-        // The menu's popup anchors to its parent layout: a box exactly the cover's size.
-        Box(modifier = finalModifier) {
-            artwork(Modifier.fillMaxSize())
-            NowPlayingCoverMenu(songId = songId, menu = menu)
-        }
-    }
+    artwork(finalModifier)
+    // The song sheet is its own window; it only needs to be composed here while open.
+    if (menu != null) NowPlayingCoverMenu(songId = songId, menu = menu)
 }
 
 @Composable

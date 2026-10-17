@@ -2,8 +2,6 @@ package com.gpo.yoin.ui.component
 
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenuPopup
@@ -82,33 +80,6 @@ fun YoinDropdownMenuSection(
 ) {
     DropdownMenuGroup(shapes = MenuDefaults.groupShape(index = index, count = count)) {
         content()
-    }
-}
-
-/**
- * A [YoinDropdownMenu] split into [sections] — the Expressive grouped menu:
- * each section is its own rounded group ([YoinDropdownMenuSection] picks the
- * leading / middle / trailing shape), [MenuDefaults.GroupSpacing] apart.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun YoinSectionedDropdownMenu(
-    expanded: Boolean,
-    onDismissRequest: () -> Unit,
-    sections: List<@Composable ColumnScope.() -> Unit>,
-    modifier: Modifier = Modifier,
-    offset: DpOffset = DpOffset(0.dp, 0.dp),
-) {
-    DropdownMenuPopup(
-        expanded = expanded,
-        onDismissRequest = onDismissRequest,
-        modifier = modifier,
-        offset = offset,
-    ) {
-        sections.forEachIndexed { index, section ->
-            if (index > 0) Spacer(Modifier.height(MenuDefaults.GroupSpacing))
-            YoinDropdownMenuSection(index = index, count = sections.size, content = section)
-        }
     }
 }
 

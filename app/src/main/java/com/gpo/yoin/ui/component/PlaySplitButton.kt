@@ -42,10 +42,10 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 /** Original detail floating-toolbar button height; the bottom bar uses 48dp. */
 val PlaySplitButtonDefaultHeight = 60.dp
 
-internal val PlayMenuTextStyle
+private val PlayMenuTextStyle
     @Composable get() = MaterialTheme.typography.titleMedium
 
-internal val PlayMenuItemPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
+private val PlayMenuItemPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
 
 /**
  * Play + ▾ split button: the real M3 leading/trailing split buttons (pressed

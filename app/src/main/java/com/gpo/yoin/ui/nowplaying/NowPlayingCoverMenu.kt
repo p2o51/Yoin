@@ -19,14 +19,15 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.ui.detail.TrackMenu
+import com.gpo.yoin.ui.detail.TrackMenuGroup
 import com.gpo.yoin.ui.detail.TrackMenuHost
-import com.gpo.yoin.ui.detail.TrackMenuToggleItem
+import com.gpo.yoin.ui.detail.TrackMenuSheet
+import com.gpo.yoin.ui.detail.TrackMenuToggleRow
 import com.gpo.yoin.ui.experience.YoinHaptics
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 
 /**
- * The song menu Now Playing's window provides (owner, 2026-10-17: long-press
+ * The song sheet Now Playing's window provides (owner, 2026-10-17: long-press
  * the cover for the song's actions plus Keep screen on). Null in previews and
  * harnesses: the cover then has no long-press.
  */
@@ -87,26 +88,29 @@ internal fun Modifier.nowPlayingCoverGestures(
 }
 
 /**
- * The cover's song menu: the shared song rows ([TrackMenu]) with a player
- * section, Keep screen on. Anchored to the cover it is composed in.
+ * The cover's song sheet ([TrackMenuSheet]) with a player group under the
+ * song's own: Keep screen on. Composed only while [menu] is open.
  */
 @Composable
 internal fun NowPlayingCoverMenu(songId: String, menu: CoverMenuState) {
     val host = menu.host ?: return
+    if (!menu.open) return
     val context = LocalContext.current
     val keepScreenOn = rememberNowPlayingKeepScreenOn()
-    TrackMenu(
+    TrackMenuSheet(
         songId = songId,
-        expanded = menu.open,
         onDismissRequest = { menu.open = false },
         host = host,
         playerSection = {
-            TrackMenuToggleItem(
-                text = stringResource(R.string.np_keep_screen_on),
-                icon = YoinSymbols.LightMode,
-                checked = keepScreenOn,
-                onCheckedChange = { NowPlayingKeepScreenOn.set(context, it) },
-            )
+            TrackMenuGroup(count = 1) { _, shape ->
+                TrackMenuToggleRow(
+                    label = stringResource(R.string.np_keep_screen_on),
+                    icon = YoinSymbols.LightMode,
+                    checked = keepScreenOn,
+                    onCheckedChange = { NowPlayingKeepScreenOn.set(context, it) },
+                    shape = shape,
+                )
+            }
         },
     )
 }
