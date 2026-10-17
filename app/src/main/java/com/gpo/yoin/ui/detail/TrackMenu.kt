@@ -70,7 +70,23 @@ class TrackMenuHost(
     val onAddToPlaylist: ((List<MediaId>) -> Unit)?,
     val onGoToAlbum: ((albumId: String) -> Unit)? = null,
     val onGoToArtist: ((artistId: String) -> Unit)? = null,
-)
+    /**
+     * The album page's own "View in Scrapbook": move to page 2 at this song. Null elsewhere —
+     * there the row opens the album ([onGoToAlbum]) with a [ScrapbookFocusRequest].
+     */
+    val onViewInScrapbook: ((songId: String) -> Unit)? = null,
+) {
+    /** This host on an album page whose Scrapbook can show [songId] in place. */
+    fun withViewInScrapbook(view: (songId: String) -> Unit): TrackMenuHost = TrackMenuHost(
+        container = container,
+        trackFor = trackFor,
+        onMessage = onMessage,
+        onAddToPlaylist = onAddToPlaylist,
+        onGoToAlbum = onGoToAlbum,
+        onGoToArtist = onGoToArtist,
+        onViewInScrapbook = view,
+    )
+}
 
 /** One row of the sheet: a symbol and a label; [onClick] runs as the sheet goes down. */
 private class TrackMenuRow(val label: String, val icon: ImageVector, val onClick: () -> Unit)
@@ -80,7 +96,7 @@ private class TrackMenuRow(val label: String, val icon: ImageVector, val onClick
  * bottom sheet, not a dropdown): the song (cover, title, artist), then
  * Play next / Add to queue / Add to playlist — the detail ▾ rows for one song
  * ([rememberDetailMenu], so the provider rules and the snackbar lines are the
- * same) — then Go to album / Go to artist / Share / Open in …, then
+ * same) — then Go to album / View in Scrapbook / Go to artist / Share / Open in …, then
  * [playerSection] when the host has player settings (Now Playing's Keep screen
  * on). A row the song or provider can't do is left out, and so is an empty
  * group. Compose it only while open; [onDismissRequest] clears that. A row
@@ -139,6 +155,22 @@ internal fun TrackMenuSheet(
             track?.albumId?.let { id ->
                 TrackMenuRow(stringResource(R.string.track_menu_go_to_album), YoinSymbols.Album) { go(id.toString()) }
             }
+        },
+        // The song's cards on its album's second page: in place on the album page, or the album
+        // opened at page 2 from anywhere else.
+        when {
+            host.onViewInScrapbook != null -> TrackMenuRow(
+                stringResource(R.string.track_menu_view_in_scrapbook),
+                YoinSymbols.Note,
+            ) { host.onViewInScrapbook(songId) }
+            host.onGoToAlbum != null && track?.albumId != null -> TrackMenuRow(
+                stringResource(R.string.track_menu_view_in_scrapbook),
+                YoinSymbols.Note,
+            ) {
+                ScrapbookFocusRequest.request(songId)
+                host.onGoToAlbum(track.albumId.toString())
+            }
+            else -> null
         },
         host.onGoToArtist?.let { go ->
             track?.artistId?.let { id ->

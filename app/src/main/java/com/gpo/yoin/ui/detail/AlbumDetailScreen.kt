@@ -436,6 +436,21 @@ private fun AlbumDetailContent(
     // The scrapbook's emblem stamps once per album page (not per swipe back and forth).
     var scrapbookStamped by rememberSaveable(content.albumId) { mutableStateOf(false) }
     val pageSpec = YoinMotion.defaultSpatialSpec<Float>()
+    // "View in Scrapbook" (a song's sheet): page 2, with that song brought into view there.
+    var scrapbookFocusSongId by remember { mutableStateOf<String?>(null) }
+    val viewInScrapbook: (String) -> Unit = { songId ->
+        scrapbookFocusSongId = songId
+        pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
+    }
+    val pageTrackMenu = remember(trackMenu, hasScrapbook) {
+        if (hasScrapbook) trackMenu?.withViewInScrapbook { viewInScrapbook(it) } else trackMenu
+    }
+    // The same from Now Playing's sheet: it opened this album with a ScrapbookFocusRequest.
+    val pendingFocus = ScrapbookFocusRequest.pending
+    LaunchedEffect(pendingFocus, hasScrapbook, content.songs) {
+        if (pendingFocus == null || !hasScrapbook) return@LaunchedEffect
+        ScrapbookFocusRequest.takeFor(content.songs.map { it.id })?.let(viewInScrapbook)
+    }
 
     // Back always finishes the Activity (native cross-Activity predictive back):
     // the pulled-up track list is NOT a back stop, so one back press leaves the
@@ -721,7 +736,7 @@ private fun AlbumDetailContent(
                                     isPlaying = isPlaying,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    trackMenu = trackMenu,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             } else if (reveal == null) {
@@ -734,7 +749,7 @@ private fun AlbumDetailContent(
                                     isPlaying = isPlaying,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    trackMenu = trackMenu,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             } else if (landscape) {
@@ -749,7 +764,7 @@ private fun AlbumDetailContent(
                                     isPlaying = isPlaying,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    trackMenu = trackMenu,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             } else {
@@ -765,7 +780,7 @@ private fun AlbumDetailContent(
                                     isPlaying = isPlaying,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    trackMenu = trackMenu,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             }
@@ -790,6 +805,8 @@ private fun AlbumDetailContent(
                             settled = pagerState.settledPage == 1,
                             stamped = scrapbookStamped,
                             onStamped = { scrapbookStamped = true },
+                            focusSongId = scrapbookFocusSongId,
+                            onFocused = { scrapbookFocusSongId = null },
                         )
                     }
                 }

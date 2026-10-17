@@ -177,4 +177,5 @@
     <string name="track_menu_go_to_album">前往专辑</string>
     <string name="track_menu_go_to_artist">前往艺术家</string>
     <string name="track_menu_share">分享</string>
+    <string name="track_menu_view_in_scrapbook">在剪贴簿里查看</string>
 </resources>
