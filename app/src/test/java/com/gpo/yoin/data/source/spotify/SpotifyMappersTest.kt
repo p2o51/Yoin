@@ -110,4 +110,30 @@ class SpotifyMappersTest {
         assertEquals(MediaId.spotify("a-1"), indices[1].artists.first().id)
         assertEquals(MediaId.spotify("b-1"), indices[2].artists.first().id)
     }
+
+    @Test
+    fun should_handle_playlists_with_empty_images_array() {
+        val playlistNoImages = SpotifyPlaylistObject(
+            id = "playlist-1",
+            name = "Custom Playlist",
+            images = emptyList(),
+        )
+
+        val mapped = playlistNoImages.toPlaylist()
+        assertNull(mapped.coverArt)
+    }
+
+    @Test
+    fun should_map_playlist_with_custom_cover_url() {
+        val playlistWithCover = SpotifyPlaylistObject(
+            id = "playlist-2",
+            name = "My Playlist",
+            images = listOf(
+                SpotifyImageObject(url = "https://mosaic.scdn.co/640/custom-image-id"),
+            ),
+        )
+
+        val mapped = playlistWithCover.toPlaylist()
+        assertEquals(CoverRef.Url("https://mosaic.scdn.co/640/custom-image-id"), mapped.coverArt)
+    }
 }
