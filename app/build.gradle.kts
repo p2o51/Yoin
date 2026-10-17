@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.ktlint)
     id("yoin.musickit-large-id")
+    id("yoin.musickit-relro")
 }
 
 val releaseKeystorePropertiesFile = (
@@ -169,7 +170,8 @@ ktlint {
 
 dependencies {
     implementation(files("libs/musickitauth-release-1.1.2.aar"))
-    implementation(files("libs/mediaplayback-release-1.1.1.aar"))
+    // libs/ playback AAR with its 64-bit native libraries patched for 16 KB pages (build-logic MusicKitRelroPlugin)
+    implementation(files(tasks.named<PatchMusicKitRelro>("patchMusicKitRelro").flatMap { it.patchedAar }))
     // Compose BOM
     val composeBom = platform(libs.compose.bom)
     implementation(composeBom)
