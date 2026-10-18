@@ -924,12 +924,7 @@ internal fun HomeEditorialContent(
                 feedback = editFeedback,
                 isFlingInProgress = isFlingInProgress,
                 specs = specs,
-            )
-            .seamTide(
-                flow = seamFlow,
-                color = pageColor,
-                statusBarPx = statusBarPx,
-            ) { listState.seamScrolledPx() },
+            ),
     ) {
         // The vote's flag is read in its own scope (see editAnimating).
         HomeFrameRateVote(active = editAnimating, modifier = Modifier.fillMaxSize()) {
@@ -941,7 +936,7 @@ internal fun HomeEditorialContent(
                     .feedFrameWidth(feedFrame)
                     .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
                     .seamDissolveViewport(
-                        top = SeamTop.FadeText,
+                        top = SeamTop.Chrome,
                         topInset = statusBarTop + SeamDissolveTokens.TideRest,
                         flow = seamFlow,
                         background = seamBackground,
