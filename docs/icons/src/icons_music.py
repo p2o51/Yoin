@@ -124,8 +124,8 @@ def _():
     return [
         S(SHUF_A, id="strand-over"),
         S(b, id="strand-under"),
-        S(_head(20.0, 6.8, 1, 0, size=3.3), id="head-over"),
-        S(_head(20.0, 17.2, 1, 0, size=3.3), id="head-under"),
+        S(_head(20.0, 6.8, 1, 0, size=4.2, spread=50), id="head-over"),
+        S(_head(20.0, 17.2, 1, 0, size=4.2, spread=50), id="head-under"),
     ]
 
 
@@ -137,15 +137,15 @@ def _repeat_loop():
 
 @icon("repeat", "music", "列表循环")
 def _():
-    return [S(_repeat_loop()), S(_head(17.9, 6.75, 1, 0, size=3.1)), S(_head(6.1, 17.25, -1, 0, size=3.1))]
+    return [S(_repeat_loop()), S(_head(17.9, 6.75, 1, 0, size=3.8, spread=50)), S(_head(6.1, 17.25, -1, 0, size=3.8, spread=50))]
 
 
 @icon("repeat_one", "music", "单曲循环")
 def _():
     return [
         S(_repeat_loop()),
-        S(_head(17.9, 6.75, 1, 0, size=3.1)),
-        S(_head(6.1, 17.25, -1, 0, size=3.1)),
+        S(_head(17.9, 6.75, 1, 0, size=3.8, spread=50)),
+        S(_head(6.1, 17.25, -1, 0, size=3.8, spread=50)),
         S(polyline([(10.95, 10.55), (12.35, 9.8), (12.35, 14.35)]), id="one"),
     ]
 
