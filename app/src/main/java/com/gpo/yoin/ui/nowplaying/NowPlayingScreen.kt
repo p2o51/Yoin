@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1013,6 +1014,19 @@ private fun PlayingContent(
     }
 }
 
+/** System bars around the single column, with a floor under the pills ([stageColumnBottomInset]). */
+@Composable
+private fun stageColumnInsets(): PaddingValues {
+    val bars = WindowInsets.systemBars.asPaddingValues()
+    val direction = LocalLayoutDirection.current
+    return PaddingValues(
+        start = bars.calculateStartPadding(direction),
+        top = bars.calculateTopPadding(),
+        end = bars.calculateEndPadding(direction),
+        bottom = stageColumnBottomInset(bars.calculateBottomPadding()),
+    )
+}
+
 /**
  * The single-column player — phones, outer foldable screens, narrow split-screen,
  * the Medium side panel (a phone page in a phone-width container) and, with
@@ -1235,7 +1249,7 @@ private fun CompactPlayingContent(
             .fillMaxSize()
             .voteHighFrameRate(stageMoving)
             .lyricToolsTouchTracker(lyricToolsIdle)
-            .padding(WindowInsets.systemBars.asPaddingValues()),
+            .padding(stageColumnInsets()),
     ) {
         val horizontalPadding = 24.dp
         // Enlarged phone: the column is centred at its own width; every width

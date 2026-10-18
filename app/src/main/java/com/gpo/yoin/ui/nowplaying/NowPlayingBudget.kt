@@ -450,6 +450,14 @@ fun resolveLandscapeCover(width: Dp, height: Dp): LandscapeCoverBudget {
 
 // ── Shared ──────────────────────────────────────────────────────────────
 
+/**
+ * The column's bottom edge: the system inset, but never less than
+ * [ColumnBottomFloor]. Windows that report no navigation bar — a bubble, a
+ * desktop window, a cover screen with the gesture hint hidden — otherwise
+ * set the pills flush on the rounded window edge, which cuts them.
+ */
+fun stageColumnBottomInset(systemBottom: Dp): Dp = maxOf(systemBottom, ColumnBottomFloor)
+
 /** Focus is worth a tap only when the cover grows by max(40dp, 12%). */
 fun coverFocusOffered(rest: Dp, focus: Dp): Boolean =
     focus - rest >= maxOf(CoverFocusMinGrowth, rest * CoverFocusMinGrowthFraction)
@@ -493,6 +501,7 @@ private const val PhoneCleanLines = 2
 internal const val EnlargedCleanLines = 3
 
 private val ColumnPadding = 24.dp
+private val ColumnBottomFloor = 16.dp
 private val RatingGap = 12.dp
 private val PhoneRatingColumn = 56.dp
 private val PhoneCoverMax = 312.dp

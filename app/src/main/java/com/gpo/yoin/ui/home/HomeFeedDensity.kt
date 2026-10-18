@@ -320,6 +320,9 @@ internal fun activityLayoutSeed(key: String?): Int = (key?.hashCode() ?: 0) and 
  * @property templated true → a seeded 2×2 / 1×2 / 2×1 / 1×1 template
  *   (`jbiLayout`); false → `packWidgetRows`.
  */
+/** A landscape handset's Jump Back In: six covers across. */
+private const val JbiLandscapeColumns = 6
+
 internal data class JbiGridSpec(
     val columns: Int,
     val followColumn: Boolean,
@@ -328,13 +331,15 @@ internal data class JbiGridSpec(
 )
 
 /**
- * Compact height → (6, Row path); N ≤ 2 → (3, Row path) — both the phone's
- * approved compositions, unchanged. N ≥ 3 → templated on
+ * Compact height → (up to 6, Row path): a landscape handset seats 6 as
+ * approved; a short window that is also narrow (a bubble, a desktop window, a
+ * split half) only as many as [coverColumns] fits, never fewer than 3.
+ * N ≤ 2 → (3, Row path) — the phone's approved composition, unchanged. N ≥ 3 → templated on
  * [coverColumns] (`YoinWindowInfo.feedCoverColumns`, 3–10 phone-sized
  * columns) × [jbiTemplateRows] rows.
  */
 internal fun jbiGridSpec(feedUnits: Int, coverColumns: Int, isCompactHeight: Boolean): JbiGridSpec = when {
-    isCompactHeight -> JbiGridSpec(columns = 6, followColumn = false)
+    isCompactHeight -> JbiGridSpec(columns = coverColumns.coerceAtMost(JbiLandscapeColumns), followColumn = false)
     feedUnits <= 2 -> JbiGridSpec(columns = 3, followColumn = false)
     else -> JbiGridSpec(
         columns = coverColumns,
