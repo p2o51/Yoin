@@ -49,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -1303,11 +1304,18 @@ private fun YoinShell(
         // same bounds/color, so the true crossfade happens between the two
         // windows; the real group stays put beneath and is simply there again
         // on return (including the predictive-back preview).
-        // Cold-launch entrance: start hidden for one frame so the same
-        // slide+fade that plays after a Now Playing dismiss also greets the
-        // app open — the group rises in instead of just being there.
-        var barEntered by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { barEntered = true }
+        // Bar state needs to be ready immediately to avoid issues during fast
+        // user interactions (e.g., quickly entering Library and scrolling).
+        // We use rememberSaveable to preserve the entered state across config
+        // changes, and always set it to true after the first frame to ensure
+        // the entrance animation plays on cold launch while keeping the bar
+        // state consistent during rapid interactions.
+        var barEntered by rememberSaveable { mutableStateOf(false) }
+        // Set barEntered to true immediately after composition, not in LaunchedEffect,
+        // to minimize the window where barEntered is false during user interactions.
+        SideEffect {
+            if (!barEntered) barEntered = true
+        }
         // The column's top page publishes its Play actions; while the column
         // swaps pages the old entry retires before the new one publishes, so
         // the bar keeps the last actions for that gap instead of falling back
