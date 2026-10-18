@@ -8,7 +8,7 @@ package com.gpo.yoin.data.model
  *   public playlists, so it is `false` for those and for ones the server marks
  *   readonly; Spotify's `/me/playlists` can return owned + followed mixed, and
  *   write APIs will 403 on a followed-but-not-owned playlist — the mapper sets
- *   this to `owner.id == currentUser.id`. Apple Music has no playlist writes
+ *   this to `owner.id == currentUser.id`. Apple Music has no playlist edits
  *   in Yoin, so it is always `false` there. UI must honour this flag before
  *   exposing rename / delete / add-track affordances.
  * @property snapshotId Optimistic-concurrency token used by Spotify's

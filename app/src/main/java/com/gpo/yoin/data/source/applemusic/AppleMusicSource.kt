@@ -20,12 +20,15 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
+import com.gpo.yoin.data.remote.applemusic.AppleMusicTrackRef
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.PLAYLIST_ADD_BATCH
+import com.gpo.yoin.data.source.PartialPlaylistImportException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
@@ -655,11 +658,67 @@ class AppleMusicSource(
     )
     override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> = unsupported()
     override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> = unsupported()
-    override suspend fun createPlaylist(name: String, description: String?): Result<Playlist> = unsupported()
+    // A new library playlist, and songs appended to one: what a copy from another profile needs
+    // (Capability.PLAYLIST_IMPORT). Apple's API has no rename, delete or remove for library playlists.
+    override suspend fun createPlaylist(name: String, description: String?): Result<Playlist> =
+        createPlaylistWithTracks(name, description, emptyList())
+
+    override suspend fun addTracksToPlaylist(playlistId: MediaId, tracks: List<MediaId>): Result<String?> =
+        cancellableResult {
+            require(playlistId.provider == id && playlistId.rawId.startsWith("library:")) {
+                "A library playlist is required"
+            }
+            for (batch in tracks.chunked(PLAYLIST_ADD_BATCH)) {
+                api.addTracksToLibraryPlaylist(playlistId.rawId.removePrefix("library:"), batch.map(::trackRef))
+            }
+            null
+        }
+
+    /**
+     * One create carrying the first [PLAYLIST_ADD_BATCH] songs, then appends: a playlist Apple has only just
+     * made may not take an append yet ("There may be a delay before a new resource appears"), so a playlist of
+     * up to a batch never sends one.
+     */
+    override suspend fun createPlaylistWithTracks(
+        name: String,
+        description: String?,
+        tracks: List<MediaId>
+    ): Result<Playlist> {
+        val refs = try {
+            tracks.map(::trackRef)
+        } catch (error: IllegalArgumentException) {
+            return Result.failure(error)
+        }
+        val first = refs.take(PLAYLIST_ADD_BATCH)
+        val created = cancellableResult {
+            playlist(api.createLibraryPlaylist(name, description, first))
+        }.getOrElse { return Result.failure(it) }
+        var added = first.size
+        for (batch in refs.drop(PLAYLIST_ADD_BATCH).chunked(PLAYLIST_ADD_BATCH)) {
+            cancellableResult {
+                api.addTracksToLibraryPlaylist(created.id.rawId.removePrefix("library:"), batch)
+            }.onFailure { return Result.failure(PartialPlaylistImportException(created, added, it)) }
+            added += batch.size
+        }
+        return Result.success(created.copy(songCount = refs.size))
+    }
+
+    /** A catalog song by its digits id; a library song (`library:i.…`) as a library song. */
+    private fun trackRef(track: MediaId): AppleMusicTrackRef {
+        require(track.provider == id) { "An Apple Music song is required" }
+        val raw = track.rawId
+        return when {
+            raw.matches(Regex("[0-9]+")) -> AppleMusicTrackRef(raw, "songs")
+            raw.startsWith("library:") -> AppleMusicTrackRef(raw.removePrefix("library:"), "library-songs")
+            else -> throw IllegalArgumentException("An Apple Music song is required")
+        }
+    }
+
+    override suspend fun tracksByIsrc(isrcs: List<String>): Map<String, List<Track>> =
+        api.catalogSongsByIsrc(storefront(), isrcs).mapValues { (_, songs) -> songs.map { it.toTrack() } }
+
     override suspend fun renamePlaylist(id: MediaId, name: String, description: String?): Result<Unit> = unsupported()
     override suspend fun deletePlaylist(id: MediaId): Result<Unit> = unsupported()
-    override suspend fun addTracksToPlaylist(playlistId: MediaId, tracks: List<MediaId>): Result<String?> =
-        unsupported()
     override suspend fun removeTracksFromPlaylist(
         playlistId: MediaId,
         items: List<PlaylistItemRef>,
@@ -763,7 +822,7 @@ class AppleMusicSource(
                 // A library playlist's; a catalog playlist has none.
                 libraryAddedAt = a.text("dateAdded"),
                 // Apple names no owner, but only the user's own library playlists are editable
-                // (its Purchased and Favorites Mix are not). Never canWrite: Yoin writes none.
+                // (its Purchased and Favorites Mix are not). Never canWrite: Yoin only makes new ones (a copy).
                 ownedByMe = if (resource.text("type") == "library-playlists") {
                     a["canEdit"]?.jsonPrimitive?.booleanOrNull
                 } else {

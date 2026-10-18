@@ -22,6 +22,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -1121,6 +1122,46 @@ class AppleMusicSourceTest {
         assertEquals(credentials, codec.decode(codec.encode(credentials)))
         assertEquals("applemusic", credentials.providerId)
     }
+    @Test fun should_createWithFirstBatchThenAppend_when_copyingALongPlaylist() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(201).setBody(
+                """{"data":[{"id":"p.new","type":"library-playlists","attributes":{"name":"Mix","canEdit":true}}]}"""
+            )
+        )
+        server.enqueue(MockResponse().setResponseCode(204))
+        val tracks = (1..150).map { MediaId("applemusic", it.toString()) } + MediaId("applemusic", "library:i.mine")
+
+        val created = source.createPlaylistWithTracks("Mix", null, tracks).getOrThrow()
+
+        assertEquals("applemusic:library:p.new", created.id.toString())
+        assertEquals(151, created.songCount)
+        val create = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        val createData = create["relationships"]!!.jsonObject["tracks"]!!.jsonObject["data"]!!.jsonArray
+        assertEquals(100, createData.size)
+        val append = server.takeRequest()
+        assertEquals("/v1/me/library/playlists/p.new/tracks", append.path)
+        val appended = Json.parseToJsonElement(append.body.readUtf8()).jsonObject["data"]!!.jsonArray
+        assertEquals(51, appended.size)
+        assertEquals(Json.parseToJsonElement("""{"id":"i.mine","type":"library-songs"}"""), appended.last())
+    }
+
+    @Test fun should_refuseCatalogPlaylists_when_addingTracks() = runTest {
+        val result = source.addTracksToPlaylist(MediaId("applemusic", "pl.public"), listOf(MediaId("applemusic", "1")))
+        assertTrue(result.isFailure)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun should_lookUpIsrcsInTheAccountsStorefront_when_matching() = runTest {
+        reply("""{"data":[{"id":"jp"}]}""")
+        reply("""{"data":[{"id":"9","type":"songs","attributes":{"name":"Entropy","isrc":"USQE92100257"}}]}""")
+
+        val found = source.tracksByIsrc(listOf("USQE92100257"))
+
+        assertEquals("applemusic:9", found["USQE92100257"]!!.single().id.toString())
+        server.takeRequest()
+        assertEquals("/v1/catalog/jp/songs", server.takeRequest().requestUrl!!.encodedPath)
+    }
+
     private fun reply(body: String) = server.enqueue(MockResponse().setBody(body))
 }
 
