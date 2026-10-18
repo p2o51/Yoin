@@ -410,6 +410,11 @@ class AppContainer(private val context: Context) {
 
 
     /** Optional Google Drive sync (docs/cloud-sync.md). Constructing it does no I/O. */
+    /** A playlist page's "Copy to…" (docs/playlist-transfer.md). */
+    val playlistCopyService: com.gpo.yoin.data.transfer.PlaylistCopyService by lazy {
+        com.gpo.yoin.data.transfer.PlaylistCopyService(profileManager)
+    }
+
     val cloudSync: CloudSyncManager by lazy {
         CloudSyncManager(
             context = context,
