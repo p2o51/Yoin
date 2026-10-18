@@ -152,6 +152,7 @@
     <string name="detail_playlist_cancel_rename">Cancel</string>
     <string name="detail_playlist_empty_hero">This playlist is empty.</string>
     <string name="detail_playlist_empty_list">This playlist is empty.</string>
+    <string name="detail_playlist_tracks_unavailable">Spotify doesn\'t share this playlist\'s tracks with this app.</string>
     <string name="detail_playlist_length">Length</string>
     <plurals name="detail_playlist_tracks">
         <item quantity="one">%1$d track</item>

@@ -194,14 +194,22 @@ class SpotifyMusicSource(
                     return@supervisorScope cancelAndReturnNull()
                 }
                 // Starts from the first page the playlist object embeds, when it does.
-                val indexedTracks = apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
-                    .toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
-                playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
+                // A development-mode app may read the items of only the user's own and
+                // collaborative playlists (2026-02): someone else's answers 403. The
+                // playlist itself still opens, without its tracks.
+                val indexedTracks = try {
+                    apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
+                        .toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
+                } catch (e: SpotifyAuthException) {
+                    if (e.code != HTTP_FORBIDDEN) throw e
+                    null
+                }
+                playlistTrackOffsetsById[rawId] = indexedTracks.orEmpty().map { it.first }
                 playlist.toPlaylist(
-                    tracks = indexedTracks.map { it.second },
+                    tracks = indexedTracks.orEmpty().map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
                     ownedByMe = playlist.ownedBy(meId.await()),
-                )
+                ).copy(tracksUnavailable = indexedTracks == null)
             }
         }
 
@@ -710,6 +718,7 @@ class SpotifyMusicSource(
 
     companion object {
         private const val HTTP_NOT_FOUND = 404
+        private const val HTTP_FORBIDDEN = 403
         private const val RECENTLY_PLAYED_LIMIT = 50
         private const val RECENTLY_PLAYED_MAX_AGE_MS = 30_000L
 

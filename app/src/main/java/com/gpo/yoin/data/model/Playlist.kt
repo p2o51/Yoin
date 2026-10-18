@@ -28,6 +28,10 @@ package com.gpo.yoin.data.model
  *   names no owner; catalog playlists stay `null`. Subsonic: `owner` against
  *   the login name, ignoring case; no owner is `null`. A list-level fact: the
  *   detail page's disk cache doesn't keep it.
+ * @property tracksUnavailable The service gave the playlist but refused its
+ *   entries, so [tracks] is empty without the playlist being empty. Spotify
+ *   apps in development mode read the items of only the user's own and
+ *   collaborative playlists since 2026-02 (`GET /playlists/{id}/items` → 403).
  */
 data class Playlist(
     val id: MediaId,
@@ -42,6 +46,7 @@ data class Playlist(
     val comment: String? = null,
     val libraryAddedAt: String? = null,
     val ownedByMe: Boolean? = null,
+    val tracksUnavailable: Boolean = false,
 )
 
 /**
