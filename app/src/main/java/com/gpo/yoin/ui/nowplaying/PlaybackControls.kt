@@ -349,24 +349,17 @@ internal fun PlaybackControls(
                             Spacer(modifier = Modifier.width(8.dp))
                         }
 
-                        // Play mode: repeat all (the default) keeps the resting tertiary
-                        // colours; shuffle and repeat one light up like shuffle-on used to.
-                        val playModeLit = playMode != PlayMode.RepeatAll
+                        // Play mode: all three states (RepeatAll, Shuffle, RepeatOne) are 
+                        // active playback modes and use the primary color scheme to indicate 
+                        // that repeat/shuffle is enabled. Visual differentiation comes from 
+                        // the icon, not the color.
                         val playModeContainer by animateColorAsState(
-                            targetValue = if (playModeLit) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.tertiaryContainer
-                            },
+                            targetValue = MaterialTheme.colorScheme.primary,
                             animationSpec = YoinMotion.defaultEffectsSpec(),
                             label = "playModeContainer",
                         )
                         val playModeContent by animateColorAsState(
-                            targetValue = if (playModeLit) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onTertiaryContainer
-                            },
+                            targetValue = MaterialTheme.colorScheme.onPrimary,
                             animationSpec = YoinMotion.defaultEffectsSpec(),
                             label = "playModeContent",
                         )
