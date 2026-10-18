@@ -220,4 +220,19 @@
     <string name="detail_scrap_receipt_date" translatable="false">Mar 14</string>
     <string name="detail_scrap_receipt_date_year" translatable="false">Mar 14, 2025</string>
     <string name="detail_scrap_q" translatable="false">Q</string>
+    <!-- Playlist "Copy to…" (docs/playlist-transfer.md) -->
+    <string name="detail_playlist_copy_menu">Copy to…</string>
+    <string name="detail_playlist_copy_title">Copy to</string>
+    <string name="detail_playlist_copy_running">Copying to %1$s</string>
+    <string name="detail_playlist_copy_progress">%1$d / %2$d</string>
+    <plurals name="detail_playlist_copy_done">
+        <item quantity="one">Copied %1$d of %2$d song to %3$s</item>
+        <item quantity="other">Copied %1$d of %2$d songs to %3$s</item>
+    </plurals>
+    <string name="detail_playlist_copy_none">No matching songs on %1$s</string>
+    <string name="detail_playlist_copy_stopped">Stopped partway</string>
+    <string name="detail_playlist_copy_failed">Couldn\'t copy the playlist</string>
+    <string name="detail_playlist_copy_unsure">Not sure</string>
+    <string name="detail_playlist_copy_not_found">Not found</string>
+    <string name="detail_playlist_copy_done_button">Done</string>
 </resources>

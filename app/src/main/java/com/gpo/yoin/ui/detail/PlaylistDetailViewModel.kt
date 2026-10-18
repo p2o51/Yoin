@@ -25,12 +25,22 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.gpo.yoin.data.transfer.MatchDecision
+import com.gpo.yoin.data.transfer.PlaylistCopyTarget
+import com.gpo.yoin.data.transfer.TransferReport
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaylistDetailViewModel(
     private val playlistId: String,
     private val repository: YoinRepository,
     private val onPlaylistMutated: () -> Unit = {},
+    copyTargets: Flow<List<PlaylistCopyTarget>> = flowOf(emptyList()),
+    // The copy itself (PlaylistCopyService.copy): playlist, target profile, progress.
+    private val copyPlaylist: (suspend (MediaId, String, (Int, Int) -> Unit) -> TransferReport)? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
@@ -67,8 +77,60 @@ class PlaylistDetailViewModel(
         .map { ids -> ids.mapTo(linkedSetOf(), MediaId::toString) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    /** Profiles "Copy to…" offers; empty hides the row. */
+    val copyTargets: StateFlow<List<PlaylistCopyTarget>> = copyTargets
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _copyState = MutableStateFlow<PlaylistCopyState>(PlaylistCopyState.Closed)
+    val copyState: StateFlow<PlaylistCopyState> = _copyState.asStateFlow()
+    private var copyJob: Job? = null
+
+    // The sheet closed while the copy ran: its outcome goes to the snackbar instead.
+    private var copySheetDismissed = false
+
     init {
         loadPlaylist()
+    }
+
+    fun openCopy() {
+        if (copyJob?.isActive == true) {
+            copySheetDismissed = false
+            return
+        }
+        _copyState.value = PlaylistCopyState.Choosing
+    }
+
+    fun dismissCopy() {
+        if (copyJob?.isActive == true) copySheetDismissed = true
+        _copyState.value = PlaylistCopyState.Closed
+    }
+
+    fun copyTo(target: PlaylistCopyTarget) {
+        val copy = copyPlaylist ?: return
+        if (copyJob?.isActive == true) return
+        val id = MediaId.parseOrNull(playlistId) ?: return
+        copySheetDismissed = false
+        _copyState.value = PlaylistCopyState.Copying(target.displayName, done = 0, total = playlistSongs.size)
+        copyJob = viewModelScope.launch {
+            val outcome = try {
+                copyOutcome(target.displayName, copy(id, target.profileId) { done, total -> showCopyProgress(target, done, total) })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                PlaylistCopyState.Failed(target.displayName)
+            }
+            if (copySheetDismissed) {
+                copySheetDismissed = false
+                _messages.tryEmit(copyMessage(outcome))
+            } else {
+                _copyState.value = outcome
+            }
+        }
+    }
+
+    private fun showCopyProgress(target: PlaylistCopyTarget, done: Int, total: Int) {
+        if (copySheetDismissed) return
+        _copyState.value = PlaylistCopyState.Copying(target.displayName, done, total)
     }
 
     fun getPlaylistSongs(): List<Track> = playlistSongs
@@ -150,6 +212,19 @@ class PlaylistDetailViewModel(
         }
     }
 
+    private fun copyMessage(outcome: PlaylistCopyState): UiText = when (outcome) {
+        is PlaylistCopyState.Copied -> if (outcome.added == 0) {
+            UiText.Res(R.string.detail_playlist_copy_none, listOf(outcome.target))
+        } else {
+            UiText.Plural(
+                R.plurals.detail_playlist_copy_done,
+                outcome.total,
+                listOf(outcome.added, outcome.total, outcome.target),
+            )
+        }
+        else -> UiText.Res(R.string.detail_playlist_copy_failed)
+    }
+
     private fun loadPlaylist() {
         viewModelScope.launch {
             try {
@@ -213,6 +288,30 @@ class PlaylistDetailViewModel(
                 playlistId = playlistId,
                 repository = container.repository,
                 onPlaylistMutated = container::notifyPlaylistMutation,
+                copyTargets = container.playlistCopyService.targets(),
+                copyPlaylist = { id, target, onProgress ->
+                    container.playlistCopyService.copy(id, target, onProgress)
+                },
             ) as T
     }
+}
+
+/** What the sheet shows for [report], the copy to [target]. */
+internal fun copyOutcome(target: String, report: TransferReport): PlaylistCopyState {
+    // Nothing was made and nothing was meant to be (no song matched): an outcome, not a failure.
+    if (report.created == null && report.failure != null) return PlaylistCopyState.Failed(target)
+    return PlaylistCopyState.Copied(
+        target = target,
+        added = report.added,
+        total = report.total,
+        missing = report.missing.map { resolution ->
+            PlaylistCopyMissing(
+                position = resolution.position,
+                title = resolution.source.title.orEmpty(),
+                artist = resolution.source.artist.orEmpty(),
+                unsure = resolution.decision is MatchDecision.Ambiguous,
+            )
+        },
+        stoppedEarly = report.failure != null,
+    )
 }

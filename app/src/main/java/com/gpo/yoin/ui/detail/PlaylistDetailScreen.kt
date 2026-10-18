@@ -89,6 +89,7 @@ import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.data.transfer.PlaylistCopyTarget
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.formatTotalDuration
@@ -133,6 +134,13 @@ fun PlaylistDetailScreen(
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
     onShare: () -> Unit = {},
+    // "Copy to…" (docs/playlist-transfer.md): the profiles it offers (none
+    // hides the row) and its sheet's state.
+    copyTargets: List<PlaylistCopyTarget> = emptyList(),
+    copyState: PlaylistCopyState = PlaylistCopyState.Closed,
+    onCopyOpen: () -> Unit = {},
+    onCopyTo: (PlaylistCopyTarget) -> Unit = {},
+    onCopyDismiss: () -> Unit = {},
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
@@ -240,6 +248,7 @@ fun PlaylistDetailScreen(
                             onBackClick = onBackClick,
                             onRename = { showRenameDialog = true },
                             onDelete = { showDeleteConfirm = true },
+                            onCopy = if (content != null && copyTargets.isNotEmpty()) onCopyOpen else null,
                         )
                         AnimatedContent(
                             targetState = uiState,
@@ -336,6 +345,13 @@ fun PlaylistDetailScreen(
         }
     }
 
+    PlaylistCopySheet(
+        state = copyState,
+        targets = copyTargets,
+        onCopyTo = onCopyTo,
+        onDismiss = onCopyDismiss,
+    )
+
     if (showRenameDialog && content != null) {
         RenamePlaylistDialog(
             initialName = content.playlistName,
@@ -381,9 +397,10 @@ fun PlaylistDetailScreen(
 
 /**
  * The Album page's compact header, in playlist terms: back, title, owner, and
- * Playlist, plus the Rename/Delete overflow when the current
- * profile can write this playlist (Spotify followed-but-not-owned playlists
- * hide it entirely rather than showing disabled items).
+ * Playlist, plus the overflow: Rename/Delete when the current profile can
+ * write this playlist (Spotify followed-but-not-owned playlists hide them
+ * rather than showing disabled items), and Copy to… when another profile can
+ * take a copy ([onCopy] non-null). No rows, no overflow.
  */
 @Composable
 private fun PlaylistTopHeader(
@@ -394,6 +411,7 @@ private fun PlaylistTopHeader(
     onBackClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onCopy: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -424,7 +442,7 @@ private fun PlaylistTopHeader(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        if (canWrite) {
+        if (canWrite || onCopy != null) {
             Box {
                 IconButton(
                     onClick = {
@@ -441,22 +459,34 @@ private fun PlaylistTopHeader(
                     expanded = showOverflow,
                     onDismissRequest = { showOverflow = false },
                 ) {
-                    YoinDropdownMenuItem(
-                        text = stringResource(R.string.detail_playlist_rename),
-                        leadingIcon = { Icon(YoinSymbols.Edit, contentDescription = null) },
-                        onClick = {
-                            showOverflow = false
-                            onRename()
-                        },
-                    )
-                    YoinDropdownMenuItem(
-                        text = stringResource(R.string.detail_playlist_delete_menu),
-                        leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
-                        onClick = {
-                            showOverflow = false
-                            onDelete()
-                        },
-                    )
+                    if (onCopy != null) {
+                        YoinDropdownMenuItem(
+                            text = stringResource(R.string.detail_playlist_copy_menu),
+                            leadingIcon = { Icon(YoinSymbols.Copy, contentDescription = null) },
+                            onClick = {
+                                showOverflow = false
+                                onCopy()
+                            },
+                        )
+                    }
+                    if (canWrite) {
+                        YoinDropdownMenuItem(
+                            text = stringResource(R.string.detail_playlist_rename),
+                            leadingIcon = { Icon(YoinSymbols.Edit, contentDescription = null) },
+                            onClick = {
+                                showOverflow = false
+                                onRename()
+                            },
+                        )
+                        YoinDropdownMenuItem(
+                            text = stringResource(R.string.detail_playlist_delete_menu),
+                            leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
+                            onClick = {
+                                showOverflow = false
+                                onDelete()
+                            },
+                        )
+                    }
                 }
             }
         }
