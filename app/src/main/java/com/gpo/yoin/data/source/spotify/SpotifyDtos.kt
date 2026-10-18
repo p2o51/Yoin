@@ -59,6 +59,14 @@ data class SpotifyTrackObject(
     val album: SpotifySimplifiedAlbumObject? = null,
     @SerialName("duration_ms") val durationMs: Long? = null,
     @SerialName("track_number") val trackNumber: Int? = null,
+    // ISRC for matching on another service (docs/playlist-transfer.md). Listed
+    // as removed in the February 2026 changelog, reverted in March 2026.
+    @SerialName("external_ids") val externalIds: SpotifyExternalIds? = null,
+)
+
+@Serializable
+data class SpotifyExternalIds(
+    val isrc: String? = null,
 )
 
 @Serializable

@@ -10,6 +10,19 @@ import org.junit.Test
 class SpotifyMappersTest {
 
     @Test
+    fun should_carryIsrcIntoExtras_when_trackNamesExternalIds() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val track = json.decodeFromString(
+            SpotifyTrackObject.serializer(),
+            """{"id":"t","name":"Entropy","external_ids":{"isrc":"usqe92100257","ean":"x"}}""",
+        )
+        val bare = json.decodeFromString(SpotifyTrackObject.serializer(), """{"id":"u","name":"Other"}""")
+
+        assertEquals("USQE92100257", track.toTrack().extras[com.gpo.yoin.data.model.Track.EXTRA_ISRC])
+        assertTrue(bare.toTrack().extras.isEmpty())
+    }
+
+    @Test
     fun should_namespace_mapped_entities_with_spotify_provider() {
         val album = SpotifyAlbumObject(
             id = "album-1",

@@ -248,6 +248,26 @@ class SpotifyMusicSource(
                 savedAlbumIds = knownSavedAlbumIds(),
                 followedArtistIds = knownFollowedArtistIds(),
             )
+
+        // Spotify has no batch ISRC read: one `isrc:` search per code, tracks
+        // only, one after another under the rate-limit gate. A code whose
+        // search fails is left out, and matching falls back to a title search.
+        override suspend fun tracksByIsrc(isrcs: List<String>): Map<String, List<Track>> {
+            val found = linkedMapOf<String, List<Track>>()
+            for (isrc in isrcs.map { it.trim().uppercase() }.filter { it.matches(ISRC_PATTERN) }.distinct()) {
+                val tracks = try {
+                    apiClient.search(query = "isrc:$isrc", types = "track").toSearchResults().tracks
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    continue
+                }
+                // A row without its own ISRC is taken on the filter's word; one naming another code is not.
+                val exact = tracks.filter { (it.extras[Track.EXTRA_ISRC] ?: isrc) == isrc }
+                if (exact.isNotEmpty()) found[isrc] = exact
+            }
+            return found
+        }
     }
 
     private val metadata = object : MusicMetadata {
@@ -729,3 +749,6 @@ internal fun pickLocalSpotifyDevice(devices: List<SpotifyDevice>, localNames: Li
     val named = devices.filter { device -> device.id != null && names.any { it.equals(device.name.trim(), ignoreCase = true) } }
     return named.firstOrNull(SpotifyDevice::isActive) ?: named.firstOrNull()
 }
+
+/** An ISRC: country (2 letters), registrant (3), year (2), designation (5). */
+private val ISRC_PATTERN = Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")

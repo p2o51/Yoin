@@ -32,6 +32,9 @@ internal fun SpotifyTrackObject.toTrack(
         genre = null,
         userRating = null,
         isStarred = trackId in savedTrackIds,
+        extras = externalIds?.isrc?.trim()?.takeIf(String::isNotEmpty)
+            ?.let { mapOf(Track.EXTRA_ISRC to it.uppercase()) }
+            .orEmpty(),
     )
 }
 
