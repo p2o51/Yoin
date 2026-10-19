@@ -89,6 +89,10 @@ import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.tips.LocalTipReadStore
+import com.gpo.yoin.ui.tips.SharedPrefsTipReadStore
+import com.gpo.yoin.ui.tips.TipActivity
+import com.gpo.yoin.ui.tips.unreadTips
 import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
@@ -835,6 +839,7 @@ internal fun MemoryBubbleOverlay(
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val context = LocalContext.current
     val store = LocalMemoryBubbleSeenStore.current ?: remember(context) { SharedPrefsMemoryBubbleSeenStore(context) }
+    val tipStore = LocalTipReadStore.current ?: remember(context) { SharedPrefsTipReadStore.get(context) }
     val idleMs = LocalMemoryBubbleIdleMs.current
     val dwellMs = LocalMemoryBubbleDwellMs.current
     val chatterDwellMs = LocalMemoryBubbleChatterDwellMs.current
@@ -875,21 +880,26 @@ internal fun MemoryBubbleOverlay(
     val hasSomething = pill.hasSomethingToSay()
     // News is about a memory: with none left, it goes. Tips need none.
     if (!hasSomething && reason == BubbleReason.News) reason = null
-    val nextIdleSay: () -> BubbleSay = {
+    // Null: every tip read and no memory to recall — it stays quiet.
+    val nextIdleSay: () -> BubbleSay? = {
         val shownPill = currentPill
+        val unread = tipStore.read.value.unreadTips()
         val sayMemory = idleTurns % 2 == 0
         idleTurns += 1
-        val memory = sayMemory && shownPill.hasSomethingToSay()
+        val memory = (sayMemory || unread.isEmpty()) && shownPill.hasSomethingToSay()
         val memoryTurn = if (memory && shownPill!!.recall.isNotEmpty()) store.nextRecallTurn(shownPill.scope) else 0
-        val tipTurn = if (memory) 0 else store.nextTipTurn()
-        idleBubbleSay(shownPill, sayMemory = memory, memoryTurn = memoryTurn, tipTurn = tipTurn)
+        val tipTurn = if (memory || unread.isEmpty()) 0 else store.nextTipTurn()
+        idleBubbleSay(shownPill, sayMemory = memory, memoryTurn = memoryTurn, tipTurn = tipTurn, unreadTips = unread)
     }
     // Every change of what it says goes through the rules (MemoryBubbleTurn.after).
-    val cue: (MemoryBubbleCue) -> Unit = { what ->
+    val cue: (MemoryBubbleCue) -> Unit = cue@{ what ->
         val next = MemoryBubbleTurn(reason, shell.spokeThisForeground).after(what)
         val starts = next.reason
         if (starts != null && starts != reason) {
-            say = if (starts == BubbleReason.News) BubbleSay.Memory(currentPill?.latest) else nextIdleSay()
+            // Nothing left to say (every tip read, no memory): it stays quiet.
+            val line = if (starts == BubbleReason.News) BubbleSay.Memory(currentPill?.latest) else nextIdleSay()
+            if (line == null) return@cue
+            say = line
             sayCount += 1
             chained = false
         }
@@ -954,9 +964,14 @@ internal fun MemoryBubbleOverlay(
             )
         }
         awaitMemoryBubbleDwell(fullySaid, snapshotFlow { controller.held }, memoryBubbleDwellMs(hold, accessibility))
-        if (speakingFor == BubbleReason.Idle && !chained && canSpeak() && random.nextFloat() < chainChance) {
+        val chainTo = if (speakingFor == BubbleReason.Idle && !chained && canSpeak() && random.nextFloat() < chainChance) {
+            nextIdleSay()
+        } else {
+            null
+        }
+        if (chainTo != null && chainTo != say) {
             chained = true
-            say = nextIdleSay()
+            say = chainTo
             sayCount += 1
         } else {
             cue(MemoryBubbleCue.DwellOver)
@@ -1022,8 +1037,8 @@ internal fun MemoryBubbleOverlay(
         haptics.performContextClick()
         cue(MemoryBubbleCue.Touch)
         when (val said = say) {
-            // A tip only tucks away — except the one that is about Memories.
-            is BubbleSay.Tip -> if (said.tip == HomeBubbleTip.PullForMemories) onNavigateToMemories()
+            // A tip opens on its own page, where it can be read in full and marked read.
+            is BubbleSay.Tip -> context.startActivity(TipActivity.intent(context, said.tip))
             is BubbleSay.Memory, null -> {
                 val session = ((said as? BubbleSay.Memory)?.latest ?: pill?.latest)?.sessionId
                 if (session != null) onOpenMemoryFocus(session) else onNavigateToMemories()
@@ -1542,7 +1557,7 @@ private fun MemoryBubble(
     }
 }
 
-/** A tip: the symbol in a small round tile where a memory's cover sits, and one or two lines. */
+/** A tip: the symbol in a small round tile where a memory's cover sits, and its title. */
 @Composable
 private fun BubbleTipLine(tip: HomeBubbleTip) {
     val colors = MaterialTheme.colorScheme
@@ -1562,10 +1577,10 @@ private fun BubbleTipLine(tip: HomeBubbleTip) {
         }
         Spacer(modifier = Modifier.width(BubbleCoverTitleGap))
         Text(
-            text = stringResource(tip.text),
+            text = stringResource(tip.title),
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
             color = colors.onSurface,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }

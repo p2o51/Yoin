@@ -63,7 +63,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 ### 颜色系统
 
 1. 全部使用 **MD3 Color Tokens**（Primary、Secondary、Tertiary、Surface 等语义色）
-2. **默认 = 系统 Dynamic Color** — 深浅色跟随系统设置（`isSystemInDarkTheme()`），API 31+ 通过 `dynamicDarkColorScheme()` / `dynamicLightColorScheme()` 跟随系统壁纸/主题色
+2. **默认 = 壁纸色相 + Expressive 配色（2026-10-19 owner：默认配色太平淡，三星刚登录时最明显）** — 深浅色跟随系统设置（`isSystemInDarkTheme()`）。不再直接用系统 `dynamic*ColorScheme()`（系统的 Tonal Spot 色板偏灰），而是取壁纸的源色（API 31+ `system_accent1_500`）的色相，和封面取色一样生成 SPEC_2025 `SchemeExpressive`；壁纸近灰（HCT chroma < 6）或 Android 12 以下时，从 Yoin 图标的紫色起。实现在 `ui/theme/DefaultColorScheme.kt`，Settings 分栏的动画底色同源。
 3. **播放态 = 封面提取色** — 有内容播放时，用 Palette API 从专辑封面提取主色，替换 color tokens，实现全局色调切换
 4. **颜色过渡** — 使用 Effects Spring 做平滑过渡，不生硬跳变。播放封面取色与当前过渡进度由 app session 共享，首页与子页面首帧使用同一色板；底部 NP 和底栏直接读取这套已动画的 tokens，不再叠加按窗口重启的颜色动画。
 5. **服务色（2026-10-03，唯一的非 token 颜色）** — Settings 家族里每个音乐服务固定一个色族（Subsonic 蓝 H256 / Spotify 绿 H148 / Apple Music 玫红 H10 / 本地文件 琥珀 H60），是 M3「自定义色」：MCU HCT 按色调取值，并向**壁纸（系统 dynamic）primary** 协调最多 10°（MCU 原版 15°，收紧是为了让任意壁纸下服务色两两 ≥ 30°；壁纸近灰（chroma < 6）时不转）。不向封面色协调，否则服务色会随歌漂移。只给"服务"上色：账号头像 / 角标、在用卡片、添加账号面板、服务二级页的服务标记；普通设置行一律单色线条图标。实现在 `ui/settings/SettingsColors.kt`。

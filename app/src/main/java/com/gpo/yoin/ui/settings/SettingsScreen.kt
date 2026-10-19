@@ -456,6 +456,13 @@ fun SettingsContent(
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
                                         item { WelcomeGuideItem() }
+                                        item(key = SettingsFeature.Tips, paintsOwnSegment = listDetail) {
+                                            TipsItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.Tips,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Tips) },
+                                            )
+                                        }
                                         item { WebsiteItem(snackbarHostState) }
                                         item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
@@ -1466,7 +1473,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, Tips }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1501,6 +1508,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
+        SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1553,6 +1561,8 @@ internal fun SettingsFeatureScreen(
                     if (feature == SettingsFeature.ScrollEdge) {
                         // Reads only the global style: no need to wait for the Settings state.
                         ScrollEdgePageContent()
+                    } else if (feature == SettingsFeature.Tips) {
+                        TipsPageContent()
                     } else if (content == null) {
                         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             YoinLoadingIndicator()
@@ -1577,7 +1587,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge -> Unit
+                                    SettingsFeature.ScrollEdge, SettingsFeature.Tips -> Unit
                                 }
                             }
                         }
@@ -1607,6 +1617,22 @@ private fun ScrollEdgeItem(
         FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › About › Tips: every tip Home's bubble brings up, to read again or mark unread. */
+@Composable
+private fun TipsItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_about_tips)
+    val summary = tipsReadSummary()
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Sparkle, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Sparkle, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 

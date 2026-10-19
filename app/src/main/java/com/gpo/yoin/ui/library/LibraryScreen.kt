@@ -464,6 +464,8 @@ fun LibraryContent(
     modifier: Modifier = Modifier,
     // The header's corner control (the account avatar); null = the Settings gear.
     headerAction: (@Composable (Modifier) -> Unit)? = null,
+    // The All view's grid: the tip page's demo scrolls it on cue.
+    allGridState: LazyGridState? = null,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -564,6 +566,7 @@ fun LibraryContent(
                             coverArtUrlBuilder = coverArtUrlBuilder,
                             collapseSearchOnOpen = collapseSearchOnOpen,
                             headerAction = headerAction,
+                            allGridState = allGridState,
                         )
                     }
                 }
@@ -608,6 +611,7 @@ private fun LibraryContentBody(
     coverArtUrlBuilder: ((String) -> String)?,
     collapseSearchOnOpen: Boolean = false,
     headerAction: (@Composable (Modifier) -> Unit)? = null,
+    allGridState: LazyGridState? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
@@ -630,7 +634,7 @@ private fun LibraryContentBody(
     // AnimatedContent: exited tab content is disposed, so a lazy state
     // created inside a tab body would reset and returning to that tab
     // would land back at the top instead of where the user left off.
-    val allGridState = rememberLazyGridState()
+    val allGrid = allGridState ?: rememberLazyGridState()
     val artistsGridState = rememberLazyGridState()
     val albumsGridState = rememberLazyGridState()
     val songsListState = rememberLazyListState()
@@ -914,7 +918,7 @@ private fun LibraryContentBody(
                         when (tab) {
                             LibraryTab.All -> AllTabContent(
                                 items = state.allItems,
-                                gridState = allGridState,
+                                gridState = allGrid,
                                 sortRow = sortRow,
                                 scrollSections = state.scrollSections[tab].orEmpty(),
                                 scrollerEndOverhang = scrollerEndOverhang,
@@ -1086,7 +1090,7 @@ private fun LibraryFilterChips(
  * left edge.
  */
 @Composable
-private fun LibrarySearchFilterRow(
+internal fun LibrarySearchFilterRow(
     catalogScope: LibrarySearchScope?,
     selectedScope: LibrarySearchScope,
     onScopeSelected: (LibrarySearchScope) -> Unit,

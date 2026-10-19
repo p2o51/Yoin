@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
@@ -89,7 +91,7 @@ class TrackMenuHost(
 }
 
 /** One row of the sheet: a symbol and a label; [onClick] runs as the sheet goes down. */
-private class TrackMenuRow(val label: String, val icon: ImageVector, val onClick: () -> Unit)
+internal class TrackMenuRow(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
 /**
  * A song's long-press sheet, rising from the bottom (owner 2026-10-17: a
@@ -191,32 +193,58 @@ internal fun TrackMenuSheet(
         },
     ) {
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, bottom = 16.dp + navBottom),
-            verticalArrangement = Arrangement.spacedBy(TrackMenuGroupGap),
-        ) {
-            TrackMenuHeader(track = track, coverUrl = coverUrl)
-            for (rows in listOf(queueRows, goRows)) {
-                if (rows.isEmpty()) continue
-                TrackMenuGroup(count = rows.size) { index, shape ->
-                    val row = rows[index]
-                    TrackMenuRowItem(
-                        label = row.label,
-                        icon = row.icon,
-                        shape = shape,
-                        onClick = {
-                            haptics.performContextClick()
-                            row.onClick()
-                            close()
-                        },
-                    )
-                }
+        TrackMenuSheetBody(
+            track = track,
+            coverUrl = coverUrl,
+            groups = listOf(queueRows, goRows),
+            onRowClick = { row ->
+                haptics.performContextClick()
+                row.onClick()
+                close()
+            },
+            bottomPadding = 16.dp + navBottom,
+            playerSection = playerSection,
+        )
+    }
+}
+
+/**
+ * What the sheet shows: the song, then each non-empty group of [groups], then
+ * [playerSection]. Shared by [TrackMenuSheet] and the tip page's demo phone,
+ * which shows it in a sheet of its own.
+ */
+@Composable
+internal fun TrackMenuSheetBody(
+    track: Track?,
+    coverUrl: String?,
+    groups: List<List<TrackMenuRow>>,
+    onRowClick: (TrackMenuRow) -> Unit,
+    bottomPadding: Dp,
+    playerSection: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(scrollState)
+            .padding(start = 16.dp, end = 16.dp, bottom = bottomPadding),
+        verticalArrangement = Arrangement.spacedBy(TrackMenuGroupGap),
+    ) {
+        TrackMenuHeader(track = track, coverUrl = coverUrl)
+        for (rows in groups) {
+            if (rows.isEmpty()) continue
+            TrackMenuGroup(count = rows.size) { index, shape ->
+                val row = rows[index]
+                TrackMenuRowItem(
+                    label = row.label,
+                    icon = row.icon,
+                    shape = shape,
+                    onClick = { onRowClick(row) },
+                )
             }
-            playerSection?.invoke()
         }
+        playerSection?.invoke()
     }
 }
 

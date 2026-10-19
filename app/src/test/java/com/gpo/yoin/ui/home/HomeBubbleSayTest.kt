@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.home
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,5 +58,25 @@ class HomeBubbleSayTest {
     @Test
     fun should_keepTheChainOccasional_when_chattering() {
         assertTrue(MemoryBubbleChainChance in 0.2f..0.5f)
+    }
+
+    @Test
+    fun should_skipReadTips_when_someAreRead() {
+        val unread = listOf(HomeBubbleTip.PlayModes, HomeBubbleTip.Name)
+        val tips = (0..3).map { turn ->
+            (idleBubbleSay(pill, sayMemory = false, memoryTurn = 0, tipTurn = turn, unreadTips = unread) as BubbleSay.Tip).tip
+        }
+        assertEquals(listOf(HomeBubbleTip.PlayModes, HomeBubbleTip.Name, HomeBubbleTip.PlayModes, HomeBubbleTip.Name), tips)
+    }
+
+    @Test
+    fun should_sayMemoriesOnly_when_everyTipIsRead() {
+        val say = idleBubbleSay(pill, sayMemory = false, memoryTurn = 0, tipTurn = 0, unreadTips = emptyList())
+        assertEquals(BubbleSay.Memory(latest(2)), say)
+    }
+
+    @Test
+    fun should_sayNothing_when_everyTipIsReadAndThereAreNoMemories() {
+        assertNull(idleBubbleSay(pill = null, sayMemory = true, memoryTurn = 0, tipTurn = 0, unreadTips = emptyList()))
     }
 }

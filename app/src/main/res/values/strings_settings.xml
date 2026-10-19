@@ -94,6 +94,10 @@
     <string name="settings_neodb_invalid_url">Invalid NeoDB URL. Include a valid host.</string>
 
     <string name="settings_motion_scroll_edge">Scroll edge</string>
+    <string name="settings_about_tips">Tips</string>
+    <string name="settings_tips_read_count">%1$d of %2$d read</string>
+    <string name="settings_tips_all_read">All read</string>
+    <string name="settings_tips_mark_all_unread">Mark all as unread</string>
     <string name="settings_motion_tide_line">Tide line</string>
     <string name="settings_motion_dots">Dots</string>
     <string name="settings_motion_cookie_wave">Cookie wave</string>
