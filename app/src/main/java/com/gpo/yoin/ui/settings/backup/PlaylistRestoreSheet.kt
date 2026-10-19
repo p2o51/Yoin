@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -364,10 +365,12 @@ private fun ReviewRowItem(
                 .padding(start = 12.dp, end = 24.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // A read-only checkbox drops its 48dp touch target; keep it so every row lines up.
             Checkbox(
                 checked = row.checked,
                 onCheckedChange = if (row.checkable) onCheck else null,
                 enabled = enabled && row.checkable,
+                modifier = Modifier.minimumInteractiveComponentSize(),
             )
             Column(modifier = Modifier.weight(1f)) {
                 SongLines(

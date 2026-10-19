@@ -124,6 +124,24 @@ class TrackMatcherTest {
         assertEquals("Peaches", TrackMatcher.titleQuery(source))
     }
 
+    @Test
+    fun should_askTheUser_when_theCandidateIsALiveTake() {
+        val source = track("s", "BTTB — Track 4", "Big Thief", 60)
+        val live = track("t", "BTTB — Track 4 (Live)", "Big Thief", 60)
+
+        val decision = TrackMatcher.choose(source, listOf(live))
+
+        assertEquals(MatchDecision.Ambiguous(listOf(live)), decision)
+    }
+
+    @Test
+    fun should_match_when_bothSidesAreTheSameRemix() {
+        val source = track("s", "Midnight City - Eric Prydz Remix", "M83", 300)
+        val candidate = track("t", "Midnight City (Eric Prydz Remix)", "M83", 301)
+
+        assertTrue(TrackMatcher.choose(source, listOf(candidate)) is MatchDecision.Matched)
+    }
+
     private fun track(
         id: String,
         title: String,

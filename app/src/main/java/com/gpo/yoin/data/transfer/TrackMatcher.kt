@@ -44,8 +44,11 @@ object TrackMatcher {
             )
         val best = scored.firstOrNull() ?: return MatchDecision.NotFound
         val withinDuration = durationGap(source, best.first)?.let { it <= DURATION_TOLERANCE_SEC } ?: true
+        // A live take, a remix or an acoustic cut of the song is another
+        // recording: never added unasked, only offered for the user to check.
+        val sameVersion = versionTags(source.title) == versionTags(best.first.title)
         return when {
-            best.second >= MATCH_SCORE && withinDuration -> MatchDecision.Matched(best.first, MatchMethod.Search)
+            best.second >= MATCH_SCORE && withinDuration && sameVersion -> MatchDecision.Matched(best.first, MatchMethod.Search)
             best.second >= AMBIGUOUS_SCORE ->
                 MatchDecision.Ambiguous(scored.takeWhile { it.second >= AMBIGUOUS_SCORE }.map { it.first }.take(3))
             else -> MatchDecision.NotFound
@@ -136,6 +139,10 @@ object TrackMatcher {
         return result.trim()
     }
 
+    /** The words in a title that name another recording of the song ("Live", "Remix"…). */
+    internal fun versionTags(title: String?): Set<String> =
+        VERSION_TAG.findAll(title.orEmpty()).map { it.value.lowercase().replace(Regex("\\s+"), " ") }.toSet()
+
     internal fun splitArtists(artist: String): List<String> =
         artist.split(ARTIST_SEPARATOR).map(String::trim).filter(String::isNotEmpty)
 
@@ -195,6 +202,10 @@ object TrackMatcher {
     private val DECORATION = Regex(
         "(?i)\\b(feat\\.?|ft\\.?|featuring|with|remaster(ed)?|\\d{4}\\s+remaster|deluxe|bonus track|explicit|clean|" +
             "single version|album version|original mix|from\\s.+)"
+    )
+    private val VERSION_TAG = Regex(
+        "(?i)\\b(live|remix|acoustic|instrumental|demo|karaoke|unplugged|orchestral|piano version|" +
+            "radio edit|extended|sped up|slowed|a cappella|acapella)\\b"
     )
     private val FEAT_TAIL = Regex("(?i)\\s(feat\\.?|ft\\.?|featuring)\\s.*$")
     private val ARTIST_SEPARATOR =
