@@ -16,6 +16,7 @@ import androidx.window.embedding.SplitController
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import com.gpo.yoin.data.backup.PlaylistBackupFollower
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 import com.gpo.yoin.ui.component.ArtworkForegroundRetry
 import com.gpo.yoin.ui.component.ArtworkNetworkRecovery
@@ -60,7 +61,10 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         ProcessLifecycleOwner.get().lifecycle.addObserver(ArtworkForegroundRetry())
         registerHostLifecycle()
         registerActivityEmbeddingRules()
-        if (containerOverrideForTests == null) WidgetRefresher.start(this, container)
+        if (containerOverrideForTests == null) {
+            WidgetRefresher.start(this, container)
+            PlaylistBackupFollower.start(container)
+        }
     }
 
     /**

@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1013,6 +1014,19 @@ private fun PlayingContent(
     }
 }
 
+/** System bars around the single column, with a floor under the pills ([stageColumnBottomInset]). */
+@Composable
+private fun stageColumnInsets(): PaddingValues {
+    val bars = WindowInsets.systemBars.asPaddingValues()
+    val direction = LocalLayoutDirection.current
+    return PaddingValues(
+        start = bars.calculateStartPadding(direction),
+        top = bars.calculateTopPadding(),
+        end = bars.calculateEndPadding(direction),
+        bottom = stageColumnBottomInset(bars.calculateBottomPadding()),
+    )
+}
+
 /**
  * The single-column player — phones, outer foldable screens, narrow split-screen,
  * the Medium side panel (a phone page in a phone-width container) and, with
@@ -1235,7 +1249,7 @@ private fun CompactPlayingContent(
             .fillMaxSize()
             .voteHighFrameRate(stageMoving)
             .lyricToolsTouchTracker(lyricToolsIdle)
-            .padding(WindowInsets.systemBars.asPaddingValues()),
+            .padding(stageColumnInsets()),
     ) {
         val horizontalPadding = 24.dp
         // Enlarged phone: the column is centred at its own width; every width
@@ -3753,7 +3767,7 @@ private fun WideTopBar(
 }
 
 @Composable
-private fun StageTopBar(
+internal fun StageTopBar(
     state: NowPlayingUiState.Playing,
     stageMode: NowPlayingStageMode,
     detailProgress: Float,
@@ -3972,7 +3986,7 @@ private fun DockedHeaderText(
 }
 
 @Composable
-private fun StageTabs(
+internal fun StageTabs(
     selected: NowPlayingDetailPage,
     detailProgress: Float,
     height: Dp,
@@ -4189,7 +4203,7 @@ internal fun OneLineLyricPreview(
  * shown only while the symbol moves, then fades back.
  */
 @Composable
-private fun OneLineLyricRow(
+internal fun OneLineLyricRow(
     state: NowPlayingUiState.Playing,
     positionMs: () -> Long,
     onExpand: () -> Unit,
@@ -4479,7 +4493,7 @@ private fun StageHeightSlot(
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun CompactBottomHero(
+internal fun CompactBottomHero(
     state: NowPlayingUiState.Playing,
     heroBoundsSpec: androidx.compose.animation.core.FiniteAnimationSpec<Rect>,
     titleStretchScale: Float,
@@ -4716,7 +4730,7 @@ private fun Modifier.tapWithoutConsumingDrag(
 private const val NowPlayingRouteNavigationDelayMs = 72L
 
 /** The one tappable lyric line that replaces tabs + lyric window on 16:9 screens. */
-private val OneLineLyricRowHeight = 44.dp
+internal val OneLineLyricRowHeight = 44.dp
 
 /** The Expanded stage's fixed geometry (the budget's third endpoint). */
 private val ExpandedTopBarHeight = 56.dp
@@ -4750,7 +4764,7 @@ private val WideFramePadding = 24.dp
 private val WideTopBarHeight = 48.dp
 private const val HiddenLayerVisibilityThreshold = 0.01f
 
-private data class NowPlayingRouteInteraction(
+internal data class NowPlayingRouteInteraction(
     val interactionSource: MutableInteractionSource,
     val scaleX: Float,
     val onClick: () -> Unit,

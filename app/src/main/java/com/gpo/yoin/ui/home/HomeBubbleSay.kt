@@ -21,18 +21,27 @@ internal sealed interface BubbleSay {
     data class Tip(val tip: HomeBubbleTip) : BubbleSay
 }
 
-/** The tips, in the order the bubble goes through them. */
-internal enum class HomeBubbleTip(@StringRes val text: Int, private val symbol: () -> ImageVector) {
-    EditHome(R.string.home_tip_edit_home, { YoinSymbols.DragHandle }),
-    PullForMemories(R.string.home_tip_pull_memories, { YoinSymbols.Memory }),
-    CoverMenu(R.string.home_tip_cover_menu, { YoinSymbols.Album }),
-    SongMenu(R.string.home_tip_song_menu, { YoinSymbols.Queue }),
-    PlayModes(R.string.home_tip_play_modes, { YoinSymbols.Shuffle }),
-    NoteMoments(R.string.home_tip_note_moments, { YoinSymbols.EditNote }),
-    LibrarySearch(R.string.home_tip_library_search, { YoinSymbols.Search }),
-    KeepScreenOn(R.string.home_tip_keep_screen_on, { YoinSymbols.LightMode }),
-    ScrollEdge(R.string.home_tip_scroll_edge, { YoinSymbols.Settings }),
-    Name(R.string.home_tip_name, { YoinSymbols.Sparkle }),
+/**
+ * The tips, in the order the bubble goes through them. The bubble shows the
+ * [title]; a tap opens the tip on its own page with the [text] (owner
+ * 2026-10-18: a short line read cut off in the bubble), where it can be
+ * marked read. Read tips no longer come up (ui/tips/TipReadStore).
+ */
+internal enum class HomeBubbleTip(
+    @StringRes val title: Int,
+    @StringRes val text: Int,
+    private val symbol: () -> ImageVector,
+) {
+    EditHome(R.string.home_tip_edit_home_title, R.string.home_tip_edit_home, { YoinSymbols.DragHandle }),
+    PullForMemories(R.string.home_tip_pull_memories_title, R.string.home_tip_pull_memories, { YoinSymbols.Memory }),
+    CoverMenu(R.string.home_tip_cover_menu_title, R.string.home_tip_cover_menu, { YoinSymbols.Album }),
+    SongMenu(R.string.home_tip_song_menu_title, R.string.home_tip_song_menu, { YoinSymbols.Queue }),
+    PlayModes(R.string.home_tip_play_modes_title, R.string.home_tip_play_modes, { YoinSymbols.Shuffle }),
+    NoteMoments(R.string.home_tip_note_moments_title, R.string.home_tip_note_moments, { YoinSymbols.EditNote }),
+    LibrarySearch(R.string.home_tip_library_search_title, R.string.home_tip_library_search, { YoinSymbols.Search }),
+    KeepScreenOn(R.string.home_tip_keep_screen_on_title, R.string.home_tip_keep_screen_on, { YoinSymbols.LightMode }),
+    ScrollEdge(R.string.home_tip_scroll_edge_title, R.string.home_tip_scroll_edge, { YoinSymbols.Settings }),
+    Name(R.string.home_tip_name_title, R.string.home_tip_name, { YoinSymbols.Sparkle }),
     ;
 
     val icon: ImageVector get() = symbol()
@@ -42,14 +51,22 @@ internal enum class HomeBubbleTip(@StringRes val text: Int, private val symbol: 
  * What the idle bubble says on one of its turns: Memories and tips take turns
  * while there are memories to recall ([memoryTurn] steps through
  * [memoryBubbleSubject]); with none, it is tips only. [tipTurn] steps through
- * [HomeBubbleTip] in order, so every tip comes round before one repeats.
+ * the [unreadTips] in order, so every one comes round before one repeats.
+ * With every tip read it is memories only; with neither, nothing (null).
  */
-internal fun idleBubbleSay(pill: HomeMemoryPill?, sayMemory: Boolean, memoryTurn: Int, tipTurn: Int): BubbleSay {
-    if (sayMemory && pill.hasSomethingToSay()) {
+internal fun idleBubbleSay(
+    pill: HomeMemoryPill?,
+    sayMemory: Boolean,
+    memoryTurn: Int,
+    tipTurn: Int,
+    unreadTips: List<HomeBubbleTip> = HomeBubbleTip.entries,
+): BubbleSay? {
+    val memory = pill.hasSomethingToSay()
+    if (memory && (sayMemory || unreadTips.isEmpty())) {
         return BubbleSay.Memory(memoryBubbleSubject(pill, BubbleReason.Idle, memoryTurn))
     }
-    val tips = HomeBubbleTip.entries
-    return BubbleSay.Tip(tips[Math.floorMod(tipTurn, tips.size)])
+    if (unreadTips.isEmpty()) return null
+    return BubbleSay.Tip(unreadTips[Math.floorMod(tipTurn, unreadTips.size)])
 }
 
 /**

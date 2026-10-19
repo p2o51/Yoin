@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -114,6 +115,12 @@ internal fun PlaybackControls(
     modifier: Modifier = Modifier,
     // False while the row is hidden (see WaveProgressBar's `animating`).
     live: Boolean = true,
+    // The tip page's demo: holds the play-mode button's split state to split
+    // it on cue, and finds the button by its modifier. Null / empty in the app.
+    playModeSplitState: MutableState<Boolean>? = null,
+    playModeModifier: Modifier = Modifier,
+    // The tip page's demo: a scrub of the progress bar it acts out (WaveProgressBar).
+    actedScrub: (() -> Float?)? = null,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -367,13 +374,26 @@ internal fun PlaybackControls(
                             Spacer(modifier = Modifier.width(8.dp))
                         }
 
-                        PlayModeButton(
-                            playMode = playMode,
-                            onSetPlayMode = onSetPlayMode,
-                            height = controlSize,
-                            splitWidth = fit.playModeWidth,
-                            iconSize = controlIconSize,
-                        )
+                        if (playModeSplitState == null) {
+                            PlayModeButton(
+                                playMode = playMode,
+                                onSetPlayMode = onSetPlayMode,
+                                height = controlSize,
+                                splitWidth = fit.playModeWidth,
+                                iconSize = controlIconSize,
+                                modifier = playModeModifier,
+                            )
+                        } else {
+                            PlayModeButton(
+                                playMode = playMode,
+                                onSetPlayMode = onSetPlayMode,
+                                height = controlSize,
+                                splitWidth = fit.playModeWidth,
+                                iconSize = controlIconSize,
+                                modifier = playModeModifier,
+                                splitState = playModeSplitState,
+                            )
+                        }
                     }
                 }
 
@@ -440,6 +460,7 @@ internal fun PlaybackControls(
                                 isPlaying = isPlaying,
                                 noteAnchorsMs = noteAnchorsMs,
                                 animating = live,
+                                actedScrub = actedScrub,
                                 modifier = Modifier.weight(1f),
                             )
                             if (labelsInline) {
@@ -512,16 +533,18 @@ private fun PlayMode.stateDescription(): String = when (this) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PlayModeButton(
+internal fun PlayModeButton(
     playMode: PlayMode,
     onSetPlayMode: (PlayMode) -> Unit,
     height: Dp,
     splitWidth: Dp,
     iconSize: Dp,
     modifier: Modifier = Modifier,
+    // Whether it is split; the tip page's demo holds this to split it on cue.
+    splitState: MutableState<Boolean> = rememberSaveable { mutableStateOf(false) },
 ) {
     val haptics = rememberYoinHaptics()
-    var split by rememberSaveable { mutableStateOf(false) }
+    var split by splitState
     // One more on every tap while split: the merge waits for a quiet spell.
     var splitTouches by remember { mutableIntStateOf(0) }
     LaunchedEffect(split, splitTouches) {

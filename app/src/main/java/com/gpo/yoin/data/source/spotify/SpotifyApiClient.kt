@@ -269,12 +269,13 @@ class SpotifyApiClient(
     suspend fun search(
         query: String,
         limitPerType: Int = DEFAULT_SEARCH_LIMIT,
+        types: String = "track,album,artist,playlist",
     ): SpotifySearchResponse = withContext(Dispatchers.IO) {
         getDecoded(
             url = apiUrl("v1", "search")
                 .newBuilder()
                 .addQueryParameter("q", query)
-                .addQueryParameter("type", "track,album,artist,playlist")
+                .addQueryParameter("type", types)
                 .addQueryParameter("limit", limitPerType.coerceIn(0, MAX_SEARCH_LIMIT).toString())
                 .build(),
             deserializer = SpotifySearchResponse.serializer(),
