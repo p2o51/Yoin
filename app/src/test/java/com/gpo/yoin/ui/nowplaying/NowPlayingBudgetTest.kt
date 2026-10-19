@@ -276,4 +276,18 @@ class NowPlayingBudgetTest {
         assertEquals(1f, over.upper)
         assertDp(8.dp, over.unmet)
     }
+
+    @Test
+    fun should_keepPillsOffTheEdge_when_windowReportsNoNavigationBar() {
+        // Bubble / desktop window / cover screen with the gesture hint hidden.
+        assertDp(16.dp, stageColumnBottomInset(0.dp))
+        assertDp(16.dp, stageColumnBottomInset(10.dp))
+    }
+
+    @Test
+    fun should_keepSystemInset_when_navigationBarIsTallerThanTheFloor() {
+        // Gesture handle (24dp) and three-button bar (48dp) are unchanged.
+        assertDp(24.dp, stageColumnBottomInset(24.dp))
+        assertDp(48.dp, stageColumnBottomInset(48.dp))
+    }
 }

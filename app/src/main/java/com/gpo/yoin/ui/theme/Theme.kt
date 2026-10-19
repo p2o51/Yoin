@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.theme
 
 import android.graphics.Bitmap
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,8 +13,6 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +41,7 @@ val LocalYoinColors = staticCompositionLocalOf { YoinDarkColorScheme }
  * @param coverBitmap When non-null, album art resolves to a single seed color and
  *   the entire [MaterialTheme.colorScheme] animates to an expressive `SPEC_2025`
  *   scheme. When `null` (playback stopped), colors animate back to the default
- *   dynamic / dark scheme.
+ *   scheme: the wallpaper's hue, also built as an Expressive scheme.
  */
 @Composable
 fun YoinTheme(
@@ -59,13 +56,8 @@ fun YoinTheme(
     // Remembered so recompositions reuse ONE instance: dynamic*ColorScheme()
     // allocates a fresh (identity-unequal) scheme per call, and downstream
     // consumers key on the instance — see animateColorScheme's wash dedup.
-    val defaultScheme = colorSchemeOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        remember(context, darkTheme) {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-    } else {
-        if (darkTheme) YoinDarkColorScheme else YoinLightColorScheme
-    }
+    // The wallpaper's hue as an Expressive scheme (DefaultColorScheme.kt).
+    val defaultScheme = colorSchemeOverride ?: remember(context, darkTheme) { defaultColorScheme(context, darkTheme) }
 
     // Edge-to-edge + system bar icon colors are set up once in
     // MainActivity.onCreate via enableEdgeToEdge(SystemBarStyle.auto(...)). The

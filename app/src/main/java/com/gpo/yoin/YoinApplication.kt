@@ -21,6 +21,7 @@ import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 import com.gpo.yoin.ui.component.ArtworkForegroundRetry
 import com.gpo.yoin.ui.component.ArtworkNetworkRecovery
 import com.gpo.yoin.ui.component.ArtworkRetrySignal
+import com.gpo.yoin.ui.nowplaying.NowPlayingKeepScreenOn
 import com.gpo.yoin.widget.WidgetRefresher
 
 class YoinApplication : Application(), SingletonImageLoader.Factory {
@@ -52,6 +53,9 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         // JavaCPP's process-memory budget is captured on first MusicKit/Pointer use.
         AppleMusicNativeMemoryPolicy.initialize(this)
         container = containerOverrideForTests ?: AppContainer(this)
+        // Before any window composes: read inside the first composition, the stored choice
+        // never reached that composition (Keep screen on came back off after a restart).
+        NowPlayingKeepScreenOn.ensureLoaded(this)
         retireLegacyImageDiskCache(cacheDir)
         registerArtworkNetworkRetry()
         ProcessLifecycleOwner.get().lifecycle.addObserver(ArtworkForegroundRetry())

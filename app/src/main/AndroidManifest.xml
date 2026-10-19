@@ -120,6 +120,10 @@
             android:name=".ui.settings.SettingsFeatureActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- One tip on its own page (Home's bubble, Settings › About › Tips). Pattern A back. -->
+        <activity
+            android:name=".ui.tips.TipActivity"
+            android:exported="false" />
         <!-- Settings › Cloud sync (Google Drive appDataFolder). Plain Activity:
              native cross-Activity predictive back. -->
         <activity

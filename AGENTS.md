@@ -55,7 +55,7 @@ Do not add out-of-scope features such as podcast, radio, chat, user management, 
 
 ### Theme defaults
 
-- Theme follows the system dark/light setting (`isSystemInDarkTheme()`), using dynamic color on API 31+ (`dynamicDarkColorScheme()` / `dynamicLightColorScheme()`). There is no in-app theme override today.
+- Theme follows the system dark/light setting (`isSystemInDarkTheme()`). The default scheme takes the wallpaper's hue and builds a SPEC_2025 Expressive scheme from it (`ui/theme/DefaultColorScheme.kt`); a grey wallpaper or pre-API 31 starts from Yoin's violet. There is no in-app theme override today.
 - Playing-state palette extraction may replace global color tokens.
 - Color changes should animate, not snap.
 

@@ -78,6 +78,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -463,6 +464,15 @@ fun SettingsContent(
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
                                         item { WelcomeGuideItem() }
+                                        item(key = SettingsFeature.Tips, paintsOwnSegment = listDetail) {
+                                            TipsItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.Tips,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Tips) },
+                                            )
+                                        }
+                                        item { WebsiteItem(snackbarHostState) }
+                                        item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
                                         item { PrivacyPolicyItem(snackbarHostState) }
                                         spotoolfyRecapBatchId?.let { batchId ->
@@ -1471,7 +1481,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, PlaylistBackups }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, Tips, PlaylistBackups }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1506,6 +1516,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
+        SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
@@ -1559,6 +1570,8 @@ internal fun SettingsFeatureScreen(
                     if (feature == SettingsFeature.ScrollEdge) {
                         // Reads only the global style: no need to wait for the Settings state.
                         ScrollEdgePageContent()
+                    } else if (feature == SettingsFeature.Tips) {
+                        TipsPageContent()
                     } else if (feature == SettingsFeature.PlaylistBackups) {
                         // Its own ViewModel over the backups table: no need to wait for the Settings state.
                         PlaylistBackupsPageContent()
@@ -1586,7 +1599,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.PlaylistBackups -> Unit
+                                    SettingsFeature.ScrollEdge, SettingsFeature.Tips, SettingsFeature.PlaylistBackups -> Unit
                                 }
                             }
                         }
@@ -1616,6 +1629,22 @@ private fun ScrollEdgeItem(
         FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › About › Tips: every tip Home's bubble brings up, to read again or mark unread. */
+@Composable
+private fun TipsItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_about_tips)
+    val summary = tipsReadSummary()
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Sparkle, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Sparkle, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 
@@ -1660,6 +1689,32 @@ private fun FeedbackItem(snackbarHostState: SnackbarHostState) {
         title = stringResource(R.string.settings_about_feedback),
         url = YoinLinks.FEEDBACK_FORM,
         openFailed = stringResource(R.string.settings_about_feedback_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+/** Settings › About › Website: yoin.gojyuplus.com, in the app's language. */
+@Composable
+private fun WebsiteItem(snackbarHostState: SnackbarHostState) {
+    val language = LocalConfiguration.current.locales[0].language
+    ExternalPageItem(
+        icon = YoinSymbols.Launch,
+        title = stringResource(R.string.settings_about_website),
+        url = YoinLinks.website(language),
+        openFailed = stringResource(R.string.settings_about_website_open_failed),
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+/** Settings › About › Docs: the user docs on the website, in the app's language. */
+@Composable
+private fun DocsItem(snackbarHostState: SnackbarHostState) {
+    val language = LocalConfiguration.current.locales[0].language
+    ExternalPageItem(
+        icon = YoinSymbols.Note,
+        title = stringResource(R.string.settings_about_docs),
+        url = YoinLinks.docs(language),
+        openFailed = stringResource(R.string.settings_about_docs_open_failed),
         snackbarHostState = snackbarHostState,
     )
 }
