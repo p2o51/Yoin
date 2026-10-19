@@ -1,0 +1,81 @@
+name: Figma native UI capture
+
+on:
+  push:
+    branches: [codex/figma-ui-capture-20261019]
+    paths:
+      - .github/workflows/figma-ui-capture.yml
+      - scripts/capture-figma-ui.sh
+      - app/src/debug/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: figma-ui-capture-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Compile and capture production Compose UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check out pinned Yoin Symbols
+        uses: actions/checkout@v5
+        with:
+          repository: p2o51/yoin-symbols
+          ref: 990d9e8cf4fc70b713109a9c0e7ad0f4dc4f307a
+          path: yoin-symbols
+      - name: Fetch Apple MusicKit SDK
+        uses: ./.github/actions/apple-musickit
+        with:
+          token: ${{ secrets.CI_ASSETS_TOKEN }}
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install compile SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Compile actual debug app
+        run: ./gradlew :app:assembleDebug -PyoinSymbolsDir=yoin-symbols --console=plain
+      - name: Enable KVM on isolated hosted VM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Capture light and dark native screens
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          cores: 2
+          ram-size: 3072M
+          disk-size: 4096M
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
+          script: bash scripts/capture-figma-ui.sh
+      - name: Upload reference screenshots and capture evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: yoin-native-ui-${{ github.sha }}
+          path: outputs/figma-ui-capture/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload compiled APK
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: yoin-figma-reference-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+          retention-days: 7
