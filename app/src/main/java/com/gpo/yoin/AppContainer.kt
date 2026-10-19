@@ -409,11 +409,6 @@ class AppContainer(private val context: Context) {
         }
     }
 
-    /** A playlist page's "Copy to…" (docs/playlist-transfer.md). */
-    val playlistCopyService: com.gpo.yoin.data.transfer.PlaylistCopyService by lazy {
-        com.gpo.yoin.data.transfer.PlaylistCopyService(profileManager)
-    }
-
     /** Playlist backups (docs/playlist-transfer.md §7): kept in Room, synced with Cloud sync. */
     val playlistBackupStore: com.gpo.yoin.data.backup.PlaylistBackupStore by lazy {
         com.gpo.yoin.data.backup.PlaylistBackupStore(database)
@@ -754,7 +749,8 @@ class AppContainer(private val context: Context) {
                     """.trimIndent(),
                 )
                 db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS `index_playlist_backups_backedUpAt` ON `playlist_backups` (`backedUpAt`)",
+                    "CREATE INDEX IF NOT EXISTS `index_playlist_backups_backedUpAt` " +
+                        "ON `playlist_backups` (`backedUpAt`)",
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_playlist_backups_sourceProvider_sourcePlaylistId` " +

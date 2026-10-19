@@ -89,7 +89,6 @@ import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.MetaGroup
-import com.gpo.yoin.data.transfer.PlaylistCopyTarget
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.formatTotalDuration
@@ -134,13 +133,10 @@ fun PlaylistDetailScreen(
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
     onShare: () -> Unit = {},
-    // "Copy to…" (docs/playlist-transfer.md): the profiles it offers (none
-    // hides the row) and its sheet's state.
-    copyTargets: List<PlaylistCopyTarget> = emptyList(),
-    copyState: PlaylistCopyState = PlaylistCopyState.Closed,
-    onCopyOpen: () -> Unit = {},
-    onCopyTo: (PlaylistCopyTarget) -> Unit = {},
-    onCopyDismiss: () -> Unit = {},
+    // "Back up" (docs/playlist-transfer.md §7): null hides the row; the row
+    // waits while [backingUp].
+    onBackUp: (() -> Unit)? = null,
+    backingUp: Boolean = false,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
@@ -248,7 +244,8 @@ fun PlaylistDetailScreen(
                             onBackClick = onBackClick,
                             onRename = { showRenameDialog = true },
                             onDelete = { showDeleteConfirm = true },
-                            onCopy = if (content != null && copyTargets.isNotEmpty()) onCopyOpen else null,
+                            onBackUp = if (content != null) onBackUp else null,
+                            backingUp = backingUp,
                         )
                         AnimatedContent(
                             targetState = uiState,
@@ -345,13 +342,6 @@ fun PlaylistDetailScreen(
         }
     }
 
-    PlaylistCopySheet(
-        state = copyState,
-        targets = copyTargets,
-        onCopyTo = onCopyTo,
-        onDismiss = onCopyDismiss,
-    )
-
     if (showRenameDialog && content != null) {
         RenamePlaylistDialog(
             initialName = content.playlistName,
@@ -399,8 +389,8 @@ fun PlaylistDetailScreen(
  * The Album page's compact header, in playlist terms: back, title, owner, and
  * Playlist, plus the overflow: Rename/Delete when the current profile can
  * write this playlist (Spotify followed-but-not-owned playlists hide them
- * rather than showing disabled items), and Copy to… when another profile can
- * take a copy ([onCopy] non-null). No rows, no overflow.
+ * rather than showing disabled items), and Back up ([onBackUp] non-null). No
+ * rows, no overflow.
  */
 @Composable
 private fun PlaylistTopHeader(
@@ -411,7 +401,8 @@ private fun PlaylistTopHeader(
     onBackClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
-    onCopy: (() -> Unit)? = null,
+    onBackUp: (() -> Unit)? = null,
+    backingUp: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -442,7 +433,7 @@ private fun PlaylistTopHeader(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        if (canWrite || onCopy != null) {
+        if (canWrite || onBackUp != null) {
             Box {
                 IconButton(
                     onClick = {
@@ -459,13 +450,14 @@ private fun PlaylistTopHeader(
                     expanded = showOverflow,
                     onDismissRequest = { showOverflow = false },
                 ) {
-                    if (onCopy != null) {
+                    if (onBackUp != null) {
                         YoinDropdownMenuItem(
-                            text = stringResource(R.string.detail_playlist_copy_menu),
-                            leadingIcon = { Icon(YoinSymbols.Copy, contentDescription = null) },
+                            text = stringResource(R.string.detail_playlist_backup_menu),
+                            leadingIcon = { Icon(YoinSymbols.Cloud, contentDescription = null) },
+                            enabled = !backingUp,
                             onClick = {
                                 showOverflow = false
-                                onCopy()
+                                onBackUp()
                             },
                         )
                     }

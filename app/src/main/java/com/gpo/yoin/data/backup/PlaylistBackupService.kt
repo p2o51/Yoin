@@ -121,7 +121,9 @@ class PlaylistBackupService(
             }
             .orEmpty()
         onProgress(tracks.size, tracks.size)
-        val byId = own.map { TrackResolution(it.index, it.value, MatchDecision.Matched(it.value, MatchMethod.SourceId)) }
+        val byId = own.map { (index, track) ->
+            TrackResolution(index, track, MatchDecision.Matched(track, MatchMethod.SourceId))
+        }
         return (byId + matched).sortedBy { it.position }
     }
 

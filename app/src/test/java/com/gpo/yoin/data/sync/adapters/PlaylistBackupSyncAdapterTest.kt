@@ -68,8 +68,11 @@ class PlaylistBackupSyncAdapterTest {
     fun should_keepUnknownFields_when_newerDeviceWroteContent() = runTest {
         store.save(backup)
         val projection = adapter.readAll(null).single().projection
-        val newerContent = """{"description":null,"tracks":[{"title":"A","sourceId":"spotify:x","mood":"sunny"}],"unexported":[]}"""
-        val payload = JsonObject(projection + ("content" to JsonPrimitive(newerContent)) + ("future" to JsonPrimitive(1)))
+        val newerContent =
+            """{"description":null,"tracks":[{"title":"A","sourceId":"spotify:x","mood":"sunny"}],"unexported":[]}"""
+        val payload = JsonObject(
+            projection + ("content" to JsonPrimitive(newerContent)) + ("future" to JsonPrimitive(1)),
+        )
 
         val outcome = adapter.apply(null, "b1", payload, versionTs = 200L, expectedLocalHash = hashOf(projection))
 

@@ -69,7 +69,8 @@ object RestoreReview {
 
     /** [rows] with candidate [index] chosen for the row at [position], and the row checked: picking is consent. */
     fun choose(rows: List<ReviewRow>, position: Int, index: Int): List<ReviewRow> = rows.map { row ->
-        if (row.position == position && index in row.candidates.indices) row.copy(chosen = index, checked = true) else row
+        val picked = row.position == position && index in row.candidates.indices
+        if (picked) row.copy(chosen = index, checked = true) else row
     }
 
     /** The ids to write, in the backup's order: checked rows' chosen candidates. */

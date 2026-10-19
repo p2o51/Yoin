@@ -223,7 +223,12 @@ internal fun List<SpotifyPlaylistItemObject>.toTracksWithPlaylistOffsets(
 internal fun List<SpotifyPlaylistItemObject>.unreadableItems(): List<PlaylistUnreadableItem> =
     mapIndexedNotNull { rawOffset, item ->
         val track = item.playable
-            ?: return@mapIndexedNotNull PlaylistUnreadableItem(rawOffset, null, null, PlaylistUnreadableItem.Reason.Unavailable)
+            ?: return@mapIndexedNotNull PlaylistUnreadableItem(
+                position = rawOffset,
+                title = null,
+                artist = null,
+                reason = PlaylistUnreadableItem.Reason.Unavailable,
+            )
         val reason = when {
             track.isLocal -> PlaylistUnreadableItem.Reason.LocalFile
             track.type == "episode" -> PlaylistUnreadableItem.Reason.Episode

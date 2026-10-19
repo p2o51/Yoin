@@ -178,18 +178,13 @@
     <string name="detail_scrap_fact_producer">制作人</string>
     <string name="detail_scrap_fact_about">关于</string>
     <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
-    <!-- 歌单「复制到…」（docs/playlist-transfer.md） -->
-    <string name="detail_playlist_copy_menu">复制到…</string>
-    <string name="detail_playlist_copy_title">复制到</string>
-    <string name="detail_playlist_copy_running">正在复制到 %1$s</string>
-    <string name="detail_playlist_copy_progress">%1$d / %2$d</string>
-    <plurals name="detail_playlist_copy_done">
-        <item quantity="other">已复制 %1$d / %2$d 首到 %3$s</item>
+    <!-- 歌单「备份歌单」（docs/playlist-transfer.md §7） -->
+    <string name="detail_playlist_backup_menu">备份歌单</string>
+    <plurals name="detail_playlist_backup_done">
+        <item quantity="other">已备份 %1$d 首</item>
     </plurals>
-    <string name="detail_playlist_copy_none">%1$s 上没有匹配的歌曲</string>
-    <string name="detail_playlist_copy_stopped">中途停止</string>
-    <string name="detail_playlist_copy_failed">歌单复制失败</string>
-    <string name="detail_playlist_copy_unsure">不确定</string>
-    <string name="detail_playlist_copy_not_found">未找到</string>
-    <string name="detail_playlist_copy_done_button">完成</string>
+    <plurals name="detail_playlist_backup_partial">
+        <item quantity="other">已备份 %1$d / %2$d 首</item>
+    </plurals>
+    <string name="detail_playlist_backup_failed">歌单备份失败</string>
 </resources>

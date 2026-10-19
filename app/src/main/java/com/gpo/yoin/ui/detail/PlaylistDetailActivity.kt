@@ -89,8 +89,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
-                val copyTargets by viewModel.copyTargets.collectAsState()
-                val copyState by viewModel.copyState.collectAsState()
+                val backingUp by viewModel.backingUp.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
@@ -202,11 +201,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                             onRetry = viewModel::retry,
                             onRename = viewModel::rename,
                             onDelete = viewModel::delete,
-                            copyTargets = copyTargets,
-                            copyState = copyState,
-                            onCopyOpen = viewModel::openCopy,
-                            onCopyTo = viewModel::copyTo,
-                            onCopyDismiss = viewModel::dismissCopy,
+                            onBackUp = viewModel::backUp.takeIf { viewModel.canBackUp },
+                            backingUp = backingUp,
                             onShare = {
                                 val text = (uiState as? PlaylistDetailUiState.Content)
                                     ?.playlistName

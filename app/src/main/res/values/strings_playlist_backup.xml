@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Playlist backups: Settings › Playlist backups, a backup's page and its restore (docs/playlist-transfer.md §7). -->
+<resources>
+    <string name="settings_playlist_backups_title">Playlist backups</string>
+    <string name="playlist_backups_empty">No backups</string>
+    <plurals name="playlist_backup_songs">
+        <item quantity="one">%1$d song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+    <plurals name="playlist_backup_unexported">
+        <item quantity="one">%1$d couldn\'t be backed up</item>
+        <item quantity="other">%1$d couldn\'t be backed up</item>
+    </plurals>
+    <string name="playlist_backup_restore">Restore</string>
+    <string name="playlist_backup_delete">Delete</string>
+    <string name="playlist_backup_cd_more">More options</string>
+    <string name="playlist_backup_delete_title">Delete this backup?</string>
+    <string name="playlist_backup_delete_body">Removed here and on your synced devices.</string>
+    <string name="playlist_backup_cancel">Cancel</string>
+    <string name="playlist_backup_section_source">Backed up from</string>
+    <string name="playlist_backup_backed_up">Backed up</string>
+    <string name="playlist_backup_section_songs">Songs</string>
+    <string name="playlist_backup_section_unexported">Couldn\'t be backed up</string>
+    <string name="playlist_backup_section_restores">Restores</string>
+    <string name="playlist_backup_reason_local_file">Local file</string>
+    <string name="playlist_backup_reason_episode">Podcast episode</string>
+    <string name="playlist_backup_reason_video">Music video</string>
+    <string name="playlist_backup_reason_unavailable">Unavailable</string>
+    <string name="playlist_backup_untitled">Untitled</string>
+    <plurals name="playlist_backup_restore_added">
+        <item quantity="one">%1$d added</item>
+        <item quantity="other">%1$d added</item>
+    </plurals>
+    <plurals name="playlist_backup_restore_skipped">
+        <item quantity="one">%1$d skipped</item>
+        <item quantity="other">%1$d skipped</item>
+    </plurals>
+    <plurals name="playlist_backup_restore_not_found">
+        <item quantity="one">%1$d not found</item>
+        <item quantity="other">%1$d not found</item>
+    </plurals>
+    <string name="playlist_backup_restore_failed">Not created</string>
+    <string name="playlist_restore_title">Restore to</string>
+    <string name="playlist_restore_no_targets">No accounts</string>
+    <string name="playlist_restore_matching">Matching on %1$s</string>
+    <string name="playlist_restore_progress">%1$d / %2$d</string>
+    <string name="playlist_restore_matched">Matched</string>
+    <string name="playlist_restore_to_check">To check</string>
+    <string name="playlist_restore_added">Added</string>
+    <string name="playlist_restore_skipped">Skipped</string>
+    <string name="playlist_restore_not_found">Not found</string>
+    <string name="playlist_restore_candidates">Candidates</string>
+    <string name="playlist_restore_create">Create playlist</string>
+    <string name="playlist_restore_writing">Creating on %1$s</string>
+    <string name="playlist_restore_done">Created on %1$s</string>
+    <string name="playlist_restore_not_created">Not created on %1$s</string>
+    <string name="playlist_restore_failed">Couldn\'t reach %1$s</string>
+    <string name="playlist_restore_done_button">Done</string>
+</resources>

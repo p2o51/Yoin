@@ -2,6 +2,7 @@ package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.PlaylistUnreadableItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -47,15 +48,9 @@ class SpotifyMappersTest {
         assertEquals(listOf("A", "B"), tracks.single().second.creditedArtists)
         assertEquals(
             listOf(
-                com.gpo.yoin.data.model.PlaylistUnreadableItem(
-                    1, "Demo", "Me", com.gpo.yoin.data.model.PlaylistUnreadableItem.Reason.LocalFile,
-                ),
-                com.gpo.yoin.data.model.PlaylistUnreadableItem(
-                    2, "Episode 4", null, com.gpo.yoin.data.model.PlaylistUnreadableItem.Reason.Episode,
-                ),
-                com.gpo.yoin.data.model.PlaylistUnreadableItem(
-                    3, null, null, com.gpo.yoin.data.model.PlaylistUnreadableItem.Reason.Unavailable,
-                ),
+                PlaylistUnreadableItem(1, "Demo", "Me", PlaylistUnreadableItem.Reason.LocalFile),
+                PlaylistUnreadableItem(2, "Episode 4", null, PlaylistUnreadableItem.Reason.Episode),
+                PlaylistUnreadableItem(3, null, null, PlaylistUnreadableItem.Reason.Unavailable),
             ),
             unreadable,
         )

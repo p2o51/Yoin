@@ -124,6 +124,11 @@
             android:name=".ui.settings.sync.CloudSyncActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- Settings › Playlist backups › one backup (docs/playlist-transfer.md §7). Plain Activity:
+             native cross-Activity predictive back. -->
+        <activity
+            android:name=".ui.settings.backup.PlaylistBackupActivity"
+            android:exported="false" />
         <!-- Settings list-detail 右栏占位面（tag="settings-placeholder" 的 SplitPlaceholderRule）。 -->
         <activity
             android:name=".ui.settings.SettingsPlaceholderActivity"

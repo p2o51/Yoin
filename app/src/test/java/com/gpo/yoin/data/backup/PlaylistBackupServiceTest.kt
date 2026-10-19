@@ -13,6 +13,7 @@ import com.gpo.yoin.data.transfer.FakeTransferTarget
 import com.gpo.yoin.data.transfer.MatchDecision
 import com.gpo.yoin.data.transfer.MatchMethod
 import com.gpo.yoin.data.transfer.RestoreReview
+import com.gpo.yoin.data.transfer.TrackResolution
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -43,7 +44,10 @@ class PlaylistBackupServiceTest {
         coverArt = null,
         songCount = 2,
         durationSec = null,
-        tracks = listOf(track(MediaId.spotify("t1"), "Creep", "Radiohead"), track(MediaId.spotify("t2"), "Lemon", "Kenshi Yonezu")),
+        tracks = listOf(
+            track(MediaId.spotify("t1"), "Creep", "Radiohead"),
+            track(MediaId.spotify("t2"), "Lemon", "Kenshi Yonezu"),
+        ),
         unreadable = listOf(PlaylistUnreadableItem(2, "Demo", "Me", PlaylistUnreadableItem.Reason.LocalFile)),
     )
 
@@ -52,7 +56,7 @@ class PlaylistBackupServiceTest {
 
     @Test
     fun should_saveNewVersionEachTime_when_playlistIsBackedUpTwice() = runTest {
-        val service = service(sources = mapOf("sp" to FakeTransferTarget(playlists = mapOf(sourcePlaylist.id to sourcePlaylist))))
+        val service = service(sources = mapOf("sp" to sourceService()))
 
         val first = service.backUp(sourcePlaylist.id)
         now = 2_000L
@@ -70,12 +74,7 @@ class PlaylistBackupServiceTest {
     fun should_recordRestoreWithCounts_when_reviewedTracksAreCreated() = runTest {
         val match = track(MediaId("am", "c1"), "Creep", "Radiohead")
         val target = FakeTransferTarget(id = "am", search = mapOf("Creep Radiohead" to listOf(match)))
-        val service = service(
-            sources = mapOf(
-                "sp" to FakeTransferTarget(playlists = mapOf(sourcePlaylist.id to sourcePlaylist)),
-                "am" to target,
-            ),
-        )
+        val service = service(sources = mapOf("sp" to sourceService(), "am" to target))
         val backup = service.backUp(sourcePlaylist.id)
         val restoreTarget = RestoreTarget("am", "Apple Music", MediaId.PROVIDER_APPLE_MUSIC)
 
@@ -85,7 +84,14 @@ class PlaylistBackupServiceTest {
 
         assertEquals(listOf(MediaId("am", "c1")), target.added)
         assertEquals(listOf("Road trip" to null), target.created)
-        val expected = PlaylistRestoreRecord(5_000L, MediaId.PROVIDER_APPLE_MUSIC, "Apple Music", added = 1, skipped = 0, notFound = 1)
+        val expected = PlaylistRestoreRecord(
+            at = 5_000L,
+            targetProvider = MediaId.PROVIDER_APPLE_MUSIC,
+            targetLabel = "Apple Music",
+            added = 1,
+            skipped = 0,
+            notFound = 1,
+        )
         assertEquals(expected, outcome.record)
         val stored = store.get(backup.id)!!
         assertEquals(listOf(expected), stored.restores)
@@ -94,11 +100,12 @@ class PlaylistBackupServiceTest {
 
     @Test
     fun should_recordFailedRestore_when_targetProfileIsGone() = runTest {
-        val service = service(sources = mapOf("sp" to FakeTransferTarget(playlists = mapOf(sourcePlaylist.id to sourcePlaylist))))
+        val service = service(sources = mapOf("sp" to sourceService()))
         val backup = service.backUp(sourcePlaylist.id)
         val rows = RestoreReview.rows(
-            backup.content.tracks.mapIndexed { i, t ->
-                com.gpo.yoin.data.transfer.TrackResolution(i, PlaylistSnapshots.toTrack(t), MatchDecision.Matched(PlaylistSnapshots.toTrack(t), MatchMethod.Search))
+            backup.content.tracks.mapIndexed { i, backed ->
+                val track = PlaylistSnapshots.toTrack(backed)
+                TrackResolution(i, track, MatchDecision.Matched(track, MatchMethod.Search))
             },
         )
 
@@ -113,7 +120,7 @@ class PlaylistBackupServiceTest {
     @Test
     fun should_restoreBySpotifyIds_when_spotifyBackupGoesToSpotify() = runTest {
         val target = FakeTransferTarget(id = "sp2")
-        val service = service(sources = mapOf("sp" to FakeTransferTarget(playlists = mapOf(sourcePlaylist.id to sourcePlaylist)), "sp2" to target))
+        val service = service(sources = mapOf("sp" to sourceService(), "sp2" to target))
         val backup = service.backUp(sourcePlaylist.id)
 
         val resolutions = service.match(backup, RestoreTarget("sp2", "Other", MediaId.PROVIDER_SPOTIFY))
@@ -134,11 +141,17 @@ class PlaylistBackupServiceTest {
     }
 
     private fun service(sources: Map<String, MusicSource>) = PlaylistBackupService(
-        profiles = FakeProfiles(listOf(spotifyProfile, appleProfile, subsonicProfile), active = "sp", sources = sources),
+        profiles = FakeProfiles(
+            listOf(spotifyProfile, appleProfile, subsonicProfile),
+            active = "sp",
+            sources = sources,
+        ),
         store = store,
         clock = { now },
         newId = { "b$now" },
     )
+
+    private fun sourceService() = FakeTransferTarget(playlists = mapOf(sourcePlaylist.id to sourcePlaylist))
 
     private class FakeProfiles(
         list: List<Profile>,
