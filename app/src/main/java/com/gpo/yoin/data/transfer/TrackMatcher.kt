@@ -202,7 +202,13 @@ object TrackMatcher {
 }
 
 /** How a track found its counterpart. */
-enum class MatchMethod { Isrc, Search }
+enum class MatchMethod {
+    Isrc,
+    Search,
+
+    /** The same service's own id: a Spotify backup restored into a Spotify account. */
+    SourceId,
+}
 
 sealed interface MatchDecision {
     data class Matched(val track: Track, val method: MatchMethod) : MatchDecision

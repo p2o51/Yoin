@@ -81,22 +81,41 @@ class PlaylistTransfer(
         target: MusicSource,
     ): TransferReport {
         val ids = resolutions.mapNotNull { (it.decision as? MatchDecision.Matched)?.track?.id }
-        // Nothing matched: no empty playlist left behind on the target.
-        if (ids.isEmpty()) return TransferReport(name, created = null, resolutions = resolutions, added = 0)
-        val result = target.writeActions().createPlaylistWithTracks(name, description, ids)
+        val written = writeTracks(name, description, ids, target)
+        return TransferReport(
+            playlistName = name,
+            created = written.created,
+            resolutions = resolutions,
+            added = written.added,
+            failure = written.failure,
+        )
+    }
+
+    /**
+     * A playlist named [name] on [target] holding [trackIds] in order (a
+     * restore writes what its review left checked). None: no empty playlist
+     * left behind on the target, nothing made.
+     */
+    suspend fun writeTracks(
+        name: String,
+        description: String?,
+        trackIds: List<MediaId>,
+        target: MusicSource,
+    ): PlaylistWrite {
+        if (trackIds.isEmpty()) return PlaylistWrite(created = null, added = 0, requested = 0)
+        val result = target.writeActions().createPlaylistWithTracks(name, description, trackIds)
         val playlist = result.getOrNull()
         val failure = result.exceptionOrNull()
         if (failure is CancellationException) throw failure
         val partial = failure as? PartialPlaylistImportException
-        return TransferReport(
-            playlistName = name,
+        return PlaylistWrite(
             created = playlist ?: partial?.playlist,
-            resolutions = resolutions,
             added = when {
-                playlist != null -> ids.size
+                playlist != null -> trackIds.size
                 partial != null -> partial.added
                 else -> 0
             },
+            requested = trackIds.size,
             failure = failure,
         )
     }
@@ -119,6 +138,19 @@ class PlaylistTransfer(
         emptyList()
     }
 }
+
+/**
+ * What [PlaylistTransfer.writeTracks] made: [created] (null when nothing
+ * was), how many of the [requested] tracks it holds, and what stopped the
+ * write, if anything (a [PartialPlaylistImportException] still has
+ * [created]).
+ */
+data class PlaylistWrite(
+    val created: Playlist?,
+    val added: Int,
+    val requested: Int,
+    val failure: Throwable? = null,
+)
 
 /** One source track at [position] and what became of it on the target. */
 data class TrackResolution(
