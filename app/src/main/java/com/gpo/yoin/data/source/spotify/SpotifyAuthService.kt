@@ -209,6 +209,11 @@ class SpotifyAuthException(
     val code: Int,
     message: String,
     val oauthError: String? = null,
+    /** The Web API request that was refused, as a [spotifyRequestTemplate]; null for the OAuth token endpoint. */
+    val request: String? = null,
+    /** Spotify's own reason for the refusal ([spotifyErrorReason]). */
+    val reason: String? = null,
+    val clientIdKind: SpotifyClientIdKind? = null,
 ) : Exception(message) {
     /** True when the OAuth response identified a dead refresh token. */
     val isRefreshTokenRevoked: Boolean

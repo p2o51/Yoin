@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- A playlist restore's progress as an Android 16 Live Update (ui/settings/backup/RestoreLiveUpdate). -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -126,12 +128,21 @@
             android:name=".ui.settings.SettingsFeatureActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- One tip on its own page (Home's bubble, Settings › About › Tips). Pattern A back. -->
+        <activity
+            android:name=".ui.tips.TipActivity"
+            android:exported="false" />
         <!-- Settings › Cloud sync (Google Drive appDataFolder). Plain Activity:
              native cross-Activity predictive back. -->
         <activity
             android:name=".ui.settings.sync.CloudSyncActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- Settings › Playlist backups › one backup (docs/playlist-transfer.md §7). Plain Activity:
+             native cross-Activity predictive back. -->
+        <activity
+            android:name=".ui.settings.backup.PlaylistBackupActivity"
+            android:exported="false" />
         <!-- Settings list-detail 右栏占位面（tag="settings-placeholder" 的 SplitPlaceholderRule）。 -->
         <activity
             android:name=".ui.settings.SettingsPlaceholderActivity"

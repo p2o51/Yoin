@@ -35,7 +35,6 @@
     <string name="detail_playlist_deleted">已删除播放列表</string>
     <string name="detail_playlist_error_delete">无法删除播放列表</string>
     <string name="detail_playlist_error_remove">无法移除曲目</string>
-    <string name="detail_provider_local">本地</string>
 
     <string name="detail_album_go_to_artist">前往艺术家</string>
     <string name="detail_album_share">分享</string>
@@ -47,9 +46,6 @@
     <plurals name="detail_relative_days_ago">
         <item quantity="other">%1$d 天前</item>
     </plurals>
-    <string name="detail_album_notes">笔记</string>
-    <string name="detail_album_no_notes">暂无笔记</string>
-    <string name="detail_album_note_cross">%1$s：%2$s</string>
     <string name="detail_album_cd_edit_comment">编辑评论</string>
     <string name="detail_album_cd_write_comment">写评论</string>
     <string name="detail_album_rate">评分</string>
@@ -178,4 +174,18 @@
     <string name="detail_scrap_fact_producer">制作人</string>
     <string name="detail_scrap_fact_about">关于</string>
     <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
+    <string name="track_menu_go_to_album">前往专辑</string>
+    <string name="track_menu_go_to_artist">前往艺术家</string>
+    <string name="track_menu_share">分享</string>
+    <string name="track_menu_view_in_scrapbook">在剪贴簿里查看</string>
+    <!-- 歌单「备份歌单」（docs/playlist-transfer.md §7） -->
+    <string name="detail_playlist_backup_menu">云备份</string>
+    <plurals name="detail_playlist_backup_done">
+        <item quantity="other">已备份 %1$d 首</item>
+    </plurals>
+    <plurals name="detail_playlist_backup_partial">
+        <item quantity="other">已备份 %1$d / %2$d 首</item>
+    </plurals>
+    <string name="detail_playlist_backup_failed">歌单备份失败</string>
+    <string name="detail_playlist_backup_view">查看</string>
 </resources>

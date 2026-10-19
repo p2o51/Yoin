@@ -133,6 +133,10 @@ fun PlaylistDetailScreen(
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
     onShare: () -> Unit = {},
+    // "Back up" (docs/playlist-transfer.md §7): null hides the row; the row
+    // waits while [backingUp].
+    onBackUp: (() -> Unit)? = null,
+    backingUp: Boolean = false,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
@@ -240,6 +244,8 @@ fun PlaylistDetailScreen(
                             onBackClick = onBackClick,
                             onRename = { showRenameDialog = true },
                             onDelete = { showDeleteConfirm = true },
+                            onBackUp = if (content != null) onBackUp else null,
+                            backingUp = backingUp,
                         )
                         AnimatedContent(
                             targetState = uiState,
@@ -381,9 +387,10 @@ fun PlaylistDetailScreen(
 
 /**
  * The Album page's compact header, in playlist terms: back, title, owner, and
- * Playlist, plus the Rename/Delete overflow when the current
- * profile can write this playlist (Spotify followed-but-not-owned playlists
- * hide it entirely rather than showing disabled items).
+ * Playlist, plus the overflow: Rename/Delete when the current profile can
+ * write this playlist (Spotify followed-but-not-owned playlists hide them
+ * rather than showing disabled items), and Back up ([onBackUp] non-null). No
+ * rows, no overflow.
  */
 @Composable
 private fun PlaylistTopHeader(
@@ -394,6 +401,8 @@ private fun PlaylistTopHeader(
     onBackClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onBackUp: (() -> Unit)? = null,
+    backingUp: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -424,7 +433,7 @@ private fun PlaylistTopHeader(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        if (canWrite) {
+        if (canWrite || onBackUp != null) {
             Box {
                 IconButton(
                     onClick = {
@@ -441,22 +450,35 @@ private fun PlaylistTopHeader(
                     expanded = showOverflow,
                     onDismissRequest = { showOverflow = false },
                 ) {
-                    YoinDropdownMenuItem(
-                        text = stringResource(R.string.detail_playlist_rename),
-                        leadingIcon = { Icon(YoinSymbols.Edit, contentDescription = null) },
-                        onClick = {
-                            showOverflow = false
-                            onRename()
-                        },
-                    )
-                    YoinDropdownMenuItem(
-                        text = stringResource(R.string.detail_playlist_delete_menu),
-                        leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
-                        onClick = {
-                            showOverflow = false
-                            onDelete()
-                        },
-                    )
+                    if (onBackUp != null) {
+                        YoinDropdownMenuItem(
+                            text = stringResource(R.string.detail_playlist_backup_menu),
+                            leadingIcon = { Icon(YoinSymbols.Cloud, contentDescription = null) },
+                            enabled = !backingUp,
+                            onClick = {
+                                showOverflow = false
+                                onBackUp()
+                            },
+                        )
+                    }
+                    if (canWrite) {
+                        YoinDropdownMenuItem(
+                            text = stringResource(R.string.detail_playlist_rename),
+                            leadingIcon = { Icon(YoinSymbols.Edit, contentDescription = null) },
+                            onClick = {
+                                showOverflow = false
+                                onRename()
+                            },
+                        )
+                        YoinDropdownMenuItem(
+                            text = stringResource(R.string.detail_playlist_delete_menu),
+                            leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
+                            onClick = {
+                                showOverflow = false
+                                onDelete()
+                            },
+                        )
+                    }
                 }
             }
         }
