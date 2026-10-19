@@ -294,6 +294,7 @@
     <string name="settings_sync_what_ratings">Song and album ratings, album reviews</string>
     <string name="settings_sync_what_home">Home layout</string>
     <string name="settings_sync_what_translations">AI lyric translations</string>
+    <string name="settings_sync_what_playlist_backups">Playlist backups</string>
     <string name="settings_sync_what_settings">Translation language, Spotify Client ID and scroll edge style</string>
     <string name="settings_sync_what_accounts">Account names, server addresses</string>
     <string name="settings_sync_what_stays">Stays on this device</string>
