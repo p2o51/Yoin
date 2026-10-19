@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -88,8 +89,6 @@ class AlbumDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
-                val expandedSongId by viewModel.expandedSongId.collectAsState()
-                val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
                 val scrapbook by viewModel.scrapbook.collectAsState()
                 val neoDb by viewModel.neoDb.collectAsState()
                 val isPlaying by rememberDetailIsPlaying(app.container)
@@ -156,6 +155,8 @@ class AlbumDetailActivity : ComponentActivity() {
                     }
                 }
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+                // The system media controls' tap, while this page is in front.
+                TakeNowPlayingRequests(app.container.experienceSessionStore) { nowPlayingOpen = true }
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
@@ -197,6 +198,20 @@ class AlbumDetailActivity : ComponentActivity() {
                     queueAvailable = (uiState as? AlbumDetailUiState.Content)?.hasQueueableSongs() == true,
                 )
 
+                // A song row's long-press menu; the page is the album, so no Go to album.
+                val trackMenu = remember(app.container, nowPlayingViewModel) {
+                    TrackMenuHost(
+                        container = app.container,
+                        trackFor = { id -> viewModel.getAlbumSongs().firstOrNull { it.id.toString() == id } },
+                        onMessage = nowPlayingViewModel::postMessage,
+                        onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
+                        onGoToArtist = { artistId ->
+                            YoinPerf.detailClick("artist", artistId, via = "push")
+                            launchChildDetail(ArtistDetailActivity.intent(this@AlbumDetailActivity, artistId))
+                        },
+                    )
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                 AlbumDetailScreen(
@@ -233,9 +248,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
                     notedSongIds = notedSongIds,
                     currentTrackId = currentTrackId,
-                    expandedSongId = expandedSongId,
-                    expandedNoteBundle = expandedNoteBundle,
-                    onToggleExpandedSong = viewModel::toggleExpandedSong,
+                    trackMenu = trackMenu,
                     onRatingCommit = viewModel::setUserRating,
                     onReviewDraftChange = viewModel::onReviewDraftChange,
                     neoDb = neoDb,

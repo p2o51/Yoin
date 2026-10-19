@@ -35,8 +35,9 @@ import androidx.room.RoomDatabase
         TrackAlbumLink::class,
         ImportBatch::class,
         ImportItem::class,
+        PlaylistBackup::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -87,6 +88,8 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun trackAlbumLinkDao(): TrackAlbumLinkDao
 
     abstract fun importBatchDao(): ImportBatchDao
+
+    abstract fun playlistBackupDao(): PlaylistBackupDao
 
     abstract fun syncDomainDao(): com.gpo.yoin.data.sync.domain.SyncDomainDao
 }

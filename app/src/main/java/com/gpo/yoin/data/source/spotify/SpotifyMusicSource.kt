@@ -185,7 +185,12 @@ class SpotifyMusicSource(
         }
 
         // Likes as on hand, like getAlbum: the playlist page draws no hearts.
-        override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
+        override suspend fun getPlaylist(id: MediaId): Playlist? = readPlaylist(id, limit = null)
+
+        // A backup reads every entry, past the page's cap, and says which ones aren't songs.
+        override suspend fun getPlaylistInFull(id: MediaId): Playlist? = readPlaylist(id, limit = FULL_PLAYLIST_LIMIT)
+
+        private suspend fun readPlaylist(id: MediaId, limit: Int?): Playlist? = withSpotifyId(id) { rawId ->
             supervisorScope {
                 val meId = async { apiClient.getCurrentUserId() }
                 val playlist = orNullIfNotFound { apiClient.getPlaylist(rawId) }
@@ -194,13 +199,28 @@ class SpotifyMusicSource(
                     return@supervisorScope cancelAndReturnNull()
                 }
                 // Starts from the first page the playlist object embeds, when it does.
-                val indexedTracks = apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
-                    .toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
-                playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
+                // A development-mode app may read the items of only the user's own and
+                // collaborative playlists (2026-02): someone else's answers 403. The
+                // playlist itself still opens, without its tracks.
+                val items = try {
+                    if (limit == null) {
+                        apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
+                    } else {
+                        apiClient.getPlaylistItems(rawId, firstPage = playlist.entries, limit = limit)
+                    }
+                } catch (e: SpotifyAuthException) {
+                    if (e.code != HTTP_FORBIDDEN) throw e
+                    null
+                }
+                val indexedTracks = items?.toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
+                playlistTrackOffsetsById[rawId] = indexedTracks.orEmpty().map { it.first }
                 playlist.toPlaylist(
-                    tracks = indexedTracks.map { it.second },
+                    tracks = indexedTracks.orEmpty().map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
                     ownedByMe = playlist.ownedBy(meId.await()),
+                ).copy(
+                    tracksUnavailable = indexedTracks == null,
+                    unreadable = if (limit == null || items == null) emptyList() else items.unreadableItems(),
                 )
             }
         }
@@ -248,6 +268,26 @@ class SpotifyMusicSource(
                 savedAlbumIds = knownSavedAlbumIds(),
                 followedArtistIds = knownFollowedArtistIds(),
             )
+
+        // Spotify has no batch ISRC read: one `isrc:` search per code, tracks
+        // only, one after another under the rate-limit gate. A code whose
+        // search fails is left out, and matching falls back to a title search.
+        override suspend fun tracksByIsrc(isrcs: List<String>): Map<String, List<Track>> {
+            val found = linkedMapOf<String, List<Track>>()
+            for (isrc in isrcs.map { it.trim().uppercase() }.filter { it.matches(ISRC_PATTERN) }.distinct()) {
+                val tracks = try {
+                    apiClient.search(query = "isrc:$isrc", types = "track").toSearchResults().tracks
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    continue
+                }
+                // A row without its own ISRC is taken on the filter's word; one naming another code is not.
+                val exact = tracks.filter { (it.extras[Track.EXTRA_ISRC] ?: isrc) == isrc }
+                if (exact.isNotEmpty()) found[isrc] = exact
+            }
+            return found
+        }
     }
 
     private val metadata = object : MusicMetadata {
@@ -710,6 +750,10 @@ class SpotifyMusicSource(
 
     companion object {
         private const val HTTP_NOT_FOUND = 404
+        private const val HTTP_FORBIDDEN = 403
+
+        /** Spotify's own cap on a playlist's length: a backup reads them all. */
+        private const val FULL_PLAYLIST_LIMIT = 10_000
         private const val RECENTLY_PLAYED_LIMIT = 50
         private const val RECENTLY_PLAYED_MAX_AGE_MS = 30_000L
 
@@ -729,3 +773,6 @@ internal fun pickLocalSpotifyDevice(devices: List<SpotifyDevice>, localNames: Li
     val named = devices.filter { device -> device.id != null && names.any { it.equals(device.name.trim(), ignoreCase = true) } }
     return named.firstOrNull(SpotifyDevice::isActive) ?: named.firstOrNull()
 }
+
+/** An ISRC: country (2 letters), registrant (3), year (2), designation (5). */
+private val ISRC_PATTERN = Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")

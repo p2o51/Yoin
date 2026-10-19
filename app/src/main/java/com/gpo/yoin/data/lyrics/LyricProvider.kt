@@ -25,8 +25,12 @@ abstract class LyricProvider {
     /** [fetchLyricWithTranslation] 会带回哪种语言的自带译文；null = 从不带译文。 */
     open val nativeTranslation: NativeTranslation? = null
 
-    /** 平台内搜索，返回第一条匹配；找不到返回 null。 */
-    abstract suspend fun search(title: String, artist: String): SongMatch?
+    /**
+     * 平台内搜索，返回第一条匹配；找不到返回 null。[durationMs] 是正在播的这首的时长（毫秒，
+     * 不知道就是 null）：同名、同艺人的几条录音里，用它挑长度对得上的那条，见
+     * [LyricCandidateMatcher]。只靠时长不认艺人——同名歌的长度常常只差一两秒。
+     */
+    abstract suspend fun search(title: String, artist: String, durationMs: Long? = null): SongMatch?
 
     /** 平台内搜索，返回多条候选；默认退化为第一条匹配。 */
     open suspend fun searchMultiple(

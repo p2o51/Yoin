@@ -2415,18 +2415,21 @@ class YoinRepository(
      * [LyricsProviderRegistry] 串行兜底（QQ → 网易云 → LRCLIB），把原始 LRC 落表。
      * Subsonic 没有用户选的行时只用服务端歌词，不走自动兜底。
      *
-     * 自动兜底需要 [title] + [artist] 做搜索；任一为空就返回 null。
+     * 自动兜底需要 [title] + [artist] 做搜索；任一为空就返回 null。[durationMs] 是这首的时长，
+     * 用来在同名同艺人的几条录音里挑长度对得上的。按显示的名字没找到时，见 [fetchLyricUnderAlternateNames]。
      */
     suspend fun getLyrics(
         trackId: MediaId,
         title: String? = null,
         artist: String? = null,
-    ): Lyrics? = getLoadedLyrics(trackId, title, artist)?.lyrics
+        durationMs: Long? = null,
+    ): Lyrics? = getLoadedLyrics(trackId, title, artist, durationMs)?.lyrics
 
     suspend fun getLoadedLyrics(
         trackId: MediaId,
         title: String? = null,
         artist: String? = null,
+        durationMs: Long? = null,
     ): LoadedLyrics? {
         val source = requireSource()
         val now = clock()
@@ -2454,7 +2457,9 @@ class YoinRepository(
         val a = artist?.trim().orEmpty()
         if (t.isEmpty() || a.isEmpty()) return null
 
-        val hit = lyricsProviderRegistry.fetchLyric(t, a) ?: return null
+        val hit = lyricsProviderRegistry.fetchLyric(t, a, durationMs)
+            ?: fetchLyricUnderAlternateNames(source, trackId, t, a, durationMs)
+            ?: return null
         writeLyricsCache(
             trackId = trackId,
             lyricsProvider = hit.providerName,
@@ -2469,10 +2474,42 @@ class YoinRepository(
         )
     }
 
+    /**
+     * A storefront in another language shows names no lyrics source has: Apple Music's Japan storefront writes
+     * Kim Petras as キム・ペトラス, and every source searched under it comes back empty. When the shown names
+     * found nothing and carry non-Latin letters, search once more under the service's English names
+     * ([com.gpo.yoin.data.source.MusicMetadata.alternateNames]). The shown names always go first: a Japanese
+     * song's English names are translations (晴る / ヨルシカ → Sunny / Yorushika) that sources don't have.
+     */
+    private suspend fun fetchLyricUnderAlternateNames(
+        source: MusicSource,
+        trackId: MediaId,
+        title: String,
+        artist: String,
+        durationMs: Long?,
+    ): LyricsProviderRegistry.Hit? {
+        if (trackId.provider != source.id) return null
+        if (!hasNonLatinLetter(title) && !hasNonLatinLetter(artist)) return null
+        val names = try {
+            source.metadata().alternateNames(trackId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        if (names.title == title && names.artist == artist) return null
+        return lyricsProviderRegistry.fetchLyric(names.title, names.artist, durationMs)
+    }
+
+    private fun hasNonLatinLetter(text: String): Boolean = text.codePoints().anyMatch { cp ->
+        Character.isLetter(cp) && Character.UnicodeScript.of(cp) != Character.UnicodeScript.LATIN
+    }
+
     suspend fun searchAndApplyLyrics(
         trackId: MediaId,
         title: String?,
         artist: String?,
+        durationMs: Long? = null,
     ): Result<LyricsApplyResult> = runCatching {
         val t = title?.trim().orEmpty()
         val a = artist?.trim().orEmpty()
@@ -2480,7 +2517,8 @@ class YoinRepository(
             "Need title and artist to search lyrics"
         }
 
-        val hit = lyricsProviderRegistry.fetchLyric(t, a)
+        val hit = lyricsProviderRegistry.fetchLyric(t, a, durationMs)
+            ?: fetchLyricUnderAlternateNames(requireSource(), trackId, t, a, durationMs)
             ?: throw NoSuchElementException("No lyrics found")
         // 用户主动点了"搜索并应用"：结果算用户选的，不按天数过期。
         writeLyricsCache(

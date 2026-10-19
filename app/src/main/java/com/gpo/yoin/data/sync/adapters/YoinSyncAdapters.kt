@@ -36,6 +36,7 @@ object YoinSyncAdapters {
         MemoryTitleSyncAdapter(db),
         AlbumTitleSyncAdapter(db),
         SongAboutSyncAdapter(db),
+        PlaylistBackupSyncAdapter(db),
         AccountDescriptorSyncAdapter(syncDb, profiles, decodeCredentials, storefront),
     )
 }

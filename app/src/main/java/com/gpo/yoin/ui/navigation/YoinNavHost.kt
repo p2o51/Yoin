@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.navigation
 
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -467,6 +468,11 @@ private fun YoinShell(
     // Home edit mode: the only writer of the Edit surface and its progress P.
     // Hoisted here so back, the bar and every exit trigger below reach it.
     val homeEdit = rememberHomeEditController(experienceSessionStore, homeViewModel)
+    // The system media controls' tap, while the shell is in front.
+    TakeNowPlayingRequests(experienceSessionStore) {
+        homeEdit.snapExit()
+        experienceSessionStore.setNowPlayingExpanded(true)
+    }
     LaunchedEffect(homeEdit) {
         homeViewModel.homeLayout.collect(homeEdit::onVmLayout)
     }

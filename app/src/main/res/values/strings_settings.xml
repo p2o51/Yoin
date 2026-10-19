@@ -30,6 +30,10 @@
     <string name="settings_section_about">About</string>
     <string name="settings_about_name" translatable="false">Yoin</string>
     <string name="settings_about_version">Version %1$s</string>
+    <string name="settings_about_website">Website</string>
+    <string name="settings_about_website_open_failed">Couldn\'t open the website</string>
+    <string name="settings_about_docs">Docs</string>
+    <string name="settings_about_docs_open_failed">Couldn\'t open the docs</string>
     <string name="settings_about_privacy_policy">Privacy policy</string>
     <string name="settings_about_privacy_open_failed">Couldn\'t open the privacy policy</string>
     <string name="settings_about_feedback">Send feedback</string>
@@ -90,6 +94,10 @@
     <string name="settings_neodb_invalid_url">Invalid NeoDB URL. Include a valid host.</string>
 
     <string name="settings_motion_scroll_edge">Scroll edge</string>
+    <string name="settings_about_tips">Tips</string>
+    <string name="settings_tips_read_count">%1$d of %2$d read</string>
+    <string name="settings_tips_all_read">All read</string>
+    <string name="settings_tips_mark_all_unread">Mark all as unread</string>
     <string name="settings_motion_tide_line">Tide line</string>
     <string name="settings_motion_dots">Dots</string>
     <string name="settings_motion_cookie_wave">Cookie wave</string>
@@ -294,6 +302,7 @@
     <string name="settings_sync_what_ratings">Song and album ratings, album reviews</string>
     <string name="settings_sync_what_home">Home layout</string>
     <string name="settings_sync_what_translations">AI lyric translations</string>
+    <string name="settings_sync_what_playlist_backups">Playlist cloud backup</string>
     <string name="settings_sync_what_settings">Translation language, Spotify Client ID and scroll edge style</string>
     <string name="settings_sync_what_accounts">Account names, server addresses</string>
     <string name="settings_sync_what_stays">Stays on this device</string>

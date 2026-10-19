@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import java.text.Normalizer
 import java.util.Locale
+import kotlin.math.abs
 
 /**
  * 自动匹配时，从歌词源的搜索结果里认出"就是这首歌"的那一条。认不出就返回 null，
@@ -58,6 +59,10 @@ import java.util.Locale
  * 一条都没有时，只在"无从判断"的候选里看排位第一的那位艺人：他至少有 [MIN_DOMINANT_CUTS]
  * 条同名录音，并且比其余任何艺人都多，才认定是他，再从他的录音里同样按档位、排位取一条；
  * 否则返回 null。被否决的候选不参与这一步。
+ *
+ * **时长。** 请求带了时长、候选也带了时长时，同一档里先取长度相差不超过 [LYRIC_DURATION_TOLERANCE_MS]
+ * 的，再看排位：同名同艺人的单曲版、专辑版、剪辑版常常并排出现。只用来在已经认出的候选里挑，
+ * 不拿它认艺人——`Pop Sound` 就有三位艺人的录音都在 169–172 秒。任一方没有时长时不影响排位。
  */
 internal class LyricCandidateMatcher(
     private val fold: (String) -> String = TraditionalToSimplified,
@@ -66,10 +71,15 @@ internal class LyricCandidateMatcher(
     /**
      * 一条搜索结果：标题、全部演唱者、所在专辑（歌词源没给就是 null），顺序即歌词源给出的排位。
      */
-    data class Candidate(val title: String, val artists: List<String>, val album: String? = null)
+    data class Candidate(
+        val title: String,
+        val artists: List<String>,
+        val album: String? = null,
+        val durationMs: Long? = null,
+    )
 
-    /** 返回 [candidates] 里选中的下标；没有可信的匹配时返回 null。 */
-    fun pick(candidates: List<Candidate>, title: String, artist: String): Int? {
+    /** 返回 [candidates] 里选中的下标；没有可信的匹配时返回 null。[durationMs] 见类注释"时长"。 */
+    fun pick(candidates: List<Candidate>, title: String, artist: String, durationMs: Long? = null): Int? {
         if (candidates.isEmpty()) return null
         val wantedTitle = titleOf(title) ?: return null
         val wantedArtists = artistNamesOf(artist)
@@ -77,7 +87,9 @@ internal class LyricCandidateMatcher(
         val cuts = candidates.mapIndexedNotNull { index, candidate ->
             val fit = fitOf(wantedTitle, candidate) ?: return@mapIndexedNotNull null
             val performers = candidate.artists.map(::nameOf).filter { it.key.isNotEmpty() }
-            Cut(index, fit, performers, verdictOf(wantedArtists, performers))
+            val offLength = durationMs != null && candidate.durationMs != null &&
+                abs(candidate.durationMs - durationMs) > LYRIC_DURATION_TOLERANCE_MS
+            Cut(index, fit, performers, verdictOf(wantedArtists, performers), offLength)
         }
         if (cuts.isEmpty()) return null
 
@@ -223,7 +235,8 @@ internal class LyricCandidateMatcher(
         return if (own.size > strongestRival) own.preferred() else null
     }
 
-    private fun List<Cut>.preferred(): Cut? = minWithOrNull(compareBy<Cut> { it.fit.ordinal }.thenBy { it.index })
+    private fun List<Cut>.preferred(): Cut? =
+        minWithOrNull(compareBy<Cut> { it.fit.ordinal }.thenBy { it.offLength }.thenBy { it.index })
 
     // ── 归一 ─────────────────────────────────────────────────────────────────
 
@@ -261,11 +274,13 @@ internal class LyricCandidateMatcher(
         val latinWords: Set<String>,
     )
 
+    /** [offLength]：双方都有时长，并且相差超过 [LYRIC_DURATION_TOLERANCE_MS]。 */
     private class Cut(
         val index: Int,
         val fit: Fit,
         performers: List<Name>,
         val verdict: Verdict,
+        val offLength: Boolean,
     ) {
         val performerKeys: List<String> = performers.map { it.key }.distinct()
     }
@@ -346,6 +361,9 @@ internal class LyricCandidateMatcher(
         )
     }
 }
+
+/** 时长相差在这以内算"长度对得上"。歌词源多半只给到秒。 */
+internal const val LYRIC_DURATION_TOLERANCE_MS = 3_000L
 
 /** 比较键：只留字母和数字，拉丁字母去变音符。输入应已经过 prepare。 */
 private fun keyOf(text: String): String {
