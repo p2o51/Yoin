@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 歌单备份：设置 › 歌单备份、单个备份页和恢复（docs/playlist-transfer.md §7） -->
+<!-- 歌单云备份：设置 › 歌单云备份、单个备份页和恢复（docs/playlist-transfer.md §7） -->
 <resources>
-    <string name="settings_playlist_backups_title">歌单备份</string>
+    <string name="settings_playlist_backups_title">歌单云备份</string>
     <string name="playlist_backups_empty">没有备份</string>
     <plurals name="playlist_backup_songs">
         <item quantity="other">%1$d 首</item>
@@ -51,4 +51,21 @@
     <string name="playlist_restore_not_created">未能在 %1$s 上创建</string>
     <string name="playlist_restore_failed">无法连接 %1$s</string>
     <string name="playlist_restore_done_button">完成</string>
+    <string name="playlist_backup_following">跟随变化中</string>
+    <string name="playlist_backup_source_gone">原歌单已不在</string>
+    <string name="playlist_backup_not_here">在其他设备上跟随</string>
+    <string name="playlist_backup_created">歌单创建</string>
+    <string name="playlist_backup_since">开始备份</string>
+    <string name="playlist_backup_last">最后备份</string>
+    <string name="playlist_backup_changed">最近变化</string>
+    <string name="playlist_backup_now">立即备份</string>
+    <string name="playlist_restore_search">在 %1$s 搜索</string>
+    <string name="playlist_restore_search_hint">搜索</string>
+    <string name="playlist_restore_search_none">没有结果</string>
+    <string name="playlist_restore_picked">已选</string>
+    <string name="playlist_restore_all">全部</string>
+    <string name="playlist_restore_live_matching">正在 %1$s 匹配</string>
+    <string name="playlist_restore_channel">歌单恢复</string>
+    <string name="playlist_restore_cd_check">加入歌单</string>
+    <string name="playlist_restore_writing_short">正在创建</string>
 </resources>

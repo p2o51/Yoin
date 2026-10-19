@@ -74,4 +74,21 @@ class RestoreReviewTest {
         genre = null,
         userRating = null,
     )
+
+    @Test
+    fun should_checkThePickedSong_when_theUserFindsANotFoundSong() {
+        val found = Track(
+            id = MediaId("am", "x1"), title = "Hikari", artist = "Utada", artistId = null, album = null,
+            albumId = null, coverArt = null, durationSec = 300, trackNumber = null, year = null, genre = null,
+            userRating = null,
+        )
+        val rows = listOf(ReviewRow(0, ReviewStatus.NotFound, emptyList(), 0, false))
+
+        val picked = RestoreReview.pick(rows, 0, found)
+
+        assertEquals(ReviewStatus.Picked, picked.single().status)
+        assertEquals(listOf(found.id), RestoreReview.trackIdsToWrite(picked))
+        assertEquals(1, RestoreReview.summary(picked).picked)
+        assertEquals(0, RestoreReview.summary(picked).notFound)
+    }
 }

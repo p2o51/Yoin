@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Playlist backups: Settings › Playlist backups, a backup's page and its restore (docs/playlist-transfer.md §7). -->
 <resources>
-    <string name="settings_playlist_backups_title">Playlist backups</string>
+    <string name="settings_playlist_backups_title">Playlist cloud backup</string>
     <string name="playlist_backups_empty">No backups</string>
     <plurals name="playlist_backup_songs">
         <item quantity="one">%1$d song</item>
@@ -56,4 +56,21 @@
     <string name="playlist_restore_not_created">Not created on %1$s</string>
     <string name="playlist_restore_failed">Couldn\'t reach %1$s</string>
     <string name="playlist_restore_done_button">Done</string>
+    <string name="playlist_backup_following">Following changes</string>
+    <string name="playlist_backup_source_gone">Original playlist gone</string>
+    <string name="playlist_backup_not_here">Followed on another device</string>
+    <string name="playlist_backup_created">Playlist created</string>
+    <string name="playlist_backup_since">Backed up since</string>
+    <string name="playlist_backup_last">Last backup</string>
+    <string name="playlist_backup_changed">Last change</string>
+    <string name="playlist_backup_now">Back up now</string>
+    <string name="playlist_restore_search">Search %1$s</string>
+    <string name="playlist_restore_search_hint">Search</string>
+    <string name="playlist_restore_search_none">No results</string>
+    <string name="playlist_restore_picked">Picked</string>
+    <string name="playlist_restore_all">All</string>
+    <string name="playlist_restore_live_matching">Matching on %1$s</string>
+    <string name="playlist_restore_channel">Playlist restore</string>
+    <string name="playlist_restore_cd_check">Add to playlist</string>
+    <string name="playlist_restore_writing_short">Creating</string>
 </resources>

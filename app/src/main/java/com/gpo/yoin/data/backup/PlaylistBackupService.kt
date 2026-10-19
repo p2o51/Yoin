@@ -2,6 +2,7 @@ package com.gpo.yoin.data.backup
 
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
@@ -42,6 +43,11 @@ internal class ProfileManagerBackupProfiles(private val manager: ProfileManager)
         manager.withSourceFor(profileId, block)
 }
 
+/** What following one backup found. */
+enum class FollowResult { Changed, Unchanged, Gone, Skipped }
+
+data class FollowSummary(val checked: Int, val changed: Int, val gone: Int)
+
 /** A profile a backup can be restored into. */
 data class RestoreTarget(
     val profileId: String,
@@ -74,20 +80,75 @@ class PlaylistBackupService(
     constructor(manager: ProfileManager, store: PlaylistBackupStore) :
         this(ProfileManagerBackupProfiles(manager), store)
 
-    /** Reads [playlistId] afresh from the active profile, whole, and saves it as a new backup. */
+    /**
+     * Starts [playlistId]'s cloud backup on the active profile, or — when it
+     * already has one — backs it up again now. Read whole, afresh.
+     */
     suspend fun backUp(playlistId: MediaId): PlaylistBackupRecord {
         val profile = checkNotNull(profiles.activeProfile()) { "No active profile" }
         val playlist = profiles.withSource(profile.id) { it.library().getPlaylistInFull(playlistId) }
             ?: throw IllegalStateException("Playlist not found")
-        val record = PlaylistSnapshots.backup(
-            id = newId(),
-            playlist = playlist,
-            provider = profile.provider,
-            profileLabel = profile.displayName,
-            now = clock(),
-        )
+        val now = clock()
+        val existing = store.findBySource(profile.provider, playlist.id.toString())
+        val record = existing
+            ?.let { PlaylistSnapshots.refreshed(it, playlist, profile.id, profile.displayName, now) }
+            ?: PlaylistSnapshots.backup(newId(), playlist, profile.provider, profile.id, profile.displayName, now)
         store.save(record)
         return record
+    }
+
+    /** The cloud backup that follows [playlistId] on [provider], if any (the playlist page's menu). */
+    suspend fun backupOf(provider: String, playlistId: MediaId): PlaylistBackupRecord? =
+        store.findBySource(provider, playlistId.toString())
+
+    /**
+     * Follows every backup this device can follow that hasn't been checked
+     * for [interval]: each playlist read again and saved when it changed, or
+     * marked gone when its service no longer lists it. A profile that can't
+     * be reached (offline, signed out) is left for next time.
+     */
+    suspend fun followDue(interval: Long = FOLLOW_INTERVAL_MS): FollowSummary {
+        val now = clock()
+        val local = profiles.profiles.first().associateBy { it.id }
+        val due = store.getAll().filter { backup ->
+            backup.following && backup.sourceProfileId in local && now - backup.lastBackedUpAt >= interval
+        }
+        var changed = 0
+        var gone = 0
+        due.groupBy { it.sourceProfileId!! }.forEach { (profileId, backups) ->
+            val profile = local.getValue(profileId)
+            val results = runCatching {
+                profiles.withSource(profileId) { source -> backups.map { follow(it, profile, source) } }
+            }.getOrNull().orEmpty()
+            changed += results.count { it == FollowResult.Changed }
+            gone += results.count { it == FollowResult.Gone }
+        }
+        return FollowSummary(checked = due.size, changed = changed, gone = gone)
+    }
+
+    /**
+     * [backup] read again now, from this device's profile that follows it:
+     * Back up now on its page. Throws when no profile here can read it.
+     */
+    suspend fun followNow(backup: PlaylistBackupRecord): FollowResult {
+        val profileId = checkNotNull(backup.sourceProfileId) { "Not followed on this device" }
+        val profile = checkNotNull(profiles.profiles.first().firstOrNull { it.id == profileId }) { "Profile gone" }
+        return checkNotNull(profiles.withSource(profileId) { follow(backup, profile, it) }) { "Profile unavailable" }
+    }
+
+    internal suspend fun follow(backup: PlaylistBackupRecord, profile: Profile, source: MusicSource): FollowResult {
+        val id = MediaId.parseOrNull(backup.sourcePlaylistId) ?: return FollowResult.Skipped
+        // Gone = the service answers with its list and the playlist isn't in it; a failed answer proves nothing.
+        val listed = runCatching { source.library().getPlaylists() }.getOrNull() ?: return FollowResult.Skipped
+        val now = clock()
+        if (listed.none { it.id == id }) {
+            store.save(backup.copy(sourceGoneAt = now, updatedAt = maxOf(now, backup.updatedAt + 1)))
+            return FollowResult.Gone
+        }
+        val playlist = runCatching { source.library().getPlaylistInFull(id) }.getOrNull() ?: return FollowResult.Skipped
+        val next = PlaylistSnapshots.refreshed(backup, playlist, profile.id, profile.displayName, now)
+        store.save(next)
+        return if (next.lastChangedAt == now) FollowResult.Changed else FollowResult.Unchanged
     }
 
     /** Every profile whose service takes a new playlist, the backup's own included. */
@@ -127,6 +188,10 @@ class PlaylistBackupService(
         return (byId + matched).sortedBy { it.position }
     }
 
+    /** Songs on [target] for [query]: the review's search for a song the match didn't find. */
+    suspend fun search(target: RestoreTarget, query: String): List<Track> =
+        profiles.withSource(target.profileId) { it.library().search(query).tracks }.orEmpty()
+
     /**
      * A playlist on [target] named like the backup, holding [rows]' checked
      * tracks in backup order, and the restore added to the backup's history
@@ -153,6 +218,9 @@ class PlaylistBackupService(
     }
 
     companion object {
+        /** How often a followed playlist is read again (on app start or return, never in the background). */
+        const val FOLLOW_INTERVAL_MS = 6 * 60 * 60 * 1000L
+
         internal fun restoreTargets(profiles: List<Profile>): List<RestoreTarget> = profiles
             .filter { Capability.PLAYLIST_IMPORT in ServiceFeatureCatalog.forProvider(it.provider).capabilities }
             .map { RestoreTarget(it.id, it.displayName, it.provider) }

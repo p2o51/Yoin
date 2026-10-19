@@ -11,7 +11,8 @@ import com.gpo.yoin.data.model.Track
  * - [ReviewStatus.Matched]: checked by default, its match chosen.
  * - [ReviewStatus.Uncertain]: up to [MAX_CANDIDATES] candidates, the best
  *   chosen but unchecked; the user checks it or picks another.
- * - [ReviewStatus.NotFound]: nothing to check.
+ * - [ReviewStatus.NotFound]: nothing to check — until the user searches the
+ *   target for it and picks a song: then [ReviewStatus.Picked], checked.
  */
 data class ReviewRow(
     /** The track's place in the backup. */
@@ -27,9 +28,9 @@ data class ReviewRow(
     val checkable: Boolean get() = candidates.isNotEmpty()
 }
 
-enum class ReviewStatus { Matched, Uncertain, NotFound }
+enum class ReviewStatus { Matched, Uncertain, NotFound, Picked }
 
-data class ReviewSummary(val matched: Int, val toCheck: Int, val notFound: Int)
+data class ReviewSummary(val matched: Int, val toCheck: Int, val notFound: Int, val picked: Int = 0)
 
 object RestoreReview {
     const val MAX_CANDIDATES = 3
@@ -73,6 +74,19 @@ object RestoreReview {
         if (picked) row.copy(chosen = index, checked = true) else row
     }
 
+    /**
+     * [rows] with [track] — found by the user searching the target — as the
+     * row at [position]'s song, checked. Any row can take one; it becomes
+     * [ReviewStatus.Picked].
+     */
+    fun pick(rows: List<ReviewRow>, position: Int, track: Track): List<ReviewRow> = rows.map { row ->
+        if (row.position == position) {
+            row.copy(status = ReviewStatus.Picked, candidates = listOf(track), chosen = 0, checked = true)
+        } else {
+            row
+        }
+    }
+
     /** The ids to write, in the backup's order: checked rows' chosen candidates. */
     fun trackIdsToWrite(rows: List<ReviewRow>): List<MediaId> =
         rows.sortedBy { it.position }.filter { it.checked }.mapNotNull { it.choice?.id }
@@ -81,5 +95,6 @@ object RestoreReview {
         matched = rows.count { it.status == ReviewStatus.Matched },
         toCheck = rows.count { it.status == ReviewStatus.Uncertain },
         notFound = rows.count { it.status == ReviewStatus.NotFound },
+        picked = rows.count { it.status == ReviewStatus.Picked },
     )
 }

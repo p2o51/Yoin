@@ -55,7 +55,7 @@ class PlaylistBackupServiceTest {
     fun tearDown() = db.close()
 
     @Test
-    fun should_saveNewVersionEachTime_when_playlistIsBackedUpTwice() = runTest {
+    fun should_keepOneBackupPerPlaylist_when_backedUpTwice() = runTest {
         val service = service(sources = mapOf("sp" to sourceService()))
 
         val first = service.backUp(sourcePlaylist.id)
@@ -63,11 +63,74 @@ class PlaylistBackupServiceTest {
         val second = service.backUp(sourcePlaylist.id)
 
         val all = store.observeAll().first()
-        assertEquals(listOf(second.id, first.id), all.map { it.id })
-        assertEquals("Chen", all.first().sourceProfileLabel)
-        assertEquals(MediaId.PROVIDER_SPOTIFY, all.first().sourceProvider)
+        assertEquals(listOf(first.id), all.map { it.id })
+        assertEquals(first.id, second.id)
+        assertEquals(1_000L, all.first().firstBackedUpAt)
+        assertEquals(2_000L, all.first().lastBackedUpAt)
+        // Nothing changed in between: the last change stays at the start.
+        assertEquals(1_000L, all.first().lastChangedAt)
+        assertEquals("sp", all.first().sourceProfileId)
         assertEquals(2, all.first().trackCount)
         assertEquals(1, all.first().unexportedCount)
+    }
+
+    @Test
+    fun should_backUpTheChange_when_theFollowedPlaylistChanged() = runTest {
+        val source = sourceService()
+        val service = service(sources = mapOf("sp" to source))
+        service.backUp(sourcePlaylist.id)
+        source.playlists = mapOf(
+            sourcePlaylist.id to sourcePlaylist.copy(tracks = sourcePlaylist.tracks + track(MediaId.spotify("t9"), "Hikari", "Utada")),
+        )
+        now = 1_000L + PlaylistBackupService.FOLLOW_INTERVAL_MS
+
+        val summary = service.followDue()
+
+        assertEquals(FollowSummary(checked = 1, changed = 1, gone = 0), summary)
+        val backup = store.observeAll().first().single()
+        assertEquals(3, backup.trackCount)
+        assertEquals(now, backup.lastChangedAt)
+        assertEquals(now, backup.lastBackedUpAt)
+    }
+
+    @Test
+    fun should_waitForTheInterval_when_followedRecently() = runTest {
+        val service = service(sources = mapOf("sp" to sourceService()))
+        service.backUp(sourcePlaylist.id)
+        now = 1_000L + PlaylistBackupService.FOLLOW_INTERVAL_MS - 1
+
+        assertEquals(FollowSummary(0, 0, 0), service.followDue())
+    }
+
+    @Test
+    fun should_stopFollowingButKeepTheBackup_when_thePlaylistIsGone() = runTest {
+        val source = sourceService()
+        val service = service(sources = mapOf("sp" to source))
+        service.backUp(sourcePlaylist.id)
+        source.playlists = emptyMap()
+        now = 1_000L + PlaylistBackupService.FOLLOW_INTERVAL_MS
+
+        assertEquals(FollowSummary(checked = 1, changed = 0, gone = 1), service.followDue())
+        val backup = store.observeAll().first().single()
+        assertEquals(now, backup.sourceGoneAt)
+        assertEquals(2, backup.trackCount)
+        // Gone stays gone: no more checks.
+        now += PlaylistBackupService.FOLLOW_INTERVAL_MS
+        assertEquals(FollowSummary(0, 0, 0), service.followDue())
+    }
+
+    @Test
+    fun should_leaveTheBackupAlone_when_theServiceCantBeReached() = runTest {
+        val source = sourceService()
+        val service = service(sources = mapOf("sp" to source))
+        service.backUp(sourcePlaylist.id)
+        source.listFails = true
+        now = 1_000L + PlaylistBackupService.FOLLOW_INTERVAL_MS
+
+        assertEquals(FollowSummary(checked = 1, changed = 0, gone = 0), service.followDue())
+        val backup = store.observeAll().first().single()
+        assertEquals(null, backup.sourceGoneAt)
+        assertEquals(1_000L, backup.lastBackedUpAt)
     }
 
     @Test

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 32,
-    "identityHash": "5957f121fe23ca7ea88b0bf7a9a48ed8",
+    "identityHash": "602e84d9cacda67540f169ea5aa447f5",
     "entities": [
       {
         "tableName": "local_ratings",
@@ -1854,7 +1854,7 @@
       },
       {
         "tableName": "playlist_backups",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `sourceProvider` TEXT NOT NULL, `sourceProfileLabel` TEXT NOT NULL, `sourcePlaylistId` TEXT NOT NULL, `backedUpAt` INTEGER NOT NULL, `trackCount` INTEGER NOT NULL, `unexportedCount` INTEGER NOT NULL, `contentJson` TEXT NOT NULL, `restoresJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `sourceProvider` TEXT NOT NULL, `sourceProfileLabel` TEXT NOT NULL, `sourcePlaylistId` TEXT NOT NULL, `sourceProfileId` TEXT, `playlistCreatedAt` TEXT, `firstBackedUpAt` INTEGER NOT NULL, `lastBackedUpAt` INTEGER NOT NULL, `lastChangedAt` INTEGER NOT NULL, `sourceGoneAt` INTEGER, `trackCount` INTEGER NOT NULL, `unexportedCount` INTEGER NOT NULL, `contentJson` TEXT NOT NULL, `restoresJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1887,10 +1887,37 @@
             "notNull": true
           },
           {
-            "fieldPath": "backedUpAt",
-            "columnName": "backedUpAt",
+            "fieldPath": "sourceProfileId",
+            "columnName": "sourceProfileId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "playlistCreatedAt",
+            "columnName": "playlistCreatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "firstBackedUpAt",
+            "columnName": "firstBackedUpAt",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "lastBackedUpAt",
+            "columnName": "lastBackedUpAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastChangedAt",
+            "columnName": "lastChangedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceGoneAt",
+            "columnName": "sourceGoneAt",
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "trackCount",
@@ -1931,13 +1958,13 @@
         },
         "indices": [
           {
-            "name": "index_playlist_backups_backedUpAt",
+            "name": "index_playlist_backups_lastChangedAt",
             "unique": false,
             "columnNames": [
-              "backedUpAt"
+              "lastChangedAt"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_backups_backedUpAt` ON `${TABLE_NAME}` (`backedUpAt`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_backups_lastChangedAt` ON `${TABLE_NAME}` (`lastChangedAt`)"
           },
           {
             "name": "index_playlist_backups_sourceProvider_sourcePlaylistId",
@@ -1954,7 +1981,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5957f121fe23ca7ea88b0bf7a9a48ed8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '602e84d9cacda67540f169ea5aa447f5')"
     ]
   }
 }

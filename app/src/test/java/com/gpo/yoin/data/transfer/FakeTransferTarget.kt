@@ -26,7 +26,7 @@ internal class FakeTransferTarget(
     val search: Map<String, List<Track>> = emptyMap(),
     val searchFails: Boolean = false,
     val failAddAfterBatches: Int = Int.MAX_VALUE,
-    val playlists: Map<MediaId, Playlist> = emptyMap(),
+    var playlists: Map<MediaId, Playlist> = emptyMap(),
     override val id: String = "target",
 ) : MusicSource, MusicLibrary, MusicWriteActions, MusicMetadata, MusicPlayback {
     val searches = mutableListOf<String>()
@@ -69,7 +69,13 @@ internal class FakeTransferTarget(
     override suspend fun getAlbum(id: MediaId): Album? = null
     override suspend fun getArtists() = emptyList<ArtistIndex>()
     override suspend fun getArtist(id: MediaId): ArtistDetail? = null
-    override suspend fun getPlaylists() = emptyList<Playlist>()
+    /** The service can't be reached for its playlist list. */
+    var listFails = false
+
+    override suspend fun getPlaylists(): List<Playlist> {
+        if (listFails) throw IOException("offline")
+        return playlists.values.toList()
+    }
     override suspend fun getPlaylist(id: MediaId): Playlist? = playlists[id]
     override suspend fun getStarred() = Starred()
     override suspend fun getRandomSongs(size: Int) = emptyList<Track>()

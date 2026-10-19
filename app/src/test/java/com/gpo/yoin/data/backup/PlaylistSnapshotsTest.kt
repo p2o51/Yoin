@@ -31,11 +31,13 @@ class PlaylistSnapshotsTest {
 
     @Test
     fun should_keepTracksInOrderAndListWhatWasLeftOut_when_backingUp() {
-        val backup = PlaylistSnapshots.backup("b1", playlist, MediaId.PROVIDER_SPOTIFY, "Chen", now = 42L)
+        val backup = PlaylistSnapshots.backup("b1", playlist, MediaId.PROVIDER_SPOTIFY, "p1", "Chen", now = 42L)
 
         assertEquals("Road trip", backup.name)
         assertEquals("spotify:p1", backup.sourcePlaylistId)
-        assertEquals(42L, backup.backedUpAt)
+        assertEquals(42L, backup.firstBackedUpAt)
+        assertEquals(42L, backup.lastChangedAt)
+        assertEquals("p1", backup.sourceProfileId)
         assertEquals("for the drive", backup.content.description)
         assertEquals(
             listOf(
@@ -59,7 +61,7 @@ class PlaylistSnapshotsTest {
 
     @Test
     fun should_readBackTheSameBackup_when_roundTrippedThroughTheRow() {
-        val backup = PlaylistSnapshots.backup("b1", playlist, MediaId.PROVIDER_SPOTIFY, "Chen", now = 42L)
+        val backup = PlaylistSnapshots.backup("b1", playlist, MediaId.PROVIDER_SPOTIFY, "p1", "Chen", now = 42L)
             .copy(restores = listOf(PlaylistRestoreRecord(50L, MediaId.PROVIDER_APPLE_MUSIC, "Apple", 1, 0, 1)))
 
         val row = PlaylistBackupCodec.toEntity(backup)

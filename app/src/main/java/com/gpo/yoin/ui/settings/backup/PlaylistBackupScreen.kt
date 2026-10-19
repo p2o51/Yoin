@@ -1,5 +1,23 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.gpo.yoin.ui.settings.backup
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Surface
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
@@ -89,6 +107,20 @@ internal fun PlaylistBackupRoute(
     val restore by viewModel.restore.collectAsState()
     val sheetOpen by viewModel.sheetOpen.collectAsState()
     val targets by viewModel.targets.collectAsState()
+    val search by viewModel.search.collectAsState()
+    val backingUp by viewModel.backingUp.collectAsState()
+    // The restore's Live Update needs the notification permission: asked once, as the user starts one.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val context = LocalContext.current
+    val restoreTo: (RestoreTarget) -> Unit = { target ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        viewModel.restoreTo(target)
+    }
     val currentOnBack by androidx.compose.runtime.rememberUpdatedState(onBackClick)
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -101,6 +133,8 @@ internal fun PlaylistBackupRoute(
         uiState = uiState,
         onBackClick = onBackClick,
         onRestore = viewModel::openRestore,
+        onBackUpNow = viewModel::backUpAgain,
+        backingUp = backingUp,
         onDelete = viewModel::delete,
         modifier = modifier,
     )
@@ -109,9 +143,14 @@ internal fun PlaylistBackupRoute(
             state = restore,
             backup = (uiState as? PlaylistBackupUiState.Content)?.backup,
             targets = targets,
-            onChooseTarget = viewModel::restoreTo,
+            search = search,
+            onChooseTarget = restoreTo,
             onCheck = viewModel::setChecked,
             onChoose = viewModel::choose,
+            onOpenSearch = viewModel::openSearch,
+            onSearchQuery = { viewModel.runSearch(it) },
+            onPick = viewModel::pickSearchResult,
+            onCloseSearch = viewModel::closeSearch,
             onCreate = viewModel::createPlaylist,
             onCancel = viewModel::cancelRestore,
             onDismiss = viewModel::dismissSheet,
@@ -132,6 +171,8 @@ internal fun PlaylistBackupScreen(
     onRestore: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    onBackUpNow: () -> Unit = {},
+    backingUp: Boolean = false,
     nowMs: Long = remember { System.currentTimeMillis() },
 ) {
     val backup = (uiState as? PlaylistBackupUiState.Content)?.backup
@@ -209,7 +250,7 @@ internal fun PlaylistBackupScreen(
                                     },
                                 )
                             }
-                            backupBody(state.backup, nowMs, onRestore)
+                            backupBody(state.backup, nowMs, onRestore, onBackUpNow, backingUp)
                         }
                     }
                 }
@@ -227,43 +268,55 @@ internal fun PlaylistBackupScreen(
     }
 }
 
-private fun LazyListScope.backupBody(backup: PlaylistBackupRecord, nowMs: Long, onRestore: () -> Unit) {
-    item("source") {
-        val service = serviceOf(backup.sourceProvider)
-        val resources = LocalContext.current.resources
-        SettingsGroup(title = stringResource(R.string.playlist_backup_section_source)) {
-            item {
-                SettingsItem(
-                    icon = service.glyph,
-                    iconTone = service.hue.tone(),
-                    title = backup.sourceProfileLabel,
-                    summary = stringResource(service.nameRes).takeIf { it != backup.sourceProfileLabel },
-                )
-            }
-            item {
-                SettingsItem(
-                    icon = YoinSymbols.Cloud,
-                    title = formatBackupTime(backup.backedUpAt, nowMs, resources),
-                    summary = stringResource(R.string.playlist_backup_backed_up),
-                )
-            }
-        }
-    }
-    item("restore") {
+private fun LazyListScope.backupBody(
+    backup: PlaylistBackupRecord,
+    nowMs: Long,
+    onRestore: () -> Unit,
+    onBackUpNow: () -> Unit,
+    backingUp: Boolean,
+) {
+    item("status") { BackupStatusCard(backup, nowMs) }
+    item("actions") {
         val haptics = rememberYoinHaptics()
-        Button(
-            onClick = {
-                haptics.performConfirm()
-                onRestore()
-            },
-            enabled = backup.trackCount > 0,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 20.dp)
-                .heightIn(min = 56.dp),
+                .padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
         ) {
-            Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-            Text(stringResource(R.string.playlist_backup_restore))
+            Button(
+                onClick = {
+                    haptics.performConfirm()
+                    onRestore()
+                },
+                enabled = backup.trackCount > 0,
+                shapes = ButtonDefaults.shapes(),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 56.dp),
+            ) {
+                Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text(stringResource(R.string.playlist_backup_restore), style = MaterialTheme.typography.titleMedium)
+            }
+            // Only the device that follows the playlist can read it again.
+            if (backup.following && backup.sourceProfileId != null) {
+                FilledTonalButton(
+                    onClick = {
+                        haptics.performClick()
+                        onBackUpNow()
+                    },
+                    enabled = !backingUp,
+                    shapes = ButtonDefaults.shapes(),
+                    modifier = Modifier.heightIn(min = 56.dp),
+                ) {
+                    if (backingUp) {
+                        YoinLoadingIndicator(size = 24.dp)
+                    } else {
+                        Icon(YoinSymbols.Refresh, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text(stringResource(R.string.playlist_backup_now))
+                    }
+                }
+            }
         }
     }
     if (backup.restores.isNotEmpty()) {
@@ -516,3 +569,112 @@ internal val previewTargets = listOf(
     RestoreTarget("am", "Apple Music", com.gpo.yoin.data.model.MediaId.PROVIDER_APPLE_MUSIC),
     RestoreTarget("ss", "Home server", com.gpo.yoin.data.model.MediaId.PROVIDER_SUBSONIC),
 )
+
+/**
+ * Where the backup stands, on its service's colour: the account, whether it
+ * still follows the playlist (or the playlist is gone and it is kept), and
+ * its dates as tiles — the playlist's own, when the backup began, the last
+ * backup and the last change.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun BackupStatusCard(backup: PlaylistBackupRecord, nowMs: Long) {
+    val service = serviceOf(backup.sourceProvider)
+    val tone = service.hue.tone()
+    val resources = LocalContext.current.resources
+    val serviceName = stringResource(service.nameRes)
+    val following = backup.following
+    val state = when {
+        !following -> stringResource(R.string.playlist_backup_source_gone)
+        backup.sourceProfileId == null -> stringResource(R.string.playlist_backup_not_here)
+        else -> stringResource(R.string.playlist_backup_following)
+    }
+    Surface(
+        color = tone.container,
+        contentColor = tone.onContainer,
+        shape = RoundedCornerShape(32.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(tone.accent, MaterialShapes.Cookie9Sided.toShape()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(service.glyph, contentDescription = null, tint = tone.onAccent, modifier = Modifier.size(26.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = backup.sourceProfileLabel,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (serviceName != backup.sourceProfileLabel) {
+                        Text(serviceName, style = MaterialTheme.typography.bodyMedium, color = tone.onContainer.copy(alpha = 0.75f))
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(if (following) tone.accent else MaterialTheme.colorScheme.outline, CircleShape),
+                )
+                Text(state, style = MaterialTheme.typography.labelLarge)
+                if (!following) {
+                    backup.sourceGoneAt?.let { at ->
+                        Text(
+                            formatBackupTime(at, nowMs, resources),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = tone.onContainer.copy(alpha = 0.7f),
+                        )
+                    }
+                }
+            }
+            val tiles = buildList {
+                parseServiceDate(backup.playlistCreatedAt)?.let { add(R.string.playlist_backup_created to it) }
+                add(R.string.playlist_backup_since to backup.firstBackedUpAt)
+                add(R.string.playlist_backup_last to backup.lastBackedUpAt)
+                add(R.string.playlist_backup_changed to backup.lastChangedAt)
+            }
+            tiles.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    pair.forEach { (label, at) ->
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(tone.onContainer.copy(alpha = 0.07f), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                        ) {
+                            Text(
+                                stringResource(label),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = tone.onContainer.copy(alpha = 0.75f),
+                            )
+                            Text(
+                                formatBackupTime(at, nowMs, resources),
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+/** A service's ISO-8601 date ("2024-03-01T10:00:00Z", or a bare date) as epoch millis; null when unreadable. */
+internal fun parseServiceDate(text: String?): Long? {
+    val value = text?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    return runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+        ?: runCatching { java.time.OffsetDateTime.parse(value).toInstant().toEpochMilli() }.getOrNull()
+        ?: runCatching {
+            java.time.LocalDate.parse(value.take(10)).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        }.getOrNull()
+}

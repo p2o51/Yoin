@@ -36,7 +36,7 @@ class PlaylistBackupActivity : ComponentActivity() {
         setContent {
             YoinActivityRoot {
                 val viewModel: PlaylistBackupViewModel = viewModel(
-                    factory = PlaylistBackupViewModel.Factory(container, backupId),
+                    factory = PlaylistBackupViewModel.Factory(container, backupId, RestoreLiveUpdate(this@PlaylistBackupActivity)),
                 )
                 PlaylistBackupRoute(
                     viewModel = viewModel,

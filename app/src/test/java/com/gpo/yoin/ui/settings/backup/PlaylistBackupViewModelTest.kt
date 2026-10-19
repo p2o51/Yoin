@@ -43,7 +43,12 @@ class PlaylistBackupViewModelTest {
         sourceProvider = MediaId.PROVIDER_SPOTIFY,
         sourceProfileLabel = "Chen",
         sourcePlaylistId = "spotify:p1",
-        backedUpAt = 1L,
+        sourceProfileId = null,
+        playlistCreatedAt = null,
+        firstBackedUpAt = 1L,
+        lastBackedUpAt = 1L,
+        lastChangedAt = 1L,
+        sourceGoneAt = null,
         content = PlaylistBackupContent(
             tracks = listOf(
                 BackupTrack("Creep", listOf("Radiohead"), null, 238, null, "spotify:t1"),

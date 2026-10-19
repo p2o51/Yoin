@@ -221,7 +221,7 @@
     <string name="detail_scrap_receipt_date_year" translatable="false">Mar 14, 2025</string>
     <string name="detail_scrap_q" translatable="false">Q</string>
     <!-- Playlist "Back up" (docs/playlist-transfer.md §7) -->
-    <string name="detail_playlist_backup_menu">Back up</string>
+    <string name="detail_playlist_backup_menu">Cloud backup</string>
     <plurals name="detail_playlist_backup_done">
         <item quantity="one">Backed up %1$d song</item>
         <item quantity="other">Backed up %1$d songs</item>

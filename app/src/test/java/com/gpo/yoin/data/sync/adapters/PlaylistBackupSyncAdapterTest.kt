@@ -38,7 +38,12 @@ class PlaylistBackupSyncAdapterTest {
         sourceProvider = MediaId.PROVIDER_SPOTIFY,
         sourceProfileLabel = "Chen",
         sourcePlaylistId = "spotify:p1",
-        backedUpAt = 100L,
+        sourceProfileId = null,
+        playlistCreatedAt = null,
+        firstBackedUpAt = 100L,
+        lastBackedUpAt = 100L,
+        lastChangedAt = 100L,
+        sourceGoneAt = null,
         content = PlaylistBackupContent(
             description = "drive",
             tracks = listOf(BackupTrack("Creep", listOf("Radiohead"), null, 238, "GBAYE9200070", "spotify:t1")),

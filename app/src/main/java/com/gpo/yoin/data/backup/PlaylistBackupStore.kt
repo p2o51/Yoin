@@ -25,6 +25,12 @@ class PlaylistBackupStore(
 
     suspend fun get(id: String): PlaylistBackupRecord? = dao.get(id)?.let(PlaylistBackupCodec::fromEntity)
 
+    suspend fun getAll(): List<PlaylistBackupRecord> = dao.getAll().mapNotNull(PlaylistBackupCodec::fromEntity)
+
+    /** The backup that follows [sourcePlaylistId] on [sourceProvider], if there is one. */
+    suspend fun findBySource(sourceProvider: String, sourcePlaylistId: String): PlaylistBackupRecord? =
+        dao.findBySource(sourceProvider, sourcePlaylistId).firstNotNullOfOrNull(PlaylistBackupCodec::fromEntity)
+
     suspend fun save(record: PlaylistBackupRecord) = dao.upsert(PlaylistBackupCodec.toEntity(record))
 
     suspend fun delete(id: String) = dao.delete(id)

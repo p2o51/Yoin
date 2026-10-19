@@ -92,13 +92,24 @@ data class PlaylistBackupRecord(
     val sourceProvider: String,
     val sourceProfileLabel: String,
     val sourcePlaylistId: String,
-    val backedUpAt: Long,
+    /** This device's profile that follows the playlist; null when none here does. */
+    val sourceProfileId: String?,
+    /** The service's own date for the playlist (ISO-8601), when it gives one. */
+    val playlistCreatedAt: String?,
+    val firstBackedUpAt: Long,
+    val lastBackedUpAt: Long,
+    val lastChangedAt: Long,
+    /** When the playlist was found gone; null while it is still followed. */
+    val sourceGoneAt: Long?,
     val content: PlaylistBackupContent,
     val restores: List<PlaylistRestoreRecord>,
     val updatedAt: Long,
 ) {
     val trackCount: Int get() = content.tracks.size
     val unexportedCount: Int get() = content.unexported.size
+
+    /** Still backed up as it changes: the playlist is there. */
+    val following: Boolean get() = sourceGoneAt == null
 }
 
 object PlaylistBackupCodec {
@@ -126,7 +137,12 @@ object PlaylistBackupCodec {
         sourceProvider = record.sourceProvider,
         sourceProfileLabel = record.sourceProfileLabel,
         sourcePlaylistId = record.sourcePlaylistId,
-        backedUpAt = record.backedUpAt,
+        sourceProfileId = record.sourceProfileId,
+        playlistCreatedAt = record.playlistCreatedAt,
+        firstBackedUpAt = record.firstBackedUpAt,
+        lastBackedUpAt = record.lastBackedUpAt,
+        lastChangedAt = record.lastChangedAt,
+        sourceGoneAt = record.sourceGoneAt,
         trackCount = record.trackCount,
         unexportedCount = record.unexportedCount,
         contentJson = encodeContent(record.content),
@@ -142,7 +158,12 @@ object PlaylistBackupCodec {
             sourceProvider = row.sourceProvider,
             sourceProfileLabel = row.sourceProfileLabel,
             sourcePlaylistId = row.sourcePlaylistId,
-            backedUpAt = row.backedUpAt,
+            sourceProfileId = row.sourceProfileId,
+            playlistCreatedAt = row.playlistCreatedAt,
+            firstBackedUpAt = row.firstBackedUpAt,
+            lastBackedUpAt = row.lastBackedUpAt,
+            lastChangedAt = row.lastChangedAt,
+            sourceGoneAt = row.sourceGoneAt,
             content = decodeContent(row.contentJson),
             restores = decodeRestores(row.restoresJson),
             updatedAt = row.updatedAt,
@@ -155,19 +176,68 @@ object PlaylistBackupCodec {
 /** Turns a playlist read from its service into a backup, and a backup back into tracks to match. */
 object PlaylistSnapshots {
     /**
-     * [playlist], read whole from the profile [profileLabel] on [provider], as
-     * a backup made [now]. Every track keeps its title, credited artists,
-     * album, length, ISRC and id; a track with no title can't be matched
-     * anywhere, so it joins [PlaylistBackupContent.unexported] as unavailable,
-     * next to what the service itself couldn't read.
+     * The start of [playlist]'s cloud backup, made [now]: read whole from the
+     * profile [profileId] ([profileLabel]) on [provider].
      */
     fun backup(
         id: String,
         playlist: Playlist,
         provider: String,
+        profileId: String?,
+        profileLabel: String,
+        now: Long,
+    ): PlaylistBackupRecord = PlaylistBackupRecord(
+        id = id,
+        name = playlist.name,
+        sourceProvider = provider,
+        sourceProfileLabel = profileLabel,
+        sourcePlaylistId = playlist.id.toString(),
+        sourceProfileId = profileId,
+        playlistCreatedAt = playlist.libraryAddedAt?.takeIf(String::isNotBlank),
+        firstBackedUpAt = now,
+        lastBackedUpAt = now,
+        lastChangedAt = now,
+        sourceGoneAt = null,
+        content = content(playlist),
+        restores = emptyList(),
+        updatedAt = now,
+    )
+
+    /**
+     * [backup] brought up to date with [playlist] as read [now]: the
+     * contents and name replaced, [PlaylistBackupRecord.lastChangedAt] moved
+     * only when they differ, and following again if it had been found gone.
+     */
+    fun refreshed(
+        backup: PlaylistBackupRecord,
+        playlist: Playlist,
+        profileId: String?,
         profileLabel: String,
         now: Long,
     ): PlaylistBackupRecord {
+        val content = content(playlist)
+        val changed = content != backup.content || playlist.name != backup.name
+        return backup.copy(
+            name = playlist.name,
+            sourceProfileLabel = profileLabel,
+            sourceProfileId = profileId ?: backup.sourceProfileId,
+            playlistCreatedAt = playlist.libraryAddedAt?.takeIf(String::isNotBlank) ?: backup.playlistCreatedAt,
+            lastBackedUpAt = now,
+            lastChangedAt = if (changed) now else backup.lastChangedAt,
+            sourceGoneAt = null,
+            content = content,
+            updatedAt = maxOf(now, backup.updatedAt + 1),
+        )
+    }
+
+    /**
+     * What [playlist] holds, as a backup keeps it. Every track keeps its
+     * title, credited artists, album, length, ISRC and id; a track with no
+     * title can't be matched anywhere, so it joins
+     * [PlaylistBackupContent.unexported] as unavailable, next to what the
+     * service itself couldn't read.
+     */
+    fun content(playlist: Playlist): PlaylistBackupContent {
         val tracks = ArrayList<BackupTrack>(playlist.tracks.size)
         val untitled = ArrayList<BackupUnexported>()
         playlist.tracks.forEachIndexed { index, track ->
@@ -197,22 +267,12 @@ object PlaylistSnapshots {
                 reason = UnexportedReason.of(item.reason).wireName,
             )
         }
-        return PlaylistBackupRecord(
-            id = id,
-            name = playlist.name,
-            sourceProvider = provider,
-            sourceProfileLabel = profileLabel,
-            sourcePlaylistId = playlist.id.toString(),
-            backedUpAt = now,
-            content = PlaylistBackupContent(
-                description = playlist.comment?.trim()?.takeIf(String::isNotEmpty),
-                tracks = tracks,
-                // Untitled tracks' places are among the read tracks, the service's among all entries: the service's
-                // list is the one ordered by the playlist as the user sees it, so it leads.
-                unexported = unreadable.sortedBy { it.position } + untitled,
-            ),
-            restores = emptyList(),
-            updatedAt = now,
+        return PlaylistBackupContent(
+            description = playlist.comment?.trim()?.takeIf(String::isNotEmpty),
+            tracks = tracks,
+            // Untitled tracks' places are among the read tracks, the service's among all entries: the service's
+            // list is the one ordered by the playlist as the user sees it, so it leads.
+            unexported = unreadable.sortedBy { it.position } + untitled,
         )
     }
 

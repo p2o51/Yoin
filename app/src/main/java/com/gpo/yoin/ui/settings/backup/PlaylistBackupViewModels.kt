@@ -10,12 +10,14 @@ import com.gpo.yoin.data.backup.PlaylistBackupStore
 import com.gpo.yoin.data.backup.PlaylistRestoreRecord
 import com.gpo.yoin.data.backup.RestoreOutcome
 import com.gpo.yoin.data.backup.RestoreTarget
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.transfer.RestoreReview
 import com.gpo.yoin.data.transfer.ReviewRow
 import com.gpo.yoin.data.transfer.TrackResolution
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,6 +82,37 @@ sealed interface RestoreUiState {
     data class Failed(val target: RestoreTarget) : RestoreUiState
 }
 
+/** The review's search for one song on the target: what was asked, and what came back. */
+data class RestoreSearchState(
+    val position: Int,
+    val query: String,
+    val results: List<Track> = emptyList(),
+    val loading: Boolean = false,
+    /** The last search couldn't reach the target. */
+    val failed: Boolean = false,
+)
+
+/** Where a restore's progress shows outside the app: the notification's Live Update. */
+interface RestoreProgressSink {
+    fun matching(backup: PlaylistBackupRecord, target: RestoreTarget, done: Int, total: Int)
+
+    fun writing(backup: PlaylistBackupRecord, target: RestoreTarget, count: Int)
+
+    fun finished(backup: PlaylistBackupRecord, target: RestoreTarget, record: PlaylistRestoreRecord)
+
+    fun clear()
+
+    object None : RestoreProgressSink {
+        override fun matching(backup: PlaylistBackupRecord, target: RestoreTarget, done: Int, total: Int) = Unit
+
+        override fun writing(backup: PlaylistBackupRecord, target: RestoreTarget, count: Int) = Unit
+
+        override fun finished(backup: PlaylistBackupRecord, target: RestoreTarget, record: PlaylistRestoreRecord) = Unit
+
+        override fun clear() = Unit
+    }
+}
+
 sealed interface PlaylistBackupEvent {
     /** The backup was deleted from this page: close it. */
     data object Deleted : PlaylistBackupEvent
@@ -96,6 +129,9 @@ class PlaylistBackupViewModel(
     restoreTargets: Flow<List<RestoreTarget>>,
     private val match: suspend (PlaylistBackupRecord, RestoreTarget, (Int, Int) -> Unit) -> List<TrackResolution>,
     private val create: suspend (PlaylistBackupRecord, RestoreTarget, List<ReviewRow>) -> RestoreOutcome,
+    private val searchTarget: suspend (RestoreTarget, String) -> List<Track> = { _, _ -> emptyList() },
+    private val backUpNow: suspend (PlaylistBackupRecord) -> Unit = {},
+    private val progress: RestoreProgressSink = RestoreProgressSink.None,
 ) : ViewModel() {
 
     val uiState: StateFlow<PlaylistBackupUiState> = store.observe(backupId)
@@ -115,6 +151,13 @@ class PlaylistBackupViewModel(
     val events: SharedFlow<PlaylistBackupEvent> = _events.asSharedFlow()
 
     private var job: Job? = null
+
+    private val _search = MutableStateFlow<RestoreSearchState?>(null)
+    val search: StateFlow<RestoreSearchState?> = _search.asStateFlow()
+    private var searchJob: Job? = null
+
+    private val _backingUp = MutableStateFlow(false)
+    val backingUp: StateFlow<Boolean> = _backingUp.asStateFlow()
 
     private val backup: PlaylistBackupRecord?
         get() = (uiState.value as? PlaylistBackupUiState.Content)?.backup
@@ -145,15 +188,21 @@ class PlaylistBackupViewModel(
         _restore.value = RestoreUiState.Matching(target, done = 0, total = backup.trackCount)
         job = viewModelScope.launch {
             _restore.value = try {
+                progress.matching(backup, target, 0, backup.trackCount)
                 val resolutions = match(backup, target) { done, total ->
                     if (_restore.value is RestoreUiState.Matching) {
                         _restore.value = RestoreUiState.Matching(target, done, total)
+                        progress.matching(backup, target, done, total)
                     }
                 }
+                // Matching done: the review waits in the app, not in the notification.
+                progress.clear()
                 RestoreUiState.Review(target, RestoreReview.rows(resolutions))
             } catch (cancelled: CancellationException) {
+                progress.clear()
                 throw cancelled
             } catch (_: Exception) {
+                progress.clear()
                 RestoreUiState.Failed(target)
             }
         }
@@ -171,7 +220,9 @@ class PlaylistBackupViewModel(
         _restore.value = RestoreUiState.Writing(review.target, review)
         job = viewModelScope.launch {
             // Once started, the write and its history entry finish even if the page closes.
+            progress.writing(backup, review.target, RestoreReview.trackIdsToWrite(review.rows).size)
             val outcome = withContext(NonCancellable) { create(backup, review.target, review.rows) }
+            progress.finished(backup, review.target, outcome.record)
             _restore.value = RestoreUiState.Done(review.target, outcome.record)
         }
     }
@@ -180,8 +231,70 @@ class PlaylistBackupViewModel(
     fun cancelRestore() {
         if (_restore.value is RestoreUiState.Writing) return
         job?.cancel()
+        progress.clear()
+        closeSearch()
         _restore.value = RestoreUiState.Idle
         _sheetOpen.value = false
+    }
+
+    /** Opens the search for the song at [position] on the restore's target, starting from its title and artist. */
+    fun openSearch(position: Int, query: String) {
+        _search.value = RestoreSearchState(position = position, query = query)
+        runSearch(query, debounce = false)
+    }
+
+    fun runSearch(query: String, debounce: Boolean = true) {
+        val target = (_restore.value as? RestoreUiState.Review)?.target ?: return
+        val current = _search.value ?: return
+        val trimmed = query.trim()
+        _search.value = current.copy(query = query, loading = trimmed.isNotEmpty(), failed = false)
+        searchJob?.cancel()
+        if (trimmed.isEmpty()) return
+        searchJob = viewModelScope.launch {
+            if (debounce) delay(SEARCH_DEBOUNCE_MS)
+            val results = try {
+                searchTarget(target, trimmed)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            _search.value = _search.value?.takeIf { it.position == current.position }?.copy(
+                results = results.orEmpty(),
+                loading = false,
+                failed = results == null,
+            )
+        }
+    }
+
+    /** [track] becomes the searched row's song, checked; the search closes. */
+    fun pickSearchResult(track: Track) {
+        val position = _search.value?.position ?: return
+        updateReview { RestoreReview.pick(it, position, track) }
+        closeSearch()
+    }
+
+    fun closeSearch() {
+        searchJob?.cancel()
+        _search.value = null
+    }
+
+    /** Reads the playlist again now (the page's Back up now). */
+    fun backUpAgain() {
+        val backup = backup ?: return
+        if (_backingUp.value) return
+        _backingUp.value = true
+        viewModelScope.launch {
+            try {
+                backUpNow(backup)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Left as it was; the page keeps showing the last backup.
+            } finally {
+                _backingUp.value = false
+            }
+        }
     }
 
     fun delete() {
@@ -197,7 +310,15 @@ class PlaylistBackupViewModel(
         _restore.value = review.copy(rows = change(review.rows))
     }
 
-    class Factory(private val container: AppContainer, private val backupId: String) : ViewModelProvider.Factory {
+    private companion object {
+        const val SEARCH_DEBOUNCE_MS = 350L
+    }
+
+    class Factory(
+        private val container: AppContainer,
+        private val backupId: String,
+        private val progress: RestoreProgressSink = RestoreProgressSink.None,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val service: PlaylistBackupService = container.playlistBackupService
@@ -207,6 +328,9 @@ class PlaylistBackupViewModel(
                 restoreTargets = service.restoreTargets(),
                 match = { backup, target, onProgress -> service.match(backup, target, onProgress) },
                 create = { backup, target, rows -> service.create(backup, target, rows) },
+                searchTarget = { target, query -> service.search(target, query) },
+                backUpNow = { backup -> service.followNow(backup) },
+                progress = progress,
             ) as T
         }
     }

@@ -179,7 +179,7 @@
     <string name="detail_scrap_fact_about">关于</string>
     <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
     <!-- 歌单「备份歌单」（docs/playlist-transfer.md §7） -->
-    <string name="detail_playlist_backup_menu">备份歌单</string>
+    <string name="detail_playlist_backup_menu">云备份</string>
     <plurals name="detail_playlist_backup_done">
         <item quantity="other">已备份 %1$d 首</item>
     </plurals>

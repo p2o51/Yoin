@@ -34,7 +34,12 @@ class PlaylistBackupMessageTest {
         sourceProvider = MediaId.PROVIDER_SPOTIFY,
         sourceProfileLabel = "Chen",
         sourcePlaylistId = "spotify:p",
-        backedUpAt = 0L,
+        sourceProfileId = null,
+        playlistCreatedAt = null,
+        firstBackedUpAt = 0L,
+        lastBackedUpAt = 0L,
+        lastChangedAt = 0L,
+        sourceGoneAt = null,
         content = PlaylistBackupContent(
             tracks = List(tracks) { BackupTrack("T$it", sourceTrackId = "spotify:t$it") },
             unexported = List(unexported) { BackupUnexported(it, reason = "local_file") },

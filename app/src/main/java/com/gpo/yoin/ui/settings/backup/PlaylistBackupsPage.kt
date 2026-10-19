@@ -1,5 +1,10 @@
 package com.gpo.yoin.ui.settings.backup
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
@@ -110,12 +115,27 @@ private fun BackupRow(backup: PlaylistBackupRecord, nowMs: Long, onClick: () -> 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
-            Text(
-                text = formatBackupTime(backup.backedUpAt, nowMs, resources),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
+            // Following (a dot in the service's colour) or kept after its playlist went, then the last backup.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            if (backup.following) service.hue.tone().accent else MaterialTheme.colorScheme.outline,
+                            CircleShape,
+                        ),
+                )
+                Text(
+                    text = if (backup.following) {
+                        formatBackupTime(backup.lastBackedUpAt, nowMs, resources)
+                    } else {
+                        stringResource(R.string.playlist_backup_source_gone)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
             if (backup.unexportedCount > 0) {
                 Text(
                     text = pluralStringResource(
@@ -145,7 +165,12 @@ internal fun previewBackup(id: String = "b1", unexported: Int = 2, restores: Int
     sourceProvider = MediaId.PROVIDER_SPOTIFY,
     sourceProfileLabel = "Chen",
     sourcePlaylistId = "spotify:p1",
-    backedUpAt = 1_760_850_000_000L,
+    sourceProfileId = "p1",
+    playlistCreatedAt = "2024-03-01T10:00:00Z",
+    firstBackedUpAt = 1_760_600_000_000L,
+    lastBackedUpAt = 1_760_850_000_000L,
+    lastChangedAt = 1_760_800_000_000L,
+    sourceGoneAt = null,
     content = PlaylistBackupContent(
         tracks = listOf(
             BackupTrack("Entropy", listOf("Beach Bunny"), "Emotional Creature", 221, null, "spotify:t1"),

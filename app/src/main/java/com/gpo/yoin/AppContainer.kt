@@ -726,7 +726,7 @@ class AppContainer(private val context: Context) {
             }
         }
 
-        // v31 → v32: playlist backups (docs/playlist-transfer.md §7), one row per backup, synced as
+        // v31 → v32: playlist cloud backups (docs/playlist-transfer.md §7), one row per playlist, synced as
         // playlist_backup. Additive.
         val MIGRATION_31_32 = object : Migration(31, 32) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -738,7 +738,12 @@ class AppContainer(private val context: Context) {
                         `sourceProvider` TEXT NOT NULL,
                         `sourceProfileLabel` TEXT NOT NULL,
                         `sourcePlaylistId` TEXT NOT NULL,
-                        `backedUpAt` INTEGER NOT NULL,
+                        `sourceProfileId` TEXT,
+                        `playlistCreatedAt` TEXT,
+                        `firstBackedUpAt` INTEGER NOT NULL,
+                        `lastBackedUpAt` INTEGER NOT NULL,
+                        `lastChangedAt` INTEGER NOT NULL,
+                        `sourceGoneAt` INTEGER,
                         `trackCount` INTEGER NOT NULL,
                         `unexportedCount` INTEGER NOT NULL,
                         `contentJson` TEXT NOT NULL,
@@ -749,8 +754,8 @@ class AppContainer(private val context: Context) {
                     """.trimIndent(),
                 )
                 db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS `index_playlist_backups_backedUpAt` " +
-                        "ON `playlist_backups` (`backedUpAt`)",
+                    "CREATE INDEX IF NOT EXISTS `index_playlist_backups_lastChangedAt` " +
+                        "ON `playlist_backups` (`lastChangedAt`)",
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_playlist_backups_sourceProvider_sourcePlaylistId` " +

@@ -7,8 +7,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PlaylistBackupDao {
-    /** Newest first: Settings › Playlist backups. */
-    @Query("SELECT * FROM playlist_backups ORDER BY backedUpAt DESC, id")
+    /** Latest change first: Settings › Playlist cloud backup. */
+    @Query("SELECT * FROM playlist_backups ORDER BY lastChangedAt DESC, id")
     fun observeAll(): Flow<List<PlaylistBackup>>
 
     @Query("SELECT * FROM playlist_backups WHERE id = :id")
@@ -19,6 +19,13 @@ interface PlaylistBackupDao {
 
     @Query("SELECT * FROM playlist_backups ORDER BY id")
     suspend fun getAll(): List<PlaylistBackup>
+
+    /** The backup of [sourcePlaylistId] on [sourceProvider], if any (one per playlist; oldest first if a sync raced). */
+    @Query(
+        "SELECT * FROM playlist_backups WHERE sourceProvider = :sourceProvider AND sourcePlaylistId = :sourcePlaylistId " +
+            "ORDER BY firstBackedUpAt, id",
+    )
+    suspend fun findBySource(sourceProvider: String, sourcePlaylistId: String): List<PlaylistBackup>
 
     @Upsert
     suspend fun upsert(backup: PlaylistBackup)
