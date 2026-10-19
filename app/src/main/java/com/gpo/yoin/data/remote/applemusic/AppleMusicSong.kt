@@ -36,7 +36,9 @@ data class AppleMusicSong(
      * A catalog song that came with its own `library` relationship (the request included it), so
      * [libraryId] says whether it is in the user's library: present, it is; absent, it isn't.
      */
-    val libraryChecked: Boolean = false
+    val libraryChecked: Boolean = false,
+    /** A catalog song's ISRC, upper case; library songs carry none. */
+    val isrc: String? = null
 ) {
     fun toTrack(): Track = Track(
         id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, catalogId ?: "library:$resourceId"),
@@ -58,6 +60,7 @@ data class AppleMusicSong(
             catalogId?.let { put(EXTRA_CATALOG_ID, it) }
             if (catalogUnavailable) put(EXTRA_CATALOG_UNAVAILABLE, "true")
             if (libraryChecked) put(EXTRA_LIBRARY_CHECKED, "true")
+            isrc?.let { put(Track.EXTRA_ISRC, it) }
         }
     )
 
@@ -111,7 +114,9 @@ data class AppleMusicSong(
                 // An import answers the relationship empty as well, but names no catalog id: it stays an import.
                 catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true &&
                     catalogId != null,
-                libraryChecked = type == "songs" && libraryRelationship != null
+                libraryChecked = type == "songs" && libraryRelationship != null,
+                isrc = (attributes?.string("isrc") ?: catalog?.get("attributes")?.jsonObject?.string("isrc"))
+                    ?.trim()?.uppercase()?.takeIf(String::isNotEmpty)
             )
         }
 

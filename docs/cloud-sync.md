@@ -34,6 +34,7 @@ ChatGPT 讨论里的方向（appDataFolder + 本地优先 + 字段白名单 + �
 | 你改过的专辑标题 | 按音乐账号 | 最后修改为准，始终优先于 AI 标题；「恢复 AI 标题」会同步 |
 | About 和 Ask Gemini（含你自己问的问题） | 全局 | 每条带生成时的语言，只写进同语言的设备；切换语言清表不会同步成删除，换到那个语言后自动补回 |
 | 账号描述（服务类型、名称、Subsonic「用户名 @ 主机」） | 全局 | 用来在新设备上提示「Drive 里有这些账号的数据」 |
+| 歌单备份（歌名/艺人/专辑/时长/ISRC/原 ID、没能备份的条目和原因、恢复记录；见 `docs/playlist-transfer.md` §7） | 全局（`playlist_backup`，artifacts 分片） | 删除会同步（墓碑）；两台设备同时改，后改的为准；一边删、另一边同时恢复了它，**留着**（备份删了就没法重做） |
 
 **不同步**：密码、Token、API Key、Apple Music 服务地址、当前激活的账号、头像、播放历史/活动记录（每台设备各自保留）、各种缓存、手打的歌词（v1 暂不；从搜索面板选的歌词会随 AI 译文的快照带过去，带「用户选择」标记）。
 
@@ -42,7 +43,7 @@ ChatGPT 讨论里的方向（appDataFolder + 本地优先 + 字段白名单 + �
 ```
 Drive appDataFolder（隐藏，只有 Yoin 能读写）
   yoin-state-<设备ID>.json.gz            每台设备一份：笔记/评分/布局/设置/账号描述 + 墓碑
-  yoin-artifacts-<设备ID>-<0..3>.json.gz  每台设备四份分片：AI 翻译
+  yoin-artifacts-<设备ID>-<0..3>.json.gz  每台设备四份分片：AI 翻译、About/Ask、歌单备份
   yoin-reset-<时间>-<设备ID>.json         「删除云端数据」留下的标记
 ```
 

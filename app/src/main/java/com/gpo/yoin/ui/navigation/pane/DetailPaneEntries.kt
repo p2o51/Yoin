@@ -337,6 +337,7 @@ internal fun PlaylistPaneEntry(
     )
     val uiState by viewModel.uiState.collectAsState()
     val notedSongIds by viewModel.notedSongIds.collectAsState()
+    val backingUp by viewModel.backingUp.collectAsState()
     val content = uiState as? PlaylistDetailUiState.Content
     val currentOnMessage by rememberUpdatedState(onMessage)
     val currentOnBack by rememberUpdatedState(onBack)
@@ -344,6 +345,10 @@ internal fun PlaylistPaneEntry(
     // successful delete leaves the column.
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { message -> currentOnMessage(message.asString(context)) }
+    }
+    // A backup made: the shell's snackbar takes text only, so the column says it without View.
+    LaunchedEffect(viewModel) {
+        viewModel.backedUp.collect { done -> currentOnMessage(done.message.asString(context)) }
     }
     LaunchedEffect(viewModel) {
         viewModel.deleted.collect { currentOnBack() }
@@ -413,6 +418,8 @@ internal fun PlaylistPaneEntry(
         onRetry = viewModel::retry,
         onRename = viewModel::rename,
         onDelete = viewModel::delete,
+        onBackUp = viewModel::backUp.takeIf { viewModel.canBackUp },
+        backingUp = backingUp,
         onShare = share,
         isPlaying = playback.isPlaying,
         playbackSignal = playback.playbackSignal,

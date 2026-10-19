@@ -80,6 +80,7 @@ object ServiceFeatureCatalog {
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE,
+            Capability.PLAYLIST_IMPORT,
             Capability.LYRICS,
         ),
     )
@@ -106,6 +107,7 @@ object ServiceFeatureCatalog {
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE,
+            Capability.PLAYLIST_IMPORT,
         ),
     )
 
@@ -124,6 +126,10 @@ object ServiceFeatureCatalog {
             Capability.LIBRARY_ADD,
             Capability.LIBRARY_SONGS,
             Capability.PLAYLISTS_READ,
+            // A new library playlist with songs in it, the end of a copy from
+            // another profile. Not PLAYLISTS_WRITE: Apple's API has no rename,
+            // delete or remove for them (docs/playlist-transfer.md).
+            Capability.PLAYLIST_IMPORT,
         ),
     )
     val local = ServiceFeatures(

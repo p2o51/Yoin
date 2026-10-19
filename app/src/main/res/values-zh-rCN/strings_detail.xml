@@ -178,4 +178,14 @@
     <string name="track_menu_go_to_artist">前往艺术家</string>
     <string name="track_menu_share">分享</string>
     <string name="track_menu_view_in_scrapbook">在剪贴簿里查看</string>
+    <!-- 歌单「备份歌单」（docs/playlist-transfer.md §7） -->
+    <string name="detail_playlist_backup_menu">云备份</string>
+    <plurals name="detail_playlist_backup_done">
+        <item quantity="other">已备份 %1$d 首</item>
+    </plurals>
+    <plurals name="detail_playlist_backup_partial">
+        <item quantity="other">已备份 %1$d / %2$d 首</item>
+    </plurals>
+    <string name="detail_playlist_backup_failed">歌单备份失败</string>
+    <string name="detail_playlist_backup_view">查看</string>
 </resources>

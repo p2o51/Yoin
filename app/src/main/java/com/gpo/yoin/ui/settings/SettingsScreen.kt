@@ -120,6 +120,7 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
 import com.gpo.yoin.ui.settings.service.SetupService
+import com.gpo.yoin.ui.settings.backup.PlaylistBackupsPageContent
 import com.gpo.yoin.ui.settings.sync.CloudSyncActivity
 import com.gpo.yoin.ui.settings.sync.CloudSyncSettingsRow
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -451,6 +452,13 @@ fun SettingsContent(
                                             item(key = "cloud-sync", paintsOwnSegment = listDetail) {
                                                 if (listDetail) SelectableSegment(selected = cloudSyncSelected) { row() } else row()
                                             }
+                                        }
+                                        item(key = SettingsFeature.PlaylistBackups, paintsOwnSegment = listDetail) {
+                                            PlaylistBackupsItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.PlaylistBackups,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.PlaylistBackups) },
+                                            )
                                         }
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
@@ -1401,7 +1409,7 @@ private fun NeoDbItem(
 private fun FeaturePageRow(
     icon: ImageVector,
     title: String,
-    summary: String,
+    summary: String?,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -1473,7 +1481,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, Tips }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, Tips, PlaylistBackups }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1509,6 +1517,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
+        SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1563,6 +1572,9 @@ internal fun SettingsFeatureScreen(
                         ScrollEdgePageContent()
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
+                    } else if (feature == SettingsFeature.PlaylistBackups) {
+                        // Its own ViewModel over the backups table: no need to wait for the Settings state.
+                        PlaylistBackupsPageContent()
                     } else if (content == null) {
                         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             YoinLoadingIndicator()
@@ -1587,7 +1599,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.Tips -> Unit
+                                    SettingsFeature.ScrollEdge, SettingsFeature.Tips, SettingsFeature.PlaylistBackups -> Unit
                                 }
                             }
                         }
@@ -1633,6 +1645,27 @@ private fun TipsItem(
         FeaturePageRow(icon = YoinSymbols.Sparkle, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.Sparkle, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Storage › Playlist backups: the backups saved from playlist pages (docs/playlist-transfer.md §7). */
+@Composable
+private fun PlaylistBackupsItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_playlist_backups_title)
+    if (listDetail) {
+        FeaturePageRow(
+            icon = YoinSymbols.Playlist,
+            title = title,
+            summary = null,
+            selected = selected,
+            onClick = onOpenPage,
+        )
+    } else {
+        SettingsItem(icon = YoinSymbols.Playlist, title = title, onClick = onOpenPage)
     }
 }
 

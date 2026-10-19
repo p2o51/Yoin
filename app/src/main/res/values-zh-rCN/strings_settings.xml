@@ -277,6 +277,7 @@
     <string name="settings_sync_what_ratings">歌曲与专辑评分、专辑评论</string>
     <string name="settings_sync_what_home">首页布局</string>
     <string name="settings_sync_what_translations">AI 歌词翻译</string>
+    <string name="settings_sync_what_playlist_backups">歌单云备份</string>
     <string name="settings_sync_what_settings">翻译语言、Spotify Client ID 与滚动边缘样式</string>
     <string name="settings_sync_what_accounts">账号名称、服务器地址</string>
     <string name="settings_sync_what_stays">仅保存在本地</string>

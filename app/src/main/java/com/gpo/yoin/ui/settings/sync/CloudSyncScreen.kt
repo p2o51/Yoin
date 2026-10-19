@@ -1217,6 +1217,7 @@ private fun WhatSyncsItem() {
                 stringResource(R.string.settings_sync_what_ratings),
                 stringResource(R.string.settings_sync_what_home),
                 stringResource(R.string.settings_sync_what_translations),
+                stringResource(R.string.settings_sync_what_playlist_backups),
                 stringResource(R.string.settings_sync_what_settings),
                 stringResource(R.string.settings_sync_what_accounts),
             ),

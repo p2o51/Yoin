@@ -220,4 +220,16 @@
     <string name="track_menu_go_to_artist">Go to artist</string>
     <string name="track_menu_share">Share</string>
     <string name="track_menu_view_in_scrapbook">View in Scrapbook</string>
+    <!-- Playlist "Back up" (docs/playlist-transfer.md §7) -->
+    <string name="detail_playlist_backup_menu">Cloud backup</string>
+    <plurals name="detail_playlist_backup_done">
+        <item quantity="one">Backed up %1$d song</item>
+        <item quantity="other">Backed up %1$d songs</item>
+    </plurals>
+    <plurals name="detail_playlist_backup_partial">
+        <item quantity="one">Backed up %1$d of %2$d song</item>
+        <item quantity="other">Backed up %1$d of %2$d songs</item>
+    </plurals>
+    <string name="detail_playlist_backup_failed">Couldn\'t back up the playlist</string>
+    <string name="detail_playlist_backup_view">View</string>
 </resources>
