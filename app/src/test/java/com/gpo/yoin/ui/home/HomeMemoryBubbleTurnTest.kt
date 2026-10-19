@@ -108,28 +108,45 @@ class HomeMemoryBubbleTurnTest {
         assertEquals(BubbleReason.Idle, back.after(MemoryBubbleCue.IdleElapsed).reason)
     }
 
-    // ---- The idle reminder: at most once per time in the foreground ----
+    // ---- Left alone, it speaks again each time it has gone quiet (owner 2026-10-17) ----
 
     @Test
-    fun should_remindOnce_when_leftAloneAgainInTheSameForeground() {
+    fun should_speakAgain_when_leftAloneAfterItWent() {
         assertEquals(BubbleReason.Idle, idleReminder.reason)
         val gone = idleReminder.after(MemoryBubbleCue.DwellOver)
-        assertEquals(gone, gone.after(MemoryBubbleCue.IdleElapsed))
-        // Touched, covered by a detail page, back again: still used up.
+        assertEquals(BubbleReason.Idle, gone.after(MemoryBubbleCue.IdleElapsed).reason)
+        // Touched, covered by a detail page, back again: it may still speak.
         val back = gone.after(MemoryBubbleCue.Touch).after(MemoryBubbleCue.OutOfReach)
-        assertNull(back.after(MemoryBubbleCue.IdleElapsed).reason)
+        assertEquals(BubbleReason.Idle, back.after(MemoryBubbleCue.IdleElapsed).reason)
     }
 
     @Test
-    fun should_notRemind_when_newsAlreadySpokeThisForeground() {
+    fun should_speakAfterTheNews_when_leftAloneOnceTheNewsWent() {
         val told = MemoryBubbleTurn().after(MemoryBubbleCue.News).after(MemoryBubbleCue.DwellOver)
-        assertNull(told.after(MemoryBubbleCue.IdleElapsed).reason)
+        assertEquals(BubbleReason.Idle, told.after(MemoryBubbleCue.IdleElapsed).reason)
     }
 
     @Test
-    fun should_stillTellNews_when_theReminderIsUsedUp() {
-        val gone = idleReminder.after(MemoryBubbleCue.DwellOver)
-        assertEquals(BubbleReason.News, gone.after(MemoryBubbleCue.News).reason)
+    fun should_notTalkOverItself_when_theIdleWindowElapsesWhileSpeaking() {
+        val news = MemoryBubbleTurn().after(MemoryBubbleCue.News)
+        assertEquals(BubbleReason.News, news.after(MemoryBubbleCue.IdleElapsed).reason)
+        assertEquals(idleReminder, idleReminder.after(MemoryBubbleCue.IdleElapsed))
+    }
+
+    @Test
+    fun should_stillTellNews_when_chattering() {
+        assertEquals(BubbleReason.News, idleReminder.after(MemoryBubbleCue.News).reason)
+    }
+
+    @Test
+    fun should_pickTheIdleRhythmWithinTheOwnersRanges_when_asked() {
+        val random = kotlin.random.Random(7)
+        repeat(200) {
+            val idle = MemoryBubbleIdleRangeMs.pick(random)
+            assertTrue(idle in 4_000L..5_000L)
+            val dwell = MemoryBubbleChatterDwellRangeMs.pick(random)
+            assertTrue(dwell in 2_000L..3_000L)
+        }
     }
 
     @Test
@@ -171,7 +188,7 @@ class HomeMemoryBubbleTurnTest {
             awaitMemoryBubbleIdle(MutableStateFlow(true), touches, idleMs = MemoryBubbleIdleMs)
             elapsed = true
         }
-        step(10_000L)
+        step(MemoryBubbleIdleMs - 1_000L)
         touches.tryEmit(Unit)
         step(MemoryBubbleIdleMs - 1)
         assertFalse(elapsed)
@@ -187,7 +204,7 @@ class HomeMemoryBubbleTurnTest {
             awaitMemoryBubbleIdle(readable, MutableSharedFlow(), idleMs = MemoryBubbleIdleMs)
             elapsed = true
         }
-        step(14_000L)
+        step(MemoryBubbleIdleMs - 1_000L)
         // A detail page over Home: the clock doesn't run under it.
         readable.value = false
         step(60_000L)

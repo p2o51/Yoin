@@ -62,6 +62,7 @@ class SpotifyOAuthContract : ActivityResultContract<String?, SpotifyOAuthResult>
                 refreshToken = refreshToken,
                 expiresAtEpochMs = expiresAt,
                 scopes = scopes,
+                clientId = intent.getStringExtra(EXTRA_CLIENT_ID),
             ),
             displayName = displayName.ifBlank { userId },
             userId = userId,
@@ -78,6 +79,7 @@ class SpotifyOAuthContract : ActivityResultContract<String?, SpotifyOAuthResult>
         internal const val EXTRA_DISPLAY_NAME = "yoin.spotify.display_name"
         internal const val EXTRA_USER_ID = "yoin.spotify.user_id"
         internal const val EXTRA_AVATAR_URL = "yoin.spotify.avatar_url"
+        internal const val EXTRA_CLIENT_ID = "yoin.spotify.client_id"
         internal const val EXTRA_FAILURE_MESSAGE = "yoin.spotify.failure"
         internal const val EXTRA_TARGET_PROFILE_ID = "yoin.spotify.target_profile_id"
     }

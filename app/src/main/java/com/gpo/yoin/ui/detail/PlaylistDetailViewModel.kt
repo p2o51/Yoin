@@ -25,12 +25,16 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.gpo.yoin.data.backup.PlaylistBackupRecord
+import kotlinx.coroutines.CancellationException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaylistDetailViewModel(
     private val playlistId: String,
     private val repository: YoinRepository,
     private val onPlaylistMutated: () -> Unit = {},
+    // "Back up" (PlaylistBackupService.backUp): reads the playlist whole and saves a backup.
+    private val backUpPlaylist: (suspend (MediaId) -> PlaylistBackupRecord)? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
@@ -43,6 +47,12 @@ class PlaylistDetailViewModel(
     private val _messages = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
     /** One-shot toasts (rename/delete/remove result). */
     val messages: SharedFlow<UiText> = _messages.asSharedFlow()
+
+    /** A backup made: its snackbar carries View, which opens the backup ([backupId]). */
+    data class BackedUp(val message: UiText, val backupId: String)
+
+    private val _backedUp = MutableSharedFlow<BackedUp>(extraBufferCapacity = 1)
+    val backedUp: SharedFlow<BackedUp> = _backedUp.asSharedFlow()
 
     private val _deleted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /**
@@ -67,8 +77,43 @@ class PlaylistDetailViewModel(
         .map { ids -> ids.mapTo(linkedSetOf(), MediaId::toString) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    private val _backingUp = MutableStateFlow(false)
+
+    /** A backup is being read; the menu row waits for it. */
+    val backingUp: StateFlow<Boolean> = _backingUp.asStateFlow()
+
+    /** Whether this page offers "Back up". */
+    val canBackUp: Boolean get() = backUpPlaylist != null
+
     init {
         loadPlaylist()
+    }
+
+    /**
+     * Saves the playlist as a new backup (docs/playlist-transfer.md §7) and
+     * says on the snackbar how much of it came along.
+     */
+    fun backUp() {
+        val backUp = backUpPlaylist ?: return
+        if (_backingUp.value) return
+        val id = MediaId.parseOrNull(playlistId) ?: return
+        _backingUp.value = true
+        viewModelScope.launch {
+            val backup = try {
+                backUp(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } finally {
+                _backingUp.value = false
+            }
+            if (backup == null) {
+                _messages.tryEmit(UiText.Res(R.string.detail_playlist_backup_failed))
+            } else {
+                _backedUp.tryEmit(BackedUp(backupMessage(backup), backup.id))
+            }
+        }
     }
 
     fun getPlaylistSongs(): List<Track> = playlistSongs
@@ -214,6 +259,17 @@ class PlaylistDetailViewModel(
                 playlistId = playlistId,
                 repository = container.repository,
                 onPlaylistMutated = container::notifyPlaylistMutation,
+                backUpPlaylist = container.playlistBackupService::backUp,
             ) as T
+    }
+}
+
+/** The snackbar after a backup: how many songs it holds, of how many entries when some couldn't come along. */
+internal fun backupMessage(backup: PlaylistBackupRecord): UiText {
+    val total = backup.trackCount + backup.unexportedCount
+    return if (backup.unexportedCount == 0) {
+        UiText.Plural(R.plurals.detail_playlist_backup_done, backup.trackCount, listOf(backup.trackCount))
+    } else {
+        UiText.Plural(R.plurals.detail_playlist_backup_partial, total, listOf(backup.trackCount, total))
     }
 }

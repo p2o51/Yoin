@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.togetherWith
@@ -151,9 +150,8 @@ fun AlbumDetailScreen(
     onResumed: () -> Unit = {},
     notedSongIds: Set<String> = emptySet(),
     currentTrackId: String? = null,
-    expandedSongId: String? = null,
-    expandedNoteBundle: AlbumExpandedNoteBundle? = null,
-    onToggleExpandedSong: (songId: String) -> Unit = {},
+    // A song row's long-press menu (Play next, Add to queue, … ); null leaves rows without one.
+    trackMenu: TrackMenuHost? = null,
     onRatingCommit: (Float) -> Unit = {},
     onReviewDraftChange: (String) -> Unit = {},
     // The rate sheet's life and its NeoDB line (owner R3): opened → read where
@@ -291,9 +289,7 @@ fun AlbumDetailScreen(
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
                                     isPlaying = isPlaying,
-                                    expandedSongId = expandedSongId,
-                                    expandedNoteBundle = expandedNoteBundle,
-                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    trackMenu = trackMenu,
                                     onRatingCommit = onRatingCommit,
                                     onReviewDraftChange = onReviewDraftChange,
                                     neoDb = neoDb,
@@ -379,9 +375,7 @@ private fun AlbumDetailContent(
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
-    expandedSongId: String?,
-    expandedNoteBundle: AlbumExpandedNoteBundle?,
-    onToggleExpandedSong: (songId: String) -> Unit,
+    trackMenu: TrackMenuHost?,
     onRatingCommit: (Float) -> Unit,
     onReviewDraftChange: (String) -> Unit,
     neoDb: AlbumNeoDbSync,
@@ -442,6 +436,21 @@ private fun AlbumDetailContent(
     // The scrapbook's emblem stamps once per album page (not per swipe back and forth).
     var scrapbookStamped by rememberSaveable(content.albumId) { mutableStateOf(false) }
     val pageSpec = YoinMotion.defaultSpatialSpec<Float>()
+    // "View in Scrapbook" (a song's sheet): page 2, with that song brought into view there.
+    var scrapbookFocusSongId by remember { mutableStateOf<String?>(null) }
+    val viewInScrapbook: (String) -> Unit = { songId ->
+        scrapbookFocusSongId = songId
+        pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
+    }
+    val pageTrackMenu = remember(trackMenu, hasScrapbook) {
+        if (hasScrapbook) trackMenu?.withViewInScrapbook { viewInScrapbook(it) } else trackMenu
+    }
+    // The same from Now Playing's sheet: it opened this album with a ScrapbookFocusRequest.
+    val pendingFocus = ScrapbookFocusRequest.pending
+    LaunchedEffect(pendingFocus, hasScrapbook, content.songs) {
+        if (pendingFocus == null || !hasScrapbook) return@LaunchedEffect
+        ScrapbookFocusRequest.takeFor(content.songs.map { it.id })?.let(viewInScrapbook)
+    }
 
     // Back always finishes the Activity (native cross-Activity predictive back):
     // the pulled-up track list is NOT a back stop, so one back press leaves the
@@ -725,11 +734,9 @@ private fun AlbumDetailContent(
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
                                     isPlaying = isPlaying,
-                                    expandedSongId = expandedSongId,
-                                    expandedNoteBundle = expandedNoteBundle,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             } else if (reveal == null) {
@@ -740,11 +747,9 @@ private fun AlbumDetailContent(
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
                                     isPlaying = isPlaying,
-                                    expandedSongId = expandedSongId,
-                                    expandedNoteBundle = expandedNoteBundle,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             } else if (landscape) {
@@ -757,11 +762,9 @@ private fun AlbumDetailContent(
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
                                     isPlaying = isPlaying,
-                                    expandedSongId = expandedSongId,
-                                    expandedNoteBundle = expandedNoteBundle,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             } else {
@@ -775,11 +778,9 @@ private fun AlbumDetailContent(
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
                                     isPlaying = isPlaying,
-                                    expandedSongId = expandedSongId,
-                                    expandedNoteBundle = expandedNoteBundle,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
-                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    trackMenu = pageTrackMenu,
                                     onEditComment = { showEditSheet = true },
                                 )
                             }
@@ -804,6 +805,8 @@ private fun AlbumDetailContent(
                             settled = pagerState.settledPage == 1,
                             stamped = scrapbookStamped,
                             onStamped = { scrapbookStamped = true },
+                            focusSongId = scrapbookFocusSongId,
+                            onFocused = { scrapbookFocusSongId = null },
                         )
                     }
                 }
@@ -934,7 +937,7 @@ private fun AlbumTopHeader(
  * touch targets and no semantics of its own.
  */
 @Composable
-private fun AlbumBarHeaderTwin(
+internal fun AlbumBarHeaderTwin(
     albumName: String,
     artistName: String,
     year: Int?,
@@ -1006,11 +1009,9 @@ private fun AlbumOverviewPage(
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
-    expandedSongId: String?,
-    expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
-    onToggleExpandedSong: (songId: String) -> Unit,
+    trackMenu: TrackMenuHost?,
     onEditComment: () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -1069,11 +1070,9 @@ private fun AlbumOverviewPage(
                             notedSongIds = notedSongIds,
                             currentTrackId = currentTrackId,
                             isPlaying = isPlaying,
-                            expandedSongId = expandedSongId,
-                            expandedNoteBundle = expandedNoteBundle,
                             onSongClick = onSongClick,
                             onToggleStar = onToggleStar,
-                            onToggleExpandedSong = onToggleExpandedSong,
+                            trackMenu = trackMenu,
                             listState = listState,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1295,11 +1294,9 @@ private fun AlbumTrackList(
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
-    expandedSongId: String?,
-    expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
-    onToggleExpandedSong: (songId: String) -> Unit,
+    trackMenu: TrackMenuHost?,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     // >=Medium overview only: a leading item (the hero row) that scrolls away
@@ -1311,6 +1308,13 @@ private fun AlbumTrackList(
     footer: (@Composable () -> Unit)? = null,
 ) {
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // The song whose long-press sheet is up (null = none).
+    var menuSongId by remember { mutableStateOf<String?>(null) }
+    if (trackMenu != null) {
+        menuSongId?.let { songId ->
+            TrackMenuSheet(songId = songId, onDismissRequest = { menuSongId = null }, host = trackMenu)
+        }
+    }
     LazyColumn(
         state = listState,
         // The seam is the list's top edge (the docked band's lower edge in the
@@ -1340,27 +1344,20 @@ private fun AlbumTrackList(
         // Index-qualified: a provider can list the same track twice on one
         // album (seen on Apple Music), and a repeated lazy key is fatal.
         itemsIndexed(content.songs, key = { index, song -> "${song.id}#$index" }) { index, song ->
-            Column {
-                AlbumTrackRow(
-                    index = index,
-                    song = song,
-                    hasNote = song.id in notedSongIds,
-                    isNowPlaying = song.id == currentTrackId,
-                    isPlaying = isPlaying,
-                    accent = accent,
-                    onClick = { onSongClick(song.id) },
-                    onLongClick = { onToggleExpandedSong(song.id) },
-                    onToggleStar = { onToggleStar(song.id) },
-                    showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
-                    modifier = Modifier.seamFade(),
-                )
-                AnimatedVisibility(visible = expandedSongId == song.id) {
-                    AlbumSongNotes(
-                        bundle = expandedNoteBundle?.takeIf { it.songId == song.id },
-                        modifier = Modifier.padding(start = 38.dp, end = 14.dp, bottom = 10.dp),
-                    )
-                }
-            }
+            AlbumTrackRow(
+                index = index,
+                song = song,
+                hasNote = song.id in notedSongIds,
+                isNowPlaying = song.id == currentTrackId,
+                isPlaying = isPlaying,
+                accent = accent,
+                onClick = { onSongClick(song.id) },
+                // Long-press opens the song sheet; notes live on the Scrapbook page now.
+                onLongClick = { if (trackMenu != null) menuSongId = song.id },
+                onToggleStar = { onToggleStar(song.id) },
+                showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
+                modifier = Modifier.seamFade(),
+            )
         }
         if (footer != null) {
             item(key = "album-liner-notes") {
@@ -1393,11 +1390,9 @@ private fun AlbumMediumOverview(
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
-    expandedSongId: String?,
-    expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
-    onToggleExpandedSong: (songId: String) -> Unit,
+    trackMenu: TrackMenuHost?,
     onEditComment: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1407,11 +1402,9 @@ private fun AlbumMediumOverview(
         notedSongIds = notedSongIds,
         currentTrackId = currentTrackId,
         isPlaying = isPlaying,
-        expandedSongId = expandedSongId,
-        expandedNoteBundle = expandedNoteBundle,
         onSongClick = onSongClick,
         onToggleStar = onToggleStar,
-        onToggleExpandedSong = onToggleExpandedSong,
+        trackMenu = trackMenu,
         listState = listState,
         // Content container carries the width cap (backgrounds stay full-bleed
         // upstream); the 16dp inset mirrors the Compact list's content Box.
@@ -1472,11 +1465,9 @@ private fun AlbumWideOverview(
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
-    expandedSongId: String?,
-    expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
-    onToggleExpandedSong: (songId: String) -> Unit,
+    trackMenu: TrackMenuHost?,
     onEditComment: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1531,11 +1522,9 @@ private fun AlbumWideOverview(
             notedSongIds = notedSongIds,
             currentTrackId = currentTrackId,
             isPlaying = isPlaying,
-            expandedSongId = expandedSongId,
-            expandedNoteBundle = expandedNoteBundle,
             onSongClick = onSongClick,
             onToggleStar = onToggleStar,
-            onToggleExpandedSong = onToggleExpandedSong,
+            trackMenu = trackMenu,
             listState = listState,
             modifier = Modifier
                 .weight(1f)
@@ -1566,11 +1555,9 @@ private fun AlbumLandscapeOverview(
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
-    expandedSongId: String?,
-    expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
-    onToggleExpandedSong: (songId: String) -> Unit,
+    trackMenu: TrackMenuHost?,
     onEditComment: () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -1594,11 +1581,9 @@ private fun AlbumLandscapeOverview(
                 notedSongIds = notedSongIds,
                 currentTrackId = currentTrackId,
                 isPlaying = isPlaying,
-                expandedSongId = expandedSongId,
-                expandedNoteBundle = expandedNoteBundle,
                 onSongClick = onSongClick,
                 onToggleStar = onToggleStar,
-                onToggleExpandedSong = onToggleExpandedSong,
+                trackMenu = trackMenu,
                 listState = listState,
                 modifier = Modifier
                     .fillMaxSize()
@@ -1672,55 +1657,6 @@ private fun AlbumLandscapeOverview(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AlbumSongNotes(
-    bundle: AlbumExpandedNoteBundle?,
-    modifier: Modifier = Modifier,
-) {
-    // null = the Room flow hasn't emitted for this song yet — hold a quiet
-    // fixed-height slot instead of flashing the "no notes" story while loading.
-    if (bundle == null) {
-        Spacer(modifier = modifier.height(20.dp))
-        return
-    }
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.detail_album_notes),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (bundle.primaryNotes.isEmpty()) {
-            Text(
-                text = stringResource(R.string.detail_album_no_notes),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            bundle.primaryNotes.forEach { note ->
-                Text(
-                    text = note.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-        bundle.crossProviderNotes.forEach { note ->
-            Text(
-                text = stringResource(
-                    R.string.detail_album_note_cross,
-                    note.providerLabel.asString(),
-                    note.content,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

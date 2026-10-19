@@ -120,6 +120,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_28_29,
                 MIGRATION_29_30,
                 MIGRATION_30_31,
+                MIGRATION_31_32,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -408,6 +409,15 @@ class AppContainer(private val context: Context) {
         }
     }
 
+    /** Playlist backups (docs/playlist-transfer.md §7): kept in Room, synced with Cloud sync. */
+    val playlistBackupStore: com.gpo.yoin.data.backup.PlaylistBackupStore by lazy {
+        com.gpo.yoin.data.backup.PlaylistBackupStore(database)
+    }
+
+    /** Backs a playlist up from the playlist page; restores one from Settings › Playlist backups. */
+    val playlistBackupService: com.gpo.yoin.data.backup.PlaylistBackupService by lazy {
+        com.gpo.yoin.data.backup.PlaylistBackupService(profileManager, playlistBackupStore)
+    }
 
     /** Optional Google Drive sync (docs/cloud-sync.md). Constructing it does no I/O. */
     val cloudSync: CloudSyncManager by lazy {
@@ -713,6 +723,45 @@ class AppContainer(private val context: Context) {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_import_items_batchId` ON `import_items` (`batchId`)")
                 createActivityEventsCapTrigger(db)
+            }
+        }
+
+        // v31 → v32: playlist cloud backups (docs/playlist-transfer.md §7), one row per playlist, synced as
+        // playlist_backup. Additive.
+        val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `playlist_backups` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `sourceProvider` TEXT NOT NULL,
+                        `sourceProfileLabel` TEXT NOT NULL,
+                        `sourcePlaylistId` TEXT NOT NULL,
+                        `sourceProfileId` TEXT,
+                        `playlistCreatedAt` TEXT,
+                        `firstBackedUpAt` INTEGER NOT NULL,
+                        `lastBackedUpAt` INTEGER NOT NULL,
+                        `lastChangedAt` INTEGER NOT NULL,
+                        `sourceGoneAt` INTEGER,
+                        `trackCount` INTEGER NOT NULL,
+                        `unexportedCount` INTEGER NOT NULL,
+                        `contentJson` TEXT NOT NULL,
+                        `versionsJson` TEXT NOT NULL,
+                        `restoresJson` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_playlist_backups_lastChangedAt` " +
+                        "ON `playlist_backups` (`lastChangedAt`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_playlist_backups_sourceProvider_sourcePlaylistId` " +
+                        "ON `playlist_backups` (`sourceProvider`, `sourcePlaylistId`)",
+                )
             }
         }
 

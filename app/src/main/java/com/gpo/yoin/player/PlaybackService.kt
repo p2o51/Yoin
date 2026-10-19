@@ -92,6 +92,7 @@ class PlaybackService : MediaSessionService() {
         val actions = SessionQuickActions(this, { container.playbackManager }, { container.repository })
         quickActions = actions
         mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(OpenNowPlayingActivity.pendingIntent(this))
             .setCallback(actions.callback)
             .build()
             .also(actions::attach)
