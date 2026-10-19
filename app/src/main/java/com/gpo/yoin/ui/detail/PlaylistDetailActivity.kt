@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -142,6 +143,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                     factory = NowPlayingViewModel.Factory(app.container),
                 )
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+                // The system media controls' tap, while this page is in front.
+                TakeNowPlayingRequests(app.container.experienceSessionStore) { nowPlayingOpen = true }
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)

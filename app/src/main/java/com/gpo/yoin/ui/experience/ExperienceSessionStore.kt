@@ -117,6 +117,24 @@ class ExperienceSessionStore {
         }
     }
 
+    private val _nowPlayingRequest = kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    /**
+     * One-shot "open Now Playing" asks from outside the UI (the system media
+     * controls, OpenNowPlayingActivity): 0 = none. The screen that is
+     * resumed when one arrives takes it ([consumeNowPlayingRequest]) — the
+     * shell, or the detail page on top of it, each with its own player.
+     */
+    val nowPlayingRequest: kotlinx.coroutines.flow.StateFlow<Long> = _nowPlayingRequest
+
+    fun requestNowPlaying() {
+        _nowPlayingRequest.value = System.nanoTime()
+    }
+
+    /** True for exactly one caller per request. */
+    fun consumeNowPlayingRequest(token: Long): Boolean =
+        token != 0L && _nowPlayingRequest.compareAndSet(token, 0L)
+
     fun setNowPlayingExpanded(expanded: Boolean) {
         _state.update { current -> current.copy(nowPlayingExpanded = expanded) }
     }

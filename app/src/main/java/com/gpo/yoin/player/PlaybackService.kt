@@ -1,6 +1,5 @@
 package com.gpo.yoin.player
 
-import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -20,7 +19,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.remote.SubsonicCacheKey
@@ -93,14 +91,8 @@ class PlaybackService : MediaSessionService() {
         val container = (application as YoinApplication).container
         val actions = SessionQuickActions(this, { container.playbackManager }, { container.repository })
         quickActions = actions
-        val openApp = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
         mediaSession = MediaSession.Builder(this, player)
-            .setSessionActivity(openApp)
+            .setSessionActivity(OpenNowPlayingActivity.pendingIntent(this))
             .setCallback(actions.callback)
             .build()
             .also(actions::attach)

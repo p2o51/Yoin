@@ -62,6 +62,14 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_memory_info" />
         </receiver>
+        <!-- The media notification / lock screen player's tap: Yoin as it was, Now Playing open. -->
+        <activity
+            android:name=".player.OpenNowPlayingActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Yoin.WidgetTrampoline" />
         <activity
             android:name=".widget.WidgetPlayActivity"
             android:exported="false"

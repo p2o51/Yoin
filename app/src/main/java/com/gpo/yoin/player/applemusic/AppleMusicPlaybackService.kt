@@ -1,6 +1,6 @@
 package com.gpo.yoin.player.applemusic
 
-import android.app.PendingIntent
+import com.gpo.yoin.player.OpenNowPlayingActivity
 import android.content.Intent
 import android.os.Bundle
 import androidx.media3.common.MediaItem
@@ -9,7 +9,6 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
-import com.gpo.yoin.MainActivity
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.profile.ProfileManager.SwitchState
 import com.gpo.yoin.data.source.applemusic.AppleMusicSource
@@ -73,15 +72,9 @@ class AppleMusicPlaybackService : MediaSessionService() {
                 onObservation = {},
                 currentDeveloperToken = { active.playbackDeveloperToken }
             )
-            val openApp = PendingIntent.getActivity(
-                this,
-                0,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
             session = MediaSession.Builder(this, player)
                 .setId("apple-music")
-                .setSessionActivity(openApp)
+                .setSessionActivity(OpenNowPlayingActivity.pendingIntent(this))
                 .setCallback(CatalogItemsCallback(quickActions.callback))
                 .build()
                 .also(quickActions::attach)
