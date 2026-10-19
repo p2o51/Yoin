@@ -115,6 +115,12 @@ internal fun PlaybackControls(
     modifier: Modifier = Modifier,
     // False while the row is hidden (see WaveProgressBar's `animating`).
     live: Boolean = true,
+    // The tip page's demo: holds the play-mode button's split state to split
+    // it on cue, and finds the button by its modifier. Null / empty in the app.
+    playModeSplitState: MutableState<Boolean>? = null,
+    playModeModifier: Modifier = Modifier,
+    // The tip page's demo: a scrub of the progress bar it acts out (WaveProgressBar).
+    actedScrub: (() -> Float?)? = null,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -368,13 +374,26 @@ internal fun PlaybackControls(
                             Spacer(modifier = Modifier.width(8.dp))
                         }
 
-                        PlayModeButton(
-                            playMode = playMode,
-                            onSetPlayMode = onSetPlayMode,
-                            height = controlSize,
-                            splitWidth = fit.playModeWidth,
-                            iconSize = controlIconSize,
-                        )
+                        if (playModeSplitState == null) {
+                            PlayModeButton(
+                                playMode = playMode,
+                                onSetPlayMode = onSetPlayMode,
+                                height = controlSize,
+                                splitWidth = fit.playModeWidth,
+                                iconSize = controlIconSize,
+                                modifier = playModeModifier,
+                            )
+                        } else {
+                            PlayModeButton(
+                                playMode = playMode,
+                                onSetPlayMode = onSetPlayMode,
+                                height = controlSize,
+                                splitWidth = fit.playModeWidth,
+                                iconSize = controlIconSize,
+                                modifier = playModeModifier,
+                                splitState = playModeSplitState,
+                            )
+                        }
                     }
                 }
 
@@ -441,6 +460,7 @@ internal fun PlaybackControls(
                                 isPlaying = isPlaying,
                                 noteAnchorsMs = noteAnchorsMs,
                                 animating = live,
+                                actedScrub = actedScrub,
                                 modifier = Modifier.weight(1f),
                             )
                             if (labelsInline) {

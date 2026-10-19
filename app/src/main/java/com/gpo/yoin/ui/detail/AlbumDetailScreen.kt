@@ -937,7 +937,7 @@ private fun AlbumTopHeader(
  * touch targets and no semantics of its own.
  */
 @Composable
-private fun AlbumBarHeaderTwin(
+internal fun AlbumBarHeaderTwin(
     albumName: String,
     artistName: String,
     year: Int?,

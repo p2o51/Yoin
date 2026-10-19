@@ -3767,7 +3767,7 @@ private fun WideTopBar(
 }
 
 @Composable
-private fun StageTopBar(
+internal fun StageTopBar(
     state: NowPlayingUiState.Playing,
     stageMode: NowPlayingStageMode,
     detailProgress: Float,
@@ -3986,7 +3986,7 @@ private fun DockedHeaderText(
 }
 
 @Composable
-private fun StageTabs(
+internal fun StageTabs(
     selected: NowPlayingDetailPage,
     detailProgress: Float,
     height: Dp,
@@ -4203,7 +4203,7 @@ internal fun OneLineLyricPreview(
  * shown only while the symbol moves, then fades back.
  */
 @Composable
-private fun OneLineLyricRow(
+internal fun OneLineLyricRow(
     state: NowPlayingUiState.Playing,
     positionMs: () -> Long,
     onExpand: () -> Unit,
@@ -4493,7 +4493,7 @@ private fun StageHeightSlot(
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun CompactBottomHero(
+internal fun CompactBottomHero(
     state: NowPlayingUiState.Playing,
     heroBoundsSpec: androidx.compose.animation.core.FiniteAnimationSpec<Rect>,
     titleStretchScale: Float,
@@ -4730,7 +4730,7 @@ private fun Modifier.tapWithoutConsumingDrag(
 private const val NowPlayingRouteNavigationDelayMs = 72L
 
 /** The one tappable lyric line that replaces tabs + lyric window on 16:9 screens. */
-private val OneLineLyricRowHeight = 44.dp
+internal val OneLineLyricRowHeight = 44.dp
 
 /** The Expanded stage's fixed geometry (the budget's third endpoint). */
 private val ExpandedTopBarHeight = 56.dp
@@ -4764,7 +4764,7 @@ private val WideFramePadding = 24.dp
 private val WideTopBarHeight = 48.dp
 private const val HiddenLayerVisibilityThreshold = 0.01f
 
-private data class NowPlayingRouteInteraction(
+internal data class NowPlayingRouteInteraction(
     val interactionSource: MutableInteractionSource,
     val scaleX: Float,
     val onClick: () -> Unit,
