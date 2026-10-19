@@ -15,6 +15,37 @@ permissions:
   contents: read
 
 jobs:
+  # Apple MusicKit AARs can't be redistributed; they come from a private repo via
+  # CI_ASSETS_TOKEN. Fork and Dependabot PRs don't get that secret, so the jobs
+  # that compile the app are skipped there with a warning. Anywhere else a
+  # missing token is a misconfiguration and fails the run.
+  musickit:
+    name: MusicKit access
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - id: check
+        env:
+          HAS_TOKEN: ${{ secrets.CI_ASSETS_TOKEN != '' }}
+          FROM_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ "$HAS_TOKEN" = true ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$FROM_FORK" = true ] || [ "$ACTOR" = "dependabot[bot]" ]; then
+            msg="CI_ASSETS_TOKEN isn't available to this PR, so unit tests, Android Lint and the debug build were skipped. Only ktlint ran."
+            echo "::warning title=Apple MusicKit SDK unavailable::$msg"
+            echo "### Apple MusicKit SDK unavailable" >> "$GITHUB_STEP_SUMMARY"
+            echo "$msg See docs/ci-cd.md." >> "$GITHUB_STEP_SUMMARY"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::CI_ASSETS_TOKEN is not set, so the Apple MusicKit AARs can't be fetched. See docs/ci-cd.md."
+          exit 1
+
   ktlint:
     name: ktlint
     runs-on: ubuntu-latest
@@ -27,10 +58,6 @@ jobs:
           # Pinned commit (the repo has no tags yet); bump with the app.
           ref: 990d9e8cf4fc70b713109a9c0e7ad0f4dc4f307a
           path: yoin-symbols
-      - name: Fetch Apple MusicKit SDK
-        uses: ./.github/actions/apple-musickit
-        with:
-          token: ${{ secrets.CI_ASSETS_TOKEN }}
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -50,6 +77,8 @@ jobs:
 
   unit-tests:
     name: Unit tests
+    needs: musickit
+    if: ${{ needs.musickit.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -71,6 +100,17 @@ jobs:
           java-version: '17'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+      # Robolectric downloads its android-all jars from Maven Central on first
+      # use, and that download sometimes fails mid-run. Keep them cached.
+      - name: Read Robolectric version
+        id: robolectric
+        run: echo "version=$(sed -n 's/^robolectric = "\(.*\)"$/\1/p' gradle/libs.versions.toml)" >> "$GITHUB_OUTPUT"
+      - name: Cache Robolectric android-all jars
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ steps.robolectric.outputs.version }}
+          restore-keys: robolectric-
       - name: Unit tests
         run: ./gradlew test -PyoinSymbolsDir=yoin-symbols
       - name: Upload test reports
@@ -83,6 +123,8 @@ jobs:
 
   android-lint:
     name: Android Lint
+    needs: musickit
+    if: ${{ needs.musickit.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -116,6 +158,8 @@ jobs:
 
   build:
     name: Assemble debug APK
+    needs: musickit
+    if: ${{ needs.musickit.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -152,7 +196,7 @@ jobs:
   ci:
     name: CI gate
     if: ${{ always() }}
-    needs: [ ktlint, unit-tests, android-lint, build ]
+    needs: [ musickit, ktlint, unit-tests, android-lint, build ]
     runs-on: ubuntu-latest
     steps:
       - name: Require all checks to pass
