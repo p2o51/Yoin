@@ -927,7 +927,13 @@ private fun PlaylistHeroDetails(
             // Quiet empty state. The always-armed bottom bar stays; Play just
             // no-ops here.
             Text(
-                text = stringResource(R.string.detail_playlist_empty_hero),
+                text = stringResource(
+                    if (content.tracksUnavailable) {
+                        R.string.detail_playlist_tracks_unavailable
+                    } else {
+                        R.string.detail_playlist_empty_hero
+                    },
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -977,7 +983,13 @@ internal fun PlaylistTrackList(
         } else {
             item(key = "playlist-empty") {
                 Text(
-                    text = stringResource(R.string.detail_playlist_empty_list),
+                    text = stringResource(
+                        if (content.tracksUnavailable) {
+                            R.string.detail_playlist_tracks_unavailable
+                        } else {
+                            R.string.detail_playlist_empty_list
+                        },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 8.dp, top = 8.dp),

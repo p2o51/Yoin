@@ -129,6 +129,7 @@
     <string name="detail_playlist_cancel_rename">取消</string>
     <string name="detail_playlist_empty_hero">此播放列表为空。</string>
     <string name="detail_playlist_empty_list">此播放列表为空。</string>
+    <string name="detail_playlist_tracks_unavailable">Spotify 不向本应用提供这个播放列表的曲目。</string>
     <string name="detail_playlist_length">时长</string>
     <plurals name="detail_playlist_tracks">
         <item quantity="other">%1$d 首曲目</item>
