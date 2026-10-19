@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Shuffle off: the strands, dimmed.
+  Shuffle off: the strands, dimmed as one (the vector's alpha, so where a head
+  overlaps its strand the stroke doesn't double up).
   The media controls' own button (SessionQuickActions): Yoin Symbols' shuffle, drawn a little
   smaller and heavier (0.84x, stroke 2.1) so it sits at the size and weight of the
   system's own previous / next glyphs beside it. SystemUI tints it.
@@ -9,7 +10,8 @@
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
-    android:viewportHeight="24">
+    android:viewportHeight="24"
+    android:alpha="0.5">
     <group
         android:pivotX="12"
         android:pivotY="12"
@@ -18,8 +20,7 @@
         <path
             android:name="strand-over"
             android:pathData="M3.8 17.2 C10.6 17.2 13.2 6.8 20 6.8"
-            android:strokeAlpha="0.5"
-            android:strokeColor="#FFFFFFFF"
+                        android:strokeColor="#FFFFFFFF"
             android:strokeWidth="2.1"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
@@ -27,8 +28,7 @@
         <path
             android:name="strand-under"
             android:pathData="M3.8 6.8 C6.613 6.8 8.708 8.58 10.678 10.667 M13.122 13.333 C15.092 15.42 17.187 17.2 20 17.2"
-            android:strokeAlpha="0.5"
-            android:strokeColor="#FFFFFFFF"
+                        android:strokeColor="#FFFFFFFF"
             android:strokeWidth="2.1"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
@@ -36,8 +36,7 @@
         <path
             android:name="head-over"
             android:pathData="M17.667 4.467 L20 6.8 L17.667 9.133"
-            android:strokeAlpha="0.5"
-            android:strokeColor="#FFFFFFFF"
+                        android:strokeColor="#FFFFFFFF"
             android:strokeWidth="2.1"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
@@ -45,8 +44,7 @@
         <path
             android:name="head-under"
             android:pathData="M17.667 14.867 L20 17.2 L17.667 19.533"
-            android:strokeAlpha="0.5"
-            android:strokeColor="#FFFFFFFF"
+                        android:strokeColor="#FFFFFFFF"
             android:strokeWidth="2.1"
             android:strokeLineCap="round"
             android:strokeLineJoin="round"
