@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -39,9 +38,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -81,7 +78,11 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.ui.home.HomeBubbleTip
+import com.gpo.yoin.ui.nowplaying.PlayModeButton
+import com.gpo.yoin.ui.nowplaying.PlayModeSplitHoldMs
+import com.gpo.yoin.ui.nowplaying.playModeNaturalWidth
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -595,107 +596,48 @@ private fun SongMenuDemo(playing: Boolean) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** The real play-mode button (PlaybackControls.PlayModeButton), on a phone-sized stage. */
 @Composable
 private fun PlayModesDemo(playing: Boolean) {
-    // The round button steps repeat → shuffle → repeat one; held, it splits
-    // into shuffle | repeat, which merge back after 3 s untouched.
-    var mode by remember { mutableIntStateOf(0) }
-    var split by remember { mutableStateOf(false) }
-    var shuffle by remember { mutableStateOf(false) }
-    var lastSplitTouch by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(split, lastSplitTouch) {
-        if (!split) return@LaunchedEffect
-        delay(SplitMergeMs)
-        split = false
-    }
-    val splitTouched = { lastSplitTouch = System.nanoTime() }
+    var mode by remember { mutableStateOf(PlayMode.RepeatAll) }
+    val split = remember { mutableStateOf(false) }
+    // 56dp control: split, the segment centres sit ±(56·1.6 + 2)/4 from the middle.
     DemoPhone(playing = playing, script = {
-        split = false
-        shuffle = false
-        mode = 0
+        split.value = false
+        mode = PlayMode.RepeatAll
         moveTo(0.5f, 0.65f)
-        tap { mode = 1 }
+        tap { mode = mode.next() }
+        delay(600)
+        tap { mode = mode.next() }
+        delay(600)
+        hold { split.value = true }
+        moveTo(0.36f, 0.65f)
+        tap { mode = mode.withShuffle(!mode.shuffle) }
         delay(500)
-        tap { mode = 2 }
-        delay(500)
-        hold {
-            split = true
-            splitTouched()
-        }
-        moveTo(0.27f, 0.64f)
-        tap {
-            shuffle = !shuffle
-            splitTouched()
-        }
+        moveTo(0.64f, 0.65f)
+        tap { mode = mode.withRepeatOne(!mode.repeatOne) }
         lift()
-        delay(SplitMergeMs + 400)
+        delay(PlayModeSplitHoldMs + 600)
     }) {
         Column(modifier = Modifier.padding(horizontal = 14.dp)) {
             Spacer(modifier = Modifier.height(18.dp))
             Block(140.dp, 120.dp, strong = true)
             Spacer(modifier = Modifier.height(30.dp))
-            Box(modifier = Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
-                val gap by animateDpAsState(if (split) 12.dp else 0.dp, YoinMotion.spatialSpring(), label = "split")
-                if (!split) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                        shape = CircleShape,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
-                            .combinedClickable(
-                                onClick = { mode = (mode + 1) % 3 },
-                                onLongClick = {
-                                    split = true
-                                    splitTouched()
-                                },
-                            ),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                when (mode) {
-                                    1 -> YoinSymbols.Shuffle
-                                    2 -> YoinSymbols.RepeatOne
-                                    else -> YoinSymbols.Repeat
-                                },
-                                contentDescription = null,
-                            )
-                        }
-                    }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        listOf(true, false).forEach { isShuffle ->
-                            val on = if (isShuffle) shuffle else mode == 2
-                            FilledTonalIconButton(
-                                onClick = {
-                                    if (isShuffle) shuffle = !shuffle else mode = if (mode == 2) 0 else 2
-                                    splitTouched()
-                                },
-                                modifier = Modifier.size(width = 64.dp, height = 48.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                    containerColor = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer,
-                                    contentColor = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
-                                ),
-                            ) {
-                                Icon(
-                                    when {
-                                        isShuffle -> YoinSymbols.Shuffle
-                                        mode == 2 -> YoinSymbols.RepeatOne
-                                        else -> YoinSymbols.Repeat
-                                    },
-                                    contentDescription = null,
-                                )
-                            }
-                        }
-                    }
-                }
+            Box(modifier = Modifier.fillMaxWidth().height(DemoControlSize), contentAlignment = Alignment.Center) {
+                PlayModeButton(
+                    playMode = mode,
+                    onSetPlayMode = { mode = it },
+                    height = DemoControlSize,
+                    splitWidth = playModeNaturalWidth(DemoControlSize),
+                    iconSize = 24.dp,
+                    splitState = split,
+                )
             }
         }
     }
 }
+
+private val DemoControlSize = 56.dp
 
 @Composable
 private fun NoteMomentsDemo(playing: Boolean) {
@@ -926,7 +868,6 @@ private const val HoldMs = 550
 private const val StartDelayMs = 500L
 private const val LoopGapMs = 700L
 private const val TakeoverIdleMs = 5_000L
-private const val SplitMergeMs = 3_000L
 private const val NoteLifeNs = 2_400_000_000L
 private const val NoteEchoNs = 220_000_000L
 

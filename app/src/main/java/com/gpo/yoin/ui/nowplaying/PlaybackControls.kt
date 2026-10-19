@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -512,16 +513,18 @@ private fun PlayMode.stateDescription(): String = when (this) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PlayModeButton(
+internal fun PlayModeButton(
     playMode: PlayMode,
     onSetPlayMode: (PlayMode) -> Unit,
     height: Dp,
     splitWidth: Dp,
     iconSize: Dp,
     modifier: Modifier = Modifier,
+    // Whether it is split; the tip page's demo holds this to split it on cue.
+    splitState: MutableState<Boolean> = rememberSaveable { mutableStateOf(false) },
 ) {
     val haptics = rememberYoinHaptics()
-    var split by rememberSaveable { mutableStateOf(false) }
+    var split by splitState
     // One more on every tap while split: the merge waits for a quiet spell.
     var splitTouches by remember { mutableIntStateOf(0) }
     LaunchedEffect(split, splitTouches) {
