@@ -140,6 +140,15 @@ interface MusicLibrary {
      * default, and matching falls back to search.
      */
     suspend fun tracksByIsrc(isrcs: List<String>): Map<String, List<Track>> = emptyMap()
+
+    /**
+     * [id] read whole for a playlist backup (docs/playlist-transfer.md): every
+     * entry, however long the playlist, with [Playlist.unreadable] naming the
+     * entries that aren't songs this service can give. The default is
+     * [getPlaylist], for services whose read is already whole and skips
+     * nothing.
+     */
+    suspend fun getPlaylistInFull(id: MediaId): Playlist? = getPlaylist(id)
 }
 
 interface MusicMetadata {

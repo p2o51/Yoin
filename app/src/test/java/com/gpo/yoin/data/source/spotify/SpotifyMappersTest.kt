@@ -23,6 +23,45 @@ class SpotifyMappersTest {
     }
 
     @Test
+    fun should_listUnreadableEntries_when_playlistHoldsLocalFilesEpisodesAndRemovedTracks() {
+        val json = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+        }
+        val page = json.decodeFromString(
+            SpotifyPagingObject.serializer(SpotifyPlaylistItemObject.serializer()),
+            """{"items":[
+                {"item":{"id":"t1","name":"Song","type":"track","artists":[{"id":"a1","name":"A"},{"id":"a2","name":"B"}]}},
+                {"item":{"id":null,"name":"Demo","type":"track","is_local":true,
+                         "artists":[{"id":null,"name":"Me"}],"album":{"id":null,"name":""}}},
+                {"item":{"id":"e1","name":"Episode 4","type":"episode"}},
+                {"item":null,"track":null}
+            ]}""",
+        )
+
+        val tracks = page.items.toTracksWithPlaylistOffsets()
+        val unreadable = page.items.unreadableItems()
+
+        assertEquals(listOf(0), tracks.map { it.first })
+        assertEquals(listOf("A", "B"), tracks.single().second.creditedArtists)
+        assertEquals(
+            listOf(
+                com.gpo.yoin.data.model.PlaylistUnreadableItem(
+                    1, "Demo", "Me", com.gpo.yoin.data.model.PlaylistUnreadableItem.Reason.LocalFile,
+                ),
+                com.gpo.yoin.data.model.PlaylistUnreadableItem(
+                    2, "Episode 4", null, com.gpo.yoin.data.model.PlaylistUnreadableItem.Reason.Episode,
+                ),
+                com.gpo.yoin.data.model.PlaylistUnreadableItem(
+                    3, null, null, com.gpo.yoin.data.model.PlaylistUnreadableItem.Reason.Unavailable,
+                ),
+            ),
+            unreadable,
+        )
+    }
+
+    @Test
     fun should_namespace_mapped_entities_with_spotify_provider() {
         val album = SpotifyAlbumObject(
             id = "album-1",

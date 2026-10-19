@@ -185,7 +185,12 @@ class SpotifyMusicSource(
         }
 
         // Likes as on hand, like getAlbum: the playlist page draws no hearts.
-        override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
+        override suspend fun getPlaylist(id: MediaId): Playlist? = readPlaylist(id, limit = null)
+
+        // A backup reads every entry, past the page's cap, and says which ones aren't songs.
+        override suspend fun getPlaylistInFull(id: MediaId): Playlist? = readPlaylist(id, limit = FULL_PLAYLIST_LIMIT)
+
+        private suspend fun readPlaylist(id: MediaId, limit: Int?): Playlist? = withSpotifyId(id) { rawId ->
             supervisorScope {
                 val meId = async { apiClient.getCurrentUserId() }
                 val playlist = orNullIfNotFound { apiClient.getPlaylist(rawId) }
@@ -194,14 +199,18 @@ class SpotifyMusicSource(
                     return@supervisorScope cancelAndReturnNull()
                 }
                 // Starts from the first page the playlist object embeds, when it does.
-                val indexedTracks = apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
-                    .toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
+                val items = if (limit == null) {
+                    apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
+                } else {
+                    apiClient.getPlaylistItems(rawId, firstPage = playlist.entries, limit = limit)
+                }
+                val indexedTracks = items.toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
                 playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
                 playlist.toPlaylist(
                     tracks = indexedTracks.map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
                     ownedByMe = playlist.ownedBy(meId.await()),
-                )
+                ).copy(unreadable = if (limit == null) emptyList() else items.unreadableItems())
             }
         }
 
@@ -730,6 +739,9 @@ class SpotifyMusicSource(
 
     companion object {
         private const val HTTP_NOT_FOUND = 404
+
+        /** Spotify's own cap on a playlist's length: a backup reads them all. */
+        private const val FULL_PLAYLIST_LIMIT = 10_000
         private const val RECENTLY_PLAYED_LIMIT = 50
         private const val RECENTLY_PLAYED_MAX_AGE_MS = 30_000L
 

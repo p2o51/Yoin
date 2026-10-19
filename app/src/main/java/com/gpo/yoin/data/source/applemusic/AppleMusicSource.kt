@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.PlaylistUnreadableItem
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -457,6 +458,7 @@ class AppleMusicSource(
                 coverArt = catalog.listed.coverArt ?: read.coverArt,
                 comment = catalog.listed.comment ?: read.comment,
                 tracks = read.tracks,
+                unreadable = read.unreadable,
                 songCount = read.songCount,
                 durationSec = read.durationSec,
             )
@@ -467,9 +469,11 @@ class AppleMusicSource(
         val path = path("playlists", id)
         val resource = page(path).resources().firstOrNull() ?: return null
         val playlist = listedPlaylist(resource)
-        val tracks = all(path + "tracks", trackQuery(id)).songTracks()
+        val entries = all(path + "tracks", trackQuery(id))
+        val tracks = entries.songTracks()
         return playlist.copy(
             tracks = tracks,
+            unreadable = entries.unreadableEntries(),
             songCount = tracks.size,
             durationSec = tracks.sumOf {
                 it.durationSec ?: 0
@@ -743,10 +747,29 @@ class AppleMusicSource(
         mapOf("include" to "albums,artists")
     }
     private fun List<JsonObject>.songTracks() = filter {
-        it.text("type") in setOf("songs", "library-songs")
+        it.text("type") in SONG_TYPES
     }.map { AppleMusicSong.fromJson(it).toTrack() }
 
+    /** A playlist's entries [songTracks] leaves out (music videos), at their places, for a backup. */
+    private fun List<JsonObject>.unreadableEntries(): List<PlaylistUnreadableItem> = mapIndexedNotNull { index, entry ->
+        val type = entry.text("type")
+        if (type in SONG_TYPES) return@mapIndexedNotNull null
+        val attributes = entry["attributes"] as? JsonObject
+        PlaylistUnreadableItem(
+            position = index,
+            title = attributes?.text("name"),
+            artist = attributes?.text("artistName"),
+            reason = if (type?.contains("music-videos") == true) {
+                PlaylistUnreadableItem.Reason.Video
+            } else {
+                PlaylistUnreadableItem.Reason.Unavailable
+            },
+        )
+    }
+
     companion object {
+        private val SONG_TYPES = setOf("songs", "library-songs")
+
         private fun JsonObject.text(key: String) = get(key)?.jsonPrimitive?.contentOrNull
         private fun JsonObject.resources() = get("data")?.jsonArray.orEmpty().map { it.jsonObject }
         private fun JsonObject.related(name: String) =

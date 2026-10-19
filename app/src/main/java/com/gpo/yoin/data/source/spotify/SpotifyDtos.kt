@@ -23,7 +23,8 @@ data class SpotifyOwnerObject(
 
 @Serializable
 data class SpotifySimplifiedArtistObject(
-    val id: String,
+    // A local file's artist has a null id: coerced to "" so its playlist page still decodes.
+    val id: String = "",
     val name: String,
     val uri: String? = null,
     @SerialName("external_urls") val externalUrls: SpotifyExternalUrls? = null,
@@ -40,7 +41,8 @@ data class SpotifyArtistObject(
 
 @Serializable
 data class SpotifySimplifiedAlbumObject(
-    val id: String,
+    // A local file's album has a null id: coerced to "" so its playlist page still decodes.
+    val id: String = "",
     val name: String,
     val uri: String? = null,
     val artists: List<SpotifySimplifiedArtistObject> = emptyList(),
@@ -62,6 +64,10 @@ data class SpotifyTrackObject(
     // ISRC for matching on another service (docs/playlist-transfer.md). Listed
     // as removed in the February 2026 changelog, reverted in March 2026.
     @SerialName("external_ids") val externalIds: SpotifyExternalIds? = null,
+    /** `track`, or `episode` for a podcast episode in a playlist. */
+    val type: String? = null,
+    /** A file from the user's device added to a playlist: no id, never playable through the Web API. */
+    @SerialName("is_local") val isLocal: Boolean = false,
 )
 
 @Serializable

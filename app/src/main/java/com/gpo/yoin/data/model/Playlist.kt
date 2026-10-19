@@ -28,6 +28,10 @@ package com.gpo.yoin.data.model
  *   names no owner; catalog playlists stay `null`. Subsonic: `owner` against
  *   the login name, ignoring case; no owner is `null`. A list-level fact: the
  *   detail page's disk cache doesn't keep it.
+ * @property unreadable Entries the read skipped (local files, episodes,
+ *   videos, unavailable songs), where the service says: Spotify in
+ *   [com.gpo.yoin.data.source.MusicLibrary.getPlaylistInFull], Apple Music
+ *   on every read. Subsonic playlists hold only songs, so it stays empty.
  */
 data class Playlist(
     val id: MediaId,
@@ -42,7 +46,36 @@ data class Playlist(
     val comment: String? = null,
     val libraryAddedAt: String? = null,
     val ownedByMe: Boolean? = null,
+    val unreadable: List<PlaylistUnreadableItem> = emptyList(),
 )
+
+/**
+ * An entry of a playlist that the read couldn't turn into a [Track]
+ * ([Playlist.unreadable]): a playlist backup records it so the user can see
+ * what didn't come along (docs/playlist-transfer.md). [position] is the
+ * entry's zero-based place among all the playlist's entries, as the service
+ * lists them; [title] and [artist] are whatever the service still says.
+ */
+data class PlaylistUnreadableItem(
+    val position: Int,
+    val title: String?,
+    val artist: String?,
+    val reason: Reason,
+) {
+    enum class Reason {
+        /** A file from the user's own device, added to a Spotify playlist. */
+        LocalFile,
+
+        /** A podcast episode. */
+        Episode,
+
+        /** A music video (Apple Music). */
+        Video,
+
+        /** Removed from the service, or not available to this account. */
+        Unavailable,
+    }
+}
 
 /**
  * Identifies a single track occurrence inside a playlist for a remove
