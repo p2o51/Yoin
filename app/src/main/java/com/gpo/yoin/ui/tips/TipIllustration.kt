@@ -1,48 +1,105 @@
 package com.gpo.yoin.ui.tips
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.home.HomeBubbleTip
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * How a tip is done, drawn: an abstract phone (blocks, no real UI) and a
- * touch — a dot that taps, holds (its ring fills) or drags — acting the
- * gesture out on a loop. It plays only while [playing] (its page is the
- * settled one) and the clock is read in the draw phase only. Reduced motion
- * shows the moment the gesture lands, still. Decorative: the text says it.
+ * How a tip is done, as a small live phone made of real components (owner
+ * 2026-10-19: native UI the user can press too, with nothing behind it). A
+ * touch dot acts the gesture out on a loop — tap (a ripple), hold (its ring
+ * fills), drag — and the phone answers the way the app does. Once the user
+ * touches the phone the demo steps aside and the phone is theirs; untouched
+ * for [TakeoverIdleMs], the demo starts over. It runs only while [playing]
+ * (its page is the settled one); reduced motion keeps the phone still but
+ * still pressable. Decorative for accessibility: the text says it.
  */
 @Composable
 internal fun TipIllustration(
@@ -50,354 +107,828 @@ internal fun TipIllustration(
     playing: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val colors = MaterialTheme.colorScheme
-    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
-    val clock = remember { mutableFloatStateOf(StillAt) }
-    LaunchedEffect(playing, reduced) {
-        if (!playing || reduced) {
-            clock.floatValue = StillAt
-            return@LaunchedEffect
-        }
-        val start = withFrameNanos { it }
-        while (true) {
-            withFrameNanos { now -> clock.floatValue = ((now - start) / 1_000_000f % LoopMs) / LoopMs }
-        }
-    }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(IllustrationHeight)
-            .background(colors.surfaceContainerLow, RoundedCornerShape(28.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(28.dp))
+            .padding(vertical = 16.dp)
             .clearAndSetSemantics {},
+        contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.fillMaxSize().padding(vertical = 16.dp)) {
-            val t = clock.floatValue
-            val phone = phoneFrame(size)
-            if (tip == HomeBubbleTip.Name) {
-                drawLingering(t, colors)
-                return@Canvas
+        when (tip) {
+            HomeBubbleTip.EditHome -> EditHomeDemo(playing)
+            HomeBubbleTip.PullForMemories -> PullDemo(playing)
+            HomeBubbleTip.CoverMenu -> CoverMenuDemo(playing, keepScreenOn = false)
+            HomeBubbleTip.SongMenu -> SongMenuDemo(playing)
+            HomeBubbleTip.PlayModes -> PlayModesDemo(playing)
+            HomeBubbleTip.NoteMoments -> NoteMomentsDemo(playing)
+            HomeBubbleTip.LibrarySearch -> LibrarySearchDemo(playing)
+            HomeBubbleTip.KeepScreenOn -> CoverMenuDemo(playing, keepScreenOn = true)
+            HomeBubbleTip.ScrollEdge -> ScrollEdgeDemo(playing)
+            HomeBubbleTip.Name -> NameDemo(playing)
+        }
+    }
+}
+
+// ── The phone and its demo touch ─────────────────────────────────────────
+
+/** The demo's touch: where it is (fractions of the phone), whether it is down, its hold ring. */
+private class DemoFinger(private val spring: FiniteAnimationSpec<Float>) {
+    val x = Animatable(0.5f)
+    val y = Animatable(0.5f)
+    val alpha = Animatable(0f)
+    val press = Animatable(0f)
+    val ring = Animatable(0f)
+    val ripple = Animatable(1f)
+
+    suspend fun moveTo(fx: Float, fy: Float) {
+        if (alpha.value < 0.05f) {
+            x.snapTo(fx)
+            y.snapTo(fy)
+            alpha.animateTo(1f, tween(180))
+        } else {
+            coroutineScope {
+                launch { x.animateTo(fx, spring) }
+                y.animateTo(fy, spring)
             }
-            drawRoundRect(colors.surface, phone.topLeft, phone.size, CornerRadius(phone.width * 0.14f))
-            drawRoundRect(
-                colors.outlineVariant,
-                phone.topLeft,
-                phone.size,
-                CornerRadius(phone.width * 0.14f),
-                style = Stroke(width = 1.5.dp.toPx()),
-            )
-            val scene = Scene(this, phone, colors, t)
-            clipRect(phone.left, phone.top, phone.right, phone.bottom) {
-                when (tip) {
-                    HomeBubbleTip.EditHome -> scene.editHome()
-                    HomeBubbleTip.PullForMemories -> scene.pullForMemories()
-                    HomeBubbleTip.CoverMenu -> scene.coverHold(toggleRow = false)
-                    HomeBubbleTip.SongMenu -> scene.songMenu()
-                    HomeBubbleTip.PlayModes -> scene.playModes()
-                    HomeBubbleTip.NoteMoments -> scene.noteMoments()
-                    HomeBubbleTip.LibrarySearch -> scene.librarySearch()
-                    HomeBubbleTip.KeepScreenOn -> scene.coverHold(toggleRow = true)
-                    HomeBubbleTip.ScrollEdge -> scene.scrollEdge()
-                    HomeBubbleTip.Name -> Unit
+        }
+    }
+
+    suspend fun tap(action: () -> Unit) {
+        press.animateTo(1f, tween(70))
+        action()
+        ripple.snapTo(0f)
+        coroutineScope {
+            launch { ripple.animateTo(1f, tween(420)) }
+            press.animateTo(0f, spring)
+        }
+    }
+
+    suspend fun hold(action: () -> Unit) {
+        press.animateTo(1f, tween(90))
+        ring.snapTo(0f)
+        // The long-press timeout, shown as the ring filling: a clock, so linear.
+        ring.animateTo(1f, tween(HoldMs, easing = LinearEasing))
+        action()
+        ring.snapTo(0f)
+        press.animateTo(0f, spring)
+    }
+
+    /** Down where it is, slide to ([fx], [fy]) over [ms]; [onProgress] gets 0..1 every frame. */
+    suspend fun drag(fx: Float, fy: Float, ms: Int, onProgress: (Float) -> Unit) {
+        press.animateTo(1f, tween(80))
+        val progress = Animatable(0f)
+        coroutineScope {
+            launch { x.animateTo(fx, tween(ms)) }
+            launch { y.animateTo(fy, tween(ms)) }
+            progress.animateTo(1f, tween(ms)) { onProgress(value) }
+        }
+        press.animateTo(0f, spring)
+    }
+
+    suspend fun lift() {
+        alpha.animateTo(0f, tween(220))
+    }
+
+    suspend fun hide() {
+        alpha.snapTo(0f)
+        press.snapTo(0f)
+        ring.snapTo(0f)
+        ripple.snapTo(1f)
+    }
+}
+
+/**
+ * A 168×300dp phone that plays [script] on a loop while [playing] and the
+ * user isn't touching it. [script] puts the scene back at rest first.
+ */
+@Composable
+private fun DemoPhone(
+    playing: Boolean,
+    script: suspend DemoFinger.() -> Unit,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+    val density = LocalDensity.current
+    val fingerSpring = YoinMotion.spatialSpring<Float>()
+    val finger = remember { DemoFinger(fingerSpring) }
+    var lastTouch by remember { mutableLongStateOf(0L) }
+    var userHas by remember { mutableStateOf(false) }
+    LaunchedEffect(playing, userHas, reduced) {
+        if (!playing || userHas || reduced) {
+            finger.hide()
+            return@LaunchedEffect
+        }
+        delay(StartDelayMs)
+        while (true) {
+            finger.script()
+            finger.lift()
+            delay(LoopGapMs)
+        }
+    }
+    LaunchedEffect(lastTouch) {
+        if (lastTouch == 0L) return@LaunchedEffect
+        delay(TakeoverIdleMs)
+        userHas = false
+    }
+    Box(
+        modifier = Modifier
+            .size(PhoneWidth, PhoneHeight)
+            .clip(RoundedCornerShape(24.dp))
+            .background(colors.surface)
+            .border(1.5.dp, colors.outlineVariant, RoundedCornerShape(24.dp))
+            // Watch (never consume) the user's touches: the phone becomes theirs.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    userHas = true
+                    lastTouch = System.nanoTime()
+                }
+            },
+    ) {
+        content()
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val a = finger.alpha.value
+            if (a <= 0f) return@Canvas
+            val c = Offset(size.width * finger.x.value, size.height * finger.y.value)
+            val r = with(density) { 14.dp.toPx() }
+            val down = finger.press.value
+            val primary = colors.primary
+            drawCircle(primary.copy(alpha = 0.22f * a), r * (1f - 0.15f * down), c)
+            drawCircle(primary.copy(alpha = 0.9f * a), r * 0.42f * (1f - 0.15f * down), c)
+            val ripple = finger.ripple.value
+            if (ripple < 1f) {
+                drawCircle(
+                    primary.copy(alpha = (1f - ripple) * 0.5f * a),
+                    r * (1f + ripple * 1.4f),
+                    c,
+                    style = Stroke(width = with(density) { 2.dp.toPx() }),
+                )
+            }
+            val ring = finger.ring.value
+            if (ring > 0f) {
+                drawArc(
+                    primary.copy(alpha = a),
+                    startAngle = -90f,
+                    sweepAngle = 360f * ring,
+                    useCenter = false,
+                    topLeft = Offset(c.x - r * 1.3f, c.y - r * 1.3f),
+                    size = Size(r * 2.6f, r * 2.6f),
+                    style = Stroke(width = with(density) { 2.5.dp.toPx() }, cap = StrokeCap.Round),
+                )
+            }
+        }
+    }
+}
+
+/** A plain block standing in for content. */
+@Composable
+private fun Block(width: Dp, height: Dp, modifier: Modifier = Modifier, strong: Boolean = false) {
+    Box(
+        modifier = modifier
+            .size(width, height)
+            .background(
+                if (strong) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
+                RoundedCornerShape(10.dp),
+            ),
+    )
+}
+
+@Composable
+private fun MiniHeader(title: String, modifier: Modifier = Modifier) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.padding(start = 12.dp, top = 14.dp, bottom = 8.dp),
+    )
+}
+
+/** A bottom sheet rising over the phone, with a scrim that closes it. */
+@Composable
+private fun BoxScope.MiniSheet(open: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    AnimatedVisibility(visible = open, enter = YoinMotion.fadeIn(YoinMotionRole.Expressive), exit = YoinMotion.fadeOut(YoinMotionRole.Expressive), modifier = Modifier.matchParentSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
+        )
+    }
+    AnimatedVisibility(
+        visible = open,
+        enter = YoinMotion.slideInVertically(YoinMotionRole.Expressive) { it },
+        exit = YoinMotion.slideOutVertically(YoinMotionRole.Expressive) { it },
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 12.dp)) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .size(28.dp, 3.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetRow(label: String, onClick: () -> Unit, trailing: @Composable (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        trailing?.invoke()
+    }
+}
+
+// ── Scenes ────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EditHomeDemo(playing: Boolean) {
+    var editing by remember { mutableStateOf(false) }
+    val wiggle = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(editing) {
+        if (!editing) {
+            wiggle.floatValue = 0f
+            return@LaunchedEffect
+        }
+        val start = withFrameNanos { it }
+        while (true) withFrameNanos { wiggle.floatValue = sin((it - start) / 1e9f * 2f * PI.toFloat() * 3f) * 3f }
+    }
+    DemoPhone(playing = playing, script = {
+        editing = false
+        moveTo(0.27f, 0.24f)
+        hold { editing = true }
+        lift()
+        delay(1_600)
+        moveTo(0.84f, 0.08f)
+        tap { editing = false }
+    }) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                MiniHeader(stringResource(R.string.home_title), Modifier.weight(1f))
+                AnimatedVisibility(visible = editing, enter = YoinMotion.fadeIn(YoinMotionRole.Expressive) + YoinMotion.scaleIn(YoinMotionRole.Expressive, initialScale = 0.8f), exit = YoinMotion.fadeOut(YoinMotionRole.Expressive) + YoinMotion.scaleOut(YoinMotionRole.Expressive, targetScale = 0.8f)) {
+                    TextButton(onClick = { editing = false }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text(stringResource(R.string.cmp_bar_label_done), style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                repeat(3) { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        repeat(2) { col ->
+                            val sign = if ((row + col) % 2 == 0) 1f else -1f
+                            Box(
+                                modifier = Modifier
+                                    .graphicsLayer { rotationZ = wiggle.floatValue * sign }
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .combinedClickable(onClick = {}, onLongClick = { editing = true }),
+                            ) {
+                                Block(67.dp, 62.dp, strong = row == 0 && col == 0)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-/** A 9:17 phone standing in the middle of the panel. */
-private fun DrawScope.phoneFrame(size: Size): Rect {
-    val h = size.height
-    val w = h * 9f / 17f
-    val left = (size.width - w) / 2f
-    return Rect(left, 0f, left + w, h)
+@Composable
+private fun PullDemo(playing: Boolean) {
+    val pull = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val maxPull = with(LocalDensity.current) { 96.dp.toPx() }
+    val spring = YoinMotion.spatialSpring<Float>()
+    DemoPhone(playing = playing, script = {
+        pull.snapTo(0f)
+        moveTo(0.5f, 0.32f)
+        drag(0.5f, 0.62f, ms = 700) { p -> scope.launch { pull.snapTo(p * maxPull) } }
+        delay(700)
+        coroutineScope {
+            launch { lift() }
+            pull.animateTo(0f, spring)
+        }
+    }) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .draggable(
+                    orientation = Orientation.Vertical,
+                    state = rememberDraggableState { delta ->
+                        scope.launch { pull.snapTo((pull.value + delta * 0.6f).coerceIn(0f, maxPull)) }
+                    },
+                    onDragStopped = { pull.animateTo(0f, spring) },
+                ),
+        ) {
+            // What the pull reveals: Memories, growing in above the page.
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 24.dp)
+                    .graphicsLayer {
+                        val p = (pull.value / maxPull).coerceIn(0f, 1f)
+                        alpha = p
+                        scaleX = 0.6f + 0.4f * p
+                        scaleY = 0.6f + 0.4f * p
+                    },
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(YoinSymbols.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.home_memories_label), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            Column(modifier = Modifier.graphicsLayer { translationY = pull.value }) {
+                MiniHeader(stringResource(R.string.home_title))
+                Column(modifier = Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    repeat(4) { Block(144.dp, 48.dp, strong = it == 0) }
+                }
+            }
+        }
+    }
 }
 
-/** Progress of [t] through [from]..[to], eased (standard decelerate), 0..1. */
-private fun seg(t: Float, from: Float, to: Float): Float {
-    val x = ((t - from) / (to - from)).coerceIn(0f, 1f)
-    return 1f - (1f - x) * (1f - x) * (1f - x)
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CoverMenuDemo(playing: Boolean, keepScreenOn: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    var awake by remember { mutableStateOf(false) }
+    DemoPhone(playing = playing, script = {
+        open = false
+        awake = false
+        moveTo(0.5f, 0.3f)
+        hold { open = true }
+        if (keepScreenOn) {
+            moveTo(0.82f, 0.9f)
+            tap { awake = true }
+            delay(900)
+        } else {
+            lift()
+            delay(1_400)
+        }
+        moveTo(0.5f, 0.2f)
+        tap { open = false }
+    }) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp)) {
+            Spacer(modifier = Modifier.height(18.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .combinedClickable(onClick = {}, onLongClick = { open = true }),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    YoinSymbols.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Block(90.dp, 10.dp)
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(YoinSymbols.Queue, YoinSymbols.Devices, YoinSymbols.EditNote).forEach { icon ->
+                    FilledIconButton(onClick = {}, modifier = Modifier.size(34.dp)) {
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+        MiniSheet(open = open, onDismiss = { open = false }) {
+            SheetRow(stringResource(R.string.detail_menu_play_next), onClick = { open = false })
+            SheetRow(stringResource(R.string.detail_menu_add_to_queue), onClick = { open = false })
+            SheetRow(stringResource(R.string.np_keep_screen_on), onClick = { awake = !awake }) {
+                Switch(
+                    checked = awake,
+                    onCheckedChange = { awake = it },
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = 0.7f
+                        scaleY = 0.7f
+                    },
+                )
+            }
+        }
+    }
 }
 
-/** 0 → 1 → 0 across [from]..[to]: a dot's presence. */
-private fun window(t: Float, from: Float, to: Float, fade: Float = 0.06f): Float =
-    seg(t, from, from + fade) * (1f - seg(t, to - fade, to))
-
-private class Scene(
-    val scope: DrawScope,
-    val phone: Rect,
-    val colors: ColorScheme,
-    val t: Float,
-) {
-    fun x(f: Float) = phone.left + phone.width * f
-    fun y(f: Float) = phone.top + phone.height * f
-    fun w(f: Float) = phone.width * f
-    fun h(f: Float) = phone.height * f
-
-    fun block(l: Float, top: Float, wf: Float, hf: Float, color: Color, round: Float = 0.04f, dy: Float = 0f) {
-        scope.drawRoundRect(color, Offset(x(l), y(top) + dy), Size(w(wf), h(hf)), CornerRadius(w(round)))
-    }
-
-    /** Header line + title bar, the way every Yoin page starts. */
-    fun header(dy: Float = 0f) {
-        block(0.1f, 0.07f, 0.3f, 0.025f, colors.outlineVariant, 0.02f, dy)
-        block(0.1f, 0.11f, 0.45f, 0.04f, colors.onSurfaceVariant.copy(alpha = 0.55f), 0.02f, dy)
-    }
-
-    /**
-     * The touch at ([fx], [fy]) of the phone: present over [show], pressed
-     * (smaller, a ripple) from [down]; with [hold] it is held and its ring
-     * fills by then.
-     */
-    fun finger(fx: Float, fy: Float, show: ClosedFloatingPointRange<Float>, down: Float, hold: Float? = null) {
-        val alpha = window(t, show.start, show.endInclusive)
-        if (alpha <= 0f) return
-        val c = Offset(x(fx), y(fy))
-        val r = w(0.13f)
-        val pressed = seg(t, down, down + 0.05f)
-        val primary = colors.primary
-        scope.drawCircle(primary.copy(alpha = 0.22f * alpha), r * (1f - 0.15f * pressed), c)
-        scope.drawCircle(primary.copy(alpha = 0.9f * alpha), r * 0.42f * (1f - 0.15f * pressed), c)
-        if (hold == null) {
-            val ripple = seg(t, down, down + 0.22f)
-            if (ripple in 0.001f..0.999f) {
-                scope.drawCircle(
-                    primary.copy(alpha = (1f - ripple) * 0.5f * alpha),
-                    r * (1f + ripple * 1.2f),
-                    c,
-                    style = Stroke(width = 2.dp.value * scope.density),
-                )
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SongMenuDemo(playing: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    var pressedRow by remember { mutableIntStateOf(-1) }
+    DemoPhone(playing = playing, script = {
+        open = false
+        moveTo(0.6f, 0.58f)
+        pressedRow = 2
+        hold { open = true }
+        pressedRow = -1
+        lift()
+        delay(1_400)
+        moveTo(0.5f, 0.2f)
+        tap { open = false }
+    }) {
+        Column {
+            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Block(56.dp, 56.dp, strong = true)
+                Spacer(modifier = Modifier.width(10.dp))
+                Block(60.dp, 10.dp)
             }
-        } else {
-            val ring = ((t - down) / (hold - down)).coerceIn(0f, 1f)
-            if (t >= down) {
-                scope.drawArc(
-                    primary.copy(alpha = alpha),
-                    startAngle = -90f,
-                    sweepAngle = 360f * ring,
-                    useCenter = false,
-                    topLeft = Offset(c.x - r * 1.25f, c.y - r * 1.25f),
-                    size = Size(r * 2.5f, r * 2.5f),
-                    style = Stroke(width = 2.5.dp.value * scope.density, cap = StrokeCap.Round),
-                )
+            Column(modifier = Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(6) { i ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (pressedRow == i) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                            )
+                            .combinedClickable(onClick = {}, onLongClick = { open = true })
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("${i + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Block(70.dp, 8.dp)
+                    }
+                }
+            }
+        }
+        MiniSheet(open = open, onDismiss = { open = false }) {
+            SheetRow(stringResource(R.string.detail_menu_play_next), onClick = { open = false })
+            SheetRow(stringResource(R.string.detail_menu_add_to_queue), onClick = { open = false })
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PlayModesDemo(playing: Boolean) {
+    // The round button steps repeat → shuffle → repeat one; held, it splits
+    // into shuffle | repeat, which merge back after 3 s untouched.
+    var mode by remember { mutableIntStateOf(0) }
+    var split by remember { mutableStateOf(false) }
+    var shuffle by remember { mutableStateOf(false) }
+    var lastSplitTouch by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(split, lastSplitTouch) {
+        if (!split) return@LaunchedEffect
+        delay(SplitMergeMs)
+        split = false
+    }
+    val splitTouched = { lastSplitTouch = System.nanoTime() }
+    DemoPhone(playing = playing, script = {
+        split = false
+        shuffle = false
+        mode = 0
+        moveTo(0.5f, 0.65f)
+        tap { mode = 1 }
+        delay(500)
+        tap { mode = 2 }
+        delay(500)
+        hold {
+            split = true
+            splitTouched()
+        }
+        moveTo(0.27f, 0.64f)
+        tap {
+            shuffle = !shuffle
+            splitTouched()
+        }
+        lift()
+        delay(SplitMergeMs + 400)
+    }) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp)) {
+            Spacer(modifier = Modifier.height(18.dp))
+            Block(140.dp, 120.dp, strong = true)
+            Spacer(modifier = Modifier.height(30.dp))
+            Box(modifier = Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
+                val gap by animateDpAsState(if (split) 12.dp else 0.dp, YoinMotion.spatialSpring(), label = "split")
+                if (!split) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .combinedClickable(
+                                onClick = { mode = (mode + 1) % 3 },
+                                onLongClick = {
+                                    split = true
+                                    splitTouched()
+                                },
+                            ),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                when (mode) {
+                                    1 -> YoinSymbols.Shuffle
+                                    2 -> YoinSymbols.RepeatOne
+                                    else -> YoinSymbols.Repeat
+                                },
+                                contentDescription = null,
+                            )
+                        }
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        listOf(true, false).forEach { isShuffle ->
+                            val on = if (isShuffle) shuffle else mode == 2
+                            FilledTonalIconButton(
+                                onClick = {
+                                    if (isShuffle) shuffle = !shuffle else mode = if (mode == 2) 0 else 2
+                                    splitTouched()
+                                },
+                                modifier = Modifier.size(width = 64.dp, height = 48.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiaryContainer,
+                                    contentColor = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiaryContainer,
+                                ),
+                            ) {
+                                Icon(
+                                    when {
+                                        isShuffle -> YoinSymbols.Shuffle
+                                        mode == 2 -> YoinSymbols.RepeatOne
+                                        else -> YoinSymbols.Repeat
+                                    },
+                                    contentDescription = null,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteMomentsDemo(playing: Boolean) {
+    val position = remember { mutableFloatStateOf(0.1f) }
+    val pins = remember { mutableStateListOf<Float>() }
+    LaunchedEffect(playing) {
+        if (!playing) return@LaunchedEffect
+        var last = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { now ->
+                position.floatValue = (position.floatValue + (now - last) / 1e9f / 12f) % 1f
+                last = now
             }
         }
     }
-
-    /** A bottom sheet rising by [p] with [rows] rows; [highlight] a row with a switch turning on. */
-    fun sheet(p: Float, rows: Int = 3, highlight: Int? = null, switchOn: Float = 0f) {
-        if (p <= 0f) return
-        val top = 1f - 0.42f * p
-        scope.drawRect(colors.scrim.copy(alpha = 0.25f * p), Offset(phone.left, phone.top), phone.size)
-        block(0f, top, 1f, 0.5f, colors.surfaceContainerHigh, 0.12f)
-        block(0.42f, top + 0.025f, 0.16f, 0.012f, colors.outlineVariant, 0.01f)
-        repeat(rows) { i ->
-            val ry = top + 0.07f + i * 0.1f
-            val lit = highlight == i
-            block(0.08f, ry, 0.84f, 0.075f, if (lit) colors.secondaryContainer else colors.surfaceContainerHighest, 0.06f)
-            block(0.14f, ry + 0.028f, 0.32f, 0.02f, colors.onSurfaceVariant.copy(alpha = 0.5f), 0.01f)
-            if (lit) {
-                val track = colors.primary.copy(alpha = 0.25f + 0.75f * switchOn)
-                block(0.68f, ry + 0.02f, 0.18f, 0.035f, track, 0.02f)
-                val knobX = x(0.7f + 0.1f * switchOn)
-                scope.drawCircle(colors.surface, w(0.025f), Offset(knobX + w(0.025f), y(ry + 0.0375f)))
+    DemoPhone(playing = playing, script = {
+        pins.clear()
+        delay(900)
+        moveTo(0.71f, 0.85f)
+        tap { pins += position.floatValue }
+        lift()
+        delay(2_200)
+    }) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp)) {
+            Spacer(modifier = Modifier.height(18.dp))
+            Block(140.dp, 140.dp, strong = true)
+            Spacer(modifier = Modifier.height(12.dp))
+            Block(90.dp, 10.dp)
+            Spacer(modifier = Modifier.height(26.dp))
+            val primary = MaterialTheme.colorScheme.primary
+            val track = MaterialTheme.colorScheme.outlineVariant
+            val pin = MaterialTheme.colorScheme.tertiary
+            Canvas(modifier = Modifier.fillMaxWidth().height(20.dp)) {
+                val y = size.height * 0.75f
+                val stroke = 3.dp.toPx()
+                drawLine(track, Offset(0f, y), Offset(size.width, y), stroke, StrokeCap.Round)
+                drawLine(primary, Offset(0f, y), Offset(size.width * position.floatValue, y), stroke, StrokeCap.Round)
+                pins.forEach { p ->
+                    val x = size.width * p
+                    drawLine(pin, Offset(x, y), Offset(x, y - 10.dp.toPx()), 2.dp.toPx())
+                    drawCircle(pin, 4.dp.toPx(), Offset(x, y - 12.dp.toPx()))
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                FilledTonalButton(
+                    onClick = { pins += position.floatValue },
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.height(32.dp),
+                ) {
+                    Icon(YoinSymbols.EditNote, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(stringResource(R.string.np_pill_write), style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
     }
+}
 
-    // ── Scenes ──────────────────────────────────────────────────────────
-
-    fun editHome() {
-        header()
-        val wiggle = window(t, 0.55f, 0.95f) * sin(t * 2f * PI.toFloat() * 6f) * 3f
-        for (row in 0 until 3) for (col in 0 until 2) {
-            val l = 0.1f + col * 0.42f
-            val top = 0.22f + row * 0.24f
-            val pivot = Offset(x(l + 0.19f), y(top + 0.1f))
-            scope.rotate(if ((row + col) % 2 == 0) wiggle else -wiggle, pivot) {
-                block(l, top, 0.38f, 0.2f, if (row == 0 && col == 0) colors.primaryContainer else colors.surfaceContainerHighest, 0.08f)
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LibrarySearchDemo(playing: Boolean) {
+    var searching by remember { mutableStateOf(false) }
+    DemoPhone(playing = playing, script = {
+        searching = false
+        moveTo(0.72f, 0.93f)
+        hold { searching = true }
+        lift()
+        delay(1_500)
+        moveTo(0.5f, 0.4f)
+        tap { searching = false }
+    }) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { searching = false },
+        ) {
+            MiniHeader(stringResource(R.string.cmp_bar_label_library))
+            Column(modifier = Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                repeat(3) { Block(144.dp, 52.dp) }
             }
         }
-        finger(0.29f, 0.32f, 0.08f..0.62f, down = 0.15f, hold = 0.5f)
-    }
-
-    fun pullForMemories() {
-        val pull = seg(t, 0.2f, 0.55f) * (1f - seg(t, 0.68f, 0.9f))
-        val dy = h(0.22f) * pull
-        // What the pull reveals: a memory, growing in above the page.
-        scope.drawCircle(colors.tertiaryContainer, w(0.12f) * pull, Offset(x(0.5f), y(0.1f) + dy * 0.4f))
-        header(dy)
-        repeat(4) { i -> block(0.1f, 0.22f + i * 0.17f, 0.8f, 0.13f, colors.surfaceContainerHighest, 0.06f, dy) }
-        val fy = 0.3f + 0.22f * seg(t, 0.2f, 0.55f)
-        finger(0.5f, fy, 0.1f..0.66f, down = 0.17f, hold = null)
-    }
-
-    fun coverHold(toggleRow: Boolean) {
-        block(0.14f, 0.1f, 0.72f, 0.38f, colors.primaryContainer, 0.06f)
-        block(0.14f, 0.54f, 0.5f, 0.03f, colors.onSurfaceVariant.copy(alpha = 0.55f), 0.02f)
-        block(0.14f, 0.62f, 0.3f, 0.07f, colors.primary.copy(alpha = 0.8f), 0.08f)
-        block(0.48f, 0.62f, 0.12f, 0.07f, colors.primary.copy(alpha = 0.8f), 0.08f)
-        block(0.14f, 0.78f, 0.72f, 0.012f, colors.outlineVariant, 0.01f)
-        finger(0.5f, 0.29f, 0.06f..0.56f, down = 0.12f, hold = 0.45f)
-        sheet(
-            seg(t, 0.47f, 0.62f) * (1f - seg(t, 0.9f, 0.99f)),
-            rows = 3,
-            highlight = if (toggleRow) 1 else null,
-            switchOn = seg(t, 0.7f, 0.78f),
-        )
-        if (toggleRow) finger(0.77f, 0.75f, 0.62f..0.86f, down = 0.69f, hold = null)
-    }
-
-    fun songMenu() {
-        block(0.1f, 0.06f, 0.36f, 0.2f, colors.primaryContainer, 0.06f)
-        block(0.52f, 0.12f, 0.36f, 0.035f, colors.onSurfaceVariant.copy(alpha = 0.55f), 0.02f)
-        repeat(6) { i ->
-            val lit = i == 2 && t in 0.12f..0.6f
-            block(0.06f, 0.32f + i * 0.105f, 0.88f, 0.085f, if (lit) colors.secondaryContainer else colors.surfaceContainerHighest, 0.05f)
-            block(0.12f, 0.355f + i * 0.105f, 0.4f, 0.018f, colors.onSurfaceVariant.copy(alpha = 0.45f), 0.01f)
-        }
-        finger(0.62f, 0.5625f, 0.06f..0.56f, down = 0.12f, hold = 0.45f)
-        sheet(seg(t, 0.47f, 0.62f) * (1f - seg(t, 0.9f, 0.99f)), rows = 3, highlight = null)
-    }
-
-    fun playModes() {
-        header()
-        block(0.1f, 0.22f, 0.8f, 0.3f, colors.surfaceContainerHighest, 0.06f)
-        // The round button; a tap steps it on (the glyph turns), a hold splits
-        // it into shuffle | repeat, which merge back at the end.
-        val split = seg(t, 0.62f, 0.72f) * (1f - seg(t, 0.88f, 0.97f))
-        val cy = y(0.7f)
-        val r = w(0.16f)
-        val cx = x(0.5f)
-        val spread = w(0.19f) * split
-        if (split <= 0.01f) {
-            scope.drawCircle(colors.tertiaryContainer, r, Offset(cx, cy))
-            shuffleGlyph(Offset(cx, cy), r * 0.5f, 180f * seg(t, 0.2f, 0.3f))
-        } else {
-            listOf(-1f, 1f).forEach { side ->
-                val c = Offset(cx + side * spread, cy)
-                scope.drawRoundRect(
-                    colors.tertiaryContainer,
-                    Offset(c.x - r, c.y - r),
-                    Size(r * 2f, r * 2f),
-                    CornerRadius(r * (1f - 0.5f * split)),
-                )
-                if (side < 0) shuffleGlyph(c, r * 0.5f, 0f) else repeatGlyph(c, r * 0.5f)
+        Column(modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp)) {
+            AnimatedVisibility(
+                visible = searching,
+                enter = YoinMotion.fadeIn(YoinMotionRole.Expressive) + YoinMotion.slideInVertically(YoinMotionRole.Expressive) { it / 2 },
+                exit = YoinMotion.fadeOut(YoinMotionRole.Expressive) + YoinMotion.slideOutVertically(YoinMotionRole.Expressive) { it / 2 },
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                ) {
+                    Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(YoinSymbols.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            stringResource(R.string.library_search_placeholder_library),
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.padding(5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = CircleShape, modifier = Modifier.weight(1f)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(YoinSymbols.HomeFilled, contentDescription = null, modifier = Modifier.padding(8.dp).size(16.dp))
+                        }
+                    }
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(CircleShape)
+                            .combinedClickable(onClick = {}, onLongClick = { searching = true }),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(YoinSymbols.Library, contentDescription = null, modifier = Modifier.padding(8.dp).size(16.dp))
+                        }
+                    }
+                }
             }
         }
-        finger(0.58f, 0.75f, 0.12f..0.34f, down = 0.19f, hold = null)
-        finger(0.58f, 0.75f, 0.38f..0.68f, down = 0.42f, hold = 0.62f)
     }
+}
 
-    /** Shuffle, abstract: two strands that cross. */
-    private fun shuffleGlyph(c: Offset, r: Float, degrees: Float) {
-        scope.rotate(degrees, c) {
+@Composable
+private fun ScrollEdgeDemo(playing: Boolean) {
+    val list = rememberLazyListState()
+    DemoPhone(playing = playing, script = {
+        list.scrollToItem(0)
+        moveTo(0.5f, 0.78f)
+        coroutineScope {
+            launch { list.animateScrollBy(420f, tween(900)) }
+            drag(0.5f, 0.4f, ms = 900) {}
+        }
+        lift()
+        delay(900)
+        list.animateScrollToItem(0)
+    }) {
+        LazyColumn(
+            state = list,
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 52.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            items(12) { i -> Block(144.dp, 44.dp, strong = i == 1) }
+        }
+        // The fixed top bar; content sinks under its soft wave edge, which
+        // drifts with the scroll (read in the draw phase).
+        val surface = MaterialTheme.colorScheme.surface
+        Canvas(modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            val bottom = size.height - 10.dp.toPx()
+            val amp = 4.dp.toPx()
+            val phase = (list.firstVisibleItemIndex * 54 + list.firstVisibleItemScrollOffset) / 40f
             val path = Path().apply {
-                moveTo(c.x - r, c.y - r * 0.55f)
-                cubicTo(c.x, c.y - r * 0.55f, c.x, c.y + r * 0.55f, c.x + r, c.y + r * 0.55f)
-                moveTo(c.x - r, c.y + r * 0.55f)
-                cubicTo(c.x, c.y + r * 0.55f, c.x, c.y - r * 0.55f, c.x + r, c.y - r * 0.55f)
+                moveTo(0f, 0f)
+                lineTo(size.width, 0f)
+                lineTo(size.width, bottom)
+                val steps = 24
+                for (s in steps downTo 0) {
+                    val fx = s / steps.toFloat()
+                    lineTo(size.width * fx, bottom + amp * sin(fx * 4f * PI.toFloat() + phase))
+                }
+                close()
             }
-            drawPath(path, colors.onTertiaryContainer, style = Stroke(width = r * 0.26f, cap = StrokeCap.Round))
+            drawPath(path, surface)
         }
-    }
-
-    /** Repeat, abstract: a closed loop. */
-    private fun repeatGlyph(c: Offset, r: Float) {
-        scope.drawRoundRect(
-            colors.onTertiaryContainer,
-            Offset(c.x - r, c.y - r * 0.6f),
-            Size(r * 2f, r * 1.2f),
-            CornerRadius(r * 0.6f),
-            style = Stroke(width = r * 0.26f),
-        )
-    }
-
-    fun noteMoments() {
-        block(0.14f, 0.08f, 0.72f, 0.34f, colors.primaryContainer, 0.06f)
-        block(0.14f, 0.48f, 0.5f, 0.03f, colors.onSurfaceVariant.copy(alpha = 0.55f), 0.02f)
-        // Progress line with a moving playhead; the note pins where the tap landed.
-        val lineY = y(0.62f)
-        val playhead = 0.18f + 0.6f * t
-        scope.drawLine(colors.outlineVariant, Offset(x(0.14f), lineY), Offset(x(0.86f), lineY), 3.dp.value * scope.density, StrokeCap.Round)
-        scope.drawLine(colors.primary, Offset(x(0.14f), lineY), Offset(x(playhead), lineY), 3.dp.value * scope.density, StrokeCap.Round)
-        val pinnedAt = 0.18f + 0.6f * 0.4f
-        val drop = seg(t, 0.42f, 0.55f)
-        if (t >= 0.42f) {
-            val py = lineY - h(0.06f) * (1f - drop) - h(0.035f)
-            scope.drawCircle(colors.tertiary, w(0.035f), Offset(x(pinnedAt), py))
-            scope.drawLine(colors.tertiary, Offset(x(pinnedAt), py), Offset(x(pinnedAt), lineY), 2.dp.value * scope.density)
-        }
-        // The pills; Write is the one tapped.
-        block(0.08f, 0.8f, 0.26f, 0.065f, colors.primary.copy(alpha = 0.8f), 0.06f)
-        block(0.37f, 0.8f, 0.26f, 0.065f, colors.primary.copy(alpha = 0.8f), 0.06f)
-        block(0.66f, 0.8f, 0.26f, 0.065f, colors.primary, 0.06f)
-        finger(0.79f, 0.8325f, 0.3f..0.55f, down = 0.38f, hold = null)
-    }
-
-    fun librarySearch() {
-        val open = seg(t, 0.52f, 0.66f) * (1f - seg(t, 0.9f, 0.99f))
-        header()
-        repeat(3) { i -> block(0.1f, 0.22f + i * 0.2f, 0.8f, 0.16f, colors.surfaceContainerHighest, 0.06f) }
-        // The bar: Home | Library; the field rises out of Library.
-        block(0.06f, 0.86f, 0.88f, 0.09f, colors.surfaceContainerHigh, 0.09f)
-        block(0.09f, 0.875f, 0.4f, 0.06f, colors.secondaryContainer, 0.06f)
-        block(0.51f, 0.875f, 0.4f, 0.06f, colors.surfaceContainerHighest, 0.06f)
-        if (open > 0f) {
-            val fieldTop = 0.86f - 0.12f * open
-            block(0.06f + 0.45f * (1f - open), fieldTop, 0.88f - 0.45f * (1f - open), 0.09f, colors.primaryContainer, 0.09f)
-            block(0.14f, fieldTop + 0.035f, 0.3f * open, 0.02f, colors.onPrimaryContainer.copy(alpha = 0.5f), 0.01f)
-        }
-        finger(0.71f, 0.905f, 0.06f..0.56f, down = 0.12f, hold = 0.46f)
-    }
-
-    fun scrollEdge() {
-        // Content flows up under a fixed top bar; the seam is a soft wave.
-        val scroll = seg(t, 0.15f, 0.7f) * (1f - seg(t, 0.85f, 1f))
-        val dy = -h(0.3f) * scroll
-        repeat(7) { i ->
-            block(0.1f, 0.26f + i * 0.17f, 0.8f, 0.13f, if (i == 1) colors.primaryContainer else colors.surfaceContainerHighest, 0.06f, dy)
-        }
-        val barBottom = y(0.2f)
-        val wave = Path().apply {
-            moveTo(phone.left, phone.top)
-            lineTo(phone.right, phone.top)
-            lineTo(phone.right, barBottom)
-            val steps = 24
-            for (s in steps downTo 0) {
-                val fx = s / steps.toFloat()
-                val wy = barBottom + h(0.018f) * sin(fx * 4f * PI.toFloat() + t * 2f * PI.toFloat())
-                lineTo(phone.left + phone.width * fx, wy)
-            }
-            close()
-        }
-        scope.drawPath(wave, colors.surface)
-        header()
-        finger(0.5f, 0.72f - 0.3f * seg(t, 0.15f, 0.55f), 0.08f..0.6f, down = 0.13f, hold = null)
+        MiniHeader(stringResource(R.string.cmp_bar_label_library))
     }
 }
 
-/** 余韻: rings that keep spreading from one note after it has sounded. */
-private fun DrawScope.drawLingering(t: Float, colors: ColorScheme) {
-    val c = Offset(size.width / 2f, size.height / 2f)
-    val max = size.height * 0.55f
-    repeat(4) { i ->
-        val p = (t + i / 4f) % 1f
-        drawCircle(
-            colors.primary.copy(alpha = (1f - p) * 0.6f),
-            max * p,
-            c,
-            style = Stroke(width = (1f - p) * 4.dp.toPx() + 1.dp.toPx()),
-        )
+@Composable
+private fun NameDemo(playing: Boolean) {
+    // 余韻: each tap (the demo's, or the user's) sounds a note whose rings keep spreading.
+    val notes = remember { mutableStateListOf<Long>() }
+    val now = remember { mutableLongStateOf(0L) }
+    LaunchedEffect(playing) {
+        if (!playing) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { t ->
+                now.longValue = t
+                notes.removeAll { t - it > NoteLifeNs + 2 * NoteEchoNs }
+            }
+        }
     }
-    drawCircle(colors.primary, 8.dp.toPx(), c)
+    DemoPhone(playing = playing, script = {
+        moveTo(0.5f, 0.5f)
+        tap { notes += now.longValue }
+        delay(1_200)
+        tap { notes += now.longValue }
+        lift()
+        delay(2_000)
+    }) {
+        val primary = MaterialTheme.colorScheme.primary
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { notes += now.longValue },
+        ) {
+            val c = Offset(size.width / 2f, size.height / 2f)
+            val max = size.height * 0.6f
+            val t = now.longValue
+            notes.forEach { start ->
+                repeat(3) { k ->
+                    val p = ((t - start - k * NoteEchoNs) / NoteLifeNs.toFloat()).coerceIn(0f, 1f)
+                    if (p > 0f && p < 1f) {
+                        drawCircle(
+                            primary.copy(alpha = (1f - p) * 0.6f),
+                            max * p,
+                            c,
+                            style = Stroke(width = (1f - p) * 4.dp.toPx() + 1.dp.toPx()),
+                        )
+                    }
+                }
+            }
+            drawCircle(primary, 8.dp.toPx(), c)
+        }
+    }
 }
 
-private const val LoopMs = 3_200f
-
-/** Reduced motion and pages at rest: the frame where the gesture has landed. */
-private const val StillAt = 0.6f
-
-private val IllustrationHeight = 264.dp
+private val PhoneWidth = 168.dp
+private val PhoneHeight = 300.dp
+private const val HoldMs = 550
+private const val StartDelayMs = 500L
+private const val LoopGapMs = 700L
+private const val TakeoverIdleMs = 5_000L
+private const val SplitMergeMs = 3_000L
+private const val NoteLifeNs = 2_400_000_000L
+private const val NoteEchoNs = 220_000_000L
 
 @Preview(showBackground = true)
 @Composable
