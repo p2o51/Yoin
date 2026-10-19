@@ -131,9 +131,13 @@ class ExperienceSessionStore {
         _nowPlayingRequest.value = System.nanoTime()
     }
 
-    /** True for exactly one caller per request. */
-    fun consumeNowPlayingRequest(token: Long): Boolean =
-        token != 0L && _nowPlayingRequest.compareAndSet(token, 0L)
+    /**
+     * True for exactly one caller per request, and only while it is fresh: one
+     * nobody could take (the app wasn't brought up) never opens Now Playing
+     * later out of the blue.
+     */
+    fun consumeNowPlayingRequest(token: Long, now: Long = System.nanoTime()): Boolean =
+        token != 0L && _nowPlayingRequest.compareAndSet(token, 0L) && now - token <= NOW_PLAYING_REQUEST_TTL_NS
 
     fun setNowPlayingExpanded(expanded: Boolean) {
         _state.update { current -> current.copy(nowPlayingExpanded = expanded) }
@@ -321,3 +325,6 @@ class ExperienceSessionStore {
         }
     }
 }
+
+/** How long an "open Now Playing" ask waits for a screen to take it. */
+internal const val NOW_PLAYING_REQUEST_TTL_NS = 30_000_000_000L

@@ -12,7 +12,8 @@ import com.gpo.yoin.YoinApplication
 /**
  * Where the system's media controls lead (the media notification, the lock
  * screen, Quick Settings' player): back into Yoin as the user left it, with
- * Now Playing open. An invisible hop, like WidgetPlayActivity: it asks the
+ * Now Playing open where the page in front has a player (the shell, an
+ * album, artist or playlist page). An invisible hop, like WidgetPlayActivity: it asks the
  * shell to open Now Playing, then brings Yoin's existing task forward as it
  * is — the page that was on top stays on top, and a second Home is never
  * stacked on the first. A cold start opens Home with Now
@@ -28,6 +29,9 @@ class OpenNowPlayingActivity : Activity() {
         val task = getSystemService(ActivityManager::class.java)?.appTasks?.firstOrNull { task ->
             runCatching { task.taskInfo.baseActivity?.className == MainActivity::class.java.name }.getOrDefault(false)
         }
+        // A page with no player of its own (Settings, a sign-in, a tip page) comes back as it was; the ask then
+        // lapses unused (ExperienceSessionStore.NOW_PLAYING_REQUEST_TTL_NS) instead of opening Now Playing
+        // later, out of the blue, on the next screen that could.
         if (task != null) task.moveToFront() else startActivity(launcherIntent(this))
         finish()
         @Suppress("DEPRECATION")
