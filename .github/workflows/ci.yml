@@ -56,7 +56,7 @@ jobs:
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: 990d9e8cf4fc70b713109a9c0e7ad0f4dc4f307a
+          ref: 66c5276824600528036db7e33224751f505293f6
           path: yoin-symbols
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -87,7 +87,7 @@ jobs:
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: 990d9e8cf4fc70b713109a9c0e7ad0f4dc4f307a
+          ref: 66c5276824600528036db7e33224751f505293f6
           path: yoin-symbols
       - name: Fetch Apple MusicKit SDK
         uses: ./.github/actions/apple-musickit
@@ -133,7 +133,7 @@ jobs:
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: 990d9e8cf4fc70b713109a9c0e7ad0f4dc4f307a
+          ref: 66c5276824600528036db7e33224751f505293f6
           path: yoin-symbols
       - name: Fetch Apple MusicKit SDK
         uses: ./.github/actions/apple-musickit
@@ -168,7 +168,7 @@ jobs:
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: 990d9e8cf4fc70b713109a9c0e7ad0f4dc4f307a
+          ref: 66c5276824600528036db7e33224751f505293f6
           path: yoin-symbols
       - name: Fetch Apple MusicKit SDK
         uses: ./.github/actions/apple-musickit

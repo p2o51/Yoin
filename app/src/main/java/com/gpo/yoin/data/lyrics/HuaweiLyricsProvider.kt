@@ -56,7 +56,7 @@ class HuaweiLyricsProvider(
     private val matcher = LyricCandidateMatcher()
     private val lyricFiles = LyricFileMemory(LYRIC_MEMORY_CAPACITY)
 
-    override suspend fun search(title: String, artist: String): SongMatch? =
+    override suspend fun search(title: String, artist: String, durationMs: Long?): SongMatch? =
         withContext(Dispatchers.IO) {
             val songs = findSongs(queryOf(title, artist), SEARCH_PAGE_SIZE)
                 ?.filter(HuaweiSong::hasUsableLyric)

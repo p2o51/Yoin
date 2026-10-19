@@ -17,6 +17,8 @@ sealed interface PlaylistDetailUiState {
         val songs: List<PlaylistSong>,
         /** Source-provided write permission; gates Rename/Delete/Remove UI. */
         val canWrite: Boolean = false,
+        /** The service refused the entries: [songs] is empty, the playlist isn't. */
+        val tracksUnavailable: Boolean = false,
     ) : PlaylistDetailUiState
 
     data class Error(val message: UiText, val diagnostics: String? = null) : PlaylistDetailUiState

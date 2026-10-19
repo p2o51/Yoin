@@ -1,12 +1,15 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.gpo.yoin.ui.navigation.back.ProvideSheetBack
 import com.gpo.yoin.ui.navigation.back.SheetWindowBackInput
 import com.gpo.yoin.ui.navigation.back.rememberSheetBackBridge
@@ -25,6 +28,8 @@ fun YoinModalBottomSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     sheetState: SheetState = rememberModalBottomSheetState(),
+    containerColor: Color = BottomSheetDefaults.ContainerColor,
+    contentWindowInsets: @Composable () -> WindowInsets = { BottomSheetDefaults.modalWindowInsets },
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val back = rememberSheetBackBridge()
@@ -33,6 +38,8 @@ fun YoinModalBottomSheet(
             onDismissRequest = onDismissRequest,
             modifier = modifier,
             sheetState = sheetState,
+            containerColor = containerColor,
+            contentWindowInsets = contentWindowInsets,
         ) {
             SheetWindowBackInput(back)
             content()

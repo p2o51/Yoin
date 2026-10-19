@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.navigation
 
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -96,6 +97,7 @@ import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.rememberNeutralPageWash
 import com.gpo.yoin.ui.component.LocalSharedPageBackground
 import com.gpo.yoin.ui.component.YoinChromeGroup
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
@@ -466,6 +468,11 @@ private fun YoinShell(
     // Home edit mode: the only writer of the Edit surface and its progress P.
     // Hoisted here so back, the bar and every exit trigger below reach it.
     val homeEdit = rememberHomeEditController(experienceSessionStore, homeViewModel)
+    // The system media controls' tap, while the shell is in front.
+    TakeNowPlayingRequests(experienceSessionStore) {
+        homeEdit.snapExit()
+        experienceSessionStore.setNowPlayingExpanded(true)
+    }
     LaunchedEffect(homeEdit) {
         homeViewModel.homeLayout.collect(homeEdit::onVmLayout)
     }
@@ -916,7 +923,10 @@ private fun YoinShell(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            // The pages' own neutral wash, not a flat background: the shell
+            // shows through beside the Now Playing panel's rounded corners,
+            // and a flat fill there read as a dark notch (Discord, 10-18).
+            .background(rememberNeutralPageWash()),
     ) {
         // The columns region: everything beside the Now Playing panel. The
         // shell column takes what the detail column (gutter + page) leaves,

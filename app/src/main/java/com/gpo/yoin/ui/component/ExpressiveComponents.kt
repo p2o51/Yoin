@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,6 +44,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
@@ -174,7 +176,27 @@ internal fun ExpressivePageBackground(
 internal fun expressivePageSeamBackground(): SeamBackground {
     val scheme = MaterialTheme.colorScheme
     return remember(scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow) {
-        SeamBackground(listOf(scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow))
+        SeamBackground(neutralPageWashColors(scheme))
+    }
+}
+
+/**
+ * The neutral page wash's stops (top → bottom): what [ExpressivePageBackground]
+ * draws with no cover accent and no playing wobble.
+ */
+internal fun neutralPageWashColors(scheme: ColorScheme): List<Color> =
+    listOf(scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow)
+
+/**
+ * The neutral page wash as a brush, for a surface that shows BETWEEN pages —
+ * the shell behind the Now Playing panel's rounded corners. A flat
+ * `background` there read as a black notch against the gradient pages beside it.
+ */
+@Composable
+internal fun rememberNeutralPageWash(): Brush {
+    val scheme = MaterialTheme.colorScheme
+    return remember(scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow) {
+        Brush.verticalGradient(neutralPageWashColors(scheme))
     }
 }
 
