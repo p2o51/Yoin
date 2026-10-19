@@ -63,6 +63,13 @@ object RestoreReview {
             }
         }
 
+    /** How one resolution will show in the review (the Live Update colours its segment by it). */
+    fun statusOf(resolution: TrackResolution): ReviewStatus = when (val decision = resolution.decision) {
+        is MatchDecision.Matched -> ReviewStatus.Matched
+        is MatchDecision.Ambiguous -> if (decision.candidates.isEmpty()) ReviewStatus.NotFound else ReviewStatus.Uncertain
+        MatchDecision.NotFound -> ReviewStatus.NotFound
+    }
+
     /** [rows] with the row at [position] checked or unchecked; a row with no candidate stays unchecked. */
     fun setChecked(rows: List<ReviewRow>, position: Int, checked: Boolean): List<ReviewRow> = rows.map { row ->
         if (row.position == position && row.checkable) row.copy(checked = checked) else row

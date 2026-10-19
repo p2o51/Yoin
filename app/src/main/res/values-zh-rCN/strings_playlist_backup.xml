@@ -68,4 +68,6 @@
     <string name="playlist_restore_channel">歌单恢复</string>
     <string name="playlist_restore_cd_check">加入歌单</string>
     <string name="playlist_restore_writing_short">正在创建</string>
+    <string name="playlist_backup_section_versions">版本</string>
+    <string name="playlist_backup_version_current">当前</string>
 </resources>

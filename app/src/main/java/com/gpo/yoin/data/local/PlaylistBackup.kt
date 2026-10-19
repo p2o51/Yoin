@@ -49,6 +49,13 @@ data class PlaylistBackup(
     val trackCount: Int,
     val unexportedCount: Int,
     val contentJson: String,
+    /**
+     * Earlier versions, newest first ([com.gpo.yoin.data.backup.BackupVersion]
+     * list): what the playlist held before each change, up to
+     * [com.gpo.yoin.data.backup.PlaylistSnapshots.KEEP_VERSIONS] in all with
+     * the current one.
+     */
+    val versionsJson: String,
     val restoresJson: String,
     /** The last change to the row: a backup, the playlist found gone, or a restore added to its history. */
     val updatedAt: Long,

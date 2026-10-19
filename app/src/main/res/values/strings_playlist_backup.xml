@@ -73,4 +73,6 @@
     <string name="playlist_restore_channel">Playlist restore</string>
     <string name="playlist_restore_cd_check">Add to playlist</string>
     <string name="playlist_restore_writing_short">Creating</string>
+    <string name="playlist_backup_section_versions">Versions</string>
+    <string name="playlist_backup_version_current">Current</string>
 </resources>

@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.settings.backup.PlaylistBackupActivity
+import androidx.compose.material3.SnackbarResult
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -98,6 +100,19 @@ class PlaylistDetailActivity : ComponentActivity() {
                 LaunchedEffect(viewModel) {
                     viewModel.messages.collect { message ->
                         snackbarHostState.showSnackbar(message.asString(context), duration = SnackbarDuration.Short)
+                    }
+                }
+                // A backup made: View opens it.
+                LaunchedEffect(viewModel) {
+                    viewModel.backedUp.collect { done ->
+                        val result = snackbarHostState.showSnackbar(
+                            message = done.message.asString(context),
+                            actionLabel = context.getString(R.string.detail_playlist_backup_view),
+                            duration = SnackbarDuration.Short,
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            context.startActivity(PlaylistBackupActivity.intent(context, done.backupId))
+                        }
                     }
                 }
                 // Leave on successful delete.

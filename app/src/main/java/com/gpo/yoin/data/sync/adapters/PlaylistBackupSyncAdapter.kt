@@ -96,6 +96,7 @@ class PlaylistBackupSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
             SOURCE_GONE_AT to jsonLong(row.sourceGoneAt),
             UPDATED_AT to jsonLong(row.updatedAt),
             CONTENT to jsonString(row.contentJson),
+            VERSIONS to jsonString(row.versionsJson),
             RESTORES to jsonString(row.restoresJson),
         ),
     )
@@ -106,6 +107,9 @@ class PlaylistBackupSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
         val restoresJson = payload.requiredString(RESTORES) ?: return null
         val content = runCatching { PlaylistBackupCodec.decodeContent(contentJson) }.getOrNull() ?: return null
         runCatching { PlaylistBackupCodec.decodeRestores(restoresJson) }.getOrNull() ?: return null
+        // Older payloads had no versions: none, then.
+        val versionsJson = payload.optionalString(VERSIONS).orElse { return null } ?: "[]"
+        runCatching { PlaylistBackupCodec.decodeVersions(versionsJson) }.getOrNull() ?: return null
         return PlaylistBackup(
             id = key,
             name = payload.requiredString(NAME) ?: return null,
@@ -122,6 +126,7 @@ class PlaylistBackupSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
             trackCount = content.tracks.size,
             unexportedCount = content.unexported.size,
             contentJson = contentJson,
+            versionsJson = versionsJson,
             restoresJson = restoresJson,
             updatedAt = payload.requiredLong(UPDATED_AT) ?: return null,
         )
@@ -141,5 +146,6 @@ class PlaylistBackupSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
         const val UPDATED_AT = "updatedAt"
         const val CONTENT = "content"
         const val RESTORES = "restores"
+        const val VERSIONS = "versions"
     }
 }

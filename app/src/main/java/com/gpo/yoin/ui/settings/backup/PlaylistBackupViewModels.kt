@@ -13,6 +13,7 @@ import com.gpo.yoin.data.backup.RestoreTarget
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.transfer.RestoreReview
 import com.gpo.yoin.data.transfer.ReviewRow
+import com.gpo.yoin.data.transfer.ReviewStatus
 import com.gpo.yoin.data.transfer.TrackResolution
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -82,6 +83,12 @@ sealed interface RestoreUiState {
     data class Failed(val target: RestoreTarget) : RestoreUiState
 }
 
+/** [backup] with the contents of its version that began at [versionSince] (null, or no such version: as it is). */
+internal fun restoreSnapshot(backup: PlaylistBackupRecord, versionSince: Long?): PlaylistBackupRecord {
+    val version = versionSince?.let { since -> backup.versions.firstOrNull { it.since == since } } ?: return backup
+    return backup.copy(content = version.content)
+}
+
 /** The review's search for one song on the target: what was asked, and what came back. */
 data class RestoreSearchState(
     val position: Int,
@@ -94,7 +101,14 @@ data class RestoreSearchState(
 
 /** Where a restore's progress shows outside the app: the notification's Live Update. */
 interface RestoreProgressSink {
-    fun matching(backup: PlaylistBackupRecord, target: RestoreTarget, done: Int, total: Int)
+    /** [outcomes]: what each song resolved to so far, in the order they came back. */
+    fun matching(
+        backup: PlaylistBackupRecord,
+        target: RestoreTarget,
+        done: Int,
+        total: Int,
+        outcomes: List<ReviewStatus> = emptyList(),
+    )
 
     fun writing(backup: PlaylistBackupRecord, target: RestoreTarget, count: Int)
 
@@ -103,7 +117,13 @@ interface RestoreProgressSink {
     fun clear()
 
     object None : RestoreProgressSink {
-        override fun matching(backup: PlaylistBackupRecord, target: RestoreTarget, done: Int, total: Int) = Unit
+        override fun matching(
+            backup: PlaylistBackupRecord,
+            target: RestoreTarget,
+            done: Int,
+            total: Int,
+            outcomes: List<ReviewStatus>,
+        ) = Unit
 
         override fun writing(backup: PlaylistBackupRecord, target: RestoreTarget, count: Int) = Unit
 
@@ -127,7 +147,12 @@ class PlaylistBackupViewModel(
     private val backupId: String,
     private val store: PlaylistBackupStore,
     restoreTargets: Flow<List<RestoreTarget>>,
-    private val match: suspend (PlaylistBackupRecord, RestoreTarget, (Int, Int) -> Unit) -> List<TrackResolution>,
+    private val match: suspend (
+        PlaylistBackupRecord,
+        RestoreTarget,
+        (Int, Int) -> Unit,
+        (TrackResolution) -> Unit,
+    ) -> List<TrackResolution>,
     private val create: suspend (PlaylistBackupRecord, RestoreTarget, List<ReviewRow>) -> RestoreOutcome,
     private val searchTarget: suspend (RestoreTarget, String) -> List<Track> = { _, _ -> emptyList() },
     private val backUpNow: suspend (PlaylistBackupRecord) -> Unit = {},
@@ -159,14 +184,28 @@ class PlaylistBackupViewModel(
     private val _backingUp = MutableStateFlow(false)
     val backingUp: StateFlow<Boolean> = _backingUp.asStateFlow()
 
-    private val backup: PlaylistBackupRecord?
-        get() = (uiState.value as? PlaylistBackupUiState.Content)?.backup
+    /** Which version a restore takes: null = the current one, else that version's [BackupVersion.since]. */
+    private val _restoreVersion = MutableStateFlow<Long?>(null)
+    val restoreVersion: StateFlow<Long?> = _restoreVersion.asStateFlow()
 
-    /** Restore: a fresh choice of target, or back to the restore under way. */
-    fun openRestore() {
+    /** The backup as the restore sees it: its current contents, or the chosen earlier version's. */
+    private val backup: PlaylistBackupRecord?
+        get() {
+            val current = (uiState.value as? PlaylistBackupUiState.Content)?.backup ?: return null
+            return restoreSnapshot(current, _restoreVersion.value)
+        }
+
+    /**
+     * Restore: a fresh choice of target — of the current contents, or of the
+     * earlier version that began at [versionSince] — or back to the restore
+     * under way.
+     */
+    fun openRestore(versionSince: Long? = null) {
         when (_restore.value) {
-            RestoreUiState.Idle, is RestoreUiState.Done, is RestoreUiState.Failed ->
+            RestoreUiState.Idle, is RestoreUiState.Done, is RestoreUiState.Failed -> {
+                _restoreVersion.value = versionSince
                 _restore.value = RestoreUiState.ChoosingTarget
+            }
             else -> Unit
         }
         _sheetOpen.value = true
@@ -189,12 +228,18 @@ class PlaylistBackupViewModel(
         job = viewModelScope.launch {
             _restore.value = try {
                 progress.matching(backup, target, 0, backup.trackCount)
-                val resolutions = match(backup, target) { done, total ->
-                    if (_restore.value is RestoreUiState.Matching) {
-                        _restore.value = RestoreUiState.Matching(target, done, total)
-                        progress.matching(backup, target, done, total)
-                    }
-                }
+                val outcomes = ArrayList<ReviewStatus>(backup.trackCount)
+                val resolutions = match(
+                    backup,
+                    target,
+                    { done, total ->
+                        if (_restore.value is RestoreUiState.Matching) {
+                            _restore.value = RestoreUiState.Matching(target, done, total)
+                            progress.matching(backup, target, done, total, outcomes.toList())
+                        }
+                    },
+                    { resolution -> outcomes += RestoreReview.statusOf(resolution) },
+                )
                 // Matching done: the review waits in the app, not in the notification.
                 progress.clear()
                 RestoreUiState.Review(target, RestoreReview.rows(resolutions))
@@ -326,7 +371,7 @@ class PlaylistBackupViewModel(
                 backupId = backupId,
                 store = container.playlistBackupStore,
                 restoreTargets = service.restoreTargets(),
-                match = { backup, target, onProgress -> service.match(backup, target, onProgress) },
+                match = { backup, target, onProgress, onResolved -> service.match(backup, target, onProgress, onResolved) },
                 create = { backup, target, rows -> service.create(backup, target, rows) },
                 searchTarget = { target, query -> service.search(target, query) },
                 backUpNow = { backup -> service.followNow(backup) },

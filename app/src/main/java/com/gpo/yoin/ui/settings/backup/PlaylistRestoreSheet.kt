@@ -116,6 +116,7 @@ internal fun PlaylistRestoreSheet(
     backup: PlaylistBackupRecord?,
     targets: List<RestoreTarget>,
     search: RestoreSearchState?,
+    versionSince: Long? = null,
     onChooseTarget: (RestoreTarget) -> Unit,
     onCheck: (position: Int, checked: Boolean) -> Unit,
     onChoose: (position: Int, index: Int) -> Unit,
@@ -136,6 +137,7 @@ internal fun PlaylistRestoreSheet(
             state = state,
             backup = backup,
             targets = targets,
+            versionSince = versionSince,
             onChooseTarget = onChooseTarget,
             onCheck = onCheck,
             onChoose = onChoose,
@@ -170,6 +172,7 @@ internal fun PlaylistRestoreSheetContent(
     onCreate: () -> Unit,
     onCancel: () -> Unit,
     onDone: () -> Unit,
+    versionSince: Long? = null,
 ) {
     val sizeSpring = YoinMotion.spatialSpring<IntSize>()
     AnimatedContent(
@@ -190,7 +193,7 @@ internal fun PlaylistRestoreSheetContent(
         label = "playlistRestoreSheet",
     ) { shown ->
         when (shown) {
-            RestoreUiState.Idle, RestoreUiState.ChoosingTarget -> TargetList(backup, targets, onChooseTarget)
+            RestoreUiState.Idle, RestoreUiState.ChoosingTarget -> TargetList(backup, targets, versionSince, onChooseTarget)
             is RestoreUiState.Matching -> MatchingProgress(shown)
             is RestoreUiState.Review, is RestoreUiState.Writing -> Review(
                 state = (shown as? RestoreUiState.Writing)?.review ?: shown as RestoreUiState.Review,
@@ -228,8 +231,10 @@ private fun SheetTitle(text: String, modifier: Modifier = Modifier) {
 private fun TargetList(
     backup: PlaylistBackupRecord,
     targets: List<RestoreTarget>,
+    versionSince: Long?,
     onChooseTarget: (RestoreTarget) -> Unit,
 ) {
+    val resources = androidx.compose.ui.platform.LocalContext.current.resources
     val haptics = rememberYoinHaptics()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Column(modifier = Modifier.padding(bottom = 16.dp + navBottom)) {
@@ -240,8 +245,17 @@ private fun TargetList(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = if (versionSince == null) 16.dp else 2.dp),
         )
+        // An earlier version: which one.
+        if (versionSince != null) {
+            Text(
+                text = formatBackupTime(versionSince, System.currentTimeMillis(), resources),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+            )
+        }
         if (targets.isEmpty()) {
             Text(
                 text = stringResource(R.string.playlist_restore_no_targets),

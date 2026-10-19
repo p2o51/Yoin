@@ -231,4 +231,5 @@
         <item quantity="other">Backed up %1$d of %2$d songs</item>
     </plurals>
     <string name="detail_playlist_backup_failed">Couldn\'t back up the playlist</string>
+    <string name="detail_playlist_backup_view">View</string>
 </resources>

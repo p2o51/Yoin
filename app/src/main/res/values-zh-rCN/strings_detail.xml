@@ -187,4 +187,5 @@
         <item quantity="other">已备份 %1$d / %2$d 首</item>
     </plurals>
     <string name="detail_playlist_backup_failed">歌单备份失败</string>
+    <string name="detail_playlist_backup_view">查看</string>
 </resources>

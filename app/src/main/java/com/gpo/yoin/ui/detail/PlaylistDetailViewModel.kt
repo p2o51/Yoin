@@ -48,6 +48,12 @@ class PlaylistDetailViewModel(
     /** One-shot toasts (rename/delete/remove result). */
     val messages: SharedFlow<UiText> = _messages.asSharedFlow()
 
+    /** A backup made: its snackbar carries View, which opens the backup ([backupId]). */
+    data class BackedUp(val message: UiText, val backupId: String)
+
+    private val _backedUp = MutableSharedFlow<BackedUp>(extraBufferCapacity = 1)
+    val backedUp: SharedFlow<BackedUp> = _backedUp.asSharedFlow()
+
     private val _deleted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /**
      * Fires after a successful `deletePlaylist`. UI pops the detail route
@@ -93,16 +99,20 @@ class PlaylistDetailViewModel(
         val id = MediaId.parseOrNull(playlistId) ?: return
         _backingUp.value = true
         viewModelScope.launch {
-            val message = try {
-                backupMessage(backUp(id))
+            val backup = try {
+                backUp(id)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                UiText.Res(R.string.detail_playlist_backup_failed)
+                null
             } finally {
                 _backingUp.value = false
             }
-            _messages.tryEmit(message)
+            if (backup == null) {
+                _messages.tryEmit(UiText.Res(R.string.detail_playlist_backup_failed))
+            } else {
+                _backedUp.tryEmit(BackedUp(backupMessage(backup), backup.id))
+            }
         }
     }
 

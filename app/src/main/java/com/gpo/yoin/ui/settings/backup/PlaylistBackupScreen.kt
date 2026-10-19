@@ -108,6 +108,7 @@ internal fun PlaylistBackupRoute(
     val sheetOpen by viewModel.sheetOpen.collectAsState()
     val targets by viewModel.targets.collectAsState()
     val search by viewModel.search.collectAsState()
+    val restoreVersion by viewModel.restoreVersion.collectAsState()
     val backingUp by viewModel.backingUp.collectAsState()
     // The restore's Live Update needs the notification permission: asked once, as the user starts one.
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -132,7 +133,8 @@ internal fun PlaylistBackupRoute(
     PlaylistBackupScreen(
         uiState = uiState,
         onBackClick = onBackClick,
-        onRestore = viewModel::openRestore,
+        onRestore = { viewModel.openRestore() },
+        onRestoreVersion = viewModel::openRestore,
         onBackUpNow = viewModel::backUpAgain,
         backingUp = backingUp,
         onDelete = viewModel::delete,
@@ -141,7 +143,8 @@ internal fun PlaylistBackupRoute(
     if (sheetOpen) {
         PlaylistRestoreSheet(
             state = restore,
-            backup = (uiState as? PlaylistBackupUiState.Content)?.backup,
+            backup = (uiState as? PlaylistBackupUiState.Content)?.backup?.let { restoreSnapshot(it, restoreVersion) },
+            versionSince = restoreVersion,
             targets = targets,
             search = search,
             onChooseTarget = restoreTo,
@@ -173,6 +176,7 @@ internal fun PlaylistBackupScreen(
     modifier: Modifier = Modifier,
     onBackUpNow: () -> Unit = {},
     backingUp: Boolean = false,
+    onRestoreVersion: (Long) -> Unit = {},
     nowMs: Long = remember { System.currentTimeMillis() },
 ) {
     val backup = (uiState as? PlaylistBackupUiState.Content)?.backup
@@ -250,7 +254,7 @@ internal fun PlaylistBackupScreen(
                                     },
                                 )
                             }
-                            backupBody(state.backup, nowMs, onRestore, onBackUpNow, backingUp)
+                            backupBody(state.backup, nowMs, onRestore, onBackUpNow, backingUp, onRestoreVersion)
                         }
                     }
                 }
@@ -274,6 +278,7 @@ private fun LazyListScope.backupBody(
     onRestore: () -> Unit,
     onBackUpNow: () -> Unit,
     backingUp: Boolean,
+    onRestoreVersion: (Long) -> Unit,
 ) {
     item("status") { BackupStatusCard(backup, nowMs) }
     item("actions") {
@@ -314,6 +319,39 @@ private fun LazyListScope.backupBody(
                     } else {
                         Icon(YoinSymbols.Refresh, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text(stringResource(R.string.playlist_backup_now))
+                    }
+                }
+            }
+        }
+    }
+    if (backup.versions.isNotEmpty()) {
+        item("versions") {
+            Column(modifier = Modifier.padding(top = 28.dp)) {
+                SettingsGroup(
+                    title = stringResource(R.string.playlist_backup_section_versions),
+                    trailingLabel = (backup.versions.size + 1).toString(),
+                ) {
+                    item(key = "version-current") {
+                        VersionRow(
+                            since = backup.lastChangedAt,
+                            songs = backup.content.tracks,
+                            older = backup.versions.firstOrNull()?.content?.tracks,
+                            current = true,
+                            nowMs = nowMs,
+                            onRestore = onRestore,
+                        )
+                    }
+                    backup.versions.forEachIndexed { index, version ->
+                        item(key = "version-${version.since}") {
+                            VersionRow(
+                                since = version.since,
+                                songs = version.content.tracks,
+                                older = backup.versions.getOrNull(index + 1)?.content?.tracks,
+                                current = false,
+                                nowMs = nowMs,
+                                onRestore = { onRestoreVersion(version.since) },
+                            )
+                        }
                     }
                 }
             }
@@ -677,4 +715,72 @@ internal fun parseServiceDate(text: String?): Long? {
         ?: runCatching {
             java.time.LocalDate.parse(value.take(10)).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
         }.getOrNull()
+}
+
+/**
+ * One version of the playlist: when it began, how many songs, what changed
+ * from the version before it (+ added, − removed), and Restore. The current
+ * one says so.
+ */
+@Composable
+private fun VersionRow(
+    since: Long,
+    songs: List<BackupTrack>,
+    older: List<BackupTrack>?,
+    current: Boolean,
+    nowMs: Long,
+    onRestore: () -> Unit,
+) {
+    val resources = LocalContext.current.resources
+    val haptics = rememberYoinHaptics()
+    val diff = older?.let { versionDiff(it, songs) }
+    SettingsItem(
+        icon = if (current) YoinSymbols.Cloud else YoinSymbols.Undo,
+        title = formatBackupTime(since, nowMs, resources),
+        summaryContent = {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = pluralStringResource(R.plurals.playlist_backup_songs, songs.size, songs.size),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (diff != null && diff.first > 0) {
+                    Text("+${diff.first}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                }
+                if (diff != null && diff.second > 0) {
+                    Text("−${diff.second}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+                }
+                if (current) {
+                    Box(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.playlist_backup_version_current),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+            }
+        },
+        trailing = {
+            FilledTonalButton(
+                onClick = {
+                    haptics.performClick()
+                    onRestore()
+                },
+                shapes = ButtonDefaults.shapes(),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+            ) { Text(stringResource(R.string.playlist_backup_restore)) }
+        },
+    )
+}
+
+/** Songs added and removed going from [older] to [newer], by their source ids. */
+internal fun versionDiff(older: List<BackupTrack>, newer: List<BackupTrack>): Pair<Int, Int> {
+    val before = older.map { it.sourceTrackId }.toSet()
+    val after = newer.map { it.sourceTrackId }.toSet()
+    return (after - before).size to (before - after).size
 }

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 32,
-    "identityHash": "602e84d9cacda67540f169ea5aa447f5",
+    "identityHash": "f95fbbd4ca653fb3513493f517d1f293",
     "entities": [
       {
         "tableName": "local_ratings",
@@ -1854,7 +1854,7 @@
       },
       {
         "tableName": "playlist_backups",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `sourceProvider` TEXT NOT NULL, `sourceProfileLabel` TEXT NOT NULL, `sourcePlaylistId` TEXT NOT NULL, `sourceProfileId` TEXT, `playlistCreatedAt` TEXT, `firstBackedUpAt` INTEGER NOT NULL, `lastBackedUpAt` INTEGER NOT NULL, `lastChangedAt` INTEGER NOT NULL, `sourceGoneAt` INTEGER, `trackCount` INTEGER NOT NULL, `unexportedCount` INTEGER NOT NULL, `contentJson` TEXT NOT NULL, `restoresJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `sourceProvider` TEXT NOT NULL, `sourceProfileLabel` TEXT NOT NULL, `sourcePlaylistId` TEXT NOT NULL, `sourceProfileId` TEXT, `playlistCreatedAt` TEXT, `firstBackedUpAt` INTEGER NOT NULL, `lastBackedUpAt` INTEGER NOT NULL, `lastChangedAt` INTEGER NOT NULL, `sourceGoneAt` INTEGER, `trackCount` INTEGER NOT NULL, `unexportedCount` INTEGER NOT NULL, `contentJson` TEXT NOT NULL, `versionsJson` TEXT NOT NULL, `restoresJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1938,6 +1938,12 @@
             "notNull": true
           },
           {
+            "fieldPath": "versionsJson",
+            "columnName": "versionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
             "fieldPath": "restoresJson",
             "columnName": "restoresJson",
             "affinity": "TEXT",
@@ -1981,7 +1987,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '602e84d9cacda67540f169ea5aa447f5')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f95fbbd4ca653fb3513493f517d1f293')"
     ]
   }
 }

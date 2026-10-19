@@ -68,6 +68,16 @@ enum class UnexportedReason(val wireName: String) {
     }
 }
 
+/** An earlier version of a backed-up playlist: what it held until [until], when it changed. */
+@Serializable
+data class BackupVersion(
+    /** When this version began (the backup's lastChangedAt at the time). */
+    @SerialName("since") val since: Long,
+    /** When the playlist changed away from it. */
+    @SerialName("until") val until: Long,
+    @SerialName("content") val content: PlaylistBackupContent,
+)
+
 /** One restore of a backup: when, into which profile, and what came of it. Newest last in the stored list. */
 @Serializable
 data class PlaylistRestoreRecord(
@@ -104,6 +114,8 @@ data class PlaylistBackupRecord(
     val content: PlaylistBackupContent,
     val restores: List<PlaylistRestoreRecord>,
     val updatedAt: Long,
+    /** Earlier versions, newest first. */
+    val versions: List<BackupVersion> = emptyList(),
 ) {
     val trackCount: Int get() = content.tracks.size
     val unexportedCount: Int get() = content.unexported.size
@@ -126,6 +138,10 @@ object PlaylistBackupCodec {
     fun decodeContent(text: String): PlaylistBackupContent =
         json.decodeFromString(PlaylistBackupContent.serializer(), text)
 
+    fun encodeVersions(versions: List<BackupVersion>): String = json.encodeToString(VERSIONS, versions)
+
+    fun decodeVersions(text: String): List<BackupVersion> = json.decodeFromString(VERSIONS, text)
+
     fun encodeRestores(restores: List<PlaylistRestoreRecord>): String =
         json.encodeToString(RESTORES, restores)
 
@@ -146,6 +162,7 @@ object PlaylistBackupCodec {
         trackCount = record.trackCount,
         unexportedCount = record.unexportedCount,
         contentJson = encodeContent(record.content),
+        versionsJson = encodeVersions(record.versions),
         restoresJson = encodeRestores(record.restores),
         updatedAt = record.updatedAt,
     )
@@ -167,14 +184,19 @@ object PlaylistBackupCodec {
             content = decodeContent(row.contentJson),
             restores = decodeRestores(row.restoresJson),
             updatedAt = row.updatedAt,
+            versions = decodeVersions(row.versionsJson),
         )
     }.getOrNull()
 
     private val RESTORES = kotlinx.serialization.builtins.ListSerializer(PlaylistRestoreRecord.serializer())
+    private val VERSIONS = kotlinx.serialization.builtins.ListSerializer(BackupVersion.serializer())
 }
 
 /** Turns a playlist read from its service into a backup, and a backup back into tracks to match. */
 object PlaylistSnapshots {
+    /** Versions a backup keeps, the current one included (owner 2026-10-19: only the latest few). */
+    const val KEEP_VERSIONS = 5
+
     /**
      * The start of [playlist]'s cloud backup, made [now]: read whole from the
      * profile [profileId] ([profileLabel]) on [provider].
@@ -217,7 +239,15 @@ object PlaylistSnapshots {
     ): PlaylistBackupRecord {
         val content = content(playlist)
         val changed = content != backup.content || playlist.name != backup.name
+        // What it held until now becomes the newest earlier version (only when the songs changed).
+        val versions = if (content != backup.content) {
+            (listOf(BackupVersion(since = backup.lastChangedAt, until = now, content = backup.content)) + backup.versions)
+                .take(KEEP_VERSIONS - 1)
+        } else {
+            backup.versions
+        }
         return backup.copy(
+            versions = versions,
             name = playlist.name,
             sourceProfileLabel = profileLabel,
             sourceProfileId = profileId ?: backup.sourceProfileId,

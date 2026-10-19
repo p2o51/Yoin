@@ -122,4 +122,40 @@ class PlaylistSnapshotsTest {
             if (artists.size > 1) put(Track.EXTRA_ARTISTS, Track.joinArtists(artists))
         },
     )
+
+    @Test
+    fun should_keepTheLatestFiveVersions_when_thePlaylistKeepsChanging() {
+        var backup = PlaylistSnapshots.backup("b1", playlist, MediaId.PROVIDER_SPOTIFY, "p1", "Chen", now = 0L)
+        repeat(7) { change ->
+            val changed = playlist.copy(tracks = playlist.tracks.take(1) + playlist.tracks.take(1).map {
+                it.copy(id = MediaId.spotify("extra$change"))
+            })
+            backup = PlaylistSnapshots.refreshed(backup, changed, "p1", "Chen", now = (change + 1) * 10L)
+        }
+
+        assertEquals(PlaylistSnapshots.KEEP_VERSIONS - 1, backup.versions.size)
+        // Newest first: the version before the last change began at 60 and ended at 70.
+        assertEquals(60L, backup.versions.first().since)
+        assertEquals(70L, backup.versions.first().until)
+        assertEquals(70L, backup.lastChangedAt)
+    }
+
+    @Test
+    fun should_addNoVersion_when_nothingChanged() {
+        val backup = PlaylistSnapshots.backup("b1", playlist, MediaId.PROVIDER_SPOTIFY, "p1", "Chen", now = 0L)
+
+        val again = PlaylistSnapshots.refreshed(backup, playlist, "p1", "Chen", now = 10L)
+
+        assertEquals(emptyList<BackupVersion>(), again.versions)
+        assertEquals(0L, again.lastChangedAt)
+        assertEquals(10L, again.lastBackedUpAt)
+    }
+
+    @Test
+    fun should_readVersionsBack_when_roundTrippedThroughTheRow() {
+        val backup = PlaylistSnapshots.backup("b1", playlist, MediaId.PROVIDER_SPOTIFY, "p1", "Chen", now = 0L)
+        val changed = PlaylistSnapshots.refreshed(backup, playlist.copy(tracks = playlist.tracks.take(1)), "p1", "Chen", 5L)
+
+        assertEquals(changed, PlaylistBackupCodec.fromEntity(PlaylistBackupCodec.toEntity(changed)))
+    }
 }

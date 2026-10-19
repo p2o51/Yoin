@@ -28,6 +28,7 @@ class PlaylistTransfer(
         tracks: List<Track>,
         target: MusicSource,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onResolved: (TrackResolution) -> Unit = {},
     ): List<TrackResolution> {
         val library = target.library()
         val isrcs = tracks.mapNotNull { it.extras[Track.EXTRA_ISRC] }.distinct()
@@ -64,8 +65,10 @@ class PlaylistTransfer(
                     }
                 }
             }
+            val resolution = TrackResolution(position = index, source = track, decision = decision)
+            onResolved(resolution)
             onProgress(index + 1, tracks.size)
-            TrackResolution(position = index, source = track, decision = decision)
+            resolution
         }
     }
 

@@ -337,6 +337,10 @@ internal fun PlaylistPaneEntry(
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { message -> currentOnMessage(message.asString(context)) }
     }
+    // A backup made: the shell's snackbar takes text only, so the column says it without View.
+    LaunchedEffect(viewModel) {
+        viewModel.backedUp.collect { done -> currentOnMessage(done.message.asString(context)) }
+    }
     LaunchedEffect(viewModel) {
         viewModel.deleted.collect { currentOnBack() }
     }

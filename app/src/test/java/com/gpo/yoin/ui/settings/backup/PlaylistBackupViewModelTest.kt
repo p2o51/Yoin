@@ -67,7 +67,7 @@ class PlaylistBackupViewModelTest {
     @Test
     fun should_keepMatchingAndReview_when_sheetIsClosedMidway() = runTest {
         val release = CompletableDeferred<Unit>()
-        val viewModel = viewModel(match = { _, _, onProgress ->
+        val viewModel = viewModel(match = { _, _, onProgress, _ ->
             onProgress(1, 3)
             release.await()
             resolutions()
@@ -105,7 +105,7 @@ class PlaylistBackupViewModelTest {
             notFound = 1,
         )
         val viewModel = viewModel(
-            match = { _, _, _ -> resolutions() },
+            match = { _, _, _, _ -> resolutions() },
             create = { _, _, rows ->
                 written = rows
                 RestoreOutcome(record, PlaylistWrite(created = null, added = 2, requested = 2))
@@ -128,7 +128,7 @@ class PlaylistBackupViewModelTest {
 
     @Test
     fun should_showFailure_when_targetCantBeReached() = runTest {
-        val viewModel = viewModel(match = { _, _, _ -> throw IllegalStateException("Profile unavailable") })
+        val viewModel = viewModel(match = { _, _, _, _ -> throw IllegalStateException("Profile unavailable") })
         advanceUntilIdle()
 
         viewModel.openRestore()
@@ -148,7 +148,7 @@ class PlaylistBackupViewModelTest {
     }
 
     private fun viewModel(
-        match: suspend (PlaylistBackupRecord, RestoreTarget, (Int, Int) -> Unit) -> List<TrackResolution>,
+        match: suspend (PlaylistBackupRecord, RestoreTarget, (Int, Int) -> Unit, (TrackResolution) -> Unit) -> List<TrackResolution>,
         create: suspend (PlaylistBackupRecord, RestoreTarget, List<ReviewRow>) -> RestoreOutcome = { _, _, _ ->
             error("not expected")
         },

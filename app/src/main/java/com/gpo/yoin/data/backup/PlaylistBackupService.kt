@@ -159,8 +159,9 @@ class PlaylistBackupService(
         backup: PlaylistBackupRecord,
         target: RestoreTarget,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onResolved: (TrackResolution) -> Unit = {},
     ): List<TrackResolution> = profiles.withSource(target.profileId) { source ->
-        resolve(backup, target.provider, source, onProgress)
+        resolve(backup, target.provider, source, onProgress, onResolved)
     } ?: throw IllegalStateException("Profile unavailable")
 
     internal suspend fun resolve(
@@ -168,22 +169,27 @@ class PlaylistBackupService(
         targetProvider: String,
         target: MusicSource,
         onProgress: (done: Int, total: Int) -> Unit,
+        onResolved: (TrackResolution) -> Unit = {},
     ): List<TrackResolution> {
         val tracks = backup.content.tracks.map(PlaylistSnapshots::toTrack)
         // Spotify ids are the same in every account: a Spotify backup goes back by its own ids, and only
         // the tracks without one are matched.
-        if (targetProvider != MediaId.PROVIDER_SPOTIFY) return transfer.resolve(tracks, target, onProgress)
+        if (targetProvider != MediaId.PROVIDER_SPOTIFY) return transfer.resolve(tracks, target, onProgress, onResolved)
         val own = tracks.withIndex().filter { it.value.id.provider == MediaId.PROVIDER_SPOTIFY }
         val others = tracks.withIndex().filter { it.value.id.provider != MediaId.PROVIDER_SPOTIFY }
         val matched = others.takeIf { it.isNotEmpty() }
             ?.let { list ->
-                transfer.resolve(list.map { it.value }, target) { done, _ -> onProgress(own.size + done, tracks.size) }
-                    .mapIndexed { i, resolution -> resolution.copy(position = list[i].index) }
+                transfer.resolve(
+                    list.map { it.value },
+                    target,
+                    onProgress = { done, _ -> onProgress(own.size + done, tracks.size) },
+                    onResolved = { resolution -> onResolved(resolution.copy(position = list[resolution.position].index)) },
+                ).mapIndexed { i, resolution -> resolution.copy(position = list[i].index) }
             }
             .orEmpty()
         onProgress(tracks.size, tracks.size)
         val byId = own.map { (index, track) ->
-            TrackResolution(index, track, MatchDecision.Matched(track, MatchMethod.SourceId))
+            TrackResolution(index, track, MatchDecision.Matched(track, MatchMethod.SourceId)).also(onResolved)
         }
         return (byId + matched).sortedBy { it.position }
     }

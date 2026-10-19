@@ -1467,6 +1467,7 @@ class YoinDatabaseMigrationTest {
                 trackCount = 0,
                 unexportedCount = 0,
                 contentJson = "{}",
+                versionsJson = "[]",
                 restoresJson = "[]",
                 updatedAt = 10L,
             ),

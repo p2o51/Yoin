@@ -111,6 +111,16 @@
 - 单份备份页的「立即备份」随时读一次；歌单页 ⋮「云备份」对已有备份的歌单也是立即再备份（不会再新建一份）。
 - `sourceProfileId` 是本机的档案 ID，**不同步**；别的设备能看到、能恢复这份备份，但不跟随（页面显示「在其他设备上跟随」），除非在那台设备上也点一次云备份。
 
+### 7.0.1 版本（owner 2026-10-19：只留最近几份）
+
+- 歌单里的歌变了，旧内容存成一个版本（`BackupVersion`：从何时到何时、当时的歌）。连同当前一共最多留 5 个（`PlaylistSnapshots.KEEP_VERSIONS`），最旧的丢掉。只改了名字不算新版本。
+- 单份备份页的「版本」列出当前和以前的版本：开始时间、几首、比前一个版本 +几 −几（按来源曲目 ID 算），每个都能「恢复」；恢复面板会标出是哪个时间的版本。
+- 版本跟着备份一起同步（`versions` 字段，旧数据没有就当空）。
+
+### 7.0.2 备份成功提示
+
+歌单页备份完的 snackbar 带「查看」，直接打开这份备份。平板分栏里歌单在 shell 的右列，shell 的 snackbar 只能放文字，那里不带「查看」。
+
 ### 7.1 存什么
 
 一份备份（`data/backup/PlaylistBackupModels.kt`，Room 表 `playlist_backups`，DB v32）：
@@ -145,12 +155,12 @@
 
 ### 7.3 页面与返回
 
-- 歌单页 ⋮ 「云备份」：读完存好并开始跟随，snackbar 报数（「已备份 45 首」或「已备份 42 / 45 首」）。
+- 歌单页 ⋮ 「云备份」：读完存好并开始跟随，snackbar 报数（「已备份 45 首」或「已备份 42 / 45 首」），带「查看」。
 - 设置 › 存储 ›「歌单云备份」：`SettingsFeature.PlaylistBackups`，和「滚动边缘」一样是 `SettingsFeatureActivity` 里的一页（平板分栏里开在右栏）。
 - 单份备份：`PlaylistBackupActivity`，Pattern A（原生跨 Activity 返回，没有返回代码），右上 ⋮ 里是删除。
 - 单份备份页顶部是服务色的状态卡：账号、跟随状态（跟随变化中 / 原歌单已不在 / 在其他设备上跟随）、四个时间方块；下面「恢复」和「立即备份」两个按钮。
 - 恢复：备份页上的 `YoinModalBottomSheet`，一个面板走完「选档案 → 匹配进度（确定进度的 Expressive LoadingIndicator + 波浪进度条）→ 审阅 → 写入 → 结果」；搜索是叠在上面的第二个 sheet。返回和拖动关闭由共享的 sheet 返回桥处理。
-- 进度通知（`RestoreLiveUpdate`）：匹配和写入期间一条常驻通知，Android 16+ 用 `ProgressStyle`，并请求升级为 Live Update（`android.requestPromotedOngoing` extra，`setShortCriticalText` 给状态栏胶囊 "12/45"；manifest 声明 `POST_PROMOTED_NOTIFICATIONS`）。匹配完就撤掉（审阅在 App 里），写完换成可划掉的结果。2 分钟没有更新的常驻通知自动消失（进程中途死了也不会卡住）。第一次恢复时才请求通知权限；不给就不显示，恢复照常。
+- 进度通知（`RestoreLiveUpdate`）：匹配和写入期间一条常驻通知，Android 16+ 用 `ProgressStyle`：进度指示是 Yoin 吉祥物（`ic_live_yoin_mascot`，三色标志），进度条按每首歌的匹配结果分段上色（已匹配紫 #9113FF、待确认粉 #FF59CD、没找到灰，同色相邻合并成一段，没匹配到的部分保持默认色），并请求升级为 Live Update（`android.requestPromotedOngoing` extra，`setShortCriticalText` 给状态栏胶囊 "12/45"；manifest 声明 `POST_PROMOTED_NOTIFICATIONS`）。匹配完就撤掉（审阅在 App 里），写完换成可划掉的结果。2 分钟没有更新的常驻通知自动消失（进程中途死了也不会卡住）。第一次恢复时才请求通知权限；不给就不显示，恢复照常。
 
 ### 7.4 恢复审阅（`data/transfer/RestoreReview.kt`）
 

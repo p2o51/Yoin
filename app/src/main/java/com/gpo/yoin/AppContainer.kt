@@ -747,6 +747,7 @@ class AppContainer(private val context: Context) {
                         `trackCount` INTEGER NOT NULL,
                         `unexportedCount` INTEGER NOT NULL,
                         `contentJson` TEXT NOT NULL,
+                        `versionsJson` TEXT NOT NULL,
                         `restoresJson` TEXT NOT NULL,
                         `updatedAt` INTEGER NOT NULL,
                         PRIMARY KEY(`id`)
