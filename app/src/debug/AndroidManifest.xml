@@ -3,6 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <application>
+        <activity
+            android:name=".debug.DesignTokenExportActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
         <!-- debug 专属：把 AlbumDetailActivity 放开成 exported，让 adb 能直接
              以独立窗口启动它（Compact / Medium / 矮窗的推入页；fake id →
              加载失败态）。Wide 窗口的详情是 shell 里的列、不是 Activity，

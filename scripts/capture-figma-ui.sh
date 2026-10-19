@@ -8,8 +8,8 @@ mkdir -p "$out"
 app_id=com.gpo.yoin
 adb wait-for-device
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell wm size 1080x2340
-adb shell wm density 420
+adb shell wm size 824x1784
+adb shell wm density 320
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 0
 adb shell settings put global window_animation_scale 1
@@ -22,6 +22,20 @@ adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 
 adb shell am broadcast -a com.android.systemui.demo -e command network -e wifi show -e level 4 -e mobile hide >/dev/null
 adb shell input keyevent 82
 adb logcat -c
+
+collect_diagnostics() {
+  local result=$?
+  trap - EXIT
+  timeout 10 adb logcat -d > "$out/logcat.txt" 2>&1 || true
+  timeout 10 adb shell dumpsys package "$app_id" > "$out/package.txt" 2>&1 || true
+  free -h > "$out/host-memory.txt" || true
+  ps -eo pid,comm,rss --sort=-rss | head -20 > "$out/host-largest-processes.txt" || true
+  printf '\nCapture script exit: %s\n' "$result" >> "$out/capture-environment.txt"
+  exit "$result"
+}
+trap collect_diagnostics EXIT
+adb shell am start -W -n "$app_id/.debug.DesignTokenExportActivity"
+adb exec-out run-as "$app_id" cat files/figma-design-tokens.json > "$out/design-tokens.json"
 
 {
   printf 'Source commit: '
@@ -56,7 +70,13 @@ capture() {
   fi
   sleep 3
   adb exec-out screencap -p > "$path"
-  adb shell dumpsys activity activities | rg 'mResumedActivity|topResumedActivity' > "$out/$theme/$name-resumed.txt" || true
+  local resumed
+  resumed="$(adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' || true)"
+  printf '%s\n' "$resumed" > "$out/$theme/$name-resumed.txt"
+  if [[ "$resumed" != *"$app_id"* ]]; then
+    printf 'App did not remain resumed: %s (%s)\n' "$name" "$theme"
+    failures=$((failures + 1))
+  fi
 }
 
 capture_current() {
@@ -75,10 +95,6 @@ for theme in light dark; do
   capture 01-shell-bottom-bar .debug.BarMorphPreviewActivity
 
   capture 10-home-top .debug.MemoriesScreenshotActivity --es bubble seen --ez rediscover true --ez marks true
-  adb shell input swipe 540 1800 540 600 500
-  capture_current 11-home-middle
-  adb shell input swipe 540 1800 540 500 500
-  capture_current 12-home-lower
   capture 13-home-edit .debug.MemoriesScreenshotActivity --es bubble seen --ez rediscover true --ez marks true --ez edit true
 
   capture 20-library-all .debug.LibraryScreenshotActivity --es tab All
@@ -89,7 +105,7 @@ for theme in light dark; do
   capture 25-library-favorites .debug.LibraryScreenshotActivity --es tab Favorites
 
   capture 30-album-detail .debug.DetailScreenshotActivity
-  adb shell input swipe 540 1600 540 650 500
+  adb shell input swipe 412 1200 412 500 500
   capture_current 31-album-detail-lower
 
   capture 40-now-playing .debug.MotionAuditActivity

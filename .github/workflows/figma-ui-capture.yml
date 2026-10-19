@@ -48,7 +48,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Compile actual debug app
-        run: ./gradlew :app:assembleDebug -PyoinSymbolsDir=yoin-symbols --console=plain
+        run: ./gradlew :app:assembleDebug -PyoinSymbolsDir=yoin-symbols --console=plain --no-daemon --max-workers=2
       - name: Enable KVM on isolated hosted VM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -61,10 +61,10 @@ jobs:
           target: google_apis
           arch: x86_64
           cores: 2
-          ram-size: 3072M
+          ram-size: 2048M
           disk-size: 4096M
           disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
+          emulator-options: -no-window -gpu swiftshader_indirect -feature -Vulkan -noaudio -no-boot-anim -camera-back none -camera-front none -no-snapshot
           script: bash scripts/capture-figma-ui.sh
       - name: Upload reference screenshots and capture evidence
         if: ${{ always() }}
