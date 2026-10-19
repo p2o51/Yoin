@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -78,6 +79,8 @@ class SpotifyApiClient(
      * ([Lane.Control]).
      */
     private val readPermits: Semaphore = SHARED_READ_PERMITS,
+    /** The Client ID this build ships with, against which a failure says whose app its tokens belong to. */
+    private val builtInClientId: String = SpotifyAuthConfig.FALLBACK_CLIENT_ID,
 ) {
 
     @Volatile
@@ -514,7 +517,7 @@ class SpotifyApiClient(
                 .awaitResponse(::recordRateLimitBackoff)
         }.use { response ->
             if (!response.isSuccessful) {
-                throw response.toSpotifyFailure(url.toString())
+                throw response.toSpotifyFailure(url)
             }
         }
     }
@@ -529,9 +532,9 @@ class SpotifyApiClient(
         response.use {
             val body = it.body.string()
             if (!it.isSuccessful) {
-                throw it.toSpotifyFailure(url.toString())
+                throw it.toSpotifyFailure(url, body)
             }
-            return JSON.decodeFromString(deserializer, body)
+            return decodeResponse(deserializer, body, it)
         }
     }
 
@@ -542,7 +545,7 @@ class SpotifyApiClient(
     ) {
         executeJsonRequest(method, url, jsonBody).use { response ->
             if (!response.isSuccessful) {
-                throw response.toSpotifyFailure(url.toString())
+                throw response.toSpotifyFailure(url)
             }
         }
     }
@@ -667,10 +670,10 @@ class SpotifyApiClient(
                 }
                 response.use {
                     if (!it.isSuccessful) {
-                        throw it.toSpotifyFailure(url.toString())
+                        throw it.toSpotifyFailure(url)
                     }
                     val body = it.body.string()
-                    JSON.decodeFromString(deserializer, body)
+                    decodeResponse(deserializer, body, it)
                 }
             } catch (error: IOException) {
                 // Call.cancel aborts a blocking body read with IOException; preserve coroutine cancellation.
@@ -682,19 +685,45 @@ class SpotifyApiClient(
             }
         }
 
-    private fun Response.toSpotifyFailure(endpoint: String): Throwable {
+    /**
+     * [errorBody] is the body when the caller already read it; otherwise a bounded peek reads Spotify's reason
+     * without consuming the response.
+     */
+    private fun Response.toSpotifyFailure(url: HttpUrl, errorBody: String? = null): Throwable {
         if (code == HTTP_TOO_MANY_REQUESTS) {
             // The gate was already closed when the 429's response callback ran.
             return SpotifyRateLimitException(
                 retryAfterSeconds = retryAfterSeconds(),
-                endpoint = endpoint,
+                endpoint = url.toString(),
             )
         }
+        val body = errorBody ?: runCatching { peekBody(MAX_ERROR_BODY_BYTES).string() }.getOrNull()
         return SpotifyAuthException(
             code = code,
             message = "Spotify request failed: $code",
+            request = spotifyRequestTemplate(request.method, url),
+            reason = spotifyErrorReason(body),
+            clientIdKind = clientIdKind(),
         )
     }
+
+    /** A 2xx body that doesn't fit [deserializer] fails as a [SpotifyResponseDecodeException] naming the request. */
+    private fun <T> decodeResponse(deserializer: KSerializer<T>, body: String, response: Response): T = try {
+        JSON.decodeFromString(deserializer, body)
+    } catch (error: SerializationException) {
+        throw SpotifyResponseDecodeException(
+            request = spotifyRequestTemplate(response.request.method, response.request.url),
+            clientIdKind = clientIdKind(),
+            cause = error,
+        )
+    }
+
+    /**
+     * Whose app the current tokens belong to, from the Client ID they were issued under — not the global
+     * setting, which may have changed since. Null (unknown) for credentials saved before it was recorded.
+     */
+    private fun clientIdKind(): SpotifyClientIdKind? =
+        credentials.clientId?.let { SpotifyClientIdKind.of(it, builtInClientId) }
 
     private fun Response.retryAfterSeconds(): Long = header(HEADER_RETRY_AFTER)
         ?.toLongOrNull()
@@ -802,6 +831,8 @@ class SpotifyApiClient(
                 refreshToken = response.refreshToken ?: inside.refreshToken,
                 expiresAtEpochMs = now() + response.expiresInSec * 1_000,
                 scopes = response.scope?.split(' ')?.filter { it.isNotBlank() } ?: inside.scopes,
+                // The refresh token only refreshes under the app that issued it.
+                clientId = clientId,
                 // Successful refresh implicitly clears any prior revoked
                 // marker — the credentials are alive again.
                 revoked = false,
@@ -824,6 +855,7 @@ class SpotifyApiClient(
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_TOO_MANY_REQUESTS = 429
         private const val HEADER_RETRY_AFTER = "Retry-After"
+        private const val MAX_ERROR_BODY_BYTES = 4_096L
         private const val DEFAULT_RETRY_AFTER_SECONDS = 5L
         private const val MAX_RETRY_AFTER_SECONDS = 24L * 60L * 60L
         private const val REFRESH_BUFFER_MS = 60_000L
