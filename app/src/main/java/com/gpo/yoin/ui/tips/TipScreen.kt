@@ -198,7 +198,7 @@ internal fun TipScreen(
     }
 }
 
-/** One tip: its symbol on a large Expressive shape, the title, then the text. */
+/** One tip: how it is done (drawn), its symbol on an Expressive shape beside the title, then the text. */
 @Composable
 private fun TipPage(
     tip: HomeBubbleTip,
@@ -217,14 +217,20 @@ private fun TipPage(
                 .padding(horizontal = 24.dp)
                 .padding(top = 24.dp, bottom = 24.dp),
         ) {
-            TipTile(tip = tip, page = page, pager = pager)
-            Spacer(modifier = Modifier.height(40.dp))
-            Text(
-                text = stringResource(tip.title),
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { heading() },
-            )
+            TipIllustration(tip = tip, playing = pager.settledPage == page)
+            Spacer(modifier = Modifier.height(28.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TipTile(tip = tip, page = page, pager = pager)
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = stringResource(tip.title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { heading() },
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = stringResource(tip.text),
@@ -288,8 +294,8 @@ private fun tipPolygon(index: Int): RoundedPolygon = when (Math.floorMod(index, 
     else -> MaterialShapes.Pentagon
 }
 
-private val TipTileSize = 160.dp
-private val TipSymbolSize = 64.dp
+private val TipTileSize = 64.dp
+private val TipSymbolSize = 30.dp
 private const val TipTileTurnDegrees = 40f
 private const val TipTileShrink = 0.2f
 private val TipButtonHeight = 56.dp
