@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
@@ -215,11 +216,12 @@ internal class DemoFinger(
 }
 
 /**
- * A 168×300dp phone that plays [script] on a loop while [playing] and the
+ * A 168×300dp phone (larger in a tall window) that plays [script] on a loop while [playing] and the
  * user isn't touching it. [script] puts the scene back at rest first. The
  * user's first touch takes the phone over; [TakeoverIdleMs] untouched and
  * the demo starts again.
  */
+@OptIn(androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 internal fun DemoPhone(
     playing: Boolean,
@@ -229,6 +231,11 @@ internal fun DemoPhone(
     val colors = MaterialTheme.colorScheme
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val density = LocalDensity.current
+    // A tall window (a tablet held upright) gets a bigger phone: the demo is the page's subject, and at
+    // 168×300 it sat small in a sea of empty page. Width keeps it to half the window.
+    val window = currentWindowDpSize()
+    val grow = minOf(window.height.value * PhoneHeightShare / PhoneHeight.value, window.width.value * 0.5f / PhoneWidth.value)
+        .coerceIn(1f, PhoneMaxGrow)
     val fingerSpring = YoinMotion.spatialSpring<Float>()
     val targets = remember { DemoTargets() }
     val finger = remember { DemoFinger(fingerSpring, targets) }
@@ -253,7 +260,7 @@ internal fun DemoPhone(
     }
     Box(
         modifier = Modifier
-            .size(PhoneWidth, PhoneHeight)
+            .size(PhoneWidth * grow, PhoneHeight * grow)
             .clip(PhoneShape)
             .background(colors.surface)
             // Watch (never consume) the user's touches: the phone becomes theirs.
@@ -271,7 +278,7 @@ internal fun DemoPhone(
             val a = finger.alpha.value
             if (a <= 0f) return@Canvas
             val c = Offset(size.width * finger.x.value, size.height * finger.y.value)
-            val r = with(density) { 14.dp.toPx() }
+            val r = with(density) { 14.dp.toPx() } * grow
             val down = finger.press.value
             val primary = colors.primary
             drawCircle(primary.copy(alpha = 0.22f * a), r * (1f - 0.15f * down), c)
@@ -342,6 +349,10 @@ private fun DemoScreen(targets: DemoTargets, content: @Composable BoxScope.() ->
 private val PhoneWidth = 168.dp
 private val PhoneHeight = 300.dp
 private val PhoneShape = RoundedCornerShape(24.dp)
+
+/** How much of the window's height the phone may take before it stops growing, and its largest size. */
+private const val PhoneHeightShare = 0.36f
+private const val PhoneMaxGrow = 1.7f
 
 /** The demo screen's width: a common phone's. */
 internal val ScreenWidth: Dp = 360.dp
