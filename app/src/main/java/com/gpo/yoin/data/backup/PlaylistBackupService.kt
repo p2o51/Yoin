@@ -88,6 +88,8 @@ class PlaylistBackupService(
         val profile = checkNotNull(profiles.activeProfile()) { "No active profile" }
         val playlist = profiles.withSource(profile.id) { it.library().getPlaylistInFull(playlistId) }
             ?: throw IllegalStateException("Playlist not found")
+        // Spotify refused its songs (someone else's playlist, development mode): nothing to back up.
+        check(!playlist.tracksUnavailable) { "Playlist songs unavailable" }
         val now = clock()
         val existing = store.findBySource(profile.provider, playlist.id.toString())
         val record = existing
@@ -146,6 +148,8 @@ class PlaylistBackupService(
             return FollowResult.Gone
         }
         val playlist = runCatching { source.library().getPlaylistInFull(id) }.getOrNull() ?: return FollowResult.Skipped
+        // Refused songs aren't an empty playlist: keep the backup as it was.
+        if (playlist.tracksUnavailable) return FollowResult.Skipped
         val next = PlaylistSnapshots.refreshed(backup, playlist, profile.id, profile.displayName, now)
         store.save(next)
         return if (next.lastChangedAt == now) FollowResult.Changed else FollowResult.Unchanged

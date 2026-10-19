@@ -223,6 +223,7 @@ class PlaylistDetailViewModel(
                     // palette follows whichever cover wins.
                     coverArtUrl = (playlist.coverArt ?: heroCoverRef)?.let { repository.resolveCoverUrl(it) },
                     canWrite = playlist.canWrite,
+                    tracksUnavailable = playlist.tracksUnavailable,
                     songs = playlist.tracks.mapIndexed { index, song ->
                         PlaylistSong(
                             id = song.id.toString(),

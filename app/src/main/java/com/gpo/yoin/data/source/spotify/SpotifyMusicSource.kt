@@ -199,18 +199,29 @@ class SpotifyMusicSource(
                     return@supervisorScope cancelAndReturnNull()
                 }
                 // Starts from the first page the playlist object embeds, when it does.
-                val items = if (limit == null) {
-                    apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
-                } else {
-                    apiClient.getPlaylistItems(rawId, firstPage = playlist.entries, limit = limit)
+                // A development-mode app may read the items of only the user's own and
+                // collaborative playlists (2026-02): someone else's answers 403. The
+                // playlist itself still opens, without its tracks.
+                val items = try {
+                    if (limit == null) {
+                        apiClient.getPlaylistItems(rawId, firstPage = playlist.entries)
+                    } else {
+                        apiClient.getPlaylistItems(rawId, firstPage = playlist.entries, limit = limit)
+                    }
+                } catch (e: SpotifyAuthException) {
+                    if (e.code != HTTP_FORBIDDEN) throw e
+                    null
                 }
-                val indexedTracks = items.toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
-                playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
+                val indexedTracks = items?.toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
+                playlistTrackOffsetsById[rawId] = indexedTracks.orEmpty().map { it.first }
                 playlist.toPlaylist(
-                    tracks = indexedTracks.map { it.second },
+                    tracks = indexedTracks.orEmpty().map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
                     ownedByMe = playlist.ownedBy(meId.await()),
-                ).copy(unreadable = if (limit == null) emptyList() else items.unreadableItems())
+                ).copy(
+                    tracksUnavailable = indexedTracks == null,
+                    unreadable = if (limit == null || items == null) emptyList() else items.unreadableItems(),
+                )
             }
         }
 
@@ -739,6 +750,7 @@ class SpotifyMusicSource(
 
     companion object {
         private const val HTTP_NOT_FOUND = 404
+        private const val HTTP_FORBIDDEN = 403
 
         /** Spotify's own cap on a playlist's length: a backup reads them all. */
         private const val FULL_PLAYLIST_LIMIT = 10_000
