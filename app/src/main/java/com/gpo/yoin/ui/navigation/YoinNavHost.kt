@@ -97,6 +97,7 @@ import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.rememberNeutralPageWash
 import com.gpo.yoin.ui.component.LocalSharedPageBackground
 import com.gpo.yoin.ui.component.YoinChromeGroup
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
@@ -922,7 +923,10 @@ private fun YoinShell(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            // The pages' own neutral wash, not a flat background: the shell
+            // shows through beside the Now Playing panel's rounded corners,
+            // and a flat fill there read as a dark notch (Discord, 10-18).
+            .background(rememberNeutralPageWash()),
     ) {
         // The columns region: everything beside the Now Playing panel. The
         // shell column takes what the detail column (gutter + page) leaves,
