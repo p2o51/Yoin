@@ -51,11 +51,21 @@ class AppleMusicApiClient(
         require(baseUrl.isHttps || baseUrl.host in setOf("localhost", "127.0.0.1", "::1"))
     }
 
-    suspend fun storefront(): String {
+    suspend fun storefront(): String = storefrontDetails().id
+
+    /** The account's storefront with the languages it serves names in (Japan: `ja` by default, also `en-US`). */
+    suspend fun storefrontDetails(): AppleMusicStorefront {
         val response = get(url("v1", "me", "storefront"), personal = true)
-        return response["data"]?.jsonArray?.firstOrNull()?.jsonObject
-            ?.get("id")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        val data = response["data"]?.jsonArray?.firstOrNull()?.jsonObject
+        val id = data?.get("id")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
             ?: throw IOException("Apple Music returned no storefront")
+        val attributes = data["attributes"] as? JsonObject
+        return AppleMusicStorefront(
+            id = id,
+            defaultLanguage = (attributes?.get("defaultLanguageTag") as? JsonPrimitive)?.contentOrNull,
+            languages = (attributes?.get("supportedLanguageTags") as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
+        )
     }
 
     suspend fun searchSongs(storefront: String, term: String): List<AppleMusicSong> {
@@ -428,3 +438,6 @@ class AppleMusicApiException(
 ) : IOException("Apple Music: $failure")
 
 private const val TAG = "AppleMusicApi"
+
+/** See [AppleMusicApiClient.storefrontDetails]. */
+data class AppleMusicStorefront(val id: String, val defaultLanguage: String?, val languages: List<String>)

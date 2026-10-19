@@ -61,13 +61,16 @@ class QQLyricsProvider(
     private val matcher = LyricCandidateMatcher()
     private val midsById = SongMidMemory(MID_MEMORY_CAPACITY)
 
-    override suspend fun search(title: String, artist: String): SongMatch? =
+    override suspend fun search(title: String, artist: String, durationMs: Long?): SongMatch? =
         withContext(Dispatchers.IO) {
             val songs = findSongs(title, artist, SEARCH_PAGE_SIZE) ?: return@withContext null
             val picked = matcher.pick(
-                candidates = songs.map { LyricCandidateMatcher.Candidate(it.title, it.artists, it.album) },
+                candidates = songs.map {
+                    LyricCandidateMatcher.Candidate(it.title, it.artists, it.album, it.durationMs)
+                },
                 title = title,
                 artist = artist,
+                durationMs = durationMs,
             ) ?: return@withContext null
             songs[picked].toMatch()
         }
@@ -160,6 +163,8 @@ class QQLyricsProvider(
             title = title,
             artists = artists,
             album = album?.trim()?.takeIf(String::isNotEmpty),
+            // `interval`：秒。
+            durationMs = item.string("interval")?.toLongOrNull()?.takeIf { it > 0L }?.times(1_000L),
         )
     }
 
@@ -409,13 +414,14 @@ class QQLyricsProvider(
 
     // ── 内部类型 ─────────────────────────────────────────────────────────────
 
-    /** [album] 只给匹配器认现场 / 访谈专辑用。 */
+    /** [album] 只给匹配器认现场 / 访谈专辑用，[durationMs] 只给匹配器挑同名录音用。 */
     private data class QQSong(
         val id: Long,
         val mid: String?,
         val title: String,
         val artists: List<String>,
         val album: String?,
+        val durationMs: Long? = null,
     ) {
         fun toMatch(): SongMatch = SongMatch(
             songId = id.toString(),
