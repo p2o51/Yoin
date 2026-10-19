@@ -125,7 +125,7 @@ internal class SessionQuickActions(
         val manager = playbackManager()
         val repository = repository()
         val shuffle = manager.playbackState
-            .map { PlayMode.of(it.repeatMode, it.shuffleEnabled) == PlayMode.Shuffle }
+            .map { it.playMode.shuffle }
             .distinctUntilChanged()
         val track = manager.playbackState
             .map { it.currentTrack }
@@ -184,8 +184,8 @@ internal class SessionQuickActions(
     private fun toggleShuffle() {
         val manager = playbackManager()
         val state = manager.playbackState.value
-        val shuffled = PlayMode.of(state.repeatMode, state.shuffleEnabled) == PlayMode.Shuffle
-        manager.setPlayMode(if (shuffled) PlayMode.RepeatAll else PlayMode.Shuffle)
+        // Only the shuffle axis: repeat one stays repeat one.
+        manager.setPlayMode(state.playMode.withShuffle(!state.playMode.shuffle))
     }
 
     private fun toggleFavorite() {

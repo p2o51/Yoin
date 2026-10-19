@@ -467,7 +467,7 @@ class PlaybackManager(
                             // context, so Spotify does the shuffling; a plain
                             // list is played in the order Yoin already shuffled.
                             playMode = if (shuffled && activityContext.isSpotifyContext()) {
-                                PlayMode.Shuffle
+                                preferredPlayMode.withShuffle(true)
                             } else {
                                 preferredPlayMode
                             },
@@ -546,18 +546,26 @@ class PlaybackManager(
     }
 
     /**
-     * Switches the play mode. Repeat and shuffle are always written together
-     * (see [PlayMode]); the mode is also remembered for the next queue Yoin
-     * starts, on any backend.
+     * Switches the play mode; the mode is also remembered for the next queue
+     * Yoin starts, on any backend. A queue start writes repeat and shuffle
+     * together (see [PlayMode]); a switch on the local player writes only the
+     * axis that changed — one per tap in the 2 × 2 cycle — and so does a
+     * switch on Spotify App Remote. MusicKit answers a
+     * redundant repeat write by briefly restoring its previous shuffle, and the
+     * first tap after a pause could end on that restored value (tablet QA,
+     * 2026-10-17).
      */
     fun setPlayMode(mode: PlayMode) {
         preferredPlayMode = mode
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> {
-                spotifyRemotePlayer.setRepeatMode(mode.repeatMode)
-                spotifyRemotePlayer.setShuffle(mode.shuffle)
+                // One App Remote call per tap, like the local player: the cycle changes one axis at a time,
+                // and a second, redundant call could race the one that matters or fail it.
+                val current = _playbackState.value.playMode
+                if (mode.repeatMode != current.repeatMode) spotifyRemotePlayer.setRepeatMode(mode.repeatMode)
+                if (mode.shuffle != current.shuffle) spotifyRemotePlayer.setShuffle(mode.shuffle)
             }
-            else -> executeOrQueue { it.applyPlayMode(mode) }
+            else -> executeOrQueue { it.switchPlayMode(mode) }
         }
     }
 
@@ -864,6 +872,12 @@ class PlaybackManager(
     private fun Player.applyPlayMode(mode: PlayMode) {
         repeatMode = mode.repeatMode
         shuffleModeEnabled = mode.shuffle
+    }
+
+    /** [mode] on a playing queue: only the axes that differ (see [setPlayMode]). */
+    private fun Player.switchPlayMode(mode: PlayMode) {
+        if (repeatMode != mode.repeatMode) repeatMode = mode.repeatMode
+        if (shuffleModeEnabled != mode.shuffle) shuffleModeEnabled = mode.shuffle
     }
 
     private fun flushPendingCommands(player: MediaController) {

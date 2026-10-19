@@ -154,4 +154,14 @@
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
+    <string name="home_tip_edit_home">长按首页，重新排版</string>
+    <string name="home_tip_pull_memories">首页往下拉，打开 Memories</string>
+    <string name="home_tip_cover_menu">正在播放里长按封面，打开歌曲菜单</string>
+    <string name="home_tip_song_menu">长按专辑里的歌曲，可以下一首播放</string>
+    <string name="home_tip_play_modes">播放模式按钮：随机和循环，点一下换一种</string>
+    <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
+    <string name="home_tip_library_search">长按底栏的资料库，直接搜索</string>
+    <string name="home_tip_keep_screen_on">屏幕常亮在封面的长按菜单里</string>
+    <string name="home_tip_scroll_edge">设置 › 动效 › 滚动边缘，可以换掉潮线</string>
+    <string name="home_tip_name">Yoin 的名字来自日语「余韻」：余音不散</string>
 </resources>
