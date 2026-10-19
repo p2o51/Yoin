@@ -3,6 +3,7 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,10 +49,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,6 +93,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.ParentDataModifierNode
 import androidx.compose.ui.platform.LocalContext
@@ -157,6 +163,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
+import kotlinx.coroutines.flow.first
 
 /*
  * Page 2 of the album page: the scrapbook (see AlbumScrapbook.kt for what goes where and why).
@@ -313,6 +320,9 @@ internal fun AlbumScrapbookPage(
     settled: Boolean = true,
     stamped: Boolean = true,
     onStamped: () -> Unit = {},
+    // "View in Scrapbook": scroll this song's piece into view, then [onFocused].
+    focusSongId: String? = null,
+    onFocused: () -> Unit = {},
 ) {
     when (state) {
         // Room answers within a frame or two; a quiet page beats a spinner flash.
@@ -331,6 +341,8 @@ internal fun AlbumScrapbookPage(
             settled = settled,
             stamped = stamped,
             onStamped = onStamped,
+            focusSongId = focusSongId,
+            onFocused = onFocused,
             modifier = modifier,
         )
     }
@@ -352,9 +364,34 @@ private fun ScrapbookPaper(
     settled: Boolean,
     stamped: Boolean,
     onStamped: () -> Unit,
+    focusSongId: String?,
+    onFocused: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
+    // Where each piece sits in the scrolling column, for "View in Scrapbook".
+    val pieceTops = remember { mutableStateMapOf<String, Int>() }
+    var masonryTop by remember { mutableIntStateOf(0) }
+    // The piece being pointed out: it swells a touch and settles back once it is in view.
+    val pulse = remember { Animatable(0f) }
+    var pulsedKey by remember { mutableStateOf<String?>(null) }
+    val focusMarginPx = with(LocalDensity.current) { ScrapbookFocusMargin.roundToPx() }
+    val focusSpatial = YoinMotion.defaultSpatialSpec<Float>()
+    LaunchedEffect(focusSongId, book) {
+        val songId = focusSongId ?: return@LaunchedEffect
+        val key = book.pieces.firstOrNull { it.holds(songId) }?.key
+        // Placed once the page has laid out; the paper may still be coming in.
+        val top = key?.let { k -> snapshotFlow { pieceTops[k] }.first { it != null } }
+        if (top != null) {
+            scrollState.animateScrollTo((masonryTop + top - focusMarginPx).coerceAtLeast(0), focusSpatial)
+            pulsedKey = key
+            pulse.snapTo(0f)
+            pulse.animateTo(1f, focusSpatial)
+            pulse.animateTo(0f, focusSpatial)
+            pulsedKey = null
+        }
+        onFocused()
+    }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     var aboutSheet by remember { mutableStateOf<ScrapAboutSheet?>(null) }
@@ -390,10 +427,21 @@ private fun ScrapbookPaper(
                 ScrapMasonry(
                     lanes = lanes,
                     rowGap = if (wide) ScrapbookLayout.RowGapWide else ScrapbookLayout.RowGap,
-                    modifier = Modifier.width(contentWidth),
+                    modifier = Modifier
+                        .width(contentWidth)
+                        .onPlaced { masonryTop = it.positionInParent().y.roundToInt() },
                 ) {
                     book.pieces.forEach { piece ->
-                        val slot = Modifier.scrapSpan(piece.fullLine)
+                        val slot = Modifier
+                            .scrapSpan(piece.fullLine)
+                            .onPlaced { pieceTops[piece.key] = it.positionInParent().y.roundToInt() }
+                            .graphicsLayer {
+                                if (pulsedKey == piece.key) {
+                                    val swell = 1f + ScrapbookFocusSwell * pulse.value
+                                    scaleX = swell
+                                    scaleY = swell
+                                }
+                            }
                         when (piece) {
                             is ScrapPiece.Opening -> Opening(
                                 piece = piece,
@@ -2067,3 +2115,16 @@ private fun scrapbookPreviewData(): AlbumScrapbookData {
         memoryTitle = "从白天听到天黑",
     )
 }
+
+/** Whether this piece shows [songId] (its own cluster, a contact sheet frame, or a not-yet line). */
+private fun ScrapPiece.holds(songId: String): Boolean = when (this) {
+    is ScrapPiece.TrackCluster -> track.songId == songId
+    is ScrapPiece.ContactSheet -> tracks.any { it.songId == songId }
+    is ScrapPiece.NotYet -> tracks.any { it.songId == songId }
+    else -> false
+}
+
+/** "View in Scrapbook" leaves this much above the song's piece, and swells it by this much. */
+private val ScrapbookFocusMargin = 24.dp
+private const val ScrapbookFocusSwell = 0.04f
+

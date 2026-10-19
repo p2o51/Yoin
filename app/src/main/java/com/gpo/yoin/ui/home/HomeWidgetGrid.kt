@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -767,7 +768,8 @@ private fun WidgetCoverBlock(
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
     onClick: (() -> Unit)? = null,
-    artworkModifier: Modifier = Modifier.size(WidgetCoverSize),
+    // At most 100dp, and square in a narrower cell (a short, narrow window).
+    artworkModifier: Modifier = Modifier.widthIn(max = WidgetCoverSize).fillMaxWidth().aspectRatio(1f),
     artworkRequestSizePx: Int? = null,
     // A plain album cover's memory mark (HomeAlbumMemoryMark.kt); null = bare.
     memoryMark: HomeAlbumMemoryMark? = null,

@@ -13,6 +13,7 @@
     <string name="np_transport_repeat_all">Repeat all</string>
     <string name="np_transport_shuffle">Shuffle</string>
     <string name="np_transport_repeat_one">Repeat one</string>
+    <string name="np_transport_shuffle_repeat_one">Shuffle, repeat one</string>
 
     <!-- Bottom pills. English is what the row measures. -->
     <string name="np_pill_queue">Queue</string>
@@ -198,4 +199,7 @@
     <string name="np_device_switch_back_cast">Not casting</string>
     <string name="np_device_connected_cast">Casting</string>
     <string name="np_device_use_cast_pill">Not casting</string>
+    <string name="np_keep_screen_on">Keep screen on</string>
+    <string name="np_cd_cover_menu">Song options</string>
+    <string name="np_cd_play_mode_split">Separate shuffle and repeat</string>
 </resources>

@@ -59,6 +59,33 @@ class PrivacyPolicyEntryTest {
         }
     }
 
+    @Test
+    fun should_openTheWebsiteAndDocs_when_theirRowsAreTapped() {
+        val opened = mutableListOf<String>()
+        showSettings(openUri = opened::add)
+
+        rule.onNodeWithText("Website").performScrollTo().assertIsDisplayed().performClick()
+        rule.onNodeWithText("Docs").performScrollTo().assertIsDisplayed().performClick()
+
+        rule.runOnIdle {
+            assertEquals(listOf("https://yoin.gojyuplus.com/", "https://yoin.gojyuplus.com/docs"), opened)
+        }
+    }
+
+    @Config(qualifiers = "zh-rCN")
+    @Test
+    fun should_openTheChineseWebsiteAndDocs_when_theAppUsesSimplifiedChinese() {
+        val opened = mutableListOf<String>()
+        showSettings(openUri = opened::add)
+
+        rule.onNodeWithText("官网").performScrollTo().assertIsDisplayed().performClick()
+        rule.onNodeWithText("使用文档").performScrollTo().assertIsDisplayed().performClick()
+
+        rule.runOnIdle {
+            assertEquals(listOf("https://yoin.gojyuplus.com/zh/", "https://yoin.gojyuplus.com/zh/docs"), opened)
+        }
+    }
+
     private fun showSettings(
         snackbarHostState: SnackbarHostState = SnackbarHostState(),
         openUri: (String) -> Unit,

@@ -139,44 +139,11 @@ class AlbumDetailViewModel(
     /** One-line notices for the window's snackbar (a failed NeoDB sync). */
     val messages: SharedFlow<UiText> = _messages.asSharedFlow()
     private val albumTrackIds = MutableStateFlow<List<MediaId>>(emptyList())
-    private val _expandedSongId = MutableStateFlow<String?>(null)
-    val expandedSongId: StateFlow<String?> = _expandedSongId.asStateFlow()
 
     val notedSongIds: StateFlow<Set<String>> = albumTrackIds
         .flatMapLatest(repository::observeTracksWithNotes)
         .map { ids -> ids.mapTo(linkedSetOf(), MediaId::toString) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
-
-    val expandedNoteBundle: StateFlow<AlbumExpandedNoteBundle?> = _expandedSongId
-        .flatMapLatest { songId ->
-            val track = albumSongs.firstOrNull { it.id.toString() == songId }
-                ?: return@flatMapLatest flowOf(null)
-            combine(
-                repository.observeNotes(track.id),
-                repository.observeCrossProviderNotes(
-                    trackId = track.id,
-                    title = track.title.orEmpty(),
-                    artist = track.artist.orEmpty(),
-                ),
-            ) { primary, crossProvider ->
-                AlbumExpandedNoteBundle(
-                    songId = track.id.toString(),
-                    primaryNotes = primary
-                        .filter { it.content.isNotBlank() }
-                        .map { AlbumPrimaryNote(id = it.id, content = it.content, createdAt = it.createdAt) },
-                    crossProviderNotes = crossProvider
-                        .mapNotNull { note ->
-                            note.content.takeIf(String::isNotBlank)?.let { content ->
-                                AlbumCrossProviderNote(
-                                    providerLabel = note.provider.toProviderLabel(),
-                                    content = content,
-                                )
-                            }
-                        },
-                )
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Tracks with an Apple Music library write in flight; keyed by the track id string. */
     private val workingLibraryTrackIds = MutableStateFlow<Set<String>>(emptySet())
@@ -583,10 +550,6 @@ class AlbumDetailViewModel(
         return false
     }
 
-    fun toggleExpandedSong(songId: String) {
-        _expandedSongId.value = if (_expandedSongId.value == songId) null else songId
-    }
-
     /**
      * 松开评分滑条时调用（0.1 步进，0..10，和 NP 的滑条一致）；
      * 0 当「撤销评分」落库（[YoinRepository.setAlbumRating] 接受 0）。
@@ -779,23 +742,6 @@ interface AlbumScrapbookPlayback {
     fun resume()
 }
 
-data class AlbumExpandedNoteBundle(
-    val songId: String,
-    val primaryNotes: List<AlbumPrimaryNote>,
-    val crossProviderNotes: List<AlbumCrossProviderNote>,
-)
-
-data class AlbumPrimaryNote(
-    val id: String,
-    val content: String,
-    val createdAt: Long,
-)
-
-data class AlbumCrossProviderNote(
-    val providerLabel: UiText,
-    val content: String,
-)
-
 private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
     id = id.toString(),
     title = title.orEmpty(),
@@ -808,13 +754,6 @@ private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
         it.isNotBlank() && !it.equals(albumArtist, ignoreCase = true)
     },
 )
-
-private fun String.toProviderLabel(): UiText = when (this) {
-    MediaId.PROVIDER_SPOTIFY -> UiText.Raw("Spotify")
-    MediaId.PROVIDER_SUBSONIC -> UiText.Raw("Subsonic")
-    MediaId.PROVIDER_LOCAL -> UiText.Res(R.string.detail_provider_local)
-    else -> UiText.Raw(replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() })
-}
 
 /**
  * How long a detail page's first load waits for the active source. A widget tap

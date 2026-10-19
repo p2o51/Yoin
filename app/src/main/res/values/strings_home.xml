@@ -172,4 +172,30 @@
     <string name="home_cd_bubble_latest_by">Memories. Latest: %1$s by %2$s</string>
     <string name="home_cd_bubble_latest">Memories. Latest: %1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
+    <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
+    <string name="home_tip_edit_home">Long-press Home to rearrange it</string>
+    <string name="home_tip_pull_memories">Pull Home down for Memories</string>
+    <string name="home_tip_cover_menu">Long-press the cover in Now Playing for song options</string>
+    <string name="home_tip_song_menu">Long-press a song on an album for Play next and more</string>
+    <string name="home_tip_play_modes">Tap the play-mode button to step through shuffle and repeat. Long-press it to set the two apart.</string>
+    <string name="home_tip_note_moments">Notes written in Now Playing pin to that second</string>
+    <string name="home_tip_library_search">Long-press Library in the bar to search</string>
+    <string name="home_tip_keep_screen_on">Keep screen on is in the cover\'s long-press menu</string>
+    <string name="home_tip_scroll_edge">Settings › Motion › Scroll edge changes the tide line</string>
+    <string name="home_tip_name">Yoin is named after 余韻, the sound that lingers</string>
+    <string name="home_tip_edit_home_title">Rearrange Home</string>
+    <string name="home_tip_pull_memories_title">Memories</string>
+    <string name="home_tip_cover_menu_title">Song options</string>
+    <string name="home_tip_song_menu_title">Play next</string>
+    <string name="home_tip_play_modes_title">Shuffle and repeat</string>
+    <string name="home_tip_note_moments_title">Notes keep their second</string>
+    <string name="home_tip_library_search_title">Quick search</string>
+    <string name="home_tip_keep_screen_on_title">Keep screen on</string>
+    <string name="home_tip_scroll_edge_title">Scroll edge</string>
+    <string name="home_tip_name_title">The name</string>
+    <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
+    <string name="tip_position">%1$d / %2$d</string>
+    <string name="tip_read">Read</string>
+    <string name="tip_next">Next</string>
+    <string name="tip_done">Done</string>
 </resources>
