@@ -108,7 +108,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                         val result = snackbarHostState.showSnackbar(
                             message = done.message.asString(context),
                             actionLabel = context.getString(R.string.detail_playlist_backup_view),
-                            duration = SnackbarDuration.Short,
+                            // Long enough to reach View (a short one went before the thumb got there on the tablet).
+                            duration = SnackbarDuration.Long,
                         )
                         if (result == SnackbarResult.ActionPerformed) {
                             context.startActivity(PlaylistBackupActivity.intent(context, done.backupId))
