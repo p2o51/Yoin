@@ -21,6 +21,16 @@ adb shell am broadcast -a com.android.systemui.demo -e command clock -e hhmm 094
 adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false >/dev/null
 adb shell am broadcast -a com.android.systemui.demo -e command network -e wifi show -e level 4 -e mobile hide >/dev/null
 adb shell input keyevent 82
+adb exec-out screencap -p > "$out/display-check.png"
+python - "$out/display-check.png" <<'CHECK_PNG'
+import struct, sys
+from pathlib import Path
+raw = Path(sys.argv[1]).read_bytes()
+assert raw[:8] == b'\x89PNG\r\n\x1a\n', 'Display check did not return PNG'
+size = struct.unpack('>II', raw[16:24])
+assert size == (824, 1784), f'Wrong capture dimensions {size}; expected824x1784'
+print(f'Validated native framebuffer {size[0]}x{size[1]}px at320dpi =412x892dp')
+CHECK_PNG
 adb logcat -c
 adb logcat -v threadtime > "$out/logcat-live.txt" 2>&1 &
 log_pid=$!
