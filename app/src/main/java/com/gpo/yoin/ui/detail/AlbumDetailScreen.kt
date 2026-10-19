@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -1213,20 +1215,45 @@ private fun AlbumHeroMetaBlocks(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                AlbumSectionLabel(text = stringResource(R.string.detail_album_last_play))
+            Column {
+                AlbumSectionLabel(
+                    text = stringResource(R.string.detail_album_last_play),
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
                 val resources = LocalContext.current.resources
                 val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it, resources) }
-                Text(
-                    text = labels?.first ?: stringResource(R.string.detail_album_never),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                if (labels != null) {
+                // The first play on this page turns "Never" into a date and adds
+                // the time row: the text crossfades and the row grows in, so the
+                // hero doesn't jump a line taller in one frame.
+                AnimatedContent(
+                    targetState = labels?.first ?: stringResource(R.string.detail_album_never),
+                    transitionSpec = {
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                    },
+                    label = "albumLastPlayDay",
+                ) { day ->
                     Text(
-                        text = labels.second,
+                        text = day,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                // Keeps the time it last showed while it leaves.
+                val shownTime = remember { mutableStateOf("") }.apply { labels?.let { value = it.second } }
+                AnimatedVisibility(
+                    visible = labels != null,
+                    enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                    exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                ) {
+                    // The gap rides inside the row so it grows in with it.
+                    Text(
+                        text = shownTime.value,
                         style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
