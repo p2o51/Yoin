@@ -117,6 +117,38 @@ Yoin's developer token is a JWT that expires after an hour (see the token servic
 
 **When upgrading the SDK:** check where `createLocalController` stores the developer token and whether requests still read it per call.
 
+### 16 KB pages: RELRO (2026-10-17)
+
+The playback AAR (mediaplayback 1.1.1) ships `libappleMusicSDK.so` and its own `libc++_shared.so`. Apple linked both in 2019 with clang 8 (NDK r20 era). Their `PT_LOAD` segments are 64 KB aligned, so Play accepts the bundle. But each library's `PT_GNU_RELRO` ends inside a 16 KB page, with writable data right after it in the same segment:
+
+| arm64-v8a | RELRO | first data after it |
+| --- | --- | --- |
+| `libappleMusicSDK.so` | 0x670000–0x679000 | 0x679000 |
+| `libc++_shared.so` | 0xf5b18–0xfe000 | 0xfe000 |
+
+Bionic write-protects RELRO from `page_start(p_vaddr)` to `page_end(p_vaddr + p_memsz)`. On 4 KB pages both ends fall on a page boundary. On 16 KB pages they don't, and Android 17 (16 KB emulator image, `google_apis_playstore_ps16k`, API 37) shows two failures:
+
+- `libc++_shared.so` doesn't load at all. The linker reports `program alignment (8192) cannot be smaller than system page size (16384)`, and `System.loadLibrary` throws `UnsatisfiedLinkError`. Apple Music can't create its player.
+- `libappleMusicSDK.so` loads with a working libc++. The page holding its first data after RELRO is mapped `r--p`, so the library's first write there is a SIGSEGV. Play flagged release 8 for this: "Your app could crash on 16 KB devices".
+
+The `yoin.musickit-relro` plugin in `build-logic/` (`MusicKitRelroPlugin`, `alignRelroEnd`) fixes both at build time. `patchMusicKitRelro` writes a copy of the AAR to `app/build/musickit-relro/`, and :app depends on that copy instead of `app/libs/`. In the copy, each 64-bit library's RELRO ends at its last whole 16 KB page: 0x678000 and 0xfc000. Bionic's rounding then stops at RELRO's own end. The dropped tail, under one page (4 KB and 8 KB), stays writable, which costs that much hardening and nothing else.
+
+Only the RELRO program header's `p_filesz` and `p_memsz` change: 3 bytes in one library, 2 in the other. Every other byte matches what AGP's strip would ship anyway. 32-bit libraries are left as they are, since no 16 KB device runs them. `app/build/musickit-relro/report.txt` lists what was done.
+
+The task fails the build in three cases:
+- a library's layout would let writable data share RELRO's first page;
+- RELRO is shorter than a page;
+- either arm64 library no longer needs the fix.
+
+So an SDK update gets re-checked rather than shipped unpatched or patched blindly. `-Pyoin.musickit.relroFix=false` copies the AAR unchanged.
+
+Verified on the API 37 16 KB emulator:
+- **Native probe.** It dlopens both libraries, then reads and writes the first byte past each original RELRO end. Unpatched, libc++ is refused, and the SDK's byte is `r--p` and faults. Patched, both load, and both bytes are `rw-p` and take the write. The patched pair also loads, `rw-p`, on a 4 KB arm64 emulator.
+- **In the app.** `AppleMusicSdkSmokeTest` creates and releases the real MusicKit controller with unauthorized tokens. It fails with `-Pyoin.musickit.relroFix=false` (the `UnsatisfiedLinkError` above) and passes with the fix. Yoin's landing screen opens either way.
+- **Not verified:** subscribed playback on a 16 KB device. That needs an Apple ID signed in on the emulator.
+
+To re-check after an SDK update, run `AppleMusicSdkSmokeTest` on a 16 KB device or emulator, with and without the property.
+
 ### Native process-memory guard (2026-10-01)
 
 Physical Pixel Tablet playback followed by responsive size changes and an Apple Music → Spotify account switch hit the vendor decoder's `SVAudioDecoderJNI.reset` with `physicalBytes (515M) > maxPhysicalBytes (512M)`. This account-switch crash is captured in `outputs/provider-alignment-20261001/account-switch-crash-sanitized.log`.
