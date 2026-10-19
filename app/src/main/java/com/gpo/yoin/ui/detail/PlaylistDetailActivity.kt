@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import androidx.compose.ui.res.stringResource
 import com.gpo.yoin.ui.settings.backup.PlaylistBackupActivity
 import androidx.compose.material3.SnackbarResult
 import android.content.Context
@@ -103,11 +104,12 @@ class PlaylistDetailActivity : ComponentActivity() {
                     }
                 }
                 // A backup made: View opens it.
+                val viewBackupLabel = stringResource(R.string.detail_playlist_backup_view)
                 LaunchedEffect(viewModel) {
                     viewModel.backedUp.collect { done ->
                         val result = snackbarHostState.showSnackbar(
                             message = done.message.asString(context),
-                            actionLabel = context.getString(R.string.detail_playlist_backup_view),
+                            actionLabel = viewBackupLabel,
                             // Long enough to reach View (a short one went before the thumb got there on the tablet).
                             duration = SnackbarDuration.Long,
                         )
