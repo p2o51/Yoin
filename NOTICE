@@ -1,0 +1,24 @@
+Yoin
+Copyright 2026 Chen Wuyi
+
+This product includes software developed by third parties:
+
+- Material Color Utilities (app/src/main/java/{contrast,dislike,dynamiccolor,
+  hct,palettes,scheme,temperature,utils})
+  Copyright 2022-2026 Google LLC
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/material-foundation/material-color-utilities
+  Ported from Java to Kotlin and adapted for Yoin.
+
+- Spotify Android App Remote SDK (app/libs/spotify-app-remote-release-0.8.0.aar)
+  Copyright Spotify AB
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/spotify/android-sdk
+
+- Google Sans Flex (app/src/main/res/font/google_sans_flex_*.ttf)
+  Copyright 2022 The Google Sans Flex Project Authors
+  Licensed under the SIL Open Font License, Version 1.1.
+  See licenses/google-sans-flex/OFL.txt.
+
+Apple MusicKit for Android is not included in this repository and is not
+covered by this license. See app/libs/README-apple-music.md.

@@ -369,8 +369,58 @@ class LyricCandidateMatcherTest {
         assertEquals(1, matcher.pick(candidates, title = "Hotel California (Live)", artist = "Eagles"))
     }
 
+    @Test
+    fun should_preferSameLength_when_sameSongIsListedTwice() {
+        val candidates = listOf(
+            c("Pop Sound", "Kim Petras", seconds = 150),
+            c("Pop Sound", "Kim Petras", seconds = 171),
+        )
+
+        assertEquals(1, matcher.pick(candidates, title = "Pop Sound", artist = "Kim Petras", durationMs = 171_172))
+    }
+
+    @Test
+    fun should_keepRankOrder_when_requestHasNoLength() {
+        val candidates = listOf(
+            c("Pop Sound", "Kim Petras", seconds = 150),
+            c("Pop Sound", "Kim Petras", seconds = 171),
+        )
+
+        assertEquals(0, matcher.pick(candidates, title = "Pop Sound", artist = "Kim Petras"))
+    }
+
+    @Test
+    fun should_keepRankOrder_when_candidateHasNoLength() {
+        val candidates = listOf(
+            c("Pop Sound", "Kim Petras"),
+            c("Pop Sound", "Kim Petras", seconds = 171),
+        )
+
+        assertEquals(0, matcher.pick(candidates, title = "Pop Sound", artist = "Kim Petras", durationMs = 171_172))
+    }
+
+    /**
+     * Live QQ answer (2026-10-16) for the Japanese storefront's `Pop Sound` / `キム・ペトラス`: three other
+     * performers' `Pop Sound` all run 169–172 s, so a matching length must never stand in for the artist.
+     */
+    @Test
+    fun should_returnNull_when_onlyLengthMatchesAnUnverifiableArtist() {
+        val candidates = listOf(
+            c("Pop Sound", "Kim Petras", seconds = 171),
+            c("Pop Sound (Explicit)", "Detour", seconds = 169),
+            c("Pop Sound", "Losing N3mo", seconds = 172),
+            c("Pop Sound", "gabe", "JNTA", seconds = 169),
+        )
+
+        assertNull(matcher.pick(candidates, title = "Pop Sound", artist = "キム・ペトラス", durationMs = 171_172))
+        assertEquals(0, matcher.pick(candidates, title = "Pop Sound", artist = "Kim Petras", durationMs = 171_172))
+    }
+
     private fun c(title: String, vararg artists: String, album: String? = null) =
         LyricCandidateMatcher.Candidate(title = title, artists = artists.toList(), album = album)
+
+    private fun c(title: String, vararg artists: String, seconds: Long) =
+        LyricCandidateMatcher.Candidate(title = title, artists = artists.toList(), durationMs = seconds * 1_000)
 
     private fun fakeTraditionalToSimplified(value: String): String = value
         .replace('愛', '爱')
