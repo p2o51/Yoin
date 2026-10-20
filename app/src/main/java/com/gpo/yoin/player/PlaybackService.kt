@@ -26,6 +26,11 @@ import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -59,6 +64,8 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var cache: SimpleCache? = null
     private var quickActions: SessionQuickActions? = null
+    private var localPlayer: ExoPlayer? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -83,6 +90,7 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
+        localPlayer = player
         // Default play mode is repeat all (see PlayMode). PlaybackManager also
         // applies the user's current mode whenever Yoin starts a queue.
         player.repeatMode = Player.REPEAT_MODE_ALL
@@ -97,6 +105,15 @@ class PlaybackService : MediaSessionService() {
             .build()
             .also(actions::attach)
         _audioSessionId.value = player.audioSessionId
+        serviceScope.launch {
+            container.dlnaManager.connectedDevice.collect { device ->
+                // The local player stays paused throughout a remote session. Losing
+                // a speaker never makes the phone start unexpectedly.
+                player.pause()
+                mediaSession?.setPlayer(if (device != null) container.dlnaManager.player else player)
+                _usingDlna.value = device != null
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -112,13 +129,20 @@ class PlaybackService : MediaSessionService() {
 
     @OptIn(UnstableApi::class)
     override fun onDestroy() {
+        val container = (application as YoinApplication).container
+        if (mediaSession?.player === container.dlnaManager.player && container.dlnaManager.connectedDevice.value != null) {
+            container.playbackManager.onRemotePlaybackServiceDestroyed()
+        }
+        serviceScope.cancel()
         quickActions?.release()
         quickActions = null
         mediaSession?.run {
-            player.release()
             release()
         }
+        localPlayer?.release()
+        localPlayer = null
         mediaSession = null
+        _usingDlna.value = false
         cache?.release()
         cache = null
         super.onDestroy()
@@ -139,5 +163,9 @@ class PlaybackService : MediaSessionService() {
 
         /** Audio session ID from ExoPlayer, observed by [AudioVisualizerManager]. */
         val audioSessionId: StateFlow<Int> = _audioSessionId.asStateFlow()
+
+        private val _usingDlna = MutableStateFlow(false)
+        /** The service has applied the route change before a handoff sends new commands. */
+        internal val usingDlna: StateFlow<Boolean> = _usingDlna.asStateFlow()
     }
 }

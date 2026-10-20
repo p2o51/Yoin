@@ -27,6 +27,10 @@
     <string name="player_spotify_needs_authorization">需要在 Spotify 应用中完成授权。请打开 Spotify 后再试。</string>
     <string name="player_init_failed">无法初始化播放</string>
     <string name="player_play_failed">无法播放此歌曲</string>
+    <string name="player_dlna_subsonic_only">DLNA 投播需要 Subsonic 音频流。</string>
+    <string name="player_dlna_disconnect_cast">请先断开 Chromecast，再切换到 DLNA 音响。</string>
+    <string name="player_dlna_play_first">请先播放一首 Subsonic 歌曲，再选择 DLNA 音响。</string>
+    <string name="player_dlna_stop_failed">音响未确认停止。请重试后再切换账号。</string>
     <string name="player_cast_device_session">投播设备</string>
     <string name="player_cast_device_initial">投播设备</string>
     <string name="player_apple_music_preparing">正在准备播放…</string>

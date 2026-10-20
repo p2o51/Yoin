@@ -184,11 +184,11 @@ class ServiceSetupViewModel(
                     finishWithNewProfile(profileManager.create(displayName, credentials).id)
                 } else {
                     val wasActive = profileManager.activeProfileId.value == editingId
+                    if (wasActive) container.playbackManager.disconnectForProfileChange()
                     profileManager.update(editingId, displayName, credentials)
                     if (wasActive) {
                         // Kill playback bound to the stale stream URL and fan
                         // out to downstream VMs.
-                        container.playbackManager.disconnect()
                         container.notifyMusicConfigurationChanged()
                     }
                     _events.tryEmit(ServiceSetupEvent.Done(activateProfileId = null))

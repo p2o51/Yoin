@@ -23,6 +23,8 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.player.dlna.DlnaDevice
+import com.gpo.yoin.player.dlna.DlnaManager
 import com.gpo.yoin.perf.YoinPerf
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
@@ -45,12 +47,17 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resumeWithException
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class PlaybackManager(
     private val context: Context,
     private val repository: YoinRepository,
     private val castManager: CastManager? = null,
+    private val dlnaManager: DlnaManager? = null,
     spotifyClientIdProvider: () -> String,
     /** What [SpotifyContextSync] times an unconfirmed Spotify start by (a test passes its virtual clock). */
     spotifyContextClock: () -> Long = SystemClock::elapsedRealtime,
@@ -75,6 +82,9 @@ class PlaybackManager(
     // driven by Media3 itself, not this StateFlow.
     private var hostStarted = false
     private var connectJob: Job? = null
+    private val outputHandoff = Mutex()
+    private var stoppingDlna: Job? = null
+    private var playbackGeneration = 0L
 
     // The one start still reading its queue ([playWhenLoaded]): any newer start cancels it.
     private var loadingStart: Job? = null
@@ -171,8 +181,20 @@ class PlaybackManager(
             scope.launch {
                 cm.castState.collect { state ->
                     _playbackState.value = _playbackState.value.copy(
-                        isCasting = state is CastState.Connected,
-                        castDeviceName = (state as? CastState.Connected)?.deviceName,
+                        isCasting = state is CastState.Connected || dlnaManager?.connectedDevice?.value != null,
+                        castDeviceName = dlnaManager?.connectedDevice?.value?.name
+                            ?: (state as? CastState.Connected)?.deviceName,
+                    )
+                }
+            }
+        }
+        dlnaManager?.let { dm ->
+            scope.launch {
+                dm.connectedDevice.collect { device ->
+                    _playbackState.value = _playbackState.value.copy(
+                        isCasting = device != null || castManager?.castState?.value is CastState.Connected,
+                        castDeviceName = device?.name
+                            ?: (castManager?.castState?.value as? CastState.Connected)?.deviceName,
                     )
                 }
             }
@@ -209,7 +231,9 @@ class PlaybackManager(
                 val built = buildController()
                 controller = built
                 built.addListener(playerListener)
-                castManager?.setLocalPlayerProvider { if (controllerUsesMusicKit) null else controller }
+                castManager?.setLocalPlayerProvider {
+                    if (controllerUsesMusicKit || dlnaManager?.connectedDevice?.value != null) null else controller
+                }
                 syncState()
                 startPositionUpdates()
                 flushPendingCommands(built)
@@ -239,6 +263,7 @@ class PlaybackManager(
             startPositionUpdates()
         }
         spotifyRemotePlayer.onHostStart(hostContext)
+        if (controller == null && dlnaManager?.connectedDevice?.value != null) connectInBackground()
         // Host just came up — if Spotify is already active, the init-time
         // collector may have fired before hostContext was set, so re-issue
         // the warm connection now. `warmConnection` is idempotent.
@@ -256,12 +281,54 @@ class PlaybackManager(
         spotifyRemotePlayer.onHostStop()
     }
 
+    /** A refused speaker Stop leaves the old profile and its controls intact. */
+    suspend fun disconnectForProfileChange() {
+        playbackGeneration++
+        outputHandoff.withLock {
+            if (dlnaManager?.connectedDevice?.value != null) {
+                dlnaManager.disconnect().getOrElse { error ->
+                    throw IllegalStateException(context.getString(R.string.player_dlna_stop_failed), error)
+                }
+                withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) { PlaybackService.usingDlna.first { !it } }
+            }
+        }
+        disconnect()
+    }
+
+    /** The application scope outlives the service long enough to confirm a remote Stop. */
+    fun onRemotePlaybackServiceDestroyed() {
+        val manager = dlnaManager ?: return
+        if (manager.connectedDevice.value == null) return
+        val generation = playbackGeneration
+        stopPositionUpdates()
+        disconnectLocalController(resetState = false)
+        scope.launch {
+            outputHandoff.withLock {
+                val result = manager.disconnect()
+                if (result.isSuccess && generation == playbackGeneration) {
+                    _playbackState.value = PlaybackState(connectionPhase = ConnectionPhase.Idle)
+                } else if (result.isFailure && hostStarted && generation == playbackGeneration) {
+                    // Keep a failed-stop renderer controllable when the user is still here.
+                    connectInBackground()
+                }
+            }
+        }
+    }
+
     fun disconnect() {
+        playbackGeneration++
         // A queue read for the outgoing account never starts, or queues, on the next one.
         cancelLoadingStart()
         queueReads.cancelChildren()
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
+        stoppingDlna = scope.launch {
+            outputHandoff.withLock {
+                dlnaManager?.disconnect()?.onFailure { error ->
+                    Log.w(TAG, "Could not confirm the DLNA renderer stopped", error)
+                }
+            }
+        }
         savedStateRefresher.reset()
         activeBackend = ActiveBackend.NONE
         requestedMedia3Source = null
@@ -397,6 +464,8 @@ class PlaybackManager(
         activityContext: ActivityContext,
         shuffled: Boolean
     ) {
+        val generation = ++playbackGeneration
+        val profileId = repository.currentProfileId()
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         lastRecordedTrackId = null
         _currentActivityContext.value = activityContext
@@ -408,70 +477,90 @@ class PlaybackManager(
             // Guarded: handleFor / buildMediaItem are provider calls that can
             // throw, and the scope has no CoroutineExceptionHandler.
             runCatching {
-                if (source.id != MediaId.PROVIDER_SPOTIFY) selectMedia3Source(source)
-                when (val handle = source.playback().handleFor(tracks[startIndex])) {
-                    is PlaybackHandle.DirectStream -> {
-                        pendingSpotifyHandoff = false
-                        preserveLocalUiDuringSpotifyHandoff = false
-                        activeBackend = ActiveBackend.LOCAL
-                        spotifyRemotePlayer.disconnect(resetState = false)
-                        val items = tracks.map { buildMediaItem(it, source) }
-                        val playMode = preferredPlayMode
-                        executeOrQueue { player ->
-                            player.setMediaItems(items, startIndex, 0L)
-                            player.prepare()
-                            player.play()
-                            player.applyPlayMode(playMode)
-                        }
+                stoppingDlna?.let { stop ->
+                    stop.join()
+                    if (stoppingDlna === stop) stoppingDlna = null
+                    if (dlnaManager?.connectedDevice?.value != null) {
+                        outputHandoff.withLock { dlnaManager.disconnect().getOrThrow() }
+                        withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) { PlaybackService.usingDlna.first { !it } }
                     }
-
-                    is PlaybackHandle.ExternalController -> {
-                        if (handle.type == PlaybackHandle.ControllerType.APPLE_MUSIC_KIT) {
+                }
+                outputHandoff.withLock {
+                    if (generation != playbackGeneration || profileId != repository.currentProfileId()) return@runCatching
+                    // Protected/externally controlled providers cannot supply a DLNA URL.
+                    // Stop the renderer first; a failed Stop must not start another output.
+                    if (source.id != MediaId.PROVIDER_SUBSONIC && dlnaManager?.connectedDevice?.value != null) {
+                        dlnaManager.disconnect().getOrThrow()
+                        withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) { PlaybackService.usingDlna.first { !it } }
+                    }
+                    if (source.id != MediaId.PROVIDER_SPOTIFY) selectMedia3Source(source)
+                    when (val handle = source.playback().handleFor(tracks[startIndex])) {
+                        is PlaybackHandle.DirectStream -> {
                             pendingSpotifyHandoff = false
                             preserveLocalUiDuringSpotifyHandoff = false
                             activeBackend = ActiveBackend.LOCAL
                             spotifyRemotePlayer.disconnect(resetState = false)
                             val items = tracks.map { buildMediaItem(it, source) }
+                            if (generation != playbackGeneration || profileId != repository.currentProfileId()) return@runCatching
                             val playMode = preferredPlayMode
                             executeOrQueue { player ->
                                 player.setMediaItems(items, startIndex, 0L)
-                                player.playWhenReady = true
                                 player.prepare()
+                                player.play()
                                 player.applyPlayMode(playMode)
                             }
-                            return@runCatching
                         }
-                        pendingSpotifyHandoff = true
-                        preserveLocalUiDuringSpotifyHandoff =
-                            activeBackend == ActiveBackend.LOCAL &&
-                                controller != null &&
-                                _playbackState.value.currentTrack != null
-                        if (!preserveLocalUiDuringSpotifyHandoff) {
-                            activeBackend = ActiveBackend.SPOTIFY_REMOTE
-                        }
-                        // Contexts and lists use the Web API on this phone. Bare single
-                        // tracks use App Remote directly; both require the requested song
-                        // to arrive through PlayerState before the start is confirmed.
-                        spotifySource = source as? SpotifyMusicSource
-                        spotifyRemotePlayer.playQueue(
-                            tracks = tracks,
-                            startIndex = startIndex,
-                            startContextPlayback = buildSpotifyStartFn(
-                                source = source,
-                                activityContext = activityContext,
+
+                        is PlaybackHandle.ExternalController -> {
+                            if (generation != playbackGeneration || profileId != repository.currentProfileId()) return@runCatching
+                            if (handle.type == PlaybackHandle.ControllerType.APPLE_MUSIC_KIT) {
+                                pendingSpotifyHandoff = false
+                                preserveLocalUiDuringSpotifyHandoff = false
+                                activeBackend = ActiveBackend.LOCAL
+                                spotifyRemotePlayer.disconnect(resetState = false)
+                                val items = tracks.map { buildMediaItem(it, source) }
+                                if (generation != playbackGeneration || profileId != repository.currentProfileId()) return@runCatching
+                                val playMode = preferredPlayMode
+                                executeOrQueue { player ->
+                                    player.setMediaItems(items, startIndex, 0L)
+                                    player.playWhenReady = true
+                                    player.prepare()
+                                    player.applyPlayMode(playMode)
+                                }
+                                return@runCatching
+                            }
+                            pendingSpotifyHandoff = true
+                            preserveLocalUiDuringSpotifyHandoff =
+                                activeBackend == ActiveBackend.LOCAL &&
+                                    controller != null &&
+                                    _playbackState.value.currentTrack != null
+                            if (!preserveLocalUiDuringSpotifyHandoff) {
+                                activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                            }
+                            // Contexts and lists use the Web API on this phone. Bare single
+                            // tracks use App Remote directly; both require the requested song
+                            // to arrive through PlayerState before the start is confirmed.
+                            spotifySource = source as? SpotifyMusicSource
+                            spotifyRemotePlayer.playQueue(
                                 tracks = tracks,
                                 startIndex = startIndex,
-                                shuffled = shuffled,
-                            ),
-                            // A shuffled album / playlist / Liked start keeps its
-                            // context, so Spotify does the shuffling; a plain
-                            // list is played in the order Yoin already shuffled.
-                            playMode = if (shuffled && activityContext.isSpotifyContext()) {
-                                preferredPlayMode.withShuffle(true)
-                            } else {
-                                preferredPlayMode
-                            },
-                        )
+                                startContextPlayback = buildSpotifyStartFn(
+                                    source = source,
+                                    activityContext = activityContext,
+                                    tracks = tracks,
+                                    startIndex = startIndex,
+                                    shuffled = shuffled,
+                                ),
+                                // A shuffled album / playlist / Liked start keeps its
+                                // context, so Spotify does the shuffling; a plain
+                                // list is played in the order Yoin already shuffled.
+                                playMode = if (shuffled && activityContext.isSpotifyContext()) {
+                                    preferredPlayMode.withShuffle(true)
+                                } else {
+                                    preferredPlayMode
+                                },
+                            )
+                        }
                     }
                 }
             }.onFailure { error ->
@@ -492,6 +581,89 @@ class PlaybackManager(
         activityContext: ActivityContext = ActivityContext.None,
     ) {
         play(listOf(track), 0, source, activityContext)
+    }
+
+    /** Hands a direct Subsonic stream to a renderer after the phone has paused. */
+    suspend fun transferToDlna(device: DlnaDevice): Result<Unit> = outputHandoff.withLock {
+        runCatching {
+            val manager = requireNotNull(dlnaManager)
+            val generation = playbackGeneration
+            val profileId = repository.currentProfileId()
+            check(repository.currentProviderId() == MediaId.PROVIDER_SUBSONIC) {
+                context.getString(R.string.player_dlna_subsonic_only)
+            }
+            check(castManager?.castState?.value !is CastState.Connected) {
+                context.getString(R.string.player_dlna_disconnect_cast)
+            }
+            val player = controller ?: error(context.getString(R.string.player_dlna_play_first))
+            check(activeBackend == ActiveBackend.LOCAL && player.mediaItemCount > 0) {
+                context.getString(R.string.player_dlna_play_first)
+            }
+            val source = requestedMedia3Source
+                ?: (context.applicationContext as com.gpo.yoin.YoinApplication).container.profileManager.activeSource.value
+                ?: error(context.getString(R.string.player_dlna_play_first))
+            check(source.id == MediaId.PROVIDER_SUBSONIC)
+            val items = (0 until player.mediaItemCount).map { index ->
+                val original = player.getMediaItemAt(index)
+                val track = original.toTrack()
+                check(track.id.provider == MediaId.PROVIDER_SUBSONIC)
+                // MediaController may omit localConfiguration. Resolve fresh signed
+                // URLs from the source, while keeping queue entry ids and metadata.
+                buildMediaItem(track, source).buildUpon().setMediaMetadata(original.mediaMetadata).build()
+            }
+            val index = player.currentMediaItemIndex.coerceIn(items.indices)
+            val position = player.currentPosition.coerceAtLeast(0L)
+            val playWhenReady = player.playWhenReady
+            val mode = PlayMode.of(player.repeatMode, player.shuffleModeEnabled)
+            if (generation != playbackGeneration || profileId != repository.currentProfileId()) return@runCatching
+            player.pause()
+            withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) {
+                while (player.playWhenReady || player.isPlaying) delay(25L)
+            }
+            val result = manager.connect(device, items, index, position, playWhenReady)
+            if (manager.connectedDevice.value != null) {
+                withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) { PlaybackService.usingDlna.first { it } }
+            } else if (result.isFailure && playWhenReady && generation == playbackGeneration && profileId == repository.currentProfileId()) {
+                // The backend only clears selection after a confirmed remote Stop.
+                player.play()
+            }
+            if (generation != playbackGeneration || profileId != repository.currentProfileId()) {
+                manager.disconnect().getOrThrow()
+                withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) { PlaybackService.usingDlna.first { !it } }
+                return@runCatching
+            }
+            result.getOrThrow()
+            manager.player.applyPlayMode(mode)
+            syncState()
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    /** Stops the speaker before restoring the same queue and position on this device. */
+    suspend fun transferFromDlna(): Result<Unit> = outputHandoff.withLock {
+        runCatching {
+            val manager = dlnaManager ?: return@runCatching
+            val generation = playbackGeneration
+            val profileId = repository.currentProfileId()
+            if (manager.connectedDevice.value == null) return@runCatching
+            val remote = manager.player
+            val items = (0 until remote.mediaItemCount).map(remote::getMediaItemAt)
+            val index = remote.currentMediaItemIndex
+            val position = remote.currentPosition.coerceAtLeast(0L)
+            val playWhenReady = remote.playWhenReady
+            val mode = PlayMode.of(remote.repeatMode, remote.shuffleModeEnabled)
+            val restoreLocal = activeBackend == ActiveBackend.LOCAL && repository.currentProviderId() == MediaId.PROVIDER_SUBSONIC
+            manager.disconnect().getOrThrow()
+            withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) { PlaybackService.usingDlna.first { !it } }
+            controller?.let { player ->
+                if (restoreLocal && generation == playbackGeneration && profileId == repository.currentProfileId() && items.isNotEmpty()) {
+                    player.setMediaItems(items, index.coerceIn(items.indices), position)
+                    player.prepare()
+                    player.applyPlayMode(mode)
+                    if (playWhenReady) player.play()
+                }
+            }
+            syncState()
+        }.onFailure { if (it is CancellationException) throw it }
     }
 
     fun pause() {
@@ -795,11 +967,12 @@ class PlaybackManager(
                     ?.let(queue::getOrNull),
                 repeatMode = player.repeatMode,
                 shuffleEnabled = player.shuffleModeEnabled,
-                audioSessionId = PlaybackService.audioSessionId.value,
+                audioSessionId = if (dlnaManager?.connectedDevice?.value != null) 0 else PlaybackService.audioSessionId.value,
                 isCasting = _playbackState.value.isCasting,
                 castDeviceName = _playbackState.value.castDeviceName,
                 connectionPhase = when {
-                    player.playerError != null -> ConnectionPhase.Error
+                    // Keep the device picker reachable after a speaker/network error.
+                    player.playerError != null && dlnaManager?.connectedDevice?.value == null -> ConnectionPhase.Error
                     player.playbackState == Player.STATE_BUFFERING -> ConnectionPhase.Connecting
                     else -> ConnectionPhase.Ready
                 },
@@ -1123,6 +1296,7 @@ class PlaybackManager(
             putString(EXTRA_ALBUM_ID, track.albumId?.toString())
             putString(EXTRA_COVER_ART, (track.coverArt as? CoverRef.SourceRelative)?.coverArtId)
             putString(EXTRA_COVER_URL, (track.coverArt as? CoverRef.Url)?.url)
+            putString(EXTRA_CONTENT_TYPE, track.extras["subsonic.contentType"])
             track.durationSec?.let { putInt(EXTRA_DURATION, it) }
             track.trackNumber?.let { putInt(EXTRA_TRACK, it) }
             track.year?.let { putInt(EXTRA_YEAR, it) }
@@ -1147,6 +1321,7 @@ class PlaybackManager(
         return MediaItem.Builder()
             .setMediaId(track.id.toString())
             .setUri(streamUrl)
+            .setMimeType(track.extras["subsonic.contentType"])
             .setMediaMetadata(metadata)
             .build()
     }
@@ -1173,6 +1348,8 @@ class PlaybackManager(
             userRating = extras?.takeIf { it.containsKey(EXTRA_USER_RATING) }
                 ?.getInt(EXTRA_USER_RATING),
             isStarred = extras?.getBoolean(EXTRA_STARRED, false) == true,
+            extras = extras?.getString(EXTRA_CONTENT_TYPE)
+                ?.let { mapOf("subsonic.contentType" to it) }.orEmpty(),
         )
     }
 
@@ -1405,6 +1582,7 @@ class PlaybackManager(
         private const val TAG = "PlaybackManager"
 
         private const val POSITION_UPDATE_INTERVAL_MS = 250L
+        private const val OUTPUT_HANDOFF_TIMEOUT_MS = 5_000L
 
         private const val EXTRA_MEDIA_ID = "media_id"
         private const val EXTRA_PROVIDER = "provider"
@@ -1413,6 +1591,7 @@ class PlaybackManager(
         private const val EXTRA_COVER_ART = "cover_art"
         private const val EXTRA_COVER_URL = "cover_url"
         private const val EXTRA_DURATION = "duration_secs"
+        private const val EXTRA_CONTENT_TYPE = "subsonic_content_type"
         private const val EXTRA_TRACK = "track"
         private const val EXTRA_YEAR = "year"
         private const val EXTRA_GENRE = "genre"

@@ -51,7 +51,7 @@
 
     <string name="cmp_devices_title">Devices</string>
     <string name="cmp_devices_subtitle_spotify">Spotify Connect</string>
-    <string name="cmp_devices_subtitle_subsonic">This device and Cast</string>
+    <string name="cmp_devices_subtitle_subsonic">This device, Chromecast and DLNA · Same Wi-Fi</string>
     <string name="cmp_devices_subtitle_other">Playback devices</string>
     <string name="cmp_devices_cd_refresh">Refresh devices</string>
     <string name="cmp_devices_this_device">This device</string>

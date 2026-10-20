@@ -71,6 +71,7 @@ import okhttp3.Cache
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class AppContainer(private val context: Context) {
 
     private val applicationScope =
@@ -376,7 +377,7 @@ class AppContainer(private val context: Context) {
             onSwitchPrepare = {
                 // Tear down the current playback session — its stream URLs
                 // are scoped to the outgoing profile.
-                playbackManager.disconnect()
+                playbackManager.disconnectForProfileChange()
             },
             onSwitchCommit = {
                 // Fan out to feature VMs so the first render after the switch
@@ -435,11 +436,16 @@ class AppContainer(private val context: Context) {
         CastManager(context).also { it.initialize() }
     }
 
+    val dlnaManager: com.gpo.yoin.player.dlna.DlnaManager by lazy {
+        com.gpo.yoin.player.dlna.DlnaManager(context)
+    }
+
     val playbackManager: PlaybackManager by lazy {
         PlaybackManager(
             context = context,
             repository = repository,
             castManager = castManager,
+            dlnaManager = dlnaManager,
             spotifyClientIdProvider = { spotifyClientIdFlow.value },
         )
     }

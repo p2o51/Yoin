@@ -37,7 +37,7 @@
 
     <string name="cmp_devices_title">设备</string>
     <string name="cmp_devices_subtitle_spotify">Spotify Connect</string>
-    <string name="cmp_devices_subtitle_subsonic">此设备与投播</string>
+    <string name="cmp_devices_subtitle_subsonic">此设备、Chromecast 与 DLNA · 同一 Wi-Fi</string>
     <string name="cmp_devices_subtitle_other">播放设备</string>
     <string name="cmp_devices_cd_refresh">刷新设备</string>
     <string name="cmp_devices_this_device">此设备</string>
