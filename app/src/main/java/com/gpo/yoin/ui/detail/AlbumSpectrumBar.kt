@@ -418,11 +418,16 @@ internal fun AlbumFlyingCover(
         layout(constraints.maxWidth, constraints.maxHeight) {
             if (g == null) return@layout
             placeable.placeWithLayer(0, 0) {
+                // Read the geometry again here, not the measure pass's copy: the stamp
+                // follows the title row, which is placed after this cover, and when the
+                // page arrives through Loading the measure pass is never re-run, so the
+                // copy keeps a zero title row and the stamp sat half off the top.
+                val now = geometry() ?: g
                 val p = progress().coerceIn(0f, 1f)
                 val r = if (reduced) {
-                    if (p < 0.5f) coverNow() else g.stamp
+                    if (p < 0.5f) coverNow() else now.stamp
                 } else {
-                    albumBarCoverRect(g, coverNow(), p)
+                    albumBarCoverRect(now, coverNow(), p)
                 }
                 if (reduced) alpha = abs(1f - 2f * p)
                 val scale = r.width / side
