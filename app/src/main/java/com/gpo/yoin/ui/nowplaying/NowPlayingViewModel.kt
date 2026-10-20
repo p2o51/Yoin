@@ -19,6 +19,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.ConnectionPhase
+import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.data.model.Track
@@ -228,7 +229,7 @@ class NowPlayingViewModel(
                     _aboutError.value = null
                     _askState.value = AskBarState.Idle
 
-                    if (prefetched == null) loadLyrics(songId, track?.title, track?.artist)
+                    if (prefetched == null) loadLyrics(songId, track?.title, track?.artist, track?.durationSec)
                 } else {
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = false
@@ -262,7 +263,12 @@ class NowPlayingViewModel(
                     var attempt = 0
                     while (true) {
                         val loaded = try {
-                            repository.getLoadedLyrics(next.id, next.title, next.artist)
+                            repository.getLoadedLyrics(
+                                next.id,
+                                next.title,
+                                next.artist,
+                                next.durationSec?.times(1_000L),
+                            )
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (_: Exception) {
@@ -609,9 +615,12 @@ class NowPlayingViewModel(
         if (state.playWhenReady) playbackManager.pause() else playbackManager.resume()
     }
 
-    /** Repeat all → shuffle → repeat one → repeat all, from what the player reports. */
-    fun cyclePlayMode() {
-        playbackManager.setPlayMode(playbackManager.playbackState.value.playMode.next())
+    /**
+     * The play-mode button's choice: the next mode on a tap of the round button, or one axis
+     * changed from a segment of the split pill (see PlaybackControls).
+     */
+    fun setPlayMode(mode: PlayMode) {
+        playbackManager.setPlayMode(mode)
     }
 
     /**
@@ -1417,13 +1426,14 @@ class NowPlayingViewModel(
         }
     }
 
-    private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?) {
+    private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?, durationSec: Int?) {
         // 调用方（collectLatest 入口）已经把 _lyrics 清空 + loading=true。这里只在
         // 实际完成 / 失败时把 loading 关掉。若被 collectLatest 取消，让
         // CancellationException 透传，并且**不**碰 loading —— 紧接着新的 handler
         // 会把 loading 再次设成 true，避免中间闪一下 "No lyrics available"。
         try {
-            when (val loadedLyrics = repository.getLoadedLyrics(songId, title, artist)) {
+            val loadedLyrics = repository.getLoadedLyrics(songId, title, artist, durationSec?.times(1_000L))
+            when (loadedLyrics) {
                 null -> {
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = false

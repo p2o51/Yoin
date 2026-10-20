@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A made-up cover for the tip page's demo phone (TipDemoData.kt). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="512dp"
+    android:height="512dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <path android:fillColor="#FF2F4A7A" android:pathData="M0,0h100v100h-100z"/>
+    <path android:fillColor="#FFF2B04C" android:pathData="M50,22a24,24 0 1,1 -0.01,0z"/><path android:fillColor="#FFE8E1D0" android:pathData="M0,66h100v8h-100z"/>
+</vector>

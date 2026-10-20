@@ -1,0 +1,1993 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 32,
+    "identityHash": "f95fbbd4ca653fb3513493f517d1f293",
+    "entities": [
+      {
+        "tableName": "local_ratings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL DEFAULT '', `songId` TEXT NOT NULL, `provider` TEXT NOT NULL DEFAULT 'subsonic', `rating` REAL NOT NULL, `serverRating` INTEGER NOT NULL, `needsSync` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `songId`, `provider`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'subsonic'"
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRating",
+            "columnName": "serverRating",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "needsSync",
+            "columnName": "needsSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "songId",
+            "provider"
+          ]
+        }
+      },
+      {
+        "tableName": "cache_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`songId` TEXT NOT NULL, `provider` TEXT NOT NULL DEFAULT 'subsonic', `title` TEXT NOT NULL, `artist` TEXT NOT NULL, `album` TEXT NOT NULL, `fileSizeBytes` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `lastAccessedAt` INTEGER NOT NULL, PRIMARY KEY(`songId`, `provider`))",
+        "fields": [
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'subsonic'"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "album",
+            "columnName": "album",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileSizeBytes",
+            "columnName": "fileSizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAccessedAt",
+            "columnName": "lastAccessedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "songId",
+            "provider"
+          ]
+        }
+      },
+      {
+        "tableName": "play_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `songId` TEXT NOT NULL, `profileId` TEXT NOT NULL DEFAULT '', `provider` TEXT NOT NULL DEFAULT 'subsonic', `title` TEXT NOT NULL, `artist` TEXT NOT NULL, `album` TEXT NOT NULL, `albumId` TEXT NOT NULL, `coverArtId` TEXT, `playedAt` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `completedPercent` REAL NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'subsonic'"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "album",
+            "columnName": "album",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coverArtId",
+            "columnName": "coverArtId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "playedAt",
+            "columnName": "playedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedPercent",
+            "columnName": "completedPercent",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_play_history_profileId_provider_playedAt",
+            "unique": false,
+            "columnNames": [
+              "profileId",
+              "provider",
+              "playedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_play_history_profileId_provider_playedAt` ON `${TABLE_NAME}` (`profileId`, `provider`, `playedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "activity_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `entityType` TEXT NOT NULL, `actionType` TEXT NOT NULL, `entityId` TEXT NOT NULL, `profileId` TEXT NOT NULL DEFAULT '', `provider` TEXT NOT NULL DEFAULT 'subsonic', `title` TEXT NOT NULL, `subtitle` TEXT NOT NULL, `coverArtId` TEXT, `songId` TEXT, `albumId` TEXT, `artistId` TEXT, `timestamp` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actionType",
+            "columnName": "actionType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'subsonic'"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitle",
+            "columnName": "subtitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coverArtId",
+            "columnName": "coverArtId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artistId",
+            "columnName": "artistId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_activity_events_profileId_provider_timestamp",
+            "unique": false,
+            "columnNames": [
+              "profileId",
+              "provider",
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_activity_events_profileId_provider_timestamp` ON `${TABLE_NAME}` (`profileId`, `provider`, `timestamp`)"
+          }
+        ]
+      },
+      {
+        "tableName": "song_about_entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`titleKey` TEXT NOT NULL, `artistKey` TEXT NOT NULL, `albumKey` TEXT NOT NULL, `titleDisplay` TEXT NOT NULL, `artistDisplay` TEXT NOT NULL, `albumDisplay` TEXT NOT NULL, `kind` TEXT NOT NULL, `entryKey` TEXT NOT NULL, `promptText` TEXT, `titleText` TEXT, `answerText` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`titleKey`, `artistKey`, `albumKey`, `kind`, `entryKey`))",
+        "fields": [
+          {
+            "fieldPath": "titleKey",
+            "columnName": "titleKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistKey",
+            "columnName": "artistKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumKey",
+            "columnName": "albumKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleDisplay",
+            "columnName": "titleDisplay",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistDisplay",
+            "columnName": "artistDisplay",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumDisplay",
+            "columnName": "albumDisplay",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entryKey",
+            "columnName": "entryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "promptText",
+            "columnName": "promptText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleText",
+            "columnName": "titleText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "answerText",
+            "columnName": "answerText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "titleKey",
+            "artistKey",
+            "albumKey",
+            "kind",
+            "entryKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_about_lookup",
+            "unique": false,
+            "columnNames": [
+              "titleKey",
+              "artistKey",
+              "albumKey",
+              "kind",
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_about_lookup` ON `${TABLE_NAME}` (`titleKey`, `artistKey`, `albumKey`, `kind`, `updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "gemini_config",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `apiKey` TEXT NOT NULL, `targetLanguage` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "apiKey",
+            "columnName": "apiKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetLanguage",
+            "columnName": "targetLanguage",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `provider` TEXT NOT NULL, `displayName` TEXT NOT NULL, `credentialsJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "credentialsJson",
+            "columnName": "credentialsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_config",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `clientId` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "clientId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_home_album_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artist` TEXT, `artistId` TEXT, `coverArtKey` TEXT, `songCount` INTEGER, `year` INTEGER, `sortOrder` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `albumId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artistId",
+            "columnName": "artistId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverArtKey",
+            "columnName": "coverArtKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "songCount",
+            "columnName": "songCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "albumId"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_home_artist_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `artistId` TEXT NOT NULL, `name` TEXT NOT NULL, `coverArtKey` TEXT, `sortOrder` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `artistId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistId",
+            "columnName": "artistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coverArtKey",
+            "columnName": "coverArtKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "artistId"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_library_sync_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `cachedAt` INTEGER NOT NULL, `backoffUntilMs` INTEGER NOT NULL, `lastSyncError` TEXT, PRIMARY KEY(`profileId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backoffUntilMs",
+            "columnName": "backoffUntilMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncError",
+            "columnName": "lastSyncError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_library_track_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `title` TEXT, `artist` TEXT, `artistId` TEXT, `album` TEXT, `albumId` TEXT, `coverArtKey` TEXT, `durationSec` INTEGER, `addedAt` TEXT, `isSaved` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `pendingFavoriteAction` INTEGER NOT NULL, `lastSyncError` TEXT, PRIMARY KEY(`profileId`, `trackId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackId",
+            "columnName": "trackId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artistId",
+            "columnName": "artistId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "album",
+            "columnName": "album",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverArtKey",
+            "columnName": "coverArtKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationSec",
+            "columnName": "durationSec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isSaved",
+            "columnName": "isSaved",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pendingFavoriteAction",
+            "columnName": "pendingFavoriteAction",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncError",
+            "columnName": "lastSyncError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "trackId"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_library_album_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artist` TEXT, `artistId` TEXT, `coverArtKey` TEXT, `songCount` INTEGER, `year` INTEGER, `isSaved` INTEGER NOT NULL, `addedAt` TEXT, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `albumId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artistId",
+            "columnName": "artistId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverArtKey",
+            "columnName": "coverArtKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "songCount",
+            "columnName": "songCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "isSaved",
+            "columnName": "isSaved",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "albumId"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_library_artist_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `artistId` TEXT NOT NULL, `name` TEXT NOT NULL, `albumCount` INTEGER, `coverArtKey` TEXT, `isFollowed` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `artistId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistId",
+            "columnName": "artistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumCount",
+            "columnName": "albumCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "coverArtKey",
+            "columnName": "coverArtKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isFollowed",
+            "columnName": "isFollowed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "artistId"
+          ]
+        }
+      },
+      {
+        "tableName": "spotify_library_playlist_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `playlistId` TEXT NOT NULL, `name` TEXT NOT NULL, `owner` TEXT, `coverArtKey` TEXT, `songCount` INTEGER, `durationSec` INTEGER, `canWrite` INTEGER NOT NULL, `snapshotId` TEXT, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `playlistId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "owner",
+            "columnName": "owner",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverArtKey",
+            "columnName": "coverArtKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "songCount",
+            "columnName": "songCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationSec",
+            "columnName": "durationSec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "canWrite",
+            "columnName": "canWrite",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "playlistId"
+          ]
+        }
+      },
+      {
+        "tableName": "lyrics_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`trackProvider` TEXT NOT NULL, `trackRawId` TEXT NOT NULL, `lyricsProvider` TEXT NOT NULL, `lyricsProviderSongId` TEXT, `lrc` TEXT NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`trackProvider`, `trackRawId`))",
+        "fields": [
+          {
+            "fieldPath": "trackProvider",
+            "columnName": "trackProvider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackRawId",
+            "columnName": "trackRawId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lyricsProvider",
+            "columnName": "lyricsProvider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lyricsProviderSongId",
+            "columnName": "lyricsProviderSongId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lrc",
+            "columnName": "lrc",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "trackProvider",
+            "trackRawId"
+          ]
+        }
+      },
+      {
+        "tableName": "lyrics_translation_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`trackProvider` TEXT NOT NULL, `trackRawId` TEXT NOT NULL, `sourceHash` TEXT NOT NULL, `targetLanguage` TEXT NOT NULL, `model` TEXT NOT NULL, `translationsJson` TEXT NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`trackProvider`, `trackRawId`, `sourceHash`, `targetLanguage`, `model`))",
+        "fields": [
+          {
+            "fieldPath": "trackProvider",
+            "columnName": "trackProvider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackRawId",
+            "columnName": "trackRawId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "sourceHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetLanguage",
+            "columnName": "targetLanguage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "translationsJson",
+            "columnName": "translationsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "trackProvider",
+            "trackRawId",
+            "sourceHash",
+            "targetLanguage",
+            "model"
+          ]
+        }
+      },
+      {
+        "tableName": "song_notes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `profileId` TEXT NOT NULL DEFAULT '', `trackId` TEXT NOT NULL, `provider` TEXT NOT NULL DEFAULT 'subsonic', `content` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `title` TEXT NOT NULL, `artist` TEXT NOT NULL, `positionMs` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "trackId",
+            "columnName": "trackId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'subsonic'"
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "positionMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_song_notes_title_artist",
+            "unique": false,
+            "columnNames": [
+              "title",
+              "artist"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_song_notes_title_artist` ON `${TABLE_NAME}` (`title`, `artist`)"
+          },
+          {
+            "name": "index_song_notes_profileId_trackId_provider",
+            "unique": false,
+            "columnNames": [
+              "profileId",
+              "trackId",
+              "provider"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_song_notes_profileId_trackId_provider` ON `${TABLE_NAME}` (`profileId`, `trackId`, `provider`)"
+          }
+        ]
+      },
+      {
+        "tableName": "album_notes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `profileId` TEXT NOT NULL DEFAULT '', `albumId` TEXT NOT NULL, `provider` TEXT NOT NULL DEFAULT 'subsonic', `content` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `albumName` TEXT NOT NULL, `artist` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'subsonic'"
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumName",
+            "columnName": "albumName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_album_notes_profileId_albumId_provider",
+            "unique": false,
+            "columnNames": [
+              "profileId",
+              "albumId",
+              "provider"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_album_notes_profileId_albumId_provider` ON `${TABLE_NAME}` (`profileId`, `albumId`, `provider`)"
+          },
+          {
+            "name": "index_album_notes_albumName_artist",
+            "unique": false,
+            "columnNames": [
+              "albumName",
+              "artist"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_album_notes_albumName_artist` ON `${TABLE_NAME}` (`albumName`, `artist`)"
+          }
+        ]
+      },
+      {
+        "tableName": "album_ratings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL DEFAULT '', `albumId` TEXT NOT NULL, `provider` TEXT NOT NULL DEFAULT 'subsonic', `rating` REAL NOT NULL, `review` TEXT, `neoDbReviewUuid` TEXT, `ratingNeedsSync` INTEGER NOT NULL, `reviewNeedsSync` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `reviewUpdatedAt` INTEGER, PRIMARY KEY(`profileId`, `albumId`, `provider`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'subsonic'"
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "review",
+            "columnName": "review",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "neoDbReviewUuid",
+            "columnName": "neoDbReviewUuid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ratingNeedsSync",
+            "columnName": "ratingNeedsSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewNeedsSync",
+            "columnName": "reviewNeedsSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewUpdatedAt",
+            "columnName": "reviewUpdatedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "albumId",
+            "provider"
+          ]
+        }
+      },
+      {
+        "tableName": "external_mappings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`externalService` TEXT NOT NULL, `externalId` TEXT NOT NULL, `provider` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entityId` TEXT NOT NULL, `syncedAt` INTEGER NOT NULL, PRIMARY KEY(`externalService`, `externalId`, `provider`, `entityType`, `entityId`))",
+        "fields": [
+          {
+            "fieldPath": "externalService",
+            "columnName": "externalService",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "externalId",
+            "columnName": "externalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "syncedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "externalService",
+            "externalId",
+            "provider",
+            "entityType",
+            "entityId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_external_mappings_yoin_entity",
+            "unique": true,
+            "columnNames": [
+              "provider",
+              "entityType",
+              "entityId",
+              "externalService"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_external_mappings_yoin_entity` ON `${TABLE_NAME}` (`provider`, `entityType`, `entityId`, `externalService`)"
+          }
+        ]
+      },
+      {
+        "tableName": "memory_copy_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `provider` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entityId` TEXT NOT NULL, `copy` TEXT NOT NULL, `promptHash` TEXT NOT NULL, `generatedAt` INTEGER NOT NULL, `title` TEXT, `titlePromptHash` TEXT, PRIMARY KEY(`profileId`, `provider`, `entityType`, `entityId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "copy",
+            "columnName": "copy",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "promptHash",
+            "columnName": "promptHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generatedAt",
+            "columnName": "generatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titlePromptHash",
+            "columnName": "titlePromptHash",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "provider",
+            "entityType",
+            "entityId"
+          ]
+        }
+      },
+      {
+        "tableName": "neodb_config",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `instance` TEXT NOT NULL DEFAULT 'https://neodb.social', PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "instance",
+            "columnName": "instance",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'https://neodb.social'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "detail_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `kind` TEXT NOT NULL, `entityId` TEXT NOT NULL, `json` TEXT NOT NULL, `cachedAt` INTEGER NOT NULL, `accessedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `kind`, `entityId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "json",
+            "columnName": "json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accessedAt",
+            "columnName": "accessedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "kind",
+            "entityId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_detail_cache_accessedAt",
+            "unique": false,
+            "columnNames": [
+              "accessedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_detail_cache_accessedAt` ON `${TABLE_NAME}` (`accessedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "home_layout",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `sectionsJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sectionsJson",
+            "columnName": "sectionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId"
+          ]
+        }
+      },
+      {
+        "tableName": "home_grid_pool_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `provider` TEXT NOT NULL, `itemType` TEXT NOT NULL, `itemId` TEXT NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `coverArtKey` TEXT, `albumId` TEXT, `durationSec` INTEGER, `sortOrder` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `provider`, `itemType`, `itemId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemType",
+            "columnName": "itemType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitle",
+            "columnName": "subtitle",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverArtKey",
+            "columnName": "coverArtKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationSec",
+            "columnName": "durationSec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "provider",
+            "itemType",
+            "itemId"
+          ]
+        }
+      },
+      {
+        "tableName": "album_memory_titles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `provider` TEXT NOT NULL, `albumId` TEXT NOT NULL, `title` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `provider`, `albumId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "provider",
+            "albumId"
+          ]
+        }
+      },
+      {
+        "tableName": "track_album_links",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` TEXT NOT NULL, `provider` TEXT NOT NULL, `trackId` TEXT NOT NULL, `albumId` TEXT NOT NULL, `source` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `provider`, `trackId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackId",
+            "columnName": "trackId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "provider",
+            "trackId"
+          ]
+        }
+      },
+      {
+        "tableName": "import_batches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`batchId` TEXT NOT NULL, `source` TEXT NOT NULL, `status` TEXT NOT NULL, `profileId` TEXT, `fileSha256` TEXT NOT NULL, `importedAt` INTEGER NOT NULL, `noteCount` INTEGER NOT NULL, `ratingCount` INTEGER NOT NULL, `summaryJson` TEXT NOT NULL, PRIMARY KEY(`batchId`))",
+        "fields": [
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fileSha256",
+            "columnName": "fileSha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "importedAt",
+            "columnName": "importedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noteCount",
+            "columnName": "noteCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ratingCount",
+            "columnName": "ratingCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "summaryJson",
+            "columnName": "summaryJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "batchId"
+          ]
+        }
+      },
+      {
+        "tableName": "import_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`batchId` TEXT NOT NULL, `targetKind` TEXT NOT NULL, `targetKey` TEXT NOT NULL, PRIMARY KEY(`targetKind`, `targetKey`))",
+        "fields": [
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetKind",
+            "columnName": "targetKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetKey",
+            "columnName": "targetKey",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "targetKind",
+            "targetKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_import_items_batchId",
+            "unique": false,
+            "columnNames": [
+              "batchId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_import_items_batchId` ON `${TABLE_NAME}` (`batchId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "playlist_backups",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `sourceProvider` TEXT NOT NULL, `sourceProfileLabel` TEXT NOT NULL, `sourcePlaylistId` TEXT NOT NULL, `sourceProfileId` TEXT, `playlistCreatedAt` TEXT, `firstBackedUpAt` INTEGER NOT NULL, `lastBackedUpAt` INTEGER NOT NULL, `lastChangedAt` INTEGER NOT NULL, `sourceGoneAt` INTEGER, `trackCount` INTEGER NOT NULL, `unexportedCount` INTEGER NOT NULL, `contentJson` TEXT NOT NULL, `versionsJson` TEXT NOT NULL, `restoresJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceProvider",
+            "columnName": "sourceProvider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceProfileLabel",
+            "columnName": "sourceProfileLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePlaylistId",
+            "columnName": "sourcePlaylistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceProfileId",
+            "columnName": "sourceProfileId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "playlistCreatedAt",
+            "columnName": "playlistCreatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "firstBackedUpAt",
+            "columnName": "firstBackedUpAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastBackedUpAt",
+            "columnName": "lastBackedUpAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastChangedAt",
+            "columnName": "lastChangedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceGoneAt",
+            "columnName": "sourceGoneAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "trackCount",
+            "columnName": "trackCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unexportedCount",
+            "columnName": "unexportedCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentJson",
+            "columnName": "contentJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "versionsJson",
+            "columnName": "versionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "restoresJson",
+            "columnName": "restoresJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playlist_backups_lastChangedAt",
+            "unique": false,
+            "columnNames": [
+              "lastChangedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_backups_lastChangedAt` ON `${TABLE_NAME}` (`lastChangedAt`)"
+          },
+          {
+            "name": "index_playlist_backups_sourceProvider_sourcePlaylistId",
+            "unique": false,
+            "columnNames": [
+              "sourceProvider",
+              "sourcePlaylistId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_backups_sourceProvider_sourcePlaylistId` ON `${TABLE_NAME}` (`sourceProvider`, `sourcePlaylistId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f95fbbd4ca653fb3513493f517d1f293')"
+    ]
+  }
+}

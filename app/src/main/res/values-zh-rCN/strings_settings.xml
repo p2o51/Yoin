@@ -19,6 +19,10 @@
     <string name="settings_section_storage">存储</string>
     <string name="settings_section_about">关于</string>
     <string name="settings_about_version">版本 %1$s</string>
+    <string name="settings_about_website">官网</string>
+    <string name="settings_about_website_open_failed">无法打开官网</string>
+    <string name="settings_about_docs">使用文档</string>
+    <string name="settings_about_docs_open_failed">无法打开使用文档</string>
     <string name="settings_about_privacy_policy">隐私政策</string>
     <string name="settings_about_privacy_open_failed">无法打开隐私政策</string>
     <string name="settings_about_feedback">发送反馈</string>
@@ -75,6 +79,10 @@
     <string name="settings_neodb_invalid_url">无效的 NeoDB 地址。请包含有效的主机名。</string>
 
     <string name="settings_motion_scroll_edge">滚动边缘</string>
+    <string name="settings_about_tips">小技巧</string>
+    <string name="settings_tips_read_count">已读 %1$d / %2$d</string>
+    <string name="settings_tips_all_read">全部已读</string>
+    <string name="settings_tips_mark_all_unread">全部标为未读</string>
     <string name="settings_motion_tide_line">潮线</string>
     <string name="settings_motion_dots">网点</string>
     <string name="settings_motion_cookie_wave">曲奇浪口</string>
@@ -269,6 +277,7 @@
     <string name="settings_sync_what_ratings">歌曲与专辑评分、专辑评论</string>
     <string name="settings_sync_what_home">首页布局</string>
     <string name="settings_sync_what_translations">AI 歌词翻译</string>
+    <string name="settings_sync_what_playlist_backups">歌单云备份</string>
     <string name="settings_sync_what_settings">翻译语言、Spotify Client ID 与滚动边缘样式</string>
     <string name="settings_sync_what_accounts">账号名称、服务器地址</string>
     <string name="settings_sync_what_stays">仅保存在本地</string>

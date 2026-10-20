@@ -417,6 +417,19 @@ class HomeFeedDensityTest {
     }
 
     @Test
+    fun should_seatOnlyFittingColumns_when_compactHeightAndNarrow() {
+        // A 388×457dp desktop window or bubble: content 340dp seats 3 covers, not 6.
+        assertEquals(
+            JbiGridSpec(columns = 3, followColumn = false),
+            jbiGridSpec(feedUnits = 2, coverColumns = 3, isCompactHeight = true),
+        )
+        assertEquals(
+            JbiGridSpec(columns = 5, followColumn = false),
+            jbiGridSpec(feedUnits = 3, coverColumns = 5, isCompactHeight = true),
+        )
+    }
+
+    @Test
     fun should_templateOnCoverColumns_when_unitsAtLeastThree() {
         for (units in 3..8) {
             for (columns in 3..10) {

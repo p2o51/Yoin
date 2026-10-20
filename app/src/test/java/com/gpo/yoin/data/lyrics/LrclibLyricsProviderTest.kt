@@ -40,6 +40,87 @@ class LrclibLyricsProviderTest {
     }
 
     @Test
+    fun should_pickSameLength_when_firstResultIsAnotherCut() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"id":1,"trackName":"Pop Sound","artistName":"Kim Petras","duration":150.0},
+                  {"id":2,"trackName":"Pop Sound","artistName":"Kim Petras","duration":171.0}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("2", provider.search("Pop Sound", "Kim Petras", durationMs = 171_172)?.songId)
+    }
+
+    @Test
+    fun should_keepFirstResult_when_noResultHasTheLength() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"id":1,"trackName":"Pop Sound","artistName":"Kim Petras","duration":150.0},
+                  {"id":2,"trackName":"Pop Sound","artistName":"Kim Petras","duration":140.0}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("1", provider.search("Pop Sound", "Kim Petras", durationMs = 171_172)?.songId)
+    }
+
+    @Test
+    fun should_keepTheOriginal_when_aLaterSameLengthResultIsInstrumental() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"id":1,"trackName":"Pop Sound","artistName":"Kim Petras","duration":150.0},
+                  {"id":2,"trackName":"Pop Sound","artistName":"Kim Petras","duration":171.0,"instrumental":true},
+                  {"id":3,"trackName":"Pop Sound (Instrumental)","artistName":"Kim Petras","duration":171.0}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("1", provider.search("Pop Sound", "Kim Petras", durationMs = 171_172)?.songId)
+    }
+
+    @Test
+    fun should_keepTheOriginal_when_aLaterSameLengthResultIsAnotherArtistsSong() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"id":1,"trackName":"Pop Sound","artistName":"Kim Petras","duration":150.0},
+                  {"id":2,"trackName":"Pop Sound","artistName":"Losing N3mo","duration":171.0}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("1", provider.search("Pop Sound", "Kim Petras", durationMs = 171_172)?.songId)
+    }
+
+    @Test
+    fun should_matchOneArtistOfACredit_when_lrclibJoinsThem() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"id":1,"trackName":"Unholy","artistName":"Sam Smith, Kim Petras","duration":120.0},
+                  {"id":2,"trackName":"Unholy","artistName":"Sam Smith, Kim Petras","duration":156.0}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("2", provider.search("Unholy", "Kim Petras", durationMs = 156_000)?.songId)
+    }
+
+    @Test
     fun search_returns_first_match() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(

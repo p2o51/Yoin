@@ -100,8 +100,8 @@ class NowPlayingViewModelUpNextTest {
     @Test
     fun should_openTheNextSongWithItsPreloadedLyrics_when_itStarts() = runTest {
         val f = fixture(playing(a, next = b)) { repo ->
-            coEvery { repo.getLoadedLyrics(a.id, any(), any()) } returns synced("a1", "a2")
-            coEvery { repo.getLoadedLyrics(b.id, any(), any()) } returns synced("b1", "b2")
+            coEvery { repo.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1", "a2")
+            coEvery { repo.getLoadedLyrics(b.id, any(), any(), any()) } returns synced("b1", "b2")
         }
         advanceTimeBy(4_001)
         runCurrent()
@@ -113,14 +113,14 @@ class NowPlayingViewModelUpNextTest {
         assertEquals(b.id.toString(), f.playingState.songId)
         assertEquals(listOf("b1", "b2"), f.playingState.lyrics.map { it.text })
         assertFalse(f.playingState.lyricsLoading)
-        coVerify(exactly = 1) { f.repository.getLoadedLyrics(b.id, any(), any()) }
+        coVerify(exactly = 1) { f.repository.getLoadedLyrics(b.id, any(), any(), any()) }
     }
 
     @Test
     fun should_neverEmitALoadingFrame_when_aPreloadedSongStarts() = runTest {
         val f = fixture(playing(a, next = b)) { repo ->
-            coEvery { repo.getLoadedLyrics(a.id, any(), any()) } returns synced("a1")
-            coEvery { repo.getLoadedLyrics(b.id, any(), any()) } returns synced("b1", "b2")
+            coEvery { repo.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1")
+            coEvery { repo.getLoadedLyrics(b.id, any(), any(), any()) } returns synced("b1", "b2")
         }
         advanceTimeBy(4_001)
         runCurrent()
@@ -144,8 +144,8 @@ class NowPlayingViewModelUpNextTest {
         // b is the last song: nextTrack turns null in the very emission that
         // starts b. The preload used to be wiped right there (loading beat).
         val f = fixture(playing(a, next = b, queue = listOf(a, b))) { repo ->
-            coEvery { repo.getLoadedLyrics(a.id, any(), any()) } returns synced("a1")
-            coEvery { repo.getLoadedLyrics(b.id, any(), any()) } returns synced("b1")
+            coEvery { repo.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1")
+            coEvery { repo.getLoadedLyrics(b.id, any(), any(), any()) } returns synced("b1")
         }
         advanceTimeBy(4_001)
         runCurrent()
@@ -156,15 +156,15 @@ class NowPlayingViewModelUpNextTest {
         assertEquals(listOf("b1"), f.playingState.lyrics.map { it.text })
         assertFalse(f.playingState.lyricsLoading)
         assertNull(f.playingState.upNextLyrics)
-        coVerify(exactly = 1) { f.repository.getLoadedLyrics(b.id, any(), any()) }
+        coVerify(exactly = 1) { f.repository.getLoadedLyrics(b.id, any(), any(), any()) }
     }
 
     @Test
     fun should_preloadFromTheQueue_when_theBackendReportsNoNextTrack() = runTest {
         // Spotify App Remote: no nextTrack, but Yoin's mirrored queue in order.
         val f = fixture(playing(a, next = null)) { repo ->
-            coEvery { repo.getLoadedLyrics(a.id, any(), any()) } returns synced("a1")
-            coEvery { repo.getLoadedLyrics(b.id, any(), any()) } returns synced("b1")
+            coEvery { repo.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1")
+            coEvery { repo.getLoadedLyrics(b.id, any(), any(), any()) } returns synced("b1")
         }
         advanceTimeBy(4_001)
         runCurrent()
@@ -175,22 +175,22 @@ class NowPlayingViewModelUpNextTest {
     @Test
     fun should_notGuessTheNextSong_when_shuffleHidesIt() = runTest {
         val f = fixture(playing(a, next = null).copy(shuffleEnabled = true)) { repo ->
-            coEvery { repo.getLoadedLyrics(a.id, any(), any()) } returns synced("a1")
-            coEvery { repo.getLoadedLyrics(b.id, any(), any()) } returns synced("b1")
+            coEvery { repo.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1")
+            coEvery { repo.getLoadedLyrics(b.id, any(), any(), any()) } returns synced("b1")
         }
         advanceTimeBy(30_000)
         runCurrent()
 
         assertNull(f.playingState.upNextLyrics)
-        coVerify(exactly = 0) { f.repository.getLoadedLyrics(b.id, any(), any()) }
+        coVerify(exactly = 0) { f.repository.getLoadedLyrics(b.id, any(), any(), any()) }
     }
 
     @Test
     fun should_retryThePreload_when_theFirstFetchFails() = runTest {
         var calls = 0
         val f = fixture(playing(a, next = b)) { repo ->
-            coEvery { repo.getLoadedLyrics(a.id, any(), any()) } returns synced("a1")
-            coEvery { repo.getLoadedLyrics(b.id, any(), any()) } answers {
+            coEvery { repo.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1")
+            coEvery { repo.getLoadedLyrics(b.id, any(), any(), any()) } answers {
                 calls += 1
                 if (calls == 1) throw IOException("offline") else synced("b1")
             }
@@ -207,8 +207,8 @@ class NowPlayingViewModelUpNextTest {
     @Test
     fun should_preloadUntimedLyricsWithoutChoreographingThem_when_theNextSongIsUntimed() = runTest {
         val f = fixture(playing(a, next = b)) { repo ->
-            coEvery { repo.getLoadedLyrics(a.id, any(), any()) } returns synced("a1")
-            coEvery { repo.getLoadedLyrics(b.id, any(), any()) } returns YoinRepository.LoadedLyrics(
+            coEvery { repo.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1")
+            coEvery { repo.getLoadedLyrics(b.id, any(), any(), any()) } returns YoinRepository.LoadedLyrics(
                 lyrics = Lyrics.Unsynced("plain one\nplain two"),
                 providerName = "test",
                 providerSongId = null,
@@ -223,13 +223,13 @@ class NowPlayingViewModelUpNextTest {
 
         assertEquals(listOf("plain one", "plain two"), f.playingState.lyrics.map { it.text })
         assertFalse(f.playingState.lyricsLoading)
-        coVerify(exactly = 1) { f.repository.getLoadedLyrics(b.id, any(), any()) }
+        coVerify(exactly = 1) { f.repository.getLoadedLyrics(b.id, any(), any(), any()) }
     }
 
     @Test
     fun should_tagThePlayheadWithItsSong_when_positionTicks() = runTest {
         val f = fixture(playing(a, next = b).copy(position = 1_234L)) { repo ->
-            coEvery { repo.getLoadedLyrics(any(), any(), any()) } returns null
+            coEvery { repo.getLoadedLyrics(any(), any(), any(), any()) } returns null
         }
 
         assertEquals(NowPlayingPlayhead(a.id.toString(), 1_234L), f.viewModel.playhead.value)
