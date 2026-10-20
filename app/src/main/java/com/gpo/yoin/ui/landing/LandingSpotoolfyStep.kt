@@ -300,6 +300,16 @@ internal class SpotoolfyStepViewModel(
     }
 }
 
+/**
+ * Whether the import status under the choices has anything to show. With
+ * Spotoolfy not installed and nothing read yet the pill carries the action
+ * and the status is empty — expanding it then only added its 12dp gap, and
+ * the centred column hopped 6dp on every Yes / No.
+ */
+internal fun spotoolfyShowsImportStatus(state: SpotoolfyStepState): Boolean =
+    state.choice == SpotoolfyChoice.Using &&
+        !(state.import == SpotoolfyImport.None && !state.installed)
+
 /** The pill's main button on this step. */
 internal fun spotoolfyPrimary(state: SpotoolfyStepState): LandingPrimary = when {
     state.choice == null -> LandingPrimary(R.string.landing_next, LandingPrimary.Style.Unavailable)
@@ -351,7 +361,7 @@ internal fun SpotoolfyScene(
             )
         }
         AnimatedVisibility(
-            visible = state.choice == SpotoolfyChoice.Using,
+            visible = spotoolfyShowsImportStatus(state),
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
                 expandVertically(YoinMotion.defaultSpatialSpec()),
             exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast) +
