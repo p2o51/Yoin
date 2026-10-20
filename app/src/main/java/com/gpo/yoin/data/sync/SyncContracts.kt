@@ -23,6 +23,7 @@ object SyncKinds {
     const val MEMORY_TITLE = "memory_title"
     const val SONG_ABOUT = "song_about"
     const val ALBUM_TITLE = "album_title"
+    const val PLAYLIST_BACKUP = "playlist_backup"
 }
 
 /** Keys of [SyncKinds.SETTING] records. */

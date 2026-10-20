@@ -6,8 +6,6 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.window.RequiresWindowSdkExtension
@@ -19,8 +17,7 @@ import androidx.window.embedding.SplitAttributes
 import androidx.window.embedding.SplitAttributesCalculatorParams
 import androidx.window.embedding.SplitController
 import com.gpo.yoin.ui.settings.settingsPageColor
-import com.gpo.yoin.ui.theme.YoinDarkColorScheme
-import com.gpo.yoin.ui.theme.YoinLightColorScheme
+import com.gpo.yoin.ui.theme.defaultColorScheme
 
 /*
  * Activity Embedding geometry — Settings list-detail ONLY (断点交接 §7). The
@@ -120,14 +117,9 @@ private fun appBackgroundAnimationParams(context: Context, configuration: Config
         )
         .build()
 
-/** The YoinTheme scheme for the configuration's light/dark mode (dynamic on API 31+). */
+/** The YoinTheme default scheme for the configuration's light/dark mode. */
 private fun appColorScheme(context: Context, configuration: Configuration): ColorScheme {
-    val night = configuration.isNight()
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if (night) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-    } else {
-        if (night) YoinDarkColorScheme else YoinLightColorScheme
-    }
+    return defaultColorScheme(context, configuration.isNight())
 }
 
 /** The animation background must be opaque. */

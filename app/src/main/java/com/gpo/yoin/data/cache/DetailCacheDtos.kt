@@ -166,6 +166,7 @@ internal data class PlaylistDto(
     val canWrite: Boolean = false,
     val snapshotId: String? = null,
     val comment: String? = null,
+    val tracksUnavailable: Boolean = false,
 ) {
     fun toDomain(): Playlist = Playlist(
         id = MediaId.parse(id),
@@ -178,6 +179,7 @@ internal data class PlaylistDto(
         canWrite = canWrite,
         snapshotId = snapshotId,
         comment = comment,
+        tracksUnavailable = tracksUnavailable,
     )
 
     companion object {
@@ -192,6 +194,7 @@ internal data class PlaylistDto(
             canWrite = p.canWrite,
             snapshotId = p.snapshotId,
             comment = p.comment,
+            tracksUnavailable = p.tracksUnavailable,
         )
     }
 }

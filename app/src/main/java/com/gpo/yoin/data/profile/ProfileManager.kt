@@ -548,6 +548,25 @@ class ProfileManager(
         }
     }
 
+    /**
+     * [block] run with profile [id]'s source, for work that reaches a profile
+     * other than the active one (a playlist copy, docs/playlist-transfer.md):
+     * the active profile's live source, or a source built for the call and
+     * disposed after it — never published, so nothing else switches. Null
+     * when the profile is gone or its credentials can't be read.
+     */
+    suspend fun <T> withSourceFor(id: String, block: suspend (MusicSource) -> T): T? {
+        val active = _activeSource.value
+        if (id == _activeProfileId.value && active != null) return block(active)
+        val profile = profileDao.getById(id) ?: return null
+        val source = withContext(Dispatchers.IO) { buildSource(profile) } ?: return null
+        return try {
+            block(source)
+        } finally {
+            runCatching { source.dispose() }
+        }
+    }
+
     private fun buildSource(profile: Profile): MusicSource? {
         val credentials = decodeCredentials(profile) ?: return null
         return buildSource(profile, credentials)

@@ -413,6 +413,33 @@ class SpotifyMusicSourceTest {
     }
 
     @Test
+    fun should_openPlaylistWithoutTracks_when_itemsAreForbidden() = runTest {
+        // Someone else's playlist under a development-mode app (2026-02): the
+        // playlist object comes without entries and its items answer 403.
+        routes["/v1/playlists/p2"] = { ok("""{"id":"p2","name":"Theirs","owner":{"id":"someone"}}""") }
+        routes["/v1/playlists/p2/items"] = { MockResponse().setResponseCode(403) }
+        val source = newSource()
+
+        val playlist = source.library().getPlaylist(MediaId.spotify("p2"))
+
+        assertEquals("Theirs", playlist?.name)
+        assertTrue(playlist?.tracks?.isEmpty() == true)
+        assertTrue(playlist?.tracksUnavailable == true)
+        assertFalse(playlist?.canWrite == true)
+    }
+
+    @Test
+    fun should_fail_when_playlistItemsFailOtherwise() = runTest {
+        routes["/v1/playlists/p2"] = { ok("""{"id":"p2","name":"Theirs","owner":{"id":"someone"}}""") }
+        routes["/v1/playlists/p2/items"] = { MockResponse().setResponseCode(500) }
+        val source = newSource()
+
+        val error = runCatching { source.library().getPlaylist(MediaId.spotify("p2")) }.exceptionOrNull()
+
+        assertEquals(500, (error as? SpotifyAuthException)?.code)
+    }
+
+    @Test
     fun should_returnNull_when_artistAndItsReleasesNotFound() = runTest {
         // The lookup answers first and the cancelled releases read fails after it...
         routes["/v1/artists/gone"] = { notFound() }
