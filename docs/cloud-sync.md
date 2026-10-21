@@ -86,7 +86,7 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
 
 ## 必须由你在 Google Cloud 完成的配置
 
-代码里不需要写任何 Client ID，但 Google 要能认出这个 App：
+Android 客户端不需要在代码里写 Client ID，但 Google 要能认出这个 App：
 
 1. 在一个 Google Cloud 项目里启用 **Google Drive API**。
 2. OAuth 同意屏幕：用户类型「外部」，填应用名、支持邮箱、首页和隐私政策链接；只申请 `drive.appdata`（非敏感权限，不需要 Google 审核）。
@@ -96,6 +96,9 @@ v1 不用 WorkManager：离线改动不会丢，只是等下次回到前台再�
    - 上传密钥（侧载的 release 包）：`59:62:39:67:68:32:F7:26:D8:69:B4:A6:E9:2B:3F:9B:EC:1E:C1:37`
    - Play 应用签名密钥：在 Play Console › 应用完整性里查
 4. 所有客户端必须在**同一个**项目里，否则不同构建看到的是不同的 appDataFolder，互相看不到。
+5. （可选，推荐）在同一个项目里再建一个 **Web 应用** 类型的 OAuth 客户端（不用填重定向 URI），把它的 Client ID 作为 Gradle 属性 `googleWebClientId` 传给构建（`~/.gradle/gradle.properties` 或 `-PgoogleWebClientId=…`）。
+   - 有它时，「Turn on with Google」先弹 Credential Manager 的 Sign in with Google 底部账号面板选账号，再只为这个账号申请 `drive.appdata`，不再出现 AuthorizationClient 那个老式的账号选择框。
+   - 没有它（或面板在这台设备上用不了）时，自动退回原来的 AuthorizationClient 账号选择框，行为和以前一样。
 
 没配好时，云同步页会显示「这个版本的 Yoin 还不能使用云同步」并列出包名和证书指纹，不会自己反复重试；配好之后点「Try again」即可。
 

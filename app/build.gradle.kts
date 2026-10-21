@@ -61,6 +61,11 @@ android {
 
         val spotifyClientId = (project.findProperty("spotifyClientId") as String?).orEmpty()
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
+
+        // Web OAuth client ID from the same Google Cloud project as the Android clients. Blank
+        // keeps Cloud sync on the AuthorizationClient account chooser alone.
+        val googleWebClientId = (project.findProperty("googleWebClientId") as String?).orEmpty()
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
     }
 
     androidResources {
@@ -220,6 +225,10 @@ dependencies {
         // Declared by the 22.0.0 POM but referenced by no Play services class; sync has its own Task.await().
         exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-play-services")
     }
+    // Sign in with Google account sheet shown before the Drive consent (needs googleWebClientId)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     // Networking
     implementation(libs.okhttp)

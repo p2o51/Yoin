@@ -193,7 +193,7 @@ class SyncAuthTest {
             return silent
         }
 
-        override suspend fun authorizeInteractively(): GoogleAuthResult = silent
+        override suspend fun authorizeInteractively(accountEmail: String?): GoogleAuthResult = silent
 
         override fun resultFromIntent(data: Intent?): GoogleAuthResult = silent
 
