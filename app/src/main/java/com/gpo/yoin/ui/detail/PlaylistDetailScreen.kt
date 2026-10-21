@@ -44,10 +44,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -116,6 +118,7 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import kotlinx.coroutines.flow.Flow
 
 @Composable
 fun PlaylistDetailScreen(
@@ -126,6 +129,9 @@ fun PlaylistDetailScreen(
     // direct-exit behaviour; the Activity passes a dispatcher-routed
     // onBackClick + a finish()-ing onLeavePage.
     onLeavePage: () -> Unit = onBackClick,
+    // A successful deletion exits through the same controller as the page's
+    // back affordance, so content, bar and the revealed window settle together.
+    leavePageRequests: Flow<Unit>? = null,
     onPlayAllClick: () -> Unit,
     onShufflePlay: () -> Unit = {},
     onSongClick: (songId: String) -> Unit,
@@ -207,6 +213,10 @@ fun PlaylistDetailScreen(
             onBackClick
         } else {
             backCollapse::requestBack
+        }
+        val currentOnBackClick by rememberUpdatedState(onBackClick)
+        LaunchedEffect(leavePageRequests) {
+            leavePageRequests?.collect { currentOnBackClick() }
         }
         val enterIntro = rememberDetailEnterIntro(
             barHandoff = enterBarHandoff && bridgeBackToShell,

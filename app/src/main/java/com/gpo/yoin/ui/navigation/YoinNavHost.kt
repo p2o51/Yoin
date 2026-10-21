@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.navigation
 
 import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
+import com.gpo.yoin.widget.TakeWidgetDetailRequest
+import com.gpo.yoin.widget.WidgetDetailRequest
+import com.gpo.yoin.widget.WidgetEntity
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -198,8 +201,10 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun YoinNavHost(
+internal fun YoinNavHost(
     modifier: Modifier = Modifier,
+    widgetDetailRequest: WidgetDetailRequest? = null,
+    onWidgetDetailConsumed: (WidgetDetailRequest) -> Boolean = { false },
 ) {
     SharedTransitionLayout(modifier = modifier) {
         val sharedTransitionScope = this
@@ -298,6 +303,8 @@ fun YoinNavHost(
                                 libraryViewModel = libraryViewModel,
                                 memoriesViewModel = memoriesViewModel,
                                 nowPlayingViewModel = nowPlayingViewModel,
+                                widgetDetailRequest = widgetDetailRequest,
+                                onWidgetDetailConsumed = onWidgetDetailConsumed,
                                 // Detail pages are now separate Activities — launch
                                 // them so back navigation plays the device-native
                                 // cross-Activity predictive back. sharedTransitionKey
@@ -353,6 +360,8 @@ private fun YoinShell(
     libraryViewModel: LibraryViewModel,
     memoriesViewModel: MemoriesViewModel,
     nowPlayingViewModel: NowPlayingViewModel,
+    widgetDetailRequest: WidgetDetailRequest?,
+    onWidgetDetailConsumed: (WidgetDetailRequest) -> Boolean,
     onNavigateToSettings: (focusSection: String?) -> Unit,
     onNavigateToAlbum: (String, String?) -> Unit,
     onNavigateToArtist: (String, String?) -> Unit,
@@ -761,6 +770,25 @@ private fun YoinShell(
             }
         }
     }
+
+    // External widget taps use the very same column / Activity decision and
+    // origin-sensitive bar choreography as taps inside the shell. Keep a
+    // request pending through a pause or another detail's return settle.
+    TakeWidgetDetailRequest(
+        request = widgetDetailRequest,
+        enabled = hasDetailPane || (
+            !detailLaunchPending && experienceSessionStore.detailBackPhase.value == DetailBackPhase.Idle
+        ),
+        canOpen = { hasDetailPane || canLaunchDetail() },
+        onConsumed = onWidgetDetailConsumed,
+        onOpen = { request ->
+            when (request.entity) {
+                WidgetEntity.ALBUM -> navigateToAlbumFromShell(request.id.toString(), null)
+                WidgetEntity.ARTIST -> navigateToArtistFromShell(request.id.toString(), null)
+                WidgetEntity.PLAYLIST -> navigateToPlaylistFromShell(request.id.toString(), null)
+            }
+        },
+    )
 
     // Leaving the Wide tier with a column open (rotating a tablet to portrait,
     // a window snapped narrower): the column cannot exist there, so it is gone

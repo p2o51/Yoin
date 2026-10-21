@@ -51,7 +51,7 @@ import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
  * Standalone Activity for a playlist detail page. Unlike the shell-hosted
  * version, it owns its OWN [NowPlayingViewModel] + AddToPlaylist sheet +
  * snackbar (the shell's instances live in another window now). Delete leaves
- * via finish() instead of a back-stack pop.
+ * through the page's normal back-collapse choreography.
  */
 class PlaylistDetailActivity : ComponentActivity() {
     private val detailLaunchGate = DetailActivityLaunchGate()
@@ -119,11 +119,6 @@ class PlaylistDetailActivity : ComponentActivity() {
                         }
                     }
                 }
-                // Leave on successful delete.
-                LaunchedEffect(viewModel) {
-                    viewModel.deleted.collect { finish() }
-                }
-
                 // Shared play path: optional shuffle, with a stable playlist
                 // ActivityContext. The cover is the playlist's OWN art —
                 // a track cover only when the playlist has none — so the Home
@@ -205,6 +200,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                                 endShellHandoff()
                                 finish()
                             },
+                            leavePageRequests = viewModel.deleted,
                             morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
                                 intent.getBooleanExtra(DETAIL_EXTRA_BAR_MORPH, false),
                             bridgeBackToShell = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),

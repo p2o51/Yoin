@@ -1842,7 +1842,8 @@ private fun SongsTabContent(
                         // list is read whole, so neither stops short.
                         onClick = { onSongClick(song, songs, index) },
                         onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
-                        isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+                        isCurrentTrack = song.id.toString() == activeSongId,
+                        isPlaying = isPlaying,
                         playbackSignal = playbackSignal,
                         extractBackdropColors = false,
                         hasNote = song.id.toString() in notedSongIds,
@@ -2241,7 +2242,8 @@ private fun FavoritesTabContent(
                         onFavoriteSongClick(song, favorites.tracks, index)
                     },
                     onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
-                    isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+                    isCurrentTrack = song.id.toString() == activeSongId,
+                    isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
                     hasNote = song.id.toString() in notedSongIds,
@@ -2438,7 +2440,8 @@ private fun SearchResultsContent(
     val songRow: @Composable (Track, Modifier) -> Unit = { song, rowModifier ->
         SearchSongRow(
             song = song,
-            isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+            isCurrentTrack = song.id.toString() == activeSongId,
+            isPlaying = isPlaying,
             playbackSignal = playbackSignal,
             hasNote = song.id.toString() in notedSongIds,
             canAddToLibrary = canAddToLibrary,
@@ -2676,7 +2679,8 @@ private fun SearchAllResults(
 @Composable
 private fun SearchSongRow(
     song: Track,
-    isNowPlaying: Boolean,
+    isCurrentTrack: Boolean,
+    isPlaying: Boolean,
     playbackSignal: Float,
     hasNote: Boolean,
     canAddToLibrary: Boolean,
@@ -2698,7 +2702,8 @@ private fun SearchSongRow(
             coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
             onClick = onClick,
             onLongClick = onLongClick,
-            isNowPlaying = isNowPlaying,
+            isCurrentTrack = isCurrentTrack,
+            isPlaying = isPlaying,
             playbackSignal = playbackSignal,
             extractBackdropColors = false,
             hasNote = hasNote,
