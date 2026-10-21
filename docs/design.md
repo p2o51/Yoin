@@ -139,7 +139,10 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 - 顺序：列表循环 → 随机 → 随机 + 单曲循环 → 单曲循环 → 列表循环。每一下只翻一段（格雷码），按钮上总是只有一段在变。开播时 repeat 和 shuffle 一起写；播放中点按钮只写变了的那一条轴（MusicKit 收到多余的 repeat 写入会先把 shuffle 恢复成旧值，暂停一会儿后的第一下会因此落空，2026-10-17 平板实测）。
 - 「随机 + 单曲循环」：这首歌一直重复；手动 NEXT / PREVIOUS 时按随机顺序跳。
-- 读回：两条轴分别读——`REPEAT_MODE_ONE` → 单曲，其它（含 `REPEAT_MODE_OFF`）→ 全部；shuffle 开 → 随机。
+- 读回：两条轴分别读——`REPEAT_MODE_ONE` → 单曲，`REPEAT_MODE_OFF` → 不循环，`REPEAT_MODE_ALL` → 全部；shuffle 开 → 随机。
+- **不循环（Repeat Off，Gemini 审查 1.4，owner 2026-10-21）**：只在长按分裂出的胶囊里。循环那一段点按的顺序是 全部 → 单曲 → 不循环 → 全部，随机那一段不受影响，所以有「不循环」和「随机 + 不循环」两种模式。圆键的四态循环不变：处在不循环时点一下圆键，回到列表循环，随机保持原样。不循环时，圆键（或分裂后循环那一段）的图标上有一道斜杠，用效果弹簧画进、画出；圆键这时亮起，因为偏离了默认。这一段对 TalkBack 来说是一颗按钮，状态读作「列表循环 / 单曲循环 / 不循环」。Media3、Spotify App Remote 和 MusicKit 的 OFF 都是 0，直接写入。没有读到 repeat 时（空的 `PlaybackState`、App Remote 还没给 playbackOptions），按全部处理。
+- **教长按（owner 2026-10-21，和 Tips 合并）**：在 Now Playing 里快速点满圆键一整圈（四下，每两下间隔不超过 1.5 秒）回到起点时，如果 Tips 里的「随机与循环」还没读过，按钮自动分裂一次，并把这条 tip 记成已读，所以只演示一次。在设置里把 Tips 全部重置为未读，会再演示一次。实现 `PlayModeCycle`。
+- 控制栏布局（2026-10-21 owner）：上一首留在第二行、在进度条左边，不并到第一行。
 - 按钮（2026-10-17 owner 批注改）：**默认还是原来那颗圆形按钮**，图标是四态的 `rememberPlayModeSymbolPainter`（随机 + 单曲循环 = 交叉的两股，「1」缩到 0.72 倍、待在交叉左边的空隙里；从单曲循环转过去时「1」跟着两股一起滑过去），点一下按上面的顺序走一格。**长按分裂**成一颗两段的胶囊：左段随机、右段循环，各自点一下只切自己那条轴，亮成 `primary` / `onPrimary` 表示偏离默认（随机开、单曲循环），默认留在 `tertiaryContainer` / `onTertiaryContainer`；3 秒没人点（或再长按一次）**融合**回圆形。分裂时圆里的图标变成两份，一边往各自段的中心走一边变形——左边变成交叉的两股，右边变成循环（单曲时带 1）；融合时反过来，两份一边靠拢一边变回同一个四态图标。宽度、间隙、内角和图标位移共用一条空间弹簧，颜色走效果弹簧；圆形时两半内角为 0，正好拼成一个圆。圆形亮起的条件是「不是列表循环」。实现 `PlaybackControls.PlayModeButton`，图标动画在 yoin-symbols 的 `AnimatedSymbols.kt`。
 - Apple Music：MusicKit（1.1.1）在队列还没有当前歌曲时会不声不响地丢掉 repeat / shuffle 的写入。冷启动或 Apple Music 会话重建后，Yoin 和第一次 prepare 同一批写模式，可能碰到这个时序。`MusicKitPlayModes` 记住 Yoin 要的模式，每次状态变化时 MusicKit 和它不一致、又能写，就再写一次。
 - Yoin 自己开播的队列（任何后端）开播后套用用户选的模式；在 Spotify App 等别处开始的播放只观察、不写。模式不跨进程保存。

@@ -14,6 +14,9 @@
     <string name="np_transport_shuffle">Shuffle</string>
     <string name="np_transport_repeat_one">Repeat one</string>
     <string name="np_transport_shuffle_repeat_one">Shuffle, repeat one</string>
+    <string name="np_transport_repeat_off">Repeat off</string>
+    <string name="np_transport_shuffle_repeat_off">Shuffle, repeat off</string>
+    <string name="np_transport_repeat">Repeat</string>
 
     <!-- Bottom pills. English is what the row measures. -->
     <string name="np_pill_queue">Queue</string>

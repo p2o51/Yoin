@@ -64,7 +64,7 @@ internal data class SpotifyRemoteSnapshot(
     val upcoming: List<Int> = emptyList(),
     /** The entry Spotify plays from outside Yoin's queue, -1 for none; see [SpotifyQueueView]. */
     val foreignIndex: Int = -1,
-    val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val repeatMode: Int = Player.REPEAT_MODE_ALL,
     val shuffleEnabled: Boolean = false,
     val connectionPhase: ConnectionPhase = ConnectionPhase.Idle,
     val connectionErrorMessage: String? = null,
@@ -964,7 +964,7 @@ internal class SpotifyAppRemotePlayer(
             durationMs = currentTrack?.durationSec?.times(1_000L)
                 ?: playerState.track?.duration?.coerceAtLeast(0L)
                 ?: lastSnapshot.durationMs,
-            repeatMode = playMode?.repeatMode ?: playerState.playbackOptions?.repeatMode ?: Player.REPEAT_MODE_OFF,
+            repeatMode = playMode?.repeatMode ?: playerState.playbackOptions?.repeatMode ?: Player.REPEAT_MODE_ALL,
             shuffleEnabled = shuffleEnabled,
             connectionPhase = ConnectionPhase.Ready,
             connectionErrorMessage = null,

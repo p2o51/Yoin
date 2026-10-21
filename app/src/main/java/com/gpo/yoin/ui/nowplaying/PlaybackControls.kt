@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -39,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,15 +51,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -75,6 +80,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.Player
 import com.gpo.yoin.R
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.symbols.SymbolPlayMode
@@ -84,11 +90,14 @@ import com.gpo.yoin.symbols.rememberPlayPauseSymbolPainter
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.formatTrackDurationMs
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.home.HomeBubbleTip
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import com.gpo.yoin.ui.tips.LocalTipReadStore
+import com.gpo.yoin.ui.tips.SharedPrefsTipReadStore
 import kotlinx.coroutines.delay
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
@@ -375,6 +384,12 @@ internal fun PlaybackControls(
                         }
 
                         if (playModeSplitState == null) {
+                            // Until the Play modes tip is read, a run round the whole cycle
+                            // splits the button once to show it, and that reads the tip.
+                            val context = LocalContext.current
+                            val tips = LocalTipReadStore.current
+                                ?: remember(context) { SharedPrefsTipReadStore.get(context) }
+                            val readTips by tips.read.collectAsState()
                             PlayModeButton(
                                 playMode = playMode,
                                 onSetPlayMode = onSetPlayMode,
@@ -382,6 +397,8 @@ internal fun PlaybackControls(
                                 splitWidth = fit.playModeWidth,
                                 iconSize = controlIconSize,
                                 modifier = playModeModifier,
+                                showSplitOnFullCycle = HomeBubbleTip.PlayModes !in readTips,
+                                onShowedSplit = { tips.setRead(HomeBubbleTip.PlayModes, true) },
                             )
                         } else {
                             PlayModeButton(
@@ -518,6 +535,16 @@ private fun PlayMode.stateDescription(): String = when (this) {
     PlayMode.Shuffle -> stringResource(R.string.np_transport_shuffle)
     PlayMode.ShuffleRepeatOne -> stringResource(R.string.np_transport_shuffle_repeat_one)
     PlayMode.RepeatOne -> stringResource(R.string.np_transport_repeat_one)
+    PlayMode.RepeatOff -> stringResource(R.string.np_transport_repeat_off)
+    PlayMode.ShuffleRepeatOff -> stringResource(R.string.np_transport_shuffle_repeat_off)
+}
+
+/** The repeat axis alone, as the split pill's repeat segment reads it. */
+@Composable
+private fun PlayMode.repeatDescription(): String = when {
+    repeatOne -> stringResource(R.string.np_transport_repeat_one)
+    repeatOff -> stringResource(R.string.np_transport_repeat_off)
+    else -> stringResource(R.string.np_transport_repeat_all)
 }
 
 /**
@@ -530,6 +557,8 @@ private fun PlayMode.stateDescription(): String = when (this) {
  * repeat one); merging runs the same morph back into one symbol. Width, gap, inner corners and the
  * symbols' travel share one spatial spring; colours ride the effects spring. A segment lights up
  * (`primary`) when its axis leaves the default; the circle lights up for any mode but repeat all.
+ * The repeat segment steps all → one → off ([PlayMode.nextRepeat]); repeat off draws its symbol
+ * struck through, split or not (owner 2026-10-21).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -542,8 +571,12 @@ internal fun PlayModeButton(
     modifier: Modifier = Modifier,
     // Whether it is split; the tip page's demo holds this to split it on cue.
     splitState: MutableState<Boolean> = rememberSaveable { mutableStateOf(false) },
+    // Taps all the way round the cycle split it once, to show it can (PlayModeCycle).
+    showSplitOnFullCycle: Boolean = false,
+    onShowedSplit: () -> Unit = {},
 ) {
     val haptics = rememberYoinHaptics()
+    val cycle = remember { PlayModeCycle() }
     var split by splitState
     // One more on every tap while split: the merge waits for a quiet spell.
     var splitTouches by remember { mutableIntStateOf(0) }
@@ -569,7 +602,7 @@ internal fun PlayModeButton(
 
     val merged = playMode.toSymbol()
     val leftLit = if (split) playMode.shuffle else playMode != PlayMode.RepeatAll
-    val rightLit = if (split) playMode.repeatOne else playMode != PlayMode.RepeatAll
+    val rightLit = if (split) playMode != playMode.withRepeatAll() else playMode != PlayMode.RepeatAll
     val leftPainter = rememberPlayModeSymbolPainter(if (split) SymbolPlayMode.Shuffle else merged)
     val rightPainter = rememberPlayModeSymbolPainter(
         when {
@@ -585,7 +618,14 @@ internal fun PlayModeButton(
     val state = playMode.stateDescription()
     val splitLabel = stringResource(R.string.np_cd_play_mode_split)
     val shuffleLabel = stringResource(R.string.np_transport_shuffle)
-    val repeatOneLabel = stringResource(R.string.np_transport_repeat_one)
+    val repeatLabel = stringResource(R.string.np_transport_repeat)
+    val repeatState = playMode.repeatDescription()
+    // Repeat off strikes the symbol through; it draws in and out on the effects spring.
+    val slash by animateFloatAsState(
+        targetValue = if (playMode.repeatOff) 1f else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "playModeRepeatOff",
+    )
     val leftShape = RoundedCornerShape(topStart = outer, bottomStart = outer, topEnd = inner, bottomEnd = inner)
     val rightShape = RoundedCornerShape(topStart = inner, bottomStart = inner, topEnd = outer, bottomEnd = outer)
     val merge = {
@@ -614,7 +654,14 @@ internal fun PlayModeButton(
                             },
                             onClick = {
                                 haptics.performTick()
-                                onSetPlayMode(playMode.next())
+                                val next = playMode.next()
+                                onSetPlayMode(next)
+                                val roundTheCycle = cycle.onTap(playMode, next, SystemClock.uptimeMillis())
+                                if (showSplitOnFullCycle && roundTheCycle) {
+                                    split = true
+                                    splitTouches = 0
+                                    onShowedSplit()
+                                }
                             },
                         )
                         .semantics {
@@ -644,12 +691,13 @@ internal fun PlayModeButton(
                 shape = rightShape,
                 width = segment,
                 split = split,
-                label = repeatOneLabel,
-                on = playMode.repeatOne,
+                label = repeatLabel,
+                on = !playMode.repeatOff,
+                state = repeatState,
                 onToggle = {
                     haptics.performTick()
                     splitTouches += 1
-                    onSetPlayMode(playMode.withRepeatOne(!playMode.repeatOne))
+                    onSetPlayMode(playMode.nextRepeat())
                 },
                 onMerge = merge,
             )
@@ -667,7 +715,9 @@ internal fun PlayModeButton(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset { IntOffset(with(density) { (leftCentre - glyph / 2).roundToPx() }, 0) }
-                .size(glyph),
+                .size(glyph)
+                // Merged, the one symbol carries repeat off; split, the repeat segment's does.
+                .repeatOffSlash(slash * (1f - f), leftColors.second, leftColors.first),
         )
         if (f > PlayModeSplitShownFrom || split) {
             Icon(
@@ -677,13 +727,33 @@ internal fun PlayModeButton(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .offset { IntOffset(with(density) { (rightCentre - glyph / 2).roundToPx() }, 0) }
-                    .size(glyph),
+                    .size(glyph)
+                    .repeatOffSlash(slash * f, rightColors.second, rightColors.first),
             )
         }
     }
 }
 
-/** One half of the play-mode button; split, it is its own switch (a tap toggles, a long-press merges). */
+/**
+ * A diagonal stroke across a play-mode symbol for repeat off, [progress] of it drawn from the
+ * top-left, with a [gap] coloured halo so it reads over the strands it crosses.
+ */
+private fun Modifier.repeatOffSlash(progress: Float, color: Color, gap: Color): Modifier = drawWithContent {
+    drawContent()
+    if (progress <= 0f) return@drawWithContent
+    val inset = size.minDimension * 0.08f
+    val start = Offset(inset, inset)
+    val end = Offset(size.width - inset, size.height - inset)
+    val tip = start + (end - start) * progress.coerceAtMost(1f)
+    val stroke = size.minDimension * 0.09f
+    drawLine(gap, start, tip, strokeWidth = stroke * 2.2f, cap = StrokeCap.Round)
+    drawLine(color, start, tip, strokeWidth = stroke, cap = StrokeCap.Round)
+}
+
+/**
+ * One half of the play-mode button; split, it is its own control (a tap steps it, a long-press
+ * merges). Shuffle is a switch; repeat, three states, is a button that reads its [state].
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayModeHalf(
@@ -695,6 +765,7 @@ private fun PlayModeHalf(
     on: Boolean,
     onToggle: () -> Unit,
     onMerge: () -> Unit,
+    state: String? = null,
 ) {
     Box(
         modifier = Modifier
@@ -708,8 +779,13 @@ private fun PlayModeHalf(
                         .combinedClickable(onLongClick = onMerge, onClick = onToggle)
                         .semantics {
                             contentDescription = label
-                            role = Role.Switch
-                            toggleableState = ToggleableState(on)
+                            if (state == null) {
+                                role = Role.Switch
+                                toggleableState = ToggleableState(on)
+                            } else {
+                                role = Role.Button
+                                stateDescription = state
+                            }
                         }
                 } else {
                     Modifier
@@ -739,7 +815,13 @@ private fun PlayMode.toSymbol(): SymbolPlayMode = when (this) {
     PlayMode.Shuffle -> SymbolPlayMode.Shuffle
     PlayMode.ShuffleRepeatOne -> SymbolPlayMode.ShuffleRepeatOne
     PlayMode.RepeatOne -> SymbolPlayMode.RepeatOne
+    // Struck through by repeatOffSlash.
+    PlayMode.RepeatOff -> SymbolPlayMode.RepeatAll
+    PlayMode.ShuffleRepeatOff -> SymbolPlayMode.Shuffle
 }
+
+/** This mode with the repeat axis at its default, all: what the repeat segment is lit against. */
+private fun PlayMode.withRepeatAll(): PlayMode = PlayMode.of(Player.REPEAT_MODE_ALL, shuffle)
 
 /** Split, the pill merges back into the circle after this long without a tap. */
 internal const val PlayModeSplitHoldMs = 3_000L

@@ -18,7 +18,7 @@ class PlayModeTest {
 
     @Test
     fun should_flipExactlyOneAxis_when_nextIsCalled() {
-        PlayMode.entries.forEach { mode ->
+        CycleModes.forEach { mode ->
             val next = mode.next()
             val shuffleFlipped = mode.shuffle != next.shuffle
             val repeatFlipped = mode.repeatOne != next.repeatOne
@@ -34,8 +34,25 @@ class PlayModeTest {
     }
 
     @Test
-    fun should_readRepeatAll_when_repeatIsOff() {
-        assertEquals(PlayMode.RepeatAll, PlayMode.of(Player.REPEAT_MODE_OFF, shuffle = false))
+    fun should_readRepeatOff_when_repeatIsOff() {
+        assertEquals(PlayMode.RepeatOff, PlayMode.of(Player.REPEAT_MODE_OFF, shuffle = false))
+        assertEquals(PlayMode.ShuffleRepeatOff, PlayMode.of(Player.REPEAT_MODE_OFF, shuffle = true))
+    }
+
+    @Test
+    fun should_turnRepeatBackOnAndKeepShuffle_when_roundButtonIsTappedFromRepeatOff() {
+        assertEquals(PlayMode.RepeatAll, PlayMode.RepeatOff.next())
+        assertEquals(PlayMode.Shuffle, PlayMode.ShuffleRepeatOff.next())
+    }
+
+    @Test
+    fun should_stepAllOneOffAndKeepShuffle_when_repeatSegmentIsTapped() {
+        assertEquals(PlayMode.RepeatOne, PlayMode.RepeatAll.nextRepeat())
+        assertEquals(PlayMode.RepeatOff, PlayMode.RepeatOne.nextRepeat())
+        assertEquals(PlayMode.RepeatAll, PlayMode.RepeatOff.nextRepeat())
+        assertEquals(PlayMode.ShuffleRepeatOne, PlayMode.Shuffle.nextRepeat())
+        assertEquals(PlayMode.ShuffleRepeatOff, PlayMode.ShuffleRepeatOne.nextRepeat())
+        assertEquals(PlayMode.Shuffle, PlayMode.ShuffleRepeatOff.nextRepeat())
     }
 
     @Test
@@ -46,11 +63,6 @@ class PlayModeTest {
     @Test
     fun should_readShuffle_when_repeatIsAllAndShuffleIsOn() {
         assertEquals(PlayMode.Shuffle, PlayMode.of(Player.REPEAT_MODE_ALL, shuffle = true))
-    }
-
-    @Test
-    fun should_readShuffle_when_repeatIsOffAndShuffleIsOn() {
-        assertEquals(PlayMode.Shuffle, PlayMode.of(Player.REPEAT_MODE_OFF, shuffle = true))
     }
 
     @Test
@@ -84,18 +96,16 @@ class PlayModeTest {
         assertEquals(PlayMode.RepeatOne, PlayMode.ShuffleRepeatOne.withShuffle(false))
         assertEquals(PlayMode.Shuffle, PlayMode.RepeatAll.withShuffle(true))
         assertEquals(PlayMode.RepeatAll, PlayMode.Shuffle.withShuffle(false))
-    }
-
-    @Test
-    fun should_keepShuffleAxis_when_onlyRepeatIsToggled() {
-        assertEquals(PlayMode.ShuffleRepeatOne, PlayMode.Shuffle.withRepeatOne(true))
-        assertEquals(PlayMode.Shuffle, PlayMode.ShuffleRepeatOne.withRepeatOne(false))
-        assertEquals(PlayMode.RepeatOne, PlayMode.RepeatAll.withRepeatOne(true))
-        assertEquals(PlayMode.RepeatAll, PlayMode.RepeatOne.withRepeatOne(false))
+        assertEquals(PlayMode.ShuffleRepeatOff, PlayMode.RepeatOff.withShuffle(true))
     }
 
     @Test
     fun should_defaultToRepeatAll_when_playbackStateIsFresh() {
         assertEquals(PlayMode.RepeatAll, PlaybackState().playMode)
+    }
+
+    private companion object {
+        /** The round button's four: repeat off is reached only from the split pill. */
+        val CycleModes = listOf(PlayMode.RepeatAll, PlayMode.Shuffle, PlayMode.ShuffleRepeatOne, PlayMode.RepeatOne)
     }
 }
