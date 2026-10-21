@@ -13,6 +13,7 @@ import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -144,6 +145,7 @@ class LibraryViewModel(
     /** What follows [cachedSongs]; [publishSongsMore] keeps the state's copy in step. */
     private var songsMoreState = LibrarySongsMore.None
     private var songsMoreJob: Job? = null
+    private var searchMoreJob: Job? = null
     private var cachedPlaylists: List<Playlist>? = null
     private var cachedFavorites: Starred? = null
 
@@ -1040,9 +1042,10 @@ class LibraryViewModel(
     }
 
     /**
-     * Lists one result type (or All again). Only what the search already
-     * returned is shown, so nothing is fetched; a type the provider can't
-     * search in this scope is ignored.
+     * Lists one result type (or All again). What the search already
+     * returned is shown, so nothing is fetched here: a type's list reads more
+     * itself as it nears its end ([loadMoreSearchResults]). A type the
+     * provider can't search in this scope is ignored.
      */
     fun selectSearchFilter(filter: LibrarySearchFilter) {
         updateContent {
@@ -1076,6 +1079,7 @@ class LibraryViewModel(
             ?.let(::normaliseSearchScope)
             ?: LibrarySearchScope.CurrentLibrary
         searchRequestFlow.value = LibrarySearchRequest("", scope)
+        searchMoreJob?.cancel()
         updateContent {
             copy(
                 searchQuery = "",
@@ -1083,7 +1087,58 @@ class LibraryViewModel(
                 isSearching = false,
                 searchError = null,
                 searchFilter = LibrarySearchFilter.All,
+                searchPaging = emptyMap(),
             )
+        }
+    }
+
+    /**
+     * The shown type's next page of results, where the service has more
+     * ([SearchResults.more], Spotify's 10 a type): as its list nears the end,
+     * or from the retry at its foot after a read failed. One read at a time;
+     * a new search drops it.
+     */
+    fun loadMoreSearchResults() {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        val filter = current.searchFilter
+        val type = filter.resultType ?: return
+        val results = current.searchResults ?: return
+        val more = searchMoreFor(results, filter, current.searchPaging)
+        if (more != LibrarySongsMore.Available && more != LibrarySongsMore.Failed) return
+        val query = current.searchQuery
+        val scope = current.searchScope
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun LibraryUiState.Content.answers(): Boolean = searchQuery == query && searchScope == scope
+        updateContent { copy(searchPaging = searchPaging + (type to LibrarySongsMore.Loading)) }
+        searchMoreJob = viewModelScope.launch {
+            try {
+                val page = repository.searchMore(query, type, offset = results.countOf(type))
+                    .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
+                updateContent {
+                    val shown = searchResults
+                    if (!answers() || shown == null) {
+                        this
+                    } else {
+                        copy(searchResults = shown.appending(type, page), searchPaging = searchPaging - type)
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) {
+                    // Cancelled by a refresh: the list asks again as it nears its end.
+                    updateContent {
+                        val stillLoading = searchPaging[type] == LibrarySongsMore.Loading
+                        if (stillLoading) copy(searchPaging = searchPaging - type) else this
+                    }
+                    throw e
+                }
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
+                // The rows stay; the foot's retry reads the same page again.
+                updateContent {
+                    if (answers()) copy(searchPaging = searchPaging + (type to LibrarySongsMore.Failed)) else this
+                }
+            }
         }
     }
 
@@ -1124,7 +1179,8 @@ class LibraryViewModel(
 
                     val generation = libraryDataGeneration
                     val profileId = repository.currentProfileId()
-                    updateContent { copy(isSearching = true, searchError = null) }
+                    searchMoreJob?.cancel()
+                    updateContent { copy(isSearching = true, searchError = null, searchPaging = emptyMap()) }
                     try {
                         val results = searchWithScope(query, request.scope)
                             .applyFavoriteOverrides(repository.favoriteOverrides.value)
@@ -1814,6 +1870,7 @@ class LibraryViewModel(
         tabLoadJob?.cancel()
         reshuffleJob?.cancel()
         songsMoreJob?.cancel()
+        searchMoreJob?.cancel()
         albumsReadJob?.cancel()
         libraryRefreshJob?.cancel()
         tabLoadGeneration += 1

@@ -208,7 +208,6 @@
     <string name="settings_setup_client_fallback">Using this build\'s default</string>
     <string name="settings_setup_client_set">Set</string>
     <string name="settings_setup_client_help">Create an app at developer.spotify.com and register these redirect URIs:</string>
-    <string name="settings_setup_client_uris" translatable="false">yoin://auth/spotify/callback\nyoin://auth/spotify/app-remote</string>
     <string name="settings_setup_client_placeholder">32-character ID</string>
     <string name="settings_setup_client_save">Save</string>
 
