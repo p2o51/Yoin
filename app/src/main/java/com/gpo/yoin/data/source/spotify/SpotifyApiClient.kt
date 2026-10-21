@@ -302,6 +302,15 @@ class SpotifyApiClient(
         ).devices
     }
 
+    // Read after a start or an Add to queue, so it doesn't queue behind library reads.
+    suspend fun getQueue(): SpotifyQueueResponse = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "me", "player", "queue"),
+            deserializer = SpotifyQueueResponse.serializer(),
+            lane = Lane.Control,
+        )
+    }
+
     /**
      * Most recently played tracks (newest first), with the "playing from"
      * context where Spotify supplies it. Single cursor page — 50 plays is far

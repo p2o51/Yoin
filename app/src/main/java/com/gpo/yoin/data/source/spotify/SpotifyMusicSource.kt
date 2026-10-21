@@ -515,6 +515,38 @@ class SpotifyMusicSource(
     suspend fun localDeviceId(localNames: List<String>): String? =
         pickLocalSpotifyDevice(apiClient.listDevices(), localNames)?.id
 
+    /**
+     * The song Spotify plays and what it plays after it, in its order: the
+     * user's queue, then the rest of the album or playlist
+     * ([SpotifyQueueResponse]). Songs only; an episode or a local file is left out.
+     */
+    suspend fun playerQueue(): SpotifyPlayerQueue {
+        val response = apiClient.getQueue()
+        val saved = knownSavedTrackIds()
+        fun SpotifyTrackObject.song(): Track? =
+            if (isLocal || type == "episode") null else runCatching { toTrack(savedTrackIds = saved) }.getOrNull()
+        return SpotifyPlayerQueue(
+            playing = response.currentlyPlaying?.song(),
+            next = response.queue.mapNotNull { it.song() },
+        )
+    }
+
+    /**
+     * Where [trackUri] sits in [contextUri], an album or a playlist, counting
+     * every entry as Spotify does: App Remote's `skipToIndex` starts a context
+     * there. Null for another kind of context, or a song that isn't in it.
+     */
+    suspend fun contextIndexOf(contextUri: String, trackUri: String): Int? {
+        val parts = contextUri.split(':')
+        if (parts.size != 3 || parts[0] != "spotify") return null
+        val index = when (parts[1]) {
+            "album" -> apiClient.getAlbumTracks(parts[2]).indexOfFirst { it.uri == trackUri }
+            "playlist" -> apiClient.getPlaylistItems(parts[2]).indexOfFirst { it.playable?.uri == trackUri }
+            else -> return null
+        }
+        return index.takeIf { it >= 0 }
+    }
+
 
     suspend fun listDevices(): List<SpotifyDevice> = apiClient.listDevices()
 
@@ -793,3 +825,9 @@ private val SearchResultType.spotifyType: String
         SearchResultType.Artists -> "artist"
         SearchResultType.Playlists -> "playlist"
     }
+
+/** [SpotifyMusicSource.playerQueue]: the song [playing] and the songs [next], in Spotify's order. */
+data class SpotifyPlayerQueue(
+    val playing: Track?,
+    val next: List<Track>,
+)

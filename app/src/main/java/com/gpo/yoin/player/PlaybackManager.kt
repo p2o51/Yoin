@@ -134,6 +134,7 @@ class PlaybackManager(
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
         onContext = ::onSpotifyPlayerContext,
+        queueReader = { spotifySource?.playerQueue() },
     )
 
     /**
@@ -472,6 +473,13 @@ class PlaybackManager(
                                 startIndex = startIndex,
                                 shuffled = shuffled,
                             ),
+                            remoteContextStart = buildSpotifyRemoteContextFn(
+                                source = source,
+                                activityContext = activityContext,
+                                tracks = tracks,
+                                startIndex = startIndex,
+                                shuffled = shuffled,
+                            ),
                             // A shuffled album / playlist / Liked start keeps its
                             // context, so Spotify does the shuffling; a plain
                             // list is played in the order Yoin already shuffled.
@@ -606,6 +614,8 @@ class PlaybackManager(
                 ) {
                     activeBackend = ActiveBackend.SPOTIFY_REMOTE
                     disconnectLocalController(resetState = false)
+                    // Where Spotify's queue is read from after the add ([SpotifyAppRemotePlayer.addToQueue]).
+                    spotifySource = source as? SpotifyMusicSource
                     tracks.forEach(spotifyRemotePlayer::addToQueue)
                     return@runCatching
                 }
@@ -702,6 +712,13 @@ class PlaybackManager(
                             startIndex = restart.startIndex,
                             // A list Yoin shuffled, or a queued song, has no playlist
                             // position to start at: its song's uri, or another song plays.
+                            shuffled = spotifyQueueShuffled || restart.byUri,
+                        ),
+                        remoteContextStart = buildSpotifyRemoteContextFn(
+                            source = source,
+                            activityContext = _currentActivityContext.value,
+                            tracks = restart.tracks,
+                            startIndex = restart.startIndex,
                             shuffled = spotifyQueueShuffled || restart.byUri,
                         ),
                         // Keep whatever Spotify is in now (a Shuffle start
@@ -1260,6 +1277,31 @@ class PlaybackManager(
             }
             if (!started) throw failure ?: IllegalStateException("No Spotify start succeeded")
         }
+    }
+
+    /**
+     * App Remote's start for the album or playlist [buildSpotifyStartFn] starts, for when the
+     * Web API can't (this device not in Spotify Connect yet): the song's entry in it, read from
+     * the Web API, whose reads work either way. Null where there is none to start (Liked Songs,
+     * a plain list): the song alone, as before.
+     */
+    private fun buildSpotifyRemoteContextFn(
+        source: MusicSource,
+        activityContext: ActivityContext,
+        tracks: List<Track>,
+        startIndex: Int,
+        shuffled: Boolean,
+    ): (suspend () -> SpotifyRemoteContextStart?)? {
+        val spotifySource = source as? SpotifyMusicSource ?: return null
+        // The same attempt the Web API start makes, with the playlist offset it starts at.
+        val context = spotifyStartAttempts(
+            activityContext = activityContext,
+            tracks = tracks,
+            startIndex = startIndex,
+            shuffled = shuffled,
+            playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
+        ).remoteContext() ?: return null
+        return { context.remoteStart(spotifySource::contextIndexOf) }
     }
 
     private fun ActivityContext.isSpotifyContext(): Boolean =

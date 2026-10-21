@@ -32,6 +32,29 @@ internal sealed interface SpotifyStartAttempt {
 }
 
 /**
+ * Where App Remote starts a context when the Web API can't ([SpotifyAppRemotePlayer.playQueue]'s
+ * fallback): [contextUri] at its entry [index], through `PlayerApi.skipToIndex`. The bare song's
+ * uri used to be all it played, without the album or playlist after it.
+ */
+internal data class SpotifyRemoteContextStart(val contextUri: String, val index: Int)
+
+/** The album or playlist [attempts] start, which App Remote can start too; Liked Songs and plain lists can't. */
+internal fun List<SpotifyStartAttempt>.remoteContext(): SpotifyStartAttempt.Context? =
+    filterIsInstance<SpotifyStartAttempt.Context>().firstOrNull()
+
+/**
+ * Where App Remote starts this context: the position the Web API start knows (a playlist's
+ * raw offset for the row tapped, so the second of two copies of a song starts at the second),
+ * otherwise the first entry of the song's uri, as [indexOfUri] finds it. Null when neither is known.
+ */
+internal suspend fun SpotifyStartAttempt.Context.remoteStart(
+    indexOfUri: suspend (contextUri: String, trackUri: String) -> Int?,
+): SpotifyRemoteContextStart? {
+    val index = offsetPosition ?: offsetUri?.let { indexOfUri(contextUri, it) } ?: return null
+    return SpotifyRemoteContextStart(contextUri, index)
+}
+
+/**
  * Liked Songs as a context. Device QA 2026-10-05: `spotify:user:<id>:collection`
  * with a URI offset is accepted by the Web API (2xx) but leaves Spotify with
  * nothing playing; this URI starts at the tapped song.
