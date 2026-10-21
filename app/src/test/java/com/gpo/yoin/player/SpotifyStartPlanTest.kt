@@ -83,6 +83,18 @@ class SpotifyStartPlanTest {
     }
 
     @Test
+    fun should_leaveAppRemoteTheAlbumOrPlaylist_when_theStartHasOne() {
+        assertEquals("spotify:album:al1", attempts(album, start = 3).remoteContextUri())
+        assertEquals("spotify:playlist:pl1", attempts(playlist, start = 2, shuffled = true).remoteContextUri())
+    }
+
+    @Test
+    fun should_leaveAppRemoteTheSongAlone_when_theStartIsLikedSongsOrAPlainList() {
+        assertNull(attempts(ActivityContext.LikedSongs(), start = 1).remoteContextUri())
+        assertNull(attempts(ActivityContext.None, start = 1).remoteContextUri())
+    }
+
+    @Test
     fun should_tryLikedSongsThenThePlainList_when_playingFromLikedSongs() {
         val result = attempts(ActivityContext.LikedSongs(), start = 1)
 
