@@ -764,24 +764,48 @@ class PlaybackManager(
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
             syncState()
         }
+
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            localQueue = null
+            syncState()
+        }
+    }
+
+    /**
+     * The local player's queue as [syncState] publishes it, read again only when
+     * its timeline changes ([Player.Listener.onTimelineChanged]): a pause or a
+     * buffering change used to turn every item of a 500-song queue back into a
+     * [Track] on the main thread (Gemini review 2026-10-20).
+     */
+    private class LocalQueue(
+        val player: Player,
+        val tracks: List<Track>,
+        val entryIds: List<String>,
+        val userQueued: Set<Int>,
+    )
+
+    private var localQueue: LocalQueue? = null
+
+    private fun localQueueOf(player: Player): LocalQueue {
+        localQueue?.takeIf { it.player === player && it.tracks.size == player.mediaItemCount }?.let { return it }
+        val items = List(player.mediaItemCount, player::getMediaItemAt)
+        return LocalQueue(
+            player = player,
+            tracks = items.map { it.toTrack() },
+            entryIds = items.mapIndexed { i, item -> item.mediaMetadata.extras?.getString(EXTRA_QUEUE_ENTRY) ?: "i$i" },
+            userQueued = items.indices.filterTo(mutableSetOf()) { i -> items[i].isUserQueued() },
+        ).also { localQueue = it }
     }
 
     private fun syncState() {
         if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) return
         val player = controller ?: return
-        val queue = buildList {
-            for (i in 0 until player.mediaItemCount) {
-                add(player.getMediaItemAt(i).toTrack())
-            }
-        }
+        val local = localQueueOf(player)
+        val queue = local.tracks
         val currentIndex = player.currentMediaItemIndex
+        val entryIds = local.entryIds
+        val userQueued = local.userQueued
         val currentItem = player.currentMediaItem?.toTrack()
-        val entryIds = List(player.mediaItemCount) { i ->
-            player.getMediaItemAt(i).mediaMetadata.extras?.getString(EXTRA_QUEUE_ENTRY) ?: "i$i"
-        }
-        val userQueued = (0 until player.mediaItemCount).filterTo(mutableSetOf()) { i ->
-            player.getMediaItemAt(i).isUserQueued()
-        }
         val resolved = when {
             currentItem != null -> currentItem
             currentIndex in queue.indices -> queue[currentIndex]
@@ -905,6 +929,7 @@ class PlaybackManager(
         controller?.removeListener(playerListener)
         controller?.release()
         controller = null
+        localQueue = null
         if (resetState) {
             positionUpdateJob?.cancel()
             positionUpdateJob = null
