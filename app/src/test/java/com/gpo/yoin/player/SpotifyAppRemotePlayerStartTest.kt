@@ -376,6 +376,60 @@ class SpotifyAppRemotePlayerStartTest {
         assertFalse(spotifyPlays(PlayerState(null, false, 1f, 0L, null, null), song))
     }
 
+    @Test
+    fun should_showTheStartsPlayMode_when_spotifysFirstStateStillHasTheOldOne() = runTest {
+        val player = connectedPlayer()
+
+        player.playQueue(
+            list,
+            startIndex = 0,
+            startContextPlayback = { appRemote.report(playing("spotify:track:t1", "Burn Me Blue")) },
+            playMode = PlayMode.Shuffle
+        )
+        runCurrent()
+
+        // Spotify's state says shuffle off: the write is still on its way.
+        assertTrue(snapshots.last().observedPlayerState)
+        assertTrue(snapshots.last().shuffleEnabled)
+    }
+
+    @Test
+    fun should_keepTheRestOfTheList_when_spotifyPlaysASongAddedToTheQueue() = runTest {
+        val player = connectedPlayer()
+        val queued = spotifyTrack("q", title = "Queued")
+        player.playQueue(list, startIndex = 0, startContextPlayback = {})
+        runCurrent()
+        appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        runCurrent()
+
+        player.addToQueue(queued)
+        runCurrent()
+        assertEquals(listOf("spotify:track:q"), appRemote.queued)
+        assertEquals(setOf(1), snapshots.last().userQueued)
+        appRemote.report(playing("spotify:track:q", "Queued"))
+        runCurrent()
+
+        assertEquals(1, snapshots.last().currentIndex)
+        assertEquals(listOf(2, 3, 4), snapshots.last().upcoming)
+    }
+
+    @Test
+    fun should_showTheSongPlaying_when_spotifyPlaysOneOutsideTheQueue() = runTest {
+        val player = connectedPlayer()
+        player.playQueue(list, startIndex = 1, startContextPlayback = {})
+        runCurrent()
+        appRemote.report(playing("spotify:track:t2", "t2"))
+        runCurrent()
+
+        appRemote.report(playing("spotify:track:elsewhere", "Elsewhere"))
+        runCurrent()
+
+        val shown = snapshots.last()
+        assertEquals(MediaId.spotify("elsewhere"), shown.queue[shown.currentIndex].id)
+        assertEquals(listOf(3, 4), shown.upcoming)
+        assertEquals(list, shown.yoinQueue)
+    }
+
     /** Runs the start through the heard window and a transport retry's reconnect. */
     private fun TestScope.settle() {
         runCurrent()

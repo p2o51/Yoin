@@ -58,12 +58,29 @@ internal data class SpotifyRemoteSnapshot(
     val durationMs: Long = 0L,
     val queue: List<Track> = emptyList(),
     val currentIndex: Int = -1,
+    /** Entries of [queue] the user added; see [SpotifyQueueView]. */
+    val userQueued: Set<Int> = emptySet(),
+    /** Entries of [queue] still to play, in Spotify's order; see [SpotifyQueueView]. */
+    val upcoming: List<Int> = emptyList(),
+    /** The entry Spotify plays from outside Yoin's queue, -1 for none; see [SpotifyQueueView]. */
+    val foreignIndex: Int = -1,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
     val connectionPhase: ConnectionPhase = ConnectionPhase.Idle,
     val connectionErrorMessage: String? = null,
     val connectionFailure: SpotifyConnectFailure? = null,
     val observedPlayerState: Boolean = false,
+) {
+    /** [queue] without the song from outside it ([foreignIndex]): the queue Yoin handed Spotify. */
+    val yoinQueue: List<Track>
+        get() = if (foreignIndex in queue.indices) queue.filterIndexed { i, _ -> i != foreignIndex } else queue
+}
+
+/** A queue-sheet tap's restart ([SpotifyAppRemotePlayer.restartAt]): [tracks] from [startIndex], [queued] next. */
+internal data class SpotifyRestart(
+    val tracks: List<Track>,
+    val startIndex: Int,
+    val queued: List<Track>,
 )
 
 /** What Spotify is currently playing FROM (album / playlist / …), used to show a
@@ -148,7 +165,17 @@ internal class SpotifyAppRemotePlayer(
     private var connectJob: Job? = null
     private var replaceableOperationJob: Job? = null
     private var wantsConnection: Boolean = false
-    private var mirroredQueue: List<Track> = emptyList()
+    private val mirror = SpotifyQueueMirror()
+    private val mirroredQueue: List<Track> get() = mirror.tracks
+
+    /**
+     * The mode a Yoin start writes once Spotify plays it ([applyPlayMode]), shown from the
+     * start's first state on: Spotify's first state still has the mode from before the start,
+     * and the button used to flash back to it (Gemini review 2026-10-20).
+     */
+    private var playModeWrite: PlayModeWrite? = null
+
+    private class PlayModeWrite(val mode: PlayMode)
     private var lastSnapshot: SpotifyRemoteSnapshot = SpotifyRemoteSnapshot()
     private val pendingOperations = mutableListOf<suspend (SpotifyAppRemote) -> Unit>()
 
@@ -264,7 +291,8 @@ internal class SpotifyAppRemotePlayer(
         Log.d(tag, "disconnect(resetState=$resetState)")
         wantsConnection = false
         pendingOperations.clear()
-        mirroredQueue = emptyList()
+        mirror.clear()
+        playModeWrite = null
         connectJob?.cancel()
         connectJob = null
         replaceableOperationJob?.cancel()
@@ -279,13 +307,15 @@ internal class SpotifyAppRemotePlayer(
     /**
      * Starts the requested track, confirming it through App Remote's state subscription.
      * A Web API acknowledgement alone is insufficient: after a bounded wait, one App Remote
-     * play is allowed. Starts never append tracks to Spotify's persistent user queue.
+     * play is allowed. Starts never append tracks to Spotify's persistent user queue;
+     * [queued] is what the user already queued there, which Spotify plays next.
      */
     fun playQueue(
         tracks: List<Track>,
         startIndex: Int,
         startContextPlayback: (suspend () -> Unit)? = null,
         playMode: PlayMode? = null,
+        queued: List<Track> = emptyList(),
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         Log.d(
@@ -293,9 +323,14 @@ internal class SpotifyAppRemotePlayer(
             "playQueue: size=${tracks.size} startIndex=$startIndex track=${tracks[startIndex].id} " +
                 "hasContext=${startContextPlayback != null}"
         )
-        mirroredQueue = tracks
+        mirror.reset(tracks, startIndex, queued)
+        val modeWrite = playMode?.let(::PlayModeWrite)
+        playModeWrite = modeWrite
         val start = PendingStart(tracks[startIndex])
         pendingStart = start
+        val repeatMode = playMode?.repeatMode ?: lastSnapshot.repeatMode
+        val shuffleEnabled = playMode?.shuffle ?: lastSnapshot.shuffleEnabled
+        val view = mirror.view(playing = null, shuffle = shuffleEnabled)
         // Hold the tap-target as `pendingTrack`. Do NOT write `currentTrack`
         // / `isPlaying = true` / a non-zero position before App Remote
         // confirms with a real PlayerState — that used to produce the
@@ -307,10 +342,12 @@ internal class SpotifyAppRemotePlayer(
                 isPlaying = false,
                 positionMs = 0L,
                 durationMs = 0L,
-                queue = tracks,
-                currentIndex = startIndex,
-                repeatMode = lastSnapshot.repeatMode,
-                shuffleEnabled = lastSnapshot.shuffleEnabled,
+                queue = view.queue,
+                currentIndex = view.currentIndex,
+                userQueued = view.userQueued,
+                upcoming = view.upcoming,
+                repeatMode = repeatMode,
+                shuffleEnabled = shuffleEnabled,
                 connectionPhase = ConnectionPhase.Connecting,
                 connectionErrorMessage = null,
                 observedPlayerState = false,
@@ -356,6 +393,9 @@ internal class SpotifyAppRemotePlayer(
             } catch (error: Throwable) {
                 // A failed start must not disappear into a reconnect that has no operation to replay.
                 handleRemoteError(error, userStart = true)
+            } finally {
+                // Written, failed or given up: Spotify's own word stands from here.
+                if (playModeWrite === modeWrite) playModeWrite = null
             }
         }
     }
@@ -444,27 +484,56 @@ internal class SpotifyAppRemotePlayer(
     }
 
     fun addToQueue(track: Track) {
-        mirroredQueue = mirroredQueue + track
-        publish(lastSnapshot.copy(queue = mirroredQueue))
+        mirror.add(track, playing = lastSnapshot.currentTrack)
+        publishMirror(lastSnapshot)
         enqueueOperation { connected ->
             connected.playerApi.queue(track.spotifyUri()).awaitUnit()
         }
     }
 
     fun clearQueue() {
-        mirroredQueue = emptyList()
-        publish(
-            lastSnapshot.copy(
-                queue = emptyList(),
-                currentIndex = if (lastSnapshot.currentTrack != null) 0 else -1,
-            ),
-        )
+        mirror.clear()
+        publishMirror(lastSnapshot)
     }
 
     fun skipToQueueItem(index: Int) {
-        if (index !in mirroredQueue.indices) return
-        playQueue(mirroredQueue, index)
+        val restart = restartAt(index) ?: return
+        playQueue(restart.tracks, restart.startIndex, queued = restart.queued)
     }
+
+    /**
+     * How to restart the queue at entry [index] of the queue last shown: the
+     * album or playlist's songs, without the user's queued ones, from the
+     * one tapped, with the queued songs still to play kept next (they stay
+     * in Spotify's own queue across a start). A queued song tapped, or one
+     * from outside the queue, restarts the whole list shown at it.
+     */
+    fun restartAt(index: Int): SpotifyRestart? {
+        val shown = lastSnapshot
+        if (index !in shown.queue.indices) return null
+        if (index in shown.userQueued || index == shown.foreignIndex) {
+            return SpotifyRestart(shown.queue, index, emptyList())
+        }
+        val context = shown.queue.indices.filter { it !in shown.userQueued && it != shown.foreignIndex }
+        return SpotifyRestart(
+            tracks = context.map(shown.queue::get),
+            startIndex = context.indexOf(index),
+            queued = shown.upcoming.filter { it in shown.userQueued }.map(shown.queue::get),
+        )
+    }
+
+    /** [base] with the queue as [mirror] shows it now. */
+    private fun publishMirror(base: SpotifyRemoteSnapshot) {
+        publish(base.withView(mirror.view(base.currentTrack, base.shuffleEnabled)))
+    }
+
+    private fun SpotifyRemoteSnapshot.withView(view: SpotifyQueueView) = copy(
+        queue = view.queue,
+        currentIndex = view.currentIndex,
+        userQueued = view.userQueued,
+        upcoming = view.upcoming,
+        foreignIndex = view.foreignIndex,
+    )
 
     /**
      * Spotify's own library state for [uri] — a track or an album, all
@@ -872,26 +941,14 @@ internal class SpotifyAppRemotePlayer(
 
     private fun fromPlayerState(playerState: PlayerState): SpotifyRemoteSnapshot {
         val mappedTrack = playerState.track?.toYoinTrack() ?: lastSnapshot.currentTrack
-        val queueIndex = mappedTrack?.let { current ->
-            mirroredQueue.indexOfFirst { queued -> queued.id == current.id }
-        } ?: -1
-        val twinIndex = if (queueIndex >= 0) {
-            queueIndex
-        } else {
-            mappedTrack?.let { current -> mirroredQueue.indexOfFirst { queued -> queued.isSameSongAs(current) } } ?: -1
-        }
-        val queue = when {
-            queueIndex >= 0 -> mirroredQueue
-            mirroredQueue.isNotEmpty() -> mirroredQueue
-            mappedTrack != null -> listOf(mappedTrack)
-            lastSnapshot.queue.isNotEmpty() -> lastSnapshot.queue
-            else -> mirroredQueue
-        }
-        val currentTrack = when {
-            queueIndex >= 0 -> queue[queueIndex]
-            mappedTrack != null -> mappedTrack
-            else -> lastSnapshot.currentTrack
-        }
+        val mirrorIndex = mappedTrack?.let(mirror::onPlaying) ?: -1
+        // Yoin's own copy of the song (its metadata), unless Spotify relinked it.
+        val currentTrack = mirroredQueue.getOrNull(mirrorIndex)?.takeIf { it.id == mappedTrack?.id }
+            ?: mappedTrack
+            ?: lastSnapshot.currentTrack
+        val playMode = playModeWrite?.mode
+        val shuffleEnabled = playMode?.shuffle ?: (playerState.playbackOptions?.isShuffling == true)
+        val view = mirror.view(currentTrack, shuffleEnabled)
         return lastSnapshot.copy(
             currentTrack = currentTrack,
             pendingTrack = null,
@@ -900,18 +957,12 @@ internal class SpotifyAppRemotePlayer(
             durationMs = currentTrack?.durationSec?.times(1_000L)
                 ?: playerState.track?.duration?.coerceAtLeast(0L)
                 ?: lastSnapshot.durationMs,
-            queue = queue,
-            currentIndex = when {
-                twinIndex >= 0 -> twinIndex
-                currentTrack != null -> 0
-                else -> lastSnapshot.currentIndex
-            },
-            repeatMode = playerState.playbackOptions?.repeatMode ?: Player.REPEAT_MODE_OFF,
-            shuffleEnabled = playerState.playbackOptions?.isShuffling == true,
+            repeatMode = playMode?.repeatMode ?: playerState.playbackOptions?.repeatMode ?: Player.REPEAT_MODE_OFF,
+            shuffleEnabled = shuffleEnabled,
             connectionPhase = ConnectionPhase.Ready,
             connectionErrorMessage = null,
             observedPlayerState = true,
-        )
+        ).withView(view)
     }
 
     private fun com.spotify.protocol.types.Track.toYoinTrack(): Track {
@@ -1042,6 +1093,9 @@ internal class SpotifyAppRemotePlayer(
                 pendingTrack = lastSnapshot.pendingTrack,
                 queue = lastSnapshot.queue,
                 currentIndex = lastSnapshot.currentIndex,
+                userQueued = lastSnapshot.userQueued,
+                upcoming = lastSnapshot.upcoming,
+                foreignIndex = lastSnapshot.foreignIndex,
                 connectionPhase = ConnectionPhase.Error,
                 connectionErrorMessage = message,
                 connectionFailure = failure,

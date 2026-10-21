@@ -532,7 +532,8 @@ class PlaybackManagerSpotifyContextTest {
 
     /**
      * What App Remote's PlayerState subscription hands the manager while Yoin mirrors [tracks]:
-     * a song outside them keeps the mirrored queue, at index 0 (SpotifyAppRemotePlayer.fromPlayerState).
+     * Yoin's queue stays [tracks] whatever plays ([SpotifyRemoteSnapshot.yoinQueue]: the song from
+     * outside it is left out, as SpotifyAppRemotePlayer.fromPlayerState marks it).
      */
     private fun state(song: Track, isPlaying: Boolean = false) {
         val method = PlaybackManager::class.java
