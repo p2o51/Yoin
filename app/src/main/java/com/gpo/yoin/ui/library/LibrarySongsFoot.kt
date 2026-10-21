@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +56,22 @@ internal fun LazyListScope.librarySongsFoot(more: LibrarySongsMore, onRetry: () 
     }
 }
 
+/** The same foot across a grid's whole row: a search type's cells ([searchMoreFor]). */
+internal fun LazyGridScope.librarySongsFoot(more: LibrarySongsMore, onRetry: () -> Unit) {
+    if (more == LibrarySongsMore.None) return
+    item(key = LIBRARY_SONGS_FOOT_KEY, span = { GridItemSpan(maxLineSpan) }, contentType = LIBRARY_SONGS_FOOT_KEY) {
+        LibrarySongsFoot(
+            failed = more == LibrarySongsMore.Failed,
+            onRetry = onRetry,
+            modifier = Modifier.animateItem(
+                fadeInSpec = YoinMotion.effectsSpring(),
+                placementSpec = YoinMotion.spatialSpring(),
+                fadeOutSpec = YoinMotion.effectsSpring()
+            )
+        )
+    }
+}
+
 /**
  * Asks for Songs' next page once the list is within about a screen of its
  * end: as many rows left below as it shows. Asks again after each page that
@@ -71,6 +90,29 @@ internal fun LoadMoreSongsEffect(
         snapshotFlow { listState.isWithinAScreenOfEnd() }.first { it }
         loadMore()
     }
+}
+
+/** [LoadMoreSongsEffect] for a grid: a search type's cells. */
+@Composable
+internal fun LoadMoreSongsEffect(
+    gridState: LazyGridState,
+    more: LibrarySongsMore,
+    itemCount: Int,
+    onLoadMore: () -> Unit
+) {
+    val loadMore by rememberUpdatedState(onLoadMore)
+    if (more != LibrarySongsMore.Available) return
+    LaunchedEffect(gridState, itemCount) {
+        snapshotFlow { gridState.isWithinAScreenOfEnd() }.first { it }
+        loadMore()
+    }
+}
+
+private fun LazyGridState.isWithinAScreenOfEnd(): Boolean {
+    val info = layoutInfo
+    val shown = info.visibleItemsInfo
+    val last = shown.lastOrNull() ?: return false
+    return info.totalItemsCount - 1 - last.index <= shown.size
 }
 
 private fun LazyListState.isWithinAScreenOfEnd(): Boolean {

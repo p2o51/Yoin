@@ -389,6 +389,7 @@ fun LibraryScreen(
                 onSearchQueryChanged = viewModel::search,
                 onClearSearch = viewModel::clearSearch,
                 onRetrySearch = viewModel::retrySearch,
+                onLoadMoreSearch = viewModel::loadMoreSearchResults,
                 onReshuffleSongs = viewModel::reshuffleSongs,
                 onLoadMoreSongs = viewModel::loadMoreSongs,
                 onNavigateToSettings = onNavigateToSettings,
@@ -442,6 +443,8 @@ fun LibraryContent(
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
     onRetrySearch: () -> Unit = {},
+    // A search type's next page, where the service has more (SearchResults.more).
+    onLoadMoreSearch: () -> Unit = {},
     onReshuffleSongs: () -> Unit = {},
     // Songs' next page, where it comes a page at a time (LibrarySongsMore).
     onLoadMoreSongs: () -> Unit = {},
@@ -557,6 +560,7 @@ fun LibraryContent(
                             onSearchQueryChanged = onSearchQueryChanged,
                             onClearSearch = onClearSearch,
                             onRetrySearch = onRetrySearch,
+                            onLoadMoreSearch = onLoadMoreSearch,
                             onReshuffleSongs = onReshuffleSongs,
                             onLoadMoreSongs = onLoadMoreSongs,
                             onNavigateToSettings = onNavigateToSettings,
@@ -603,6 +607,7 @@ private fun LibraryContentBody(
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
     onRetrySearch: () -> Unit,
+    onLoadMoreSearch: () -> Unit,
     onReshuffleSongs: () -> Unit,
     onLoadMoreSongs: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -1038,6 +1043,8 @@ private fun LibraryContentBody(
             isSearching = state.isSearching,
             searchError = state.searchError,
             onRetrySearch = onRetrySearch,
+            more = searchMoreFor(state.searchResults, state.searchFilter, state.searchPaging),
+            onLoadMore = onLoadMoreSearch,
             filter = state.searchFilter,
             resultsQuery = searchResultsAnchor.first,
             resultsScope = searchResultsAnchor.second,
@@ -2357,6 +2364,9 @@ private fun SearchResultsContent(
     isSearching: Boolean,
     searchError: UiText? = null,
     onRetrySearch: () -> Unit = {},
+    // What follows the shown type's rows (searchMoreFor), and how to read it.
+    more: LibrarySongsMore = LibrarySongsMore.None,
+    onLoadMore: () -> Unit = {},
     filter: LibrarySearchFilter = LibrarySearchFilter.All,
     // The query and scope [searchResults] answer: with the filter, the key of
     // each remembered scroll position.
@@ -2458,6 +2468,8 @@ private fun SearchResultsContent(
         modifier = modifier.fillMaxSize()
     ) { shownFilter ->
         val shown = searchResults.shownFor(shownFilter)
+        // Only the type the chips show now reads more; one fading out keeps its foot still.
+        val shownMore = if (shownFilter == filter) more else LibrarySongsMore.None
         when {
             shown.isEmpty -> EmptyState(message = stringResource(R.string.library_empty_search))
             shownFilter == LibrarySearchFilter.All -> SearchAllResults(
@@ -2476,14 +2488,18 @@ private fun SearchResultsContent(
                     anchor = scrollMemory.gridAnchor(resultsQuery, resultsScope, shownFilter),
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
-                    coverArtUrlBuilder = coverArtUrlBuilder
+                    coverArtUrlBuilder = coverArtUrlBuilder,
+                    more = shownMore,
+                    onLoadMore = onLoadMore
                 )
             else -> SearchResultsList(
                 results = shown,
                 listState = scrollMemory.listState(resultsQuery, resultsScope, shownFilter),
                 onPlaylistClick = onPlaylistClick,
                 coverArtUrlBuilder = coverArtUrlBuilder,
-                songRow = songRow
+                songRow = songRow,
+                more = shownMore,
+                onLoadMore = onLoadMore
             )
         }
     }
@@ -2737,11 +2753,14 @@ private fun SearchResultsGrid(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    more: LibrarySongsMore = LibrarySongsMore.None,
+    onLoadMore: () -> Unit = {}
 ) {
     // The surface morphs to its pill and back through every width: the grid
     // comes back exactly where it was left (a result opened in a Wide column).
     KeepGridAnchorAcrossWidthChanges(gridState, anchor, exact = true)
+    LoadMoreSongsEffect(gridState, more, results.artists.size + results.albums.size, onLoadMore)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyVerticalGrid(
         columns = libraryGridCells(),
@@ -2785,6 +2804,7 @@ private fun SearchResultsGrid(
                 )
             )
         }
+        librarySongsFoot(more, onRetry = onLoadMore)
     }
 }
 
@@ -2796,8 +2816,11 @@ private fun SearchResultsList(
     onPlaylistClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     songRow: @Composable (Track, Modifier) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    more: LibrarySongsMore = LibrarySongsMore.None,
+    onLoadMore: () -> Unit = {}
 ) {
+    LoadMoreSongsEffect(listState, more, results.playlists.size + results.tracks.size, onLoadMore)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
         state = listState,
@@ -2829,6 +2852,7 @@ private fun SearchResultsList(
                 )
             )
         }
+        librarySongsFoot(more, onRetry = onLoadMore)
     }
 }
 

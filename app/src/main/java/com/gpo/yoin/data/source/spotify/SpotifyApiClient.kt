@@ -279,6 +279,7 @@ class SpotifyApiClient(
         query: String,
         limitPerType: Int = DEFAULT_SEARCH_LIMIT,
         types: String = "track,album,artist,playlist",
+        offset: Int = 0,
     ): SpotifySearchResponse = withContext(Dispatchers.IO) {
         getDecoded(
             url = apiUrl("v1", "search")
@@ -286,6 +287,7 @@ class SpotifyApiClient(
                 .addQueryParameter("q", query)
                 .addQueryParameter("type", types)
                 .addQueryParameter("limit", limitPerType.coerceIn(0, MAX_SEARCH_LIMIT).toString())
+                .addOffset(offset)
                 .build(),
             deserializer = SpotifySearchResponse.serializer(),
         )

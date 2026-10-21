@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.library
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.Stable
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.source.Capability
 
@@ -40,8 +41,9 @@ internal fun LibrarySearchFilter.normalisedTo(available: List<LibrarySearchFilte
     takeIf { it in available } ?: LibrarySearchFilter.All
 
 /**
- * The part of these results [filter] lists. Nothing is fetched for a type:
- * it shows what the mixed search already returned. All keeps at most
+ * The part of these results [filter] lists. Switching fetches nothing: a
+ * type shows what the mixed search already returned, and reads its next
+ * page only as its list nears the end ([searchMoreFor]). All keeps at most
  * [SEARCH_ALL_ROWS_PER_TYPE] of each type.
  */
 internal fun SearchResults.shownFor(filter: LibrarySearchFilter): SearchResults = when (filter) {
@@ -55,6 +57,31 @@ internal fun SearchResults.shownFor(filter: LibrarySearchFilter): SearchResults 
     LibrarySearchFilter.Albums -> SearchResults(albums = albums)
     LibrarySearchFilter.Songs -> SearchResults(tracks = tracks)
     LibrarySearchFilter.Playlists -> SearchResults(playlists = playlists)
+}
+
+/** The one type this filter lists; null for [LibrarySearchFilter.All]. */
+internal val LibrarySearchFilter.resultType: SearchResultType?
+    get() = when (this) {
+        LibrarySearchFilter.All -> null
+        LibrarySearchFilter.Artists -> SearchResultType.Artists
+        LibrarySearchFilter.Albums -> SearchResultType.Albums
+        LibrarySearchFilter.Songs -> SearchResultType.Tracks
+        LibrarySearchFilter.Playlists -> SearchResultType.Playlists
+    }
+
+/**
+ * What follows [filter]'s list of [results]: a page being read or failed ([paging]), otherwise
+ * more where the service has it ([SearchResults.more]). All shows each type's first rows and
+ * never reads more; a type's own list does, as it nears its end.
+ */
+internal fun searchMoreFor(
+    results: SearchResults?,
+    filter: LibrarySearchFilter,
+    paging: Map<SearchResultType, LibrarySongsMore>,
+): LibrarySongsMore {
+    val type = filter.resultType ?: return LibrarySongsMore.None
+    if (results == null) return LibrarySongsMore.None
+    return paging[type] ?: if (type in results.more) LibrarySongsMore.Available else LibrarySongsMore.None
 }
 
 /**
