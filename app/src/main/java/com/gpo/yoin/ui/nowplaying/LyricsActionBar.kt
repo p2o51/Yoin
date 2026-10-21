@@ -4,6 +4,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
@@ -56,7 +57,7 @@ internal fun LyricsActionBar(
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         ButtonGroup(
             overflowIndicator = { _ -> },
-            modifier = modifier.height(iconSize),
+            modifier = modifier.buttonGroupAtOwnWidth().height(iconSize),
             expandedRatio = ButtonGroupDefaults.ExpandedRatio,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -155,7 +156,7 @@ internal fun LyricsSelectionBar(
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         ButtonGroup(
             overflowIndicator = { _ -> },
-            modifier = modifier.height(iconSize),
+            modifier = modifier.buttonGroupAtOwnWidth().height(iconSize),
             expandedRatio = ButtonGroupDefaults.ExpandedRatio,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -217,6 +218,16 @@ internal fun LyricsSelectionBar(
     }
 }
 
+
+/**
+ * Measures the group at its own width even when the slot is narrower — e.g.
+ * the landscape tab row's lookahead pass on rotation. M3 ButtonGroup's
+ * overflow branch builds a negative maxWidth when it gets less than its
+ * content and throws; these groups never overflow, so they overhang the slot
+ * (the tab row clips) for that frame instead.
+ */
+private fun Modifier.buttonGroupAtOwnWidth(): Modifier =
+    wrapContentWidth(align = Alignment.Start, unbounded = true)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
