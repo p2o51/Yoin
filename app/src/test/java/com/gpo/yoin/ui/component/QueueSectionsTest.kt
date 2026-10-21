@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.component
 
+import com.gpo.yoin.R
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.player.QueueEdit
 import com.gpo.yoin.ui.nowplaying.QueueItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -68,5 +70,14 @@ class QueueSectionsTest {
     fun should_leaveTheHeaderUnnamed_when_nothingNamesWhereTheSongsCameFrom() {
         assertNull(queuePlayingFrom(ActivityContext.None))
         assertNull(queuePlayingFrom(ActivityContext.LikedSongs()))
+    }
+
+    @Test
+    fun should_sayWhyTheQueueCantBeEdited_when_theServiceOrShuffleLimitsIt() {
+        assertEquals(R.string.cmp_queue_hint_spotify, queueEditHint(QueueEdit.None, shuffling = false))
+        assertEquals(R.string.cmp_queue_hint_spotify_shuffle, queueEditHint(QueueEdit.None, shuffling = true))
+        assertEquals(R.string.cmp_queue_hint_remove_only, queueEditHint(QueueEdit.Remove, shuffling = false))
+        assertEquals(R.string.cmp_queue_hint_shuffle, queueEditHint(QueueEdit.Full, shuffling = true))
+        assertNull(queueEditHint(QueueEdit.Full, shuffling = false))
     }
 }
