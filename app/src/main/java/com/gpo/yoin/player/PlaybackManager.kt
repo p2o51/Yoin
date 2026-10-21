@@ -250,6 +250,11 @@ class PlaybackManager(
         }
     }
 
+    /** Another of Yoin's Activities is the host now (see [onHostStart]); nothing else changes. */
+    fun onHostChanged(hostContext: Context) {
+        spotifyRemotePlayer.onHostChanged(hostContext)
+    }
+
     fun onHostStop() {
         // Kill the ticker BEFORE forwarding: the Spotify teardown below
         // republishes a preserved snapshot (often isPlaying=true) that would

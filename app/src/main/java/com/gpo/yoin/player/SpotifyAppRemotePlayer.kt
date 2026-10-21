@@ -227,6 +227,11 @@ internal class SpotifyAppRemotePlayer(
      */
     private var transportRetryAvailable: Boolean = true
 
+    /** The host is now [context] (another started Activity); the connection stays as it is. */
+    fun onHostChanged(context: Context) {
+        hostContext = context
+    }
+
     fun onHostStart(context: Context) {
         Log.d(tag, "onHostStart: host=${context.javaClass.simpleName}")
         hostContext = context
