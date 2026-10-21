@@ -107,40 +107,49 @@ class SpotifyApiClient(
      */
     suspend fun getCurrentUserId(): String = cachedUserId ?: getMe().id
 
-    suspend fun getSavedTracks(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifySavedTrackObject> =
-        collectOffsetPages(
-            initialUrl = apiUrl("v1", "me", "tracks")
-                .newBuilder()
-                .addQueryParameter("limit", PAGE_LIMIT.toString())
-                .build(),
+    suspend fun getSavedTracks(limit: Int = SAVED_TRACKS_LIMIT): List<SpotifySavedTrackObject> =
+        collectOffsetPagesConcurrently(
+            firstPage = null,
+            pageUrl = { offset ->
+                apiUrl("v1", "me", "tracks")
+                    .newBuilder()
+                    .addQueryParameter("limit", PAGE_LIMIT.toString())
+                    .addOffset(offset)
+                    .build()
+            },
+            pageSize = PAGE_LIMIT,
             maxItems = limit,
             deserializer = SpotifyPagingObject.serializer(SpotifySavedTrackObject.serializer()),
-            items = { page -> page.items },
-            next = { page -> page.next },
         )
 
     suspend fun getSavedAlbums(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifySavedAlbumObject> =
-        collectOffsetPages(
-            initialUrl = apiUrl("v1", "me", "albums")
-                .newBuilder()
-                .addQueryParameter("limit", PAGE_LIMIT.toString())
-                .build(),
+        collectOffsetPagesConcurrently(
+            firstPage = null,
+            pageUrl = { offset ->
+                apiUrl("v1", "me", "albums")
+                    .newBuilder()
+                    .addQueryParameter("limit", PAGE_LIMIT.toString())
+                    .addOffset(offset)
+                    .build()
+            },
+            pageSize = PAGE_LIMIT,
             maxItems = limit,
             deserializer = SpotifyPagingObject.serializer(SpotifySavedAlbumObject.serializer()),
-            items = { page -> page.items },
-            next = { page -> page.next },
         )
 
     suspend fun getCurrentUserPlaylists(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifyPlaylistObject> =
-        collectOffsetPages(
-            initialUrl = apiUrl("v1", "me", "playlists")
-                .newBuilder()
-                .addQueryParameter("limit", PAGE_LIMIT.toString())
-                .build(),
+        collectOffsetPagesConcurrently(
+            firstPage = null,
+            pageUrl = { offset ->
+                apiUrl("v1", "me", "playlists")
+                    .newBuilder()
+                    .addQueryParameter("limit", PAGE_LIMIT.toString())
+                    .addOffset(offset)
+                    .build()
+            },
+            pageSize = PAGE_LIMIT,
             maxItems = limit,
             deserializer = SpotifyPagingObject.serializer(SpotifyPlaylistObject.serializer()),
-            items = { page -> page.items },
-            next = { page -> page.next },
         )
 
     suspend fun getFollowedArtists(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifyArtistObject> =
@@ -862,10 +871,14 @@ class SpotifyApiClient(
         private const val MAX_CONCURRENT_READS = 4
         private const val PAGE_LIMIT = 50
         private const val ARTIST_ALBUMS_PAGE_LIMIT = 10
-        private const val ARTIST_ALBUMS_LIMIT = 60
+        private const val ARTIST_ALBUMS_LIMIT = 100
         private const val RECENTLY_PLAYED_LIMIT = 50
-        private const val DEFAULT_COLLECTION_LIMIT = 200
-        private const val DEFAULT_TRACKS_LIMIT = 300
+        // Library reads (Gemini review 2026-10-20: 200 hid a large library's rest
+        // without a word). The pages go out side by side once the first names the
+        // total, four at a time ([readPermits]).
+        private const val SAVED_TRACKS_LIMIT = 2_000
+        private const val DEFAULT_COLLECTION_LIMIT = 1_000
+        private const val DEFAULT_TRACKS_LIMIT = 1_000
         private const val MAX_SEARCH_LIMIT = 10
         private const val DEFAULT_SEARCH_LIMIT = MAX_SEARCH_LIMIT
 
