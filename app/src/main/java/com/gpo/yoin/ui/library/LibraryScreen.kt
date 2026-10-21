@@ -262,6 +262,10 @@ fun LibraryScreen(
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
+    // Search's song rows: the tapped row plus the songs found with it, which play on from there.
+    onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
     onAddSongToPlaylist: (Track) -> Unit = {},
     // The Wide shell opens results as its detail column, BEHIND the
     // full-window search dialog: a result tap must collapse the search (the
@@ -397,6 +401,7 @@ fun LibraryScreen(
                 onSongClick = onSongClick,
                 onFavoriteSongClick = onFavoriteSongClick,
                 onSongsListClick = onSongsListClick,
+                onSearchSongClick = onSearchSongClick,
                 onAddSongToPlaylist = onAddSongToPlaylist,
                 collapseSearchOnOpen = collapseSearchOnOpen,
                 onAddSongToLibrary = viewModel::addSongToLibrary,
@@ -453,6 +458,10 @@ fun LibraryContent(
         onSongClick(track)
     },
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
+    // Search's song rows: the tapped row plus the songs found with it, which play on from there.
+    onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
     collapseSearchOnOpen: Boolean = false,
@@ -560,6 +569,7 @@ fun LibraryContent(
                             onSongClick = onSongClick,
                             onFavoriteSongClick = onFavoriteSongClick,
                             onSongsListClick = onSongsListClick,
+                            onSearchSongClick = onSearchSongClick,
                             onAddSongToPlaylist = onAddSongToPlaylist,
                             onAddSongToLibrary = onAddSongToLibrary,
                             onCreatePlaylist = onCreatePlaylist,
@@ -605,6 +615,7 @@ private fun LibraryContentBody(
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
+    onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
     onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
@@ -1042,7 +1053,7 @@ private fun LibraryContentBody(
             onArtistClick = fromSearch(onSearchArtistClick),
             onAlbumClick = fromSearch(onSearchAlbumClick),
             onPlaylistClick = fromSearch(onSearchPlaylistClick),
-            onSongClick = onSongClick,
+            onSongClick = onSearchSongClick,
             onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
             onAddSongToLibrary = onAddSongToLibrary,
             coverArtUrlBuilder = coverArtUrlBuilder,
@@ -2363,7 +2374,7 @@ private fun SearchResultsContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
-    onSongClick: (Track) -> Unit,
+    onSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: ((Track) -> Unit)?,
     onAddSongToLibrary: (Track) -> Unit = {},
     coverArtUrlBuilder: ((String) -> String)?,
@@ -2424,7 +2435,11 @@ private fun SearchResultsContent(
             membership = trackLibraryStates[song.id] ?: LibraryMembership.Unknown,
             isWorking = song.id in workingLibraryTrackIds,
             feedback = libraryActionFeedback[song.id],
-            onClick = { onSongClick(song) },
+            onClick = {
+                // Plays on through the songs found, as a list does, not just this one.
+                val songs = searchResults.tracks
+                onSongClick(song, songs, songs.indexOfFirst { it.id == song.id })
+            },
             onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
             onAddToLibrary = { onAddSongToLibrary(song) },
             coverArtUrlBuilder = coverArtUrlBuilder,

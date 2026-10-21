@@ -13,7 +13,10 @@ import io.mockk.verify
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Test
 
-/** The shell's Songs-row wiring: LibraryScreen's onSongsListClick is [playSongsList]. */
+/**
+ * The shell's song-row wiring: LibraryScreen's onSongsListClick is [playSongsList],
+ * its onSearchSongClick [playSearchResults].
+ */
 class SongsListPlaybackTest {
 
     private val manager = mockk<PlaybackManager>(relaxed = true)
@@ -46,6 +49,7 @@ class SongsListPlaybackTest {
     @Test
     fun should_playOnlyTheWindowAroundTheTappedRow_when_songsListIsLong() {
         // Apple's Songs list runs to 500: MusicKit would ask for every id in one request.
+        activeSource.value = source(MediaId.PROVIDER_APPLE_MUSIC)
         val library = (0 until 500).map { song("s$it") }
 
         container.playSongsList(library, startIndex = 300)
@@ -54,6 +58,62 @@ class SongsListPlaybackTest {
             manager.play(
                 tracks = library.subList(280, 380),
                 startIndex = 20,
+                source = activeSource.value!!,
+                activityContext = ActivityContext.None,
+                shuffled = false,
+                explicitStart = true
+            )
+        }
+    }
+
+    @Test
+    fun should_playTheWholeLongList_when_onSubsonic() {
+        // Subsonic's player takes any length: nothing to cut (Gemini review 2026-10-20).
+        val library = (0 until 500).map { song("s$it") }
+
+        container.playSongsList(library, startIndex = 300)
+
+        verify(exactly = 1) {
+            manager.play(
+                tracks = library,
+                startIndex = 300,
+                source = activeSource.value!!,
+                activityContext = ActivityContext.None,
+                shuffled = false,
+                explicitStart = true
+            )
+        }
+    }
+
+    @Test
+    fun should_playOnThroughTheSongsFound_when_aSearchResultIsTapped() {
+        container.playSearchResults(songs, startIndex = 1)
+
+        verify(exactly = 1) {
+            manager.play(
+                tracks = songs,
+                startIndex = 1,
+                source = activeSource.value!!,
+                activityContext = ActivityContext.None,
+                shuffled = false,
+                explicitStart = true
+            )
+        }
+        verify(exactly = 0) { manager.playSingle(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_startWithoutLikedSongs_when_aSpotifySearchResultIsTapped() {
+        // Search results aren't the user's Liked Songs, even where Songs is.
+        activeSource.value = source(MediaId.PROVIDER_SPOTIFY)
+        val found = (0 until 3).map { spotifySong("s$it") }
+
+        container.playSearchResults(found, startIndex = 0)
+
+        verify(exactly = 1) {
+            manager.play(
+                tracks = found,
+                startIndex = 0,
                 source = activeSource.value!!,
                 activityContext = ActivityContext.None,
                 shuffled = false,

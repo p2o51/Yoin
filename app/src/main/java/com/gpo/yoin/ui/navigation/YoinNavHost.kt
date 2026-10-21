@@ -90,6 +90,7 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.perf.YoinPerf
+import com.gpo.yoin.player.PlayableQueue
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.player.startWindowQueue
@@ -1182,6 +1183,7 @@ private fun YoinShell(
                                 }
                             },
                             onSongsListClick = { _, queue, index -> app.container.playSongsList(queue, index) },
+                            onSearchSongClick = { _, queue, index -> app.container.playSearchResults(queue, index) },
                             onAddSongToPlaylist = { song ->
                                 nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                             },
@@ -1586,7 +1588,7 @@ internal fun trackCoverArtId(track: Track): String? =
  */
 internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
     val source = profileManager.activeSource.value ?: return
-    val window = startWindowQueue(queue, startIndex)
+    val window = startQueueFor(source.id, queue, startIndex)
     val activityContext = if (ServiceFeatureCatalog.forProvider(source.id).favoritesAreLibrary) {
         // The collection's cover, as Favorites gives it: the newest like's.
         ActivityContext.LikedSongs(coverArtId = queue.firstOrNull()?.let(::trackCoverArtId))
@@ -1595,6 +1597,26 @@ internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
     }
     playbackManager.play(window.tracks, window.startIndex, source, activityContext)
 }
+
+/**
+ * A search result's song, with the songs found with it next (Gemini review
+ * 2026-10-20: it used to play alone and stop). They come from no album or
+ * playlist: nothing to say they play from.
+ */
+internal fun AppContainer.playSearchResults(songs: List<Track>, startIndex: Int) {
+    val source = profileManager.activeSource.value ?: return
+    if (startIndex !in songs.indices) return
+    val window = startQueueFor(source.id, songs, startIndex)
+    playbackManager.play(window.tracks, window.startIndex, source, ActivityContext.None)
+}
+
+/**
+ * [queue] as a start hands it over: whole on Subsonic, whose player takes any
+ * length, else the [startWindowQueue] Spotify's `uris` start and MusicKit's
+ * catalog request are held to. Library Songs used to cut Subsonic too.
+ */
+private fun startQueueFor(provider: String, queue: List<Track>, startIndex: Int): PlayableQueue =
+    if (provider == MediaId.PROVIDER_SUBSONIC) PlayableQueue(queue, startIndex) else startWindowQueue(queue, startIndex)
 
 internal fun canLaunchDetailFromShell(
     lifecycleState: Lifecycle.State,
