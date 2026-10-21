@@ -700,9 +700,9 @@ class PlaybackManager(
                             activityContext = _currentActivityContext.value,
                             tracks = restart.tracks,
                             startIndex = restart.startIndex,
-                            // A list Yoin shuffled has no playlist position to
-                            // start at: its song's uri, or another song plays.
-                            shuffled = spotifyQueueShuffled,
+                            // A list Yoin shuffled, or a queued song, has no playlist
+                            // position to start at: its song's uri, or another song plays.
+                            shuffled = spotifyQueueShuffled || restart.byUri,
                         ),
                         // Keep whatever Spotify is in now (a Shuffle start
                         // turned its shuffle on).

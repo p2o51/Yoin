@@ -89,6 +89,12 @@ internal class SpotifyQueueMirror {
         current = index
         if (index >= 0) {
             position = index
+            // Spotify went round again (repeat all): the album or playlist is all to come
+            // once more. The queued songs it played are gone from Spotify's queue.
+            val context = tracks.indices.filter { it !in userQueued }
+            if (index in played && context.all { it in played }) {
+                played = played.filterTo(mutableSetOf()) { it in userQueued }
+            }
             played = played + index
         }
         return index

@@ -81,6 +81,8 @@ internal data class SpotifyRestart(
     val tracks: List<Track>,
     val startIndex: Int,
     val queued: List<Track>,
+    /** [startIndex] is no position in the album or playlist: start at the song's uri. */
+    val byUri: Boolean = false,
 )
 
 /** What Spotify is currently playing FROM (album / playlist / …), used to show a
@@ -517,7 +519,7 @@ internal class SpotifyAppRemotePlayer(
         val shown = lastSnapshot
         if (index !in shown.queue.indices) return null
         if (index in shown.userQueued || index == shown.foreignIndex) {
-            return SpotifyRestart(shown.queue, index, emptyList())
+            return SpotifyRestart(shown.queue, index, emptyList(), byUri = true)
         }
         val context = shown.queue.indices.filter { it !in shown.userQueued && it != shown.foreignIndex }
         return SpotifyRestart(

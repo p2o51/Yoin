@@ -94,6 +94,28 @@ class SpotifyQueueMirrorTest {
     }
 
     @Test
+    fun should_listTheAlbumAgain_when_spotifyGoesRoundAgainOnShuffle() {
+        mirror.reset(album, 0)
+        album.forEach { mirror.onPlaying(it) }
+
+        mirror.onPlaying(album[2])
+        val view = mirror.view(album[2], shuffle = true)
+
+        assertEquals(listOf(0, 1, 3, 4), view.upcoming)
+    }
+
+    @Test
+    fun should_notListThePlayedSongs_when_goingBackToOneOnShuffle() {
+        mirror.reset(album, 0)
+        mirror.onPlaying(album[0])
+        mirror.onPlaying(album[3])
+
+        mirror.onPlaying(album[0])
+
+        assertEquals(listOf(1, 2, 4), mirror.view(album[0], shuffle = true).upcoming)
+    }
+
+    @Test
     fun should_listQueuedSongsFirst_when_shuffling() {
         val queued = track("q")
         mirror.reset(album, 2)
