@@ -1293,17 +1293,15 @@ class PlaybackManager(
         shuffled: Boolean,
     ): (suspend () -> SpotifyRemoteContextStart?)? {
         val spotifySource = source as? SpotifyMusicSource ?: return null
-        val contextUri = spotifyStartAttempts(
+        // The same attempt the Web API start makes, with the playlist offset it starts at.
+        val context = spotifyStartAttempts(
             activityContext = activityContext,
             tracks = tracks,
             startIndex = startIndex,
             shuffled = shuffled,
-            playlistOffset = { _, _ -> null },
-        ).remoteContextUri() ?: return null
-        val trackUri = tracks[startIndex].spotifyTrackUri() ?: return null
-        return {
-            spotifySource.contextIndexOf(contextUri, trackUri)?.let { SpotifyRemoteContextStart(contextUri, it) }
-        }
+            playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
+        ).remoteContext() ?: return null
+        return { context.remoteStart(spotifySource::contextIndexOf) }
     }
 
     private fun ActivityContext.isSpotifyContext(): Boolean =
