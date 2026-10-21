@@ -143,7 +143,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - 按钮（2026-10-17 owner 批注改）：**默认还是原来那颗圆形按钮**，图标是四态的 `rememberPlayModeSymbolPainter`（随机 + 单曲循环 = 交叉的两股，「1」缩到 0.72 倍、待在交叉左边的空隙里；从单曲循环转过去时「1」跟着两股一起滑过去），点一下按上面的顺序走一格。**长按分裂**成一颗两段的胶囊：左段随机、右段循环，各自点一下只切自己那条轴，亮成 `primary` / `onPrimary` 表示偏离默认（随机开、单曲循环），默认留在 `tertiaryContainer` / `onTertiaryContainer`；3 秒没人点（或再长按一次）**融合**回圆形。分裂时圆里的图标变成两份，一边往各自段的中心走一边变形——左边变成交叉的两股，右边变成循环（单曲时带 1）；融合时反过来，两份一边靠拢一边变回同一个四态图标。宽度、间隙、内角和图标位移共用一条空间弹簧，颜色走效果弹簧；圆形时两半内角为 0，正好拼成一个圆。圆形亮起的条件是「不是列表循环」。实现 `PlaybackControls.PlayModeButton`，图标动画在 yoin-symbols 的 `AnimatedSymbols.kt`。
 - Apple Music：MusicKit（1.1.1）在队列还没有当前歌曲时会不声不响地丢掉 repeat / shuffle 的写入。冷启动或 Apple Music 会话重建后，Yoin 和第一次 prepare 同一批写模式，可能碰到这个时序。`MusicKitPlayModes` 记住 Yoin 要的模式，每次状态变化时 MusicKit 和它不一致、又能写，就再写一次。
 - Yoin 自己开播的队列（任何后端）开播后套用用户选的模式；在 Spotify App 等别处开始的播放只观察、不写。模式不跨进程保存。
-- 详情页的「Shuffle play」是把列表本身打乱，不碰播放模式。
+- 详情页的「Shuffle play」是把列表本身打乱，不碰播放模式。顺序「Play」也一样：播放模式是记住的，开着随机时点 Play 仍然随机播放；点 Shuffle 后 Now Playing 的随机图标照旧显示记住的模式（Subsonic / Apple Music / Spotify 歌手页）。只有 Spotify 的专辑、歌单、Liked Songs 点 Shuffle 时会把 Spotify 的随机打开，因为那时由 Spotify 自己按上下文洗牌（2026-10-21 owner 确认维持现状，Gemini 审查 2.2.1）。
 
 **`docs/icons/`**：第一轮图标草稿，已被 yoin-symbols 取代，留着存档，不要删。
 
