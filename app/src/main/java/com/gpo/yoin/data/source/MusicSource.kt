@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -108,6 +109,13 @@ interface MusicLibrary {
     suspend fun getRandomSongs(size: Int = 20): List<Track>
 
     suspend fun search(query: String): SearchResults
+
+    /**
+     * [type]'s results for [query] past the first [offset], for a type [search] said has more
+     * ([SearchResults.more]). Only that type's rows; its [SearchResults.more] says whether still
+     * more follow. The default, for a search that returns all it ever will, has none.
+     */
+    suspend fun searchMore(query: String, type: SearchResultType, offset: Int): SearchResults = SearchResults()
 
     /** Search saved content, distinct from a subscription provider's catalog. */
     suspend fun searchLibrary(query: String): SearchResults = search(query)

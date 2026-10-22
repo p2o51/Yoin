@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.library
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -104,6 +105,102 @@ class LibrarySearchFilterTest {
 
         assertEquals(SEARCH_ALL_ROWS_PER_TYPE, results.shownFor(LibrarySearchFilter.All).tracks.size)
         assertEquals(SEARCH_ALL_ROWS_PER_TYPE + 25, results.shownFor(LibrarySearchFilter.Songs).tracks.size)
+    }
+
+    // ── More results ───────────────────────────────────────────────────
+
+    @Test
+    fun should_addThePageAfterTheRowsMinusRepeats_when_moreResultsArrive() {
+        val shown = SearchResults(
+            tracks = tracks(10),
+            artists = listOf(artist("a")),
+            more = setOf(SearchResultType.Tracks)
+        )
+        val page = SearchResults(tracks = tracks(20).drop(9), more = setOf(SearchResultType.Tracks))
+
+        val grown = shown.appending(SearchResultType.Tracks, page)
+
+        assertEquals(tracks(20), grown.tracks)
+        assertEquals(shown.artists, grown.artists)
+        assertEquals(setOf(SearchResultType.Tracks), grown.more)
+    }
+
+    @Test
+    fun should_stopReadingMore_when_aPageIsTheLastOrAddsNothing() {
+        val shown = SearchResults(tracks = tracks(10), more = setOf(SearchResultType.Tracks, SearchResultType.Albums))
+
+        val last = shown.appending(SearchResultType.Tracks, SearchResults(tracks = tracks(12).drop(10)))
+        val repeated = shown.appending(
+            SearchResultType.Tracks,
+            SearchResults(tracks = tracks(10), more = setOf(SearchResultType.Tracks))
+        )
+
+        assertEquals(setOf(SearchResultType.Albums), last.more)
+        assertEquals(setOf(SearchResultType.Albums), repeated.more)
+    }
+
+    @Test
+    fun should_readMoreOnlyInATypesOwnList_when_theServiceHasMore() {
+        val results = SearchResults(tracks = tracks(10), more = setOf(SearchResultType.Tracks))
+
+        assertEquals(LibrarySongsMore.Available, searchMoreFor(results, LibrarySearchFilter.Songs, emptyMap()))
+        assertEquals(LibrarySongsMore.None, searchMoreFor(results, LibrarySearchFilter.All, emptyMap()))
+        assertEquals(LibrarySongsMore.None, searchMoreFor(results, LibrarySearchFilter.Albums, emptyMap()))
+        assertEquals(
+            LibrarySongsMore.Failed,
+            searchMoreFor(
+                results,
+                LibrarySearchFilter.Songs,
+                mapOf(SearchResultType.Tracks to LibrarySongsMore.Failed)
+            )
+        )
+    }
+
+    @Test
+    fun should_readTheNextTenSongs_when_spotifySongsListNearsItsEnd() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SPOTIFY, ServiceFeatureCatalog.spotify.capabilities)
+        val first = tracks(10, MediaId.PROVIDER_SPOTIFY)
+        val next = tracks(20, MediaId.PROVIDER_SPOTIFY).drop(10)
+        coEvery { repository.search("song") } returns
+            SearchResults(tracks = first, more = setOf(SearchResultType.Tracks))
+        coEvery { repository.searchMore("song", SearchResultType.Tracks, 10) } returns SearchResults(tracks = next)
+        val viewModel = searchViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectSearchScope(LibrarySearchScope.SpotifyGlobal)
+        viewModel.search("song")
+        advanceUntilIdle()
+        viewModel.selectSearchFilter(LibrarySearchFilter.Songs)
+
+        viewModel.loadMoreSearchResults()
+        advanceUntilIdle()
+
+        val state = viewModel.content()
+        assertEquals(first + next, state.searchResults?.tracks)
+        val more = searchMoreFor(state.searchResults, state.searchFilter, state.searchPaging)
+        assertEquals(LibrarySongsMore.None, more)
+    }
+
+    @Test
+    fun should_offerRetryAndKeepTheRows_when_readingMoreFails() = runTest {
+        val repository = repositoryFor(MediaId.PROVIDER_SPOTIFY, ServiceFeatureCatalog.spotify.capabilities)
+        val first = tracks(10, MediaId.PROVIDER_SPOTIFY)
+        coEvery { repository.search("song") } returns
+            SearchResults(tracks = first, more = setOf(SearchResultType.Tracks))
+        coEvery { repository.searchMore(any(), any(), any()) } throws IllegalStateException("offline")
+        val viewModel = searchViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectSearchScope(LibrarySearchScope.SpotifyGlobal)
+        viewModel.search("song")
+        advanceUntilIdle()
+        viewModel.selectSearchFilter(LibrarySearchFilter.Songs)
+
+        viewModel.loadMoreSearchResults()
+        advanceUntilIdle()
+
+        val state = viewModel.content()
+        assertEquals(first, state.searchResults?.tracks)
+        val more = searchMoreFor(state.searchResults, state.searchFilter, state.searchPaging)
+        assertEquals(LibrarySongsMore.Failed, more)
     }
 
     // ── Scroll memory ──────────────────────────────────────────────────

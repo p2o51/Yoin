@@ -177,7 +177,7 @@
     <string name="home_tip_pull_memories">Pull Home down for Memories</string>
     <string name="home_tip_cover_menu">Long-press the cover in Now Playing for song options</string>
     <string name="home_tip_song_menu">Long-press a song on an album for Play next and more</string>
-    <string name="home_tip_play_modes">Tap the play-mode button to step through shuffle and repeat. Long-press it to set the two apart.</string>
+    <string name="home_tip_play_modes">Tap the play-mode button to step through shuffle and repeat. Long-press it to set the two apart; there, repeat can also turn off.</string>
     <string name="home_tip_note_moments">Notes written in Now Playing pin to that second</string>
     <string name="home_tip_library_search">Long-press Library in the bar to search</string>
     <string name="home_tip_keep_screen_on">Keep screen on is in the cover\'s long-press menu</string>

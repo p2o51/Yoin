@@ -63,27 +63,6 @@ internal object WidgetShapes {
     fun leadJoin(shape: RoundedPolygon): Float = if (shape === Clover4Leaf) 0.70f else 0.5f
 }
 
-/** A cover's palette as plain ARGB ints (RemoteViews / Canvas), from the same extractor the deck uses. */
-internal data class WidgetPalette(val base: Int, val accent: Int, val deep: Int, val soft: Int) {
-    /** Light: the page tint. Dark: deep pulled toward black (Figma `cover/bg`). */
-    val bgLight: Int get() = soft
-    val bgDark: Int get() = ColorUtils.blendARGB(deep, Color.BLACK, 0.38f)
-    val inkLight: Int get() = deep
-    val inkDark: Int get() = soft
-    val subLight: Int get() = ColorUtils.blendARGB(deep, soft, 0.3f)
-    val subDark: Int get() = ColorUtils.blendARGB(soft, deep, 0.32f)
-
-    companion object {
-        /** Neutral fallback when a cover can't be read. */
-        val Fallback = WidgetPalette(
-            base = 0xFF6B5B95.toInt(),
-            accent = 0xFFF1D9A7.toInt(),
-            deep = 0xFF2C2540.toInt(),
-            soft = 0xFFE9E2F2.toInt(),
-        )
-    }
-}
-
 /**
  * Bitmaps for one widget update, shared across every size the launcher asked for (SizeMode.Exact renders a layout
  * per size): RemoteViews dedups by instance, so the same art drawn once keeps the update under the binder /

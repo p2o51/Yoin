@@ -1,8 +1,11 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -124,10 +127,6 @@ import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
-
-// At or below this track count the cover docks to a big rounded "capsule"; above
-// it, to the thin full-bleed band (a long list needs the band's vertical room).
-internal const val DetailManyTracksThreshold = 5
 
 // Page 1 of the pager is the scrapbook (AlbumScrapbookPage, D3 — owner-approved
 // 2026-10-05). It also needs a host that passes `scrapbook`: a host that doesn't
@@ -837,7 +836,7 @@ private fun AlbumDetailContent(
 private val AlbumHeaderTopPadding = 4.dp
 
 // Room the title leaves the stamp, besides the stamp itself.
-private val AlbumBarTitleGap = 12.dp
+internal val AlbumBarTitleGap = 12.dp
 
 @Composable
 private fun AlbumTopHeader(
@@ -981,7 +980,7 @@ internal fun AlbumBarHeaderTwin(
  * The real header over the bar: drawn as usual beside it, faded out inside it
  * as the white twin fades in on top (so the two never stack into a dark rim).
  */
-private fun Modifier.albumBarHeaderFade(progress: () -> Float, bar: () -> Rect): Modifier = drawWithContent {
+internal fun Modifier.albumBarHeaderFade(progress: () -> Float, bar: () -> Rect): Modifier = drawWithContent {
     val t = progress()
     if (t <= 0f) {
         drawContent()
@@ -1212,20 +1211,45 @@ private fun AlbumHeroMetaBlocks(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                AlbumSectionLabel(text = stringResource(R.string.detail_album_last_play))
+            Column {
+                AlbumSectionLabel(
+                    text = stringResource(R.string.detail_album_last_play),
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
                 val resources = LocalContext.current.resources
                 val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it, resources) }
-                Text(
-                    text = labels?.first ?: stringResource(R.string.detail_album_never),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                if (labels != null) {
+                // The first play on this page turns "Never" into a date and adds
+                // the time row: the text crossfades and the row grows in, so the
+                // hero doesn't jump a line taller in one frame.
+                AnimatedContent(
+                    targetState = labels?.first ?: stringResource(R.string.detail_album_never),
+                    transitionSpec = {
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                    },
+                    label = "albumLastPlayDay",
+                ) { day ->
                     Text(
-                        text = labels.second,
+                        text = day,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                // Keeps the time it last showed while it leaves.
+                val shownTime = remember { mutableStateOf("") }.apply { labels?.let { value = it.second } }
+                AnimatedVisibility(
+                    visible = labels != null,
+                    enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                    exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                ) {
+                    // The gap rides inside the row so it grows in with it.
+                    Text(
+                        text = shownTime.value,
                         style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }

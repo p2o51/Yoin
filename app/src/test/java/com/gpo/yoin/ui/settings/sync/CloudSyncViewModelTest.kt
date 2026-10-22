@@ -8,6 +8,7 @@ import app.cash.turbine.test
 import com.gpo.yoin.data.sync.CloudSyncController
 import com.gpo.yoin.data.sync.CloudSyncPhase
 import com.gpo.yoin.data.sync.TurnOnStep
+import com.gpo.yoin.data.sync.auth.GoogleAccountPick
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
@@ -39,6 +40,41 @@ class CloudSyncViewModelTest {
         assertEquals(listOf("beginTurnOn"), fake.calls)
         assertFalse(viewModel.turningOn.value)
         assertTrue(viewModel.state.value.enabled)
+    }
+
+    @Test
+    fun should_askForTheAccountFirst_when_theSignInSheetIsConfigured() = runTest {
+        val vm = CloudSyncViewModel(fake, CoroutineScope(Dispatchers.Unconfined), accountPickerEnabled = true)
+        vm.events.test {
+            vm.turnOn()
+            assertEquals(CloudSyncEvent.PickAccount, awaitItem())
+            assertTrue(vm.turningOn.value)
+            vm.onAccountPicked(GoogleAccountPick.Picked("listener@gmail.com"))
+            expectNoEvents()
+        }
+        assertEquals(listOf("beginTurnOn(listener@gmail.com)"), fake.calls)
+        assertFalse(vm.turningOn.value)
+    }
+
+    @Test
+    fun should_stopQuietly_when_theAccountSheetIsClosed() = runTest {
+        val vm = CloudSyncViewModel(fake, CoroutineScope(Dispatchers.Unconfined), accountPickerEnabled = true)
+        vm.events.test {
+            vm.turnOn()
+            awaitItem()
+            vm.onAccountPicked(GoogleAccountPick.Canceled)
+            expectNoEvents()
+        }
+        assertEquals(emptyList<String>(), fake.calls)
+        assertFalse(vm.turningOn.value)
+    }
+
+    @Test
+    fun should_fallBackToGooglesChooser_when_theAccountSheetIsUnavailable() = runTest {
+        val vm = CloudSyncViewModel(fake, CoroutineScope(Dispatchers.Unconfined), accountPickerEnabled = true)
+        vm.turnOn()
+        vm.onAccountPicked(GoogleAccountPick.Unavailable)
+        assertEquals(listOf("beginTurnOn"), fake.calls)
     }
 
     @Test
@@ -146,7 +182,7 @@ class CloudSyncViewModelTest {
     @Test
     fun should_showGenericMessage_when_theControllerThrows() = runTest {
         val throwing = object : CloudSyncController by fake {
-            override suspend fun beginTurnOn(): TurnOnStep = throw IOException("GET /drive/v3?access_token=secret")
+            override suspend fun beginTurnOn(accountEmail: String?): TurnOnStep = throw IOException("GET /drive/v3?access_token=secret")
         }
         val vm = CloudSyncViewModel(throwing, CoroutineScope(Dispatchers.Unconfined))
 

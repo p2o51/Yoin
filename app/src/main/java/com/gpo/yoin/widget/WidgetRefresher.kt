@@ -8,7 +8,6 @@ import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.gpo.yoin.AppContainer
-import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
@@ -81,10 +80,15 @@ internal object WidgetRefresher {
 
 /**
  * MainActivity's side of [WidgetIntents]: a widget tap lands on the shell, which then shows the target — a
- * detail page pushed over it (so back returns to Home), or Memories opened at that memory.
+ * detail routed by the resumed shell (a Wide column or a pushed page), or Memories at that memory.
  */
 internal object WidgetLaunch {
-    fun handle(activity: android.app.Activity, intent: Intent?, container: AppContainer): Boolean {
+    fun handle(
+        activity: android.app.Activity,
+        intent: Intent?,
+        container: AppContainer,
+        onDetailRequest: (WidgetDetailRequest) -> Unit,
+    ): Boolean {
         intent ?: return false
         when (intent.action) {
             WidgetIntents.ACTION_OPEN_MEMORY -> {
@@ -96,17 +100,18 @@ internal object WidgetLaunch {
                 store.setHomeSurface(HomeSurface.Memories)
             }
             WidgetIntents.ACTION_OPEN_DETAIL -> {
-                val entity = intent.getStringExtra(WidgetIntents.EXTRA_ENTITY)
-                    ?.let { runCatching { WidgetEntity.valueOf(it) }.getOrNull() } ?: return false
-                val id = MediaId.parseOrNull(intent.getStringExtra(WidgetIntents.EXTRA_ID)) ?: return false
-                val target = when (entity) {
-                    WidgetEntity.ALBUM -> AlbumDetailActivity.intent(activity, id.toString())
-                    WidgetEntity.PLAYLIST -> PlaylistDetailActivity.intent(activity, id.toString())
-                    WidgetEntity.ARTIST -> ArtistDetailActivity.intent(activity, id.toString())
+                val request = WidgetDetailRequest.parse(
+                    intent.getStringExtra(WidgetIntents.EXTRA_ENTITY),
+                    intent.getStringExtra(WidgetIntents.EXTRA_ID),
+                ) ?: return false
+                val target = when (request.entity) {
+                    WidgetEntity.ALBUM -> AlbumDetailActivity.intent(activity, request.id.toString())
+                    WidgetEntity.PLAYLIST -> PlaylistDetailActivity.intent(activity, request.id.toString())
+                    WidgetEntity.ARTIST -> ArtistDetailActivity.intent(activity, request.id.toString())
                 }
                 // The page's load starts now, not once its Activity is up (ui/detail/DetailPrefetch.kt).
                 prefetchOnceSourceIsUp(activity, container, target)
-                activity.startActivity(target)
+                onDetailRequest(request)
             }
             else -> return false
         }

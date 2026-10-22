@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistUnreadableItem
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -260,6 +261,12 @@ internal fun SpotifySearchResponse.toSearchResults(
     },
     playlists = playlists?.items.orEmpty().mapNotNull { playlist ->
         playlist?.let { runCatching { it.toPlaylist(canWrite = false) }.getOrNull() }
+    },
+    more = buildSet {
+        if (tracks?.next != null) add(SearchResultType.Tracks)
+        if (albums?.next != null) add(SearchResultType.Albums)
+        if (artists?.next != null) add(SearchResultType.Artists)
+        if (playlists?.next != null) add(SearchResultType.Playlists)
     },
 )
 
