@@ -1,5 +1,6 @@
 package com.gpo.yoin.player.applemusic
 
+import com.gpo.yoin.player.OpenNowPlayingActivity
 import android.content.Intent
 import android.os.Bundle
 import androidx.media3.common.MediaItem
@@ -68,6 +69,7 @@ class AppleMusicPlaybackService : MediaSessionService() {
             )
             session = MediaSession.Builder(this, player)
                 .setId("apple-music")
+                .setSessionActivity(OpenNowPlayingActivity.pendingIntent(this))
                 .setCallback(CatalogItemsCallback(quickActions.callback))
                 .build()
                 .also(quickActions::attach)

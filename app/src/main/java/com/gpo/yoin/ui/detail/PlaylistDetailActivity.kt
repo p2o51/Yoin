@@ -1,5 +1,9 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
+import androidx.compose.ui.res.stringResource
+import com.gpo.yoin.ui.settings.backup.PlaylistBackupActivity
+import androidx.compose.material3.SnackbarResult
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -47,7 +51,7 @@ import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
  * Standalone Activity for a playlist detail page. Unlike the shell-hosted
  * version, it owns its OWN [NowPlayingViewModel] + AddToPlaylist sheet +
  * snackbar (the shell's instances live in another window now). Delete leaves
- * via finish() instead of a back-stack pop.
+ * through the page's normal back-collapse choreography.
  */
 class PlaylistDetailActivity : ComponentActivity() {
     private val detailLaunchGate = DetailActivityLaunchGate()
@@ -89,6 +93,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
+                val backingUp by viewModel.backingUp.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
@@ -99,11 +104,21 @@ class PlaylistDetailActivity : ComponentActivity() {
                         snackbarHostState.showSnackbar(message.asString(context), duration = SnackbarDuration.Short)
                     }
                 }
-                // Leave on successful delete.
+                // A backup made: View opens it.
+                val viewBackupLabel = stringResource(R.string.detail_playlist_backup_view)
                 LaunchedEffect(viewModel) {
-                    viewModel.deleted.collect { finish() }
+                    viewModel.backedUp.collect { done ->
+                        val result = snackbarHostState.showSnackbar(
+                            message = done.message.asString(context),
+                            actionLabel = viewBackupLabel,
+                            // Long enough to reach View (a short one went before the thumb got there on the tablet).
+                            duration = SnackbarDuration.Long,
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            context.startActivity(PlaylistBackupActivity.intent(context, done.backupId))
+                        }
+                    }
                 }
-
                 // Shared play path: optional shuffle, with a stable playlist
                 // ActivityContext. The cover is the playlist's OWN art —
                 // a track cover only when the playlist has none — so the Home
@@ -142,6 +157,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                     factory = NowPlayingViewModel.Factory(app.container),
                 )
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+                // The system media controls' tap, while this page is in front.
+                TakeNowPlayingRequests(app.container.experienceSessionStore) { nowPlayingOpen = true }
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
@@ -183,6 +200,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                                 endShellHandoff()
                                 finish()
                             },
+                            leavePageRequests = viewModel.deleted,
                             morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
                                 intent.getBooleanExtra(DETAIL_EXTRA_BAR_MORPH, false),
                             bridgeBackToShell = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
@@ -200,6 +218,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                             onRetry = viewModel::retry,
                             onRename = viewModel::rename,
                             onDelete = viewModel::delete,
+                            onBackUp = viewModel::backUp.takeIf { viewModel.canBackUp },
+                            backingUp = backingUp,
                             onShare = {
                                 val text = (uiState as? PlaylistDetailUiState.Content)
                                     ?.playlistName

@@ -243,7 +243,7 @@ class NowPlayingViewModelUpNextTest {
     fun should_resolveTheNextTrack_when_theBackendOrQueueKnowsIt() {
         assertEquals(c, playing(a, next = c).resolvedNextTrack())
         assertEquals(b, playing(a, next = null).resolvedNextTrack())
-        assertNull(playing(c, next = null).resolvedNextTrack())
+        assertNull(playing(c, next = null).copy(repeatMode = Player.REPEAT_MODE_OFF).resolvedNextTrack())
         assertEquals(a, playing(c, next = null).copy(repeatMode = Player.REPEAT_MODE_ALL).resolvedNextTrack())
         assertNull(playing(a, next = null).copy(repeatMode = Player.REPEAT_MODE_ONE).resolvedNextTrack())
         assertNull(playing(a, next = null).copy(shuffleEnabled = true).resolvedNextTrack())

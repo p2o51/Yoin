@@ -10,6 +10,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.sync.CloudSyncController
 import com.gpo.yoin.data.sync.CloudSyncState
 import com.gpo.yoin.data.sync.TurnOnStep
+import com.gpo.yoin.data.sync.auth.GoogleAccountPick
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,6 +24,9 @@ import kotlinx.coroutines.launch
 
 /** One-shot things the page must do for the ViewModel. */
 sealed interface CloudSyncEvent {
+    /** Show the Sign in with Google account sheet; its answer goes to [CloudSyncViewModel.onAccountPicked]. */
+    data object PickAccount : CloudSyncEvent
+
     /** Show Google's consent / account sheet (turn on, reconnect). */
     data class LaunchConsent(val intentSender: IntentSender) : CloudSyncEvent
 
@@ -42,6 +46,8 @@ class CloudSyncViewModel(
     private val controller: CloudSyncController,
     private val actionScope: CoroutineScope = ControllerCallScope,
     private val resources: Resources? = null,
+    /** Pick the account on the Sign in with Google sheet first (a web client ID is configured). */
+    private val accountPickerEnabled: Boolean = false,
 ) : ViewModel() {
     val state: StateFlow<CloudSyncState> = controller.state
 
@@ -65,9 +71,28 @@ class CloudSyncViewModel(
     fun turnOn() {
         if (_turningOn.value) return
         _turningOn.value = true
+        if (accountPickerEnabled) {
+            _events.trySend(CloudSyncEvent.PickAccount)
+        } else {
+            beginTurnOn(accountEmail = null)
+        }
+    }
+
+    /** The Sign in with Google sheet's answer, from the page. */
+    fun onAccountPicked(pick: GoogleAccountPick) {
+        when (pick) {
+            is GoogleAccountPick.Picked -> beginTurnOn(pick.email)
+            GoogleAccountPick.Canceled -> _turningOn.value = false
+            // The sheet couldn't run here: AuthorizationClient's own chooser still can.
+            GoogleAccountPick.Unavailable -> beginTurnOn(accountEmail = null)
+        }
+    }
+
+    private fun beginTurnOn(accountEmail: String?) {
+        _turningOn.value = true
         actionScope.launch {
             // A throw is a controller bug, not a user-facing reason: never show its raw text.
-            val step = runCatching { controller.beginTurnOn() }
+            val step = runCatching { controller.beginTurnOn(accountEmail) }
                 .getOrElse { TurnOnStep.Failed(turnOnFailedMessage()) }
             handle(step)
         }
@@ -157,10 +182,11 @@ class CloudSyncViewModel(
     class Factory(
         private val controller: CloudSyncController,
         private val resources: Resources,
+        private val accountPickerEnabled: Boolean = false,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            CloudSyncViewModel(controller, resources = resources) as T
+            CloudSyncViewModel(controller, resources = resources, accountPickerEnabled = accountPickerEnabled) as T
     }
 
     private fun turnOnFailedMessage(): String = resources?.getString(R.string.settings_sync_turn_on_failed)

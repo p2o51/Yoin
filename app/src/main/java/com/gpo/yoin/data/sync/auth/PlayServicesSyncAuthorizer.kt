@@ -59,7 +59,10 @@ class PlayServicesSyncAuthorizer(context: Context) : GoogleSyncAuthorizer {
         return SilentAuthPolicy.choose(pinned, fallback)
     }
 
-    override suspend fun authorizeInteractively(): GoogleAuthResult {
+    override suspend fun authorizeInteractively(accountEmail: String?): GoogleAuthResult {
+        accountEmail?.trim()?.takeIf { it.isNotEmpty() }?.let { email ->
+            return guarded { authorize(driveRequest { setAccount(Account(email, GOOGLE_ACCOUNT_TYPE)) }) }
+        }
         val prompted = try {
             guarded(rethrowUnsupported = true) {
                 authorize(driveRequest { setPrompt(AuthorizationRequest.Prompt.SELECT_ACCOUNT) })

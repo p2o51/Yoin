@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -78,6 +79,8 @@ class SpotifyApiClient(
      * ([Lane.Control]).
      */
     private val readPermits: Semaphore = SHARED_READ_PERMITS,
+    /** The Client ID this build ships with, against which a failure says whose app its tokens belong to. */
+    private val builtInClientId: String = SpotifyAuthConfig.FALLBACK_CLIENT_ID,
 ) {
 
     @Volatile
@@ -104,40 +107,49 @@ class SpotifyApiClient(
      */
     suspend fun getCurrentUserId(): String = cachedUserId ?: getMe().id
 
-    suspend fun getSavedTracks(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifySavedTrackObject> =
-        collectOffsetPages(
-            initialUrl = apiUrl("v1", "me", "tracks")
-                .newBuilder()
-                .addQueryParameter("limit", PAGE_LIMIT.toString())
-                .build(),
+    suspend fun getSavedTracks(limit: Int = SAVED_TRACKS_LIMIT): List<SpotifySavedTrackObject> =
+        collectOffsetPagesConcurrently(
+            firstPage = null,
+            pageUrl = { offset ->
+                apiUrl("v1", "me", "tracks")
+                    .newBuilder()
+                    .addQueryParameter("limit", PAGE_LIMIT.toString())
+                    .addOffset(offset)
+                    .build()
+            },
+            pageSize = PAGE_LIMIT,
             maxItems = limit,
             deserializer = SpotifyPagingObject.serializer(SpotifySavedTrackObject.serializer()),
-            items = { page -> page.items },
-            next = { page -> page.next },
         )
 
     suspend fun getSavedAlbums(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifySavedAlbumObject> =
-        collectOffsetPages(
-            initialUrl = apiUrl("v1", "me", "albums")
-                .newBuilder()
-                .addQueryParameter("limit", PAGE_LIMIT.toString())
-                .build(),
+        collectOffsetPagesConcurrently(
+            firstPage = null,
+            pageUrl = { offset ->
+                apiUrl("v1", "me", "albums")
+                    .newBuilder()
+                    .addQueryParameter("limit", PAGE_LIMIT.toString())
+                    .addOffset(offset)
+                    .build()
+            },
+            pageSize = PAGE_LIMIT,
             maxItems = limit,
             deserializer = SpotifyPagingObject.serializer(SpotifySavedAlbumObject.serializer()),
-            items = { page -> page.items },
-            next = { page -> page.next },
         )
 
     suspend fun getCurrentUserPlaylists(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifyPlaylistObject> =
-        collectOffsetPages(
-            initialUrl = apiUrl("v1", "me", "playlists")
-                .newBuilder()
-                .addQueryParameter("limit", PAGE_LIMIT.toString())
-                .build(),
+        collectOffsetPagesConcurrently(
+            firstPage = null,
+            pageUrl = { offset ->
+                apiUrl("v1", "me", "playlists")
+                    .newBuilder()
+                    .addQueryParameter("limit", PAGE_LIMIT.toString())
+                    .addOffset(offset)
+                    .build()
+            },
+            pageSize = PAGE_LIMIT,
             maxItems = limit,
             deserializer = SpotifyPagingObject.serializer(SpotifyPlaylistObject.serializer()),
-            items = { page -> page.items },
-            next = { page -> page.next },
         )
 
     suspend fun getFollowedArtists(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifyArtistObject> =
@@ -266,13 +278,16 @@ class SpotifyApiClient(
     suspend fun search(
         query: String,
         limitPerType: Int = DEFAULT_SEARCH_LIMIT,
+        types: String = "track,album,artist,playlist",
+        offset: Int = 0,
     ): SpotifySearchResponse = withContext(Dispatchers.IO) {
         getDecoded(
             url = apiUrl("v1", "search")
                 .newBuilder()
                 .addQueryParameter("q", query)
-                .addQueryParameter("type", "track,album,artist,playlist")
+                .addQueryParameter("type", types)
                 .addQueryParameter("limit", limitPerType.coerceIn(0, MAX_SEARCH_LIMIT).toString())
+                .addOffset(offset)
                 .build(),
             deserializer = SpotifySearchResponse.serializer(),
         )
@@ -285,6 +300,15 @@ class SpotifyApiClient(
             deserializer = SpotifyDevicesResponse.serializer(),
             lane = Lane.Control,
         ).devices
+    }
+
+    // Read after a start or an Add to queue, so it doesn't queue behind library reads.
+    suspend fun getQueue(): SpotifyQueueResponse = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "me", "player", "queue"),
+            deserializer = SpotifyQueueResponse.serializer(),
+            lane = Lane.Control,
+        )
     }
 
     /**
@@ -513,7 +537,7 @@ class SpotifyApiClient(
                 .awaitResponse(::recordRateLimitBackoff)
         }.use { response ->
             if (!response.isSuccessful) {
-                throw response.toSpotifyFailure(url.toString())
+                throw response.toSpotifyFailure(url)
             }
         }
     }
@@ -528,9 +552,9 @@ class SpotifyApiClient(
         response.use {
             val body = it.body.string()
             if (!it.isSuccessful) {
-                throw it.toSpotifyFailure(url.toString())
+                throw it.toSpotifyFailure(url, body)
             }
-            return JSON.decodeFromString(deserializer, body)
+            return decodeResponse(deserializer, body, it)
         }
     }
 
@@ -541,7 +565,7 @@ class SpotifyApiClient(
     ) {
         executeJsonRequest(method, url, jsonBody).use { response ->
             if (!response.isSuccessful) {
-                throw response.toSpotifyFailure(url.toString())
+                throw response.toSpotifyFailure(url)
             }
         }
     }
@@ -666,10 +690,10 @@ class SpotifyApiClient(
                 }
                 response.use {
                     if (!it.isSuccessful) {
-                        throw it.toSpotifyFailure(url.toString())
+                        throw it.toSpotifyFailure(url)
                     }
                     val body = it.body.string()
-                    JSON.decodeFromString(deserializer, body)
+                    decodeResponse(deserializer, body, it)
                 }
             } catch (error: IOException) {
                 // Call.cancel aborts a blocking body read with IOException; preserve coroutine cancellation.
@@ -681,19 +705,45 @@ class SpotifyApiClient(
             }
         }
 
-    private fun Response.toSpotifyFailure(endpoint: String): Throwable {
+    /**
+     * [errorBody] is the body when the caller already read it; otherwise a bounded peek reads Spotify's reason
+     * without consuming the response.
+     */
+    private fun Response.toSpotifyFailure(url: HttpUrl, errorBody: String? = null): Throwable {
         if (code == HTTP_TOO_MANY_REQUESTS) {
             // The gate was already closed when the 429's response callback ran.
             return SpotifyRateLimitException(
                 retryAfterSeconds = retryAfterSeconds(),
-                endpoint = endpoint,
+                endpoint = url.toString(),
             )
         }
+        val body = errorBody ?: runCatching { peekBody(MAX_ERROR_BODY_BYTES).string() }.getOrNull()
         return SpotifyAuthException(
             code = code,
             message = "Spotify request failed: $code",
+            request = spotifyRequestTemplate(request.method, url),
+            reason = spotifyErrorReason(body),
+            clientIdKind = clientIdKind(),
         )
     }
+
+    /** A 2xx body that doesn't fit [deserializer] fails as a [SpotifyResponseDecodeException] naming the request. */
+    private fun <T> decodeResponse(deserializer: KSerializer<T>, body: String, response: Response): T = try {
+        JSON.decodeFromString(deserializer, body)
+    } catch (error: SerializationException) {
+        throw SpotifyResponseDecodeException(
+            request = spotifyRequestTemplate(response.request.method, response.request.url),
+            clientIdKind = clientIdKind(),
+            cause = error,
+        )
+    }
+
+    /**
+     * Whose app the current tokens belong to, from the Client ID they were issued under — not the global
+     * setting, which may have changed since. Null (unknown) for credentials saved before it was recorded.
+     */
+    private fun clientIdKind(): SpotifyClientIdKind? =
+        credentials.clientId?.let { SpotifyClientIdKind.of(it, builtInClientId) }
 
     private fun Response.retryAfterSeconds(): Long = header(HEADER_RETRY_AFTER)
         ?.toLongOrNull()
@@ -801,6 +851,8 @@ class SpotifyApiClient(
                 refreshToken = response.refreshToken ?: inside.refreshToken,
                 expiresAtEpochMs = now() + response.expiresInSec * 1_000,
                 scopes = response.scope?.split(' ')?.filter { it.isNotBlank() } ?: inside.scopes,
+                // The refresh token only refreshes under the app that issued it.
+                clientId = clientId,
                 // Successful refresh implicitly clears any prior revoked
                 // marker — the credentials are alive again.
                 revoked = false,
@@ -823,16 +875,21 @@ class SpotifyApiClient(
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_TOO_MANY_REQUESTS = 429
         private const val HEADER_RETRY_AFTER = "Retry-After"
+        private const val MAX_ERROR_BODY_BYTES = 4_096L
         private const val DEFAULT_RETRY_AFTER_SECONDS = 5L
         private const val MAX_RETRY_AFTER_SECONDS = 24L * 60L * 60L
         private const val REFRESH_BUFFER_MS = 60_000L
         private const val MAX_CONCURRENT_READS = 4
         private const val PAGE_LIMIT = 50
         private const val ARTIST_ALBUMS_PAGE_LIMIT = 10
-        private const val ARTIST_ALBUMS_LIMIT = 60
+        private const val ARTIST_ALBUMS_LIMIT = 100
         private const val RECENTLY_PLAYED_LIMIT = 50
-        private const val DEFAULT_COLLECTION_LIMIT = 200
-        private const val DEFAULT_TRACKS_LIMIT = 300
+        // Library reads (Gemini review 2026-10-20: 200 hid a large library's rest
+        // without a word). The pages go out side by side once the first names the
+        // total, four at a time ([readPermits]).
+        private const val SAVED_TRACKS_LIMIT = 2_000
+        private const val DEFAULT_COLLECTION_LIMIT = 1_000
+        private const val DEFAULT_TRACKS_LIMIT = 1_000
         private const val MAX_SEARCH_LIMIT = 10
         private const val DEFAULT_SEARCH_LIMIT = MAX_SEARCH_LIMIT
 

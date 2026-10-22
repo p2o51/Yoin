@@ -58,6 +58,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -865,6 +866,9 @@ class YoinRepository(
 
     suspend fun search(query: String): SearchResults =
         requireSource().library().search(query)
+
+    suspend fun searchMore(query: String, type: SearchResultType, offset: Int): SearchResults =
+        requireSource().library().searchMore(query, type, offset)
 
     suspend fun searchCurrentLibrary(query: String): SearchResults =
         requireSource().library().searchLibrary(query)

@@ -231,7 +231,7 @@ class CloudSyncManager(
 
     // ---- CloudSyncController
 
-    override suspend fun beginTurnOn(): TurnOnStep = withIo {
+    override suspend fun beginTurnOn(accountEmail: String?): TurnOnStep = withIo {
         ensureInitialized()
         if (debugConfig == null) {
             when (authorizer.availability()) {
@@ -246,7 +246,7 @@ class CloudSyncManager(
                 }
             }
         }
-        handleAuthResult(authorizer.authorizeInteractively())
+        handleAuthResult(authorizer.authorizeInteractively(accountEmail))
     }
 
     override suspend fun completeTurnOn(resultCode: Int, data: Intent?): TurnOnStep = withIo {
@@ -975,6 +975,7 @@ class CloudSyncManager(
             "memory_copy_cache",
             "song_about_entries",
             "album_memory_titles",
+            "playlist_backups",
             "profiles",
         )
 

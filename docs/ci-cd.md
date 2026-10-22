@@ -76,11 +76,20 @@ files are gitignored. CI and Release fetch them from the
 which checks their SHA-256 against [`app/libs/README-apple-music.md`](../app/libs/README-apple-music.md).
 
 - `CI_ASSETS_TOKEN` expires (fine-grained tokens last at most a year). When it
-  does, every CI job fails at "Fetch Apple MusicKit SDK"; create a new token with
-  the same scope and replace the secret.
-- Dependabot PRs don't receive repository secrets, so their CI fails at that
-  step. Add the same token under **Secrets and variables → Dependabot** if those
-  PRs should go green.
+  does, every CI job that builds the app fails at "Fetch Apple MusicKit SDK" with
+  a "may have expired" error; create a new token with the same scope and replace
+  the secret.
+- Fork PRs and Dependabot PRs don't receive repository secrets. The `MusicKit
+  access` job notices this, and CI then runs only ktlint: unit tests, Android
+  Lint and the debug build are skipped with a warning in the run summary. On a
+  push or a same-repo PR, a missing token fails the run instead. To have
+  Dependabot PRs fully checked, add the same token under **Secrets and variables →
+  Dependabot**.
+
+Unit tests cache Robolectric's android-all jars (`~/.m2/repository/org/robolectric`),
+keyed on the Robolectric version in `gradle/libs.versions.toml`. Robolectric
+downloads them from Maven Central on first use, and an uncached download
+occasionally fails mid-run.
 - Upgrading the SDK: upload the new AARs as a new release in `yoin-ci-assets`,
   then update the tag and the sums in the action, `app/build.gradle.kts` and the README.
 

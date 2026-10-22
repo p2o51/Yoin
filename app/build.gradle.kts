@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.ktlint)
     id("yoin.musickit-large-id")
+    id("yoin.musickit-relro")
 }
 
 val releaseKeystorePropertiesFile = (
@@ -60,6 +61,12 @@ android {
 
         val spotifyClientId = (project.findProperty("spotifyClientId") as String?).orEmpty()
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
+
+        // Web OAuth client ID from the same Google Cloud project as the Android clients (public, not a
+        // secret). -PgoogleWebClientId= (blank) keeps Cloud sync on the AuthorizationClient chooser alone.
+        val googleWebClientId = (project.findProperty("googleWebClientId") as String?)
+            ?: "747031130557-pnsffrq2rbmrhn5jq6ipamcdgtb5b6p3.apps.googleusercontent.com"
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
     }
 
     androidResources {
@@ -169,7 +176,8 @@ ktlint {
 
 dependencies {
     implementation(files("libs/musickitauth-release-1.1.2.aar"))
-    implementation(files("libs/mediaplayback-release-1.1.1.aar"))
+    // libs/ playback AAR with its 64-bit native libraries patched for 16 KB pages (build-logic MusicKitRelroPlugin)
+    implementation(files(tasks.named<PatchMusicKitRelro>("patchMusicKitRelro").flatMap { it.patchedAar }))
     // Compose BOM
     val composeBom = platform(libs.compose.bom)
     implementation(composeBom)
@@ -218,6 +226,10 @@ dependencies {
         // Declared by the 22.0.0 POM but referenced by no Play services class; sync has its own Task.await().
         exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-play-services")
     }
+    // Sign in with Google account sheet shown before the Drive consent (needs googleWebClientId)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     // Networking
     implementation(libs.okhttp)

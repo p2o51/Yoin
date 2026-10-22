@@ -41,7 +41,6 @@
     <string name="detail_playlist_deleted">Playlist deleted</string>
     <string name="detail_playlist_error_delete">Couldn\'t delete playlist</string>
     <string name="detail_playlist_error_remove">Couldn\'t remove track</string>
-    <string name="detail_provider_local">Local</string>
 
     <!-- Album page -->
     <string name="detail_album_go_to_artist">Go to artist</string>
@@ -55,9 +54,6 @@
         <item quantity="one">%1$d day ago</item>
         <item quantity="other">%1$d days ago</item>
     </plurals>
-    <string name="detail_album_notes">Notes</string>
-    <string name="detail_album_no_notes">No notes yet</string>
-    <string name="detail_album_note_cross">%1$s: %2$s</string>
     <string name="detail_album_cd_edit_comment">Edit comment</string>
     <string name="detail_album_cd_write_comment">Write a comment</string>
     <string name="detail_album_rate">Rate</string>
@@ -152,6 +148,7 @@
     <string name="detail_playlist_cancel_rename">Cancel</string>
     <string name="detail_playlist_empty_hero">This playlist is empty.</string>
     <string name="detail_playlist_empty_list">This playlist is empty.</string>
+    <string name="detail_playlist_tracks_unavailable">Spotify only shows this app the songs of playlists you made or collaborate on. To play this one, open it in Spotify from the ▾ menu.</string>
     <string name="detail_playlist_length">Length</string>
     <plurals name="detail_playlist_tracks">
         <item quantity="one">%1$d track</item>
@@ -220,4 +217,20 @@
     <string name="detail_scrap_receipt_date" translatable="false">Mar 14</string>
     <string name="detail_scrap_receipt_date_year" translatable="false">Mar 14, 2025</string>
     <string name="detail_scrap_q" translatable="false">Q</string>
+    <string name="track_menu_go_to_album">Go to album</string>
+    <string name="track_menu_go_to_artist">Go to artist</string>
+    <string name="track_menu_share">Share</string>
+    <string name="track_menu_view_in_scrapbook">View in Scrapbook</string>
+    <!-- Playlist "Back up" (docs/playlist-transfer.md §7) -->
+    <string name="detail_playlist_backup_menu">Cloud backup</string>
+    <plurals name="detail_playlist_backup_done">
+        <item quantity="one">Backed up %1$d song</item>
+        <item quantity="other">Backed up %1$d songs</item>
+    </plurals>
+    <plurals name="detail_playlist_backup_partial">
+        <item quantity="one">Backed up %1$d of %2$d song</item>
+        <item quantity="other">Backed up %1$d of %2$d songs</item>
+    </plurals>
+    <string name="detail_playlist_backup_failed">Couldn\'t back up the playlist</string>
+    <string name="detail_playlist_backup_view">View</string>
 </resources>

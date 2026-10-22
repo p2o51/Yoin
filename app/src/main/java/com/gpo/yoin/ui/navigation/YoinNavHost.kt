@@ -1,5 +1,9 @@
 package com.gpo.yoin.ui.navigation
 
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
+import com.gpo.yoin.widget.TakeWidgetDetailRequest
+import com.gpo.yoin.widget.WidgetDetailRequest
+import com.gpo.yoin.widget.WidgetEntity
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -89,6 +93,7 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.perf.YoinPerf
+import com.gpo.yoin.player.PlayableQueue
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.player.startWindowQueue
@@ -96,6 +101,7 @@ import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.rememberNeutralPageWash
 import com.gpo.yoin.ui.component.LocalSharedPageBackground
 import com.gpo.yoin.ui.component.YoinChromeGroup
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
@@ -195,8 +201,10 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun YoinNavHost(
+internal fun YoinNavHost(
     modifier: Modifier = Modifier,
+    widgetDetailRequest: WidgetDetailRequest? = null,
+    onWidgetDetailConsumed: (WidgetDetailRequest) -> Boolean = { false },
 ) {
     SharedTransitionLayout(modifier = modifier) {
         val sharedTransitionScope = this
@@ -295,6 +303,8 @@ fun YoinNavHost(
                                 libraryViewModel = libraryViewModel,
                                 memoriesViewModel = memoriesViewModel,
                                 nowPlayingViewModel = nowPlayingViewModel,
+                                widgetDetailRequest = widgetDetailRequest,
+                                onWidgetDetailConsumed = onWidgetDetailConsumed,
                                 // Detail pages are now separate Activities — launch
                                 // them so back navigation plays the device-native
                                 // cross-Activity predictive back. sharedTransitionKey
@@ -350,6 +360,8 @@ private fun YoinShell(
     libraryViewModel: LibraryViewModel,
     memoriesViewModel: MemoriesViewModel,
     nowPlayingViewModel: NowPlayingViewModel,
+    widgetDetailRequest: WidgetDetailRequest?,
+    onWidgetDetailConsumed: (WidgetDetailRequest) -> Boolean,
     onNavigateToSettings: (focusSection: String?) -> Unit,
     onNavigateToAlbum: (String, String?) -> Unit,
     onNavigateToArtist: (String, String?) -> Unit,
@@ -466,6 +478,11 @@ private fun YoinShell(
     // Home edit mode: the only writer of the Edit surface and its progress P.
     // Hoisted here so back, the bar and every exit trigger below reach it.
     val homeEdit = rememberHomeEditController(experienceSessionStore, homeViewModel)
+    // The system media controls' tap, while the shell is in front.
+    TakeNowPlayingRequests(experienceSessionStore) {
+        homeEdit.snapExit()
+        experienceSessionStore.setNowPlayingExpanded(true)
+    }
     LaunchedEffect(homeEdit) {
         homeViewModel.homeLayout.collect(homeEdit::onVmLayout)
     }
@@ -754,6 +771,25 @@ private fun YoinShell(
         }
     }
 
+    // External widget taps use the very same column / Activity decision and
+    // origin-sensitive bar choreography as taps inside the shell. Keep a
+    // request pending through a pause or another detail's return settle.
+    TakeWidgetDetailRequest(
+        request = widgetDetailRequest,
+        enabled = hasDetailPane || (
+            !detailLaunchPending && experienceSessionStore.detailBackPhase.value == DetailBackPhase.Idle
+        ),
+        canOpen = { hasDetailPane || canLaunchDetail() },
+        onConsumed = onWidgetDetailConsumed,
+        onOpen = { request ->
+            when (request.entity) {
+                WidgetEntity.ALBUM -> navigateToAlbumFromShell(request.id.toString(), null)
+                WidgetEntity.ARTIST -> navigateToArtistFromShell(request.id.toString(), null)
+                WidgetEntity.PLAYLIST -> navigateToPlaylistFromShell(request.id.toString(), null)
+            }
+        },
+    )
+
     // Leaving the Wide tier with a column open (rotating a tablet to portrait,
     // a window snapped narrower): the column cannot exist there, so it is gone
     // before the next frame and its top page continues as the pushed window
@@ -916,7 +952,10 @@ private fun YoinShell(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            // The pages' own neutral wash, not a flat background: the shell
+            // shows through beside the Now Playing panel's rounded corners,
+            // and a flat fill there read as a dark notch (Discord, 10-18).
+            .background(rememberNeutralPageWash()),
     ) {
         // The columns region: everything beside the Now Playing panel. The
         // shell column takes what the detail column (gutter + page) leaves,
@@ -1172,6 +1211,7 @@ private fun YoinShell(
                                 }
                             },
                             onSongsListClick = { _, queue, index -> app.container.playSongsList(queue, index) },
+                            onSearchSongClick = { _, queue, index -> app.container.playSearchResults(queue, index) },
                             onAddSongToPlaylist = { song ->
                                 nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                             },
@@ -1576,7 +1616,7 @@ internal fun trackCoverArtId(track: Track): String? =
  */
 internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
     val source = profileManager.activeSource.value ?: return
-    val window = startWindowQueue(queue, startIndex)
+    val window = startQueueFor(source.id, queue, startIndex)
     val activityContext = if (ServiceFeatureCatalog.forProvider(source.id).favoritesAreLibrary) {
         // The collection's cover, as Favorites gives it: the newest like's.
         ActivityContext.LikedSongs(coverArtId = queue.firstOrNull()?.let(::trackCoverArtId))
@@ -1585,6 +1625,26 @@ internal fun AppContainer.playSongsList(queue: List<Track>, startIndex: Int) {
     }
     playbackManager.play(window.tracks, window.startIndex, source, activityContext)
 }
+
+/**
+ * A search result's song, with the songs found with it next (Gemini review
+ * 2026-10-20: it used to play alone and stop). They come from no album or
+ * playlist: nothing to say they play from.
+ */
+internal fun AppContainer.playSearchResults(songs: List<Track>, startIndex: Int) {
+    val source = profileManager.activeSource.value ?: return
+    if (startIndex !in songs.indices) return
+    val window = startQueueFor(source.id, songs, startIndex)
+    playbackManager.play(window.tracks, window.startIndex, source, ActivityContext.None)
+}
+
+/**
+ * [queue] as a start hands it over: whole on Subsonic, whose player takes any
+ * length, else the [startWindowQueue] Spotify's `uris` start and MusicKit's
+ * catalog request are held to. Library Songs used to cut Subsonic too.
+ */
+private fun startQueueFor(provider: String, queue: List<Track>, startIndex: Int): PlayableQueue =
+    if (provider == MediaId.PROVIDER_SUBSONIC) PlayableQueue(queue, startIndex) else startWindowQueue(queue, startIndex)
 
 internal fun canLaunchDetailFromShell(
     lifecycleState: Lifecycle.State,

@@ -16,10 +16,12 @@ import androidx.window.embedding.SplitController
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import com.gpo.yoin.data.backup.PlaylistBackupFollower
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 import com.gpo.yoin.ui.component.ArtworkForegroundRetry
 import com.gpo.yoin.ui.component.ArtworkNetworkRecovery
 import com.gpo.yoin.ui.component.ArtworkRetrySignal
+import com.gpo.yoin.ui.nowplaying.NowPlayingKeepScreenOn
 import com.gpo.yoin.widget.WidgetRefresher
 
 class YoinApplication : Application(), SingletonImageLoader.Factory {
@@ -51,12 +53,18 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         // JavaCPP's process-memory budget is captured on first MusicKit/Pointer use.
         AppleMusicNativeMemoryPolicy.initialize(this)
         container = containerOverrideForTests ?: AppContainer(this)
+        // Before any window composes: read inside the first composition, the stored choice
+        // never reached that composition (Keep screen on came back off after a restart).
+        NowPlayingKeepScreenOn.ensureLoaded(this)
         retireLegacyImageDiskCache(cacheDir)
         registerArtworkNetworkRetry()
         ProcessLifecycleOwner.get().lifecycle.addObserver(ArtworkForegroundRetry())
         registerHostLifecycle()
         registerActivityEmbeddingRules()
-        if (containerOverrideForTests == null) WidgetRefresher.start(this, container)
+        if (containerOverrideForTests == null) {
+            WidgetRefresher.start(this, container)
+            PlaylistBackupFollower.start(container)
+        }
     }
 
     /**
@@ -128,19 +136,29 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
     private fun registerHostLifecycle() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private val started = StartedActivityCounter()
+            private val hosts = StartedHosts<Activity>()
 
             override fun onActivityStarted(activity: Activity) {
+                hosts.onStarted(activity)
                 if (started.onStarted()) {
                     container.playbackManager.onHostStart(activity)
                     container.cloudSync.onAppForeground()
                     container.trackAlbumLinkEnricher.kick()
+                } else {
+                    container.playbackManager.onHostChanged(activity)
                 }
             }
 
             override fun onActivityStopped(activity: Activity) {
+                hosts.onStopped(activity)
                 if (started.onStopped()) {
                     container.playbackManager.onHostStop()
                     container.cloudSync.onAppBackground()
+                } else {
+                    // The host may have been the Activity that stopped (a widget's
+                    // OpenNowPlayingActivity hands over to MainActivity and finishes):
+                    // App Remote must not keep reconnecting through a destroyed one.
+                    hosts.current?.let(container.playbackManager::onHostChanged)
                 }
             }
 
@@ -173,4 +191,26 @@ internal class StartedActivityCounter {
 
     /** True when this stop sends the app to the background. */
     fun onStopped(): Boolean = --started == 0
+}
+
+/**
+ * Yoin's started Activities, newest last: [current] is the one the playback
+ * host (Spotify App Remote's connect and auth view) goes through. It used to
+ * stay the Activity that brought the app to the foreground, even after that
+ * one finished (Gemini review 2026-10-20): a leak, and a reconnect through a
+ * destroyed Activity.
+ */
+internal class StartedHosts<T : Any> {
+    private val hosts = ArrayList<T>()
+
+    val current: T? get() = hosts.lastOrNull()
+
+    fun onStarted(host: T) {
+        hosts.remove(host)
+        hosts += host
+    }
+
+    fun onStopped(host: T) {
+        hosts.remove(host)
+    }
 }

@@ -105,6 +105,9 @@ fun WaveProgressBar(
     // expanded lyrics: 0 dp tall, alpha 0): the wave stops travelling and the
     // playhead snaps instead of gliding, so nothing draws for an invisible bar.
     animating: Boolean = true,
+    // The tip page's demo: a scrub it acts out, as a fraction of the bar (null
+    // = none). Null in the app, where only the finger scrubs.
+    actedScrub: (() -> Float?)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val noteAnchorFractions = remember(noteAnchorsMs, durationMs) {
@@ -148,10 +151,13 @@ fun WaveProgressBar(
     }
     var trackWidthPx by remember { mutableIntStateOf(1) }
     var labelWidthPx by remember { mutableIntStateOf(0) }
+    val acted = actedScrub?.invoke()?.let { magnetized(it.coerceIn(0f, 1f)) }
+    val latestActed = rememberUpdatedState(acted)
 
     val settledProgress = progress.coerceIn(0f, 1f)
     val displayProgress = when {
         isDragging -> dragFraction
+        acted != null -> acted
         previewFraction != null -> previewFraction!!.coerceIn(0f, 1f)
         else -> settledProgress
     }
@@ -181,7 +187,7 @@ fun WaveProgressBar(
         {
             when {
                 !latestPlaying.value -> latestSettled.value
-                isDragging || previewFraction != null -> latestDisplay.value
+                isDragging || previewFraction != null || latestActed.value != null -> latestDisplay.value
                 else -> glidedProgress.value
             }
         }
@@ -313,7 +319,7 @@ fun WaveProgressBar(
             },
     ) {
 
-        val activePreviewFraction = previewFraction
+        val activePreviewFraction = previewFraction ?: acted
         if (activePreviewFraction != null) {
             val noteLabel = stringResource(R.string.cmp_wave_note)
             val onNote = noteAnchorFractions.any {

@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -79,6 +80,16 @@ enum class Capability {
     RANDOM_SONGS,
     PLAYLISTS_READ,
     PLAYLISTS_WRITE,
+
+    /**
+     * The service can receive a playlist copied from another profile
+     * ([MusicWriteActions.createPlaylistWithTracks]): create one owned by the
+     * user and fill it, in order. Narrower than [PLAYLISTS_WRITE], which also
+     * lights up rename, delete and remove-track: Apple Music takes a new
+     * library playlist through its API but offers no rename or delete there
+     * (docs/playlist-transfer.md).
+     */
+    PLAYLIST_IMPORT,
     LYRICS,
 }
 
@@ -98,6 +109,13 @@ interface MusicLibrary {
     suspend fun getRandomSongs(size: Int = 20): List<Track>
 
     suspend fun search(query: String): SearchResults
+
+    /**
+     * [type]'s results for [query] past the first [offset], for a type [search] said has more
+     * ([SearchResults.more]). Only that type's rows; its [SearchResults.more] says whether still
+     * more follow. The default, for a search that returns all it ever will, has none.
+     */
+    suspend fun searchMore(query: String, type: SearchResultType, offset: Int): SearchResults = SearchResults()
 
     /** Search saved content, distinct from a subscription provider's catalog. */
     suspend fun searchLibrary(query: String): SearchResults = search(query)
@@ -120,6 +138,25 @@ interface MusicLibrary {
      * single-track lookup (the default).
      */
     suspend fun getTrack(id: MediaId): Track? = null
+
+    /**
+     * The service's tracks for each of [isrcs] (International Standard
+     * Recording Codes), for matching a track copied from another service
+     * (docs/playlist-transfer.md). One ISRC can name several tracks — the same
+     * recording on an album and on a compilation. ISRCs the service doesn't
+     * know are left out of the map; a service with no ISRC lookup keeps this
+     * default, and matching falls back to search.
+     */
+    suspend fun tracksByIsrc(isrcs: List<String>): Map<String, List<Track>> = emptyMap()
+
+    /**
+     * [id] read whole for a playlist backup (docs/playlist-transfer.md): every
+     * entry, however long the playlist, with [Playlist.unreadable] naming the
+     * entries that aren't songs this service can give. The default is
+     * [getPlaylist], for services whose read is already whole and skips
+     * nothing.
+     */
+    suspend fun getPlaylistInFull(id: MediaId): Playlist? = getPlaylist(id)
 }
 
 interface MusicMetadata {
@@ -211,6 +248,32 @@ interface MusicWriteActions {
     /** Create a new playlist owned by the current profile. */
     suspend fun createPlaylist(name: String, description: String? = null): Result<Playlist>
 
+    /**
+     * Create a playlist named [name] holding [tracks] in order — the end of a
+     * copy from another profile ([Capability.PLAYLIST_IMPORT]). By default
+     * [createPlaylist], then [addTracksToPlaylist] in batches of
+     * [PLAYLIST_ADD_BATCH]; a service whose create takes tracks itself
+     * (Apple Music) sends the first batch with it. A failure after the
+     * playlist was made fails with [PartialPlaylistImportException], which
+     * names the playlist and how many tracks it got.
+     */
+    suspend fun createPlaylistWithTracks(
+        name: String,
+        description: String?,
+        tracks: List<MediaId>,
+    ): Result<Playlist> {
+        val created = createPlaylist(name, description).getOrElse { return Result.failure(it) }
+        var added = 0
+        for (batch in tracks.chunked(PLAYLIST_ADD_BATCH)) {
+            addTracksToPlaylist(created.id, batch).onFailure { cause ->
+                if (cause is kotlinx.coroutines.CancellationException) throw cause
+                return Result.failure(PartialPlaylistImportException(created, added, cause))
+            }
+            added += batch.size
+        }
+        return Result.success(created.copy(songCount = tracks.size))
+    }
+
     /** Rename (and optionally re-describe) an existing playlist. */
     suspend fun renamePlaylist(
         id: MediaId,
@@ -257,3 +320,16 @@ interface MusicPlayback {
 
 /** A song's title and artist under one set of names; see [MusicMetadata.alternateNames]. */
 data class TrackNames(val title: String, val artist: String)
+
+/** Tracks a single add request carries: Spotify's limit for `POST /playlists/{id}/items`. */
+const val PLAYLIST_ADD_BATCH = 100
+
+/**
+ * [MusicWriteActions.createPlaylistWithTracks] made [playlist] but stopped
+ * after [added] tracks: the playlist stays, with what it got.
+ */
+class PartialPlaylistImportException(
+    val playlist: Playlist,
+    val added: Int,
+    cause: Throwable,
+) : Exception("Playlist created with $added tracks before a failure", cause)

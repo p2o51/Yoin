@@ -97,7 +97,8 @@ private fun MemoryStrip(size: DpSize, item: MemoryItem, source: Bitmap?, palette
     val lead = bitmaps.of("lead:clover:${h.value}") { WidgetArt.leadMask(shape, bitmaps.px(h.value)) }
     val leadW = (lead.width / bitmaps.scale).dp
     val bg = dayNight(palette.bgLight, palette.bgDark)
-    val accentInk = dayNight(palette.base, palette.base)
+    // The base is held in the light-page ink window; the same-hue soft anchor stays readable on the dark strip.
+    val accentInk = dayNight(palette.base, palette.inkDark)
     val ink = dayNight(palette.inkLight, palette.inkDark)
     val sub = dayNight(palette.subLight, palette.subDark)
     val showAlbum = size.width.value >= 320f
@@ -147,11 +148,14 @@ private fun MemoryStrip(size: DpSize, item: MemoryItem, source: Bitmap?, palette
     }
 }
 
-/** 2×2 anchor: a big cover bottom-left, the Cookie12 score badge top-right biting its corner. Transparent. */
+/**
+ * 2×2 anchor: a big cover bottom-left, the Cookie12 score badge top-right biting its corner. Transparent, so the
+ * square keeps clear of the launcher's corner clip ([widgetCornerClearance]).
+ */
 @Composable
 private fun MemoryAnchor(size: DpSize, item: MemoryItem, source: Bitmap?, palette: WidgetPalette, lastHeard: String?, bitmaps: WidgetBitmaps) {
     val context = LocalContext.current
-    val s = min(size.width.value, size.height.value).dp
+    val s = (min(size.width.value, size.height.value) - 2 * widgetCornerClearance(context).value).dp
     val u = s.value / 184f
     val coverDp = (120 * u).dp
     val badgeDp = (110 * u).dp
