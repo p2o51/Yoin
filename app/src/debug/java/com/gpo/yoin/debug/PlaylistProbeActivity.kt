@@ -110,11 +110,41 @@ class PlaylistProbeActivity : Activity() {
                     if (apple == null) {
                         apple = AppleMusicMedia3Player(
                             this@PlaylistProbeActivity, developer,
-                            credentials.musicUserToken, refreshDeveloperToken = { tokens.token() }, onObservation = {}
-                        )
+                            credentials.musicUserToken, refreshDeveloperToken = { tokens.token() },
+                            onObservation = { observation ->
+                                emit(
+                                    "apple_native", "playing" to observation.playing,
+                                    "stopped" to observation.stopped, "error" to observation.error,
+                                    "position" to observation.positionMs, "duration" to observation.durationMs,
+                                    "item" to observation.catalogId, "queue_epoch" to observation.queueEpoch,
+                                    "queue_item" to observation.nativeQueueItemId,
+                                    "start_confirmed" to observation.startPositionConfirmed,
+                                    "sequence" to observation.sequence
+                                )
+                            }
+                        ).also { player ->
+                            player.addListener(object : Player.Listener {
+                                override fun onPlaybackStateChanged(playbackState: Int) {
+                                    emit(
+                                        "apple_media3_state", "state" to playbackState,
+                                        "position" to player.currentPosition, "item" to player.currentMediaItem?.mediaId
+                                    )
+                                }
+                                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                                    emit(
+                                        "apple_media3_playing", "playing" to isPlaying,
+                                        "position" to player.currentPosition, "item" to player.currentMediaItem?.mediaId
+                                    )
+                                }
+                            })
+                        }
                     }
                     val ids = intent.getStringExtra("ids").orEmpty().split(',').filter { it.isNotBlank() }
-                    apple!!.setMediaItems(ids.map { MediaItem.Builder().setMediaId("applemusic:$it").build() })
+                    apple!!.setMediaItems(
+                        ids.map { MediaItem.Builder().setMediaId("applemusic:$it").build() },
+                        0,
+                        intent.getLongExtra("start_position", 0)
+                    )
                     apple!!.repeatMode = Player.REPEAT_MODE_OFF
                     apple!!.playWhenReady = true
                     apple!!.prepare()
@@ -127,6 +157,8 @@ class PlaylistProbeActivity : Activity() {
             "apple_play" -> apple?.play()
             "apple_next" -> apple?.seekToNextMediaItem()
             "apple_stop" -> apple?.stop()
+            "apple_repeat" -> apple?.repeatMode = intent.getIntExtra("mode", Player.REPEAT_MODE_OFF)
+            "apple_shuffle" -> apple?.shuffleModeEnabled = intent.getBooleanExtra("enabled", false)
             "finish" -> finish()
         }
     }
