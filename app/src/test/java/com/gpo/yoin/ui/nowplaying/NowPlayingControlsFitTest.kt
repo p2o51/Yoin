@@ -126,7 +126,7 @@ class NowPlayingControlsFitTest {
 
         // A long-press splits it; each segment switches only its own axis.
         rule.onNodeWithContentDescription("Play mode").performTouchInput { longClick() }
-        rule.onNodeWithContentDescription("Repeat one").performClick()
+        rule.onNodeWithContentDescription("Repeat").performClick()
         rule.onNodeWithContentDescription("Shuffle").performClick()
         rule.runOnIdle {
             assertEquals(
