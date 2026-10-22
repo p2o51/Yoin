@@ -534,6 +534,26 @@ class SpotifyAppRemotePlayerStartTest {
     }
 
     @Test
+    fun should_readSpotifysQueueAgain_when_theFirstReadFailed() = runTest {
+        val next = (2..4).map { spotifyTrack("t$it") }
+        var reads = 0
+        connectedPlayer(queueReader = {
+            reads++
+            if (reads == 1) error("Spotify answered 503") else SpotifyPlayerQueue(playing = song, next = next)
+        })
+        appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        appRemote.report(playing("spotify:track:t1", "Burn Me Blue", paused = true))
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        assertEquals(2, reads)
+        assertEquals(listOf(MediaId.spotify("t1")) + next.map(Track::id), snapshots.last().queue.map(Track::id))
+    }
+
+    @Test
     fun should_listSpotifysQueue_when_theUserMovedOnInTheSpotifyApp() = runTest {
         val elsewhere = spotifyTrack("elsewhere")
         val after = spotifyTrack("after")

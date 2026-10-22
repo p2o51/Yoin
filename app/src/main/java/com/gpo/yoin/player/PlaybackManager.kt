@@ -1045,8 +1045,7 @@ class PlaybackManager(
                         queue = snapshot.yoinQueue
                     )?.let { _currentActivityContext.value = it }
                     awaitSpotifyReportIfAsked()
-                    // Moved on in the Spotify app: the sheet lists Spotify's queue, not Yoin's old one.
-                    if (spotifyContextSync.followingSpotify) spotifyRemotePlayer.followSpotifyQueue(takeOver = true)
+                    followSpotifyQueueIfMovedOn()
                 }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
@@ -1421,6 +1420,7 @@ class PlaybackManager(
         spotifyContextSync.onReported(_currentActivityContext.value, context)
             ?.let { _currentActivityContext.value = it }
         awaitSpotifyReportIfAsked()
+        followSpotifyQueueIfMovedOn()
         // A song held back while its context was in question goes on record now.
         if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) recordPlayIfDue(_playbackState.value)
     }
@@ -1430,6 +1430,17 @@ class PlaybackManager(
      * waits at most [SPOTIFY_CONTEXT_REPORT_GRACE_MS]; after that its context is decided
      * without the invalidated report, and the song recorded.
      */
+    /**
+     * Moved on in the Spotify app: the sheet lists Spotify's queue, not Yoin's old one. Asked
+     * wherever the context can settle on following Spotify: a state, a fresh PlayerContext, or
+     * the grace period running out (a paused song may bring no further state).
+     */
+    private fun followSpotifyQueueIfMovedOn() {
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE && spotifyContextSync.followingSpotify) {
+            spotifyRemotePlayer.followSpotifyQueue(takeOver = true)
+        }
+    }
+
     private fun awaitSpotifyReportIfAsked() {
         if (!spotifyContextSync.awaitingReport) {
             spotifyReportGraceJob?.cancel()
@@ -1441,6 +1452,7 @@ class PlaybackManager(
             delay(SPOTIFY_CONTEXT_REPORT_GRACE_MS)
             spotifyContextSync.onReportOverdue(_currentActivityContext.value)
                 ?.let { _currentActivityContext.value = it }
+            followSpotifyQueueIfMovedOn()
             if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) recordPlayIfDue(_playbackState.value)
         }
     }

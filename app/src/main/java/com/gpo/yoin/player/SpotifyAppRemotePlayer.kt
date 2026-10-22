@@ -171,8 +171,11 @@ internal class SpotifyAppRemotePlayer(
     private var replaceableOperationJob: Job? = null
     private var queueSyncJob: Job? = null
 
-    /** The song Spotify's queue was last read for while following playback Yoin didn't start. */
+    /** The song Spotify's queue was last taken for while following playback Yoin didn't start. */
     private var adoptedFor: MediaId? = null
+
+    /** The song a queue read in flight is for; a failed or discarded read leaves [adoptedFor] alone. */
+    private var readingFor: MediaId? = null
     private var wantsConnection: Boolean = false
     private val mirror = SpotifyQueueMirror()
     private val mirroredQueue: List<Track> get() = mirror.tracks
@@ -549,6 +552,7 @@ internal class SpotifyAppRemotePlayer(
             if (adopt || mirror.tracks.isEmpty() || mirror.adopted) {
                 val now = playing ?: reported.playing ?: return@launch
                 mirror.adopt(now, reported.next)
+                adoptedFor = now.id
                 Log.d(tag, "syncQueueWithSpotify: following Spotify's queue (${reported.next.size} next)")
                 publishMirror(lastSnapshot)
             } else if (mirror.syncUserQueue(reported.next)) {
@@ -572,7 +576,9 @@ internal class SpotifyAppRemotePlayer(
         val replacing = takeOver && lastSnapshot.foreignIndex >= 0
         if (mirror.tracks.isNotEmpty() && !mirror.adopted && !replacing) return
         if (playing.id == adoptedFor) return
-        adoptedFor = playing.id
+        // One read at a time; one that failed or was discarded is tried again at the next state.
+        if (playing.id == readingFor && queueSyncJob?.isActive == true) return
+        readingFor = playing.id
         syncQueueWithSpotify(adopt = replacing)
     }
 
