@@ -11,6 +11,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.spotify.EXTRA_SPOTIFY_URI_TYPE
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
+import com.gpo.yoin.data.source.spotify.SpotifyPlayerQueue
 import com.gpo.yoin.data.source.spotify.spotifyUriType
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -155,6 +156,8 @@ internal class SpotifyAppRemotePlayer(
     private val onActionRequired: (SpotifyConnectFailure, String) -> Unit = { _, _ -> },
     private val onContext: (SpotifyPlaybackContext?) -> Unit = {},
     private val appRemote: AppRemoteConnector = AppRemoteConnector.Sdk,
+    /** Spotify's queue through the Web API ([SpotifyQueueMirror.syncUserQueue]); null when there's no way to read it. */
+    private val queueReader: suspend () -> SpotifyPlayerQueue? = { null },
 ) {
     private val tag = "SpotifyAppRemotePlayer"
 
@@ -166,6 +169,7 @@ internal class SpotifyAppRemotePlayer(
     private var playerContextSubscription: Subscription<PlayerContext>? = null
     private var connectJob: Job? = null
     private var replaceableOperationJob: Job? = null
+    private var queueSyncJob: Job? = null
     private var wantsConnection: Boolean = false
     private val mirror = SpotifyQueueMirror()
     private val mirroredQueue: List<Track> get() = mirror.tracks
@@ -299,6 +303,7 @@ internal class SpotifyAppRemotePlayer(
         wantsConnection = false
         pendingOperations.clear()
         mirror.clear()
+        queueSyncJob?.cancel()
         playModeWrite = null
         connectJob?.cancel()
         connectJob = null
@@ -323,6 +328,7 @@ internal class SpotifyAppRemotePlayer(
         startContextPlayback: (suspend () -> Unit)? = null,
         playMode: PlayMode? = null,
         queued: List<Track> = emptyList(),
+        remoteContextStart: (suspend () -> SpotifyRemoteContextStart?)? = null,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         Log.d(
@@ -331,6 +337,7 @@ internal class SpotifyAppRemotePlayer(
                 "hasContext=${startContextPlayback != null}"
         )
         mirror.reset(tracks, startIndex, queued)
+        queueSyncJob?.cancel()
         val modeWrite = playMode?.let(::PlayModeWrite)
         playModeWrite = modeWrite
         val start = PendingStart(tracks[startIndex])
@@ -373,6 +380,7 @@ internal class SpotifyAppRemotePlayer(
                 } == true
                 if (accepted && awaitStart(start)) {
                     playMode?.let { applyPlayMode(connected, it) }
+                    syncQueueWithSpotify()
                     return@enqueueOperation
                 }
                 if (pendingStart !== start) return@enqueueOperation
@@ -381,8 +389,21 @@ internal class SpotifyAppRemotePlayer(
                     confirmOnReconnect(start)
                     return@enqueueOperation
                 }
+                // The album or playlist where App Remote can start it, the song alone where it can't.
+                val remoteContext = remoteContextStart?.let { find ->
+                    runCatching { find() }.onFailure { error ->
+                        if (error is CancellationException) throw error
+                        Log.w(tag, "App Remote context start unresolved; playing the song alone", error)
+                    }.getOrNull()
+                }
+                if (pendingStart !== start) return@enqueueOperation
                 val answered = withTimeoutOrNull(SPOTIFY_START_HEARD_TIMEOUT_MS) {
-                    connected.playerApi.play(start.track.spotifyUri()).awaitUnit()
+                    if (remoteContext != null) {
+                        Log.d(tag, "App Remote start: ${remoteContext.contextUri} at ${remoteContext.index}")
+                        connected.playerApi.skipToIndex(remoteContext.contextUri, remoteContext.index).awaitUnit()
+                    } else {
+                        connected.playerApi.play(start.track.spotifyUri()).awaitUnit()
+                    }
                     true
                 } == true
                 check(answered || start.heard.isCompleted) {
@@ -390,6 +411,7 @@ internal class SpotifyAppRemotePlayer(
                 }
                 if (awaitStart(start)) {
                     playMode?.let { applyPlayMode(connected, it) }
+                    syncQueueWithSpotify()
                 } else if (pendingStart === start) {
                     if (remote !== connected) {
                         confirmOnReconnect(start)
@@ -495,11 +517,40 @@ internal class SpotifyAppRemotePlayer(
         publishMirror(lastSnapshot)
         enqueueOperation { connected ->
             connected.playerApi.queue(track.spotifyUri()).awaitUnit()
+            syncQueueWithSpotify()
+        }
+    }
+
+    /**
+     * Reads Spotify's queue a moment after a start or an Add to queue, and
+     * puts what was already queued there into the mirror
+     * ([SpotifyQueueMirror.syncUserQueue]). A failed read, or one taken while
+     * Spotify had already moved on to another song, leaves the mirror as it is.
+     */
+    private fun syncQueueWithSpotify() {
+        queueSyncJob?.cancel()
+        queueSyncJob = scope.launch {
+            delay(SPOTIFY_QUEUE_READ_DELAY_MS)
+            val reported = try {
+                queueReader()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(tag, "Spotify queue read failed: ${error.javaClass.simpleName}: ${error.message}")
+                null
+            } ?: return@launch
+            val playing = lastSnapshot.currentTrack
+            if (reported.playing != null && playing != null && !reported.playing.isSameSongAs(playing)) return@launch
+            if (mirror.syncUserQueue(reported.next)) {
+                Log.d(tag, "syncQueueWithSpotify: mirror took Spotify's queue (${reported.next.size} reported)")
+                publishMirror(lastSnapshot)
+            }
         }
     }
 
     fun clearQueue() {
         mirror.clear()
+        queueSyncJob?.cancel()
         publishMirror(lastSnapshot)
     }
 
@@ -1218,6 +1269,9 @@ internal class SpotifyAppRemotePlayer(
 
 /** Grace for the subscription to report the requested track after a start command answers. */
 internal const val SPOTIFY_START_HEARD_TIMEOUT_MS = 4_000L
+
+/** Wait before reading Spotify's queue after a start or an Add to queue: the Web API lags the app a little. */
+internal const val SPOTIFY_QUEUE_READ_DELAY_MS = 800L
 
 /** Match Spotify's market-relinked copy without accepting a paused pre-start state. */
 internal fun spotifyPlays(state: PlayerState, track: Track): Boolean {

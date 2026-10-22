@@ -3,6 +3,8 @@ package com.gpo.yoin.player
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -177,6 +179,106 @@ class SpotifyQueueMirrorTest {
 
         assertEquals(listOf(album[0], album[1], album[2], album[3], queued, album[4]), mirror.tracks)
         assertEquals(listOf(4, 5), mirror.view(null, shuffle = false).upcoming)
+    }
+
+    @Test
+    fun should_putWhatSpotifyHadQueuedFirst_when_itsQueueIsRead() {
+        val before = listOf(track("x1"), track("x2"))
+        val queued = track("q")
+        mirror.reset(album, 0)
+        mirror.onPlaying(album[0])
+        mirror.add(queued, playing = album[0])
+
+        val changed = mirror.syncUserQueue(before + queued + album.drop(1))
+        val view = mirror.view(album[0], shuffle = false)
+
+        assertTrue(changed)
+        assertEquals(listOf(album[0]) + before + queued + album.drop(1), view.queue)
+        assertEquals(setOf(1, 2, 3), view.userQueued)
+        assertEquals(listOf(1, 2, 3, 4, 5, 6, 7), view.upcoming)
+    }
+
+    @Test
+    fun should_keepYoinsSongAfterSpotifysQueue_when_spotifyDoesNotListItYet() {
+        val before = track("x1")
+        val queued = track("q")
+        mirror.reset(album, 0)
+        mirror.onPlaying(album[0])
+        mirror.add(queued, playing = album[0])
+
+        mirror.syncUserQueue(listOf(before) + album.drop(1))
+
+        assertEquals(listOf(album[0], before, queued) + album.drop(1), mirror.tracks)
+    }
+
+    @Test
+    fun should_takeTheQueuedAlbumSongAsYoins_when_spotifyListsItBeforeTheAlbum() {
+        val before = track("x1")
+        mirror.reset(album, 0)
+        mirror.onPlaying(album[0])
+        mirror.add(album[3], playing = album[0])
+
+        mirror.syncUserQueue(listOf(before, album[3]) + album.drop(1))
+
+        // Hysteria queued from its own album doesn't end Spotify's queue.
+        assertEquals(listOf(album[0], before, album[3]) + album.drop(1), mirror.tracks)
+        assertEquals(setOf(1, 2), mirror.view(album[0], shuffle = false).userQueued)
+    }
+
+    @Test
+    fun should_changeNothing_when_spotifyHasNothingElseQueued() {
+        mirror.reset(album, 0)
+        mirror.onPlaying(album[0])
+
+        assertFalse(mirror.syncUserQueue(album.drop(1)))
+        assertEquals(album, mirror.tracks)
+    }
+
+    @Test
+    fun should_takeEveryEntryAsQueued_when_spotifyListsNoSongOfTheAlbum() {
+        // Spotify reads out twenty or so: a longer queue shows no album song yet.
+        val before = (1..3).map { track("x$it") }
+        mirror.reset(album, 0)
+        mirror.onPlaying(album[0])
+
+        mirror.syncUserQueue(before)
+
+        assertEquals(listOf(album[0]) + before + album.drop(1), mirror.tracks)
+        assertEquals(setOf(1, 2, 3), mirror.view(album[0], shuffle = false).userQueued)
+    }
+
+    @Test
+    fun should_listSpotifysQueueFirst_when_shuffled() {
+        val before = track("x1")
+        mirror.reset(album, 2)
+        mirror.onPlaying(album[2])
+
+        mirror.syncUserQueue(listOf(before, album[4], album[0]))
+        val view = mirror.view(album[2], shuffle = true)
+
+        assertEquals(listOf(album[0], album[1], album[2], before, album[3], album[4]), view.queue)
+        assertEquals(3, view.upcoming.first())
+        assertEquals(listOf(0, 1, 4, 5), view.upcoming.drop(1).sorted())
+    }
+
+    @Test
+    fun should_dropSpotifysQueuedSongs_when_theyHavePlayed() {
+        val before = track("x1")
+        mirror.reset(album, 0)
+        mirror.onPlaying(album[0])
+        mirror.syncUserQueue(listOf(before) + album.drop(1))
+        mirror.onPlaying(before)
+        mirror.onPlaying(album[1])
+
+        // Read again later: Spotify's queue is the album's rest only.
+        assertFalse(mirror.syncUserQueue(album.drop(2)))
+        assertEquals(listOf(3, 4, 5), mirror.view(album[1], shuffle = false).upcoming)
+    }
+
+    @Test
+    fun should_leaveTheMirrorAlone_when_nothingIsMirrored() {
+        assertFalse(mirror.syncUserQueue(listOf(track("x1"))))
+        assertEquals(emptyList<Track>(), mirror.tracks)
     }
 
     @Test

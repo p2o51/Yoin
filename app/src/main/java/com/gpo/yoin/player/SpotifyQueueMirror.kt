@@ -83,6 +83,53 @@ internal class SpotifyQueueMirror {
         if (current >= at) current++
     }
 
+    /**
+     * Spotify's own word on what plays next ([reported], `GET /me/player/queue`).
+     * Songs queued in Spotify before Yoin's start (in the Spotify app, or on
+     * another device) play first, ahead of anything Yoin adds: owner device QA
+     * 2026-10-21 had forty of them, and the sheet said a song just added was
+     * next. Spotify doesn't mark which of its entries are queued ones; they
+     * are the run before the first song of the album or playlist. A song Yoin
+     * queued counts as Yoin's wherever it shows up, so a queued song of the
+     * album itself doesn't end the run (another song of the album queued in
+     * the Spotify app does). Yoin's songs Spotify doesn't list yet stay after
+     * the run, where Spotify adds them. False when nothing changed, or nothing
+     * is mirrored (playback adopted from the Spotify app).
+     */
+    fun syncUserQueue(reported: List<Track>): Boolean {
+        if (tracks.isEmpty()) return false
+        val after = (position + 1).coerceIn(0, tracks.size)
+        val pending = (after until tracks.size).filter { it in userQueued && it !in played }
+        val unconfirmed = pending.map(tracks::get).toMutableList()
+        val context = tracks.filterIndexed { index, _ -> index !in userQueued }
+        val queued = mutableListOf<Track>()
+        for (entry in reported) {
+            val mine = unconfirmed.indexOfFirst { it.matches(entry) }
+            when {
+                mine >= 0 -> queued += unconfirmed.removeAt(mine)
+                context.any { it.matches(entry) } -> break
+                else -> queued += entry
+            }
+        }
+        queued += unconfirmed
+        if (queued.map(Track::id) == pending.map { tracks[it].id }) return false
+
+        val pendingSet = pending.toSet()
+        val rest = (after until tracks.size).filter { it !in pendingSet }
+        val newIndex = HashMap<Int, Int>()
+        for (old in 0 until after) newIndex[old] = old
+        rest.forEachIndexed { i, old -> newIndex[old] = after + queued.size + i }
+        tracks = tracks.take(after) + queued + rest.map(tracks::get)
+        userQueued = userQueued.filter { it !in pendingSet }.mapTo(mutableSetOf()) { newIndex.getValue(it) } +
+            (after until after + queued.size)
+        played = played.filter { it !in pendingSet }.mapTo(mutableSetOf()) { newIndex.getValue(it) }
+        position = newIndex[position] ?: position
+        current = newIndex[current] ?: current
+        return true
+    }
+
+    private fun Track.matches(other: Track): Boolean = id == other.id || isSameSongAs(other)
+
     /** Spotify plays [track]: its entry, or -1 when it isn't one of the queue's. */
     fun onPlaying(track: Track): Int {
         val index = indexOf(track)
