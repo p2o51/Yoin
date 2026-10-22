@@ -24,7 +24,7 @@ activityCompose = "1.10.1"
 lifecycleCompose = "2.9.0"
 
 # Media
-media3 = "1.10.0"
+media3 = "1.11.1"
 castFramework = "22.0.0"
 
 # Google authorization (Drive appDataFolder cloud sync)
@@ -35,7 +35,7 @@ googleId = "1.1.1"
 
 # Networking
 okhttp = "5.0.0-alpha.14"
-retrofit = "2.11.0"
+retrofit = "3.0.0"
 retrofitKotlinxSerialization = "1.0.0"
 kotlinxSerialization = "1.8.0"
 gson = "2.13.1"
@@ -44,7 +44,7 @@ gson = "2.13.1"
 coil = "3.4.0"
 
 # Local
-room = "2.8.4"
+room = "2.8.5"
 palette = "1.0.0"
 graphicsShapes = "1.1.0"
 # Home-screen widgets (Play / Memory)
@@ -54,9 +54,9 @@ glance = "1.2.0"
 
 # Testing
 junit = "4.13.2"
-turbine = "1.2.0"
-mockk = "1.13.16"
-coroutinesTest = "1.10.1"
+turbine = "1.2.1"
+mockk = "1.14.11"
+coroutinesTest = "1.11.0"
 composeUiTest = "1.8.0"
 androidxTestCore = "1.7.0"
 # Instrumented tests on API 37 need these (older ones call the removed InputManager.getInstance)
@@ -144,8 +144,8 @@ glance-material3 = { group = "androidx.glance", name = "glance-material3", versi
 
 # Core AndroidX
 core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.15.0" }
-androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.0.1" }
-androidx-browser = { group = "androidx.browser", name = "browser", version = "1.8.0" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.2.0" }
+androidx-browser = { group = "androidx.browser", name = "browser", version = "1.10.0" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
