@@ -6,7 +6,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlin.coroutines.cancellation.CancellationException
@@ -23,7 +23,7 @@ sealed interface GoogleAccountPick {
 }
 
 /**
- * Picks the Google account for Cloud sync with Credential Manager's Sign in with Google sheet, so
+ * Picks the Google account for Cloud sync with Credential Manager's Sign in with Google bottom sheet, so
  * the Drive authorization that follows is pinned to it and skips AuthorizationClient's old-style
  * account chooser. Only the account's email is used; the ID token is not kept or sent anywhere.
  */
@@ -34,7 +34,13 @@ class GoogleAccountPicker(private val serverClientId: String) {
     suspend fun pick(activityContext: Context): GoogleAccountPick {
         if (!enabled) return GoogleAccountPick.Unavailable
         val request = GetCredentialRequest.Builder()
-            .addCredentialOption(GetSignInWithGoogleOption.Builder(serverClientId).build())
+            .addCredentialOption(
+                GetGoogleIdOption.Builder()
+                    .setServerClientId(serverClientId)
+                    .setFilterByAuthorizedAccounts(false)
+                    .setAutoSelectEnabled(false)
+                    .build(),
+            )
             .build()
         return try {
             val credential = CredentialManager.create(activityContext).getCredential(activityContext, request).credential
