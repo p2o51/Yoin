@@ -291,6 +291,27 @@ class SpotifyQueueMirrorTest {
         assertEquals(0, view.currentIndex)
     }
 
+    @Test
+    fun should_listSpotifysQueue_when_adoptingPlaybackStartedInTheSpotifyApp() {
+        mirror.adopt(album[0], album.drop(1))
+        mirror.onPlaying(album[0])
+
+        val view = mirror.view(album[0], shuffle = false)
+
+        assertEquals(album, view.queue)
+        assertEquals(listOf(1, 2, 3, 4), view.upcoming)
+        assertEquals(true, mirror.adopted)
+    }
+
+    @Test
+    fun should_stopFollowingSpotify_when_yoinStartsItsOwnQueue() {
+        mirror.adopt(album[0], album.drop(1))
+
+        mirror.reset(album, 2)
+
+        assertEquals(false, mirror.adopted)
+    }
+
     private fun track(rawId: String) = Track(
         id = MediaId.spotify(rawId),
         title = rawId,

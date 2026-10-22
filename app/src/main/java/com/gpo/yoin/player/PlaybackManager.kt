@@ -134,7 +134,11 @@ class PlaybackManager(
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
         onContext = ::onSpotifyPlayerContext,
-        queueReader = { spotifySource?.playerQueue() },
+        // Playback picked in the Spotify app has no Yoin start, so no source of its own: the profile's.
+        queueReader = {
+            (spotifySource ?: repository.awaitActiveSource(SPOTIFY_SOURCE_WAIT_MS) as? SpotifyMusicSource)
+                ?.playerQueue()
+        },
     )
 
     /**
@@ -1041,6 +1045,8 @@ class PlaybackManager(
                         queue = snapshot.yoinQueue
                     )?.let { _currentActivityContext.value = it }
                     awaitSpotifyReportIfAsked()
+                    // Moved on in the Spotify app: the sheet lists Spotify's queue, not Yoin's old one.
+                    if (spotifyContextSync.followingSpotify) spotifyRemotePlayer.followSpotifyQueue(takeOver = true)
                 }
                 publishPlaybackState(next)
                 maybeEmitConnectFailure(previous, next)
@@ -1495,6 +1501,7 @@ class PlaybackManager(
 
         /** Wait before the second look for this phone in Spotify Connect ([buildSpotifyStartFn]). */
         private const val SPOTIFY_DEVICE_LOOKUP_RETRY_MS = 1_500L
+        private const val SPOTIFY_SOURCE_WAIT_MS = 2_000L
 
         private const val EXTRA_MEDIA_ID = "media_id"
         private const val EXTRA_PROVIDER = "provider"

@@ -51,8 +51,16 @@ internal class SpotifyQueueMirror {
     /** The entry Spotify plays now; -1 while it plays a song from outside the queue. */
     private var current: Int = -1
 
+    /**
+     * True while the copy is Spotify's own queue read back ([adopt]): playback
+     * started outside Yoin, so there is no list Yoin handed Spotify.
+     */
+    var adopted: Boolean = false
+        private set
+
     /** A start handed Spotify [queue] from [startIndex]; [queued] is still in Spotify's own queue, next. */
     fun reset(queue: List<Track>, startIndex: Int, queued: List<Track> = emptyList()) {
+        adopted = false
         tracks = queue
         userQueued = emptySet()
         played = emptySet()
@@ -62,6 +70,19 @@ internal class SpotifyQueueMirror {
     }
 
     fun clear() = reset(emptyList(), -1)
+
+    /**
+     * Playback Yoin didn't start (picked in the Spotify app, on another
+     * device): the queue is [playing] and what Spotify reports next
+     * (`GET /me/player/queue`, its user queue and then the album or playlist,
+     * about twenty songs). It used to be the song alone (owner device QA
+     * 2026-10-22, Gemini review D). Read again at every song, since Spotify
+     * reports only so far ahead; it doesn't say which songs are queued ones.
+     */
+    fun adopt(playing: Track, next: List<Track>) {
+        reset(listOf(playing) + next, 0)
+        adopted = true
+    }
 
     /**
      * Add to queue: after the current song and whatever the user queued

@@ -170,6 +170,9 @@ internal class SpotifyAppRemotePlayer(
     private var connectJob: Job? = null
     private var replaceableOperationJob: Job? = null
     private var queueSyncJob: Job? = null
+
+    /** The song Spotify's queue was last read for while following playback Yoin didn't start. */
+    private var adoptedFor: MediaId? = null
     private var wantsConnection: Boolean = false
     private val mirror = SpotifyQueueMirror()
     private val mirroredQueue: List<Track> get() = mirror.tracks
@@ -304,6 +307,7 @@ internal class SpotifyAppRemotePlayer(
         pendingOperations.clear()
         mirror.clear()
         queueSyncJob?.cancel()
+        adoptedFor = null
         playModeWrite = null
         connectJob?.cancel()
         connectJob = null
@@ -338,6 +342,7 @@ internal class SpotifyAppRemotePlayer(
         )
         mirror.reset(tracks, startIndex, queued)
         queueSyncJob?.cancel()
+        adoptedFor = null
         val modeWrite = playMode?.let(::PlayModeWrite)
         playModeWrite = modeWrite
         val start = PendingStart(tracks[startIndex])
@@ -527,7 +532,7 @@ internal class SpotifyAppRemotePlayer(
      * ([SpotifyQueueMirror.syncUserQueue]). A failed read, or one taken while
      * Spotify had already moved on to another song, leaves the mirror as it is.
      */
-    private fun syncQueueWithSpotify() {
+    private fun syncQueueWithSpotify(adopt: Boolean = false) {
         queueSyncJob?.cancel()
         queueSyncJob = scope.launch {
             delay(SPOTIFY_QUEUE_READ_DELAY_MS)
@@ -541,16 +546,40 @@ internal class SpotifyAppRemotePlayer(
             } ?: return@launch
             val playing = lastSnapshot.currentTrack
             if (reported.playing != null && playing != null && !reported.playing.isSameSongAs(playing)) return@launch
-            if (mirror.syncUserQueue(reported.next)) {
+            if (adopt || mirror.tracks.isEmpty() || mirror.adopted) {
+                val now = playing ?: reported.playing ?: return@launch
+                mirror.adopt(now, reported.next)
+                Log.d(tag, "syncQueueWithSpotify: following Spotify's queue (${reported.next.size} next)")
+                publishMirror(lastSnapshot)
+            } else if (mirror.syncUserQueue(reported.next)) {
                 Log.d(tag, "syncQueueWithSpotify: mirror took Spotify's queue (${reported.next.size} reported)")
                 publishMirror(lastSnapshot)
             }
         }
     }
 
+    /**
+     * Playback Yoin didn't start: reads Spotify's queue once for each new
+     * song, so the sheet lists what comes next ([SpotifyQueueMirror.adopt]).
+     * Nothing while a Yoin start is on its way, or while Yoin's own queue
+     * plays. [takeOver]: the user moved on in the Spotify app
+     * ([SpotifyContextSync] follows Spotify now), so a song from outside
+     * Yoin's queue replaces it with Spotify's.
+     */
+    fun followSpotifyQueue(takeOver: Boolean = false) {
+        val playing = lastSnapshot.currentTrack ?: return
+        if (pendingStart != null) return
+        val replacing = takeOver && lastSnapshot.foreignIndex >= 0
+        if (mirror.tracks.isNotEmpty() && !mirror.adopted && !replacing) return
+        if (playing.id == adoptedFor) return
+        adoptedFor = playing.id
+        syncQueueWithSpotify(adopt = replacing)
+    }
+
     fun clearQueue() {
         mirror.clear()
         queueSyncJob?.cancel()
+        adoptedFor = null
         publishMirror(lastSnapshot)
     }
 
@@ -938,6 +967,7 @@ internal class SpotifyAppRemotePlayer(
                         start?.heard?.complete(Unit)
                         pendingStart = null
                         publish(fromPlayerState(playerState))
+                        followSpotifyQueue()
                     }
                 }
             }

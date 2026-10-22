@@ -501,6 +501,81 @@ class SpotifyAppRemotePlayerStartTest {
         assertEquals(list, snapshots.last().queue)
     }
 
+    @Test
+    fun should_listWhatSpotifyPlaysNext_when_theSongWasPickedInTheSpotifyApp() = runTest {
+        val next = (2..4).map { spotifyTrack("t$it") }
+        var reads = 0
+        connectedPlayer(queueReader = {
+            reads++
+            if (reads == 1) {
+                SpotifyPlayerQueue(playing = song, next = next)
+            } else {
+                SpotifyPlayerQueue(playing = next[0], next = next.drop(1))
+            }
+        })
+
+        appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        // It used to be the song alone (owner device QA 2026-10-22).
+        val shown = snapshots.last()
+        assertEquals(listOf(MediaId.spotify("t1")) + next.map(Track::id), shown.queue.map(Track::id))
+        assertEquals(0, shown.currentIndex)
+        assertEquals(listOf(1, 2, 3), shown.upcoming)
+
+        appRemote.report(playing("spotify:track:t2", "t2"))
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        assertEquals(2, reads)
+        assertEquals(next.map(Track::id), snapshots.last().queue.map(Track::id))
+        assertEquals(listOf(1, 2), snapshots.last().upcoming)
+    }
+
+    @Test
+    fun should_listSpotifysQueue_when_theUserMovedOnInTheSpotifyApp() = runTest {
+        val elsewhere = spotifyTrack("elsewhere")
+        val after = spotifyTrack("after")
+        val player = connectedPlayer(queueReader = { SpotifyPlayerQueue(playing = elsewhere, next = listOf(after)) })
+        player.playQueue(list, startIndex = 0, startContextPlayback = {
+            appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        })
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+        appRemote.report(playing("spotify:track:elsewhere", "elsewhere"))
+        runCurrent()
+
+        player.followSpotifyQueue(takeOver = true)
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        assertEquals(listOf(MediaId.spotify("elsewhere"), after.id), snapshots.last().queue.map(Track::id))
+    }
+
+    @Test
+    fun should_keepYoinsQueue_when_spotifyStillPlaysIt() = runTest {
+        var reads = 0
+        val player = connectedPlayer(queueReader = {
+            reads++
+            null
+        })
+        player.playQueue(list, startIndex = 0, startContextPlayback = {
+            appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        })
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+        val readsAfterStart = reads
+
+        player.followSpotifyQueue(takeOver = true)
+        appRemote.report(playing("spotify:track:t2", "t2"))
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        assertEquals(readsAfterStart, reads)
+        assertEquals(list, snapshots.last().queue)
+    }
+
     /** Runs the start through the heard window and a transport retry's reconnect. */
     private fun TestScope.settle() {
         runCurrent()
