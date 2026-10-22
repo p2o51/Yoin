@@ -388,6 +388,12 @@ class DlnaMedia3Player internal constructor(
         position.positionMs?.let { positionMs = it }
         observedState = info.state
         if (info.state == "PLAYING" || info.state == "PAUSED_PLAYBACK" || !desiredPlay) loading = false
+        // Play / Pause pressed on the speaker itself: follow it, so a song resumed there still
+        // advances at its natural end. Only a seen transition counts, not a lagging poll.
+        if (!loading && priorState != info.state) {
+            if (priorState == "PAUSED_PLAYBACK" && info.state == "PLAYING") desiredPlay = true
+            if (priorState == "PLAYING" && info.state == "PAUSED_PLAYBACK") desiredPlay = false
+        }
         if (loading && SystemClock.elapsedRealtime() - loadStartedMs > 20_000) {
             throw IOException("Renderer did not start playback")
         }
