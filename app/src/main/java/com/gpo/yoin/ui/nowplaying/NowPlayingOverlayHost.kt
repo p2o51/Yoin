@@ -835,6 +835,7 @@ internal fun List<YoinDevice>.localizedForSheet(): List<YoinDevice> {
         when (device) {
             is YoinDevice.LocalPlayback -> device.copy(statusText = status)
             is YoinDevice.Chromecast -> device.copy(statusText = status)
+            is YoinDevice.Dlna -> device.copy(statusText = status)
             is YoinDevice.SpotifyConnect -> device.copy(statusText = status)
         }
     }

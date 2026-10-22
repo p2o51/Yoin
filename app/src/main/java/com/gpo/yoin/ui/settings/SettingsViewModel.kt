@@ -15,6 +15,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.ui.common.UiText
 import java.net.URI
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -217,14 +218,22 @@ class SettingsViewModel(
         val pending = _deleteConfirmState.value as? DeleteConfirmState.Confirming ?: return
         _deleteConfirmState.value = DeleteConfirmState.Hidden
         viewModelScope.launch {
-            val wasActive = profileManager.activeProfileId.value == pending.profileId
-            profileManager.delete(pending.profileId)
-            container.profileAvatarStore.remove(pending.profileId)
-            if (wasActive) {
-                // If delete removed the active profile, AppContainer needs to
-                // refresh downstream VMs (same as a switch).
-                container.notifyMusicConfigurationChanged()
-                container.playbackManager.disconnect()
+            try {
+                val wasActive = profileManager.activeProfileId.value == pending.profileId
+                profileManager.delete(pending.profileId)
+                container.profileAvatarStore.remove(pending.profileId)
+                if (wasActive) {
+                    // If delete removed the active profile, AppContainer needs to
+                    // refresh downstream VMs (same as a switch).
+                    container.notifyMusicConfigurationChanged()
+                    container.playbackManager.disconnect()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                emitEvent(SettingsOneShotEvent.ShowError(
+                    error.message?.let { UiText.Raw(it) } ?: UiText.Res(R.string.player_dlna_stop_failed),
+                ))
             }
         }
     }

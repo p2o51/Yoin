@@ -530,7 +530,7 @@ Now Playing 恢复原有的封面、标题、歌手名 Shared Bounds：整页使
 | 播放队列同步 | `savePlayQueue` / `getPlayQueue` | 跨设备继续播放 |
 | Scrobble | `scrobble` | 报告播放记录，用于「最常播放」排序 |
 | 按风格浏览 | `getGenres` / `getSongsByGenre` | Library 增加风格分类 |
-| Sonos 投射 | UPnP/DLNA（Cling 库） | 发现 Sonos 设备，通过 UPnP AV Transport 协议控制播放 |
+| Sonos 投射 | UPnP/DLNA（SSDP + AVTransport） | Subsonic 直连音频；现有设备面板发现与选择音响，Media3 会话统一控制 |
 | 缓存管理 UI | 本地 | 占用空间可视化、按专辑清除缓存 |
 
 ### ❌ 不做（YAGNI）
@@ -578,12 +578,15 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 - Cast 按钮使用 Google Cast SDK 标准 `MediaRouteButton`
 - 需要在 Google Cast Developer Console 注册应用（或使用 Default Media Receiver）
 
-### Sonos / DLNA（第二期）
+### Sonos / DLNA（2026-10-20 接入）
 
-- Sonos 音箱仍支持作为 UPnP/DLNA Media Renderer
-- 使用 Cling（Java UPnP 库）或后继项目进行设备发现
-- 通过 UPnP AV Transport 协议发送 Play/Pause/Stop/Seek 指令
-- 投射时使用 Navidrome 的直接 stream URL（非本地代理），确保 Sonos 在同一网络内可访问
+- 当前范围是 Subsonic / OpenSubsonic。音响直接读取服务器的 HTTP(S) stream URL，服务器必须能从音响所在网络访问；不代理、录制或重新编码音频。带认证参数的音频和封面地址不写入诊断日志。
+- 复用正在播放的「设备」底部面板。打开或手动刷新时进行有时限的 SSDP 发现，读取设备的 AVTransport / RenderingControl 服务，不在空闲时持续扫描。原设计的 Cling 框架改为已有 OkHttp + SSDP 的小范围实现，避免为这组指令引入另一套后台服务与依赖。
+- DLNA 播放器实现 Media3 Player，接入现有 PlaybackService 的同一个 MediaSession。队列、暂停、继续、上一首、下一首、进度和音量随真实后端能力开放；不能 seek 的设备在返回不支持后撤回该命令。
+- 转到音响前先暂停本机；转回本机前先确认音响停止。音响失联时保留可重试的远端选择，不能自行在本机恢复发声。Chromecast 与 DLNA 不同时接管播放。
+- Sonos 分组通过只读 ZoneGroupTopology 查询定位组主设备，再发送播放指令，不改变音响分组。
+- Apple Music 的 MusicKit DRM 播放没有可交给普通 DLNA renderer 的完整音频 URL 或公开 DLNA 路由接口，本次不支持，设备入口继续按来源能力隐藏。Spotify 继续使用现有 Spotify Connect 设备逻辑。
+- 设备和播放验收见 [DLNA 验证记录](validation/dlna-2026-10-20.md)。发现设备、SOAP 成功和实际完成音频播放分别记录。
 
 ---
 

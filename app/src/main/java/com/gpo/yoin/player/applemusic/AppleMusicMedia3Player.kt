@@ -136,7 +136,13 @@ class AppleMusicMedia3Player(
         override fun onBufferingStateChanged(c: MediaPlayerController, buffering: Boolean) = publish()
         override fun onCurrentItemChanged(c: MediaPlayerController, old: PlayerQueueItem?, new: PlayerQueueItem?) =
             publish()
-        override fun onItemEnded(c: MediaPlayerController, item: PlayerQueueItem, end: Long) = publish()
+        override fun onItemEnded(c: MediaPlayerController, item: PlayerQueueItem, end: Long) {
+            if (BuildConfig.DEBUG) Log.i("YoinPlaylistProbe", org.json.JSONObject()
+                .put("kind", "apple_item_ended").put("elapsed", SystemClock.elapsedRealtime())
+                .put("item", item.item.subscriptionStoreId).put("end", end)
+                .put("position", c.currentPosition).put("state", c.playbackState).toString())
+            publish()
+        }
         override fun onMetadataUpdated(c: MediaPlayerController, item: PlayerQueueItem) = publish()
         override fun onPlaybackQueueChanged(c: MediaPlayerController, items: MutableList<PlayerQueueItem>) = publish()
         override fun onPlaybackQueueItemsAdded(c: MediaPlayerController, a: Int, b: Int, d: Int) = publish()

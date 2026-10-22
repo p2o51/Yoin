@@ -1,0 +1,566 @@
+{
+  "baseline": "ee2737b7a",
+  "scope": "Authenticated local Subsonic-compatible fixture → actual Sonos group; not a private production Subsonic server or audio-quality evaluation",
+  "device": "Pixel Tablet Android 17",
+  "renderers": [
+    "Sonos Beam",
+    "Sonos Era 300"
+  ],
+  "fixture": {
+    "trackCount": 2,
+    "durationSecondsEach": 30,
+    "mime": "audio/wav",
+    "auth": "Subsonic username + token/salt verified on every request; no tokens retained",
+    "unsignedControlHttpStatus": 401,
+    "signedControlHttpStatus": 200
+  },
+  "apks": {
+    "Yoin-0.5.0-dlna-release-debugsigned.apk": "507656d67366bd70ddf08d24b228013dbdefa8584bbbe793d63e1db33979cdc5",
+    "Yoin-0.5.0-dlna-debug.apk": "19aebee7dce76718ec4555bdcdc1da76fa55ac16b74c5d7119fde638c9958855",
+    "Yoin-dlna-qa.apk": "60fd45a33087384a8bc50774ed985db54a8f065485b671cb67b07b711fd5fd82"
+  },
+  "assertions": {
+    "selectedNonCoordinatorResolvedToCoordinator": true,
+    "pauseConfirmed": true,
+    "pausedSeekPositionMs": 5000,
+    "manualNextAndPrevious": true,
+    "homeAndScreenOffAutomaticQueueContinuationSecondsApprox": 100,
+    "handbackConfirmedSpeakerStoppedBeforeLocalResumed": true,
+    "handoffTrackIndexAndPositionContinuity": true,
+    "deviceSheetShowsBothRenderers": true,
+    "deviceSheetCoordinatorMarkedCurrent": true,
+    "backClosesSheetRetainsNowPlaying": true,
+    "originalSpeakerUriRestored": true,
+    "originalSpeakerStateRestored": "PAUSED_PLAYBACK",
+    "volumeAndMuteUnchanged": true,
+    "temporaryQaAppRemoved": true,
+    "dailyApkSha256Unchanged": "19a169d564e6e0917337a9f7fcaa8b0db21c4ead76a8105a26dab124b0379802"
+  },
+  "commands": [
+    {
+      "phase": 1,
+      "elapsedSeconds": 0.0,
+      "command": "setup_fixture"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 11.033,
+      "command": "repeat"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 11.123,
+      "command": "transfer"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 30.435,
+      "command": "pause"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 38.461,
+      "command": "seek"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 47.284,
+      "command": "play"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 55.521,
+      "command": "next"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 78.813,
+      "command": "previous"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 181.434,
+      "command": "handback"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 191.679,
+      "command": "handback"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 198.397,
+      "command": "pause"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 456.784,
+      "command": "discover"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 466.484,
+      "command": "setup_fixture"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 474.685,
+      "command": "transfer"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 517.947,
+      "command": "handback"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 531.868,
+      "command": "pause"
+    }
+  ],
+  "handoffObservations": [
+    {
+      "phase": 1,
+      "elapsedSeconds": 0.409,
+      "observation": "fixture local_playing=true tracks=2 position=10"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 16.742,
+      "observation": "transfer success=true remote_playing=true position=14081"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 181.762,
+      "observation": "handback success=true local_playing=true position=7737"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 466.991,
+      "observation": "fixture local_playing=true tracks=2 position=15"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 480.401,
+      "observation": "transfer success=true remote_playing=true position=12069"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 518.259,
+      "observation": "handback success=true local_playing=true position=19830"
+    }
+  ],
+  "stateChanges": [
+    {
+      "phase": 1,
+      "elapsedSeconds": 0.005,
+      "playbackState": 1,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 0,
+      "item": "null",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 0.153,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 0.4,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 2,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 15.311,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 14836,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 15.592,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 14000,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 16.724,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 14063,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 30.44,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 27652,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 38.467,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 5000,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 38.582,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 5000,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 47.288,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 5000,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 47.358,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 5000,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 48.862,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 6040,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 55.525,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 55.709,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 6,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 78.819,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 78.999,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 5,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 109.989,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 110.116,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 10,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 141.384,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 141.559,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 23,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 172.813,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 172.938,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 16,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 181.531,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 14840,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 181.581,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 7693,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 181.676,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 7694,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 198.399,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 24349,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 386.05,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 24000,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 1,
+      "elapsedSeconds": 386.076,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 24000,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 456.798,
+      "playbackState": 1,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 0,
+      "item": "null",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 466.814,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 466.982,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 5,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 479.102,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 12058,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 479.279,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 12000,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 480.35,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 12018,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 498.016,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 0,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 499.302,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 1037,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 518.038,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 12059,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 518.089,
+      "playbackState": 2,
+      "isPlaying": false,
+      "positionMs": 19803,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 518.177,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 19805,
+      "index": 1,
+      "item": "subsonic:b",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 528.499,
+      "playbackState": 3,
+      "isPlaying": true,
+      "positionMs": 51,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    },
+    {
+      "phase": 2,
+      "elapsedSeconds": 531.873,
+      "playbackState": 3,
+      "isPlaying": false,
+      "positionMs": 3430,
+      "index": 0,
+      "item": "subsonic:a",
+      "error": "null"
+    }
+  ],
+  "expectedDebugGuardRejection": "First smoke deliberately repeated handback after successful disconnect; debug harness rejected the redundant call. Product UI disables the already-selected local row."
+}

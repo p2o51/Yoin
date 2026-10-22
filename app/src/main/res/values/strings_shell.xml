@@ -27,6 +27,10 @@
     <string name="player_spotify_needs_authorization">Spotify needs authorization in the Spotify app. Open Spotify and try again.</string>
     <string name="player_init_failed">Unable to initialize playback</string>
     <string name="player_play_failed">Unable to play this song</string>
+    <string name="player_dlna_subsonic_only">DLNA playback requires a Subsonic stream.</string>
+    <string name="player_dlna_disconnect_cast">Disconnect Chromecast before switching to a DLNA speaker.</string>
+    <string name="player_dlna_play_first">Play a Subsonic track before choosing a DLNA speaker.</string>
+    <string name="player_dlna_stop_failed">The speaker did not confirm stopping. Retry before changing accounts.</string>
     <string name="player_cast_device_session">Cast Device</string>
     <string name="player_cast_device_initial">Cast Device</string>
     <string name="player_apple_music_channel" translatable="false">Apple Music</string>

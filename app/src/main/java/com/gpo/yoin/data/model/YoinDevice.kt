@@ -33,4 +33,12 @@ sealed interface YoinDevice {
         override val isSelectable: Boolean = false,
         override val statusText: String? = null,
     ) : YoinDevice
+
+    data class Dlna(
+        override val id: String,
+        override val name: String,
+        override val isActive: Boolean,
+        override val isSelectable: Boolean = true,
+        override val statusText: String? = null,
+    ) : YoinDevice
 }
