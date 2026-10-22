@@ -23,7 +23,8 @@ data class SpotifyOwnerObject(
 
 @Serializable
 data class SpotifySimplifiedArtistObject(
-    val id: String,
+    // A local file's artist has a null id: coerced to "" so its playlist page still decodes.
+    val id: String = "",
     val name: String,
     val uri: String? = null,
     @SerialName("external_urls") val externalUrls: SpotifyExternalUrls? = null,
@@ -40,7 +41,8 @@ data class SpotifyArtistObject(
 
 @Serializable
 data class SpotifySimplifiedAlbumObject(
-    val id: String,
+    // A local file's album has a null id: coerced to "" so its playlist page still decodes.
+    val id: String = "",
     val name: String,
     val uri: String? = null,
     val artists: List<SpotifySimplifiedArtistObject> = emptyList(),
@@ -59,6 +61,18 @@ data class SpotifyTrackObject(
     val album: SpotifySimplifiedAlbumObject? = null,
     @SerialName("duration_ms") val durationMs: Long? = null,
     @SerialName("track_number") val trackNumber: Int? = null,
+    // ISRC for matching on another service (docs/playlist-transfer.md). Listed
+    // as removed in the February 2026 changelog, reverted in March 2026.
+    @SerialName("external_ids") val externalIds: SpotifyExternalIds? = null,
+    /** `track`, or `episode` for a podcast episode in a playlist. */
+    val type: String? = null,
+    /** A file from the user's device added to a playlist: no id, never playable through the Web API. */
+    @SerialName("is_local") val isLocal: Boolean = false,
+)
+
+@Serializable
+data class SpotifyExternalIds(
+    val isrc: String? = null,
 )
 
 @Serializable
@@ -171,6 +185,17 @@ data class SpotifySearchResponse(
     val albums: SpotifyPagingObject<SpotifySimplifiedAlbumObject>? = null,
     val artists: SpotifyPagingObject<SpotifyArtistObject>? = null,
     val playlists: SpotifyPagingObject<SpotifyPlaylistObject?>? = null,
+)
+
+/**
+ * `GET /me/player/queue`: the song playing and what Spotify plays after it,
+ * the user's queue first, then the rest of the album or playlist. Nothing
+ * says which entries are which; a podcast episode is an entry like a song.
+ */
+@Serializable
+data class SpotifyQueueResponse(
+    @SerialName("currently_playing") val currentlyPlaying: SpotifyTrackObject? = null,
+    val queue: List<SpotifyTrackObject> = emptyList(),
 )
 
 @Serializable

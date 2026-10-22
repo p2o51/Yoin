@@ -32,8 +32,12 @@ import androidx.room.RoomDatabase
         HomeLayoutPreference::class,
         HomeGridPoolCache::class,
         AlbumMemoryTitle::class,
+        TrackAlbumLink::class,
+        ImportBatch::class,
+        ImportItem::class,
+        PlaylistBackup::class,
     ],
-    version = 30,
+    version = 32,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -80,6 +84,12 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun homeGridPoolDao(): HomeGridPoolDao
 
     abstract fun albumMemoryTitleDao(): AlbumMemoryTitleDao
+
+    abstract fun trackAlbumLinkDao(): TrackAlbumLinkDao
+
+    abstract fun importBatchDao(): ImportBatchDao
+
+    abstract fun playlistBackupDao(): PlaylistBackupDao
 
     abstract fun syncDomainDao(): com.gpo.yoin.data.sync.domain.SyncDomainDao
 }

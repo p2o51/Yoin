@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -47,6 +48,11 @@ sealed interface LibraryUiState {
          * [availableSearchFilters] on every scope or capability change.
          */
         val searchFilter: LibrarySearchFilter = LibrarySearchFilter.All,
+        /**
+         * A type's next page of results being read, or failed ([searchMoreFor]); a type not here
+         * has more exactly when [searchResults] says so ([SearchResults.more]).
+         */
+        val searchPaging: Map<SearchResultType, LibrarySongsMore> = emptyMap(),
         /** Type chips for the active provider and [searchScope] ([searchFiltersFor]). */
         val availableSearchFilters: List<LibrarySearchFilter> = LibrarySearchFilter.entries,
         /**
@@ -101,7 +107,7 @@ sealed interface LibraryUiState {
         val libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
     ) : LibraryUiState
 
-    data class Error(val message: UiText) : LibraryUiState
+    data class Error(val message: UiText, val diagnostics: String? = null) : LibraryUiState
 }
 
 /**

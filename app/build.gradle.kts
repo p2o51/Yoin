@@ -6,6 +6,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.ktlint)
+    id("yoin.musickit-large-id")
+    id("yoin.musickit-relro")
 }
 
 val releaseKeystorePropertiesFile = (
@@ -52,7 +54,7 @@ android {
         applicationId = "com.gpo.yoin"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
+        versionCode = 8
         versionName = "0.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -116,8 +118,6 @@ android {
         buildConfig = true
     }
 
-    // Room schema export — will be configured in Phase 3 with androidx.room plugin
-
     testOptions {
         unitTests {
             // Production code (e.g. the detail-cache android.util.LruCache) touches
@@ -150,6 +150,11 @@ android {
     }
 }
 
+// Room writes each schema version to app/schemas/ (commit them): the record later migrations are checked against.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 ktlint {
     filter {
         exclude("**/contrast/**")
@@ -165,7 +170,8 @@ ktlint {
 
 dependencies {
     implementation(files("libs/musickitauth-release-1.1.2.aar"))
-    implementation(files("libs/mediaplayback-release-1.1.1.aar"))
+    // libs/ playback AAR with its 64-bit native libraries patched for 16 KB pages (build-logic MusicKitRelroPlugin)
+    implementation(files(tasks.named<PatchMusicKitRelro>("patchMusicKitRelro").flatMap { it.patchedAar }))
     // Compose BOM
     val composeBom = platform(libs.compose.bom)
     implementation(composeBom)

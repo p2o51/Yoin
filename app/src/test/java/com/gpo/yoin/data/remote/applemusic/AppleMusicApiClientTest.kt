@@ -3,6 +3,7 @@ package com.gpo.yoin.data.remote.applemusic
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -100,6 +101,45 @@ class AppleMusicApiClientTest {
         val catalog = server.takeRequest()
         assertEquals("/v1/catalog/jp/songs/123", catalog.path)
         assertNull(catalog.getHeader("Music-User-Token"))
+    }
+
+    @Test
+    fun should_reportStatusAppleCodeAndMaskedRequest_when_appleRefuses() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(403).setBody(
+                """{"errors":[{"id":"X","title":"Forbidden","detail":"Invalid authentication",""" +
+                    """"status":"403","code":"40300"}]}"""
+            )
+        )
+        val error = runCatching {
+            client.resourcePage(
+                listOf("v1", "me", "library", "playlists", "p.mine", "tracks"),
+                personal = true,
+                query = mapOf("include" to "catalog"),
+            )
+        }.exceptionOrNull() as AppleMusicApiException
+        assertEquals(AppleMusicApiFailure.AccessDenied, error.failure)
+        assertEquals(403, error.status)
+        assertEquals("40300", error.appleCode)
+        // The user's own library id is masked; nothing of the error's prose is kept.
+        assertEquals("/v1/me/library/playlists/{id}/tracks include=catalog", error.request)
+    }
+
+    @Test
+    fun should_keepCatalogIds_when_describingACatalogRequest() {
+        assertEquals(
+            "/v1/catalog/jp/songs/6805970194",
+            diagnosticRequest("https://api.music.apple.com/v1/catalog/jp/songs/6805970194".toHttpUrl()),
+        )
+    }
+
+    @Test
+    fun should_leaveAppleCodeOut_when_bodyIsNotAppleError() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("<html>Server error</html>"))
+        val error = runCatching { client.resourcePage(listOf("v1", "catalog", "jp", "songs", "1"), false) }
+            .exceptionOrNull() as AppleMusicApiException
+        assertEquals(500, error.status)
+        assertNull(error.appleCode)
     }
 
     @Test
@@ -285,6 +325,102 @@ class AppleMusicApiClientTest {
             )
         assertNull(imported.catalogId)
         assertEquals("applemusic:library:i.local", imported.toTrack().id.toString())
+    }
+
+    @Test
+    fun should_lookUpIsrcsInBatchesAndKeyByEachSongsIsrc_when_resolvingCatalogSongs() = runTest {
+        val codes = (0 until 26).map { "USQE9210" + it.toString().padStart(4, '0') }
+        server.enqueue(
+            MockResponse().setBody(
+                """{"data":[""" +
+                    """{"id":"1","type":"songs","attributes":{"name":"Entropy","isrc":"usqe92100000"}},""" +
+                    """{"id":"2","type":"songs","attributes":{"name":"Entropy","isrc":"USQE92100000"}},""" +
+                    """{"id":"3","type":"songs","attributes":{"name":"Other","isrc":"ZZZZ99999999"}}""" +
+                    """]}"""
+            )
+        )
+        server.enqueue(MockResponse().setBody("""{"data":[]}"""))
+
+        val found = client.catalogSongsByIsrc("jp", codes + "not-an-isrc")
+
+        assertEquals(listOf("1", "2"), found["USQE92100000"]!!.map { it.catalogId })
+        assertEquals(setOf("USQE92100000"), found.keys)
+        val first = server.takeRequest()
+        assertEquals("/v1/catalog/jp/songs", first.requestUrl!!.encodedPath)
+        assertEquals(codes.take(25).joinToString(","), first.requestUrl!!.queryParameter("filter[isrc]"))
+        assertNull(first.getHeader("Music-User-Token"))
+        assertEquals(codes.drop(25).single(), server.takeRequest().requestUrl!!.queryParameter("filter[isrc]"))
+    }
+
+    @Test
+    fun should_carryIsrcIntoTrackExtras_when_catalogSongNamesOne() {
+        val track = song("""{"id":"1","type":"songs","attributes":{"name":"Entropy","isrc":" usqe92100257 "}}""")
+            .toTrack()
+        assertEquals("USQE92100257", track.extras[com.gpo.yoin.data.model.Track.EXTRA_ISRC])
+    }
+
+    @Test
+    fun should_postNameDescriptionAndTracksInOrder_when_creatingLibraryPlaylist() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(201).setBody(
+                """{"data":[{"id":"p.new","type":"library-playlists","attributes":{"name":"Mix","canEdit":true}}]}"""
+            )
+        )
+
+        val created = client.createLibraryPlaylist(
+            "Mix",
+            "For the road",
+            listOf(AppleMusicTrackRef("123", "songs"), AppleMusicTrackRef("i.abc", "library-songs"))
+        )
+
+        assertEquals("p.new", created["id"]!!.toString().trim('"'))
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/v1/me/library/playlists", request.path)
+        assertEquals("user", request.getHeader("Music-User-Token"))
+        assertTrue(request.getHeader("Content-Type")!!.startsWith("application/json"))
+        assertEquals(
+            Json.parseToJsonElement(
+                """{"attributes":{"name":"Mix","description":"For the road"},""" +
+                    """"relationships":{"tracks":{"data":[{"id":"123","type":"songs"},""" +
+                    """{"id":"i.abc","type":"library-songs"}]}}}"""
+            ),
+            Json.parseToJsonElement(request.body.readUtf8())
+        )
+    }
+
+    @Test
+    fun should_omitEmptyRelationshipsAndDescription_when_creatingEmptyPlaylist() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(201).setBody("""{"data":[{"id":"p.new","type":"library-playlists"}]}""")
+        )
+        client.createLibraryPlaylist("Mix", " ", emptyList())
+        assertEquals(
+            Json.parseToJsonElement("""{"attributes":{"name":"Mix"}}"""),
+            Json.parseToJsonElement(server.takeRequest().body.readUtf8())
+        )
+    }
+
+    @Test
+    fun should_appendTracksAsDataArray_when_addingToLibraryPlaylist() = runTest {
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        client.addTracksToLibraryPlaylist("p.new", listOf(AppleMusicTrackRef("123", "songs")))
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/v1/me/library/playlists/p.new/tracks", request.path)
+        assertEquals(
+            Json.parseToJsonElement("""{"data":[{"id":"123","type":"songs"}]}"""),
+            Json.parseToJsonElement(request.body.readUtf8())
+        )
+    }
+
+    @Test
+    fun should_fail_when_appleRefusesPlaylistCreation() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403))
+        val failure = runCatching { client.createLibraryPlaylist("Mix", null, emptyList()) }.exceptionOrNull()
+        assertEquals(AppleMusicApiFailure.AccessDenied, (failure as AppleMusicApiException).failure)
     }
 
     private fun song(json: String) = AppleMusicSong.fromJson(Json.parseToJsonElement(json).jsonObject)

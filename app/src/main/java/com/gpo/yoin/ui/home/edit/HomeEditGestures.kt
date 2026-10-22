@@ -620,11 +620,13 @@ internal class HomeEditGestureExecutor(
         }
     }
 
-    // Card level: the tapped card kicks, else the block; the handle always pulses. Never exits.
+    // Card level: the tapped card kicks (and is noted, for a section that answers it), else
+    // the block; the handle always pulses. Never exits.
     private fun blockTap(action: BlockTap) {
         val card = action.local?.let { motion.cardAt(action.section, it) }
         if (card != null) {
             motion.impulseCard(action.section, card, HomeEditTokens.KickTap)
+            motion.noteCardTap(action.section, card)
         } else {
             motion.impulse(action.section, HomeEditTokens.KickTap)
         }

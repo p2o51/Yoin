@@ -13,9 +13,11 @@ import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.repository.LibraryRecents
 import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.YoinRepository
@@ -23,7 +25,9 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.FastScrollSection
+import com.gpo.yoin.ui.component.diagnosticReport
 import com.gpo.yoin.ui.component.toUserMessage
+import com.gpo.yoin.ui.component.toUserMessageText
 import java.text.Normalizer
 import java.time.Instant
 import java.time.ZoneId
@@ -141,6 +145,7 @@ class LibraryViewModel(
     /** What follows [cachedSongs]; [publishSongsMore] keeps the state's copy in step. */
     private var songsMoreState = LibrarySongsMore.None
     private var songsMoreJob: Job? = null
+    private var searchMoreJob: Job? = null
     private var cachedPlaylists: List<Playlist>? = null
     private var cachedFavorites: Starred? = null
 
@@ -363,6 +368,7 @@ class LibraryViewModel(
                     // beat after the source settled, so the page follows it
                     // rather than reading it once — while it still shows this error.
                     val fallback = e.uiTextOr(UiText.Res(R.string.library_error_load_library))
+                    val diagnostics = e.diagnosticReport()
                     var shown: LibraryUiState? = null
                     fun stillShown(): Boolean =
                         isDataLoadCurrent(generation, profileId) && (shown == null || _uiState.value == shown)
@@ -370,7 +376,8 @@ class LibraryViewModel(
                         .takeWhile { stillShown() }
                         .collect { needsReconnect ->
                             val error = LibraryUiState.Error(
-                                if (needsReconnect) UiText.Res(R.string.home_account_reconnect_needed) else fallback
+                                if (needsReconnect) UiText.Res(R.string.home_account_reconnect_needed) else fallback,
+                                diagnostics,
                             )
                             shown = error
                             _uiState.value = error
@@ -378,6 +385,7 @@ class LibraryViewModel(
                 } else {
                     _uiState.value = LibraryUiState.Error(
                         e.uiTextOr(UiText.Res(R.string.library_error_load_library)),
+                        diagnostics = e.diagnosticReport(),
                     )
                 }
             }
@@ -519,6 +527,7 @@ class LibraryViewModel(
                 if (content == null || nowhereBack) {
                     _uiState.value = LibraryUiState.Error(
                         e.uiTextOr(tab.loadFailure()),
+                        diagnostics = e.diagnosticReport(),
                     )
                     return@launch
                 }
@@ -1033,9 +1042,10 @@ class LibraryViewModel(
     }
 
     /**
-     * Lists one result type (or All again). Only what the search already
-     * returned is shown, so nothing is fetched; a type the provider can't
-     * search in this scope is ignored.
+     * Lists one result type (or All again). What the search already
+     * returned is shown, so nothing is fetched here: a type's list reads more
+     * itself as it nears its end ([loadMoreSearchResults]). A type the
+     * provider can't search in this scope is ignored.
      */
     fun selectSearchFilter(filter: LibrarySearchFilter) {
         updateContent {
@@ -1069,6 +1079,7 @@ class LibraryViewModel(
             ?.let(::normaliseSearchScope)
             ?: LibrarySearchScope.CurrentLibrary
         searchRequestFlow.value = LibrarySearchRequest("", scope)
+        searchMoreJob?.cancel()
         updateContent {
             copy(
                 searchQuery = "",
@@ -1076,7 +1087,58 @@ class LibraryViewModel(
                 isSearching = false,
                 searchError = null,
                 searchFilter = LibrarySearchFilter.All,
+                searchPaging = emptyMap(),
             )
+        }
+    }
+
+    /**
+     * The shown type's next page of results, where the service has more
+     * ([SearchResults.more], Spotify's 10 a type): as its list nears the end,
+     * or from the retry at its foot after a read failed. One read at a time;
+     * a new search drops it.
+     */
+    fun loadMoreSearchResults() {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        val filter = current.searchFilter
+        val type = filter.resultType ?: return
+        val results = current.searchResults ?: return
+        val more = searchMoreFor(results, filter, current.searchPaging)
+        if (more != LibrarySongsMore.Available && more != LibrarySongsMore.Failed) return
+        val query = current.searchQuery
+        val scope = current.searchScope
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun LibraryUiState.Content.answers(): Boolean = searchQuery == query && searchScope == scope
+        updateContent { copy(searchPaging = searchPaging + (type to LibrarySongsMore.Loading)) }
+        searchMoreJob = viewModelScope.launch {
+            try {
+                val page = repository.searchMore(query, type, offset = results.countOf(type))
+                    .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
+                updateContent {
+                    val shown = searchResults
+                    if (!answers() || shown == null) {
+                        this
+                    } else {
+                        copy(searchResults = shown.appending(type, page), searchPaging = searchPaging - type)
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) {
+                    // Cancelled by a refresh: the list asks again as it nears its end.
+                    updateContent {
+                        val stillLoading = searchPaging[type] == LibrarySongsMore.Loading
+                        if (stillLoading) copy(searchPaging = searchPaging - type) else this
+                    }
+                    throw e
+                }
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
+                // The rows stay; the foot's retry reads the same page again.
+                updateContent {
+                    if (answers()) copy(searchPaging = searchPaging + (type to LibrarySongsMore.Failed)) else this
+                }
+            }
         }
     }
 
@@ -1117,7 +1179,8 @@ class LibraryViewModel(
 
                     val generation = libraryDataGeneration
                     val profileId = repository.currentProfileId()
-                    updateContent { copy(isSearching = true, searchError = null) }
+                    searchMoreJob?.cancel()
+                    updateContent { copy(isSearching = true, searchError = null, searchPaging = emptyMap()) }
                     try {
                         val results = searchWithScope(query, request.scope)
                             .applyFavoriteOverrides(repository.favoriteOverrides.value)
@@ -1807,6 +1870,7 @@ class LibraryViewModel(
         tabLoadJob?.cancel()
         reshuffleJob?.cancel()
         songsMoreJob?.cancel()
+        searchMoreJob?.cancel()
         albumsReadJob?.cancel()
         libraryRefreshJob?.cancel()
         tabLoadGeneration += 1
@@ -2051,13 +2115,15 @@ class LibraryViewModel(
         return if (args.isEmpty()) resources.getString(id) else resources.getString(id, *args)
     }
 
-    private fun Throwable.uiTextOr(fallback: UiText): UiText {
-        val raw = message
-        return if (raw != null) UiText.Raw(raw) else fallback
-    }
+    // The shared lines first, in the app's language. Other failures still say their own message, but never an
+    // Apple failure: its message is a type name ("Apple Music: AccessDenied").
+    private fun Throwable.uiTextOr(fallback: UiText): UiText =
+        toUserMessageText() ?: message?.takeUnless { this is AppleMusicApiException }?.let(UiText::Raw) ?: fallback
 
     private fun Throwable.snackbarOr(id: Int, english: String): String =
-        message?.takeIf { it.isNotBlank() } ?: shownCopy(id, english)
+        toUserMessageText()?.let { toUserMessage(shownCopy(id, english), copyResources) }
+            ?: message?.takeIf { it.isNotBlank() && this !is AppleMusicApiException }
+            ?: shownCopy(id, english)
 
     private fun Throwable.searchFailure(): UiText {
         val resolved = shownCopy(R.string.library_error_search, "Search failed.")

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Spotoolfy recap (docs/spotoolfy-migration.md §6): two pages after an import, and from Settings › About.
+         Counts and names make whole sentences; nothing is joined with dots. -->
+    <string name="spotoolfy_recap_title">Spotoolfy recap</string>
+    <string name="spotoolfy_recap_close">Close</string>
+    <string name="spotoolfy_recap_page">%1$d of %2$d</string>
+    <string name="spotoolfy_recap_from">From Spotoolfy</string>
+    <string name="spotoolfy_recap_you_wrote">In Spotoolfy you wrote</string>
+    <plurals name="spotoolfy_recap_notes_unit">
+        <item quantity="one">note</item>
+        <item quantity="other">notes</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_ratings_unit">
+        <item quantity="one">rating</item>
+        <item quantity="other">ratings</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_songs">
+        <item quantity="one">%1$d song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_artists">
+        <item quantity="one">%1$d artist</item>
+        <item quantity="other">%1$d artists</item>
+    </plurals>
+    <!-- %1$s = "32 songs", %2$s = "10 artists" -->
+    <string name="spotoolfy_recap_for_songs_by">for %1$s by %2$s</string>
+    <string name="spotoolfy_recap_for_songs">for %1$s</string>
+    <string name="spotoolfy_recap_all_rated">, every one of them rated</string>
+    <plurals name="spotoolfy_recap_some_rated">
+        <item quantity="one">, %1$d of them rated</item>
+        <item quantity="other">, %1$d of them rated</item>
+    </plurals>
+    <string name="spotoolfy_recap_range">%1$s to %2$s</string>
+    <string name="spotoolfy_recap_swipe_up">Swipe up</string>
+
+    <string name="spotoolfy_recap_eyebrow_words_lyrics">Keywords and lyrics</string>
+    <string name="spotoolfy_recap_eyebrow_notes_lyrics">Notes and lyrics</string>
+    <string name="spotoolfy_recap_eyebrow_words">Keywords</string>
+    <string name="spotoolfy_recap_eyebrow_notes">Notes</string>
+    <string name="spotoolfy_recap_title_with_lyrics">What you wrote, and what you kept</string>
+    <string name="spotoolfy_recap_title_words">Words you wrote most</string>
+    <string name="spotoolfy_recap_title_notes">What you wrote</string>
+    <plurals name="spotoolfy_recap_sub_words">
+        <item quantity="one">Words from your %1$d note. Tap one to see where you wrote it.</item>
+        <item quantity="other">Words from your %1$d notes. Tap one to see where you wrote it.</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_sub_notes">
+        <item quantity="one">%1$d note, too few for keywords, so here it is.</item>
+        <item quantity="other">%1$d notes, too few for keywords, so here they are.</item>
+    </plurals>
+    <string name="spotoolfy_recap_sub_ratings">No notes, only ratings. They come along too.</string>
+    <plurals name="spotoolfy_recap_word_count">
+        <item quantity="one">Used once</item>
+        <item quantity="other">Used %1$d times</item>
+    </plurals>
+    <!-- %1$s = date, %2$s = song title -->
+    <string name="spotoolfy_recap_written_for">Written for “%2$s” on %1$s</string>
+    <!-- %1$s = song title, %2$s = artist -->
+    <string name="spotoolfy_recap_song_by">“%1$s” by %2$s</string>
+    <string name="spotoolfy_recap_quote">“%1$s”</string>
+    <string name="spotoolfy_recap_kept_on">Kept on %1$s</string>
+    <string name="spotoolfy_recap_note_with_it">What you wrote with it</string>
+    <string name="spotoolfy_recap_summary_words">Words you wrote most: %1$s.</string>
+    <string name="spotoolfy_recap_summary_lyrics">Lyrics you kept: %1$s.</string>
+    <string name="spotoolfy_recap_list_separator">", "</string>
+
+    <string name="spotoolfy_recap_join_title">Bring them into Yoin</string>
+    <string name="spotoolfy_recap_join_body">Once Spotify is connected, these notes and ratings go into your Yoin and turn up in Now Playing, the album scrapbook, Memories and Rediscover.</string>
+    <string name="spotoolfy_recap_join">Join Yoin</string>
+    <string name="spotoolfy_recap_done_body">They\'re all in your Yoin: Now Playing\'s notes, the album scrapbook, Memories and Rediscover.</string>
+    <string name="spotoolfy_recap_done">Done</string>
+    <string name="spotoolfy_recap_missing">This recap isn\'t here any more.</string>
+
+    <!-- Settings › About -->
+    <string name="settings_spotoolfy_recap">Spotoolfy recap</string>
+    <string name="settings_spotoolfy_recap_body">The notes and ratings that came over from Spotoolfy</string>
+</resources>

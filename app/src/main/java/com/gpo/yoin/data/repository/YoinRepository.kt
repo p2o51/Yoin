@@ -33,6 +33,7 @@ import com.gpo.yoin.data.local.toGridPoolRow
 import com.gpo.yoin.data.local.toPlaylist
 import com.gpo.yoin.data.local.toTrack
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.data.local.TrackAlbumLink
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.SongNoteKey
 import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
@@ -57,6 +58,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -759,7 +761,27 @@ class YoinRepository(
                 detailCacheStore?.writeAlbum(profileId, album.id.toString(), album, stillCurrent)
             }
         )
-    )?.also(::seedLibraryMembership)
+    )?.also { album ->
+        seedLibraryMembership(album)
+        linkAlbumTracks(album)
+    }
+
+    /** Albums whose tracks were linked in this process: an album read many times (Home, Memories) writes once. */
+    private val linkedAlbums: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * Records which album each of [album]'s tracks belongs to (track_album_links), so a track rated or noted on
+     * this album without ever playing in Yoin still counts for it in Memories and Rediscover.
+     */
+    private suspend fun linkAlbumTracks(album: Album) {
+        val profileId = activeProfileId.value ?: return
+        if (album.tracks.isEmpty() || !linkedAlbums.add("$profileId|${album.id}")) return
+        val now = clock()
+        val rows = album.tracks.map { track ->
+            TrackAlbumLink(profileId, track.id.provider, track.id.rawId, album.id.rawId, TrackAlbumLink.SOURCE_DETAIL, now)
+        }
+        runCatching { database.trackAlbumLinkDao().upsertAll(rows) }
+    }
 
     private fun isPreMembershipAppleAlbum(album: Album): Boolean =
         album.tracks.isNotEmpty() && album.tracks.none { it.extras.containsKey("appleMusicLibraryChecked") }
@@ -844,6 +866,9 @@ class YoinRepository(
 
     suspend fun search(query: String): SearchResults =
         requireSource().library().search(query)
+
+    suspend fun searchMore(query: String, type: SearchResultType, offset: Int): SearchResults =
+        requireSource().library().searchMore(query, type, offset)
 
     suspend fun searchCurrentLibrary(query: String): SearchResults =
         requireSource().library().searchLibrary(query)
@@ -2394,18 +2419,21 @@ class YoinRepository(
      * [LyricsProviderRegistry] 串行兜底（QQ → 网易云 → LRCLIB），把原始 LRC 落表。
      * Subsonic 没有用户选的行时只用服务端歌词，不走自动兜底。
      *
-     * 自动兜底需要 [title] + [artist] 做搜索；任一为空就返回 null。
+     * 自动兜底需要 [title] + [artist] 做搜索；任一为空就返回 null。[durationMs] 是这首的时长，
+     * 用来在同名同艺人的几条录音里挑长度对得上的。按显示的名字没找到时，见 [fetchLyricUnderAlternateNames]。
      */
     suspend fun getLyrics(
         trackId: MediaId,
         title: String? = null,
         artist: String? = null,
-    ): Lyrics? = getLoadedLyrics(trackId, title, artist)?.lyrics
+        durationMs: Long? = null,
+    ): Lyrics? = getLoadedLyrics(trackId, title, artist, durationMs)?.lyrics
 
     suspend fun getLoadedLyrics(
         trackId: MediaId,
         title: String? = null,
         artist: String? = null,
+        durationMs: Long? = null,
     ): LoadedLyrics? {
         val source = requireSource()
         val now = clock()
@@ -2433,7 +2461,9 @@ class YoinRepository(
         val a = artist?.trim().orEmpty()
         if (t.isEmpty() || a.isEmpty()) return null
 
-        val hit = lyricsProviderRegistry.fetchLyric(t, a) ?: return null
+        val hit = lyricsProviderRegistry.fetchLyric(t, a, durationMs)
+            ?: fetchLyricUnderAlternateNames(source, trackId, t, a, durationMs)
+            ?: return null
         writeLyricsCache(
             trackId = trackId,
             lyricsProvider = hit.providerName,
@@ -2448,10 +2478,42 @@ class YoinRepository(
         )
     }
 
+    /**
+     * A storefront in another language shows names no lyrics source has: Apple Music's Japan storefront writes
+     * Kim Petras as キム・ペトラス, and every source searched under it comes back empty. When the shown names
+     * found nothing and carry non-Latin letters, search once more under the service's English names
+     * ([com.gpo.yoin.data.source.MusicMetadata.alternateNames]). The shown names always go first: a Japanese
+     * song's English names are translations (晴る / ヨルシカ → Sunny / Yorushika) that sources don't have.
+     */
+    private suspend fun fetchLyricUnderAlternateNames(
+        source: MusicSource,
+        trackId: MediaId,
+        title: String,
+        artist: String,
+        durationMs: Long?,
+    ): LyricsProviderRegistry.Hit? {
+        if (trackId.provider != source.id) return null
+        if (!hasNonLatinLetter(title) && !hasNonLatinLetter(artist)) return null
+        val names = try {
+            source.metadata().alternateNames(trackId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        if (names.title == title && names.artist == artist) return null
+        return lyricsProviderRegistry.fetchLyric(names.title, names.artist, durationMs)
+    }
+
+    private fun hasNonLatinLetter(text: String): Boolean = text.codePoints().anyMatch { cp ->
+        Character.isLetter(cp) && Character.UnicodeScript.of(cp) != Character.UnicodeScript.LATIN
+    }
+
     suspend fun searchAndApplyLyrics(
         trackId: MediaId,
         title: String?,
         artist: String?,
+        durationMs: Long? = null,
     ): Result<LyricsApplyResult> = runCatching {
         val t = title?.trim().orEmpty()
         val a = artist?.trim().orEmpty()
@@ -2459,7 +2521,8 @@ class YoinRepository(
             "Need title and artist to search lyrics"
         }
 
-        val hit = lyricsProviderRegistry.fetchLyric(t, a)
+        val hit = lyricsProviderRegistry.fetchLyric(t, a, durationMs)
+            ?: fetchLyricUnderAlternateNames(requireSource(), trackId, t, a, durationMs)
             ?: throw NoSuchElementException("No lyrics found")
         // 用户主动点了"搜索并应用"：结果算用户选的，不按天数过期。
         writeLyricsCache(
@@ -3019,6 +3082,11 @@ class YoinRepository(
             ),
         )
         database.activityEventDao().insert(buildPlaybackActivity(track, activityContext, profileId))
+        track.albumId?.rawId?.takeIf { it.isNotBlank() }?.let { albumId ->
+            database.trackAlbumLinkDao().upsert(
+                TrackAlbumLink(profileId, track.id.provider, track.id.rawId, albumId, TrackAlbumLink.SOURCE_PLAY, clock()),
+            )
+        }
     }
 
     fun getRecentHistory(limit: Int = 50): Flow<List<PlayHistory>> =

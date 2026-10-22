@@ -3,6 +3,7 @@ package com.gpo.yoin.player
 import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
+import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
@@ -62,7 +63,12 @@ internal class SessionQuickActions(
     private val libraryWrites = MutableStateFlow<Set<MediaId>>(emptySet())
     private var attached: Job? = null
 
-    /** Session callback with the quick-action commands; wrap it with `by` to add more. */
+    /**
+     * Session callback with the quick-action commands. To add more, forward
+     * onConnect and onCustomCommand to it from a callback of your own — not
+     * with `by`: MediaSession.Callback's members are Java default methods,
+     * which Kotlin's delegation never forwards (see CatalogItemsCallback).
+     */
     val callback: MediaSession.Callback = object : MediaSession.Callback {
         override fun onConnect(
             session: MediaSession,
@@ -120,7 +126,7 @@ internal class SessionQuickActions(
         val manager = playbackManager()
         val repository = repository()
         val shuffle = manager.playbackState
-            .map { PlayMode.of(it.repeatMode, it.shuffleEnabled) == PlayMode.Shuffle }
+            .map { it.playMode.shuffle }
             .distinctUntilChanged()
         val track = manager.playbackState
             .map { it.currentTrack }
@@ -144,6 +150,7 @@ internal class SessionQuickActions(
 
     private fun shuffleButton(on: Boolean) = button(
         icon = if (on) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF,
+        drawable = if (on) R.drawable.ic_media_shuffle_on else R.drawable.ic_media_shuffle_off,
         label = if (on) R.string.player_action_shuffle_off else R.string.player_action_shuffle_on,
         command = SHUFFLE,
     )
@@ -151,6 +158,7 @@ internal class SessionQuickActions(
     private fun saveButton(state: SaveState) = when (state) {
         is SaveState.Favorite -> button(
             icon = if (state.starred) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED,
+            drawable = if (state.starred) R.drawable.ic_media_favorite_filled else R.drawable.ic_media_favorite,
             label = if (state.starred) R.string.np_cd_remove_favorite else R.string.np_cd_add_favorite,
             command = FAVORITE,
         )
@@ -158,19 +166,24 @@ internal class SessionQuickActions(
             // Apple Music has no remove-from-library API; the filled check is a state, its tap a no-op.
             LibraryMembership.Added, LibraryMembership.Pending -> button(
                 icon = CommandButton.ICON_CHECK_CIRCLE_FILLED,
+                drawable = R.drawable.ic_media_library_added,
                 label = R.string.player_action_in_library,
                 command = LIBRARY_ADD,
             )
             else -> button(
                 icon = CommandButton.ICON_PLUS_CIRCLE_UNFILLED,
+                drawable = R.drawable.ic_media_library_add,
                 label = R.string.player_action_add_to_library,
                 command = LIBRARY_ADD,
             )
         }
     }
 
-    private fun button(icon: Int, @StringRes label: Int, command: SessionCommand) =
+    // [icon] tells controllers what the button means (Android Auto, Wear draw their own); [drawable] is
+    // what the system media controls show: Yoin Symbols, sized to sit beside the system's own glyphs.
+    private fun button(icon: Int, @DrawableRes drawable: Int, @StringRes label: Int, command: SessionCommand) =
         CommandButton.Builder(icon)
+            .setCustomIconResId(drawable)
             .setDisplayName(context.getString(label))
             .setSessionCommand(command)
             .setSlots(CommandButton.SLOT_OVERFLOW)
@@ -179,8 +192,8 @@ internal class SessionQuickActions(
     private fun toggleShuffle() {
         val manager = playbackManager()
         val state = manager.playbackState.value
-        val shuffled = PlayMode.of(state.repeatMode, state.shuffleEnabled) == PlayMode.Shuffle
-        manager.setPlayMode(if (shuffled) PlayMode.RepeatAll else PlayMode.Shuffle)
+        // Only the shuffle axis: repeat one stays repeat one.
+        manager.setPlayMode(state.playMode.withShuffle(!state.playMode.shuffle))
     }
 
     private fun toggleFavorite() {

@@ -154,6 +154,7 @@ fun HomeScreen(
             modifier = modifier,
             onActivityArtistsShown = viewModel::onActivityArtistsShown,
             onFeedAtRestChanged = viewModel::onFeedAtRestChanged,
+            onHideJbiCard = viewModel::hideJbiCard,
         )
     }
 }
@@ -194,6 +195,8 @@ fun HomeContent(
     // What the feed pictures in Activities and whether it rests (owner Q16).
     onActivityArtistsShown: (List<String>) -> Unit = {},
     onFeedAtRestChanged: (Boolean) -> Unit = {},
+    // Edit mode's "not now" on a Jump Back In card; null = no bubble.
+    onHideJbiCard: ((HomeWidgetCard, JbiHideSpan) -> Unit)? = null,
     // A switch begun from Home's account card is under way ([activeAccount] is
     // its target), where the header's avatar is (window px; read only in
     // snapshotFlows — it moves with every scroll frame), and whether the
@@ -402,6 +405,7 @@ fun HomeContent(
                                 modifier = Modifier.fillMaxSize(),
                                 onActivityArtistsShown = onActivityArtistsShown,
                                 onFeedAtRestChanged = reportFeedAtRest,
+                                onHideJbiCard = onHideJbiCard,
                             )
                         }
                     }

@@ -1,6 +1,8 @@
 package com.gpo.yoin
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,5 +44,30 @@ class StartedActivityCounterTest {
         assertFalse(counter.onStarted())
         assertFalse(counter.onStopped())
         assertTrue(counter.onStopped())
+    }
+}
+
+class StartedHostsTest {
+
+    @Test
+    fun should_moveToTheNextActivity_when_theHostFinishes() {
+        // A widget's OpenNowPlayingActivity starts MainActivity and finishes.
+        val hosts = StartedHosts<String>()
+        hosts.onStarted("OpenNowPlaying")
+        hosts.onStarted("Main")
+        hosts.onStopped("OpenNowPlaying")
+        assertEquals("Main", hosts.current)
+    }
+
+    @Test
+    fun should_goBackToTheActivityBelow_when_theTopOneStops() {
+        val hosts = StartedHosts<String>()
+        hosts.onStarted("Main")
+        hosts.onStarted("AlbumDetail")
+        assertEquals("AlbumDetail", hosts.current)
+        hosts.onStopped("AlbumDetail")
+        assertEquals("Main", hosts.current)
+        hosts.onStopped("Main")
+        assertNull(hosts.current)
     }
 }

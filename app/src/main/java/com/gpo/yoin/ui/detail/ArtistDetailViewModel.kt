@@ -15,6 +15,7 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.SPOTIFY_START_MAX_URIS
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.component.diagnosticReport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -104,6 +105,7 @@ class ArtistDetailViewModel(
             } catch (e: Exception) {
                 _uiState.value = ArtistDetailUiState.Error(
                     e.toDetailMessage(R.string.detail_artist_error_load),
+                    diagnostics = e.diagnosticReport(),
                 )
             }
         }

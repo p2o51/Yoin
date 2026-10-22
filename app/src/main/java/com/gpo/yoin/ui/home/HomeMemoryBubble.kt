@@ -1,16 +1,26 @@
 package com.gpo.yoin.ui.home
 
 import android.content.Context
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -22,6 +32,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -56,6 +67,7 @@ import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -63,6 +75,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -76,6 +89,10 @@ import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.tips.LocalTipReadStore
+import com.gpo.yoin.ui.tips.SharedPrefsTipReadStore
+import com.gpo.yoin.ui.tips.TipActivity
+import com.gpo.yoin.ui.tips.unreadTips
 import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
@@ -87,6 +104,8 @@ import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.experience.withSteadyFrames
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import kotlin.math.roundToInt
+import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -97,7 +116,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.roundToInt
 
 // ── The Memories speech bubble (owner 2026-10-04, re-cut 2026-10-09) ────
 //
@@ -176,14 +194,18 @@ private val ArrowPullNudge = 2.dp
 private val ArrowScrollFade = 48.dp
 
 /**
- * "很久不动": Home readable and untouched this long, the bubble speaks — at
- * most once each time the app comes to the foreground (owner 2026-10-11).
+ * "不动就出现": Home readable and untouched this long, the bubble speaks — and
+ * again each time it has gone and Home is left alone again (owner 2026-10-17;
+ * replaces the once-per-foreground reminder of 2026-10-11). In the app the
+ * wait is picked from [MemoryBubbleIdleRangeMs] each time, a pulse rather than
+ * a metronome; this midpoint is the fixed wait harnesses use.
  */
-internal const val MemoryBubbleIdleMs = 15_000L
+internal const val MemoryBubbleIdleMs = 4_500L
 
 /**
- * Said in full (the bubble out, its spring at rest), it holds this long, then
- * flies back into the arrow on its own (owner 2026-10-11: 说完停 6 秒).
+ * News said in full (the bubble out, its spring at rest) holds this long, then
+ * flies back into the arrow on its own (owner 2026-10-11: 说完停 6 秒). What it
+ * says when left alone holds [MemoryBubbleChatterDwellRangeMs].
  */
 internal val MemoryBubbleDwellMs: Long = 6_000L
 
@@ -201,16 +223,32 @@ private const val MemoryBubbleNewsDelayMs = 450L
  */
 internal const val MEMORY_BUBBLE_NEWS_SETTLE_MS = 300L
 
-internal val LocalMemoryBubbleIdleMs = staticCompositionLocalOf { MemoryBubbleIdleMs }
+/** Null = a fresh pick from [MemoryBubbleIdleRangeMs] each time; harnesses pin it. */
+internal val LocalMemoryBubbleIdleMs = staticCompositionLocalOf<Long?> { null }
 internal val LocalMemoryBubbleDwellMs = staticCompositionLocalOf { MemoryBubbleDwellMs }
+
+/** Null = a fresh pick from [MemoryBubbleChatterDwellRangeMs] each time; harnesses pin it. */
+internal val LocalMemoryBubbleChatterDwellMs = staticCompositionLocalOf<Long?> { null }
+
+/** How often a turn of idle chatter becomes the next one before it goes; harnesses pin it. */
+internal val LocalMemoryBubbleChainChance = staticCompositionLocalOf { MemoryBubbleChainChance }
 
 // ── What the bubble remembers ──────────────────────────────────────────
 
-/** The last [HomeMemoryPill.newsKey] the bubble spoke, per profile scope. */
+/**
+ * The last [HomeMemoryPill.newsKey] the bubble spoke, per profile scope — and
+ * how far its idle reminder has got through [HomeMemoryPill.recall].
+ */
 internal interface MemoryBubbleSeenStore {
     fun lastSeen(scope: String): String?
 
     fun markSeen(scope: String, newsKey: String)
+
+    /** The idle reminder's turn in [scope]: 0, 1, 2… one more each time it is asked. */
+    fun nextRecallTurn(scope: String): Int
+
+    /** Which tip comes next ([HomeBubbleTip]): 0, 1, 2… one more each time it is asked. */
+    fun nextTipTurn(): Int
 }
 
 internal class SharedPrefsMemoryBubbleSeenStore(context: Context) : MemoryBubbleSeenStore {
@@ -222,10 +260,24 @@ internal class SharedPrefsMemoryBubbleSeenStore(context: Context) : MemoryBubble
         prefs.edit { putString(KEY_PREFIX + scope, newsKey) }
     }
 
+    override fun nextRecallTurn(scope: String): Int {
+        val turn = prefs.getInt(RECALL_PREFIX + scope, 0)
+        prefs.edit { putInt(RECALL_PREFIX + scope, if (turn == Int.MAX_VALUE) 0 else turn + 1) }
+        return turn
+    }
+
+    override fun nextTipTurn(): Int {
+        val turn = prefs.getInt(TIP_KEY, 0)
+        prefs.edit { putInt(TIP_KEY, if (turn == Int.MAX_VALUE) 0 else turn + 1) }
+        return turn
+    }
+
     private companion object {
         // Shared with the lyric idle hint: UI hints that remember they've spoken.
         const val PREFS_NAME = "yoin_ui_hints"
         const val KEY_PREFIX = "memory_bubble_seen:"
+        const val RECALL_PREFIX = "memory_bubble_recall:"
+        const val TIP_KEY = "memory_bubble_tip"
     }
 }
 
@@ -237,6 +289,29 @@ internal class InMemoryMemoryBubbleSeenStore : MemoryBubbleSeenStore {
     override fun markSeen(scope: String, newsKey: String) {
         seen[scope] = newsKey
     }
+
+    private val turns = mutableMapOf<String, Int>()
+
+    override fun nextRecallTurn(scope: String): Int {
+        val turn = turns[scope] ?: 0
+        turns[scope] = turn + 1
+        return turn
+    }
+
+    private var tipTurn = 0
+
+    override fun nextTipTurn(): Int = tipTurn++
+}
+
+/**
+ * What the bubble says for [reason]: news is always the latest memory; the
+ * idle reminder brings back one of the others, the next in line on each
+ * [turn] — the latest itself when there are no others yet.
+ */
+internal fun memoryBubbleSubject(pill: HomeMemoryPill?, reason: BubbleReason, turn: Int): HomeMemoryPill.Latest? {
+    if (pill == null) return null
+    if (reason == BubbleReason.News || pill.recall.isEmpty()) return pill.latest
+    return pill.recall[Math.floorMod(turn, pill.recall.size)]
 }
 
 /** Null = the SharedPreferences store; the QA harness provides an in-memory one. */
@@ -300,15 +375,14 @@ internal enum class MemoryBubbleCue {
 }
 
 /**
- * The bubble's rules. News is always told. The idle reminder speaks at most
- * once each time in the foreground — a trip to an album, Library and back, a
- * touch: none of them winds it up again — and never over a bubble already
+ * The bubble's rules. News is always told. Left alone, it speaks again each
+ * time it has gone quiet (owner 2026-10-17) — never over a bubble already
  * speaking. Everything else tucks it away; the background also starts the
  * next time in the foreground afresh (unseen, so it isn't a hard cut).
  */
 internal fun MemoryBubbleTurn.after(cue: MemoryBubbleCue): MemoryBubbleTurn = when (cue) {
     MemoryBubbleCue.News -> MemoryBubbleTurn(reason = BubbleReason.News, spokeThisForeground = true)
-    MemoryBubbleCue.IdleElapsed -> if (reason == null && !spokeThisForeground) {
+    MemoryBubbleCue.IdleElapsed -> if (reason == null) {
         MemoryBubbleTurn(reason = BubbleReason.Idle, spokeThisForeground = true)
     } else {
         this
@@ -765,8 +839,12 @@ internal fun MemoryBubbleOverlay(
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val context = LocalContext.current
     val store = LocalMemoryBubbleSeenStore.current ?: remember(context) { SharedPrefsMemoryBubbleSeenStore(context) }
+    val tipStore = LocalTipReadStore.current ?: remember(context) { SharedPrefsTipReadStore.get(context) }
     val idleMs = LocalMemoryBubbleIdleMs.current
     val dwellMs = LocalMemoryBubbleDwellMs.current
+    val chatterDwellMs = LocalMemoryBubbleChatterDwellMs.current
+    val chainChance = LocalMemoryBubbleChainChance.current
+    val random = remember { Random(System.nanoTime()) }
     val accessibility = LocalAccessibilityManager.current
     // The shell's presses and the once-per-foreground reminder; on its own
     // (the debug harness, previews) it keeps a holder of its own.
@@ -790,11 +868,41 @@ internal fun MemoryBubbleOverlay(
     }
 
     var reason by remember { mutableStateOf<BubbleReason?>(null) }
+    // What it is saying (a memory or a tip), picked as it starts to speak:
+    // kept while it tucks away, so it says the same thing all the way back.
+    var say by remember { mutableStateOf<BubbleSay?>(null) }
+    // One more each time it says something new — a chained line too.
+    var sayCount by remember { mutableIntStateOf(0) }
+    // Whether this turn of chatter has already become its next line.
+    var chained by remember { mutableStateOf(false) }
+    // Memories and tips take turns while there are memories to recall.
+    var idleTurns by remember { mutableIntStateOf(0) }
     val hasSomething = pill.hasSomethingToSay()
-    if (!hasSomething && reason != null) reason = null
+    // News is about a memory: with none left, it goes. Tips need none.
+    if (!hasSomething && reason == BubbleReason.News) reason = null
+    // Null: every tip read and no memory to recall — it stays quiet.
+    val nextIdleSay: () -> BubbleSay? = {
+        val shownPill = currentPill
+        val unread = tipStore.read.value.unreadTips()
+        val sayMemory = idleTurns % 2 == 0
+        idleTurns += 1
+        val memory = (sayMemory || unread.isEmpty()) && shownPill.hasSomethingToSay()
+        val memoryTurn = if (memory && shownPill!!.recall.isNotEmpty()) store.nextRecallTurn(shownPill.scope) else 0
+        val tipTurn = if (memory || unread.isEmpty()) 0 else store.nextTipTurn()
+        idleBubbleSay(shownPill, sayMemory = memory, memoryTurn = memoryTurn, tipTurn = tipTurn, unreadTips = unread)
+    }
     // Every change of what it says goes through the rules (MemoryBubbleTurn.after).
-    val cue: (MemoryBubbleCue) -> Unit = { what ->
+    val cue: (MemoryBubbleCue) -> Unit = cue@{ what ->
         val next = MemoryBubbleTurn(reason, shell.spokeThisForeground).after(what)
+        val starts = next.reason
+        if (starts != null && starts != reason) {
+            // Nothing left to say (every tip read, no memory): it stays quiet.
+            val line = if (starts == BubbleReason.News) BubbleSay.Memory(currentPill?.latest) else nextIdleSay()
+            if (line == null) return@cue
+            say = line
+            sayCount += 1
+            chained = false
+        }
         reason = next.reason
         shell.spokeThisForeground = next.spokeThisForeground
     }
@@ -822,24 +930,31 @@ internal fun MemoryBubbleOverlay(
             store.markSeen(news.scope, news.newsKey)
         }
     }
-    // "很久不动": readable and untouched for idleMs, speak — at most once each
-    // time the app comes to the foreground (counted from STARTED: a detail
-    // page, translucent, never stops Home, so coming back from one doesn't
-    // wind it up again; it only keeps the clock from running under it).
-    LaunchedEffect(hasSomething, idleMs, shell) {
-        if (!hasSomething) return@LaunchedEffect
+    // "不动就出现": once it is quiet, readable and untouched for a fresh pick
+    // of 4–5 s, speak; gone again, the clock starts over (owner 2026-10-17).
+    // A touch, or Home out of reach, starts the wait over; tips mean there is
+    // always something to say.
+    LaunchedEffect(idleMs, shell) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             val readable = snapshotFlow { canSpeak() }
-            while (!shell.spokeThisForeground) {
-                awaitMemoryBubbleIdle(readable, controller.touches, idleMs)
+            while (true) {
+                snapshotFlow { reason == null }.first { it }
+                awaitMemoryBubbleIdle(readable, controller.touches, idleMs ?: MemoryBubbleIdleRangeMs.pick(random))
                 if (canSpeak()) cue(MemoryBubbleCue.IdleElapsed)
             }
         }
     }
-    // Said in full, it holds dwellMs (longer if the accessibility timeout asks)
-    // and flies back into the arrow on its own — never from under a finger.
-    LaunchedEffect(reason, dwellMs) {
-        if (reason == null) return@LaunchedEffect
+    // Said in full, it holds — news dwellMs, chatter a fresh 2–3 s (longer if
+    // the accessibility timeout asks) — and flies back into the arrow on its
+    // own, never from under a finger. Now and then chatter turns into its next
+    // line in place first, and holds that one too.
+    LaunchedEffect(reason, sayCount, dwellMs, chatterDwellMs) {
+        val speakingFor = reason ?: return@LaunchedEffect
+        val hold = if (speakingFor == BubbleReason.News) {
+            dwellMs
+        } else {
+            chatterDwellMs ?: MemoryBubbleChatterDwellRangeMs.pick(random)
+        }
         val fullySaid = snapshotFlow {
             memoryBubbleFullySaid(
                 unroll = controller.unroll.value,
@@ -848,8 +963,19 @@ internal fun MemoryBubbleOverlay(
                 flyingAway = controller.flyAway.isRunning
             )
         }
-        awaitMemoryBubbleDwell(fullySaid, snapshotFlow { controller.held }, memoryBubbleDwellMs(dwellMs, accessibility))
-        cue(MemoryBubbleCue.DwellOver)
+        awaitMemoryBubbleDwell(fullySaid, snapshotFlow { controller.held }, memoryBubbleDwellMs(hold, accessibility))
+        val chainTo = if (speakingFor == BubbleReason.Idle && !chained && canSpeak() && random.nextFloat() < chainChance) {
+            nextIdleSay()
+        } else {
+            null
+        }
+        if (chainTo != null && chainTo != say) {
+            chained = true
+            say = chainTo
+            sayCount += 1
+        } else {
+            cue(MemoryBubbleCue.DwellOver)
+        }
     }
     // Any touch elsewhere (the bar's too), a pull toward Memories, the feed
     // scrolling away or something covering Home tucks it back.
@@ -887,7 +1013,15 @@ internal fun MemoryBubbleOverlay(
         fly = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard)
     )
     LaunchedEffect(speaking, reduced) {
-        controller.settle(speaking = speaking, reduced = reduced, springs = springs)
+        controller.settle(speaking = speaking, reduced = reduced, springs = springs, flyHome = say !is BubbleSay.Tip)
+    }
+    // A tip is a plain capsule (owner 2026-10-17): no tail, fully round ends. A line that turns
+    // into a tip mid-speech (or back) reshapes on the spatial spring; from rest it starts in shape.
+    val capsule = remember { Animatable(0f) }
+    val isTip = say is BubbleSay.Tip
+    LaunchedEffect(isTip) {
+        val target = if (isTip) 1f else 0f
+        if (reduced || controller.unroll.value < BubbleGoneBelow) capsule.snapTo(target) else capsule.animateTo(target, springs.out)
     }
     val composedBubble by remember {
         derivedStateOf {
@@ -902,8 +1036,14 @@ internal fun MemoryBubbleOverlay(
     val tapBubble: () -> Unit = {
         haptics.performContextClick()
         cue(MemoryBubbleCue.Touch)
-        val session = pill?.latest?.sessionId
-        if (session != null) onOpenMemoryFocus(session) else onNavigateToMemories()
+        when (val said = say) {
+            // A tip opens on its own page, where it can be read in full and marked read.
+            is BubbleSay.Tip -> context.startActivity(TipActivity.intent(context, said.tip))
+            is BubbleSay.Memory, null -> {
+                val session = ((said as? BubbleSay.Memory)?.latest ?: pill?.latest)?.sessionId
+                if (session != null) onOpenMemoryFocus(session) else onNavigateToMemories()
+            }
+        }
     }
 
     val cutout = rememberTopCutoutBounds()
@@ -938,6 +1078,8 @@ internal fun MemoryBubbleOverlay(
             if (composedBubble) {
                 MemoryBubble(
                     pill = pill,
+                    say = say,
+                    capsule = { capsule.value },
                     controller = controller,
                     speaking = speaking,
                     reduced = reduced,
@@ -1093,7 +1235,14 @@ internal class MemoryBubbleSprings(
  * and come late — by the wall clock the whole flight would fall between two
  * of them and read as a cut.
  */
-internal suspend fun MemoryBubbleController.settle(speaking: Boolean, reduced: Boolean, springs: MemoryBubbleSprings) {
+internal suspend fun MemoryBubbleController.settle(
+    speaking: Boolean,
+    reduced: Boolean,
+    springs: MemoryBubbleSprings,
+    // A tip is a plain capsule with no tail (owner 2026-10-17): it folds back into the title
+    // instead of flying off into the arrow.
+    flyHome: Boolean = true,
+) {
     val target = if (speaking) 1f else 0f
     var departure: MemoryBubbleGeometry? = null
     try {
@@ -1120,12 +1269,12 @@ internal suspend fun MemoryBubbleController.settle(speaking: Boolean, reduced: B
                     unroll.animateTo(1f, springs.out)
                 }
                 // Spoken: it flies off into the arrow and the title comes back.
-                unroll.value >= FlyAwayFrom -> {
+                flyHome && unroll.value >= FlyAwayFrom -> {
                     departure = geometry
                     flightGeometry = departure
                     flyAway.animateTo(1f, springs.fly)
                 }
-                // Still only the mark beside the title: it folds away.
+                // Still only the mark beside the title (or a tip): it folds away.
                 else -> {
                     unroll.animateTo(0f, springs.back)
                     markIn.animateTo(0f, springs.back)
@@ -1258,6 +1407,10 @@ private const val MarkArmStagger = 0.12f
 @Composable
 private fun MemoryBubble(
     pill: HomeMemoryPill?,
+    // What it says (a memory, [memoryBubbleSubject], or a tip); null = the pill's latest.
+    say: BubbleSay?,
+    // 0 = the speech bubble with its tail, 1 = a tip's plain capsule.
+    capsule: () -> Float,
     controller: MemoryBubbleController,
     speaking: Boolean,
     reduced: Boolean,
@@ -1269,7 +1422,11 @@ private fun MemoryBubble(
     val colors = MaterialTheme.colorScheme
     // While it tucks away it keeps saying what it said.
     val shown = rememberLastNonNull(pill?.takeIf { it.hasSomethingToSay() })
-    val latest = shown?.latest
+    val shownSay = say ?: BubbleSay.Memory(shown?.latest)
+    val latest = when (shownSay) {
+        is BubbleSay.Memory -> shownSay.latest ?: shown?.latest
+        is BubbleSay.Tip -> null
+    }
     val backdrop = rememberExpressiveBackdropColors(
         model = latest?.coverArtUrl,
         fallbackBaseColor = colors.secondary,
@@ -1285,9 +1442,9 @@ private fun MemoryBubble(
         label = "memoryBubbleFill",
     )
     val headline = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-    val resources = LocalContext.current.resources
-    val writtenAgo = latest?.writtenAtMillis?.let { remember(it) { formatTimeAgo(it, resources) } }
-    val description = if (latest == null) {
+    val description = if (shownSay is BubbleSay.Tip) {
+        stringResource(shownSay.tip.text)
+    } else if (latest == null) {
         stringResource(R.string.home_cd_bubble_memories)
     } else {
         val artist = latest.artistName
@@ -1333,12 +1490,14 @@ private fun MemoryBubble(
                     val s = controller.unroll.value
                     if (s < BubbleGoneBelow) return@onDrawBehind
                     val body = geometry.bodyAt(s, markHalf)
-                    memoryBubbleOutline(bodyPath, body, corner, null, 0f, flank, lean, drop)
+                    val c = capsule()
+                    val round = corner + (body.height / 2f - corner).coerceAtLeast(0f) * c
+                    memoryBubbleOutline(bodyPath, body, round, null, 0f, flank, lean, drop)
                     drawPath(bodyPath, color = fill)
                     // The tail rises last, out of the body's top, its point
                     // over the chevron — pulled along if the body hasn't
                     // reached it yet.
-                    val rise = smoothstep(TailRisesFrom, 1f, s)
+                    val rise = smoothstep(TailRisesFrom, 1f, s) * (1f - c)
                     if (rise > 0f) {
                         val tailX = minOf(geometry.tailX, body.right - reach)
                         memoryBubbleOutline(tailPath, body, corner, tailX, geometry.tailTop, flank, lean, drop)
@@ -1351,7 +1510,7 @@ private fun MemoryBubble(
                 }
             },
     )
-    Layout(
+    Box(
         modifier = contentModifier
             .clearAndSetSemantics {}
             .graphicsLayer { alpha = smoothstep(0.55f, 0.95f, controller.unroll.value) }
@@ -1364,6 +1523,80 @@ private fun MemoryBubble(
                 } ?: size.width
                 clipRect(right = right.coerceAtLeast(0f)) { this@drawWithContent.drawContent() }
             },
+    ) {
+        // A chained line turns into the next one in place: the old one rises
+        // out as the new one rises in (spatial spring), each fading on the
+        // effects spring. The first line simply unrolls with the body.
+        AnimatedContent(
+            targetState = shownSay,
+            transitionSpec = {
+                if (reduced) {
+                    EnterTransition.None togetherWith ExitTransition.None
+                } else {
+                    (
+                        YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it / 2 } +
+                            YoinMotion.fadeIn(role = YoinMotionRole.Standard)
+                        ) togetherWith (
+                        YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { -it / 2 } +
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                        ) using SizeTransform(clip = false)
+                }
+            },
+            contentAlignment = Alignment.CenterStart,
+            label = "memoryBubbleSay",
+        ) { line ->
+            when (line) {
+                is BubbleSay.Tip -> BubbleTipLine(tip = line.tip)
+                is BubbleSay.Memory -> BubbleMemoryLine(
+                    latest = line.latest ?: shown?.latest,
+                    fill = fill,
+                    headline = headline,
+                )
+            }
+        }
+    }
+}
+
+/** A tip: the symbol in a small round tile where a memory's cover sits, and its title. */
+@Composable
+private fun BubbleTipLine(tip: HomeBubbleTip) {
+    val colors = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(BubbleCoverSize)
+                .background(colors.secondaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = tip.icon,
+                contentDescription = null,
+                tint = colors.onSecondaryContainer,
+                modifier = Modifier.size(BubbleTipIconSize),
+            )
+        }
+        Spacer(modifier = Modifier.width(BubbleCoverTitleGap))
+        Text(
+            text = stringResource(tip.title),
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = colors.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** A memory: its cover, its album, and — when there is room — when it was written and its own title. */
+@Composable
+private fun BubbleMemoryLine(
+    latest: HomeMemoryPill.Latest?,
+    fill: Color,
+    headline: TextStyle,
+) {
+    val colors = MaterialTheme.colorScheme
+    val resources = LocalResources.current
+    val writtenAgo = latest?.writtenAtMillis?.let { remember(it) { formatTimeAgo(it, resources) } }
+    Layout(
         content = {
             if (latest != null) {
                 PillCover(
@@ -1469,6 +1702,7 @@ private enum class BubbleText { Cover, Album, Ago, Title, AlbumUnder }
 
 /** With this much room beside the cover, the bubble says when, and the Memory's title if it fits. */
 private val BubbleSaysMoreFrom = 200.dp
+private val BubbleTipIconSize = 22.dp
 private val BubbleAgoGap = 8.dp
 
 /** The tail rises over the last stretch of the unroll. */

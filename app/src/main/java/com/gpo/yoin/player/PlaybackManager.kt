@@ -110,6 +110,9 @@ class PlaybackManager(
     /** The Spotify source of the last Spotify play, for queue-sheet taps. */
     private var spotifySource: SpotifyMusicSource? = null
 
+    /** The last Spotify play's list was one Yoin shuffled (a page's Shuffle): its order isn't the playlist's. */
+    private var spotifyQueueShuffled: Boolean = false
+
     /**
      * Wall-clock anchor for Spotify position interpolation.
      *
@@ -131,6 +134,7 @@ class PlaybackManager(
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
         onContext = ::onSpotifyPlayerContext,
+        queueReader = { spotifySource?.playerQueue() },
     )
 
     /**
@@ -245,6 +249,11 @@ class PlaybackManager(
         if (repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY) {
             spotifyRemotePlayer.warmConnection()
         }
+    }
+
+    /** Another of Yoin's Activities is the host now (see [onHostStart]); nothing else changes. */
+    fun onHostChanged(hostContext: Context) {
+        spotifyRemotePlayer.onHostChanged(hostContext)
     }
 
     fun onHostStop() {
@@ -453,6 +462,7 @@ class PlaybackManager(
                         // tracks use App Remote directly; both require the requested song
                         // to arrive through PlayerState before the start is confirmed.
                         spotifySource = source as? SpotifyMusicSource
+                        spotifyQueueShuffled = shuffled
                         spotifyRemotePlayer.playQueue(
                             tracks = tracks,
                             startIndex = startIndex,
@@ -463,11 +473,18 @@ class PlaybackManager(
                                 startIndex = startIndex,
                                 shuffled = shuffled,
                             ),
+                            remoteContextStart = buildSpotifyRemoteContextFn(
+                                source = source,
+                                activityContext = activityContext,
+                                tracks = tracks,
+                                startIndex = startIndex,
+                                shuffled = shuffled,
+                            ),
                             // A shuffled album / playlist / Liked start keeps its
                             // context, so Spotify does the shuffling; a plain
                             // list is played in the order Yoin already shuffled.
                             playMode = if (shuffled && activityContext.isSpotifyContext()) {
-                                PlayMode.Shuffle
+                                preferredPlayMode.withShuffle(true)
                             } else {
                                 preferredPlayMode
                             },
@@ -546,18 +563,26 @@ class PlaybackManager(
     }
 
     /**
-     * Switches the play mode. Repeat and shuffle are always written together
-     * (see [PlayMode]); the mode is also remembered for the next queue Yoin
-     * starts, on any backend.
+     * Switches the play mode; the mode is also remembered for the next queue
+     * Yoin starts, on any backend. A queue start writes repeat and shuffle
+     * together (see [PlayMode]); a switch on the local player writes only the
+     * axis that changed — one per tap in the 2 × 2 cycle — and so does a
+     * switch on Spotify App Remote. MusicKit answers a
+     * redundant repeat write by briefly restoring its previous shuffle, and the
+     * first tap after a pause could end on that restored value (tablet QA,
+     * 2026-10-17).
      */
     fun setPlayMode(mode: PlayMode) {
         preferredPlayMode = mode
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> {
-                spotifyRemotePlayer.setRepeatMode(mode.repeatMode)
-                spotifyRemotePlayer.setShuffle(mode.shuffle)
+                // One App Remote call per tap, like the local player: the cycle changes one axis at a time,
+                // and a second, redundant call could race the one that matters or fail it.
+                val current = _playbackState.value.playMode
+                if (mode.repeatMode != current.repeatMode) spotifyRemotePlayer.setRepeatMode(mode.repeatMode)
+                if (mode.shuffle != current.shuffle) spotifyRemotePlayer.setShuffle(mode.shuffle)
             }
-            else -> executeOrQueue { it.applyPlayMode(mode) }
+            else -> executeOrQueue { it.switchPlayMode(mode) }
         }
     }
 
@@ -589,6 +614,8 @@ class PlaybackManager(
                 ) {
                     activeBackend = ActiveBackend.SPOTIFY_REMOTE
                     disconnectLocalController(resetState = false)
+                    // Where Spotify's queue is read from after the add ([SpotifyAppRemotePlayer.addToQueue]).
+                    spotifySource = source as? SpotifyMusicSource
                     tracks.forEach(spotifyRemotePlayer::addToQueue)
                     return@runCatching
                 }
@@ -670,24 +697,34 @@ class PlaybackManager(
                 // track through the Web API (see play()), not App Remote's
                 // play + queue loop, which would pile the list into the
                 // user's Spotify queue again.
-                val queue = _playbackState.value.queue
                 val source = spotifySource
-                if (index !in queue.indices || source == null) {
+                val restart = spotifyRemotePlayer.restartAt(index)
+                if (restart == null || source == null) {
                     spotifyRemotePlayer.skipToQueueItem(index)
                 } else {
                     spotifyRemotePlayer.playQueue(
-                        tracks = queue,
-                        startIndex = index,
+                        tracks = restart.tracks,
+                        startIndex = restart.startIndex,
                         startContextPlayback = buildSpotifyStartFn(
                             source = source,
                             activityContext = _currentActivityContext.value,
-                            tracks = queue,
-                            startIndex = index,
-                            shuffled = false,
+                            tracks = restart.tracks,
+                            startIndex = restart.startIndex,
+                            // A list Yoin shuffled, or a queued song, has no playlist
+                            // position to start at: its song's uri, or another song plays.
+                            shuffled = spotifyQueueShuffled || restart.byUri,
+                        ),
+                        remoteContextStart = buildSpotifyRemoteContextFn(
+                            source = source,
+                            activityContext = _currentActivityContext.value,
+                            tracks = restart.tracks,
+                            startIndex = restart.startIndex,
+                            shuffled = spotifyQueueShuffled || restart.byUri,
                         ),
                         // Keep whatever Spotify is in now (a Shuffle start
                         // turned its shuffle on).
                         playMode = _playbackState.value.playMode,
+                        queued = restart.queued,
                     )
                 }
             }
@@ -744,24 +781,48 @@ class PlaybackManager(
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
             syncState()
         }
+
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            localQueue = null
+            syncState()
+        }
+    }
+
+    /**
+     * The local player's queue as [syncState] publishes it, read again only when
+     * its timeline changes ([Player.Listener.onTimelineChanged]): a pause or a
+     * buffering change used to turn every item of a 500-song queue back into a
+     * [Track] on the main thread (Gemini review 2026-10-20).
+     */
+    private class LocalQueue(
+        val player: Player,
+        val tracks: List<Track>,
+        val entryIds: List<String>,
+        val userQueued: Set<Int>,
+    )
+
+    private var localQueue: LocalQueue? = null
+
+    private fun localQueueOf(player: Player): LocalQueue {
+        localQueue?.takeIf { it.player === player && it.tracks.size == player.mediaItemCount }?.let { return it }
+        val items = List(player.mediaItemCount, player::getMediaItemAt)
+        return LocalQueue(
+            player = player,
+            tracks = items.map { it.toTrack() },
+            entryIds = items.mapIndexed { i, item -> item.mediaMetadata.extras?.getString(EXTRA_QUEUE_ENTRY) ?: "i$i" },
+            userQueued = items.indices.filterTo(mutableSetOf()) { i -> items[i].isUserQueued() },
+        ).also { localQueue = it }
     }
 
     private fun syncState() {
         if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) return
         val player = controller ?: return
-        val queue = buildList {
-            for (i in 0 until player.mediaItemCount) {
-                add(player.getMediaItemAt(i).toTrack())
-            }
-        }
+        val local = localQueueOf(player)
+        val queue = local.tracks
         val currentIndex = player.currentMediaItemIndex
+        val entryIds = local.entryIds
+        val userQueued = local.userQueued
         val currentItem = player.currentMediaItem?.toTrack()
-        val entryIds = List(player.mediaItemCount) { i ->
-            player.getMediaItemAt(i).mediaMetadata.extras?.getString(EXTRA_QUEUE_ENTRY) ?: "i$i"
-        }
-        val userQueued = (0 until player.mediaItemCount).filterTo(mutableSetOf()) { i ->
-            player.getMediaItemAt(i).isUserQueued()
-        }
         val resolved = when {
             currentItem != null -> currentItem
             currentIndex in queue.indices -> queue[currentIndex]
@@ -866,6 +927,12 @@ class PlaybackManager(
         shuffleModeEnabled = mode.shuffle
     }
 
+    /** [mode] on a playing queue: only the axes that differ (see [setPlayMode]). */
+    private fun Player.switchPlayMode(mode: PlayMode) {
+        if (repeatMode != mode.repeatMode) repeatMode = mode.repeatMode
+        if (shuffleModeEnabled != mode.shuffle) shuffleModeEnabled = mode.shuffle
+    }
+
     private fun flushPendingCommands(player: MediaController) {
         val commands = pendingCommands.toList()
         pendingCommands.clear()
@@ -879,6 +946,7 @@ class PlaybackManager(
         controller?.removeListener(playerListener)
         controller?.release()
         controller = null
+        localQueue = null
         if (resetState) {
             positionUpdateJob?.cancel()
             positionUpdateJob = null
@@ -934,12 +1002,10 @@ class PlaybackManager(
             bufferedPosition = snapshot.durationMs.takeIf { it > 0L } ?: snapshot.positionMs,
             queue = snapshot.queue,
             currentIndex = snapshot.currentIndex,
-            // Spotify's queue is read here, never rearranged (App Remote can't).
-            upcoming = if (snapshot.currentIndex >= 0) {
-                (snapshot.currentIndex + 1 until snapshot.queue.size).toList()
-            } else {
-                emptyList()
-            },
+            // Spotify's queue is read here, never rearranged (App Remote can't);
+            // SpotifyQueueMirror keeps it in Spotify's order.
+            userQueued = snapshot.userQueued,
+            upcoming = snapshot.upcoming,
             queueEdit = QueueEdit.None,
             repeatMode = snapshot.repeatMode,
             shuffleEnabled = snapshot.shuffleEnabled,
@@ -971,7 +1037,8 @@ class PlaybackManager(
                     spotifyContextSync.onPlayerState(
                         current = _currentActivityContext.value,
                         track = snapshot.currentTrack,
-                        queue = snapshot.queue
+                        // Not the song from outside it: that one isn't Yoin's.
+                        queue = snapshot.yoinQueue
                     )?.let { _currentActivityContext.value = it }
                     awaitSpotifyReportIfAsked()
                 }
@@ -1185,9 +1252,18 @@ class PlaybackManager(
         )
         if (attempts.isEmpty()) return null
         return {
-            val deviceId = runCatching { spotifySource.localDeviceId(localDeviceNames()) }
-                .onFailure { e -> if (e is CancellationException) throw e }
-                .getOrNull()
+            val lookUp = suspend {
+                runCatching { spotifySource.localDeviceId(localDeviceNames()) }
+                    .onFailure { e -> if (e is CancellationException) throw e }
+                    .getOrNull()
+            }
+            // A Spotify app App Remote has only just woken may not be in Spotify Connect
+            // yet; one more look before the single-song App Remote fallback, which plays
+            // the song without its album or playlist (Gemini review 2026-10-20).
+            val deviceId = lookUp() ?: run {
+                delay(SPOTIFY_DEVICE_LOOKUP_RETRY_MS)
+                lookUp()
+            }
             check(deviceId != null) { "This device is not in Spotify Connect; use local App Remote playback" }
             var failure: Throwable? = null
             val started = attempts.any { attempt ->
@@ -1201,6 +1277,31 @@ class PlaybackManager(
             }
             if (!started) throw failure ?: IllegalStateException("No Spotify start succeeded")
         }
+    }
+
+    /**
+     * App Remote's start for the album or playlist [buildSpotifyStartFn] starts, for when the
+     * Web API can't (this device not in Spotify Connect yet): the song's entry in it, read from
+     * the Web API, whose reads work either way. Null where there is none to start (Liked Songs,
+     * a plain list): the song alone, as before.
+     */
+    private fun buildSpotifyRemoteContextFn(
+        source: MusicSource,
+        activityContext: ActivityContext,
+        tracks: List<Track>,
+        startIndex: Int,
+        shuffled: Boolean,
+    ): (suspend () -> SpotifyRemoteContextStart?)? {
+        val spotifySource = source as? SpotifyMusicSource ?: return null
+        // The same attempt the Web API start makes, with the playlist offset it starts at.
+        val context = spotifyStartAttempts(
+            activityContext = activityContext,
+            tracks = tracks,
+            startIndex = startIndex,
+            shuffled = shuffled,
+            playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
+        ).remoteContext() ?: return null
+        return { context.remoteStart(spotifySource::contextIndexOf) }
     }
 
     private fun ActivityContext.isSpotifyContext(): Boolean =
@@ -1391,6 +1492,9 @@ class PlaybackManager(
         private const val TAG = "PlaybackManager"
 
         private const val POSITION_UPDATE_INTERVAL_MS = 250L
+
+        /** Wait before the second look for this phone in Spotify Connect ([buildSpotifyStartFn]). */
+        private const val SPOTIFY_DEVICE_LOOKUP_RETRY_MS = 1_500L
 
         private const val EXTRA_MEDIA_ID = "media_id"
         private const val EXTRA_PROVIDER = "provider"

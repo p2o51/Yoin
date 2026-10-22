@@ -56,7 +56,7 @@ class NowPlayingViewModelLibraryTest {
         every { repository.observeFavoriteState(any()) } answers { flowOf(FavoriteState(firstArg<Track>().isStarred)) }
         every { repository.observeLibraryMembership(track.id) } returns flowOf(LibraryMembership.NotAdded)
         coEvery { repository.refreshLibraryMembership(track) } returns Result.success(LibraryMembership.NotAdded)
-        coEvery { repository.getLoadedLyrics(track.id, track.title, track.artist) } returns null
+        coEvery { repository.getLoadedLyrics(track.id, track.title, track.artist, any()) } returns null
         val first = CompletableDeferred<LibraryMembership>()
         val second = CompletableDeferred<LibraryMembership>()
         coEvery { repository.addToLibrary(track) } coAnswers {

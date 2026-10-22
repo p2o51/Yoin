@@ -975,6 +975,7 @@ class CloudSyncManager(
             "memory_copy_cache",
             "song_about_entries",
             "album_memory_titles",
+            "playlist_backups",
             "profiles",
         )
 

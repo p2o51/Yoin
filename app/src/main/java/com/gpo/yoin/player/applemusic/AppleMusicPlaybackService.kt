@@ -1,10 +1,14 @@
 package com.gpo.yoin.player.applemusic
 
+import com.gpo.yoin.player.OpenNowPlayingActivity
 import android.content.Intent
+import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.profile.ProfileManager.SwitchState
 import com.gpo.yoin.data.source.applemusic.AppleMusicSource
@@ -12,15 +16,11 @@ import com.gpo.yoin.player.PlaybackService.Companion.yoinNotificationProvider
 import com.gpo.yoin.player.SessionQuickActions
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** The same session drives Yoin, Bluetooth and lock-screen controls; MusicKit owns audio/DRM. */
@@ -29,7 +29,6 @@ class AppleMusicPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var source: AppleMusicSource? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var refreshJob: Job? = null
     private val quickActions by lazy {
         val container = (application as YoinApplication).container
         SessionQuickActions(this, { container.playbackManager }, { container.repository })
@@ -65,25 +64,16 @@ class AppleMusicPlaybackService : MediaSessionService() {
                 this,
                 active.playbackDeveloperToken,
                 active.credentials.musicUserToken,
-                onObservation = {},
-                currentDeveloperToken = { active.playbackDeveloperToken }
+                refreshDeveloperToken = { active.refreshPlaybackToken() },
+                onObservation = {}
             )
             session = MediaSession.Builder(this, player)
                 .setId("apple-music")
+                .setSessionActivity(OpenNowPlayingActivity.pendingIntent(this))
                 .setCallback(CatalogItemsCallback(quickActions.callback))
                 .build()
                 .also(quickActions::attach)
             source = active
-            refreshJob = scope.launch {
-                while (isActive) {
-                    delay(30_000)
-                    try {
-                        active.refreshPlaybackToken()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) { /* The next API/play request reports a failed refresh. */ }
-                }
-            }
         }
         return session
     }
@@ -92,7 +82,6 @@ class AppleMusicPlaybackService : MediaSessionService() {
         if (session?.player?.playWhenReady != true) stopSelf()
     }
     private fun releaseSession() {
-        refreshJob?.cancel()
         quickActions.detach()
         session?.run {
             player.stop()
@@ -108,23 +97,38 @@ class AppleMusicPlaybackService : MediaSessionService() {
         scope.cancel()
         super.onDestroy()
     }
+}
 
-    /**
-     * MusicKit items carry a catalog id instead of a URI. Media3's default
-     * onAddMediaItems rejects every item without a localConfiguration, which
-     * silently dropped each setMediaItems from PlaybackManager. Everything else is the
-     * shared notification quick actions.
-     */
-    private class CatalogItemsCallback(quickActions: MediaSession.Callback) : MediaSession.Callback by quickActions {
-        override fun onAddMediaItems(
-            mediaSession: MediaSession,
-            controller: MediaSession.ControllerInfo,
-            mediaItems: MutableList<MediaItem>
-        ): ListenableFuture<MutableList<MediaItem>> =
-            if (mediaItems.all { it.mediaMetadata.extras?.getString("appleMusicCatalogId") != null }) {
-                Futures.immediateFuture(mediaItems)
-            } else {
-                Futures.immediateFailedFuture(UnsupportedOperationException("Missing Apple Music catalog id"))
-            }
-    }
+/**
+ * MusicKit items carry a catalog id instead of a URI. Media3's default
+ * onAddMediaItems rejects every item without a localConfiguration, which
+ * silently dropped each setMediaItems from PlaybackManager. The connection and
+ * custom commands are the shared notification quick actions' — forwarded one
+ * by one: every MediaSession.Callback member is a Java default method, which
+ * Kotlin's `by` never forwards, and with Media3's own onConnect the shuffle and
+ * library buttons were never offered (owner 2026-10-15: 系统播放控件里没随机).
+ */
+internal class CatalogItemsCallback(private val quickActions: MediaSession.Callback) : MediaSession.Callback {
+    override fun onConnect(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo
+    ): MediaSession.ConnectionResult = quickActions.onConnect(session, controller)
+
+    override fun onCustomCommand(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo,
+        customCommand: SessionCommand,
+        args: Bundle
+    ): ListenableFuture<SessionResult> = quickActions.onCustomCommand(session, controller, customCommand, args)
+
+    override fun onAddMediaItems(
+        mediaSession: MediaSession,
+        controller: MediaSession.ControllerInfo,
+        mediaItems: MutableList<MediaItem>
+    ): ListenableFuture<MutableList<MediaItem>> =
+        if (mediaItems.all { it.mediaMetadata.extras?.getString("appleMusicCatalogId") != null }) {
+            Futures.immediateFuture(mediaItems)
+        } else {
+            Futures.immediateFailedFuture(UnsupportedOperationException("Missing Apple Music catalog id"))
+        }
 }

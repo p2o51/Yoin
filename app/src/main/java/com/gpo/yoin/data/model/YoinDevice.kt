@@ -22,7 +22,8 @@ sealed interface YoinDevice {
         override val statusText: String? = null,
     ) : YoinDevice {
         override val id: String = "local"
-        override val name: String = "This phone"
+        // The devices sheet shows its localized label instead.
+        override val name: String = "This device"
     }
 
     data class Chromecast(

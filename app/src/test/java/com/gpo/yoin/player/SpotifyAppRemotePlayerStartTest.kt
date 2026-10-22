@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.spotify.SpotifyPlayerQueue
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -376,6 +377,130 @@ class SpotifyAppRemotePlayerStartTest {
         assertFalse(spotifyPlays(PlayerState(null, false, 1f, 0L, null, null), song))
     }
 
+    @Test
+    fun should_showTheStartsPlayMode_when_spotifysFirstStateStillHasTheOldOne() = runTest {
+        val player = connectedPlayer()
+
+        player.playQueue(
+            list,
+            startIndex = 0,
+            startContextPlayback = { appRemote.report(playing("spotify:track:t1", "Burn Me Blue")) },
+            playMode = PlayMode.Shuffle
+        )
+        runCurrent()
+
+        // Spotify's state says shuffle off: the write is still on its way.
+        assertTrue(snapshots.last().observedPlayerState)
+        assertTrue(snapshots.last().shuffleEnabled)
+    }
+
+    @Test
+    fun should_keepTheRestOfTheList_when_spotifyPlaysASongAddedToTheQueue() = runTest {
+        val player = connectedPlayer()
+        val queued = spotifyTrack("q", title = "Queued")
+        player.playQueue(list, startIndex = 0, startContextPlayback = {})
+        runCurrent()
+        appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        runCurrent()
+
+        player.addToQueue(queued)
+        runCurrent()
+        assertEquals(listOf("spotify:track:q"), appRemote.queued)
+        assertEquals(setOf(1), snapshots.last().userQueued)
+        appRemote.report(playing("spotify:track:q", "Queued"))
+        runCurrent()
+
+        assertEquals(1, snapshots.last().currentIndex)
+        assertEquals(listOf(2, 3, 4), snapshots.last().upcoming)
+    }
+
+    @Test
+    fun should_showTheSongPlaying_when_spotifyPlaysOneOutsideTheQueue() = runTest {
+        val player = connectedPlayer()
+        player.playQueue(list, startIndex = 1, startContextPlayback = {})
+        runCurrent()
+        appRemote.report(playing("spotify:track:t2", "t2"))
+        runCurrent()
+
+        appRemote.report(playing("spotify:track:elsewhere", "Elsewhere"))
+        runCurrent()
+
+        val shown = snapshots.last()
+        assertEquals(MediaId.spotify("elsewhere"), shown.queue[shown.currentIndex].id)
+        assertEquals(listOf(3, 4), shown.upcoming)
+        assertEquals(list, shown.yoinQueue)
+    }
+
+    @Test
+    fun should_startTheAlbumAtTheSongOverAppRemote_when_theWebApiCannotStartIt() = runTest {
+        val player = connectedPlayer()
+
+        player.playQueue(
+            list,
+            startIndex = 2,
+            startContextPlayback = { error("This device is not in Spotify Connect") },
+            remoteContextStart = { SpotifyRemoteContextStart("spotify:album:al1", 2) },
+        )
+        settle()
+
+        // It used to play the song alone, and Spotify went on with something else after it.
+        assertEquals(listOf("spotify:album:al1@2"), appRemote.startedAt)
+        assertEquals(emptyList<String>(), appRemote.played)
+    }
+
+    @Test
+    fun should_playTheSongAlone_when_itsPlaceInTheAlbumIsUnknown() = runTest {
+        val player = connectedPlayer()
+
+        player.playQueue(
+            list,
+            startIndex = 0,
+            startContextPlayback = { error("This device is not in Spotify Connect") },
+            remoteContextStart = { null },
+        )
+        settle()
+
+        assertEquals(emptyList<String>(), appRemote.startedAt)
+        assertEquals(listOf("spotify:track:t1"), appRemote.played)
+    }
+
+    @Test
+    fun should_showWhatSpotifyHadQueuedBeforeTheSongAdded_when_itsQueueIsRead() = runTest {
+        val before = spotifyTrack("x1")
+        val queued = spotifyTrack("q")
+        val player = connectedPlayer(
+            queueReader = { SpotifyPlayerQueue(playing = song, next = listOf(before, queued) + list.drop(1)) }
+        )
+        player.playQueue(list, startIndex = 0, startContextPlayback = {
+            appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        })
+        runCurrent()
+
+        player.addToQueue(queued)
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        val shown = snapshots.last()
+        assertEquals(listOf(song, before, queued) + list.drop(1), shown.queue)
+        assertEquals(setOf(1, 2), shown.userQueued)
+        assertEquals(listOf(1, 2, 3, 4, 5), shown.upcoming)
+    }
+
+    @Test
+    fun should_keepTheMirror_when_spotifyHasMovedOnBeforeItsQueueIsRead() = runTest {
+        val elsewhere = spotifyTrack("elsewhere")
+        val player = connectedPlayer(
+            queueReader = { SpotifyPlayerQueue(playing = elsewhere, next = listOf(spotifyTrack("x1"))) }
+        )
+        player.playQueue(list, startIndex = 0, startContextPlayback = {
+            appRemote.report(playing("spotify:track:t1", "Burn Me Blue"))
+        })
+        advanceTimeBy(SPOTIFY_QUEUE_READ_DELAY_MS + 1)
+        runCurrent()
+
+        assertEquals(list, snapshots.last().queue)
+    }
+
     /** Runs the start through the heard window and a transport retry's reconnect. */
     private fun TestScope.settle() {
         runCurrent()
@@ -383,19 +508,22 @@ class SpotifyAppRemotePlayerStartTest {
         runCurrent()
     }
 
-    private fun TestScope.connectedPlayer(): SpotifyAppRemotePlayer {
-        val player = player()
+    private fun TestScope.connectedPlayer(
+        queueReader: suspend () -> SpotifyPlayerQueue? = { null }
+    ): SpotifyAppRemotePlayer {
+        val player = player(queueReader)
         player.onHostStart(context)
         player.warmConnection()
         runCurrent()
         return player
     }
 
-    private fun player() = SpotifyAppRemotePlayer(
+    private fun player(queueReader: suspend () -> SpotifyPlayerQueue? = { null }) = SpotifyAppRemotePlayer(
         applicationContext = context,
         clientIdProvider = { "client-id" },
         onSnapshot = { snapshot -> snapshots += snapshot },
-        appRemote = appRemote
+        appRemote = appRemote,
+        queueReader = queueReader
     ).also(players::add)
 
     private fun playing(uri: String, name: String, artist: String = "Remi Wolf", paused: Boolean = false) = PlayerState(
@@ -444,6 +572,7 @@ class SpotifyAppRemotePlayerStartTest {
         val playerStates = mutableListOf<Subscription.EventCallback<PlayerState>>()
         private val playerContexts = mutableListOf<Subscription.EventCallback<PlayerContext>>()
         val played = mutableListOf<String>()
+        val startedAt = mutableListOf<String>()
         val queued = mutableListOf<String>()
         val playFailures = ArrayDeque<Throwable>()
         private val remote = mockk<SpotifyAppRemote>(relaxed = true)
@@ -457,6 +586,10 @@ class SpotifyAppRemotePlayerStartTest {
             every { playerApi.play(any<String>()) } answers {
                 played += firstArg<String>()
                 answered(playFailures.removeFirstOrNull())
+            }
+            every { playerApi.skipToIndex(any<String>(), any<Int>()) } answers {
+                startedAt += "${firstArg<String>()}@${secondArg<Int>()}"
+                answered(null)
             }
             every { playerApi.queue(any<String>()) } answers {
                 queued += firstArg<String>()

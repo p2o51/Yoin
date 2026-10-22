@@ -7,6 +7,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -18,6 +21,7 @@ import com.gpo.yoin.ui.landing.LandingHost
 import com.gpo.yoin.ui.landing.SharedPrefsLandingStore
 import com.gpo.yoin.ui.navigation.YoinNavHost
 import com.gpo.yoin.widget.WidgetLaunch
+import com.gpo.yoin.widget.WidgetDetailRequest
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -47,11 +51,17 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val landingGate = LandingGate()
     private lateinit var shellHandoffHostKey: String
+    private var pendingWidgetDetail by mutableStateOf<WidgetDetailRequest?>(null)
+    private var shellWindowFocused by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must be called before super.onCreate(); also applies postSplashScreenTheme.
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        pendingWidgetDetail = WidgetDetailRequest.parse(
+            savedInstanceState?.getString(STATE_WIDGET_DETAIL_ENTITY),
+            savedInstanceState?.getString(STATE_WIDGET_DETAIL_ID),
+        )
         // A recreated activity keeps whatever the landing was doing (its state is saved): no new check.
         if (savedInstanceState != null) {
             landingGate.restored = true
@@ -86,19 +96,42 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .then(if (landingGate.showing) Modifier.clearAndSetSemantics {} else Modifier),
                     ) {
-                        if (!landingGate.holdShell) YoinNavHost()
+                        if (!landingGate.holdShell) {
+                            YoinNavHost(
+                                // Wait until the landing no longer covers the focused shell
+                                // before handing its window to a detail.
+                                widgetDetailRequest = pendingWidgetDetail.takeIf {
+                                    !landingGate.showing && shellWindowFocused
+                                },
+                                onWidgetDetailConsumed = { request ->
+                                    if (pendingWidgetDetail == request) {
+                                        pendingWidgetDetail = null
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                },
+                            )
+                        }
                     }
                     LandingHost(gate = landingGate)
                 }
             }
         }
         // A home-screen widget tap: open its detail over the shell, or Memories at that memory.
-        if (savedInstanceState == null) WidgetLaunch.handle(this, intent, (application as YoinApplication).container)
+        if (savedInstanceState == null) handleWidgetIntent(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString(STATE_SHELL_HANDOFF_HOST, shellHandoffHostKey)
+        outState.putString(STATE_WIDGET_DETAIL_ENTITY, pendingWidgetDetail?.entity?.name)
+        outState.putString(STATE_WIDGET_DETAIL_ID, pendingWidgetDetail?.id?.toString())
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        shellWindowFocused = hasFocus
     }
 
     override fun onDestroy() {
@@ -110,7 +143,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleLandingIntent(intent, fresh = true)
-        if (WidgetLaunch.handle(this, intent, (application as YoinApplication).container)) setIntent(Intent())
+        handleWidgetIntent(intent)
+    }
+
+    private fun handleWidgetIntent(intent: Intent?) {
+        var detail: WidgetDetailRequest? = null
+        if (WidgetLaunch.handle(this, intent, (application as YoinApplication).container) { detail = it }) {
+            // A Memories tap supersedes any detail still waiting for the shell.
+            pendingWidgetDetail = detail
+            setIntent(Intent())
+        }
     }
 
     private fun handleLandingIntent(intent: Intent?, fresh: Boolean) {
@@ -122,6 +164,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val STATE_SHELL_HANDOFF_HOST = "shellHandoffHost"
+        private const val STATE_WIDGET_DETAIL_ENTITY = "widgetDetailEntity"
+        private const val STATE_WIDGET_DETAIL_ID = "widgetDetailId"
 
         /** Settings › About › Welcome guide: run the landing again. */
         const val EXTRA_WELCOME_GUIDE = "welcomeGuide"
@@ -131,6 +175,14 @@ class MainActivity : ComponentActivity() {
 
         /** The splash never waits on the landing longer than this. */
         private const val SplashHoldLimitMs = 1_500L
+
+        /**
+         * Yoin forward as it is, a landing keeping its step (the Spotoolfy share receiver: the landing picks the file
+         * up itself); started when it isn't running.
+         */
+        fun bringForwardIntent(context: Context): Intent =
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 
         fun welcomeGuideIntent(context: Context): Intent =
             Intent(context, MainActivity::class.java)

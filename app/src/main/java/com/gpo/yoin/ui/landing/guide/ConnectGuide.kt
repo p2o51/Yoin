@@ -1,8 +1,6 @@
 package com.gpo.yoin.ui.landing.guide
 
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -10,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -54,17 +53,17 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
-import java.security.MessageDigest
 
-// Turn-by-turn floating windows for the two services that send people out of
-// Yoin, like a maps app's: one instruction at a time, what to tap named the way
-// the other side names it. Yoin cannot see the browser, so on Spotify for
-// Developers the user moves on with the window's own actions (Next / Previous)
-// and copies each value from it; on Apple's sign-in the window follows Yoin's
-// attempts instead (owner 2026-10-10: one sign-in often doesn't take).
+// Turn-by-turn floating windows for the places that send people out of Yoin,
+// like a maps app's: one instruction at a time, what to tap named the way the
+// other side names it. Yoin cannot see the browser or Spotoolfy, so there the
+// user moves on with the window's own actions (Next / Previous) and, on Spotify
+// for Developers, copies each value from it; on Apple's sign-in the window
+// follows Yoin's attempts instead (owner 2026-10-10: one sign-in often doesn't
+// take).
 
 /** Which floating guide. */
-internal enum class GuideKind { Spotify, AppleMusic }
+internal enum class GuideKind { Spotify, AppleMusic, Spotoolfy }
 
 /** A value a guide step puts on the clipboard, with its copy action's label. */
 internal enum class GuideCopy(@param:StringRes val actionLabel: Int) {
@@ -75,15 +74,19 @@ internal enum class GuideCopy(@param:StringRes val actionLabel: Int) {
     ;
 
     /** The value for this install: the package and signing certificate are this APK's own. */
-    fun value(context: Context): String? = when (this) {
+    fun value(context: Context, fingerprint: String? = null): String? = when (this) {
         RedirectUri -> SpotifyAuthConfig.REDIRECT_URI
         AppRemoteRedirectUri -> SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI
         PackageName -> context.packageName
-        Sha1 -> signingCertificateSha1(context)
+        Sha1 -> fingerprint
     }
 }
 
-/** One step of a guide. [labels] are the other side's own words, kept in English and drawn as keys. */
+/**
+ * One step of a guide. [labels] are the other side's own words, drawn as keys: kept in English for Spotify's
+ * dashboard; [labelRes] for Spotoolfy, whose words follow the phone's language as Yoin's do. Both go into [text]
+ * as format args, [labels] first.
+ */
 @Immutable
 internal data class GuideStep(
     @param:StringRes val text: Int,
@@ -91,23 +94,54 @@ internal data class GuideStep(
     @param:StringRes val then: Int?,
     /** What this step's copy action puts on the clipboard, if it has one. */
     val copies: GuideCopy? = null,
-)
+    val labelRes: List<Int> = emptyList(),
+    val fingerprint: String? = null,
+) {
+    fun copyValue(context: Context): String? = copies?.value(context, fingerprint)
+}
 
 /**
  * Spotify for Developers, Create app. Ticking Android opens the "Android packages" rows: without this
  * install's package name and signing fingerprint there, App Remote refuses to control playback.
  */
-internal val SpotifyGuideSteps: List<GuideStep> = listOf(
+private val SpotifyGuideIntro: List<GuideStep> = listOf(
     GuideStep(R.string.guide_create, listOf("Create app"), R.string.guide_then_name),
     GuideStep(R.string.guide_name, listOf("Yoin"), R.string.guide_then_uris),
     GuideStep(R.string.guide_uri_first, listOf("Redirect URIs", "Add"), R.string.guide_then_second, copies = GuideCopy.RedirectUri),
     GuideStep(R.string.guide_uri_second, emptyList(), R.string.guide_then_apis, copies = GuideCopy.AppRemoteRedirectUri),
     GuideStep(R.string.guide_apis, listOf("Web API", "Android"), R.string.guide_then_package),
-    GuideStep(R.string.guide_package, listOf("Android packages"), R.string.guide_then_sha1, copies = GuideCopy.PackageName),
-    GuideStep(R.string.guide_sha1, listOf("Add"), R.string.guide_then_save, copies = GuideCopy.Sha1),
-    GuideStep(R.string.guide_save, listOf("Save"), R.string.guide_then_client_id),
-    GuideStep(R.string.guide_client_id, listOf("Client ID"), null),
 )
+
+internal fun spotifyGuideSteps(fingerprints: List<String>): List<GuideStep> = buildList {
+    addAll(SpotifyGuideIntro)
+    val certificates = fingerprints.distinct().ifEmpty { listOf(null) }
+    certificates.forEachIndexed { index, fingerprint ->
+        // Each dashboard entry needs the same package name and one distinct certificate.
+        add(
+            GuideStep(
+                R.string.guide_package,
+                listOf("Android packages"),
+                R.string.guide_then_sha1,
+                copies = GuideCopy.PackageName,
+            ),
+        )
+        add(
+            GuideStep(
+                text = if (fingerprint == null) R.string.guide_sha1_unavailable else R.string.guide_sha1,
+                labels = if (fingerprint == null) emptyList() else listOf("Add"),
+                then = if (index == certificates.lastIndex) {
+                    R.string.guide_then_save
+                } else {
+                    R.string.guide_then_package
+                },
+                copies = if (fingerprint == null) null else GuideCopy.Sha1,
+                fingerprint = fingerprint,
+            ),
+        )
+    }
+    add(GuideStep(R.string.guide_save, listOf("Save"), R.string.guide_then_client_id))
+    add(GuideStep(R.string.guide_client_id, listOf("Client ID"), null))
+}
 
 /** Apple's sign-in. Step 0 while it's open; step [AppleMusicRetryStep] after an attempt that didn't take. */
 internal val AppleMusicGuideSteps: List<GuideStep> = listOf(
@@ -117,9 +151,32 @@ internal val AppleMusicGuideSteps: List<GuideStep> = listOf(
 
 internal const val AppleMusicRetryStep = 1
 
-internal fun guideSteps(kind: GuideKind): List<GuideStep> = when (kind) {
-    GuideKind.Spotify -> SpotifyGuideSteps
+/**
+ * Spotoolfy 1.3.x, from its home page to the share sheet (docs/spotoolfy-migration.md §5.3): the Client ID first,
+ * so the Spotify step is filled in when the user comes back; an empty box means Spotoolfy's built-in ID, which
+ * Yoin can't use, and the step is skipped.
+ */
+internal val SpotoolfyGuideSteps: List<GuideStep> = listOf(
+    GuideStep(R.string.guide_spotoolfy_settings, emptyList(), R.string.guide_spotoolfy_then_client_id),
+    GuideStep(
+        R.string.guide_spotoolfy_client_id,
+        listOf("Spotify API"),
+        R.string.guide_spotoolfy_then_empty,
+        labelRes = listOf(R.string.guide_spotoolfy_label_client_id),
+    ),
+    GuideStep(
+        R.string.guide_spotoolfy_export,
+        emptyList(),
+        R.string.guide_spotoolfy_then_share,
+        labelRes = listOf(R.string.guide_spotoolfy_label_data, R.string.guide_spotoolfy_label_export),
+    ),
+    GuideStep(R.string.guide_spotoolfy_share, emptyList(), null, labelRes = listOf(R.string.spotoolfy_share_label)),
+)
+
+internal fun guideSteps(kind: GuideKind, fingerprints: List<String>): List<GuideStep> = when (kind) {
+    GuideKind.Spotify -> spotifyGuideSteps(fingerprints)
     GuideKind.AppleMusic -> AppleMusicGuideSteps
+    GuideKind.Spotoolfy -> SpotoolfyGuideSteps
 }
 
 /** What one of the guide window's actions does when tapped, drawn with [icon]. */
@@ -156,18 +213,17 @@ internal const val GUIDE_NEXT_SLOT = 2
  * second tap where › was finds › again (owner 2026-10-11). The system centres the row, so a row that grows or
  * shrinks moves every button.
  *
- * - Spotify: ‹ | middle | ›. ‹ is greyed on the first step. The middle copies the step's value, greyed where there
- *   is nothing to copy; on the last step it is "back to Yoin" and › is greyed, so tapping on stops there instead of
- *   closing the guide.
+ * - Spotify and Spotoolfy: ‹ | middle | ›. ‹ is greyed on the first step. The middle copies the step's value,
+ *   greyed where there is nothing to copy (every Spotoolfy step: the user copies inside Spotoolfy); on the last step
+ *   it is "back to Yoin" and › is greyed, so tapping on stops there instead of closing the guide.
  * - Apple Music: Yoin drives the sign-in, so nothing to tap: blank, unlabelled places that never fire. An empty row
  *   would let the system fill it with Yoin's own playback buttons, whose ⏭ skips a track.
  */
-internal fun guideActionSlots(kind: GuideKind, step: Int): List<GuideActionSlot> {
-    val steps = guideSteps(kind)
+internal fun guideActionSlots(kind: GuideKind, step: Int, steps: List<GuideStep>): List<GuideActionSlot> {
     val index = step.coerceIn(0, steps.lastIndex)
     return when (kind) {
         GuideKind.AppleMusic -> List(GUIDE_ACTION_SLOT_COUNT) { AppleMusicBlankSlot }
-        GuideKind.Spotify -> {
+        GuideKind.Spotify, GuideKind.Spotoolfy -> {
             val last = index == steps.lastIndex
             val copies = steps[index].copies
             listOf(
@@ -195,28 +251,64 @@ private val AppleMusicBlankSlot = GuideActionSlot(GuideCommand.None, label = nul
 internal fun fitGuideActionSlots(slots: List<GuideActionSlot>, max: Int): List<GuideActionSlot> =
     slots.takeLast(max.coerceAtLeast(1))
 
-/** SHA-1 of this APK's signing certificate as Spotify's dashboard takes it: `E7:47:B5:…`, upper case. */
-internal fun signingCertificateSha1(context: Context): String? = runCatching {
-    val pm = context.packageManager
-    val certificate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-            .signingInfo?.apkContentsSigners?.firstOrNull()
-    } else {
-        @Suppress("DEPRECATION")
-        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures?.firstOrNull()
-    } ?: return null
-    formatFingerprint(MessageDigest.getInstance("SHA-1").digest(certificate.toByteArray()))
-}.getOrNull()
-
 internal fun formatFingerprint(digest: ByteArray): String = digest.joinToString(":") { "%02X".format(it) }
 
 internal const val SpotifyDashboardUrl = "https://developer.spotify.com/dashboard"
 
-/** The guide's colours: the mark's navy into violet, the same in light and dark (it floats over any app). */
-private val GuideNavy = Color(0xFF1B2496)
-private val GuideViolet = Color(0xFF5A16C9)
-private val KeyFill = Color.White.copy(alpha = 0.22f)
-private val GuideGround = Color(0xFF0B0A1C)
+/** Spotoolfy's Android package (declared under <queries>). */
+internal const val SpotoolfyPackage = "com.gojyuplusone.spotoolfy.spotoolfy_flutter"
+
+/** Spotoolfy's icon tile colour. */
+internal val SpotoolfyIconTeal = Color(0xFF71ACB3)
+
+/**
+ * A guide's colours. Yoin's own guides: the mark's navy into violet, the same in light and dark (they float over any
+ * app). Spotoolfy's (D10): its icon's teal, light or dark with the system, so it reads as "in Spotoolfy now" and
+ * never as Yoin's violet Spotify window. Local to the window, not Yoin's theme.
+ */
+@Immutable
+private data class GuidePalette(
+    val card: List<Color>,
+    val ground: Color,
+    val text: Color,
+    val keyFill: Color,
+    val flashScrim: Color,
+    /** Spotoolfy's icon tile; null draws Yoin's own mark. */
+    val markFill: Color?,
+)
+
+private val YoinGuidePalette = GuidePalette(
+    card = listOf(Color(0xFF1B2496), Color(0xFF5A16C9)),
+    ground = Color(0xFF0B0A1C),
+    text = Color.White,
+    keyFill = Color.White.copy(alpha = 0.22f),
+    flashScrim = Color(0x8C0A0828),
+    markFill = null,
+)
+
+private val SpotoolfyLightPalette = GuidePalette(
+    card = listOf(Color(0xFFDDFFFF), Color(0xFFDDFFFF)),
+    ground = Color(0xFFDDFFFF),
+    text = Color(0xFF0B3438),
+    keyFill = Color(0xFF4FA6B0).copy(alpha = 0.24f),
+    flashScrim = Color(0xD9DDFFFF),
+    markFill = SpotoolfyIconTeal,
+)
+
+private val SpotoolfyDarkPalette = GuidePalette(
+    card = listOf(Color(0xFF12464C), Color(0xFF12464C)),
+    ground = Color(0xFF0B3438),
+    text = Color(0xFFDDFFFF),
+    keyFill = Color(0xFF8FD3DB).copy(alpha = 0.26f),
+    flashScrim = Color(0xD912464C),
+    markFill = SpotoolfyIconTeal,
+)
+
+@Composable
+private fun guidePalette(kind: GuideKind): GuidePalette = when (kind) {
+    GuideKind.Spotoolfy -> if (isSystemInDarkTheme()) SpotoolfyDarkPalette else SpotoolfyLightPalette
+    else -> YoinGuidePalette
+}
 
 /**
  * The guide's window. In picture-in-picture the card is the whole window. Full screen — the half second before
@@ -227,23 +319,25 @@ private val GuideGround = Color(0xFF0B0A1C)
 @Composable
 internal fun ConnectGuideScreen(
     kind: GuideKind,
+    steps: List<GuideStep>,
     inPictureInPicture: Boolean,
     stepIndex: Int,
     flash: String?,
     onCardBounds: (Rect) -> Unit,
 ) {
     if (inPictureInPicture) {
-        ConnectGuideCard(kind = kind, stepIndex = stepIndex, flash = flash)
+        ConnectGuideCard(kind = kind, steps = steps, stepIndex = stepIndex, flash = flash)
         return
     }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(GuideGround),
+            .background(guidePalette(kind).ground),
         contentAlignment = Alignment.Center,
     ) {
         ConnectGuideCard(
             kind = kind,
+            steps = steps,
             stepIndex = stepIndex,
             flash = flash,
             modifier = Modifier
@@ -267,6 +361,7 @@ internal const val GuideAspectRatio = 4f / 3f
 @Composable
 internal fun ConnectGuideCard(
     kind: GuideKind,
+    steps: List<GuideStep>,
     stepIndex: Int,
     flash: String?,
     modifier: Modifier = Modifier,
@@ -274,20 +369,20 @@ internal fun ConnectGuideCard(
     // Everything scales with the window: the system decides how big the picture-in-picture window is (and the
     // user can pinch it), so the card is laid out for 240 x 180dp and scaled to fit.
     val scale = minOf(maxWidth / GuideDesignWidth, maxHeight / GuideDesignHeight).coerceIn(0.55f, 1.8f)
-    GuideCardContent(kind, stepIndex, flash, scale)
+    GuideCardContent(kind, steps, stepIndex, flash, scale)
 }
 
 private val GuideDesignWidth = 240.dp
 private val GuideDesignHeight = 180.dp
 
 @Composable
-private fun GuideCardContent(kind: GuideKind, stepIndex: Int, flash: String?, scale: Float) {
-    val steps = guideSteps(kind)
+private fun GuideCardContent(kind: GuideKind, steps: List<GuideStep>, stepIndex: Int, flash: String?, scale: Float) {
     val step = steps[stepIndex.coerceIn(0, steps.lastIndex)]
+    val palette = guidePalette(kind)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.linearGradient(listOf(GuideNavy, GuideViolet))),
+            .background(Brush.linearGradient(palette.card)),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -296,15 +391,20 @@ private fun GuideCardContent(kind: GuideKind, stepIndex: Int, flash: String?, sc
                 .padding(horizontal = (14 * scale).dp, vertical = (11 * scale).dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)) {
-                GuideMark(size = (22 * scale).dp)
+                if (palette.markFill != null) {
+                    SpotoolfyMark(size = (22 * scale).dp, fill = palette.markFill)
+                } else {
+                    GuideMark(size = (22 * scale).dp)
+                }
                 Text(
-                    // Spotify is a numbered walk; Apple's sign-in is one thing that may need repeating.
+                    // Spotify and Spotoolfy are numbered walks; Apple's sign-in is one thing that may need repeating.
                     text = when (kind) {
-                        GuideKind.Spotify -> stringResource(R.string.guide_step, stepIndex + 1, steps.size)
+                        GuideKind.Spotify, GuideKind.Spotoolfy ->
+                            stringResource(R.string.guide_step, stepIndex + 1, steps.size)
                         GuideKind.AppleMusic -> stringResource(R.string.guide_apple_title)
                     },
                     style = guideText(12 * scale, FontWeight.Medium),
-                    color = Color.White.copy(alpha = 0.85f),
+                    color = palette.text.copy(alpha = 0.85f),
                 )
             }
             AnimatedContent(
@@ -323,9 +423,9 @@ private fun GuideCardContent(kind: GuideKind, stepIndex: Int, flash: String?, sc
                 val current = steps[index.coerceIn(0, steps.lastIndex)]
                 Column {
                     Text(
-                        text = instruction(current),
+                        text = instruction(current, palette.keyFill),
                         style = guideText(17 * scale, FontWeight.SemiBold, lineHeight = 23 * scale),
-                        color = Color.White,
+                        color = palette.text,
                         modifier = Modifier.padding(top = (7 * scale).dp),
                     )
                 }
@@ -334,7 +434,7 @@ private fun GuideCardContent(kind: GuideKind, stepIndex: Int, flash: String?, sc
                 Text(
                     text = stringResource(it),
                     style = guideText(12 * scale, FontWeight.Normal),
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = palette.text.copy(alpha = 0.72f),
                 )
             }
         }
@@ -346,29 +446,30 @@ private fun GuideCardContent(kind: GuideKind, stepIndex: Int, flash: String?, sc
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0x8C0A0828)),
+                    .background(palette.flashScrim),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(flash.orEmpty(), style = guideText(16 * scale, FontWeight.Bold), color = Color.White)
+                Text(flash.orEmpty(), style = guideText(16 * scale, FontWeight.Bold), color = palette.text)
             }
         }
     }
 }
 
 @Composable
-private fun instruction(step: GuideStep): AnnotatedString {
+private fun instruction(step: GuideStep, keyFill: Color): AnnotatedString {
     // The labels go in as format args; each is then drawn as a key (bold on a light fill).
-    val raw = stringResource(step.text, *step.labels.toTypedArray())
+    val labels = step.labels + step.labelRes.map { stringResource(it) }
+    val raw = stringResource(step.text, *labels.toTypedArray())
     return buildAnnotatedString {
         var cursor = 0
-        val spans = step.labels.mapNotNull { label ->
+        val spans = labels.mapNotNull { label ->
             val at = raw.indexOf(label)
             if (at >= 0) at to label else null
         }.sortedBy { it.first }
         spans.forEach { (at, label) ->
             if (at < cursor) return@forEach
             append(raw.substring(cursor, at))
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold, background = KeyFill)) { append(" $label ") }
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold, background = keyFill)) { append(" $label ") }
             cursor = at + label.length
         }
         append(raw.substring(cursor))
@@ -397,16 +498,45 @@ private fun GuideMark(size: Dp) {
     }
 }
 
+/** Spotoolfy's icon: its white glyph on its teal tile. */
+@Composable
+internal fun SpotoolfyMark(size: Dp, fill: Color = SpotoolfyIconTeal) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(fill, RoundedCornerShape(size * 0.28f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_spotoolfy_mark),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(Color.White),
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
+@Preview(widthDp = 240, heightDp = 180)
+@Composable
+private fun SpotoolfyGuideCardPreview() {
+    ConnectGuideCard(kind = GuideKind.Spotoolfy, steps = SpotoolfyGuideSteps, stepIndex = 1, flash = null)
+}
+
 @Preview(widthDp = 240, heightDp = 180)
 @Composable
 private fun SpotifyGuideCardPreview() {
-    ConnectGuideCard(kind = GuideKind.Spotify, stepIndex = 6, flash = null)
+    ConnectGuideCard(
+        kind = GuideKind.Spotify,
+        steps = spotifyGuideSteps(listOf("00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33")),
+        stepIndex = 6,
+        flash = null,
+    )
 }
 
 @Preview(widthDp = 252, heightDp = 162)
 @Composable
 private fun AppleMusicGuideCardPreview() {
     Column(Modifier.height(162.dp).width(252.dp)) {
-        ConnectGuideCard(kind = GuideKind.AppleMusic, stepIndex = 0, flash = null)
+        ConnectGuideCard(kind = GuideKind.AppleMusic, steps = AppleMusicGuideSteps, stepIndex = 0, flash = null)
     }
 }

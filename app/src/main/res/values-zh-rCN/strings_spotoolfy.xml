@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="spotoolfy_recap_title">Spotoolfy 回顾</string>
+    <string name="spotoolfy_recap_close">关闭</string>
+    <string name="spotoolfy_recap_page">%1$d / %2$d</string>
+    <string name="spotoolfy_recap_from">来自 Spotoolfy</string>
+    <string name="spotoolfy_recap_you_wrote">你在 Spotoolfy 写下了</string>
+    <plurals name="spotoolfy_recap_notes_unit">
+        <item quantity="other">条笔记</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_ratings_unit">
+        <item quantity="other">首歌打过分</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_songs">
+        <item quantity="other">%1$d 首歌</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_artists">
+        <item quantity="other">%1$d 位艺术家</item>
+    </plurals>
+    <string name="spotoolfy_recap_for_songs_by">写给 %2$s的 %1$s</string>
+    <string name="spotoolfy_recap_for_songs">写给 %1$s</string>
+    <string name="spotoolfy_recap_all_rated">，每一首都打了分</string>
+    <plurals name="spotoolfy_recap_some_rated">
+        <item quantity="other">，其中 %1$d 首打了分</item>
+    </plurals>
+    <string name="spotoolfy_recap_range">%1$s 到 %2$s</string>
+    <string name="spotoolfy_recap_swipe_up">向上滑</string>
+
+    <string name="spotoolfy_recap_eyebrow_words_lyrics">关键词和歌词</string>
+    <string name="spotoolfy_recap_eyebrow_notes_lyrics">笔记和歌词</string>
+    <string name="spotoolfy_recap_eyebrow_words">关键词</string>
+    <string name="spotoolfy_recap_eyebrow_notes">笔记</string>
+    <string name="spotoolfy_recap_title_with_lyrics">你写下的，和你截下的</string>
+    <string name="spotoolfy_recap_title_words">你最常写的词</string>
+    <string name="spotoolfy_recap_title_notes">你写下的</string>
+    <plurals name="spotoolfy_recap_sub_words">
+        <item quantity="other">从 %1$d 条笔记里分出来的词。点一下，看看在哪儿写过。</item>
+    </plurals>
+    <plurals name="spotoolfy_recap_sub_notes">
+        <item quantity="other">%1$d 条笔记，还不够分出关键词，先把它们摆出来。</item>
+    </plurals>
+    <string name="spotoolfy_recap_sub_ratings">没有笔记，只有评分。它们也会一起带过来。</string>
+    <plurals name="spotoolfy_recap_word_count">
+        <item quantity="other">出现 %1$d 次</item>
+    </plurals>
+    <string name="spotoolfy_recap_written_for">%1$s 写给《%2$s》</string>
+    <string name="spotoolfy_recap_song_by">《%1$s》%2$s</string>
+    <string name="spotoolfy_recap_quote">「%1$s」</string>
+    <string name="spotoolfy_recap_kept_on">截于 %1$s</string>
+    <string name="spotoolfy_recap_note_with_it">当时写的笔记</string>
+    <string name="spotoolfy_recap_summary_words">你最常写的词：%1$s。</string>
+    <string name="spotoolfy_recap_summary_lyrics">你截下的歌词：%1$s。</string>
+    <string name="spotoolfy_recap_list_separator">、</string>
+
+    <string name="spotoolfy_recap_join_title">带着它们，加入 Yoin</string>
+    <string name="spotoolfy_recap_join_body">连接 Spotify 之后，这些笔记和评分会放进你的 Yoin，出现在 Now Playing、专辑剪贴簿、Memories 和 Rediscover 里。</string>
+    <string name="spotoolfy_recap_join">加入 Yoin</string>
+    <string name="spotoolfy_recap_done_body">它们都在你的 Yoin 里：Now Playing 的笔记页、专辑剪贴簿、Memories 和 Rediscover。</string>
+    <string name="spotoolfy_recap_done">完成</string>
+    <string name="spotoolfy_recap_missing">找不到这份回顾了。</string>
+
+    <string name="settings_spotoolfy_recap">Spotoolfy 回顾</string>
+    <string name="settings_spotoolfy_recap_body">从 Spotoolfy 带来的笔记和评分</string>
+</resources>

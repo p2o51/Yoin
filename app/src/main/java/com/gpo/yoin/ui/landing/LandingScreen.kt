@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.landing
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -18,7 +20,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.LayoutMode
@@ -63,6 +69,7 @@ import com.gpo.yoin.ui.landing.guide.ConnectGuide
 import com.gpo.yoin.ui.navigation.back.LandingPredictiveBack
 import com.gpo.yoin.ui.settings.assignAvatarShapes
 import com.gpo.yoin.ui.settings.service.SetupService
+import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
 import com.gpo.yoin.ui.theme.YoinMotion
 import androidx.compose.ui.MotionDurationScale
 import kotlinx.coroutines.delay
@@ -70,6 +77,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -108,6 +116,15 @@ class LandingGate {
 }
 
 /**
+ * Whether a landing is on screen in this process. The Spotoolfy share receiver keeps a shared file only for a
+ * landing (one showing now, or a first run still to come); outside it the file is refused (§5.4).
+ */
+internal object LandingPresence {
+    @Volatile
+    var showing: Boolean = false
+}
+
+/**
  * Mounted by MainActivity ABOVE the shell, so it covers the bar too and its back handler registers after the
  * shell's (and is the only one enabled while it shows). Shows on a first launch with no account, and when
  * Settings › About › Welcome guide asks for a re-run. It removes itself after the hand-off into Home.
@@ -138,6 +155,9 @@ fun LandingHost(gate: LandingGate) {
             checked = true
             gate.holdShell = false
             gate.decided = true
+            // A Spotoolfy file left staged by a landing that never finished (the process went) has no landing now.
+            container.spotoolfyImporter.discardStaged()
+            container.spotoolfyImporter.clearPending()
             return@LaunchedEffect
         }
         val list = profiles ?: return@LaunchedEffect
@@ -148,9 +168,11 @@ fun LandingHost(gate: LandingGate) {
             mode = LandingMode.FirstRun
             session += 1
         } else {
-            // An existing install: it never sees the landing, even after deleting every account.
+            // An existing install: it never sees the landing, even after deleting every account. Or a first run
+            // that ended after adding an account: a Spotoolfy file it staged still goes in (§5.1).
             store.markDone()
             gate.holdShell = false
+            container.resumeInterruptedSpotoolfyImport()
         }
         gate.decided = true
     }
@@ -163,7 +185,10 @@ fun LandingHost(gate: LandingGate) {
     }
 
     val showing = mode != null
-    SideEffect { gate.showing = showing }
+    SideEffect {
+        gate.showing = showing
+        LandingPresence.showing = showing
+    }
     val current = mode ?: return
     val scope: LandingScope = viewModel(key = "landing-scope")
     androidx.compose.runtime.key(session) {
@@ -230,6 +255,19 @@ internal fun LandingScreen(
     val windowInfo = LocalYoinWindowInfo.current
     val profiles by container.profileManager.profiles.collectAsState(initial = emptyList())
     val activeId by container.profileManager.activeProfileId.collectAsState()
+    val spotoolfy: SpotoolfyStepViewModel = viewModel(
+        key = "landing-spotoolfy",
+        factory = SpotoolfyStepViewModel.Factory(context, container),
+    )
+    val spotoolfyState by spotoolfy.state.collectAsState()
+    var askDropSpotoolfy by rememberSaveable { mutableStateOf(false) }
+    val pickSpotoolfyFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(spotoolfy::pick)
+    }
+    // "Join Yoin" on the recap's last page goes straight on to Spotify's connect step; back stays on this step.
+    val openRecap = rememberLauncherForActivityResult(SpotoolfyRecapActivity.JoinContract()) { joined ->
+        if (joined && vm.state.value.step == LandingStep.Spotoolfy) vm.next()
+    }
 
     // The shell warms up beneath from the scroll-edge step on, so Home is ready when the hand-off reveals it.
     val currentOnShellWanted by rememberUpdatedState(onShellWanted)
@@ -286,7 +324,40 @@ internal fun LandingScreen(
         }
     }
 
+    LaunchedEffect(state.step) { spotoolfy.setShown(state.step == LandingStep.Spotoolfy) }
+    LaunchedEffect(spotoolfy) {
+        spotoolfy.events.collect { event ->
+            when (event) {
+                is SpotoolfyStepEvent.OpenRecap -> {
+                    // The file is in: the Spotoolfy window has done its job.
+                    ConnectGuide.finishIfOpen()
+                    haptics.performConfirm()
+                    mascot.cheer()
+                    openRecap.launch(event.batchId)
+                }
+                SpotoolfyStepEvent.Refused -> reactions.refused()
+            }
+        }
+    }
+    // Spotify connected with a Spotoolfy file waiting: it goes into the account this landing just added.
+    val spotifyConnected = SetupService.Spotify in state.connected
+    LaunchedEffect(spotifyConnected, spotoolfyState.unwritten) {
+        if (!spotifyConnected || !spotoolfyState.unwritten) return@LaunchedEffect
+        val before = vm.profilesAtStart().orEmpty()
+        val account = container.profileManager.profiles.first()
+            .filter { it.id !in before && it.provider == MediaId.PROVIDER_SPOTIFY }
+            .maxByOrNull { it.createdAt }
+            ?: return@LaunchedEffect
+        spotoolfy.commitTo(account.id, account.displayName)
+    }
+
     fun finish() {
+        // A Spotoolfy file read but never put into an account: say so before it's dropped (§5.1).
+        if (spotoolfy.state.value.unwritten) {
+            haptics.performReject()
+            askDropSpotoolfy = true
+            return
+        }
         haptics.performConfirm()
         ConnectGuide.finishIfOpen()
         vm.finish {
@@ -299,6 +370,7 @@ internal fun LandingScreen(
                 }
                 delay(RevealAfterMs)
                 reveal.animateTo(0f, slowEffects)
+                spotoolfy.discardUnwritten()
                 onClosed()
             }
         }
@@ -308,8 +380,41 @@ internal fun LandingScreen(
         // A re-run closed from its first step: fade back to Home.
         scope.launch {
             reveal.animateTo(0f, slowEffects)
+            spotoolfy.discardUnwritten()
             onClosed()
         }
+    }
+
+    fun onSpotoolfyPrimary() {
+        val current = spotoolfy.state.value
+        when {
+            current.choice == null || current.import == SpotoolfyImport.Reading -> reactions.refused()
+            current.choice == SpotoolfyChoice.NotUsing -> vm.next()
+            current.import is SpotoolfyImport.Received ||
+                current.import is SpotoolfyImport.Written ||
+                current.import == SpotoolfyImport.NotWritten -> vm.next()
+            // Spotoolfy and its floating guide; not installed (or gone since): the export file from elsewhere.
+            else -> if (!current.installed || !ConnectGuide.openSpotoolfy(context)) {
+                pickSpotoolfyFile.launch(SpotoolfyFileTypes)
+            }
+        }
+    }
+
+    if (askDropSpotoolfy) {
+        SpotoolfyDropDialog(
+            onConnect = {
+                askDropSpotoolfy = false
+                vm.goTo(if (LandingStep.Spotify in state.steps) LandingStep.Spotify else LandingStep.Pick)
+            },
+            onDrop = {
+                askDropSpotoolfy = false
+                scope.launch {
+                    spotoolfy.discardUnwritten()
+                    finish()
+                }
+            },
+            onDismiss = { askDropSpotoolfy = false },
+        )
     }
 
     LandingPredictiveBack(
@@ -366,6 +471,9 @@ internal fun LandingScreen(
                                 vm.toggleService(service)
                             },
                             vm = vm,
+                            spotoolfy = spotoolfy,
+                            onPickSpotoolfyFile = { pickSpotoolfyFile.launch(SpotoolfyFileTypes) },
+                            spotoolfyWritten = spotoolfyState.import as? SpotoolfyImport.Written,
                         )
                     },
                 )
@@ -396,7 +504,7 @@ internal fun LandingScreen(
                 val step = state.step
                 LandingPill(
                     hello = step == LandingStep.Hello,
-                    primary = primaryFor(step, state, accounts.isNotEmpty()),
+                    primary = primaryFor(step, state, accounts.isNotEmpty(), spotoolfyState),
                     dotCount = state.steps.size - 1,
                     dotIndex = (state.index - 1).coerceAtLeast(0),
                     centered = centeredBar,
@@ -405,6 +513,7 @@ internal fun LandingScreen(
                         when {
                             step == LandingStep.Ready -> finish()
                             step == LandingStep.Pick && state.picked.isEmpty() && !state.hasAccount -> reactions.refused()
+                            step == LandingStep.Spotoolfy -> onSpotoolfyPrimary()
                             else -> vm.next()
                         }
                     },
@@ -425,13 +534,22 @@ private fun LandingScene(
     edgePlaying: Boolean,
     onToggleService: (SetupService) -> Unit,
     vm: LandingViewModel,
+    spotoolfy: SpotoolfyStepViewModel,
+    onPickSpotoolfyFile: () -> Unit,
+    spotoolfyWritten: SpotoolfyImport.Written?,
 ) {
     when (step) {
         LandingStep.Hello -> Unit
         LandingStep.Pick -> PickScene(picked = state.picked, onToggle = onToggleService)
         LandingStep.About -> AboutScene(picked = state.picked)
         LandingStep.Subsonic -> SubsonicConnectScene(container, SetupService.Subsonic in state.connected, reactions)
-        LandingStep.Spotify -> SpotifyConnectScene(container, SetupService.Spotify in state.connected, reactions)
+        LandingStep.Spotoolfy -> SpotoolfyScene(container, spotoolfy, onPickFile = onPickSpotoolfyFile)
+        LandingStep.Spotify -> SpotifyConnectScene(
+            container = container,
+            connected = SetupService.Spotify in state.connected,
+            reactions = reactions,
+            imported = spotoolfyWritten,
+        )
         LandingStep.AppleMusic -> AppleConnectScene(SetupService.AppleMusic in state.connected, reactions)
         LandingStep.Home -> HomeSectionsScene(state.layout, vm::setSectionEnabled, vm::moveSection)
         LandingStep.Edge -> ScrollEdgeScene(selected = state.edge, playing = edgePlaying, onSelect = vm::setEdge)
@@ -439,8 +557,14 @@ private fun LandingScene(
     }
 }
 
-private fun primaryFor(step: LandingStep, state: LandingUiState, hasAccount: Boolean): LandingPrimary = when {
+private fun primaryFor(
+    step: LandingStep,
+    state: LandingUiState,
+    hasAccount: Boolean,
+    spotoolfy: SpotoolfyStepState,
+): LandingPrimary = when {
     step == LandingStep.Hello -> LandingPrimary(R.string.landing_get_started, LandingPrimary.Style.Filled, arrow = true)
+    step == LandingStep.Spotoolfy -> spotoolfyPrimary(spotoolfy)
     step == LandingStep.Pick -> when {
         state.picked.isNotEmpty() -> LandingPrimary(R.string.landing_next, LandingPrimary.Style.Filled)
         // An account already exists (a re-run): nothing new to add is fine, Home and the edge are still ahead.
@@ -461,11 +585,26 @@ private fun bubbleLines(step: LandingStep, noAccounts: Boolean): Pair<Int, Int?>
     LandingStep.Pick -> R.string.landing_pick_title to null
     LandingStep.About -> R.string.landing_about_title to null
     LandingStep.Subsonic -> R.string.landing_subsonic_title to null
+    LandingStep.Spotoolfy -> R.string.landing_spotoolfy_title to null
     LandingStep.Spotify -> R.string.landing_spotify_title to R.string.landing_spotify_body
     LandingStep.AppleMusic -> R.string.landing_apple_title to R.string.landing_apple_body
     LandingStep.Home -> R.string.landing_home_title to null
     LandingStep.Edge -> R.string.landing_edge_title to null
     LandingStep.Ready -> if (noAccounts) R.string.landing_ready_none_title to R.string.landing_ready_none_body else R.string.landing_ready_title to null
+}
+
+/** What the export can be labelled as: some file managers call a .json plain text or bytes. */
+private val SpotoolfyFileTypes = arrayOf("application/json", "text/plain", "application/octet-stream")
+
+@Composable
+private fun SpotoolfyDropDialog(onConnect: () -> Unit, onDrop: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.landing_spotoolfy_finish_title)) },
+        text = { Text(stringResource(R.string.landing_spotoolfy_finish_body)) },
+        confirmButton = { TextButton(onClick = onConnect) { Text(stringResource(R.string.landing_spotoolfy_finish_connect)) } },
+        dismissButton = { TextButton(onClick = onDrop) { Text(stringResource(R.string.landing_spotoolfy_finish_drop)) } },
+    )
 }
 
 private data class AccountRow(val id: String, val name: String, val provider: String, val createdAt: Long)

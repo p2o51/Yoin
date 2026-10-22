@@ -169,6 +169,9 @@ data class HomeRediscoverItem(
     val noteSnippet: String? = null,
     // [coverArtUrl]'s CoverRef storage key (see HomeWidgetCard.coverKey).
     val coverKey: String? = null,
+    // A note card (D11): an album written about but never played in Yoin.
+    // Its eyebrow says what was kept, never how long it has been away.
+    val fromNotes: Boolean = false,
 ) {
     /** The card's title: the song's for a song card, else the album's. */
     val title: String get() = song?.title?.takeIf(String::isNotBlank) ?: albumName
@@ -193,6 +196,11 @@ data class HomeMemoryPill(
     // time or the note count. The Memories bubble speaks when it differs from
     // the last one it showed (HomeMemoryBubble.kt).
     val newsKey: String = "",
+    // The profile's other memories, newest written first: what the bubble's
+    // idle reminder brings back, a different one each time (owner 2026-10-15:
+    // Memory 提醒做得更加多样). News is always [latest]. Live only — a
+    // restored snapshot has none, and the reminder says [latest] meanwhile.
+    val recall: List<Latest> = emptyList(),
 ) {
     @Immutable
     data class Latest(

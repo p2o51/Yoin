@@ -308,9 +308,16 @@ internal fun jbiPresetRows(spec: JbiGridSpec, preset: HomeRowPreset): Int = when
 /**
  * Signal cards (rating / note) a [rows]-row grid of [cells] cells takes: one
  * on a single row or under nine cells — two would leave only a couple of
- * covers and turn the shelf into a memories corner — else two.
+ * covers and turn the shelf into a memories corner — two up to the phone's
+ * twelve, and one more for every six cells past that, so a shelf pulled
+ * longer keeps its memories and notes coming (owner 2026-10-13: 拉长以后后面
+ * 很少有 memory 和 notes) instead of trailing off into covers.
  */
-internal fun jbiSignalLimit(rows: Int, cells: Int): Int = if (rows <= 1 || cells < JbiTwoSignalMinCells) 1 else 2
+internal fun jbiSignalLimit(rows: Int, cells: Int): Int = when {
+    rows <= 1 || cells < JbiTwoSignalMinCells -> 1
+    cells <= JbiPhoneShelfCells -> 2
+    else -> 2 + (cells - JbiPhoneShelfCells) / JbiCellsPerExtraSignal
+}
 
 /**
  * The cells of the packed shelf at [preset]: rows × columns (12 on the phone
@@ -389,3 +396,6 @@ internal const val JbiPhoneShelfRows = 4
 internal const val JbiPhoneShelfCells = 12
 private const val JbiLandscapeColumns = 6
 private const val JbiTwoSignalMinCells = 9
+
+// Past the phone's twelve cells, a signal card for every this many more.
+internal const val JbiCellsPerExtraSignal = 6

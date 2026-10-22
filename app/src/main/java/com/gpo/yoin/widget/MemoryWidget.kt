@@ -97,7 +97,8 @@ private fun MemoryStrip(size: DpSize, item: MemoryItem, source: Bitmap?, palette
     val lead = bitmaps.of("lead:clover:${h.value}") { WidgetArt.leadMask(shape, bitmaps.px(h.value)) }
     val leadW = (lead.width / bitmaps.scale).dp
     val bg = dayNight(palette.bgLight, palette.bgDark)
-    val accentInk = dayNight(palette.base, palette.base)
+    // The base is held in the light-page ink window; the same-hue soft anchor stays readable on the dark strip.
+    val accentInk = dayNight(palette.base, palette.inkDark)
     val ink = dayNight(palette.inkLight, palette.inkDark)
     val sub = dayNight(palette.subLight, palette.subDark)
     val showAlbum = size.width.value >= 320f

@@ -39,6 +39,14 @@ internal interface HomeEditCardSpot {
     fun rectInBlock(): Rect?
 }
 
+/**
+ * An edit-mode tap that landed on card [index] of [section] (in its edit
+ * order). [serial] tells two taps on the same card apart. Sections that
+ * answer a tap on a card (Jump Back In's "not now" bubble) read it.
+ */
+@Immutable
+internal data class HomeEditCardTap(val section: HomeSection, val index: Int, val serial: Int)
+
 /** The page's safe area in Box px: below the status tide, above the bar (port sheet §3.4). */
 @Immutable
 internal data class HomeEditSafeArea(val top: Float, val bottom: Float)
@@ -444,6 +452,18 @@ internal class HomeEditMotion(
             pulse.snapTo(1f)
             pulse.animateTo(1f, specs.pulse, initialVelocity = HomeEditTokens.PulseVelocity)
         }
+    }
+
+    /** The last edit-mode tap on a card; null once edit mode is left or the answer is done with. */
+    var cardTap by mutableStateOf<HomeEditCardTap?>(null)
+        private set
+
+    fun noteCardTap(section: HomeSection, index: Int) {
+        cardTap = HomeEditCardTap(section, index, serial = (cardTap?.serial ?: 0) + 1)
+    }
+
+    fun clearCardTap() {
+        cardTap = null
     }
 
     /** A card of [section] taps can find (from `onPlaced`). A plain set: read at events only. */

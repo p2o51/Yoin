@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -74,6 +75,17 @@ import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.withTabularFigures
 import java.util.Calendar
+import kotlin.math.roundToInt
+import com.gpo.yoin.ui.component.YoinDropdownMenuItem
+import com.gpo.yoin.ui.component.YoinDropdownMenu
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
 // it while the artwork sits at ~73/100 in the bottom-right so the shape peeks
@@ -148,6 +160,8 @@ internal fun HomeWidgetGridSection(
     rows: HomeRowPreset = HomeRowPreset.Default,
     // Raw album id → the memory mark a plain album cover wears (HomeAlbumMemoryMark.kt).
     memoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
+    // Edit mode's "not now" bubble on a tapped card (HomeJbiHidden.kt); null = no bubble.
+    onHideCard: ((HomeWidgetCard, JbiHideSpan) -> Unit)? = null,
 ) {
     if (cards.isEmpty()) return
     // Columns and path follow the container (HomeFeedDensity: jbiGridSpec) —
@@ -178,75 +192,171 @@ internal fun HomeWidgetGridSection(
             null
         }
     }
-    val content = JbiContent(gridSpec, cards, layout, rows)
+    // A card taken off the shelf (edit mode's "not now") re-packs it like a template change
+    // does — the crossfade below on the effects springs, the height on the spatial one —
+    // instead of its neighbours snapping into its place.
+    val removals = rememberShelfRemovals(cards)
+    val content = JbiContent(gridSpec, cards, layout, rows, removals)
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val heightSpec = YoinMotion.spatialSpring<Float>()
     val cardScope = LocalHomeEditCardScope.current
+    val places = remember { JbiCardPlaces() }
 
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         HomeSectionTitle(text = title)
-        // A column-count, template or path change re-packs the grid: crossfade
-        // it, with the section's height on a spatial spring — never a hard cut.
-        // A row preset updates in place (edit mode's resize interpolates it).
-        AnimatedContent(
-            targetState = content,
-            contentKey = { it.key },
-            transitionSpec = {
-                if (reduced) {
-                    ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
-                } else {
-                    // No SizeTransform: its animated WIDTH lags a container
-                    // that is shrinking under a column spring, and the parent
-                    // centres the overflow. springHeight eases the height.
-                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                        YoinMotion.fadeOut(role = YoinMotionRole.Standard) using null
-                }
-            },
-            label = "jbiGrid",
-            modifier = Modifier.springHeight(spec = heightSpec, key = content.key, enabled = !reduced),
-        ) { state ->
-            val columns = state.spec.columns
-            val followColumn = state.spec.followColumn
-            // The packed paths keep the phone's 3 × 4 shelf at L (rows × columns at
-            // the other presets); the VM supplies a deeper list for the templates.
-            val ladder = remember(state.spec, state.cards, state.layout) {
-                jbiRowLadder(state.spec, state.cards, state.layout)
-            }
-            Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
-                HomeRowsBody(
-                    track = cardScope?.rows,
-                    engine = cardScope?.rowsEngine,
-                    ladder = ladder,
-                    preset = state.rows,
-                    reduced = reduced,
-                    owner = transition.targetState != EnterExitState.PostExit,
-                ) { stop ->
-                    when (val composition = stop.payload) {
-                        is JbiPresetLayout.Template -> JbiTemplateGrid(
-                            seated = composition.layout,
-                            coverFit = coverFit,
-                            memoryMarks = memoryMarks,
-                            extractBackdropColors = extractBackdropColors,
-                            onCardClick = onCardClick,
-                        )
-                        is JbiPresetLayout.Packed -> JbiPackedGrid(
-                            rows = composition.rows,
-                            columns = columns,
-                            followColumn = followColumn,
-                            coverFit = coverFit,
-                            memoryMarks = memoryMarks,
-                            extractBackdropColors = extractBackdropColors,
-                            onCardClick = onCardClick,
-                        )
+        Box {
+            // A column-count, template or path change re-packs the grid: crossfade
+            // it, with the section's height on a spatial spring — never a hard cut.
+            // A row preset updates in place (edit mode's resize interpolates it).
+            AnimatedContent(
+                targetState = content,
+                contentKey = { it.key },
+                transitionSpec = {
+                    if (reduced) {
+                        ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
+                    } else {
+                        // No SizeTransform: its animated WIDTH lags a container
+                        // that is shrinking under a column spring, and the parent
+                        // centres the overflow. springHeight eases the height.
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard) using null
                     }
+                },
+                label = "jbiGrid",
+                modifier = Modifier.springHeight(spec = heightSpec, key = content.key, enabled = !reduced),
+            ) { state ->
+                val columns = state.spec.columns
+                val followColumn = state.spec.followColumn
+                // The packed paths keep the phone's 3 × 4 shelf at L (rows × columns at
+                // the other presets); the VM supplies a deeper list for the templates.
+                val ladder = remember(state.spec, state.cards, state.layout) {
+                    jbiRowLadder(state.spec, state.cards, state.layout)
+                }
+                Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
+                    HomeRowsBody(
+                        track = cardScope?.rows,
+                        engine = cardScope?.rowsEngine,
+                        ladder = ladder,
+                        preset = state.rows,
+                        reduced = reduced,
+                        owner = transition.targetState != EnterExitState.PostExit,
+                    ) { stop ->
+                        when (val composition = stop.payload) {
+                            is JbiPresetLayout.Template -> JbiTemplateGrid(
+                                seated = composition.layout,
+                                coverFit = coverFit,
+                                memoryMarks = memoryMarks,
+                                extractBackdropColors = extractBackdropColors,
+                                onCardClick = onCardClick,
+                                places = places,
+                            )
+                            is JbiPresetLayout.Packed -> JbiPackedGrid(
+                                rows = composition.rows,
+                                columns = columns,
+                                followColumn = followColumn,
+                                coverFit = coverFit,
+                                memoryMarks = memoryMarks,
+                                extractBackdropColors = extractBackdropColors,
+                                onCardClick = onCardClick,
+                                places = places,
+                            )
+                        }
+                    }
+                }
+            }
+            if (onHideCard != null) {
+                JbiHideBubble(
+                    cards = cards,
+                    places = places,
+                    onHide = onHideCard,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Where each Jump Back In card is — its edit-mode index, its card and its
+ * coordinates — for the "not now" bubble to stand on. Written as cards are
+ * placed, read when a tap comes in; not state.
+ */
+internal class JbiCardPlaces {
+    private val byIndex = HashMap<Int, Pair<String, LayoutCoordinates>>()
+
+    fun place(index: Int, stableId: String, coordinates: LayoutCoordinates) {
+        byIndex[index] = stableId to coordinates
+    }
+
+    fun at(index: Int): Pair<String, LayoutCoordinates>? = byIndex[index]?.takeIf { it.second.isAttached }
+}
+
+private fun Modifier.jbiCardPlace(places: JbiCardPlaces, index: Int, stableId: String): Modifier =
+    onPlaced { places.place(index, stableId, it) }
+
+/**
+ * Edit mode's "not now" bubble (owner 2026-10-13): a tap on a card while
+ * editing opens a menu over it — hide it for three days, or a week. Closes
+ * on a pick, a tap elsewhere, or edit mode ending; it keeps standing on the
+ * card it opened for while it folds away.
+ */
+@Composable
+private fun JbiHideBubble(
+    cards: List<HomeWidgetCard>,
+    places: JbiCardPlaces,
+    onHide: (HomeWidgetCard, JbiHideSpan) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cardScope = LocalHomeEditCardScope.current ?: return
+    val motion = cardScope.motion
+    val editing = !cardScope.interactive()
+    val tap = motion.cardTap?.takeIf { it.section == HomeSection.JumpBackIn && editing }
+    val overlay = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    // The card the bubble stands on, and its bounds in this overlay — the
+    // last ones kept while it folds away.
+    var shown by remember { mutableStateOf<Pair<HomeWidgetCard, Rect>?>(null) }
+    val open = tap != null && shown != null
+    LaunchedEffect(tap, cards) {
+        if (tap == null) return@LaunchedEffect
+        val (id, coordinates) = places.at(tap.index) ?: return@LaunchedEffect motion.clearCardTap()
+        val card = cards.firstOrNull { it.stableId == id } ?: return@LaunchedEffect motion.clearCardTap()
+        val from = overlay[0]?.takeIf { it.isAttached } ?: return@LaunchedEffect motion.clearCardTap()
+        shown = card to from.localBoundingBoxOf(coordinates, clipBounds = false)
+    }
+    LaunchedEffect(editing) {
+        if (!editing) motion.clearCardTap()
+    }
+    val density = LocalDensity.current
+    Box(modifier = modifier.onPlaced { overlay[0] = it }) {
+        val (card, rect) = shown ?: return@Box
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
+                .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() }),
+        ) {
+            YoinDropdownMenu(expanded = open, onDismissRequest = motion::clearCardTap) {
+                JbiHideSpan.entries.forEach { span ->
+                    YoinDropdownMenuItem(
+                        text = stringResource(span.labelRes),
+                        onClick = {
+                            motion.clearCardTap()
+                            onHide(card, span)
+                        },
+                    )
                 }
             }
         }
     }
 }
+
+private val JbiHideSpan.labelRes: Int
+    get() = when (this) {
+        JbiHideSpan.ThreeDays -> R.string.home_jbi_hide_three_days
+        JbiHideSpan.OneWeek -> R.string.home_jbi_hide_week
+    }
 
 /** What a Jump Back In card renders as, for the row resize's matching (a cover, or a lying / standing signal card). */
 private enum class JbiCardLook { Cover, Wide, Tall }
@@ -259,6 +369,7 @@ private fun JbiTemplateGrid(
     memoryMarks: Map<String, HomeAlbumMemoryMark>,
     extractBackdropColors: Boolean,
     onCardClick: (HomeWidgetTarget) -> Unit,
+    places: JbiCardPlaces,
 ) {
     // Phone-sized columns, phone-sized covers: the column's
     // rhythm, but never past 128dp (a very wide window gets more
@@ -274,9 +385,11 @@ private fun JbiTemplateGrid(
             JbiPieceKind.WideSignal -> JbiCardLook.Wide
             JbiPieceKind.Cover -> JbiCardLook.Cover
         }
+        val index = editIndex[card.stableId] ?: 0
         val editCard = Modifier
             .homeRowsCard(card.stableId, look)
-            .homeEditCard(editIndex[card.stableId] ?: 0)
+            .homeEditCard(index)
+            .jbiCardPlace(places, index, card.stableId)
         when (cell.piece.kind) {
             JbiPieceKind.TallSignal, JbiPieceKind.WideSignal -> WidgetCard12(
                 card = card,
@@ -315,12 +428,17 @@ private fun JbiPackedGrid(
     memoryMarks: Map<String, HomeAlbumMemoryMark>,
     extractBackdropColors: Boolean,
     onCardClick: (HomeWidgetTarget) -> Unit,
+    places: JbiCardPlaces,
 ) {
     // Edit-mode card order on the packed paths: row-major.
     val rowEditIndex = remember(rows) { rows.flatten().editCardIndex { it } }
-    fun Modifier.card(card: HomeWidgetCard): Modifier = this
-        .homeRowsCard(card.stableId, if (card.expanded) JbiCardLook.Wide else JbiCardLook.Cover)
-        .homeEditCard(rowEditIndex[card.stableId] ?: 0)
+    fun Modifier.card(card: HomeWidgetCard): Modifier {
+        val index = rowEditIndex[card.stableId] ?: 0
+        return this
+            .homeRowsCard(card.stableId, if (card.expanded) JbiCardLook.Wide else JbiCardLook.Cover)
+            .homeEditCard(index)
+            .jbiCardPlace(places, index, card.stableId)
+    }
     if (followColumn) {
         // Decode at the largest cover the column can grow to.
         val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
@@ -400,15 +518,43 @@ private fun JbiPackedGrid(
  * One grid composition with the cards it seats — the outgoing layer keeps its
  * own while it fades. [key] is what a crossfade answers to: the L template
  * when there is one (a re-seat on the same template updates in place), else
- * the packed path's spec — never the row preset, which updates in place.
+ * the packed path's spec, and each card taken off the shelf — never the row
+ * preset, which updates in place.
  */
 private data class JbiContent(
     val spec: JbiGridSpec,
     val cards: List<HomeWidgetCard>,
     val layout: JbiLayout?,
     val rows: HomeRowPreset,
+    // How many times cards have been taken off the shelf ([ShelfRemovals]).
+    val removals: Int = 0,
 ) {
-    val key: Any get() = layout?.template ?: spec
+    val key: Any get() = (layout?.template ?: spec) to removals
+}
+
+/**
+ * Counts the shelf's removals: a new card list that is the last one minus some
+ * cards (a card hidden for a while). Any other change — a rotation of the
+ * pools, a signal card arriving — leaves the count, so it updates in place as
+ * before. Fed each new list once, in order.
+ */
+internal class ShelfRemovals {
+    private var ids: Set<String>? = null
+    private var count = 0
+
+    fun next(cards: List<HomeWidgetCard>): Int {
+        val now = cards.mapTo(HashSet()) { it.stableId }
+        val before = ids
+        if (before != null && now.size < before.size && before.containsAll(now)) count++
+        ids = now
+        return count
+    }
+}
+
+@Composable
+private fun rememberShelfRemovals(cards: List<HomeWidgetCard>): Int {
+    val removals = remember { ShelfRemovals() }
+    return remember(cards) { removals.next(cards) }
 }
 
 /** Each card's edit-mode index (wiggle parity, tap target) by stable id, in this list's order. */
@@ -622,7 +768,8 @@ private fun WidgetCoverBlock(
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
     onClick: (() -> Unit)? = null,
-    artworkModifier: Modifier = Modifier.size(WidgetCoverSize),
+    // At most 100dp, and square in a narrower cell (a short, narrow window).
+    artworkModifier: Modifier = Modifier.widthIn(max = WidgetCoverSize).fillMaxWidth().aspectRatio(1f),
     artworkRequestSizePx: Int? = null,
     // A plain album cover's memory mark (HomeAlbumMemoryMark.kt); null = bare.
     memoryMark: HomeAlbumMemoryMark? = null,

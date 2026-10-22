@@ -53,6 +53,8 @@ import kotlin.math.roundToInt
  * - [GuideKind.AppleMusic] (owner 2026-10-10): Yoin opens Apple's sign-in itself once the window is in the
  *   corner ([ConnectGuide.openAndAwaitReady]); the window follows the attempts — a try that didn't take turns
  *   it to "once more", a connection closes it.
+ * - [GuideKind.Spotoolfy] (D3, D10): opens Spotoolfy and walks it to the share sheet in Spotoolfy's teal: the
+ *   Client ID, the export, then "Import to Yoin". The file arriving closes it ([ConnectGuide.finishIfOpen]).
  *
  * Expanding the window (the system's full-screen button) or "back to Yoin" returns to Yoin; closing it just ends
  * the guide, and opening it again from Yoin starts it over ([GuideSession]). A separate task (taskAffinity,
@@ -69,7 +71,8 @@ class ConnectGuideActivity : ComponentActivity() {
     private var flashJob: Job? = null
     private var enterJob: Job? = null
 
-    private val steps get() = guideSteps(kind)
+    private var fingerprints = emptyList<String>()
+    private var steps by mutableStateOf(guideSteps(GuideKind.Spotify, emptyList()))
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -84,7 +87,10 @@ class ConnectGuideActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         kind = intent.guideKind()
-        step = savedInstanceState?.getInt(STATE_STEP) ?: 0
+        fingerprints = savedInstanceState?.getStringArrayList(STATE_FINGERPRINTS)
+            ?: readFingerprints()
+        steps = guideSteps(kind, fingerprints)
+        step = (savedInstanceState?.getInt(STATE_STEP) ?: 0).coerceIn(0, steps.lastIndex)
         session = GuideSession(
             // A "back to Yoin" that finds no window (the process went): straight back, nothing to hand off.
             handedOff = savedInstanceState?.getBoolean(STATE_HANDED_OFF) ?: intent.isGuideReturn(),
@@ -105,6 +111,7 @@ class ConnectGuideActivity : ComponentActivity() {
         setContent {
             ConnectGuideScreen(
                 kind = kind,
+                steps = steps,
                 inPictureInPicture = inPictureInPicture,
                 stepIndex = step,
                 flash = flash,
@@ -129,6 +136,8 @@ class ConnectGuideActivity : ComponentActivity() {
             ConnectGuide.opened(next)
         }
         enterJob?.cancel()
+        fingerprints = readFingerprints()
+        steps = guideSteps(kind, fingerprints)
         step = 0
         if (isInPictureInPictureMode) setPictureInPictureParams(pipParams())
     }
@@ -160,6 +169,7 @@ class ConnectGuideActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(STATE_STEP, step)
+        outState.putStringArrayList(STATE_FINGERPRINTS, ArrayList(fingerprints))
         outState.putBoolean(STATE_HANDED_OFF, session.handedOff)
         outState.putBoolean(STATE_FLOATED, session.floated)
     }
@@ -202,6 +212,7 @@ class ConnectGuideActivity : ComponentActivity() {
             GuideKind.Spotify -> runCatching { startActivity(spotifyDashboardIntent()) }
             // Yoin is waiting in openAndAwaitReady and now opens the sign-in beneath the window.
             GuideKind.AppleMusic -> ConnectGuide.ready.tryEmit(kind)
+            GuideKind.Spotoolfy -> spotoolfyLaunchIntent(this)?.let { runCatching { startActivity(it) } }
         }
     }
 
@@ -213,7 +224,7 @@ class ConnectGuideActivity : ComponentActivity() {
     }
 
     private fun copyStepValue() {
-        val value = steps[step].copies?.value(this) ?: return
+        val value = steps.getOrNull(step)?.copyValue(this) ?: return
         getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Yoin", value))
         YoinHaptics(window.decorView).performConfirm()
         flashJob?.cancel()
@@ -223,6 +234,9 @@ class ConnectGuideActivity : ComponentActivity() {
             flash = null
         }
     }
+
+    private fun readFingerprints(): List<String> =
+        if (kind == GuideKind.Spotify) signingCertificateSha1s(this) else emptyList()
 
     /** From full screen only: a window that only floats may not start Yoin, and finishing would strand the user. */
     private fun returnToYoin() {
@@ -237,7 +251,7 @@ class ConnectGuideActivity : ComponentActivity() {
     private fun pipParams(): PictureInPictureParams {
         // The same three places every step, so › never moves; Apple's are blank (it has nothing to tap, and an
         // empty list would let the system put Yoin's own playback buttons there).
-        val actions = guideRemoteActions(this, kind, step, maxNumPictureInPictureActions)
+        val actions = guideRemoteActions(this, kind, step, maxNumPictureInPictureActions, steps)
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(4, 3))
             .setActions(actions)
@@ -250,6 +264,7 @@ class ConnectGuideActivity : ComponentActivity() {
                     when (kind) {
                         GuideKind.Spotify -> R.string.landing_spotify_open
                         GuideKind.AppleMusic -> R.string.guide_apple_title
+                        GuideKind.Spotoolfy -> R.string.guide_spotoolfy_title
                     },
                 ),
             )
@@ -259,6 +274,7 @@ class ConnectGuideActivity : ComponentActivity() {
 
     private companion object {
         const val STATE_STEP = "step"
+        const val STATE_FINGERPRINTS = "fingerprints"
         const val STATE_HANDED_OFF = "handedOff"
         const val STATE_FLOATED = "floated"
         const val EnterDelayMs = 450L
@@ -294,14 +310,18 @@ internal fun guideReturnIntent(context: Context): Intent = Intent(context, Conne
 internal fun spotifyDashboardIntent(): Intent =
     Intent(Intent.ACTION_VIEW, SpotifyDashboardUrl.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
+/** Spotoolfy's launcher activity in its own task; null when it isn't installed. */
+internal fun spotoolfyLaunchIntent(context: Context): Intent? =
+    context.packageManager.getLaunchIntentForPackage(SpotoolfyPackage)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
 /**
  * The guide window's actions on [step] as handed to the system: [guideActionSlots] fitted to its limit [max], one
  * [RemoteAction] per place. A greyed place has isEnabled off, which the system draws at its own disabled alpha (0.54)
  * and ignores taps on, so the place stays; a live one broadcasts its [GuideCommand] to the open guide, except
  * "back to Yoin", which launches the window again ([guideReturnIntent]).
  */
-internal fun guideRemoteActions(context: Context, kind: GuideKind, step: Int, max: Int): List<RemoteAction> =
-    fitGuideActionSlots(guideActionSlots(kind, step), max).map { remoteAction(context, it) }
+internal fun guideRemoteActions(context: Context, kind: GuideKind, step: Int, max: Int, steps: List<GuideStep>): List<RemoteAction> =
+    fitGuideActionSlots(guideActionSlots(kind, step, steps), max).map { remoteAction(context, it) }
 
 private fun remoteAction(context: Context, slot: GuideActionSlot): RemoteAction {
     val command = slot.command.name
@@ -367,6 +387,20 @@ internal object ConnectGuide {
         } else {
             context.startActivity(intent(context, GuideKind.Spotify))
         }
+    }
+
+    /**
+     * "Open Spotoolfy", the same way: already in the corner, only Spotoolfy comes forward again beneath it.
+     * Returns false when Spotoolfy isn't installed (the landing offers the file picker then).
+     */
+    fun openSpotoolfy(context: Context): Boolean {
+        val launch = spotoolfyLaunchIntent(context) ?: return false
+        if (floatingKind.value == GuideKind.Spotoolfy) {
+            runCatching { context.startActivity(launch) }
+        } else {
+            context.startActivity(intent(context, GuideKind.Spotoolfy))
+        }
+        return true
     }
 
     /**

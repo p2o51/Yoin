@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.PlaylistUnreadableItem
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -20,13 +21,18 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
+import com.gpo.yoin.data.remote.applemusic.AppleMusicStorefront
+import com.gpo.yoin.data.remote.applemusic.AppleMusicTrackRef
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.PLAYLIST_ADD_BATCH
+import com.gpo.yoin.data.source.PartialPlaylistImportException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -61,8 +67,14 @@ class AppleMusicSource(
     @Volatile var playbackDeveloperToken: String = ""
         private set
 
-    @Volatile private var storefront: String? = null
+    @Volatile private var storefront: AppleMusicStorefront? = null
     private val storefrontMutex = Mutex()
+
+    /** Catalog id → its English names (null: the same as shown, or none); see [alternateNames]. */
+    private val alternateNamesByCatalogId = object : LinkedHashMap<String, TrackNames?>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TrackNames?>?) =
+            size > ALTERNATE_NAMES_MEMORY
+    }
 
     // Apple answered recent/played's catalog include with a 400: later reads leave it out.
     @Volatile private var recentPlayedRefusesCatalog = false
@@ -73,9 +85,19 @@ class AppleMusicSource(
     private val libraryMutationMutex = Mutex()
     private val pendingLibraryAdds = ConcurrentHashMap.newKeySet<String>()
 
-    suspend fun refreshPlaybackToken() {
-        playbackDeveloperToken = tokenProvider.token()
-    }
+    // A library playlist's catalog playlist (`playParams.globalId`), as the library last listed or answered it,
+    // with that library playlist: what a playlist Apple won't read from the library opens as instead.
+    private val catalogPlaylists = ConcurrentHashMap<String, CatalogPlaylist>()
+
+    /**
+     * A developer token for MusicKit, cached only while it has [PlaybackTokenMinValiditySeconds] left. Our token
+     * service replaces its JWT once it has five minutes left, so a cached token that runs shorter is swapped for a
+     * fresh one, and MusicKit renews its token with less time left than that
+     * ([com.gpo.yoin.player.applemusic.MusicKitDeveloperToken]): what this returns counts as fresh there. A service
+     * that hands out a shorter one has it used as it is, and MusicKit asks again shortly after.
+     */
+    suspend fun refreshPlaybackToken(): String =
+        tokenProvider.token(PlaybackTokenMinValiditySeconds).also { playbackDeveloperToken = it }
 
     /**
      * The account's storefront, read once per source. Every catalog request needs it, and a source that goes
@@ -83,8 +105,10 @@ class AppleMusicSource(
      * request per album its Home refresh read, 46 at once, which Apple answered with 429s. The first caller
      * reads it and the rest wait for that answer; a failed read leaves it unread for the next caller.
      */
-    private suspend fun storefront(): String = storefront ?: storefrontMutex.withLock {
-        storefront ?: api.storefront().also { storefront = it }
+    private suspend fun storefront(): String = storefrontDetails().id
+
+    private suspend fun storefrontDetails(): AppleMusicStorefront = storefront ?: storefrontMutex.withLock {
+        storefront ?: api.storefrontDetails().also { storefront = it }
     }
 
     override fun library() = this
@@ -422,18 +446,67 @@ class AppleMusicSource(
         return ArtistDetail(artist.id, artist.name, albums.size, artist.coverArt, albums = albums)
     }
 
-    override suspend fun getPlaylists(): List<Playlist> = all(path("playlists")).map(::playlist)
+    override suspend fun getPlaylists(): List<Playlist> = all(path("playlists")).map(::listedPlaylist)
+
+    /**
+     * A library playlist Apple won't read from the library opens as its catalog playlist when it has one: one the
+     * user published, or someone's they saved. Apple has refused a tester's lately edited playlists with a 403
+     * while the rest of their library read, and has refused every library read for minutes on end; the catalog
+     * read needs no music user token. A token or rate-limit failure fails it as well ([failsCatalogToo]), and a
+     * playlist only in the library has no catalog playlist: those fail as they did.
+     */
     override suspend fun getPlaylist(id: MediaId): Playlist? {
+        if (!id.rawId.startsWith("library:")) return readPlaylist(id)
+        return try {
+            readPlaylist(id)
+        } catch (failure: AppleMusicApiException) {
+            if (failure.failsCatalogToo()) throw failure
+            val catalog = catalogPlaylists[id.rawId] ?: throw failure
+            val read = try {
+                readPlaylist(MediaId(this.id, catalog.catalogId))
+            } catch (fallbackFailure: Exception) {
+                if (fallbackFailure is CancellationException) throw fallbackFailure
+                failure.addSuppressed(fallbackFailure)
+                throw failure
+            } ?: throw failure
+            // The library's own name, cover and ownership; the catalog's tracks.
+            catalog.listed.copy(
+                coverArt = catalog.listed.coverArt ?: read.coverArt,
+                comment = catalog.listed.comment ?: read.comment,
+                tracks = read.tracks,
+                unreadable = read.unreadable,
+                songCount = read.songCount,
+                durationSec = read.durationSec,
+            )
+        }
+    }
+
+    private suspend fun readPlaylist(id: MediaId): Playlist? {
         val path = path("playlists", id)
         val resource = page(path).resources().firstOrNull() ?: return null
-        val tracks = all(path + "tracks", trackQuery(id)).songTracks()
-        return playlist(resource).copy(
+        val playlist = listedPlaylist(resource)
+        val entries = all(path + "tracks", trackQuery(id))
+        val tracks = entries.songTracks()
+        return playlist.copy(
             tracks = tracks,
+            unreadable = entries.unreadableEntries(),
             songCount = tracks.size,
             durationSec = tracks.sumOf {
                 it.durationSec ?: 0
             }
         )
+    }
+
+    /** [playlist], remembering a library playlist's catalog playlist for [getPlaylist]. */
+    private fun listedPlaylist(resource: JsonObject): Playlist {
+        val playlist = playlist(resource)
+        if (resource.text("type") == "library-playlists") {
+            val catalogId = (resource.attributes()["playParams"] as? JsonObject)?.text("globalId")
+            if (catalogId != null && catalogId.startsWith("pl.")) {
+                catalogPlaylists[playlist.id.rawId] = CatalogPlaylist(catalogId, playlist)
+            }
+        }
+        return playlist
     }
 
     override suspend fun search(query: String): SearchResults {
@@ -471,7 +544,7 @@ class AppleMusicSource(
                 .songTracks().distinctBy { it.id },
             albums = results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album).distinctBy { it.id },
             artists = results["library-artists"]?.jsonObject?.resources().orEmpty().map(::artist),
-            playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::playlist)
+            playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::listedPlaylist)
         )
     }
 
@@ -590,6 +663,32 @@ class AppleMusicSource(
     override suspend fun getRandomSongs(size: Int) = emptyList<Track>()
     override suspend fun getLyrics(trackId: MediaId): Lyrics? = null
 
+    /**
+     * A storefront whose own language isn't English names songs in it: on Japan's, Kim Petras is キム・ペトラス.
+     * Its catalog answers in English when asked with `l=en-US` (one of the languages it lists), which is what
+     * lyrics sources index for songs released in English. Catalog songs only; a storefront already in English,
+     * or one that can't answer in it, has nothing to add. Answers are kept per catalog id, misses too.
+     */
+    override suspend fun alternateNames(trackId: MediaId): TrackNames? {
+        if (trackId.provider != MediaId.PROVIDER_APPLE_MUSIC) return null
+        val catalogId = trackId.rawId.takeIf { it.isNotEmpty() && it.all(Char::isDigit) } ?: return null
+        synchronized(alternateNamesByCatalogId) {
+            if (catalogId in alternateNamesByCatalogId) return alternateNamesByCatalogId[catalogId]
+        }
+        val shop = storefrontDetails()
+        if (shop.defaultLanguage?.startsWith("en") == true || ENGLISH !in shop.languages) return null
+        val song = api.resourcePage(
+            segments = listOf("v1", "catalog", shop.id, "songs", catalogId),
+            personal = false,
+            query = mapOf("l" to ENGLISH),
+        )["data"]?.jsonArray?.firstOrNull()?.jsonObject?.get("attributes") as? JsonObject
+        val title = (song?.get("name") as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+        val artist = (song?.get("artistName") as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+        val names = TrackNames(title, artist).takeIf { title.isNotEmpty() && artist.isNotEmpty() }
+        synchronized(alternateNamesByCatalogId) { alternateNamesByCatalogId[catalogId] = names }
+        return names
+    }
+
     // Catalog ids only (digits; "pl." for curated playlists): a library id
     // ("l.", "i.", "p.") has no public page.
     override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? {
@@ -605,11 +704,67 @@ class AppleMusicSource(
     )
     override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> = unsupported()
     override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> = unsupported()
-    override suspend fun createPlaylist(name: String, description: String?): Result<Playlist> = unsupported()
+    // A new library playlist, and songs appended to one: what a copy from another profile needs
+    // (Capability.PLAYLIST_IMPORT). Apple's API has no rename, delete or remove for library playlists.
+    override suspend fun createPlaylist(name: String, description: String?): Result<Playlist> =
+        createPlaylistWithTracks(name, description, emptyList())
+
+    override suspend fun addTracksToPlaylist(playlistId: MediaId, tracks: List<MediaId>): Result<String?> =
+        cancellableResult {
+            require(playlistId.provider == id && playlistId.rawId.startsWith("library:")) {
+                "A library playlist is required"
+            }
+            for (batch in tracks.chunked(PLAYLIST_ADD_BATCH)) {
+                api.addTracksToLibraryPlaylist(playlistId.rawId.removePrefix("library:"), batch.map(::trackRef))
+            }
+            null
+        }
+
+    /**
+     * One create carrying the first [PLAYLIST_ADD_BATCH] songs, then appends: a playlist Apple has only just
+     * made may not take an append yet ("There may be a delay before a new resource appears"), so a playlist of
+     * up to a batch never sends one.
+     */
+    override suspend fun createPlaylistWithTracks(
+        name: String,
+        description: String?,
+        tracks: List<MediaId>
+    ): Result<Playlist> {
+        val refs = try {
+            tracks.map(::trackRef)
+        } catch (error: IllegalArgumentException) {
+            return Result.failure(error)
+        }
+        val first = refs.take(PLAYLIST_ADD_BATCH)
+        val created = cancellableResult {
+            playlist(api.createLibraryPlaylist(name, description, first))
+        }.getOrElse { return Result.failure(it) }
+        var added = first.size
+        for (batch in refs.drop(PLAYLIST_ADD_BATCH).chunked(PLAYLIST_ADD_BATCH)) {
+            cancellableResult {
+                api.addTracksToLibraryPlaylist(created.id.rawId.removePrefix("library:"), batch)
+            }.onFailure { return Result.failure(PartialPlaylistImportException(created, added, it)) }
+            added += batch.size
+        }
+        return Result.success(created.copy(songCount = refs.size))
+    }
+
+    /** A catalog song by its digits id; a library song (`library:i.…`) as a library song. */
+    private fun trackRef(track: MediaId): AppleMusicTrackRef {
+        require(track.provider == id) { "An Apple Music song is required" }
+        val raw = track.rawId
+        return when {
+            raw.matches(Regex("[0-9]+")) -> AppleMusicTrackRef(raw, "songs")
+            raw.startsWith("library:") -> AppleMusicTrackRef(raw.removePrefix("library:"), "library-songs")
+            else -> throw IllegalArgumentException("An Apple Music song is required")
+        }
+    }
+
+    override suspend fun tracksByIsrc(isrcs: List<String>): Map<String, List<Track>> =
+        api.catalogSongsByIsrc(storefront(), isrcs).mapValues { (_, songs) -> songs.map { it.toTrack() } }
+
     override suspend fun renamePlaylist(id: MediaId, name: String, description: String?): Result<Unit> = unsupported()
     override suspend fun deletePlaylist(id: MediaId): Result<Unit> = unsupported()
-    override suspend fun addTracksToPlaylist(playlistId: MediaId, tracks: List<MediaId>): Result<String?> =
-        unsupported()
     override suspend fun removeTracksFromPlaylist(
         playlistId: MediaId,
         items: List<PlaylistItemRef>,
@@ -634,10 +789,29 @@ class AppleMusicSource(
         mapOf("include" to "albums,artists")
     }
     private fun List<JsonObject>.songTracks() = filter {
-        it.text("type") in setOf("songs", "library-songs")
+        it.text("type") in SONG_TYPES
     }.map { AppleMusicSong.fromJson(it).toTrack() }
 
+    /** A playlist's entries [songTracks] leaves out (music videos), at their places, for a backup. */
+    private fun List<JsonObject>.unreadableEntries(): List<PlaylistUnreadableItem> = mapIndexedNotNull { index, entry ->
+        val type = entry.text("type")
+        if (type in SONG_TYPES) return@mapIndexedNotNull null
+        val attributes = entry["attributes"] as? JsonObject
+        PlaylistUnreadableItem(
+            position = index,
+            title = attributes?.text("name"),
+            artist = attributes?.text("artistName"),
+            reason = if (type?.contains("music-videos") == true) {
+                PlaylistUnreadableItem.Reason.Video
+            } else {
+                PlaylistUnreadableItem.Reason.Unavailable
+            },
+        )
+    }
+
     companion object {
+        private val SONG_TYPES = setOf("songs", "library-songs")
+
         private fun JsonObject.text(key: String) = get(key)?.jsonPrimitive?.contentOrNull
         private fun JsonObject.resources() = get("data")?.jsonArray.orEmpty().map { it.jsonObject }
         private fun JsonObject.related(name: String) =
@@ -713,7 +887,7 @@ class AppleMusicSource(
                 // A library playlist's; a catalog playlist has none.
                 libraryAddedAt = a.text("dateAdded"),
                 // Apple names no owner, but only the user's own library playlists are editable
-                // (its Purchased and Favorites Mix are not). Never canWrite: Yoin writes none.
+                // (its Purchased and Favorites Mix are not). Never canWrite: Yoin only makes new ones (a copy).
                 ownedByMe = if (resource.text("type") == "library-playlists") {
                     a["canEdit"]?.jsonPrimitive?.booleanOrNull
                 } else {
@@ -724,11 +898,23 @@ class AppleMusicSource(
     }
 }
 
+/** A library playlist's catalog playlist ([catalogId], `pl.…`) and the library playlist as Apple [listed] it. */
+private data class CatalogPlaylist(val catalogId: String, val listed: Playlist)
+
 /** One tracklist read in flight, its failure kept as a Result for the caller to weigh (`attempt`). */
 private typealias TracklistRead = Deferred<Result<List<JsonObject>>>
 
+/** See [AppleMusicSource.refreshPlaybackToken]. */
+private const val PlaybackTokenMinValiditySeconds = 300L
+
 /** recent/played pages (10 each) read at most: Apple keeps only a short history anyway. */
 private const val RecentPlayedMaxPages = 5
+
+/** The language [AppleMusicSource.alternateNames] asks the catalog for. */
+private const val ENGLISH = "en-US"
+
+/** Songs whose English names [AppleMusicSource.alternateNames] keeps: a few albums' worth. */
+private const val ALTERNATE_NAMES_MEMORY = 256
 
 /** recent/played's largest page. */
 private val RecentPlayedPageQuery = mapOf("limit" to "10")

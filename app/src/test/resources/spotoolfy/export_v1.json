@@ -1,0 +1,113 @@
+{
+  "tracks": [
+    {
+      "trackId": "4uLU6hMCjMI75M1A2tKUQC",
+      "trackName": "Placeholder Song",
+      "artistName": "Placeholder Artist, Guest Artist",
+      "albumName": "Placeholder Album",
+      "albumCoverUrl": "https://i.scdn.co/image/ab67616d0000b273placeholder0001",
+      "lastRecordedAt": 1730000300000,
+      "latestPlayedAt": 1730000300000
+    },
+    {
+      "trackId": "7qiZfU4dY1lWllzX7mPBI3",
+      "trackName": "Second Song",
+      "artistName": "Placeholder Artist",
+      "albumName": "Second Album",
+      "albumCoverUrl": "https://i.scdn.co/image/ab67616d0000b273placeholder0002",
+      "lastRecordedAt": "1730000500000",
+      "latestPlayedAt": null
+    },
+    {
+      "trackId": "spotify:track:sample1",
+      "trackName": "Sample Track 1",
+      "artistName": "Sample Artist",
+      "albumName": "Sample Album",
+      "albumCoverUrl": null,
+      "lastRecordedAt": 1700000000000,
+      "latestPlayedAt": null
+    }
+  ],
+  "records": [
+    {
+      "id": 1,
+      "trackId": "spotify:track:sample1",
+      "noteContent": "This is a sample note.",
+      "rating": 5,
+      "songTimestampMs": 30000,
+      "recordedAt": 1700000000000,
+      "contextUri": "spotify:album:sample",
+      "contextName": "Sample Album",
+      "lyricsSnapshot": null
+    },
+    {
+      "id": 2,
+      "trackId": "4uLU6hMCjMI75M1A2tKUQC",
+      "noteContent": "  前奏一响就想起高中的夏天  ",
+      "rating": 3,
+      "songTimestampMs": 83000,
+      "recordedAt": 1730000000000,
+      "contextUri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+      "contextName": "Placeholder Album",
+      "lyricsSnapshot": "[00:12.34]把夏天折成纸飞机\n[00:15.00]飞过你家的屋顶"
+    },
+    {
+      "id": 3,
+      "trackId": "4uLU6hMCjMI75M1A2tKUQC",
+      "noteContent": null,
+      "rating": 5,
+      "songTimestampMs": null,
+      "recordedAt": 1730000300000.0,
+      "contextUri": null,
+      "contextName": null,
+      "lyricsSnapshot": "[ti:Placeholder Song]\n[00:01.00]dropped with no note"
+    },
+    {
+      "id": 4,
+      "trackId": "spotify:track:7qiZfU4dY1lWllzX7mPBI3",
+      "noteContent": "summer ends in a minor key 🔥",
+      "rating": "fire",
+      "songTimestampMs": 0,
+      "recordedAt": "1730000500000",
+      "contextUri": null,
+      "contextName": null,
+      "lyricsSnapshot": "[ti:Second Song]\n[ar:Placeholder Artist]\n[00:01.00]summer ends in a minor key"
+    },
+    {
+      "id": 5,
+      "trackId": "7qiZfU4dY1lWllzX7mPBI3",
+      "noteContent": "   ",
+      "rating": 4,
+      "songTimestampMs": null,
+      "recordedAt": 1730000600000,
+      "contextUri": null,
+      "contextName": null,
+      "lyricsSnapshot": null
+    },
+    {
+      "id": 6,
+      "trackId": "4uLU6hMCjMI75M1A2tKUQC",
+      "noteContent": "missing time"
+    },
+    "not a row"
+  ],
+  "translations": [
+    {
+      "trackId": "4uLU6hMCjMI75M1A2tKUQC",
+      "languageCode": "zh-CN",
+      "style": "faithful",
+      "translatedLyrics": "never imported",
+      "generatedAt": 1730000000000
+    }
+  ],
+  "play_contexts": [
+    {
+      "contextUri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+      "contextType": "playlist",
+      "contextName": "never imported",
+      "imageUrl": null,
+      "lastPlayedAt": "1730000000000"
+    }
+  ],
+  "exportedBy": "unknown keys are ignored"
+}

@@ -97,6 +97,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.ui.home.AccountSwitcherViewModel
+import com.gpo.yoin.ui.home.HomeAccountAvatarHold
+import com.gpo.yoin.ui.home.HomeAccountButton
+import com.gpo.yoin.ui.home.HomeAccountHold
+import com.gpo.yoin.ui.home.HomeAccountSwitcherHost
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
@@ -113,6 +118,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.component.CopyDiagnosticsButton
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -150,6 +156,8 @@ import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.flow.first
 
 private val FloatingBottomGroupContentPaddingBase = 108.dp
 private const val MaxAnimatedLibraryItems = 10
@@ -254,12 +262,18 @@ fun LibraryScreen(
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
+    // Search's song rows: the tapped row plus the songs found with it, which play on from there.
+    onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
     onAddSongToPlaylist: (Track) -> Unit = {},
     // The Wide shell opens results as its detail column, BEHIND the
     // full-window search dialog: a result tap must collapse the search (the
     // query is kept) so the page it opened is seen.
     collapseSearchOnOpen: Boolean = false,
     modifier: Modifier = Modifier,
+    // Home's account switcher, behind the header avatar (null = the plain Settings gear).
+    accountSwitcher: AccountSwitcherViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val notedSongIds by viewModel.notedSongIds.collectAsState()
@@ -315,42 +329,101 @@ fun LibraryScreen(
         }
     }
 
-    LibraryContent(
-        uiState = uiState,
-        activeSongId = activeSongId,
-        isPlaying = isPlaying,
-        playbackSignal = playbackSignal,
-        notedSongIds = notedSongIds,
-        trackLibraryStates = trackLibraryStates,
-        workingLibraryTrackIds = workingLibraryTrackIds,
-        onTabSelected = viewModel::selectTab,
-        onPlaylistsByYouChange = viewModel::selectPlaylistsByYou,
-        onSortSelected = viewModel::selectSort,
-        onSearchScopeSelected = viewModel::selectSearchScope,
-        onSearchFilterSelected = viewModel::selectSearchFilter,
-        onSearchQueryChanged = viewModel::search,
-        onClearSearch = viewModel::clearSearch,
-        onRetrySearch = viewModel::retrySearch,
-        onReshuffleSongs = viewModel::reshuffleSongs,
-        onLoadMoreSongs = viewModel::loadMoreSongs,
+    // The account in use in the header's corner, as on Home (owner 2026-10-13:
+    // 资料库也要显示当前的账号). Same card, minus Home's own Edit Home.
+    HomeAccountSwitcherHost(
+        accountSwitcher = accountSwitcher,
         onNavigateToSettings = onNavigateToSettings,
-        onArtistClick = openArtist,
-        onAlbumClick = openAlbum,
-        onPlaylistClick = openPlaylist,
-        onSearchArtistClick = openSearchArtist,
-        onSearchAlbumClick = openSearchAlbum,
-        onSearchPlaylistClick = openSearchPlaylist,
-        onSongClick = onSongClick,
-        onFavoriteSongClick = onFavoriteSongClick,
-        onSongsListClick = onSongsListClick,
-        onAddSongToPlaylist = onAddSongToPlaylist,
-        collapseSearchOnOpen = collapseSearchOnOpen,
-        onAddSongToLibrary = viewModel::addSongToLibrary,
-        onCreatePlaylist = viewModel::createPlaylist,
-        onRetry = viewModel::refresh,
-        coverArtUrlBuilder = viewModel::buildCoverArtUrl,
-        modifier = modifier.then(inView),
-    )
+        onEditHome = null,
+    ) { account ->
+        // A switch begun here sends Library to Loading and back: a stand-in holds
+        // the avatar's spot from the tap until the page is back under it (Home's
+        // HomeAccountHold), so the avatar never blinks out.
+        val avatarHold = remember { HomeAccountHold() }
+        LaunchedEffect(account.switchPending) {
+            if (account.switchPending) avatarHold.begin()
+        }
+        val holdingAvatar = account.switchPending || avatarHold.latched
+        val currentUiState by rememberUpdatedState(uiState)
+        val currentPending by rememberUpdatedState(account.switchPending)
+        val holdFadeSpec = YoinMotion.defaultEffectsSpec<Float>()
+        LaunchedEffect(avatarHold.generation) {
+            if (avatarHold.generation == 0) return@LaunchedEffect
+            avatarHold.fade.snapTo(1f)
+            snapshotFlow { currentPending }.first { !it }
+            // The page under it: back with its header, or an error page (no header).
+            val page = snapshotFlow { currentUiState }.first { it !is LibraryUiState.Loading }
+            when {
+                avatarHold.abandoned -> Unit
+                page is LibraryUiState.Content -> avatarHold.handBack(holdFadeSpec)
+                else -> avatarHold.fadeAway(holdFadeSpec)
+            }
+            avatarHold.release()
+        }
+        val accountButton: (@Composable (Modifier) -> Unit)? = account.account?.let { card ->
+            { buttonModifier ->
+                HomeAccountButton(
+                    card = card,
+                    onClick = account.onOpen,
+                    hidden = account.windowUp || (holdingAvatar && !avatarHold.headerAvatarBack),
+                    onAvatarPositioned = account.onAnchor,
+                    needsReconnect = account.needsReconnect,
+                    modifier = buttonModifier,
+                )
+            }
+        }
+        Box(modifier = modifier.then(inView)) {
+            LibraryContent(
+                uiState = uiState,
+                activeSongId = activeSongId,
+                isPlaying = isPlaying,
+                playbackSignal = playbackSignal,
+                notedSongIds = notedSongIds,
+                trackLibraryStates = trackLibraryStates,
+                workingLibraryTrackIds = workingLibraryTrackIds,
+                onTabSelected = viewModel::selectTab,
+                onPlaylistsByYouChange = viewModel::selectPlaylistsByYou,
+                onSortSelected = viewModel::selectSort,
+                onSearchScopeSelected = viewModel::selectSearchScope,
+                onSearchFilterSelected = viewModel::selectSearchFilter,
+                onSearchQueryChanged = viewModel::search,
+                onClearSearch = viewModel::clearSearch,
+                onRetrySearch = viewModel::retrySearch,
+                onLoadMoreSearch = viewModel::loadMoreSearchResults,
+                onReshuffleSongs = viewModel::reshuffleSongs,
+                onLoadMoreSongs = viewModel::loadMoreSongs,
+                onNavigateToSettings = onNavigateToSettings,
+                onArtistClick = openArtist,
+                onAlbumClick = openAlbum,
+                onPlaylistClick = openPlaylist,
+                onSearchArtistClick = openSearchArtist,
+                onSearchAlbumClick = openSearchAlbum,
+                onSearchPlaylistClick = openSearchPlaylist,
+                onSongClick = onSongClick,
+                onFavoriteSongClick = onFavoriteSongClick,
+                onSongsListClick = onSongsListClick,
+                onSearchSongClick = onSearchSongClick,
+                onAddSongToPlaylist = onAddSongToPlaylist,
+                collapseSearchOnOpen = collapseSearchOnOpen,
+                onAddSongToLibrary = viewModel::addSongToLibrary,
+                onCreatePlaylist = viewModel::createPlaylist,
+                onRetry = viewModel::refresh,
+                coverArtUrlBuilder = viewModel::buildCoverArtUrl,
+                headerAction = accountButton,
+                modifier = Modifier.fillMaxSize(),
+            )
+            HomeAccountAvatarHold(
+                hold = avatarHold,
+                holding = holdingAvatar,
+                card = account.account,
+                anchor = account.anchor,
+                anchorLive = uiState is LibraryUiState.Content,
+                shown = !account.windowUp,
+                landed = account.landed,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+    }
 }
 
 @Composable
@@ -370,6 +443,8 @@ fun LibraryContent(
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
     onRetrySearch: () -> Unit = {},
+    // A search type's next page, where the service has more (SearchResults.more).
+    onLoadMoreSearch: () -> Unit = {},
     onReshuffleSongs: () -> Unit = {},
     // Songs' next page, where it comes a page at a time (LibrarySongsMore).
     onLoadMoreSongs: () -> Unit = {},
@@ -388,6 +463,10 @@ fun LibraryContent(
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
+    // Search's song rows: the tapped row plus the songs found with it, which play on from there.
+    onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
     collapseSearchOnOpen: Boolean = false,
     onAddSongToPlaylist: (Track) -> Unit = {},
     onAddSongToLibrary: (Track) -> Unit = {},
@@ -395,6 +474,10 @@ fun LibraryContent(
     onRetry: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
+    // The header's corner control (the account avatar); null = the Settings gear.
+    headerAction: (@Composable (Modifier) -> Unit)? = null,
+    // The All view's grid: the tip page's demo scrolls it on cue.
+    allGridState: LazyGridState? = null,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -455,6 +538,7 @@ fun LibraryContent(
                                         Text(stringResource(R.string.library_error_settings))
                                     }
                                 }
+                                state.diagnostics?.let { CopyDiagnosticsButton(report = it) }
                             }
                         }
                     }
@@ -476,6 +560,7 @@ fun LibraryContent(
                             onSearchQueryChanged = onSearchQueryChanged,
                             onClearSearch = onClearSearch,
                             onRetrySearch = onRetrySearch,
+                            onLoadMoreSearch = onLoadMoreSearch,
                             onReshuffleSongs = onReshuffleSongs,
                             onLoadMoreSongs = onLoadMoreSongs,
                             onNavigateToSettings = onNavigateToSettings,
@@ -488,11 +573,14 @@ fun LibraryContent(
                             onSongClick = onSongClick,
                             onFavoriteSongClick = onFavoriteSongClick,
                             onSongsListClick = onSongsListClick,
+                            onSearchSongClick = onSearchSongClick,
                             onAddSongToPlaylist = onAddSongToPlaylist,
                             onAddSongToLibrary = onAddSongToLibrary,
                             onCreatePlaylist = onCreatePlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                             collapseSearchOnOpen = collapseSearchOnOpen,
+                            headerAction = headerAction,
+                            allGridState = allGridState,
                         )
                     }
                 }
@@ -519,6 +607,7 @@ private fun LibraryContentBody(
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
     onRetrySearch: () -> Unit,
+    onLoadMoreSearch: () -> Unit,
     onReshuffleSongs: () -> Unit,
     onLoadMoreSongs: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -531,11 +620,14 @@ private fun LibraryContentBody(
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
+    onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
     onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     collapseSearchOnOpen: Boolean = false,
+    headerAction: (@Composable (Modifier) -> Unit)? = null,
+    allGridState: LazyGridState? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
@@ -558,7 +650,7 @@ private fun LibraryContentBody(
     // AnimatedContent: exited tab content is disposed, so a lazy state
     // created inside a tab body would reset and returning to that tab
     // would land back at the top instead of where the user left off.
-    val allGridState = rememberLazyGridState()
+    val allGrid = allGridState ?: rememberLazyGridState()
     val artistsGridState = rememberLazyGridState()
     val albumsGridState = rememberLazyGridState()
     val songsListState = rememberLazyListState()
@@ -703,6 +795,7 @@ private fun LibraryContentBody(
                 playlistsByYou = state.playlistsByYou,
                 onPlaylistsByYouChange = onPlaylistsByYouChange,
                 onNavigateToSettings = onNavigateToSettings,
+                headerAction = headerAction,
                 showTitle = false,
                 searchMaxWidth = LibraryLandscapeSearchWidth,
                 horizontalPadding = 16.dp,
@@ -721,6 +814,7 @@ private fun LibraryContentBody(
                 playlistsByYou = state.playlistsByYou,
                 onPlaylistsByYouChange = onPlaylistsByYouChange,
                 onNavigateToSettings = onNavigateToSettings,
+                headerAction = headerAction,
             )
         } else if (isMediumHeader) {
             // [Library][pill ———][settings]; the chips keep their own row
@@ -732,6 +826,7 @@ private fun LibraryContentBody(
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
                 onNavigateToSettings = onNavigateToSettings,
+                headerAction = headerAction,
                 showChips = false,
                 titleStyle = MaterialTheme.typography.headlineLarge,
                 topPadding = 8.dp,
@@ -755,17 +850,21 @@ private fun LibraryContentBody(
                     scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ),
                 actions = {
-                    IconButton(
-                        onClick = {
-                            haptics.performContextClick()
-                            onNavigateToSettings()
-                        },
-                        modifier = Modifier.minimumTouchTarget(),
-                    ) {
-                        Icon(
-                            imageVector = YoinSymbols.Settings,
-                            contentDescription = stringResource(R.string.library_cd_settings),
-                        )
+                    if (headerAction != null) {
+                        headerAction(Modifier)
+                    } else {
+                        IconButton(
+                            onClick = {
+                                haptics.performContextClick()
+                                onNavigateToSettings()
+                            },
+                            modifier = Modifier.minimumTouchTarget(),
+                        ) {
+                            Icon(
+                                imageVector = YoinSymbols.Settings,
+                                contentDescription = stringResource(R.string.library_cd_settings),
+                            )
+                        }
                     }
                 },
             )
@@ -835,7 +934,7 @@ private fun LibraryContentBody(
                         when (tab) {
                             LibraryTab.All -> AllTabContent(
                                 items = state.allItems,
-                                gridState = allGridState,
+                                gridState = allGrid,
                                 sortRow = sortRow,
                                 scrollSections = state.scrollSections[tab].orEmpty(),
                                 scrollerEndOverhang = scrollerEndOverhang,
@@ -944,6 +1043,8 @@ private fun LibraryContentBody(
             isSearching = state.isSearching,
             searchError = state.searchError,
             onRetrySearch = onRetrySearch,
+            more = searchMoreFor(state.searchResults, state.searchFilter, state.searchPaging),
+            onLoadMore = onLoadMoreSearch,
             filter = state.searchFilter,
             resultsQuery = searchResultsAnchor.first,
             resultsScope = searchResultsAnchor.second,
@@ -959,7 +1060,7 @@ private fun LibraryContentBody(
             onArtistClick = fromSearch(onSearchArtistClick),
             onAlbumClick = fromSearch(onSearchAlbumClick),
             onPlaylistClick = fromSearch(onSearchPlaylistClick),
-            onSongClick = onSongClick,
+            onSongClick = onSearchSongClick,
             onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
             onAddSongToLibrary = onAddSongToLibrary,
             coverArtUrlBuilder = coverArtUrlBuilder,
@@ -1007,7 +1108,7 @@ private fun LibraryFilterChips(
  * left edge.
  */
 @Composable
-private fun LibrarySearchFilterRow(
+internal fun LibrarySearchFilterRow(
     catalogScope: LibrarySearchScope?,
     selectedScope: LibrarySearchScope,
     onScopeSelected: (LibrarySearchScope) -> Unit,
@@ -1110,6 +1211,7 @@ private fun LibraryWideHeaderRow(
     onTabSelected: (LibraryTab) -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    headerAction: (@Composable (Modifier) -> Unit)? = null,
     playlistsByYou: PlaylistsByYou = PlaylistsByYou(),
     onPlaylistsByYouChange: (Boolean) -> Unit = {},
     showTitle: Boolean = true,
@@ -1158,17 +1260,21 @@ private fun LibraryWideHeaderRow(
                 onPlaylistsByYouChange = onPlaylistsByYouChange,
             )
         }
-        IconButton(
-            onClick = {
-                haptics.performContextClick()
-                onNavigateToSettings()
-            },
-            modifier = Modifier.minimumTouchTarget(),
-        ) {
-            Icon(
-                imageVector = YoinSymbols.Settings,
-                contentDescription = stringResource(R.string.library_cd_settings_header),
-            )
+        if (headerAction != null) {
+            headerAction(Modifier)
+        } else {
+            IconButton(
+                onClick = {
+                    haptics.performContextClick()
+                    onNavigateToSettings()
+                },
+                modifier = Modifier.minimumTouchTarget(),
+            ) {
+                Icon(
+                    imageVector = YoinSymbols.Settings,
+                    contentDescription = stringResource(R.string.library_cd_settings_header),
+                )
+            }
         }
     }
 }
@@ -1736,7 +1842,8 @@ private fun SongsTabContent(
                         // list is read whole, so neither stops short.
                         onClick = { onSongClick(song, songs, index) },
                         onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
-                        isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+                        isCurrentTrack = song.id.toString() == activeSongId,
+                        isPlaying = isPlaying,
                         playbackSignal = playbackSignal,
                         extractBackdropColors = false,
                         hasNote = song.id.toString() in notedSongIds,
@@ -2135,7 +2242,8 @@ private fun FavoritesTabContent(
                         onFavoriteSongClick(song, favorites.tracks, index)
                     },
                     onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
-                    isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+                    isCurrentTrack = song.id.toString() == activeSongId,
+                    isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
                     hasNote = song.id.toString() in notedSongIds,
@@ -2258,6 +2366,9 @@ private fun SearchResultsContent(
     isSearching: Boolean,
     searchError: UiText? = null,
     onRetrySearch: () -> Unit = {},
+    // What follows the shown type's rows (searchMoreFor), and how to read it.
+    more: LibrarySongsMore = LibrarySongsMore.None,
+    onLoadMore: () -> Unit = {},
     filter: LibrarySearchFilter = LibrarySearchFilter.All,
     // The query and scope [searchResults] answer: with the filter, the key of
     // each remembered scroll position.
@@ -2275,7 +2386,7 @@ private fun SearchResultsContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
-    onSongClick: (Track) -> Unit,
+    onSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: ((Track) -> Unit)?,
     onAddSongToLibrary: (Track) -> Unit = {},
     coverArtUrlBuilder: ((String) -> String)?,
@@ -2329,14 +2440,19 @@ private fun SearchResultsContent(
     val songRow: @Composable (Track, Modifier) -> Unit = { song, rowModifier ->
         SearchSongRow(
             song = song,
-            isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+            isCurrentTrack = song.id.toString() == activeSongId,
+            isPlaying = isPlaying,
             playbackSignal = playbackSignal,
             hasNote = song.id.toString() in notedSongIds,
             canAddToLibrary = canAddToLibrary,
             membership = trackLibraryStates[song.id] ?: LibraryMembership.Unknown,
             isWorking = song.id in workingLibraryTrackIds,
             feedback = libraryActionFeedback[song.id],
-            onClick = { onSongClick(song) },
+            onClick = {
+                // Plays on through the songs found, as a list does, not just this one.
+                val songs = searchResults.tracks
+                onSongClick(song, songs, songs.indexOfFirst { it.id == song.id })
+            },
             onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
             onAddToLibrary = { onAddSongToLibrary(song) },
             coverArtUrlBuilder = coverArtUrlBuilder,
@@ -2355,6 +2471,8 @@ private fun SearchResultsContent(
         modifier = modifier.fillMaxSize()
     ) { shownFilter ->
         val shown = searchResults.shownFor(shownFilter)
+        // Only the type the chips show now reads more; one fading out keeps its foot still.
+        val shownMore = if (shownFilter == filter) more else LibrarySongsMore.None
         when {
             shown.isEmpty -> EmptyState(message = stringResource(R.string.library_empty_search))
             shownFilter == LibrarySearchFilter.All -> SearchAllResults(
@@ -2373,14 +2491,18 @@ private fun SearchResultsContent(
                     anchor = scrollMemory.gridAnchor(resultsQuery, resultsScope, shownFilter),
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
-                    coverArtUrlBuilder = coverArtUrlBuilder
+                    coverArtUrlBuilder = coverArtUrlBuilder,
+                    more = shownMore,
+                    onLoadMore = onLoadMore
                 )
             else -> SearchResultsList(
                 results = shown,
                 listState = scrollMemory.listState(resultsQuery, resultsScope, shownFilter),
                 onPlaylistClick = onPlaylistClick,
                 coverArtUrlBuilder = coverArtUrlBuilder,
-                songRow = songRow
+                songRow = songRow,
+                more = shownMore,
+                onLoadMore = onLoadMore
             )
         }
     }
@@ -2557,7 +2679,8 @@ private fun SearchAllResults(
 @Composable
 private fun SearchSongRow(
     song: Track,
-    isNowPlaying: Boolean,
+    isCurrentTrack: Boolean,
+    isPlaying: Boolean,
     playbackSignal: Float,
     hasNote: Boolean,
     canAddToLibrary: Boolean,
@@ -2579,7 +2702,8 @@ private fun SearchSongRow(
             coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
             onClick = onClick,
             onLongClick = onLongClick,
-            isNowPlaying = isNowPlaying,
+            isCurrentTrack = isCurrentTrack,
+            isPlaying = isPlaying,
             playbackSignal = playbackSignal,
             extractBackdropColors = false,
             hasNote = hasNote,
@@ -2634,11 +2758,14 @@ private fun SearchResultsGrid(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    more: LibrarySongsMore = LibrarySongsMore.None,
+    onLoadMore: () -> Unit = {}
 ) {
     // The surface morphs to its pill and back through every width: the grid
     // comes back exactly where it was left (a result opened in a Wide column).
     KeepGridAnchorAcrossWidthChanges(gridState, anchor, exact = true)
+    LoadMoreSongsEffect(gridState, more, results.artists.size + results.albums.size, onLoadMore)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyVerticalGrid(
         columns = libraryGridCells(),
@@ -2682,6 +2809,7 @@ private fun SearchResultsGrid(
                 )
             )
         }
+        librarySongsFoot(more, onRetry = onLoadMore)
     }
 }
 
@@ -2693,8 +2821,11 @@ private fun SearchResultsList(
     onPlaylistClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     songRow: @Composable (Track, Modifier) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    more: LibrarySongsMore = LibrarySongsMore.None,
+    onLoadMore: () -> Unit = {}
 ) {
+    LoadMoreSongsEffect(listState, more, results.playlists.size + results.tracks.size, onLoadMore)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
         state = listState,
@@ -2726,6 +2857,7 @@ private fun SearchResultsList(
                 )
             )
         }
+        librarySongsFoot(more, onRetry = onLoadMore)
     }
 }
 

@@ -8,6 +8,8 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.PlaylistUnreadableItem
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -22,9 +24,9 @@ internal fun SpotifyTrackObject.toTrack(
         id = MediaId.spotify(trackId),
         title = name,
         artist = primaryArtist?.name,
-        artistId = primaryArtist?.id?.let(MediaId::spotify),
+        artistId = primaryArtist?.id?.takeIf(String::isNotEmpty)?.let(MediaId::spotify),
         album = albumOverride?.name,
-        albumId = albumOverride?.id?.let(MediaId::spotify),
+        albumId = albumOverride?.id?.takeIf(String::isNotEmpty)?.let(MediaId::spotify),
         coverArt = albumOverride?.bestImageUrl()?.let(CoverRef::Url),
         durationSec = durationMs?.let { (it / 1_000L).toInt() },
         trackNumber = trackNumber,
@@ -32,6 +34,11 @@ internal fun SpotifyTrackObject.toTrack(
         genre = null,
         userRating = null,
         isStarred = trackId in savedTrackIds,
+        extras = buildMap {
+            externalIds?.isrc?.trim()?.takeIf(String::isNotEmpty)?.let { put(Track.EXTRA_ISRC, it.uppercase()) }
+            // Every credited artist, for a playlist backup (Track.artist is the first).
+            if (artists.size > 1) put(Track.EXTRA_ARTISTS, Track.joinArtists(artists.map { it.name }))
+        },
     )
 }
 
@@ -203,10 +210,40 @@ internal fun List<SpotifyPlaylistItemObject>.toTracksWithPlaylistOffsets(
     savedTrackIds: Set<String> = emptySet(),
 ): List<Pair<Int, Track>> = mapIndexedNotNull { rawOffset, item ->
     val track = item.playable ?: return@mapIndexedNotNull null
+    if (track.isLocal || track.type == "episode") return@mapIndexedNotNull null
     runCatching { track.toTrack(savedTrackIds = savedTrackIds) }
         .getOrNull()
         ?.let { rawOffset to it }
 }
+
+/**
+ * The entries [toTracksWithPlaylistOffsets] leaves out, at their raw offsets,
+ * for a playlist backup: local files and episodes by what they are, entries
+ * with no track (removed, or unavailable here) as unavailable.
+ */
+internal fun List<SpotifyPlaylistItemObject>.unreadableItems(): List<PlaylistUnreadableItem> =
+    mapIndexedNotNull { rawOffset, item ->
+        val track = item.playable
+            ?: return@mapIndexedNotNull PlaylistUnreadableItem(
+                position = rawOffset,
+                title = null,
+                artist = null,
+                reason = PlaylistUnreadableItem.Reason.Unavailable,
+            )
+        val reason = when {
+            track.isLocal -> PlaylistUnreadableItem.Reason.LocalFile
+            track.type == "episode" -> PlaylistUnreadableItem.Reason.Episode
+            track.id.isNullOrEmpty() -> PlaylistUnreadableItem.Reason.Unavailable
+            else -> return@mapIndexedNotNull null
+        }
+        PlaylistUnreadableItem(
+            position = rawOffset,
+            title = track.name.takeIf(String::isNotBlank),
+            artist = track.artists.map { it.name }.filter(String::isNotBlank).takeIf { it.isNotEmpty() }
+                ?.joinToString(", "),
+            reason = reason,
+        )
+    }
 
 internal fun SpotifySearchResponse.toSearchResults(
     savedTrackIds: Set<String> = emptySet(),
@@ -224,6 +261,12 @@ internal fun SpotifySearchResponse.toSearchResults(
     },
     playlists = playlists?.items.orEmpty().mapNotNull { playlist ->
         playlist?.let { runCatching { it.toPlaylist(canWrite = false) }.getOrNull() }
+    },
+    more = buildSet {
+        if (tracks?.next != null) add(SearchResultType.Tracks)
+        if (albums?.next != null) add(SearchResultType.Albums)
+        if (artists?.next != null) add(SearchResultType.Artists)
+        if (playlists?.next != null) add(SearchResultType.Playlists)
     },
 )
 

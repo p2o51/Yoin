@@ -26,6 +26,7 @@ internal fun newSpotifyTestClient(
     callbacks: MutableList<ProfileCredentials.Spotify>,
     revokeCallbacks: () -> Unit,
     now: () -> Long = { SPOTIFY_TEST_BASE_EPOCH },
+    builtInClientId: String = "",
 ): SpotifyApiClient {
     val httpClient = OkHttpClient.Builder().build()
     val baseUrl = server.url("/")
@@ -43,6 +44,7 @@ internal fun newSpotifyTestClient(
         onCredentialsRevoked = revokeCallbacks,
         now = now,
         apiBaseUrl = baseUrl,
+        builtInClientId = builtInClientId,
     )
 }
 

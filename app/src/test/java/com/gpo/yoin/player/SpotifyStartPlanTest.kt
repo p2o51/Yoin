@@ -6,6 +6,7 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.spotify.SpotifyDevice
 import com.gpo.yoin.data.source.spotify.pickLocalSpotifyDevice
 import com.gpo.yoin.data.source.spotify.startPlaybackBody
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -80,6 +81,46 @@ class SpotifyStartPlanTest {
         val expected = SpotifyStartAttempt.Context(contextUri = "spotify:playlist:pl1", offsetUri = "spotify:track:t3")
         assertEquals(expected, unknown.first())
         assertEquals(expected, shuffled.first())
+    }
+
+    @Test
+    fun should_leaveAppRemoteTheAlbumOrPlaylist_when_theStartHasOne() {
+        assertEquals("spotify:album:al1", attempts(album, start = 3).remoteContext()?.contextUri)
+        assertEquals("spotify:playlist:pl1", attempts(playlist, start = 2, shuffled = true).remoteContext()?.contextUri)
+    }
+
+    @Test
+    fun should_leaveAppRemoteTheSongAlone_when_theStartIsLikedSongsOrAPlainList() {
+        assertNull(attempts(ActivityContext.LikedSongs(), start = 1).remoteContext())
+        assertNull(attempts(ActivityContext.None, start = 1).remoteContext())
+    }
+
+    @Test
+    fun should_startTheSecondCopy_when_aPlaylistHasTheSongTwiceAndTheSecondIsTapped() = runTest {
+        // [A, B, A, C]: the second A is raw offset 2; by uri App Remote found the first, then played B.
+        val a = track("a")
+        val list = listOf(a, track("b"), a, track("c"))
+        val lookedUp = mutableListOf<String>()
+
+        val start = attempts(playlist, list = list, start = 2, playlistOffset = { _, visible -> visible })
+            .remoteContext()!!
+            .remoteStart { _, uri -> lookedUp += uri; 0 }
+
+        assertEquals(SpotifyRemoteContextStart("spotify:playlist:pl1", 2), start)
+        assertEquals(emptyList<String>(), lookedUp)
+    }
+
+    @Test
+    fun should_findTheSongsEntryByUri_when_noPositionIsKnown() = runTest {
+        val start = attempts(album, start = 3).remoteContext()!!
+            .remoteStart { contextUri, uri -> if (contextUri == "spotify:album:al1" && uri == "spotify:track:t4") 5 else null }
+
+        assertEquals(SpotifyRemoteContextStart("spotify:album:al1", 5), start)
+    }
+
+    @Test
+    fun should_leaveNoStart_when_theSongIsNotInTheContext() = runTest {
+        assertNull(attempts(album, start = 3).remoteContext()!!.remoteStart { _, _ -> null })
     }
 
     @Test

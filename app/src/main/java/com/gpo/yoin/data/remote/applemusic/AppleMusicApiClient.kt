@@ -11,6 +11,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -20,6 +25,7 @@ import okhttp3.Callback
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -45,11 +51,21 @@ class AppleMusicApiClient(
         require(baseUrl.isHttps || baseUrl.host in setOf("localhost", "127.0.0.1", "::1"))
     }
 
-    suspend fun storefront(): String {
+    suspend fun storefront(): String = storefrontDetails().id
+
+    /** The account's storefront with the languages it serves names in (Japan: `ja` by default, also `en-US`). */
+    suspend fun storefrontDetails(): AppleMusicStorefront {
         val response = get(url("v1", "me", "storefront"), personal = true)
-        return response["data"]?.jsonArray?.firstOrNull()?.jsonObject
-            ?.get("id")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        val data = response["data"]?.jsonArray?.firstOrNull()?.jsonObject
+        val id = data?.get("id")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
             ?: throw IOException("Apple Music returned no storefront")
+        val attributes = data["attributes"] as? JsonObject
+        return AppleMusicStorefront(
+            id = id,
+            defaultLanguage = (attributes?.get("defaultLanguageTag") as? JsonPrimitive)?.contentOrNull,
+            languages = (attributes?.get("supportedLanguageTags") as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
+        )
     }
 
     suspend fun searchSongs(storefront: String, term: String): List<AppleMusicSong> {
@@ -98,6 +114,86 @@ class AppleMusicApiClient(
             expectedStatus = 202
         )
         return AppleMusicLibraryMutation.AcceptedPendingConfirmation
+    }
+
+    /**
+     * Catalog songs for each of [isrcs] (`GET /v1/catalog/{storefront}/songs?filter[isrc]=…`), at most
+     * [ISRC_BATCH] codes per request. One ISRC can name several songs (an album's and a compilation's), all
+     * kept, keyed by the song's own `isrc`. Codes the storefront doesn't know are absent from the map.
+     */
+    suspend fun catalogSongsByIsrc(storefront: String, isrcs: List<String>): Map<String, List<AppleMusicSong>> {
+        require(storefront.matches(Regex("[a-z]{2}")))
+        val codes = isrcs.map { it.trim().uppercase() }.filter { it.matches(ISRC_PATTERN) }.distinct()
+        val found = linkedMapOf<String, MutableList<AppleMusicSong>>()
+        for (batch in codes.chunked(ISRC_BATCH)) {
+            val response = get(
+                url("v1", "catalog", storefront, "songs").newBuilder()
+                    .addQueryParameter("filter[isrc]", batch.joinToString(",")).build(),
+                personal = false
+            )
+            for (song in songs(response)) {
+                val isrc = song.isrc ?: continue
+                if (isrc in batch) found.getOrPut(isrc) { mutableListOf() } += song
+            }
+        }
+        return found
+    }
+
+    /**
+     * A new playlist in the user's library (`POST /v1/me/library/playlists`, 201) holding [tracks] in order,
+     * sent as the create's `tracks` relationship. Returns the new library playlist's resource.
+     */
+    suspend fun createLibraryPlaylist(
+        name: String,
+        description: String?,
+        tracks: List<AppleMusicTrackRef>
+    ): JsonObject {
+        require(name.isNotBlank())
+        val body = buildJsonObject {
+            putJsonObject("attributes") {
+                put("name", name)
+                description?.takeIf(String::isNotBlank)?.let { put("description", it) }
+            }
+            if (tracks.isNotEmpty()) {
+                putJsonObject("relationships") {
+                    putJsonObject("tracks") { put("data", trackData(tracks)) }
+                }
+            }
+        }
+        val response = request(
+            url("v1", "me", "library", "playlists"),
+            personal = true,
+            jsonBody = body.toString(),
+            expectedStatus = 201
+        )
+        return try {
+            Json.parseToJsonElement(response).jsonObject["data"]?.jsonArray?.firstOrNull()?.jsonObject
+        } catch (_: IllegalArgumentException) {
+            null
+        } ?: throw IOException("Apple Music returned no created playlist")
+    }
+
+    /** Appends [tracks] to library playlist [playlistId] (`p.…`), in order (`POST …/tracks`, 204). */
+    suspend fun addTracksToLibraryPlaylist(playlistId: String, tracks: List<AppleMusicTrackRef>) {
+        require(playlistId.matches(Regex("p\\.[A-Za-z0-9]+"))) { "A library playlist ID is required" }
+        if (tracks.isEmpty()) return
+        request(
+            url("v1", "me", "library", "playlists", playlistId, "tracks"),
+            personal = true,
+            jsonBody = buildJsonObject { put("data", trackData(tracks)) }.toString(),
+            expectedStatus = 204
+        )
+    }
+
+    private fun trackData(tracks: List<AppleMusicTrackRef>) = buildJsonArray {
+        tracks.forEach { ref ->
+            add(
+                buildJsonObject {
+                    put("id", ref.id)
+                    put("type", ref.type)
+                }
+            )
+        }
     }
 
     /**
@@ -204,8 +300,11 @@ class AppleMusicApiClient(
         target: HttpUrl,
         personal: Boolean,
         post: Boolean = false,
-        expectedStatus: Int
+        expectedStatus: Int,
+        // A JSON body makes the request a POST with it.
+        jsonBody: String? = null
     ): String = withContext(Dispatchers.IO) {
+        val write = post || jsonBody != null
         val userToken = if (personal) {
             musicUserToken()?.takeIf { it.isNotBlank() }
                 ?: throw AppleMusicApiException(AppleMusicApiFailure.UserAuthorizationRequired)
@@ -217,13 +316,16 @@ class AppleMusicApiClient(
         val builder = Request.Builder().url(target)
             .header("Authorization", "Bearer $token").header("Accept", "application/json")
         userToken?.let { builder.header("Music-User-Token", it) }
-        if (post) builder.post(ByteArray(0).toRequestBody(null))
+        when {
+            jsonBody != null -> builder.post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+            post -> builder.post(ByteArray(0).toRequestBody(null))
+        }
         val call = http.newCall(builder.build())
         val read = { response: Response -> response.use { body(it, target, expectedStatus) } }
         // A read is cancelled with its caller, so a scope that has already failed (or returned) doesn't wait
         // out a parallel read, up to the call timeout. The library add runs to its end: leaving the screen
         // right after tapping Add must not lose the write.
-        if (post) read(call.execute()) else call.executeCancellable(read)
+        if (write) read(call.execute()) else call.executeCancellable(read)
     }
 
     private fun body(response: Response, target: HttpUrl, expectedStatus: Int): String {
@@ -235,14 +337,11 @@ class AppleMusicApiClient(
                 429 -> AppleMusicApiFailure.RateLimited
                 else -> AppleMusicApiFailure.Http(response.code)
             }
-            // Path and includes only: catalog ids, never tokens or bodies. Which request failed is otherwise lost.
-            if (BuildConfig.DEBUG) {
-                val includes = target.queryParameterNames.filter { it.startsWith("include") }
-                    .joinToString(" ") { "$it=${target.queryParameter(it)}" }
-                Log.w(TAG, "${response.code} ${target.encodedPath} $includes")
-            }
-            throw AppleMusicApiException(failure)
+            val request = diagnosticRequest(target)
+            if (BuildConfig.DEBUG) Log.w(TAG, "${response.code} $request")
+            throw AppleMusicApiException(failure, response.code, request, appleErrorCode(response))
         }
+        // 204 and some 201s carry no body.
         return response.body.string()
     }
 
@@ -250,6 +349,33 @@ class AppleMusicApiClient(
         segments.forEach(::addPathSegment)
     }.build()
 }
+
+/**
+ * Which request failed, for a diagnostic the user copies: the path and its includes. The user's own library ids
+ * are masked; catalog ids and the storefront are Apple's public names and say which song or storefront it was.
+ * Never a token, never a body.
+ */
+internal fun diagnosticRequest(target: HttpUrl): String {
+    val segments = target.pathSegments
+    val personal = segments.getOrNull(1) == "me"
+    val path = segments.mapIndexed { index, segment ->
+        if (personal && segments.getOrNull(index - 1) in DiagnosticResourceTypes) "{id}" else segment
+    }.joinToString("/", prefix = "/")
+    val includes = target.queryParameterNames.filter { it.startsWith("include") }.sorted()
+        .joinToString(" ") { "$it=${target.queryParameter(it)}" }
+    return if (includes.isEmpty()) path else "$path $includes"
+}
+
+/** Apple's own code for the refusal (`errors[0].code`, as "40300"): digits only, none of the error's prose. */
+private fun appleErrorCode(response: Response): String? = runCatching {
+    val errors = Json.parseToJsonElement(response.peekBody(APPLE_ERROR_PEEK_BYTES).string())
+        .jsonObject["errors"]?.jsonArray
+    errors?.firstOrNull()?.jsonObject?.get("code")?.jsonPrimitive?.contentOrNull
+}.getOrNull()?.takeIf { code -> code.isNotEmpty() && code.length <= 8 && code.all(Char::isDigit) }
+
+private val DiagnosticResourceTypes =
+    setOf("songs", "albums", "artists", "playlists", "music-videos", "stations", "library-songs")
+private const val APPLE_ERROR_PEEK_BYTES = 4_096L
 
 /**
  * This call's response, through [read] before it is closed, cancelled with the caller: cancelling the caller
@@ -272,6 +398,19 @@ private suspend fun <T> Call.executeCancellable(read: (Response) -> T): T =
         )
     }
 
+/** A song as a playlist's track: a catalog song (`songs`) or one in the user's library (`library-songs`). */
+data class AppleMusicTrackRef(val id: String, val type: String) {
+    init {
+        require(type == "songs" || type == "library-songs")
+        require(id.isNotBlank())
+    }
+}
+
+/** Codes per `filter[isrc]` request. */
+internal const val ISRC_BATCH = 25
+private val ISRC_PATTERN = Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")
+private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
 data class AppleMusicSongPage(val songs: List<AppleMusicSong>, val next: String?)
 
 enum class AppleMusicLibraryMutation { AcceptedPendingConfirmation }
@@ -287,6 +426,18 @@ sealed interface AppleMusicApiFailure {
     data class Http(val status: Int) : AppleMusicApiFailure
 }
 
-class AppleMusicApiException(val failure: AppleMusicApiFailure) : IOException("Apple Music: $failure")
+/**
+ * [status], [request] ([diagnosticRequest]) and [appleCode] are what a copied diagnostic says of an HTTP refusal;
+ * a failure raised before any request (no token) has none of them.
+ */
+class AppleMusicApiException(
+    val failure: AppleMusicApiFailure,
+    val status: Int? = null,
+    val request: String? = null,
+    val appleCode: String? = null,
+) : IOException("Apple Music: $failure")
 
 private const val TAG = "AppleMusicApi"
+
+/** See [AppleMusicApiClient.storefrontDetails]. */
+data class AppleMusicStorefront(val id: String, val defaultLanguage: String?, val languages: List<String>)

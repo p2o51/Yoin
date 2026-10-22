@@ -1,6 +1,7 @@
 [versions]
 # Core
 agp = "9.1.0"
+asm = "9.9"
 kotlin = "2.3.20"
 ksp = "2.3.6"
 
@@ -68,6 +69,8 @@ ktlint = "12.1.2"
 yoinSymbols = "0.1.0"
 
 [libraries]
+android-gradleApi = { group = "com.android.tools.build", name = "gradle-api", version.ref = "agp" }
+asm = { group = "org.ow2.asm", name = "asm", version.ref = "asm" }
 # Compose BOM
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 compose-ui = { group = "androidx.compose.ui", name = "ui" }

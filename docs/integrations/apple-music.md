@@ -55,6 +55,14 @@ A library album that resolves to its catalog album is then also cached under the
 
 A `library-artists` resource has a name and no artwork. Library › Artists (`/v1/me/library/artists?limit=100`) and a library artist's own page (`/v1/me/library/artists/{id}`) are now read with `include=catalog`, and the artist's portrait is its catalog artist's `artwork` (template sized to 600). The id stays the library one, so the row still opens the library artist page with the user's own releases; nothing about the album identity model changes. Next-page links get the include back the same way they get the page size. If Apple refuses the include (a 400, or a 5xx, on the list's first page or on the artist read), the read is sent again without it and every later page goes without it too: the artists keep loading, without portraits, as before this change. A rate limit, a token failure or a later page's failure is not taken for a refusal and still fails the read. Not yet verified on the device: that Apple accepts `include=catalog` here (its reference lists `include` for this endpoint) and returns the catalog artist's `artwork`. An artist with no catalog match (imported music), or whose catalog artist has no artwork, keeps no portrait: the list shows the placeholder icon and the artist page falls back to its first release's cover, as before. Library search still lists library artists without portraits: `/v1/me/library/search` documents no `include` (only `term`, `types`, `limit`, `offset`, `l`), and filling them would take a request per artist. Artist pages opened before this change can show the cached cover until the detail cache revalidates (after 2 h on the next open, or 7 days).
 
+### Refused library reads and copied diagnostics (2026-10-16)
+
+Apple answers some library reads with a 403 on accounts that play on. On the Pixel Tablet (2026-10-16, about 22:37 to 22:39 tablet time) every `/v1/me/library/*` read was refused for about two minutes, then everything read again. A tester on the Play build (0.5.0, 8) could open none of their playlists, then could open all but two: a playlist named 2026 and one of their two Favorite playlists, both edited lately. The release build logs nothing, so which request was refused, and Apple's error code, are not known. The 403 line no longer says to check the subscription ("Apple Music refused this request. Try again later."). An account Apple really refuses is still flagged by the ping (`ProfileReconnect`). Detail pages and Library now say the shared lines in the app's language: they used to show English from a ViewModel, and Library used to show the exception's own text ("Apple Music: AccessDenied").
+
+A library playlist that has a catalog playlist (`playParams.globalId`, `pl.…`: one the user published, or someone's they saved) opens as that catalog playlist when its library read fails. That covers the playlist itself and its `/tracks`, and any failure except a token or rate-limit one. The catalog read needs no music user token. The page keeps the library playlist's id, name and cover, with the catalog tracklist. The id is remembered from the library list, library search, or the playlist's own answer. A playlist only in the library (the automatic Favorite Songs, the user's unpublished playlists) has none and fails as before.
+
+Detail pages and Library's error page offer Copy details: the build, the Android version and device model, then the failure. For an Apple refusal that means its HTTP status, Apple's `errors[0].code`, and the request path with its includes. Library ids are masked as `{id}`; catalog ids and the storefront are kept. Failures it was retried through follow on their own `then` lines. A copied report never contains an exception message, a token, or a response body.
+
 ## Developer token service contract
 
 Configure an HTTPS endpoint returning HTTP 200 JSON:
@@ -69,11 +77,77 @@ Configure an HTTPS endpoint returning HTTP 200 JSON:
 
 - `AppleMusicSource` keeps library IDs namespaced as `library:<id>`. Catalog-backed songs share a canonical track identity; album tracks retain their parent album and artist navigation targets. Paginated detail relationships are followed to completion with same-origin and same-path validation.
 - `AppleMusicPlaybackService` owns the formal MediaSession. PlaybackManager connects its existing MediaController to this service for Apple Music; direct streams continue through PlaybackService/ExoPlayer and Spotify through App Remote. No Apple preview URL enters ExoPlayer or the audio cache.
-- The MusicKit adapter exposes queue metadata, current item, pause/play, skipping/seeking, repeat/shuffle, appending/clearing, errors and preparation timeout. Developer tokens refresh through the source while the service lives. Account switch/delete stops the outgoing audio; reauthorization replaces that account's encrypted credentials. The service releases its session when a profile switch starts or `activeSource` stops being its source (System UI keeps it bound, so `stopService` alone would leave a media-button target that resumes Apple Music under another profile).
+- The MusicKit adapter exposes queue metadata, current item, pause/play, skipping/seeking, repeat/shuffle, appending/clearing, errors and preparation timeout. Developer tokens reach MusicKit as described in "Developer token lifetime" below. Account switch/delete stops the outgoing audio; reauthorization replaces that account's encrypted credentials. The service releases its session when a profile switch starts or `activeSource` stops being its source (System UI keeps it bound, so `stopService` alone would leave a media-button target that resumes Apple Music under another profile).
 - MusicKit queue semantics: `getQueueItems()` returns only the items *after* the current one; `playbackQueueIndex` is the current item's index in play order (0 after enabling shuffle). `AppleMusicMedia3Player` publishes played + current + upcoming in that order, with MusicKit `playbackQueueId`s as uids, and maps seeks to `skipToQueueItemWithId` / `skipToPreviousItem`.
 - Large queue starts (2026-10-12): MusicKit 1.1.1's `CatalogPlaybackQueueItemProvider` sends every supplied song ID in one request. Apple's [catalog songs endpoint](https://developer.apple.com/documentation/applemusicapi/get-multiple-catalog-songs-by-id) accepts at most 300 IDs. After unavailable songs are filtered, shared playback starts above that limit use the existing 100-song Library Songs window around the selected track; starts of at most 300 songs keep the whole list. This preserves the selected track and window order, but does not queue the entire large playlist. The reported My Favorite failure has no confirmed playlist count or runtime trace, so this fixes a verified size-limit defect without establishing that report's exact cause. Explicit Play next / Add to queue batches above 300 remain a separate unaddressed SDK limitation; this start-only change does not truncate them or change their reported counts.
 - The session callback accepts URI-less items carrying `appleMusicCatalogId`; Media3's default `onAddMediaItems` rejects items without a `localConfiguration`.
 - Library membership is not a favorite. Apple Music currently has no FAVORITES, RANDOM_SONGS or PLAYLISTS_WRITE capability in Yoin. Unsupported hearts, random-song and favorite tabs, and playlist creation/edit affordances are gated. The Songs tab browses the saved library and the distinct library-add control confirms the write. Library imports without a catalog playback ID fail with a clear message. Favorite mutation, library removal, offline downloads, Cast and quality claims are not enabled.
+
+### Catalog ids above 2^31 (2026-10-16)
+
+Songs Apple added from mid-2026 on carry catalog ids above `Int.MAX_VALUE` (2147483647). Pop Sound is 6805970194, on album 6805970041; older albums that gained tracks later have them too, such as 6767146998 on album 1896400727. In Yoin these songs buffered at 0:00 for good, with no error, while the Apple Music app played them. A tester first read this as region rights. It wasn't that, and it wasn't an audio format change either.
+
+MusicKit for Android has not been updated since December 2021, so the cause sits in mediaplayback 1.1.1. The chain, read from its bytecode:
+
+1. `playback.g.f` requests `play.itunes.apple.com/WebObjects/MZPlay.woa/wa/webPlayback` and writes `salableAdamId` as a long. That part is fine.
+2. `playback.g.h.a(InputStream)` parses the reply. It reads `songList[].songId` through the private helper `a(JsonReader, int)I`, which calls `JsonReader.nextInt()`. For an id above `Int.MAX_VALUE` that throws `NumberFormatException`.
+3. `g.f.a()` catches the exception and stores failureType `"REQUEST EXCEPTION"`. `playback.a.a(long, String[], boolean)` (requestAsset) then runs `Integer.valueOf(failureType)`, which throws again, and nothing catches it.
+4. The asset task, `c.c.d.run()`, catches only `IOException`, and `c.c.h` submitted it with `ExecutorService.submit`. So the exception ends up in a Future that nothing reads. MusicKit receives no asset and calls no `onPlaybackError`. `c.c.h` also keeps the dead request in its in-flight map, so tapping the same song again hangs again.
+5. The parsed `songId` goes into `g.b.f` (`g.b.a(J)`), a field nothing in the SDK reads. Every other path handles the large id: the catalog metadata keeps ids as strings, the license request's `adamId` and the FootHill/FairPlay native calls take strings, and the SDK's other `l2i` casts split 64-bit values into two halves.
+
+**Fix:** `build-logic`'s `yoin.musickit-large-id` plugin uses AGP's `AsmClassVisitorFactory` to rewrite that one call to `(int) nextLong()`. It applies to the app and its test components, and the AAR on disk stays unmodified. If the class or method doesn't match exactly one call, the build fails, so an SDK update can't silently undo the fix. That holds even when the class is renamed or removed: `verifyMusicKitLargeIdTarget` runs before `preBuild`, reads `app/libs/mediaplayback-release-*.aar` directly, and fails when the class is missing, because in that case no visitor would ever run. `MusicKitLargeCatalogIdTest` parses a reply through the SDK's own class. Build with `-Pyoin.musickit.largeIdFix=false` to reproduce the old behaviour.
+
+**Backstop:** `MusicKitStallWatch` covers other silent failures like this one. If playback is wanted and MusicKit stays buffering for 30 s with no movement in the item, the position or the buffered position, the player raises its timeout error instead of spinning forever.
+
+**When upgrading the SDK:** check whether `playback.g.h` still reads `songId` with `nextInt`. If it doesn't, remove the plugin.
+
+### Developer token lifetime (2026-10-16)
+
+After the app had been open for a while, the first song tapped failed with `onPlaybackError` type 3 (TYPE_PLAYBACK_QUEUE, "could not prepare this queue") and so did every later new queue, until the app was restarted. Reproduced on the Pixel Tablet with the 0.5.0 (8) build: in a process whose session was about four hours old, a song from a library playlist failed within 300 ms, awake and on Wi-Fi; after a force-stop the same song played.
+
+The cause, read from mediaplayback 1.1.1's bytecode:
+
+1. `MediaPlayerControllerFactory.createLocalController` calls `TokenProvider.getDeveloperToken()` once and files the answer in the preferences `com.apple.android.music.auth_preferences` under `developer-token` (`playback.d.b`). It keeps no reference to the provider.
+2. Every Apple request reads the token from there: the queue's catalog read in `CatalogPlaybackQueueItemProvider` (`Authorization: Bearer`), each song's webPlayback and FairPlay key (`g.d`, `g.f`), the storefront read (`f.i`) and play reporting (`reporting.e`).
+3. `CatalogPlaybackQueueItemProvider.f()` throws `IOException` for any status outside 200–299, which MusicKit reports as a queue error. Songs already in MusicKit's own queue database skip the request, which is why some later taps still played.
+
+Yoin's developer token is a JWT that expires after an hour (see the token service). The service refreshed it every 30 s, but only into `AppleMusicSource`; the player's `TokenProvider` lambda was never asked again. An hour after the session started, MusicKit sent an expired JWT. Apple accepts one for a few minutes past `exp` (probed 2026-10-16: still 200 four minutes after, 401 six minutes after) and then answers 401.
+
+**Fix:** `MusicKitDeveloperToken` writes each new token into MusicKit's preferences. The player renews it from its one-second ticker once less than three minutes are left, and every call that sends MusicKit to Apple — prepare, add to queue, play, skip — first checks the token and, if it is running short, waits for a refresh (8 s at most, then goes ahead). After the device has slept the ticker hasn't run, so this check is what keeps the first tap working. Playback tokens are fetched with at least five minutes left, which the token service always satisfies because it re-signs its JWT once five minutes remain. `MusicKitDeveloperTokenTest` checks the preferences name and key against the SDK's class file.
+
+**When upgrading the SDK:** check where `createLocalController` stores the developer token and whether requests still read it per call.
+
+### 16 KB pages: RELRO (2026-10-17)
+
+The playback AAR (mediaplayback 1.1.1) ships `libappleMusicSDK.so` and its own `libc++_shared.so`. Apple linked both in 2019 with clang 8 (NDK r20 era). Their `PT_LOAD` segments are 64 KB aligned, so Play accepts the bundle. But each library's `PT_GNU_RELRO` ends inside a 16 KB page, with writable data right after it in the same segment:
+
+| arm64-v8a | RELRO | first data after it |
+| --- | --- | --- |
+| `libappleMusicSDK.so` | 0x670000–0x679000 | 0x679000 |
+| `libc++_shared.so` | 0xf5b18–0xfe000 | 0xfe000 |
+
+Bionic write-protects RELRO from `page_start(p_vaddr)` to `page_end(p_vaddr + p_memsz)`. On 4 KB pages both ends fall on a page boundary. On 16 KB pages they don't, and Android 17 (16 KB emulator image, `google_apis_playstore_ps16k`, API 37) shows two failures:
+
+- `libc++_shared.so` doesn't load at all. The linker reports `program alignment (8192) cannot be smaller than system page size (16384)`, and `System.loadLibrary` throws `UnsatisfiedLinkError`. Apple Music can't create its player.
+- `libappleMusicSDK.so` loads with a working libc++. The page holding its first data after RELRO is mapped `r--p`, so the library's first write there is a SIGSEGV. Play flagged release 8 for this: "Your app could crash on 16 KB devices".
+
+The `yoin.musickit-relro` plugin in `build-logic/` (`MusicKitRelroPlugin`, `alignRelroEnd`) fixes both at build time. `patchMusicKitRelro` writes a copy of the AAR to `app/build/musickit-relro/`, and :app depends on that copy instead of `app/libs/`. In the copy, each 64-bit library's RELRO ends at its last whole 16 KB page: 0x678000 and 0xfc000. Bionic's rounding then stops at RELRO's own end. The dropped tail, under one page (4 KB and 8 KB), stays writable, which costs that much hardening and nothing else.
+
+Only the RELRO program header's `p_filesz` and `p_memsz` change: 3 bytes in one library, 2 in the other. Every other byte matches what AGP's strip would ship anyway. 32-bit libraries are left as they are, since no 16 KB device runs them. `app/build/musickit-relro/report.txt` lists what was done.
+
+The task fails the build in three cases:
+- a library's layout would let writable data share RELRO's first page;
+- RELRO is shorter than a page;
+- either arm64 library no longer needs the fix.
+
+So an SDK update gets re-checked rather than shipped unpatched or patched blindly. `-Pyoin.musickit.relroFix=false` copies the AAR unchanged.
+
+Verified on the API 37 16 KB emulator:
+- **Native probe.** It dlopens both libraries, then reads and writes the first byte past each original RELRO end. Unpatched, libc++ is refused, and the SDK's byte is `r--p` and faults. Patched, both load, and both bytes are `rw-p` and take the write. The patched pair also loads, `rw-p`, on a 4 KB arm64 emulator.
+- **In the app.** `AppleMusicSdkSmokeTest` creates and releases the real MusicKit controller with unauthorized tokens. It fails with `-Pyoin.musickit.relroFix=false` (the `UnsatisfiedLinkError` above) and passes with the fix. Yoin's landing screen opens either way.
+- **Not verified:** subscribed playback on a 16 KB device. That needs an Apple ID signed in on the emulator.
+
+To re-check after an SDK update, run `AppleMusicSdkSmokeTest` on a 16 KB device or emulator, with and without the property.
 
 ### Native process-memory guard (2026-10-01)
 

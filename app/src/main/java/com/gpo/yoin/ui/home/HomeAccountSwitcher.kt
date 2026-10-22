@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
@@ -83,6 +84,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -127,6 +129,7 @@ import com.gpo.yoin.ui.settings.SelectableSegment
 import com.gpo.yoin.ui.settings.ServiceLine
 import com.gpo.yoin.ui.settings.SettingsItem
 import com.gpo.yoin.ui.settings.SettingsSegments
+import com.gpo.yoin.ui.settings.YoinLinks
 import com.gpo.yoin.ui.settings.accountIssueLabel
 import com.gpo.yoin.ui.settings.face
 import com.gpo.yoin.ui.settings.monogramOf
@@ -364,7 +367,8 @@ internal data class HomeAccountChrome(
 internal fun HomeAccountSwitcherHost(
     accountSwitcher: AccountSwitcherViewModel?,
     onNavigateToSettings: () -> Unit,
-    onEditHome: () -> Unit,
+    // Home's own entry; null where the card opens elsewhere (Library), which leaves it out.
+    onEditHome: (() -> Unit)?,
     onOpenAccountPage: (ProfileCard) -> Unit = rememberAccountPageOpener(),
     content: @Composable (HomeAccountChrome) -> Unit
 ) {
@@ -402,6 +406,7 @@ internal fun HomeAccountSwitcherHost(
     // tap outside) leaves it at that: the dot, if still needed, is there to
     // come back by.
     val openAccountPage by rememberUpdatedState(onOpenAccountPage)
+    val openFeedback = rememberFeedbackOpener()
     LaunchedEffect(accountSwitcher) {
         accountSwitcher?.reconnectOutcomes?.collect { outcome ->
             if (!switcherOpen) return@collect
@@ -450,11 +455,14 @@ internal fun HomeAccountSwitcherHost(
             onManageAccounts = { closeSwitcherThen(onNavigateToSettings) },
             onAddAccount = { closeSwitcherThen(onNavigateToSettings) },
             onOpenSettings = { closeSwitcherThen(onNavigateToSettings) },
-            onEditHome = {
-                // Not while a switch runs: the feed edit mode would freeze is on its way out.
-                if (pendingTarget == null) {
-                    switcherOpen = false
-                    onEditHome()
+            onSendFeedback = { closeSwitcherThen(openFeedback) },
+            onEditHome = onEditHome?.let { editHome ->
+                {
+                    // Not while a switch runs: the feed edit mode would freeze is on its way out.
+                    if (pendingTarget == null) {
+                        switcherOpen = false
+                        editHome()
+                    }
                 }
             },
             needsReconnect = needsReconnect,
@@ -500,6 +508,20 @@ private fun rememberAccountPageOpener(): (ProfileCard) -> Unit {
                 val request = ServiceSetupRequest(service, profileId = account.id, face = account.face)
                 context.startActivity(ServiceSetupContract().createIntent(context, request))
             }
+        }
+    }
+}
+
+/** Opens the public feedback form in the browser; a toast when nothing can open it. */
+@Composable
+private fun rememberFeedbackOpener(): () -> Unit {
+    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val openFailed = stringResource(R.string.settings_about_feedback_open_failed)
+    return remember(uriHandler, context, openFailed) {
+        {
+            runCatching { uriHandler.openUri(YoinLinks.FEEDBACK_FORM) }
+                .onFailure { Toast.makeText(context, openFailed, Toast.LENGTH_SHORT).show() }
         }
     }
 }
@@ -1033,7 +1055,9 @@ internal fun HomeAccountSwitcherDialog(
     onManageAccounts: () -> Unit,
     onAddAccount: () -> Unit,
     onOpenSettings: () -> Unit,
-    onEditHome: () -> Unit,
+    // Null = no Edit Home entry (the card opened outside Home).
+    onEditHome: (() -> Unit)?,
+    onSendFeedback: () -> Unit = {},
     onCardHome: () -> Unit = {},
     // The account a switch begun from this card is going to: its row is the
     // selected one, and the other accounts wait (disabled) until it is over.
@@ -1271,6 +1295,7 @@ internal fun HomeAccountSwitcherDialog(
                     onManageAccounts = onManageAccounts,
                     onAddAccount = onAddAccount,
                     onOpenSettings = onOpenSettings,
+                    onSendFeedback = onSendFeedback,
                     onEditHome = onEditHome,
                     containerColor = Color.Transparent,
                     enabled = takesInput,
@@ -1394,8 +1419,9 @@ private fun HomeAccountCard(
     onManageAccounts: () -> Unit,
     onAddAccount: () -> Unit,
     onOpenSettings: () -> Unit,
-    onEditHome: () -> Unit,
+    onEditHome: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    onSendFeedback: () -> Unit = {},
     avatarModifier: Modifier = Modifier,
     // The dialog paints the card's surface itself (it grows out of the avatar).
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
@@ -1527,12 +1553,21 @@ private fun HomeAccountCard(
                         onClick = gated(onOpenSettings),
                     )
                 }
-                item(key = "edit") {
+                item(key = "feedback") {
                     SettingsItem(
-                        icon = YoinSymbols.Edit,
-                        title = stringResource(R.string.home_edit_title),
-                        onClick = gated(onEditHome),
+                        icon = YoinSymbols.Send,
+                        title = stringResource(R.string.settings_about_feedback),
+                        onClick = gated(onSendFeedback),
                     )
+                }
+                if (onEditHome != null) {
+                    item(key = "edit") {
+                        SettingsItem(
+                            icon = YoinSymbols.Edit,
+                            title = stringResource(R.string.home_edit_title),
+                            onClick = gated(onEditHome),
+                        )
+                    }
                 }
             }
         }

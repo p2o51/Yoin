@@ -77,7 +77,7 @@ class MusicKitPlaybackErrorTest {
             val expected = if (language == "en") {
                 "Apple Music could not prepare this queue. Try another song or reopen the playlist."
             } else {
-                "Apple Music 无法准备播放队列。请尝试其他歌曲或重新打开歌单。"
+                "Apple Music 无法准备此队列。请换一首歌曲或重新打开播放列表。"
             }
             assertEquals(expected, queueMessage)
         }

@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,8 +35,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.symbols.rememberEqualizerSymbolPainter
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 
@@ -48,7 +53,9 @@ fun SongListItem(
     coverArtUrl: String?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    isNowPlaying: Boolean = false,
+    // Keep the current track marked on pause; only its equalizer stops moving.
+    isCurrentTrack: Boolean = false,
+    isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     extractBackdropColors: Boolean = true,
     hasNote: Boolean = false,
@@ -63,6 +70,11 @@ fun SongListItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     var showUnavailableReason by remember { mutableStateOf(false) }
+    val titleColor by animateColorAsState(
+        targetValue = if (isCurrentTrack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "songRowTitleColor",
+    )
 
     // We drop Surface's `onClick = ...` overload and handle both gestures on
     // the same clickable boundary via combinedClickable. Layering a separate
@@ -104,7 +116,7 @@ fun SongListItem(
                     shape = YoinArtworkShapes.Thumb,
                     fallbackIcon = YoinSymbols.MusicNote,
                     interactionSource = interactionSource,
-                    isPlaybackActive = isNowPlaying,
+                    isPlaybackActive = isCurrentTrack && isPlaying,
                     playbackSignal = playbackSignal,
                     fillFraction = 1f,
                     tonalElevation = 0.dp,
@@ -124,12 +136,31 @@ fun SongListItem(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    AnimatedVisibility(
+                        visible = isCurrentTrack,
+                        enter = YoinMotion.expandHorizontally(
+                            role = YoinMotionRole.Standard,
+                            expandFrom = Alignment.Start,
+                        ) +
+                            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                        exit = YoinMotion.shrinkHorizontally(
+                            role = YoinMotionRole.Standard,
+                            shrinkTowards = Alignment.Start,
+                        ) +
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                    ) {
+                        Icon(
+                            painter = rememberEqualizerSymbolPainter(playing = isPlaying),
+                            contentDescription = stringResource(R.string.detail_album_cd_now_playing),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 6.dp).size(16.dp),
+                        )
+                    }
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = titleColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
@@ -139,7 +170,7 @@ fun SongListItem(
                             imageVector = YoinSymbols.Note,
                             contentDescription = stringResource(R.string.cmp_song_cd_has_note),
                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
-                            modifier = Modifier.size(12.dp),
+                            modifier = Modifier.padding(start = 6.dp).size(12.dp),
                         )
                     }
                 }
@@ -175,6 +206,33 @@ fun SongListItem(
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
 private fun SongListItemPreview() {
+    SongListItemPreviewContent()
+}
+
+@Preview(name = "Current track playing", showBackground = true)
+@Composable
+private fun SongListItemPlayingPreview() {
+    SongListItemPreviewContent(isCurrentTrack = true, isPlaying = true)
+}
+
+@Preview(name = "Current track paused", showBackground = true)
+@Composable
+private fun SongListItemPausedPreview() {
+    SongListItemPreviewContent(isCurrentTrack = true)
+}
+
+@Preview(name = "Unavailable track", showBackground = true)
+@Composable
+private fun SongListItemUnavailablePreview() {
+    SongListItemPreviewContent(isUnavailable = true)
+}
+
+@Composable
+private fun SongListItemPreviewContent(
+    isCurrentTrack: Boolean = false,
+    isPlaying: Boolean = false,
+    isUnavailable: Boolean = false,
+) {
     YoinTheme {
         SongListItem(
             title = "Bohemian Rhapsody",
@@ -183,7 +241,10 @@ private fun SongListItemPreview() {
             durationSeconds = 354,
             coverArtUrl = null,
             onClick = {},
+            isCurrentTrack = isCurrentTrack,
+            isPlaying = isPlaying,
             hasNote = true,
+            isUnavailable = isUnavailable,
         )
     }
 }
