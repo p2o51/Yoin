@@ -1,13 +1,13 @@
 [versions]
 # Core
-agp = "9.1.0"
+agp = "9.2.1"
 asm = "9.9"
-kotlin = "2.3.20"
-ksp = "2.3.6"
+kotlin = "2.4.10"
+ksp = "2.3.11"
 
 # Compose
 composeBom = "2026.09.00"
-material3Expressive = "1.5.0-alpha16"
+material3Expressive = "1.5.0-alpha27"
 # Window size class + fold posture (currentWindowAdaptiveInfo). NOT in the
 # Compose BOM — versioned independently. Pulls androidx.window transitively.
 # 1.2.0 is the newest line that still compiles against compileSdk 36; 1.3.x
@@ -37,7 +37,7 @@ googleId = "1.1.1"
 okhttp = "5.5.0"
 retrofit = "3.0.0"
 retrofitKotlinxSerialization = "1.0.0"
-kotlinxSerialization = "1.8.0"
+kotlinxSerialization = "1.11.0"
 gson = "2.13.1"
 
 # Image
@@ -54,15 +54,15 @@ glance = "1.2.0"
 
 # Testing
 junit = "4.13.2"
-turbine = "1.2.0"
-mockk = "1.13.16"
+turbine = "1.2.1"
+mockk = "1.14.11"
 coroutinesTest = "1.11.0"
 composeUiTest = "1.8.0"
 androidxTestCore = "1.7.0"
 # Instrumented tests on API 37 need these (older ones call the removed InputManager.getInstance)
 androidxTestRunner = "1.7.0"
 espresso = "3.7.0"
-robolectric = "4.16.1"
+robolectric = "4.17"
 
 # Code quality
 ktlint = "12.1.2"

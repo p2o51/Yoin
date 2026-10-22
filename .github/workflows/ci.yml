@@ -50,9 +50,9 @@ jobs:
     name: ktlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Check out Yoin Symbols
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
@@ -64,7 +64,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       - name: ktlint
         run: ./gradlew ktlintCheck -PyoinSymbolsDir=yoin-symbols
       - name: Upload ktlint reports
@@ -81,9 +81,9 @@ jobs:
     if: ${{ needs.musickit.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Check out Yoin Symbols
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
@@ -99,7 +99,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       # Robolectric downloads its android-all jars from Maven Central on first
       # use, and that download sometimes fails mid-run. Keep them cached.
       - name: Read Robolectric version
@@ -127,9 +127,9 @@ jobs:
     if: ${{ needs.musickit.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Check out Yoin Symbols
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
@@ -145,7 +145,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       - name: Android Lint (fails only on issues not in lint-baseline.xml)
         run: ./gradlew :app:lintDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload lint report
@@ -162,9 +162,9 @@ jobs:
     if: ${{ needs.musickit.outputs.available == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Check out Yoin Symbols
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
@@ -180,7 +180,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       - name: Assemble debug APK
         run: ./gradlew assembleDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload debug APK
