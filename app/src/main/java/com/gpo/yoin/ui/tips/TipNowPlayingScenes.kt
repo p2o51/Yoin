@@ -182,7 +182,7 @@ internal fun PlayModesDemo(playing: Boolean) {
         tap { mode = mode.withShuffle(!mode.shuffle) }
         delay(500)
         moveTo("mode", fx = 0.73f)
-        tap { mode = mode.withRepeatOne(!mode.repeatOne) }
+        tap { mode = mode.nextRepeat() }
         lift()
         delay(PlayModeSplitHoldMs + 600)
     }) {

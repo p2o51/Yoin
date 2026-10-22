@@ -55,7 +55,7 @@ data class PlaybackState(
      * song rising in during the outro.
      */
     val nextTrack: Track? = null,
-    val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val repeatMode: Int = Player.REPEAT_MODE_ALL,
     val shuffleEnabled: Boolean = false,
     val audioSessionId: Int = 0,
     val isCasting: Boolean = false,

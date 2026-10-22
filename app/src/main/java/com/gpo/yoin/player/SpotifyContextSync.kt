@@ -71,6 +71,10 @@ internal class SpotifyContextSync(private val clock: () -> Long = SystemClock::e
     private var firstHeardAtMs: Long? = null
     private val strangers = HashSet<MediaId>()
 
+    /** No Yoin play's context stands: Spotify plays what the user picked there ([followSpotify]). */
+    val followingSpotify: Boolean
+        get() = yoinContext == null
+
     /** Waiting for Spotify's fresh PlayerContext to say whether it moved on ([onReportOverdue] if none). */
     val awaitingReport: Boolean
         get() = takeoverPending
