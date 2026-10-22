@@ -1,9 +1,9 @@
 [versions]
 # Core
-agp = "9.2.1"
+agp = "9.1.0"
 asm = "9.9"
-kotlin = "2.4.10"
-ksp = "2.3.11"
+kotlin = "2.3.20"
+ksp = "2.3.6"
 
 # Compose
 composeBom = "2026.09.00"
@@ -37,7 +37,7 @@ googleId = "1.1.1"
 okhttp = "5.5.0"
 retrofit = "3.0.0"
 retrofitKotlinxSerialization = "1.0.0"
-kotlinxSerialization = "1.11.0"
+kotlinxSerialization = "1.8.0"
 gson = "2.13.1"
 
 # Image
