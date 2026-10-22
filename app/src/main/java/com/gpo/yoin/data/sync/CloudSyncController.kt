@@ -12,8 +12,11 @@ import kotlinx.coroutines.flow.StateFlow
 interface CloudSyncController {
     val state: StateFlow<CloudSyncState>
 
-    /** Turn on (or reconnect): may need the user's consent through [TurnOnStep.NeedsConsent]. */
-    suspend fun beginTurnOn(): TurnOnStep
+    /**
+     * Turn on (or reconnect): may need the user's consent through [TurnOnStep.NeedsConsent].
+     * [accountEmail] is the account already picked on the Sign in with Google sheet, if any.
+     */
+    suspend fun beginTurnOn(accountEmail: String? = null): TurnOnStep
 
     /** Feed the result of the consent IntentSender back. */
     suspend fun completeTurnOn(resultCode: Int, data: Intent?): TurnOnStep

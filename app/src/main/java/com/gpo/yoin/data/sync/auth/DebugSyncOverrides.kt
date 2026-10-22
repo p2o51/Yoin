@@ -68,7 +68,7 @@ class DebugSyncAuthorizer(private val config: DebugSyncConfig) : GoogleSyncAutho
 
     override suspend fun authorizeSilently(accountEmail: String?): GoogleAuthResult = token
 
-    override suspend fun authorizeInteractively(): GoogleAuthResult = token
+    override suspend fun authorizeInteractively(accountEmail: String?): GoogleAuthResult = token
 
     override fun resultFromIntent(data: Intent?): GoogleAuthResult = token
 

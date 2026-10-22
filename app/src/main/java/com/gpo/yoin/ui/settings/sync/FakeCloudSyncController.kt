@@ -51,8 +51,8 @@ class FakeCloudSyncController(
         _state.value = state
     }
 
-    override suspend fun beginTurnOn(): TurnOnStep {
-        _calls += "beginTurnOn"
+    override suspend fun beginTurnOn(accountEmail: String?): TurnOnStep {
+        _calls += if (accountEmail == null) "beginTurnOn" else "beginTurnOn($accountEmail)"
         return beginTurnOnResult.also(::applyTurnOn)
     }
 
