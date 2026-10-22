@@ -197,6 +197,32 @@ class DlnaMedia3PlayerTest {
         }
     }
 
+    @Test
+    fun should_advanceAtNaturalEnd_when_aPausedSongIsResumedOnTheSpeaker() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val transport = FakeTransport()
+        val player = DlnaMedia3Player(transport) {}
+        try {
+            player.connect(device(), listOf(item("one"), item("two")), 0, 0, true)
+            player.pause()
+            runCurrent()
+            assertFalse(player.isPlaying)
+            transport.state = "PLAYING"
+            advanceTimeBy(1001)
+            runCurrent()
+            assertTrue(player.isPlaying)
+            transport.position = 30000
+            transport.state = "STOPPED"
+            advanceTimeBy(1001)
+            runCurrent()
+            assertEquals(1, player.currentMediaItemIndex)
+            assertTrue(player.isPlaying)
+        } finally {
+            player.release()
+            Dispatchers.resetMain()
+        }
+    }
+
     private fun item(id: String): MediaItem = MediaItem.Builder().setMediaId(id)
         .setUri(Uri.parse("http://192.0.2.1/$id"))
         .setMediaMetadata(
