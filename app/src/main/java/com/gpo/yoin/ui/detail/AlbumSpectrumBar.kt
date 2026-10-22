@@ -276,6 +276,9 @@ internal fun AlbumSpectrumLayer(
     coverNow: () -> Rect,
     pageShift: () -> Float,
     modifier: Modifier = Modifier,
+    // The Playlist page keeps its stacked V instead of the two blocks: it fades
+    // on its own, and only the spectrum and the cover fly.
+    butterfly: Boolean = true,
 ) {
     Spacer(
         modifier = modifier
@@ -287,7 +290,7 @@ internal fun AlbumSpectrumLayer(
                 if (abs(shift) >= size.width) return@drawBehind
                 withTransform({ translate(left = -shift) }) {
                     val now = coverNow()
-                    drawButterfly(g, source.spectrum, now, p, blockA, blockB, surface, reduced)
+                    if (butterfly) drawButterfly(g, source.spectrum, now, p, blockA, blockB, surface, reduced)
                     drawSpectrum(g, source, previous, swap(), now, p, reduced, rtl)
                 }
             },

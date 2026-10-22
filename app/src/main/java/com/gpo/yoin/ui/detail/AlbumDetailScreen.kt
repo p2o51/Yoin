@@ -128,10 +128,6 @@ import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-// At or below this track count the cover docks to a big rounded "capsule"; above
-// it, to the thin full-bleed band (a long list needs the band's vertical room).
-internal const val DetailManyTracksThreshold = 5
-
 // Page 1 of the pager is the scrapbook (AlbumScrapbookPage, D3 — owner-approved
 // 2026-10-05). It also needs a host that passes `scrapbook`: a host that doesn't
 // (yet) keeps the page single and the dots hidden. False hides it everywhere.
@@ -840,7 +836,7 @@ private fun AlbumDetailContent(
 private val AlbumHeaderTopPadding = 4.dp
 
 // Room the title leaves the stamp, besides the stamp itself.
-private val AlbumBarTitleGap = 12.dp
+internal val AlbumBarTitleGap = 12.dp
 
 @Composable
 private fun AlbumTopHeader(
@@ -984,7 +980,7 @@ internal fun AlbumBarHeaderTwin(
  * The real header over the bar: drawn as usual beside it, faded out inside it
  * as the white twin fades in on top (so the two never stack into a dark rim).
  */
-private fun Modifier.albumBarHeaderFade(progress: () -> Float, bar: () -> Rect): Modifier = drawWithContent {
+internal fun Modifier.albumBarHeaderFade(progress: () -> Float, bar: () -> Rect): Modifier = drawWithContent {
     val t = progress()
     if (t <= 0f) {
         drawContent()
