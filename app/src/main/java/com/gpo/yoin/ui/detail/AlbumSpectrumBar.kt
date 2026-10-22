@@ -276,6 +276,9 @@ internal fun AlbumSpectrumLayer(
     coverNow: () -> Rect,
     pageShift: () -> Float,
     modifier: Modifier = Modifier,
+    // The Playlist page keeps its stacked V instead of the two blocks: it fades
+    // on its own, and only the spectrum and the cover fly.
+    butterfly: Boolean = true,
 ) {
     Spacer(
         modifier = modifier
@@ -287,7 +290,7 @@ internal fun AlbumSpectrumLayer(
                 if (abs(shift) >= size.width) return@drawBehind
                 withTransform({ translate(left = -shift) }) {
                     val now = coverNow()
-                    drawButterfly(g, source.spectrum, now, p, blockA, blockB, surface, reduced)
+                    if (butterfly) drawButterfly(g, source.spectrum, now, p, blockA, blockB, surface, reduced)
                     drawSpectrum(g, source, previous, swap(), now, p, reduced, rtl)
                 }
             },
@@ -418,11 +421,16 @@ internal fun AlbumFlyingCover(
         layout(constraints.maxWidth, constraints.maxHeight) {
             if (g == null) return@layout
             placeable.placeWithLayer(0, 0) {
+                // Read the geometry again here, not the measure pass's copy: the stamp
+                // follows the title row, which is placed after this cover, and when the
+                // page arrives through Loading the measure pass is never re-run, so the
+                // copy keeps a zero title row and the stamp sat half off the top.
+                val now = geometry() ?: g
                 val p = progress().coerceIn(0f, 1f)
                 val r = if (reduced) {
-                    if (p < 0.5f) coverNow() else g.stamp
+                    if (p < 0.5f) coverNow() else now.stamp
                 } else {
-                    albumBarCoverRect(g, coverNow(), p)
+                    albumBarCoverRect(now, coverNow(), p)
                 }
                 if (reduced) alpha = abs(1f - 2f * p)
                 val scale = r.width / side

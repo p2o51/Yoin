@@ -43,8 +43,11 @@ interface GoogleSyncAuthorizer {
      */
     suspend fun authorizeSilently(accountEmail: String?): GoogleAuthResult
 
-    /** Starts the interactive flow with the account chooser (turn on / reconnect). */
-    suspend fun authorizeInteractively(): GoogleAuthResult
+    /**
+     * Starts the interactive flow (turn on / reconnect). With [accountEmail] (already picked on the
+     * Sign in with Google sheet) only that account's consent is asked; without it, the account chooser.
+     */
+    suspend fun authorizeInteractively(accountEmail: String? = null): GoogleAuthResult
 
     /** Result of the IntentSender launched for [GoogleAuthResult.NeedsResolution]. */
     fun resultFromIntent(data: Intent?): GoogleAuthResult

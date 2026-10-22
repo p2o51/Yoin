@@ -187,6 +187,17 @@ data class SpotifySearchResponse(
     val playlists: SpotifyPagingObject<SpotifyPlaylistObject?>? = null,
 )
 
+/**
+ * `GET /me/player/queue`: the song playing and what Spotify plays after it,
+ * the user's queue first, then the rest of the album or playlist. Nothing
+ * says which entries are which; a podcast episode is an entry like a song.
+ */
+@Serializable
+data class SpotifyQueueResponse(
+    @SerialName("currently_playing") val currentlyPlaying: SpotifyTrackObject? = null,
+    val queue: List<SpotifyTrackObject> = emptyList(),
+)
+
 @Serializable
 data class SpotifyDevicesResponse(
     val devices: List<SpotifyDevice> = emptyList(),

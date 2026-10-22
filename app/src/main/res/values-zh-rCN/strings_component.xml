@@ -30,6 +30,10 @@
     <string name="cmp_queue_playing_from">播放自</string>
     <string name="cmp_queue_title">队列</string>
     <string name="cmp_queue_clear">清除</string>
+    <string name="cmp_queue_hint_spotify">队列由 Spotify 管理。点一首歌从它开始播放；这里不能拖动或移除歌曲。</string>
+    <string name="cmp_queue_hint_spotify_shuffle">随机播放已开启：顺序由 Spotify 决定，这里列出的是还没播的歌。</string>
+    <string name="cmp_queue_hint_remove_only">左滑一首歌可以移除。Apple Music 的队列不能调整顺序。</string>
+    <string name="cmp_queue_hint_shuffle">随机播放已开启：关掉随机后才能调整顺序。</string>
     <string name="cmp_queue_cd_remove">从队列移除</string>
     <string name="cmp_queue_cd_playing">正在播放</string>
     <string name="cmp_queue_cd_paused">已暂停</string>

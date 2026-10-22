@@ -13,26 +13,22 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
-import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -73,34 +69,38 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.landing.CopyRow
+import com.gpo.yoin.ui.landing.guide.ConnectGuide
+import com.gpo.yoin.ui.settings.AccountAvatar
 import com.gpo.yoin.ui.settings.SecretTextField
+import com.gpo.yoin.ui.settings.ServiceIdentity
+import com.gpo.yoin.ui.settings.SettingsBackButton
 import com.gpo.yoin.ui.settings.SettingsExpandableItem
 import com.gpo.yoin.ui.settings.SettingsGroup
 import com.gpo.yoin.ui.settings.SettingsGroupLabel
 import com.gpo.yoin.ui.settings.SettingsItem
-import com.gpo.yoin.ui.settings.AccountAvatar
-import com.gpo.yoin.ui.settings.ServiceIdentity
-import com.gpo.yoin.ui.settings.SettingsBackButton
 import com.gpo.yoin.ui.settings.SettingsPageBackground
+import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationSection
 import com.gpo.yoin.ui.settings.monogramOf
 import com.gpo.yoin.ui.settings.provider
 import com.gpo.yoin.ui.settings.serviceIdentity
 import com.gpo.yoin.ui.settings.serviceLineGroups
 import com.gpo.yoin.ui.settings.settingsSurfaces
 import com.gpo.yoin.ui.settings.tone
-import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -771,12 +771,13 @@ private fun SpotifyDeveloperGroup(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                SelectionContainer {
-                    Text(
-                        text = stringResource(R.string.settings_setup_client_uris),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                // Each with its own Copy, as the first-run guide gives them (Gemini review
+                // 2026-10-20: copying both off one selectable block was the hard part).
+                CopyRow(SpotifyAuthConfig.REDIRECT_URI)
+                CopyRow(SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI)
+                val context = LocalContext.current
+                OutlinedButton(onClick = { ConnectGuide.openSpotify(context) }) {
+                    Text(stringResource(R.string.landing_spotify_open))
                 }
                 ExpressiveTextField(
                     value = draft,

@@ -44,6 +44,10 @@
     <string name="cmp_queue_playing_from">Playing from</string>
     <string name="cmp_queue_title">Queue</string>
     <string name="cmp_queue_clear">Clear</string>
+    <string name="cmp_queue_hint_spotify">Spotify keeps this queue. Tap a song to play from it; songs can\'t be moved or removed here.</string>
+    <string name="cmp_queue_hint_spotify_shuffle">Shuffle is on: Spotify picks the order, so these are the songs still to play.</string>
+    <string name="cmp_queue_hint_remove_only">Swipe a song left to remove it. Apple Music can\'t reorder its queue.</string>
+    <string name="cmp_queue_hint_shuffle">Shuffle is on: turn it off to reorder songs.</string>
     <string name="cmp_queue_cd_remove">Remove from queue</string>
     <string name="cmp_queue_cd_playing">Playing</string>
     <string name="cmp_queue_cd_paused">Paused</string>

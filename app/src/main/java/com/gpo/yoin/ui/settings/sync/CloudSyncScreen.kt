@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContract
@@ -93,6 +94,8 @@ import com.gpo.yoin.data.sync.CloudSyncState
 import com.gpo.yoin.data.sync.SyncAccountRow
 import com.gpo.yoin.data.sync.SyncAccountStatus
 import com.gpo.yoin.data.sync.SyncDeviceRow
+import com.gpo.yoin.data.sync.auth.GoogleAccountPick
+import com.gpo.yoin.data.sync.auth.GoogleAccountPicker
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
@@ -120,6 +123,7 @@ import com.gpo.yoin.ui.settings.tone
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 
 // Settings › Cloud sync. Back surface: full-screen destination without shared
@@ -130,7 +134,9 @@ fun CloudSyncScreen(
     viewModel: CloudSyncViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    accountPicker: GoogleAccountPicker? = null,
 ) {
+    val activity = LocalActivity.current
     val state by viewModel.state.collectAsState()
     val turningOn by viewModel.turningOn.collectAsState()
     val deleting by viewModel.deleting.collectAsState()
@@ -150,6 +156,20 @@ fun CloudSyncScreen(
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             viewModel.events.collect { event ->
                 when (event) {
+                    CloudSyncEvent.PickAccount -> scope.launch {
+                        val pick = try {
+                            if (accountPicker != null && activity != null) {
+                                accountPicker.pick(activity)
+                            } else {
+                                GoogleAccountPick.Unavailable
+                            }
+                        } catch (error: CancellationException) {
+                            // The page went away with the sheet up (rotation, back): don't leave Turn on spinning.
+                            viewModel.onAccountPicked(GoogleAccountPick.Canceled)
+                            throw error
+                        }
+                        viewModel.onAccountPicked(pick)
+                    }
                     is CloudSyncEvent.LaunchConsent -> try {
                         consentLauncher.launch(IntentSenderRequest.Builder(event.intentSender).build())
                     } catch (_: ActivityNotFoundException) {

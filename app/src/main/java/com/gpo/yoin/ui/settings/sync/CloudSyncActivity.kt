@@ -8,8 +8,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.sync.auth.GoogleAccountPicker
 import com.gpo.yoin.enableYoinEdgeToEdge
 
 /**
@@ -26,15 +28,21 @@ class CloudSyncActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
         val controller = (application as YoinApplication).container.cloudSync
+        val accountPicker = GoogleAccountPicker(BuildConfig.GOOGLE_WEB_CLIENT_ID)
         setContent {
             YoinActivityRoot {
                 val viewModel: CloudSyncViewModel = viewModel(
-                    factory = CloudSyncViewModel.Factory(controller, application.resources),
+                    factory = CloudSyncViewModel.Factory(
+                        controller,
+                        application.resources,
+                        accountPickerEnabled = accountPicker.enabled,
+                    ),
                 )
                 CloudSyncScreen(
                     viewModel = viewModel,
                     onBack = { finish() },
                     modifier = Modifier.fillMaxSize(),
+                    accountPicker = accountPicker,
                 )
             }
         }

@@ -566,7 +566,7 @@ class CloudSyncManagerTest {
 
         override suspend fun authorizeSilently(accountEmail: String?) = token
 
-        override suspend fun authorizeInteractively() = token
+        override suspend fun authorizeInteractively(accountEmail: String?) = token
 
         override fun resultFromIntent(data: Intent?) = token
 

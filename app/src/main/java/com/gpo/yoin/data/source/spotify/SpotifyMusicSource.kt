@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -269,6 +270,14 @@ class SpotifyMusicSource(
                 followedArtistIds = knownFollowedArtistIds(),
             )
 
+        // Ten more of one type: dev mode caps a search page at 10 (MAX_SEARCH_LIMIT).
+        override suspend fun searchMore(query: String, type: SearchResultType, offset: Int): SearchResults =
+            apiClient.search(query = query, types = type.spotifyType, offset = offset).toSearchResults(
+                savedTrackIds = knownSavedTrackIds(),
+                savedAlbumIds = knownSavedAlbumIds(),
+                followedArtistIds = knownFollowedArtistIds(),
+            )
+
         // Spotify has no batch ISRC read: one `isrc:` search per code, tracks
         // only, one after another under the rate-limit gate. A code whose
         // search fails is left out, and matching falls back to a title search.
@@ -505,6 +514,38 @@ class SpotifyMusicSource(
      */
     suspend fun localDeviceId(localNames: List<String>): String? =
         pickLocalSpotifyDevice(apiClient.listDevices(), localNames)?.id
+
+    /**
+     * The song Spotify plays and what it plays after it, in its order: the
+     * user's queue, then the rest of the album or playlist
+     * ([SpotifyQueueResponse]). Songs only; an episode or a local file is left out.
+     */
+    suspend fun playerQueue(): SpotifyPlayerQueue {
+        val response = apiClient.getQueue()
+        val saved = knownSavedTrackIds()
+        fun SpotifyTrackObject.song(): Track? =
+            if (isLocal || type == "episode") null else runCatching { toTrack(savedTrackIds = saved) }.getOrNull()
+        return SpotifyPlayerQueue(
+            playing = response.currentlyPlaying?.song(),
+            next = response.queue.mapNotNull { it.song() },
+        )
+    }
+
+    /**
+     * Where [trackUri] sits in [contextUri], an album or a playlist, counting
+     * every entry as Spotify does: App Remote's `skipToIndex` starts a context
+     * there. Null for another kind of context, or a song that isn't in it.
+     */
+    suspend fun contextIndexOf(contextUri: String, trackUri: String): Int? {
+        val parts = contextUri.split(':')
+        if (parts.size != 3 || parts[0] != "spotify") return null
+        val index = when (parts[1]) {
+            "album" -> apiClient.getAlbumTracks(parts[2]).indexOfFirst { it.uri == trackUri }
+            "playlist" -> apiClient.getPlaylistItems(parts[2]).indexOfFirst { it.playable?.uri == trackUri }
+            else -> return null
+        }
+        return index.takeIf { it >= 0 }
+    }
 
 
     suspend fun listDevices(): List<SpotifyDevice> = apiClient.listDevices()
@@ -776,3 +817,17 @@ internal fun pickLocalSpotifyDevice(devices: List<SpotifyDevice>, localNames: Li
 
 /** An ISRC: country (2 letters), registrant (3), year (2), designation (5). */
 private val ISRC_PATTERN = Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")
+
+private val SearchResultType.spotifyType: String
+    get() = when (this) {
+        SearchResultType.Tracks -> "track"
+        SearchResultType.Albums -> "album"
+        SearchResultType.Artists -> "artist"
+        SearchResultType.Playlists -> "playlist"
+    }
+
+/** [SpotifyMusicSource.playerQueue]: the song [playing] and the songs [next], in Spotify's order. */
+data class SpotifyPlayerQueue(
+    val playing: Track?,
+    val next: List<Track>,
+)

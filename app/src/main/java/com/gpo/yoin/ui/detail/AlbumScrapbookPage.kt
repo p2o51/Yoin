@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,8 +23,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -35,6 +39,7 @@ import androidx.compose.foundation.text.input.maxLength
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.then
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -1805,8 +1810,7 @@ private fun androidx.graphics.shapes.RoundedPolygon.toShapeCompat(): Shape = toS
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ScrapAboutSheetContent(sheet: ScrapAboutSheet, colors: ScrapbookColors, onDismiss: () -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    YoinModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ScrapSheet(onDismiss = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1863,8 +1867,7 @@ private fun ScrapNotesSheet(
     onNote: (ScrapNoteLine) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    YoinModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ScrapSheet(onDismiss = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1888,6 +1891,25 @@ private fun ScrapNotesSheet(
             }
         }
     }
+}
+
+/**
+ * The full-text sheets stop under the status bar. M3 otherwise pads the status bar by how far the
+ * sheet has climbed into it, so a text about one screen tall changes the sheet's height as it is
+ * dragged, which moves the expanded anchor, which changes the padding again: the sheet shakes and
+ * its handle can flash under the clock. Kept below the bar, the sheet's height no longer depends on
+ * its offset.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScrapSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    YoinModalBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.statusBarsPadding(),
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        contentWindowInsets = { BottomSheetDefaults.modalWindowInsets.only(WindowInsetsSides.Bottom) },
+        content = content,
+    )
 }
 
 // ---------------------------------------------------------------------------

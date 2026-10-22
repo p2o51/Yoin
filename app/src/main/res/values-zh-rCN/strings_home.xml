@@ -158,7 +158,7 @@
     <string name="home_tip_pull_memories">首页往下拉，打开 Memories</string>
     <string name="home_tip_cover_menu">正在播放里长按封面，打开歌曲菜单</string>
     <string name="home_tip_song_menu">长按专辑里的歌曲，可以下一首播放</string>
-    <string name="home_tip_play_modes">点播放模式按钮，在随机和循环之间切换；长按，把它分成两个按钮。</string>
+    <string name="home_tip_play_modes">点播放模式按钮，在随机和循环之间切换；长按，把它分成两个按钮，循环那一段还能关掉。</string>
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_library_search">长按底栏的资料库，直接搜索</string>
     <string name="home_tip_keep_screen_on">屏幕常亮在封面的长按菜单里</string>

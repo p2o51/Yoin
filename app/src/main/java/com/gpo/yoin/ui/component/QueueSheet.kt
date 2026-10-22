@@ -1,7 +1,11 @@
 package com.gpo.yoin.ui.component
 
+import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -72,6 +76,7 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.nowplaying.QueueItem
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.roundToInt
 
@@ -106,6 +111,19 @@ internal fun queueSections(queue: List<QueueItem>, currentIndex: Int, upcoming: 
     val rows = order.mapNotNull { index -> queue.getOrNull(index)?.let { QueueRow(index, it) } }
     val (queued, next) = rows.partition { it.item.userQueued }
     return QueueSections(now, queued, next)
+}
+
+/**
+ * Why the sheet can't do what it does elsewhere, in one line under its
+ * header: Spotify's queue is read only, MusicKit's can't be reordered, and
+ * nothing is reordered while shuffle plays (Gemini review 2026-10-20: the
+ * handles and swipes used to just disappear). Null when everything works.
+ */
+@StringRes
+internal fun queueEditHint(edit: QueueEdit, shuffling: Boolean): Int? = when (edit) {
+    QueueEdit.None -> if (shuffling) R.string.cmp_queue_hint_spotify_shuffle else R.string.cmp_queue_hint_spotify
+    QueueEdit.Remove -> R.string.cmp_queue_hint_remove_only
+    QueueEdit.Full -> R.string.cmp_queue_hint_shuffle.takeIf { shuffling }
 }
 
 /** "Next from: Lantern Letters" — or "Next up" when the songs came from no album, playlist or artist. */
@@ -193,7 +211,10 @@ fun QueueSheet(
             contentPadding = PaddingValues(bottom = 16.dp + navBottom),
         ) {
             item(key = "header") {
-                QueueHeader(playingFrom = queuePlayingFrom(activityContext))
+                QueueHeader(
+                    playingFrom = queuePlayingFrom(activityContext),
+                    hint = queueEditHint(edit, shuffling)?.let { stringResource(it) },
+                )
             }
             sections.now?.let { now ->
                 item(key = "now-label") { QueueSectionLabel(stringResource(R.string.cmp_queue_section_now)) }
@@ -422,7 +443,7 @@ private fun QueueRemoveBackdrop() {
 }
 
 @Composable
-private fun QueueHeader(playingFrom: String?) {
+private fun QueueHeader(playingFrom: String?, hint: String?) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -447,6 +468,25 @@ private fun QueueHeader(playingFrom: String?) {
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
+        }
+        // Shuffle can flip while the sheet is open: the line comes and goes with it.
+        AnimatedContent(
+            targetState = hint,
+            transitionSpec = {
+                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard) using
+                    SizeTransform(clip = false)
+            },
+            label = "queueEditHint",
+        ) { shown ->
+            if (shown != null) {
+                Text(
+                    text = shown,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
         }
     }
 }
