@@ -53,6 +53,21 @@ internal fun GlanceModifier.roundedBackground(color: ColorProvider, radius: Dp):
         background(ImageProvider(roundedDrawable(radius)), colorFilter = ColorFilter.tint(color))
     }
 
+/**
+ * How far a transparent layout's outermost art sits in from the widget's edges. API 31+ launchers clip every
+ * widget to a rounded rect of `system_app_widget_background_radius`, and a layout with no background of its own
+ * loses whatever art reaches into those corners: the Memory anchor's cover lost its bottom-left corner on a
+ * Galaxy S25 (One UI, about 24dp). A point d in from both edges clears a radius-R cut once d >= R(1 - 1/sqrt 2),
+ * about 0.29R; 0.3R + 2dp leaves room for rounding. Older launchers don't clip.
+ */
+internal fun widgetCornerClearance(context: Context): Dp {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return 0.dp
+    val resources = context.resources
+    val radius = resources.getDimension(android.R.dimen.system_app_widget_background_radius) /
+        resources.displayMetrics.density
+    return (radius * 0.3f + 2f).dp
+}
+
 /** A tinted shape drawable (for the connected segments, whose corners differ). */
 internal fun GlanceModifier.shapeBackground(@DrawableRes shape: Int, color: ColorProvider): GlanceModifier =
     background(ImageProvider(shape), colorFilter = ColorFilter.tint(color))
