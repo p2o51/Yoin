@@ -199,9 +199,13 @@
     <string name="np_msg_switch">Switch</string>
 
     <!-- Stored on YoinDevice as the English key, then shown from these. -->
-    <string name="np_device_switch_back_cast">Not casting</string>
+    <string name="np_device_switch_back_cast">Switch back to this device</string>
     <string name="np_device_connected_cast">Casting</string>
     <string name="np_device_use_cast_pill">Not casting</string>
+    <string name="np_device_dlna_error_discovery">Unable to find speakers. Connect to the same Wi-Fi network and try again.</string>
+    <string name="np_device_dlna_error_group">Unable to connect to the Sonos group. Check the speaker connection and try again.</string>
+    <string name="np_device_dlna_error_stop">The speaker did not confirm stopping. Retry before switching playback.</string>
+    <string name="np_device_dlna_error_playback">Unable to control the speaker. Check its connection and access to the Subsonic server.</string>
     <string name="np_keep_screen_on">Keep screen on</string>
     <string name="np_cd_cover_menu">Song options</string>
     <string name="np_cd_play_mode_split">Separate shuffle and repeat</string>

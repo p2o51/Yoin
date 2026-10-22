@@ -22,6 +22,9 @@ import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.player.dlna.DlnaDevice
+import com.gpo.yoin.player.dlna.DlnaError
+import com.gpo.yoin.player.dlna.DlnaManager
 import com.gpo.yoin.data.model.Track
 import androidx.media3.common.Player
 import com.gpo.yoin.ui.common.UiText
@@ -78,12 +81,14 @@ private const val PREFETCHED_LYRICS_KEPT = 3
 internal const val SKIP_DIRECTION_HOLD_MS = 1_000L
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class NowPlayingViewModel(
     private val playbackManager: PlaybackManager,
     private val repository: YoinRepository,
     private val castManager: CastManager,
     private val onPlaylistMutated: () -> Unit = {},
     private val lyricHintStore: LyricHintStore = LyricHintStore.InMemory(),
+    private val dlnaManager: DlnaManager? = null,
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
@@ -416,6 +421,29 @@ class NowPlayingViewModel(
 
     private val _devicesState = MutableStateFlow(DevicesSheetState())
     val devicesState: StateFlow<DevicesSheetState> = _devicesState.asStateFlow()
+
+    init {
+        dlnaManager?.let { manager ->
+            viewModelScope.launch {
+                combine(manager.devices, manager.connectedDevice, manager.error) { devices, selected, error ->
+                    Triple(devices, selected, error)
+                }.collect { (devices, selected, error) ->
+                    if (repository.currentProviderId() == MediaId.PROVIDER_SUBSONIC) {
+                        _devicesState.update { previous ->
+                            previous.copy(
+                                providerId = MediaId.PROVIDER_SUBSONIC,
+                                devices = mergeDevicesForStableRows(
+                                    previous.devices,
+                                    buildDevices(MediaId.PROVIDER_SUBSONIC, emptyList(), castManager.castState.value, devices, selected),
+                                ),
+                                errorMessage = error?.asUiText(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private val playbackAndContext = combine(
         // position/bufferedPosition tick 4×/s during playback, but [uiState]
@@ -1051,21 +1079,27 @@ class NowPlayingViewModel(
         viewModelScope.launch {
             val providerId = repository.currentProviderId()
             val castState = castManager.castState.value
+            val profileId = repository.currentProfileId()
             val current = _devicesState.value
             val currentDevices = current.devices.takeIf { current.providerId == providerId }.orEmpty()
             _devicesState.value = _devicesState.value.copy(
                 providerId = providerId,
-                devices = currentDevices.ifEmpty { fallbackDevices(providerId, castState) },
+                devices = currentDevices.ifEmpty { buildDevices(providerId, emptyList(), castState, dlnaManager?.devices?.value.orEmpty(), dlnaManager?.connectedDevice?.value) },
                 loading = showLoading,
                 errorMessage = null,
             )
             runCatching {
                 when (providerId) {
                     MediaId.PROVIDER_SPOTIFY -> repository.listSpotifyDevices()
+                    MediaId.PROVIDER_SUBSONIC -> {
+                        if (showLoading) dlnaManager?.discover()
+                        emptyList()
+                    }
                     else -> emptyList()
                 }
             }.onSuccess { spotifyDevices ->
-                val nextDevices = buildDevices(providerId, spotifyDevices, castState)
+                if (repository.currentProfileId() != profileId) return@onSuccess
+                val nextDevices = buildDevices(providerId, spotifyDevices, castManager.castState.value, dlnaManager?.devices?.value.orEmpty(), dlnaManager?.connectedDevice?.value)
                 val latestDevices = _devicesState.value.devices
                     .takeIf { _devicesState.value.providerId == providerId }
                     .orEmpty()
@@ -1076,8 +1110,11 @@ class NowPlayingViewModel(
                         next = nextDevices,
                     ),
                     loading = false,
+                    errorMessage = dlnaManager?.error?.value
+                        ?.takeIf { providerId == MediaId.PROVIDER_SUBSONIC }?.asUiText(),
                 )
             }.onFailure { error ->
+                if (repository.currentProfileId() != profileId) return@onFailure
                 val latestDevices = _devicesState.value.devices
                     .takeIf { _devicesState.value.providerId == providerId }
                     .orEmpty()
@@ -1099,14 +1136,21 @@ class NowPlayingViewModel(
     }
 
     fun selectDevice(device: YoinDevice) {
-        if (!device.isSelectable) return
+        if (!device.isSelectable || _devicesState.value.busyDeviceId != null) return
         viewModelScope.launch {
-            _devicesState.value = _devicesState.value.copy(busyDeviceId = device.id)
+            _devicesState.value = _devicesState.value.copy(busyDeviceId = device.id, errorMessage = null)
             val result = runCatching {
                 when (device) {
                     is YoinDevice.SpotifyConnect ->
                         repository.transferSpotifyPlayback(device.id)
-                    is YoinDevice.LocalPlayback,
+                    is YoinDevice.LocalPlayback -> playbackManager.transferFromDlna().getOrThrow()
+                    is YoinDevice.Dlna -> {
+                        val manager = requireNotNull(dlnaManager)
+                        val renderer = manager.devices.value.firstOrNull { it.id == device.id }
+                            ?: manager.connectedDevice.value?.takeIf { it.id == device.id }
+                            ?: throw IllegalStateException()
+                        playbackManager.transferToDlna(renderer).getOrThrow()
+                    }
                     is YoinDevice.Chromecast -> Unit
                 }
             }
@@ -1127,15 +1171,18 @@ class NowPlayingViewModel(
                         }
                     },
                 )
-                delay(1_200)
+                if (device is YoinDevice.SpotifyConnect) delay(1_200)
             } else {
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,
-                    errorMessage = userMessage(
+                    errorMessage = dlnaManager?.error?.value
+                        ?.takeIf { device is YoinDevice.Dlna || device is YoinDevice.LocalPlayback }
+                        ?.asUiText() ?: userMessage(
                         result.exceptionOrNull()?.message,
                         R.string.np_msg_couldnt_switch_devices,
                     ),
                 )
+                return@launch
             }
             refreshDevices(showLoading = false)
         }
@@ -1480,6 +1527,7 @@ class NowPlayingViewModel(
                 castManager = container.castManager,
                 onPlaylistMutated = container::notifyPlaylistMutation,
                 lyricHintStore = container.lyricHintStore,
+                dlnaManager = container.dlnaManager,
             ) as T
     }
 }
@@ -1551,8 +1599,26 @@ private fun buildDevices(
     providerId: String?,
     spotifyDevices: List<YoinDevice.SpotifyConnect>,
     castState: CastState,
+    dlnaDevices: List<DlnaDevice> = emptyList(),
+    selectedDlna: DlnaDevice? = null,
 ): List<YoinDevice> = when (providerId) {
     MediaId.PROVIDER_SPOTIFY -> spotifyDevices
+    MediaId.PROVIDER_SUBSONIC -> buildList {
+        addAll(fallbackDevices(providerId, castState).map { row ->
+            if (row is YoinDevice.LocalPlayback && selectedDlna != null) {
+                row.copy(isActive = false, isSelectable = true, statusText = NpDeviceStatusSwitchBack)
+            } else row
+        })
+        val renderers = (dlnaDevices + listOfNotNull(selectedDlna)).distinctBy(DlnaDevice::id)
+        addAll(renderers.map { renderer ->
+            YoinDevice.Dlna(
+                id = renderer.id,
+                name = renderer.name,
+                isActive = renderer.id == selectedDlna?.id,
+                statusText = if (renderer.id == selectedDlna?.id) NpDeviceStatusConnected else "DLNA · UPnP",
+            )
+        })
+    }
     else -> fallbackDevices(providerId, castState)
 }
 
@@ -1615,6 +1681,15 @@ private fun fallbackDevices(
 internal const val NpDeviceStatusSwitchBack = "status:local-while-casting"
 internal const val NpDeviceStatusConnected = "status:casting"
 internal const val NpDeviceStatusUsePill = "status:cast-available"
+
+private fun DlnaError.asUiText(): UiText.Res = UiText.Res(
+    when (this) {
+        DlnaError.Discovery -> R.string.np_device_dlna_error_discovery
+        DlnaError.Group -> R.string.np_device_dlna_error_group
+        DlnaError.StopUnconfirmed -> R.string.np_device_dlna_error_stop
+        DlnaError.Playback -> R.string.np_device_dlna_error_playback
+    },
+)
 
 private fun userMessage(
     raw: String?,
