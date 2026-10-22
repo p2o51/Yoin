@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-20",
+  "branch": "codex/mixed-playlist-phase2",
+  "base_commit": "c59e920ec27bb4a5aa9be8dff50a2431be1e1442",
+  "scope": [
+    "MusicKit completion intent gate",
+    "confirmed start position",
+    "debug Spotify service lifetime probe",
+    "debug Apple-Subsonic-Apple coordinator"
+  ],
+  "automated": {
+    "test_suites": 13,
+    "tests": 89,
+    "failures": 0,
+    "errors": 0,
+    "assembleDebug": "passed",
+    "assembleReleaseDebugSigned": "passed",
+    "lintDebug": "passed",
+    "lint_errors": 0,
+    "scoped_ktlint_files": 16,
+    "scoped_ktlint": "passed",
+    "full_repository_test": "not_run",
+    "full_repository_ktlintCheck": "not_run",
+    "connectedAndroidTest": "not_run"
+  },
+  "device_validation": {
+    "performed": false,
+    "status": "awaiting_device_time_window",
+    "three_track_handoff": "not_run",
+    "thirty_minute_screen_off": "not_run",
+    "spotify_foreground_wakelock_comparison": "not_run",
+    "native_queue_id_reuse": "unverified",
+    "late_saved_position_restore": "unverified"
+  },
+  "device_protection": {
+    "daily_apk_replaced": false,
+    "original_apk_sha256": "19a169d564e6e0917337a9f7fcaa8b0db21c4ead76a8105a26dab124b0379802",
+    "baseline_room_version": 32,
+    "baseline_profile_counts": {
+      "applemusic": 1,
+      "spotify": 1
+    },
+    "test_profiles_created": 0,
+    "deezer_controlled": false,
+    "sonos_controlled": false,
+    "fixture_server_stopped": true
+  },
+  "apks": {
+    "debug": {
+      "file": "Yoin-0.5.0-mixed-probe-debug.apk",
+      "sha256": "d17f140bc3cc354db70a3d8388b0ed1700b6307f1bccad3fddef7ba31234d0e7"
+    },
+    "release_debugsigned": {
+      "file": "Yoin-0.5.0-mixed-release-debugsigned.apk",
+      "sha256": "22bc0bba87df018a61c30d689a35796d877d328a22c090ad4bbf3c7d1a39e57d"
+    },
+    "certificate_sha256": "5b70f9f06f557d2a065522cef70e0dd8c275dd02e04297ca4f8560bf28ec7fcf",
+    "signature_verified": true
+  },
+  "not_implemented": [
+    "production mixed queue and persistence",
+    "playlist UI",
+    "Spotify natural end inference or pre-emption",
+    "remote shadow playlist",
+    "micro fade",
+    "Playlist Memory"
+  ]
+}

@@ -2,7 +2,26 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Only the debug Spotify lifetime experiment can request this bounded CPU lock. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application>
+        <activity android:name=".debug.SpotifyForegroundProbeActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:launchMode="singleTop" android:theme="@style/Theme.Yoin" />
+        <service android:name=".debug.SpotifyForegroundProbeService" android:exported="false"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+        <activity android:name=".debug.MixedPlaylistProbeActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:launchMode="singleTop" android:theme="@style/Theme.Yoin" />
+        <service android:name=".debug.MixedPlaylistProbeService" android:exported="false"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
         <activity android:name=".debug.DlnaProbeActivity" android:exported="true"
             android:permission="android.permission.DUMP" android:launchMode="singleTop" />
         <activity android:name=".debug.PlaylistProbeActivity" android:exported="true" android:permission="android.permission.DUMP" android:launchMode="singleTop" android:theme="@style/Theme.Yoin" />
