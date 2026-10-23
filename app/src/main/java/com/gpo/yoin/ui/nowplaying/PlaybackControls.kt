@@ -7,7 +7,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,9 +29,6 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroup
-import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -59,6 +58,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
@@ -75,10 +75,12 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.gpo.yoin.R
@@ -99,6 +101,7 @@ import com.gpo.yoin.ui.theme.withTabularFigures
 import com.gpo.yoin.ui.tips.LocalTipReadStore
 import com.gpo.yoin.ui.tips.SharedPrefsTipReadStore
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -174,12 +177,12 @@ internal fun PlaybackControls(
         // PLAY ⇄ PAUSE reshapes the pill with ONE spring: the word's box and the
         // side padding share it, and it is the Standard fast spatial spring the
         // play/pause symbol morphs with (SymbolMotion.control), so pill and glyph
-        // land together. ButtonGroup sizes each item from its max intrinsic
+        // land together. TransportKeyGroup sizes each key from its max intrinsic
         // width, and animateContentSize passes intrinsics straight through to the
         // un-animated target (ticket 4: a one-frame 20dp jump that threw NEXT
         // sideways), so the animated width has to live on the content. Presses
-        // belong to the group's animateWidth alone (the pressed item grows, its
-        // neighbour yields); Yoin adds no press widths of its own on top.
+        // belong to the group alone (the pressed key grows, its neighbour
+        // yields); Yoin adds no press widths of its own on top.
         val pillSpatialSpec = YoinMotion.fastSpatialSpec<Dp>()
         val wordWidth by animateDpAsState(
             targetValue = wordTargetWidth,
@@ -227,118 +230,103 @@ internal fun PlaybackControls(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ButtonGroup(
-                        overflowIndicator = { _ -> },
+                    TransportKeyGroup(
+                        interactions = listOf(playInteractionSource, nextInteractionSource),
                         // Weighted, not filling: measured AFTER the fixed trailing
                         // controls, so the group gets what they leave.
                         modifier = Modifier
                             .weight(1f, fill = false)
                             .height(controlButtonSize),
-                        expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        customItem(
-                            buttonGroupContent = {
-                                FilledTonalButton(
-                                    onClick = {
-                                        if (playCenter.isSpecified) {
-                                            transportSignal?.recordTap(playCenter, TransportTapKind.PlayPause)
-                                        }
-                                        haptics.performClick()
-                                        onTogglePlayPause()
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .animateWidth(playInteractionSource)
-                                        .onGloballyPositioned {
-                                            playCenter = it.boundsInRoot().center
-                                            transportSignal?.gatherAnchorRoot = playCenter
-                                        },
-                                    shape = MaterialTheme.shapes.extraLarge,
-                                    interactionSource = playInteractionSource,
-                                    contentPadding = PaddingValues(horizontal = playHorizontalPadding),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                    ),
-                                ) {
-                                    // The word's box carries the pill's width (see
-                                    // pillSpatialSpec); the English word lays out at its
-                                    // own width inside it, so it never re-sizes the pill.
-                                    // Every other language shows the symbol in the same
-                                    // box, swelling with the word's stretch.
-                                    Box(
-                                        modifier = Modifier.width(wordWidth),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (wordLabel) {
-                                            Text(
-                                                text = word,
-                                                style = wordStyle,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                modifier = Modifier
-                                                    .wrapContentWidth(unbounded = true)
-                                                    .graphicsLayer {
-                                                        scaleX = textStretchScale
-                                                        transformOrigin = TransformOrigin(0f, 0.5f)
-                                                    },
-                                            )
-                                        } else {
-                                            Icon(
-                                                painter = rememberPlayPauseSymbolPainter(playing = isPlaying),
-                                                contentDescription = if (isPlaying) {
-                                                    stringResource(R.string.np_cd_transport_pause)
-                                                } else {
-                                                    stringResource(R.string.np_cd_transport_play)
-                                                },
-                                                modifier = Modifier
-                                                    .size(controlIconSize)
-                                                    .graphicsLayer {
-                                                        scaleX = textStretchScale
-                                                        scaleY = textStretchScale
-                                                    },
-                                            )
-                                        }
-                                    }
+                        FilledTonalButton(
+                            onClick = {
+                                if (playCenter.isSpecified) {
+                                    transportSignal?.recordTap(playCenter, TransportTapKind.PlayPause)
                                 }
+                                haptics.performClick()
+                                onTogglePlayPause()
                             },
-                            menuContent = { _ -> },
-                        )
-
-                        customItem(
-                            buttonGroupContent = {
-                                FilledIconButton(
-                                    onClick = {
-                                        if (nextCenter.isSpecified) {
-                                            transportSignal?.recordTap(nextCenter, TransportTapKind.SkipNext)
-                                        }
-                                        haptics.performTick()
-                                        onSkipNext()
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .animateWidth(nextInteractionSource)
-                                        .width(controlButtonSize)
-                                        .onGloballyPositioned {
-                                            nextCenter = it.boundsInRoot().center
-                                        },
-                                    interactionSource = nextInteractionSource,
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                    ),
-                                ) {
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .onGloballyPositioned {
+                                    playCenter = it.boundsInRoot().center
+                                    transportSignal?.gatherAnchorRoot = playCenter
+                                },
+                            shape = MaterialTheme.shapes.extraLarge,
+                            interactionSource = playInteractionSource,
+                            contentPadding = PaddingValues(horizontal = playHorizontalPadding),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            // The word's box carries the pill's width (see
+                            // pillSpatialSpec); the English word lays out at its
+                            // own width inside it, so it never re-sizes the pill.
+                            // Every other language shows the symbol in the same
+                            // box, swelling with the word's stretch.
+                            Box(
+                                modifier = Modifier.width(wordWidth),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (wordLabel) {
+                                    Text(
+                                        text = word,
+                                        style = wordStyle,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier
+                                            .wrapContentWidth(unbounded = true)
+                                            .graphicsLayer {
+                                                scaleX = textStretchScale
+                                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                            },
+                                    )
+                                } else {
                                     Icon(
-                                        imageVector = YoinSymbols.SkipNextFilled,
-                                        contentDescription = stringResource(R.string.np_cd_skip_next),
-                                        modifier = Modifier.size(controlIconSize),
+                                        painter = rememberPlayPauseSymbolPainter(playing = isPlaying),
+                                        contentDescription = if (isPlaying) {
+                                            stringResource(R.string.np_cd_transport_pause)
+                                        } else {
+                                            stringResource(R.string.np_cd_transport_play)
+                                        },
+                                        modifier = Modifier
+                                            .size(controlIconSize)
+                                            .graphicsLayer {
+                                                scaleX = textStretchScale
+                                                scaleY = textStretchScale
+                                            },
                                     )
                                 }
+                            }
+                        }
+
+                        FilledIconButton(
+                            onClick = {
+                                if (nextCenter.isSpecified) {
+                                    transportSignal?.recordTap(nextCenter, TransportTapKind.SkipNext)
+                                }
+                                haptics.performTick()
+                                onSkipNext()
                             },
-                            menuContent = { _ -> },
-                        )
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(controlButtonSize)
+                                .onGloballyPositioned {
+                                    nextCenter = it.boundsInRoot().center
+                                },
+                            interactionSource = nextInteractionSource,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = YoinSymbols.SkipNextFilled,
+                                contentDescription = stringResource(R.string.np_cd_skip_next),
+                                modifier = Modifier.size(controlIconSize),
+                            )
+                        }
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -915,6 +903,101 @@ private val TransportRowGap = 4.dp
 
 private val PlayRestPadding = 24.dp
 private val TransportGap = 8.dp
+
+/** M3 `ButtonGroupDefaults.ExpandedRatio`: how much of its width a pressed key gains. */
+private const val TransportKeyExpandedRatio = 0.15f
+
+/**
+ * PLAY and NEXT as one connected group, TransportGap apart, the pressed key
+ * widening into its neighbour (M3 Expressive's ButtonGroup press, same
+ * expanded ratio). Hand-rolled on a plain [Layout] with fixed slot math, as
+ * LyricsKeyRow does: the transport lives inside the shell's
+ * SharedTransitionLayout, and M3 ButtonGroup's measure policy built negative
+ * constraints in that lookahead pass when the window rotated (Play vitals,
+ * Pixel 11 Pro XL, versionCode 12, 2026-10-21). Widths here never go below
+ * zero, whatever the pass.
+ */
+@Composable
+private fun TransportKeyGroup(
+    interactions: List<InteractionSource>,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val pressSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    val press = interactions.mapIndexed { index, interaction ->
+        val pressed by interaction.collectIsPressedAsState()
+        animateFloatAsState(
+            targetValue = if (pressed) 1f else 0f,
+            animationSpec = pressSpec,
+            label = "transportKeyPress$index",
+        )
+    }
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val gapPx = TransportGap.roundToPx()
+        val height = if (constraints.hasBoundedHeight) constraints.maxHeight else constraints.minHeight
+        val widths = transportKeyWidths(
+            natural = IntArray(measurables.size) { measurables[it].maxIntrinsicWidth(height) },
+            gapPx = gapPx,
+            maxWidth = constraints.maxWidth,
+            press = { index -> press.getOrNull(index)?.value ?: 0f },
+        )
+        val placeables = measurables.mapIndexed { index, measurable ->
+            measurable.measure(Constraints.fixed(widths[index], height))
+        }
+        val total = widths.sum() + gapPx * (measurables.size - 1).coerceAtLeast(0)
+        layout(constraints.constrainWidth(total), height) {
+            var x = 0
+            placeables.forEach { placeable ->
+                placeable.placeRelative(x, 0)
+                x += placeable.width + gapPx
+            }
+        }
+    }
+}
+
+/**
+ * Each key's width: its [natural] width with [press] (0 = at rest, 1 = held,
+ * overshoot allowed) applied. The pressed key gains
+ * [TransportKeyExpandedRatio] of its width, taken from its neighbours (both
+ * halves for a middle key, all of it from the one beside an end key), so the
+ * group's total stays put. If the keys still overrun [maxWidth], the first
+ * key (the PLAY pill) gives way first. No width goes below zero.
+ */
+internal fun transportKeyWidths(
+    natural: IntArray,
+    gapPx: Int,
+    maxWidth: Int,
+    press: (Int) -> Float,
+): IntArray {
+    val count = natural.size
+    val widths = FloatArray(count) { natural[it].coerceAtLeast(0).toFloat() }
+    if (count > 1) {
+        for (index in 0 until count) {
+            val growth = press(index) * TransportKeyExpandedRatio * natural[index].coerceAtLeast(0)
+            if (growth == 0f) continue
+            widths[index] += growth
+            when (index) {
+                0 -> widths[1] -= growth
+                count - 1 -> widths[index - 1] -= growth
+                else -> {
+                    widths[index - 1] -= growth / 2f
+                    widths[index + 1] -= growth / 2f
+                }
+            }
+        }
+    }
+    val result = IntArray(count) { widths[it].roundToInt().coerceAtLeast(0) }
+    if (maxWidth != Constraints.Infinity) {
+        var overrun = result.sum() + gapPx * (count - 1).coerceAtLeast(0) - maxWidth.coerceAtLeast(0)
+        for (index in 0 until count) {
+            if (overrun <= 0) break
+            val cut = minOf(overrun, result[index])
+            result[index] -= cut
+            overrun -= cut
+        }
+    }
+    return result
+}
 private val CompactControlSize = 48.dp
 
 // English only (see wordLabel); other languages show the symbol in a
