@@ -20,5 +20,10 @@ This product includes software developed by third parties:
   Licensed under the SIL Open Font License, Version 1.1.
   See licenses/google-sans-flex/OFL.txt.
 
+The app shows these notices, with the other open source libraries it ships
+(AndroidX, Kotlin, OkHttp, Retrofit, Gson, Coil and more), under Settings >
+About > Open source licenses. The texts it shows are in app/src/main/res/raw;
+keep them in step with this file and licenses/.
+
 Apple MusicKit for Android is not included in this repository and is not
 covered by this license. See app/libs/README-apple-music.md.

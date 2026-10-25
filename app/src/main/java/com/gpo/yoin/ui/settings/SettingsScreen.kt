@@ -475,6 +475,13 @@ fun SettingsContent(
                                         item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
                                         item { PrivacyPolicyItem(snackbarHostState) }
+                                        item(key = SettingsFeature.Licenses, paintsOwnSegment = listDetail) {
+                                            LicensesItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.Licenses,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Licenses) },
+                                            )
+                                        }
                                         spotoolfyRecapBatchId?.let { batchId ->
                                             item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
                                         }
@@ -1481,7 +1488,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, Tips, PlaylistBackups }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, Tips, PlaylistBackups, Licenses }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1518,6 +1525,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
+        SettingsFeature.Licenses -> stringResource(R.string.settings_about_licenses)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1572,6 +1580,8 @@ internal fun SettingsFeatureScreen(
                         ScrollEdgePageContent()
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
+                    } else if (feature == SettingsFeature.Licenses) {
+                        OpenSourceLicensesPageContent()
                     } else if (feature == SettingsFeature.PlaylistBackups) {
                         // Its own ViewModel over the backups table: no need to wait for the Settings state.
                         PlaylistBackupsPageContent()
@@ -1599,7 +1609,9 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.Tips, SettingsFeature.PlaylistBackups -> Unit
+                                    SettingsFeature.ScrollEdge, SettingsFeature.Tips, SettingsFeature.PlaylistBackups,
+                                    SettingsFeature.Licenses,
+                                    -> Unit
                                 }
                             }
                         }
@@ -1645,6 +1657,21 @@ private fun TipsItem(
         FeaturePageRow(icon = YoinSymbols.Sparkle, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.Sparkle, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › About › Open source licenses: the fonts and libraries Yoin ships, and their licenses. */
+@Composable
+private fun LicensesItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_about_licenses)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Code, title = title, summary = null, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Code, title = title, onClick = onOpenPage)
     }
 }
 

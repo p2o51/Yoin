@@ -95,6 +95,8 @@
 
     <string name="settings_motion_scroll_edge">Scroll edge</string>
     <string name="settings_about_tips">Tips</string>
+    <string name="settings_about_licenses">Open source licenses</string>
+    <string name="settings_licenses_intro">Yoin is built with these fonts and open source libraries. Thanks to everyone who made them. Tap one to read its license.</string>
     <string name="settings_tips_read_count">%1$d of %2$d read</string>
     <string name="settings_tips_all_read">All read</string>
     <string name="settings_tips_mark_all_unread">Mark all as unread</string>
