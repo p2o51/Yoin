@@ -48,7 +48,6 @@ internal data class OssComponent(
 
 internal val OpenSourceComponents = listOf(
     OssComponent("Google Sans Flex", "Copyright 2022 The Google Sans Flex Project Authors", OssLicense.Ofl11),
-    OssComponent("Material Symbols", "Copyright Google LLC", OssLicense.Apache2),
     OssComponent("Material Color Utilities", "Copyright 2022 Google LLC", OssLicense.Apache2),
     OssComponent(
         "Jetpack Compose, Material 3 and AndroidX",
