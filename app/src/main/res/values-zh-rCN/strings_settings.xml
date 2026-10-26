@@ -80,6 +80,8 @@
 
     <string name="settings_motion_scroll_edge">滚动边缘</string>
     <string name="settings_about_tips">小技巧</string>
+    <string name="settings_about_licenses">开源许可</string>
+    <string name="settings_licenses_intro">Yoin 用到了下面这些字体和开源库，感谢它们的作者。点一项可以查看完整许可。</string>
     <string name="settings_tips_read_count">已读 %1$d / %2$d</string>
     <string name="settings_tips_all_read">全部已读</string>
     <string name="settings_tips_mark_all_unread">全部标为未读</string>
