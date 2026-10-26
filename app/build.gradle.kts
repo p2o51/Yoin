@@ -54,8 +54,8 @@ android {
         applicationId = "com.gpo.yoin"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.5.0"
+        versionCode = 13
+        versionName = "0.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
