@@ -2,8 +2,8 @@
 # Core
 agp = "9.1.0"
 asm = "9.9"
-kotlin = "2.3.20"
-ksp = "2.3.6"
+kotlin = "2.4.21"
+ksp = "2.3.12"
 
 # Compose
 composeBom = "2026.03.01"
@@ -37,7 +37,7 @@ googleId = "1.1.1"
 okhttp = "5.0.0-alpha.14"
 retrofit = "3.0.0"
 retrofitKotlinxSerialization = "1.0.0"
-kotlinxSerialization = "1.8.0"
+kotlinxSerialization = "1.12.0"
 gson = "2.13.1"
 
 # Image
