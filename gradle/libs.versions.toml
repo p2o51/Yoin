@@ -1,6 +1,6 @@
 [versions]
 # Core
-agp = "9.1.0"
+agp = "9.4.1"
 asm = "9.9"
 kotlin = "2.3.20"
 ksp = "2.3.6"
