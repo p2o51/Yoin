@@ -48,7 +48,7 @@ if (releaseTaskRequested && !hasReleaseKeystore) {
 
 android {
     namespace = "com.gpo.yoin"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.gpo.yoin"
@@ -140,6 +140,9 @@ android {
                 it.maxHeapSize = "2g"
                 it.maxParallelForks = 1
                 it.forkEvery = 100
+                // Robolectric 4.17 sets up the API 36 ApplicationSharedMemory through
+                // jdk.internal.access.SharedSecrets, which java.base doesn't export.
+                it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
             }
         }
     }

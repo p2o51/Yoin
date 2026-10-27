@@ -108,7 +108,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
@@ -1389,9 +1388,7 @@ private fun CompactPlayingContent(
             LyricsTools(
                 state = state,
                 selection = lyricsSelection,
-                searchModifier = Modifier.onGloballyPositioned {
-                    lyricsSearchBarState.collapsedCoords = it
-                },
+                searchBarState = lyricsSearchBarState,
                 canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                 onSearchClick = lyricsActions.onOpenLyricsSearch,
                 onTranslateClick = lyricsActions.onTranslateLyrics,
@@ -2633,9 +2630,7 @@ private fun WidePlayingContent(
                                             state = state,
                                             selection = lyricsSelection,
                                             modifier = Modifier.graphicsLayer { alpha = lyricToolsAlpha },
-                                            searchModifier = Modifier.onGloballyPositioned {
-                                                lyricsSearchBarState.collapsedCoords = it
-                                            },
+                                            searchBarState = lyricsSearchBarState,
                                             canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                                             onSearchClick = onOpenLyricsSearch,
                                             onTranslateClick = onTranslateLyrics,
@@ -3029,9 +3024,7 @@ private fun LandscapePlayingContent(
                         LyricsTools(
                             state = state,
                             selection = lyricsSelection,
-                            searchModifier = Modifier.onGloballyPositioned {
-                                lyricsSearchBarState.collapsedCoords = it
-                            },
+                            searchBarState = lyricsSearchBarState,
                             canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                             onSearchClick = onOpenLyricsSearch,
                             onTranslateClick = onTranslateLyrics,

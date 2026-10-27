@@ -7,15 +7,20 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
@@ -35,6 +40,7 @@ import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.roundToInt
 
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LyricsActionBar(
     actionInFlight: LyricsAction?,
@@ -46,7 +52,8 @@ internal fun LyricsActionBar(
     onSelectClick: () -> Unit,
     onRecenterClick: () -> Unit,
     modifier: Modifier = Modifier,
-    searchModifier: Modifier = Modifier,
+    // The lyrics search expands from (and collapses back into) the search key.
+    searchBarState: SearchBarState? = null,
     // 52 in the bottom accessory; smaller when the tools ride the tab row
     // (16:9 lyrics page, enlarged phone — 断点交接 §3.1 / §3.4).
     iconSize: Dp = 52.dp,
@@ -63,15 +70,31 @@ internal fun LyricsActionBar(
             iconSize = iconSize,
             modifier = modifier,
         ) {
-            LyricsActionIcon(
-                icon = rememberVectorPainter(YoinSymbols.Search),
-                contentDescription = stringResource(R.string.np_cd_search_lyrics),
-                interactionSource = searchInteraction,
-                enabled = actionInFlight == null,
-                onClick = onSearchClick,
-                size = iconSize,
-                modifier = searchModifier,
-            )
+            val searchKey: @Composable () -> Unit = {
+                LyricsActionIcon(
+                    icon = rememberVectorPainter(YoinSymbols.Search),
+                    contentDescription = stringResource(R.string.np_cd_search_lyrics),
+                    interactionSource = searchInteraction,
+                    enabled = actionInFlight == null,
+                    onClick = onSearchClick,
+                    size = iconSize,
+                )
+            }
+            if (searchBarState != null) {
+                // A bare, see-through collapsed SearchBar: the only public way to give
+                // SearchBarState its collapsed bounds, so the expanded search grows
+                // out of this key.
+                SearchBar(
+                    state = searchBarState,
+                    inputField = searchKey,
+                    shape = RoundedCornerShape(iconSize * 0.31f),
+                    colors = SearchBarDefaults.colors(containerColor = Color.Transparent),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                )
+            } else {
+                searchKey()
+            }
             // The translate key stays lit while its own translation runs, so
             // the 文 ⇄ A orbit is visible (a disabled IconButton drops its
             // content to 38% alpha); taps are ignored until it finishes.

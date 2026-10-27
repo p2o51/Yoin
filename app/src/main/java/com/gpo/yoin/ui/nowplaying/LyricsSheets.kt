@@ -71,8 +71,8 @@ import kotlinx.coroutines.launch
  *
  * Always composed by the caller (no `if (isOpen)` gate): when collapsed the search
  * bar renders nothing, so the morph in/out is the official animation. The caller
- * binds [SearchBarState.collapsedCoords] to the actual search button, just as
- * Material SearchBar does, so opening/closing uses that button as its anchor.
+ * passes the same [SearchBarState] to [LyricsActionBar], which wraps the search
+ * button in a collapsed SearchBar, so opening/closing uses that button as its anchor.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -243,6 +245,7 @@ internal fun lyricsCopiedMessage(count: Int, resources: Resources? = null): Stri
  * The lyric tools, or — in select mode — the selection actions, in the same
  * slot and footprint (four keys either way), cross-faded on the effects spring.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LyricsTools(
     state: NowPlayingUiState.Playing,
@@ -254,7 +257,7 @@ internal fun LyricsTools(
     onEditLyricsClick: () -> Unit,
     onMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
-    searchModifier: Modifier = Modifier,
+    searchBarState: SearchBarState? = null,
     // Runs before select mode opens — the compact stage expands to the full
     // lyrics page first (select mode lives there).
     onBeforeSelect: () -> Unit = {},
@@ -306,7 +309,7 @@ internal fun LyricsTools(
             )
         } else {
             LyricsActionBar(
-                searchModifier = searchModifier,
+                searchBarState = searchBarState,
                 actionInFlight = state.lyricsActionInFlight,
                 canTranslate = state.lyrics.isNotEmpty(),
                 canSelect = state.lyrics.isNotEmpty(),
