@@ -154,7 +154,7 @@ internal fun TipScreen(
                     haptics.performClick()
                     store.setRead(current, checked)
                 },
-                shapes = ToggleButtonDefaults.shapes(),
+                shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight),
                 modifier = Modifier.height(TipButtonHeight),
             ) {
                 if (isRead) {

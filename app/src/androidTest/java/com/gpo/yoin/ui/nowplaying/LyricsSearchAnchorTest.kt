@@ -52,11 +52,10 @@ class LyricsSearchAnchorTest {
                         actionInFlight = null, canTranslate = false, canSelect = false, canRecenter = false,
                         onSearchClick = { open = true },
                         onTranslateClick = {}, onSelectClick = {}, onRecenterClick = {},
-                        modifier = Modifier.offset(24.dp, 480.dp),
-                        searchModifier = Modifier.onGloballyPositioned {
-                            search.collapsedCoords = it
+                        modifier = Modifier.offset(24.dp, 480.dp).onGloballyPositioned {
                             anchorY = it.positionInWindow().y / density
                         },
+                        searchBarState = search,
                     )
                     LyricsSearchSheet(
                         state = LyricsSearchState(isOpen = open),
@@ -78,7 +77,6 @@ class LyricsSearchAnchorTest {
             // unbound SearchBarState instead positions it near the top-left.
             assertTrue("Search must start at its action, not the top of the window", back.top.value > anchorY * 0.8f)
             rule.runOnIdle {
-                assertTrue(search.collapsedCoords!!.isAttached)
                 scope.launch { search.animateToExpanded() }
             }
             rule.mainClock.advanceTimeBy(1_500)

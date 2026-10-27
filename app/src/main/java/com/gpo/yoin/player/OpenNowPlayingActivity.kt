@@ -27,7 +27,7 @@ class OpenNowPlayingActivity : Activity() {
         // Yoin's own task, whatever started it (the launcher, a widget, a sign-in hand-back): brought
         // forward as it is. The launcher intent alone only resumes a task the launcher itself began.
         val task = getSystemService(ActivityManager::class.java)?.appTasks?.firstOrNull { task ->
-            runCatching { task.taskInfo.baseActivity?.className == MainActivity::class.java.name }.getOrDefault(false)
+            runCatching { task.taskInfo?.baseActivity?.className == MainActivity::class.java.name }.getOrDefault(false)
         }
         // A page with no player of its own (Settings, a sign-in, a tip page) comes back as it was; the ask then
         // lapses unused (ExperienceSessionStore.NOW_PLAYING_REQUEST_TTL_NS) instead of opening Now Playing

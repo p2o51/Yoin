@@ -6,6 +6,7 @@ import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MenuAnchorPosition
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,7 +55,10 @@ fun YoinDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        offset = offset,
+        popupPositionProvider = MenuDefaults.rememberDropdownMenuPopupPositionProvider(
+            MenuAnchorPosition.Below,
+            offset,
+        ),
     ) {
         DropdownMenuGroup(
             shapes = MenuDefaults.groupShapes(),
