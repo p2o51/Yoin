@@ -143,8 +143,6 @@ android {
                 // Robolectric 4.17 sets up the API 36 ApplicationSharedMemory through
                 // jdk.internal.access.SharedSecrets, which java.base doesn't export.
                 it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
-                it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-                it.testLogging.showStandardStreams = true
             }
         }
     }
