@@ -68,7 +68,7 @@ ktlint = "12.1.2"
 
 # Icons — Yoin Symbols. Built from source via composite build (settings.gradle.kts)
 # until it is published to Maven Central.
-yoinSymbols = "0.1.0"
+yoinSymbols = "0.2.0"
 
 [libraries]
 android-gradleApi = { group = "com.android.tools.build", name = "gradle-api", version.ref = "agp" }
