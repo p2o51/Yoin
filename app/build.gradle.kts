@@ -48,7 +48,7 @@ if (releaseTaskRequested && !hasReleaseKeystore) {
 
 android {
     namespace = "com.gpo.yoin"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.gpo.yoin"
@@ -140,6 +140,7 @@ android {
                 it.maxHeapSize = "2g"
                 it.maxParallelForks = 1
                 it.forkEvery = 100
+                it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
             }
         }
     }

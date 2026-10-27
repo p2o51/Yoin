@@ -1,18 +1,17 @@
 [versions]
 # Core
-agp = "9.1.0"
+agp = "9.2.1"
 asm = "9.9"
-kotlin = "2.3.20"
-ksp = "2.3.6"
+kotlin = "2.4.21"
+ksp = "2.3.12"
 
 # Compose
-composeBom = "2026.03.01"
-material3Expressive = "1.5.0-alpha16"
+composeBom = "2026.09.00"
+material3Expressive = "1.5.0-alpha27"
 # Window size class + fold posture (currentWindowAdaptiveInfo). NOT in the
 # Compose BOM — versioned independently. Pulls androidx.window transitively.
-# 1.2.0 is the newest line that still compiles against compileSdk 36; 1.3.x
-# requires compileSdk 37 (not installed; preview).
-material3Adaptive = "1.2.0"
+# 1.3.x requires compileSdk 37.
+material3Adaptive = "1.3.0"
 # Activity Embedding（shell↔detail 大屏分栏）。adaptive 只传递 window-core；
 # SplitPairRule/RuleController 在 androidx.window:window 里，需要显式依赖。
 window = "1.5.1"
@@ -34,10 +33,10 @@ credentials = "1.5.0"
 googleId = "1.1.1"
 
 # Networking
-okhttp = "5.0.0-alpha.14"
+okhttp = "5.5.0"
 retrofit = "3.0.0"
 retrofitKotlinxSerialization = "1.0.0"
-kotlinxSerialization = "1.8.0"
+kotlinxSerialization = "1.12.0"
 gson = "2.13.1"
 
 # Image
@@ -62,7 +61,7 @@ androidxTestCore = "1.7.0"
 # Instrumented tests on API 37 need these (older ones call the removed InputManager.getInstance)
 androidxTestRunner = "1.7.0"
 espresso = "3.7.0"
-robolectric = "4.16.1"
+robolectric = "4.17"
 
 # Code quality
 ktlint = "12.1.2"
@@ -143,7 +142,7 @@ glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", versi
 glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 
 # Core AndroidX
-core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.15.0" }
+core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.19.0" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.2.0" }
 androidx-browser = { group = "androidx.browser", name = "browser", version = "1.10.0" }
 
