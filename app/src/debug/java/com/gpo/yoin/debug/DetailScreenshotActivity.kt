@@ -14,6 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
 import com.gpo.yoin.ui.detail.AlbumDetailUiState
+import com.gpo.yoin.ui.detail.AlbumScrapbookUiState
 import com.gpo.yoin.ui.detail.AlbumSong
 import com.gpo.yoin.ui.detail.DetailMiniPlayerState
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -72,6 +73,8 @@ class DetailScreenshotActivity : ComponentActivity() {
                         isPlaying = true,
                     ),
                     playbackProgress = 0.37f,
+                    // A second page so the page dots show up in QA.
+                    scrapbook = AlbumScrapbookUiState.Loading,
                 )
                 }
             }
