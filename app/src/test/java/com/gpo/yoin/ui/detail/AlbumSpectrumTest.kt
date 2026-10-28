@@ -189,11 +189,11 @@ class AlbumSpectrumTest {
         assertEquals(minOf(420f * 0.56f, 240f), g.cover.width, 0.01f)
         assertEquals(112f + 4f, g.cover.top, 0.01f)
         assertEquals(420f - 16f - 48f, g.stamp.left, 0.01f)
-        // The arms reach well past the cover's end edge, under the meta column.
+        // The arms hang below the cover, under the first title lines.
         val pose = g.butterflyFrom
         val mark = minOf(pose.width, pose.height) * pose.scale
-        val reach = 0.46f * mark * pose.squashX
-        assertTrue(pose.left + pose.width / 2f + reach >= g.cover.right + 0.5f * g.cover.width)
+        val markBottom = pose.top + pose.height / 2f + pose.translationY + mark / 2f
+        assertTrue(markBottom >= g.cover.bottom + 0.4f * g.cover.height)
     }
 
     // ---- the Compact height breakpoint ----

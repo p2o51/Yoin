@@ -110,11 +110,12 @@ private const val CompactArrowScale = 1.8f
 private const val CompactArrowOffsetYFraction = -0.1f
 private const val CompactArrowSquashX = 1.8f
 
-// Short portrait: the arms scaled up about the cover and squashed wide, nudged
-// down, so they reach past it to the end side and below it (cf. Compact's band).
-private const val ShortArrowScale = 1.8f
-private const val ShortArrowOffsetYFraction = 0.08f
-private const val ShortArrowSquashX = 1.4f
+// Short portrait: the arms scaled up about the cover and hung low, so they
+// reach out below it under the first title lines while the meta column beside
+// the cover stays clear (grey meta text on a dark arm doesn't read).
+private const val ShortArrowScale = 1.6f
+private const val ShortArrowOffsetYFraction = 0.3f
+private const val ShortArrowSquashX = 1.0f
 
 // Landscape / Medium: the whole mark hugging the cover, 1.3 × its side, hanging below its top edge.
 private const val HuggingMarkScale = 1.3f
@@ -249,10 +250,9 @@ internal fun albumBarGeometry(
                 coverTop = headerHeight + AlbumTrackListTopPadding.toPx()
             }
             fromPose = if (layout == AlbumBarLayout.Short && pageEdgesAreScreenEdges) {
-                // Short: like the portrait band, the arms are scaled up and squashed
-                // wide so they reach out from behind the cover: under the meta
-                // column, down under the first title lines, and off the start
-                // edge. The text runs across them (owner 2026-10-28).
+                // Short: like the portrait band, the arms are scaled up so they reach
+                // out from behind the cover, down under the first title lines and
+                // off the start edge. The titles run across them (owner 2026-10-28).
                 MarkPose(
                     left = coverStart,
                     top = coverTop,
