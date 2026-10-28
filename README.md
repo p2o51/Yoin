@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/p2o51/Yoin/actions/workflows/ci.yml/badge.svg)](https://github.com/p2o51/Yoin/actions/workflows/ci.yml)
 
-An Android music client for Subsonic, Spotify and Apple Music, designed for phones, foldables and tablets.
+A native Android music client for your own server (Subsonic / OpenSubsonic), Spotify and Apple Music, built with Jetpack Compose and Material 3 Expressive for phones, foldables and tablets.
 
 <!-- Hero GIF: export yoin-hero.gif (and yoin-hero-dark.gif, if there is one) to docs/media/, then use:
 <picture>
@@ -11,7 +11,7 @@ An Android music client for Subsonic, Spotify and Apple Music, designed for phon
 </picture>
 -->
 
-Ratings, notes and Memories stay on the device. Cloud sync to your own Google Drive is optional.
+Score tracks and albums down to 0.1, follow line-by-line synced lyrics, pin notes to the exact second, and look back through album Memories. Local-first by design, with optional sync through hidden files in your own Google Drive or to NeoDB.
 
 ## Highlights
 
@@ -85,11 +85,10 @@ follow are in [`AGENTS.md`](AGENTS.md), [`docs/`](docs) and the unit tests.
 
 ## Status
 
-In closed testing on Google Play.
+Yoin 0.5 is in a closed test on Google Play for Android 8.0 and later. See [yoin.gojyuplus.com](https://yoin.gojyuplus.com) for how to join and the [user docs](https://yoin.gojyuplus.com/docs.html).
 
 ## Known issues
 
-- Spotify playback needs Spotify Premium and the Spotify app on the same device.
 - Apple Music: a queue of more than 300 songs starts as a 100-song window around the selected song.
   Play next and Add to queue with more than 300 songs are not handled yet.
 - Apple Music sometimes refuses library reads for a few minutes. The cause is unknown. Playlists that
