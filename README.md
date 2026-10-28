@@ -89,6 +89,7 @@ Yoin 0.5 is in a closed test on Google Play for Android 8.0 and later. See [yoin
 
 ## Known issues
 
+- Spotify playback needs Spotify Premium and the Spotify app on the same device.
 - Apple Music: a queue of more than 300 songs starts as a 100-song window around the selected song.
   Play next and Add to queue with more than 300 songs are not handled yet.
 - Apple Music sometimes refuses library reads for a few minutes. The cause is unknown. Playlists that
