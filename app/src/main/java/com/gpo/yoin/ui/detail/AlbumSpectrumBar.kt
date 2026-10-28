@@ -110,13 +110,6 @@ private const val CompactArrowScale = 1.8f
 private const val CompactArrowOffsetYFraction = -0.1f
 private const val CompactArrowSquashX = 1.8f
 
-// Short portrait: the arms scaled up about the cover and hung low, so they
-// reach out below it under the first title lines while the meta column beside
-// the cover stays clear (grey meta text on a dark arm doesn't read).
-private const val ShortArrowScale = 1.6f
-private const val ShortArrowOffsetYFraction = 0.3f
-private const val ShortArrowSquashX = 1.0f
-
 // Landscape / Medium: the whole mark hugging the cover, 1.3 × its side, hanging below its top edge.
 private const val HuggingMarkScale = 1.3f
 
@@ -142,12 +135,13 @@ internal fun albumHeroBandPx(width: Float, density: Density): Float =
     albumHeroCoverSidePx(width, density) + with(density) { 56.dp.toPx() }
 
 // Short portrait (cover beside the meta): the cover starts on the titles' 16dp
-// line, takes a little over half the width, and sits under the header like
-// landscape. Big enough that the mark behind it reaches out under the meta and
-// the first title lines, so the text runs across its arms (owner 2026-10-28).
+// line, takes over 60% of the width, and sits under the header like landscape.
+// Big on purpose: the row (and the meta beside it, narrower and so taller) pushes
+// the flowing titles down until the last lines run under the bar, as on a
+// portrait phone, instead of ending in a gap above it (owner 2026-10-28).
 internal val AlbumShortCoverStart = 16.dp
-internal val AlbumShortCoverMaxSide = 240.dp
-private const val AlbumShortCoverWidthFraction = 0.56f
+internal val AlbumShortCoverMaxSide = 260.dp
+private const val AlbumShortCoverWidthFraction = 0.62f
 
 /** Short-portrait cover side for a page [width] px wide. */
 internal fun albumShortCoverSidePx(width: Float, density: Density): Float =
@@ -249,22 +243,11 @@ internal fun albumBarGeometry(
                 coverStart = (width - column) / 2f + 16.dp.toPx()
                 coverTop = headerHeight + AlbumTrackListTopPadding.toPx()
             }
-            fromPose = if (layout == AlbumBarLayout.Short && pageEdgesAreScreenEdges) {
-                // Short: like the portrait band, the arms are scaled up so they reach
-                // out from behind the cover, down under the first title lines and
-                // off the start edge. The titles run across them (owner 2026-10-28).
-                MarkPose(
-                    left = coverStart,
-                    top = coverTop,
-                    width = coverSide,
-                    height = coverSide,
-                    scale = ShortArrowScale,
-                    translationY = ShortArrowOffsetYFraction * coverSide,
-                    squashX = ShortArrowSquashX,
-                )
-            } else {
-                huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, HuggingEdgeClearance.toPx())
-            }
+            // Short sits its cover on the 16dp line, too close to the edge for the
+            // 8dp clearance to leave the mark its size (only a sliver showed past
+            // the cover); on a screen edge its near arm may run to the edge itself.
+            val clearance = if (layout == AlbumBarLayout.Short && pageEdgesAreScreenEdges) 0f else HuggingEdgeClearance.toPx()
+            fromPose = huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, clearance)
         }
     }
     fun mirror(x: Float, w: Float) = if (rtl) width - x - w else x
