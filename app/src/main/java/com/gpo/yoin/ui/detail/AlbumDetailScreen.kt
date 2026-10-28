@@ -461,12 +461,7 @@ private fun AlbumDetailContent(
     // when the cover leaves view it turns into the header's spectrum. The pull-up
     // drives it on Compact and landscape, the page scroll on Medium; a Wide full
     // window keeps its cover in the identity column and never forms the bar.
-    val barLayout = when {
-        useWideOverview -> null
-        useMediumOverview -> AlbumBarLayout.Medium
-        landscape -> AlbumBarLayout.Landscape
-        else -> AlbumBarLayout.Compact
-    }
+    // (Picked inside the BoxWithConstraints below: Short needs the page height.)
     // Staged "启幕" for this album: cover lands first (grow-in), the hero meta
     // rises a beat later. Once per album per page instance — rotation never
     // replays, and the reveal compose stays out of the pull-up reshape math.
@@ -506,6 +501,18 @@ private fun AlbumDetailContent(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val widthPx = constraints.maxWidth.toFloat()
         val heightPx = constraints.maxHeight.toFloat()
+        // The height breakpoint on Compact width (albumHeroFitsPortrait): when the
+        // portrait hero would push every track title under the bar (a Fold outer
+        // screen), the cover moves to the start and the meta stacks beside it.
+        val shortPortrait = !landscape && !useWideOverview && !useMediumOverview &&
+            !albumHeroFitsPortrait(maxWidth.value, maxHeight.value, density.fontScale)
+        val barLayout = when {
+            useWideOverview -> null
+            useMediumOverview -> AlbumBarLayout.Medium
+            landscape -> AlbumBarLayout.Landscape
+            shortPortrait -> AlbumBarLayout.Short
+            else -> AlbumBarLayout.Compact
+        }
         // Landscape handsets: the header and body clear the capsule band and a
         // cutout (detailChromeBand); the bar itself runs edge to edge under them.
         val startInsetPx = with(density) {
@@ -616,7 +623,7 @@ private fun AlbumDetailContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .then(
-                            if (barLayout == AlbumBarLayout.Compact) {
+                            if (barLayout == AlbumBarLayout.Compact || barLayout == AlbumBarLayout.Short) {
                                 Modifier.stagedBeat(progress = { stagedReveal.hero }, rise = 20.dp, scaleFrom = 0.94f)
                             } else {
                                 Modifier
@@ -676,6 +683,7 @@ private fun AlbumDetailContent(
                         pagerScope.launch { pagerState.animateScrollToPage(page, animationSpec = pageSpec) }
                     },
                     onBackClick = onBackClick,
+                    dotsInTitleRow = shortPortrait,
                     titleEndRoom = if (barLayout == null) 0.dp else stampSize + AlbumBarTitleGap,
                     titleEndProgress = {
                         if (barLayout == null) 0f else smoothStep(0f, 1f, progress()) * (1f - pageFraction())
@@ -700,6 +708,7 @@ private fun AlbumDetailContent(
                             pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
                             selectedPage = pagerState.settledPage,
                             pageCount = pageCount,
+                            dotsInTitleRow = shortPortrait,
                             titleEndRoom = stampSize + AlbumBarTitleGap,
                             titleEndProgress = { smoothStep(0f, 1f, progress()) * (1f - pageFraction()) },
                             modifier = Modifier
@@ -754,6 +763,22 @@ private fun AlbumDetailContent(
                             } else if (landscape) {
                                 AlbumLandscapeOverview(
                                     content = content,
+                                    accent = primaryBlock,
+                                    revealState = reveal,
+                                    expanded = expanded,
+                                    onExpandedCommit = { expanded = it },
+                                    notedSongIds = notedSongIds,
+                                    currentTrackId = currentTrackId,
+                                    isPlaying = isPlaying,
+                                    onSongClick = onSongClick,
+                                    onToggleStar = onToggleStar,
+                                    trackMenu = pageTrackMenu,
+                                    onEditComment = { showEditSheet = true },
+                                )
+                            } else if (shortPortrait) {
+                                AlbumShortOverview(
+                                    content = content,
+                                    stagedReveal = stagedReveal,
                                     accent = primaryBlock,
                                     revealState = reveal,
                                     expanded = expanded,
@@ -851,6 +876,9 @@ private fun AlbumTopHeader(
     onPageClick: (Int) -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // Short portrait: the page dots sit at the title row's end instead of a row of
+    // their own under it, giving that row's height back to the page.
+    dotsInTitleRow: Boolean = false,
     // The bar's stamp: the title gives up this much room at its end as the bar forms.
     titleEndRoom: Dp = 0.dp,
     titleEndProgress: () -> Float = { 0f },
@@ -858,6 +886,11 @@ private fun AlbumTopHeader(
     // The bar's white twin: drawn only, never touched (the real header sits below it).
     visualOnly: Boolean = false,
 ) {
+    val dotsInactive = if (visualOnly) {
+        Color.White.copy(alpha = 0.4f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -896,6 +929,19 @@ private fun AlbumTopHeader(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            if (pageCount > 1 && dotsInTitleRow) {
+                // Before the stamp's room, so the dots slide aside as the bar forms.
+                AlbumPageDots(
+                    activeFraction = pageFraction,
+                    selectedPage = selectedPage,
+                    activeColor = accentText,
+                    inactiveColor = dotsInactive,
+                    onPageClick = onPageClick,
+                    count = pageCount,
+                    visualOnly = visualOnly,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
             // Read in layout only: the title's end follows the stamp frame by frame.
             Spacer(
                 modifier = Modifier.layout { measurable, constraints ->
@@ -905,16 +951,12 @@ private fun AlbumTopHeader(
                 },
             )
         }
-        if (pageCount > 1) {
+        if (pageCount > 1 && !dotsInTitleRow) {
             AlbumPageDots(
                 activeFraction = pageFraction,
                 selectedPage = selectedPage,
                 activeColor = accentText,
-                inactiveColor = if (visualOnly) {
-                    Color.White.copy(alpha = 0.4f)
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                },
+                inactiveColor = dotsInactive,
                 onPageClick = onPageClick,
                 count = pageCount,
                 visualOnly = visualOnly,
@@ -946,6 +988,7 @@ internal fun AlbumBarHeaderTwin(
     titleEndRoom: Dp,
     titleEndProgress: () -> Float,
     modifier: Modifier = Modifier,
+    dotsInTitleRow: Boolean = false,
 ) {
     val onBar = Color.White
     MaterialTheme(
@@ -968,6 +1011,7 @@ internal fun AlbumBarHeaderTwin(
             pageCount = pageCount,
             onPageClick = {},
             onBackClick = {},
+            dotsInTitleRow = dotsInTitleRow,
             titleEndRoom = titleEndRoom,
             titleEndProgress = titleEndProgress,
             visualOnly = true,
@@ -1201,16 +1245,15 @@ private fun AlbumHeroMetaBlocks(
     onEditComment: () -> Unit,
     onTapBun: () -> Unit,
     modifier: Modifier = Modifier,
+    // Short portrait: one block per line (Last Play, then the score, then the
+    // comment) in the narrow column beside the cover, instead of Last Play | score.
+    stacked: Boolean = false,
 ) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        val lastPlay: @Composable () -> Unit = {
             Column {
                 AlbumSectionLabel(
                     text = stringResource(R.string.detail_album_last_play),
@@ -1253,7 +1296,9 @@ private fun AlbumHeroMetaBlocks(
                     )
                 }
             }
-            // No "Rating"/"Avg." caption: the emblem says what it is (owner 2026-10-05).
+        }
+        // No "Rating"/"Avg." caption: the emblem says what it is (owner 2026-10-05).
+        val emblem: @Composable () -> Unit = {
             AlbumScoreEmblem(
                 spec = content.emblemSpec(),
                 coverArtUrl = content.coverArtUrl,
@@ -1262,6 +1307,19 @@ private fun AlbumHeroMetaBlocks(
                 enabled = interactive,
                 onClick = onTapBun,
             )
+        }
+        if (stacked) {
+            lastPlay()
+            emblem()
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                lastPlay()
+                emblem()
+            }
         }
 
         // The comment is the user's own words, so no "Comment" caption: written,
@@ -1685,6 +1743,134 @@ private fun AlbumLandscapeOverview(
     }
 }
 
+// Short portrait (AlbumBarLayout.Short — a Compact-width window too short for
+// the portrait hero, e.g. a Fold outer screen; see albumHeroFitsPortrait): the
+// cover moves to the start with the meta stacked beside it, one block per line,
+// and the track count + flowing titles run full width underneath, so they show
+// above the bar. Pulling up runs the SAME reshape as portrait into the list.
+private val AlbumShortHeroGap = 20.dp
+
+@Composable
+private fun AlbumShortOverview(
+    content: AlbumDetailUiState.Content,
+    stagedReveal: StagedReveal,
+    accent: Color,
+    revealState: RevealState,
+    expanded: Boolean,
+    onExpandedCommit: (Boolean) -> Unit,
+    notedSongIds: Set<String>,
+    currentTrackId: String?,
+    isPlaying: Boolean,
+    onSongClick: (songId: String) -> Unit,
+    onToggleStar: (songId: String) -> Unit,
+    trackMenu: TrackMenuHost?,
+    onEditComment: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val listState = rememberLazyListState()
+    val travelPx = remember { mutableFloatStateOf(1f) }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        travelPx.floatValue = with(density) { maxHeight.toPx() } * DetailPullUpTravelFraction
+        val gestures = rememberDetailPullUpGestures(
+            revealState = revealState,
+            listState = listState,
+            travelPx = travelPx,
+            onExpandedCommit = onExpandedCommit,
+        )
+        // Read HERE so only this page recomposes per reshape frame.
+        val expand = 1f - revealState.fraction
+        // Same rule as the bar layer's geometry, so the cover lands in this slot.
+        val coverSide = with(density) { albumShortCoverSidePx(constraints.maxWidth.toFloat(), density).toDp() }
+        if (expand > 0.001f) {
+            AlbumTrackList(
+                content = content,
+                accent = accent,
+                notedSongIds = notedSongIds,
+                currentTrackId = currentTrackId,
+                isPlaying = isPlaying,
+                onSongClick = onSongClick,
+                onToggleStar = onToggleStar,
+                trackMenu = trackMenu,
+                listState = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer { alpha = expand.coerceIn(0f, 1f) }
+                    .nestedScroll(gestures.listConnection),
+                footer = {
+                    AlbumHeroMetaBlocks(
+                        content = content,
+                        interactive = expand >= 0.5f,
+                        onEditComment = onEditComment,
+                        onTapBun = onEditComment,
+                        modifier = Modifier
+                            .padding(start = 8.dp, end = 8.dp, top = 28.dp)
+                            .graphicsLayer {
+                                val listExpand = 1f - revealState.fraction
+                                alpha = ((listExpand - 0.6f) / 0.4f).coerceIn(0f, 1f)
+                            },
+                    )
+                },
+            )
+        }
+        if (expand < 0.999f) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(gestures.heroDrag(enabled = !expanded))
+                    .graphicsLayer {
+                        alpha = (1f - expand).coerceIn(0f, 1f)
+                        translationY = -expand * 40f
+                    }
+                    .stagedBeat(progress = { stagedReveal.meta }, rise = 14.dp)
+                    .padding(start = AlbumShortCoverStart, end = 16.dp, top = 4.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AlbumShortHeroGap)) {
+                    // The cover and its two blocks are drawn by the bar layer above the
+                    // pager (they fly into the header on the pull-up); this keeps their place.
+                    Spacer(modifier = Modifier.size(coverSide))
+                    AlbumHeroMetaBlocks(
+                        content = content,
+                        interactive = expand < 0.5f,
+                        onEditComment = onEditComment,
+                        onTapBun = onEditComment,
+                        stacked = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                if (content.songs.isNotEmpty()) {
+                    AlbumTrackCountLabel(
+                        count = content.trackTotal,
+                        totalDurationSeconds = content.totalDuration,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                // Flowing titles, clickable, flowing on past the bottom edge
+                // exactly like portrait (overflow Visible, unbounded height).
+                Text(
+                    text = if (content.songs.isEmpty()) {
+                        buildAnnotatedString { append(content.albumName) }
+                    } else {
+                        buildAlbumTrackTitles(
+                            songs = content.songs,
+                            featColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            onSongClick = if (expand < 0.5f) onSongClick else null,
+                        )
+                    },
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    overflow = TextOverflow.Visible,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight(align = Alignment.Top, unbounded = true),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun AlbumLoadingState(
     intro: DetailEnterIntroState,
@@ -1728,6 +1914,14 @@ private fun AlbumDetailScreenContentPreview() {
 private fun AlbumDetailLandscapePreview() {
     YoinTheme {
         ProvidePreviewWindow(widthDp = 844, heightDp = 390) { AlbumDetailPreviewContent() }
+    }
+}
+
+@Preview(name = "Short portrait (Fold outer screen)", widthDp = 420, heightDp = 640, showBackground = true)
+@Composable
+private fun AlbumDetailShortPortraitPreview() {
+    YoinTheme {
+        ProvidePreviewWindow(widthDp = 420, heightDp = 640) { AlbumDetailPreviewContent() }
     }
 }
 

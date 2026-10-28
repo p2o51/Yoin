@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Density
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.pow
@@ -179,5 +180,39 @@ class AlbumSpectrumTest {
         assertEquals(1f, hugging.scale, 0.001f)
         assertTrue(centre - 0.46f * hugging.width >= 8f - 0.01f)
         assertTrue(centre + 0.46f * hugging.width <= 460f - 8f + 0.01f)
+    }
+
+    @Test
+    fun should_startTheCoverOnTheTitlesLine_when_layoutIsShort() {
+        val g = geometry(AlbumBarLayout.Short, width = 420f)
+        assertEquals(16f, g.cover.left, 0.01f)
+        assertEquals(minOf(420f * 0.46f, 200f), g.cover.width, 0.01f)
+        assertEquals(112f + 4f, g.cover.top, 0.01f)
+        assertEquals(420f - 16f - 48f, g.stamp.left, 0.01f)
+        val pose = g.butterflyFrom
+        val centre = pose.left + pose.width / 2f
+        assertTrue(centre - 0.46f * pose.width >= 8f - 0.01f)
+    }
+
+    // ---- the Compact height breakpoint ----
+
+    @Test
+    fun should_keepThePortraitHero_when_windowIsAPhone() {
+        assertTrue(albumHeroFitsPortrait(390f, 844f))
+        assertTrue(albumHeroFitsPortrait(412f, 915f))
+        assertTrue(albumHeroFitsPortrait(360f, 800f))
+    }
+
+    @Test
+    fun should_turnTheHeroSideways_when_windowIsShortForItsWidth() {
+        // Fold 8 outer screen class (~3:2) and a 16:9 phone.
+        assertFalse(albumHeroFitsPortrait(420f, 640f))
+        assertFalse(albumHeroFitsPortrait(360f, 640f))
+    }
+
+    @Test
+    fun should_needMoreHeight_when_fontScaleGrows() {
+        assertTrue(albumHeroFitsPortrait(390f, 844f, fontScale = 1f))
+        assertFalse(albumHeroFitsPortrait(390f, 844f, fontScale = 1.3f))
     }
 }

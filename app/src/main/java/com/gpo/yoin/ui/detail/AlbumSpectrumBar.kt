@@ -59,8 +59,12 @@ import kotlin.math.roundToInt
  * the bar. Everything per-frame is read in layout / draw only.
  */
 
-/** Which layout the bar is morphing out of. */
-internal enum class AlbumBarLayout { Compact, Landscape, Medium }
+/**
+ * Which layout the bar is morphing out of. [Short] is a Compact-width window
+ * too short for the portrait hero ([albumHeroFitsPortrait]): the cover moves
+ * to the start with the meta stacked beside it.
+ */
+internal enum class AlbumBarLayout { Compact, Short, Landscape, Medium }
 
 /** A placement of the Yoin mark: box, layer scale + translationY about its centre, horizontal squash about the hub. */
 @Immutable
@@ -130,6 +134,40 @@ internal fun albumHeroCoverSidePx(width: Float, density: Density): Float =
 internal fun albumHeroBandPx(width: Float, density: Density): Float =
     albumHeroCoverSidePx(width, density) + with(density) { 56.dp.toPx() }
 
+// Short portrait (cover beside the meta): the cover starts on the titles' 16dp
+// line, takes just under half the width, and sits under the header like landscape.
+internal val AlbumShortCoverStart = 16.dp
+internal val AlbumShortCoverMaxSide = 200.dp
+private const val AlbumShortCoverWidthFraction = 0.46f
+
+/** Short-portrait cover side for a page [width] px wide. */
+internal fun albumShortCoverSidePx(width: Float, density: Density): Float =
+    min(width * AlbumShortCoverWidthFraction, with(density) { AlbumShortCoverMaxSide.toPx() })
+
+// What the portrait hero needs besides the cover band, so at least one line of
+// the flowing track titles shows above the bar. Chrome: status bar, header row,
+// page dots, bottom bar + nav (≈ 24 + 62 + 25 + 104). Text: Last Play | score,
+// comment, gaps, track count and one title line (≈ 146 + 36 + 26 + 40), which
+// grows with the font scale.
+private const val AlbumPortraitChromeReserveDp = 220f
+private const val AlbumPortraitTextReserveDp = 250f
+
+/**
+ * The album page's height breakpoint on Compact width: whether a [widthDp] ×
+ * [heightDp] container keeps the portrait hero (cover over meta over the
+ * flowing titles) or turns it sideways ([AlbumBarLayout.Short]).
+ *
+ * Not a size-class line: the Compact hero's height grows with its width (the
+ * cover is 0.74 × width, capped at 300), so what decides is the height left
+ * once the cover band is taken. 390 × 844 keeps 499dp (portrait); a near-3:2
+ * outer screen such as Fold 8's (~420 × 640) keeps ~284dp (short).
+ */
+internal fun albumHeroFitsPortrait(widthDp: Float, heightDp: Float, fontScale: Float = 1f): Boolean {
+    val band = min(widthDp * 0.74f, 300f) + 56f
+    val needed = AlbumPortraitChromeReserveDp + AlbumPortraitTextReserveDp * fontScale
+    return heightDp - band >= needed
+}
+
 /**
  * The geometry for one layout. [titleRowTop] / [titleRowHeight] place the stamp
  * level with the title; [startInset] / [endInset] are the landscape capsule band
@@ -187,8 +225,12 @@ internal fun albumBarGeometry(
                 huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, HuggingEdgeClearance.toPx())
             }
         }
-        AlbumBarLayout.Landscape, AlbumBarLayout.Medium -> {
-            if (layout == AlbumBarLayout.Landscape) {
+        AlbumBarLayout.Short, AlbumBarLayout.Landscape, AlbumBarLayout.Medium -> {
+            if (layout == AlbumBarLayout.Short) {
+                coverSide = albumShortCoverSidePx(width, density)
+                coverStart = AlbumShortCoverStart.toPx()
+                coverTop = headerHeight + 4.dp.toPx()
+            } else if (layout == AlbumBarLayout.Landscape) {
                 coverSide = min(AlbumLandscapeCoverSide.toPx(), height - headerHeight - 24.dp.toPx())
                 coverStart = startInset + AlbumLandscapeCoverInset.toPx()
                 coverTop = headerHeight + 4.dp.toPx()
