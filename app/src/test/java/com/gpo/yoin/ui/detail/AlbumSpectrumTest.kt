@@ -186,13 +186,19 @@ class AlbumSpectrumTest {
     fun should_startTheCoverOnTheTitlesLine_when_layoutIsShort() {
         val g = geometry(AlbumBarLayout.Short, width = 420f)
         assertEquals(16f, g.cover.left, 0.01f)
-        assertEquals(minOf(420f * 0.62f, 260f), g.cover.width, 0.01f)
+        assertEquals(minOf(420f * 0.62f, 260f, 420f - 48f - 112f), g.cover.width, 0.01f)
         assertEquals(112f + 4f, g.cover.top, 0.01f)
         assertEquals(420f - 16f - 48f, g.stamp.left, 0.01f)
         val pose = g.butterflyFrom
         val centre = pose.left + pose.width / 2f
         assertTrue(centre - 0.46f * pose.width >= -0.01f)
         assertTrue(pose.width >= 1.2f * g.cover.width)
+    }
+
+    @Test
+    fun should_leaveTheMetaItsMinimumWidth_when_shortPageIsNarrow() {
+        val g = geometry(AlbumBarLayout.Short, width = 360f)
+        assertEquals(360f - 48f - 112f, g.cover.width, 0.01f)
     }
 
     // ---- the Compact height breakpoint ----

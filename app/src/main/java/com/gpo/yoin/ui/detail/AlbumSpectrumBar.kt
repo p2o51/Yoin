@@ -138,14 +138,20 @@ internal fun albumHeroBandPx(width: Float, density: Density): Float =
 // line, takes over 60% of the width, and sits under the header like landscape.
 // Big on purpose: the row (and the meta beside it, narrower and so taller) pushes
 // the flowing titles down until the last lines run under the bar, as on a
-// portrait phone, instead of ending in a gap above it (owner 2026-10-28).
+// portrait phone, instead of ending in a gap above it (owner 2026-10-28). The
+// meta keeps at least [AlbumShortMetaMinWidth] so "Yesterday" and the stamp fit.
 internal val AlbumShortCoverStart = 16.dp
 internal val AlbumShortCoverMaxSide = 260.dp
+internal val AlbumShortMetaMinWidth = 112.dp
+// Cover start + gap to the meta + the page's end padding.
+private val AlbumShortHeroHorizontalChrome = 48.dp
 private const val AlbumShortCoverWidthFraction = 0.62f
 
 /** Short-portrait cover side for a page [width] px wide. */
-internal fun albumShortCoverSidePx(width: Float, density: Density): Float =
-    min(width * AlbumShortCoverWidthFraction, with(density) { AlbumShortCoverMaxSide.toPx() })
+internal fun albumShortCoverSidePx(width: Float, density: Density): Float = with(density) {
+    val besideMeta = width - (AlbumShortHeroHorizontalChrome + AlbumShortMetaMinWidth).toPx()
+    minOf(width * AlbumShortCoverWidthFraction, besideMeta, AlbumShortCoverMaxSide.toPx())
+}
 
 // What the portrait hero needs besides the cover band, so at least one line of
 // the flowing track titles shows above the bar. Chrome: status bar, header row,
