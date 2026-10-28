@@ -240,7 +240,11 @@ internal fun albumBarGeometry(
                 coverStart = (width - column) / 2f + 16.dp.toPx()
                 coverTop = headerHeight + AlbumTrackListTopPadding.toPx()
             }
-            fromPose = huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, HuggingEdgeClearance.toPx())
+            // Short sits its cover on the 16dp line, too close to the edge for the
+            // 8dp clearance to leave the mark its size (only a sliver showed past
+            // the cover); on a screen edge its near arm may run to the edge itself.
+            val clearance = if (layout == AlbumBarLayout.Short && pageEdgesAreScreenEdges) 0f else HuggingEdgeClearance.toPx()
+            fromPose = huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, clearance)
         }
     }
     fun mirror(x: Float, w: Float) = if (rtl) width - x - w else x

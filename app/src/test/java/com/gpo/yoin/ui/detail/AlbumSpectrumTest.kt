@@ -191,7 +191,8 @@ class AlbumSpectrumTest {
         assertEquals(420f - 16f - 48f, g.stamp.left, 0.01f)
         val pose = g.butterflyFrom
         val centre = pose.left + pose.width / 2f
-        assertTrue(centre - 0.46f * pose.width >= 8f - 0.01f)
+        assertTrue(centre - 0.46f * pose.width >= -0.01f)
+        assertTrue(pose.width >= 1.25f * g.cover.width)
     }
 
     // ---- the Compact height breakpoint ----
