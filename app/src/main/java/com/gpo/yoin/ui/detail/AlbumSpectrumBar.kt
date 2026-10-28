@@ -110,6 +110,12 @@ private const val CompactArrowScale = 1.8f
 private const val CompactArrowOffsetYFraction = -0.1f
 private const val CompactArrowSquashX = 1.8f
 
+// Short portrait: the arms scaled up about the cover and squashed wide, nudged
+// down, so they reach past it to the end side and below it (cf. Compact's band).
+private const val ShortArrowScale = 1.8f
+private const val ShortArrowOffsetYFraction = 0.08f
+private const val ShortArrowSquashX = 1.4f
+
 // Landscape / Medium: the whole mark hugging the cover, 1.3 × its side, hanging below its top edge.
 private const val HuggingMarkScale = 1.3f
 
@@ -242,11 +248,23 @@ internal fun albumBarGeometry(
                 coverStart = (width - column) / 2f + 16.dp.toPx()
                 coverTop = headerHeight + AlbumTrackListTopPadding.toPx()
             }
-            // Short sits its cover on the 16dp line, too close to the edge for the
-            // 8dp clearance to leave the mark its size (only a sliver showed past
-            // the cover); on a screen edge its near arm may run to the edge itself.
-            val clearance = if (layout == AlbumBarLayout.Short && pageEdgesAreScreenEdges) 0f else HuggingEdgeClearance.toPx()
-            fromPose = huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, clearance)
+            fromPose = if (layout == AlbumBarLayout.Short && pageEdgesAreScreenEdges) {
+                // Short: like the portrait band, the arms are scaled up and squashed
+                // wide so they reach out from behind the cover: under the meta
+                // column, down under the first title lines, and off the start
+                // edge. The text runs across them (owner 2026-10-28).
+                MarkPose(
+                    left = coverStart,
+                    top = coverTop,
+                    width = coverSide,
+                    height = coverSide,
+                    scale = ShortArrowScale,
+                    translationY = ShortArrowOffsetYFraction * coverSide,
+                    squashX = ShortArrowSquashX,
+                )
+            } else {
+                huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, HuggingEdgeClearance.toPx())
+            }
         }
     }
     fun mirror(x: Float, w: Float) = if (rtl) width - x - w else x
