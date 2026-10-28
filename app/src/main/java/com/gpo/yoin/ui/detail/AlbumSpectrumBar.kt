@@ -135,10 +135,12 @@ internal fun albumHeroBandPx(width: Float, density: Density): Float =
     albumHeroCoverSidePx(width, density) + with(density) { 56.dp.toPx() }
 
 // Short portrait (cover beside the meta): the cover starts on the titles' 16dp
-// line, takes just under half the width, and sits under the header like landscape.
+// line, takes a little over half the width, and sits under the header like
+// landscape. Big enough that the mark behind it reaches out under the meta and
+// the first title lines, so the text runs across its arms (owner 2026-10-28).
 internal val AlbumShortCoverStart = 16.dp
-internal val AlbumShortCoverMaxSide = 200.dp
-private const val AlbumShortCoverWidthFraction = 0.46f
+internal val AlbumShortCoverMaxSide = 240.dp
+private const val AlbumShortCoverWidthFraction = 0.56f
 
 /** Short-portrait cover side for a page [width] px wide. */
 internal fun albumShortCoverSidePx(width: Float, density: Density): Float =

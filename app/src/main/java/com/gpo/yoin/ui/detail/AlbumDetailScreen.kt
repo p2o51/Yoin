@@ -1748,7 +1748,7 @@ private fun AlbumLandscapeOverview(
 // cover moves to the start with the meta stacked beside it, one block per line,
 // and the track count + flowing titles run full width underneath, so they show
 // above the bar. Pulling up runs the SAME reshape as portrait into the list.
-private val AlbumShortHeroGap = 20.dp
+private val AlbumShortHeroGap = 16.dp
 
 @Composable
 private fun AlbumShortOverview(
