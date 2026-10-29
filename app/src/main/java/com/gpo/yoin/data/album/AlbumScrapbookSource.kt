@@ -79,7 +79,7 @@ data class AlbumScrapbookNote(
 )
 
 data class AlbumScrapbookAbout(
-    /** Questions asked in Now Playing, newest first. */
+    /** Questions asked in Now Playing, newest asked first. */
     val asks: List<AlbumScrapbookAsk> = emptyList(),
     /** Non-blank canonical facts in [SongAboutEntry.CANONICAL_ORDER] (the "review" paragraph included). */
     val facts: List<AlbumScrapbookFact> = emptyList(),
@@ -271,7 +271,8 @@ fun matchAboutToTracks(
 
 private fun List<SongAboutEntry>.toAbout(): AlbumScrapbookAbout {
     val asks = filter { it.kind == SongAboutEntry.KIND_ASK && it.answerText.isNotBlank() }
-        .sortedByDescending { it.updatedAt }
+        // By when it was first asked: an answer edited (or restored by Undo) on page 2 keeps its place.
+        .sortedWith(compareByDescending<SongAboutEntry> { it.createdAt }.thenByDescending { it.updatedAt })
         .map { row ->
             AlbumScrapbookAsk(
                 question = row.promptText?.takeIf(String::isNotBlank) ?: row.entryKey,

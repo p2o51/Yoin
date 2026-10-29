@@ -117,6 +117,29 @@ class AlbumScrapbookPageTest {
     }
 
     @Test
+    fun should_writeTheQuestionBack_when_deleteUndone() {
+        show()
+
+        rule.onNode(hasContentDescription("Asked about Song 3", substring = true)).performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Edit").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Delete").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Deleted").assertIsDisplayed()
+        rule.onNodeWithText("Undo").performClick()
+        rule.waitForIdle()
+
+        assertEquals(
+            listOf<ScrapEdit>(
+                ScrapEdit.About(askRef, null, ""),
+                ScrapEdit.About(askRef, "The band", "First sentence. Second sentence. Third sentence."),
+            ),
+            edits,
+        )
+    }
+
+    @Test
     fun should_openTheReviewSheet_when_blankReviewTapped() {
         show()
 

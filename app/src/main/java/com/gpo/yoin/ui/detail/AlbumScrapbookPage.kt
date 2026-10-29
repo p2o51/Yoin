@@ -47,6 +47,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.toShape
@@ -60,6 +64,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -173,6 +178,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /*
  * Page 2 of the album page: the scrapbook (see AlbumScrapbook.kt for what goes where and why).
@@ -409,6 +415,23 @@ private fun ScrapbookPaper(
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     // The track whose sheet is open (its score, every question and fact, each editable).
     var trackSheet by remember { mutableStateOf<String?>(null) }
+    // "Deleted · Undo" (owner 2026-10-29: like Google Photos): the row goes at once, Undo writes it back.
+    val removedSnackbar = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    val deletedLabel = stringResource(R.string.detail_scrap_deleted)
+    val undoLabel = stringResource(R.string.detail_scrap_undo)
+    val onRemoved: (ScrapEdit.About) -> Unit = { restore ->
+        snackbarScope.launch {
+            // One at a time: a second delete replaces the first notice (the first stays deleted).
+            removedSnackbar.currentSnackbarData?.dismiss()
+            val result = removedSnackbar.showSnackbar(
+                message = deletedLabel,
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) onEdit(restore)
+        }
+    }
     var notesSheet by remember { mutableStateOf<ScrapPiece.TrackCluster?>(null) }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -496,6 +519,16 @@ private fun ScrapbookPaper(
                 }
             }
         }
+        // The track sheet carries this host while it is open; after it closes the notice sits here,
+        // above the window's bar.
+        if (trackSheet == null) {
+            SnackbarHost(
+                hostState = removedSnackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = navBottom + ScrapSnackbarAboveBar),
+            )
+        }
     }
 
     trackSheet?.let { songId ->
@@ -508,7 +541,14 @@ private fun ScrapbookPaper(
         if (shown == null) {
             SideEffect { trackSheet = null }
         } else {
-            ScrapTrackSheet(target = shown, colors = colors, onEdit = onEdit, onDismiss = { trackSheet = null })
+            ScrapTrackSheet(
+                target = shown,
+                colors = colors,
+                onEdit = onEdit,
+                onDismiss = { trackSheet = null },
+                onRemoved = onRemoved,
+                snackbar = removedSnackbar,
+            )
         }
     }
     notesSheet?.let { cluster ->
@@ -1329,6 +1369,9 @@ private fun Ticket(
         }
     }
 }
+
+/** Room under a page-level snackbar for the window's floating bar (the page's own foot padding, less a gap). */
+private val ScrapSnackbarAboveBar = 96.dp
 
 /** The stub's width (the number column) and where the perforation and notches sit. */
 private val TicketStub = 48.dp

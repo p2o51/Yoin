@@ -206,6 +206,8 @@
     <string name="detail_scrap_delete">Delete</string>
     <string name="detail_scrap_cancel">Cancel</string>
     <string name="detail_scrap_save">Save</string>
+    <string name="detail_scrap_deleted">Deleted</string>
+    <string name="detail_scrap_undo">Undo</string>
 
     <!--
       Monospace receipt. English only. AlbumScrapbookTest asserts the model

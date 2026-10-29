@@ -32,6 +32,8 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -95,6 +97,9 @@ internal fun ScrapTrackSheet(
     colors: ScrapbookColors,
     onEdit: (ScrapEdit) -> Unit,
     onDismiss: () -> Unit,
+    // A row just removed, with the text that brings it back ("Deleted · Undo", the way Google Photos does it).
+    onRemoved: (restore: ScrapEdit.About) -> Unit = {},
+    snackbar: SnackbarHostState? = null,
 ) {
     val track = target.track
     // The bar's own value; saved when the finger lifts, like the album's rate sheet.
@@ -107,87 +112,104 @@ internal fun ScrapTrackSheet(
     }
     // One row at a time is open for editing.
     var editing by remember(track.songId) { mutableStateOf<AlbumScrapbookAboutRef?>(null) }
-    fun save(ref: AlbumScrapbookAboutRef, title: String?, answer: String) {
+    // [wasTitle] / [wasAnswer]: the row as it stood, for Undo when this edit removes it.
+    fun save(ref: AlbumScrapbookAboutRef, title: String?, answer: String, wasTitle: String?, wasAnswer: String) {
         editing = null
         onEdit(ScrapEdit.About(ref, title, answer))
+        if (answer.isBlank()) onRemoved(ScrapEdit.About(ref, wasTitle, wasAnswer))
     }
 
     ScrapSheet(onDismiss = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp)
-                // A removed question folds away instead of the sheet snapping shorter.
-                .animateContentSize(YoinMotion.defaultSpatialSpec()),
-        ) {
-            AlbumSectionLabel(text = "${track.number.toString().padStart(2, '0')}  ${track.title}")
-            Row(
+        Box {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp)
-                    // The button's height, held when it fades out: clearing a score must not shift the sheet.
-                    .heightIn(min = 48.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(start = 24.dp, end = 24.dp, bottom = 32.dp)
+                    // A removed question folds away instead of the sheet snapping shorter.
+                    .animateContentSize(YoinMotion.defaultSpatialSpec()),
             ) {
-                Text(
-                    text = stringResource(R.string.detail_scrap_score),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = colors.ink,
-                    modifier = Modifier.weight(1f),
-                )
-                AnimatedVisibility(
-                    visible = live > 0f,
-                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                AlbumSectionLabel(text = "${track.number.toString().padStart(2, '0')}  ${track.title}")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                        // The button's height, held when it fades out: clearing a score must not shift the sheet.
+                        .heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(
-                        onClick = {
-                            live = 0f
-                            commit(0f)
-                        },
+                    Text(
+                        text = stringResource(R.string.detail_scrap_score),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = colors.ink,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AnimatedVisibility(
+                        visible = live > 0f,
+                        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
                     ) {
-                        Text(stringResource(R.string.detail_scrap_clear_score))
+                        TextButton(
+                            onClick = {
+                                live = 0f
+                                commit(0f)
+                            },
+                        ) {
+                            Text(stringResource(R.string.detail_scrap_clear_score))
+                        }
+                    }
+                }
+                RatingSlider(
+                    rating = live,
+                    onRatingChange = { live = it },
+                    orientation = Orientation.Horizontal,
+                    // The sheet scrolls and drags away: a swipe across the bar is the sheet's, not a score.
+                    claimOnDown = false,
+                    onInteractionChange = { active -> if (!active) commit(live) },
+                    gestureKey = track.songId,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                )
+                target.about?.asks?.forEachIndexed { i, ask ->
+                    key(ask.ref ?: ask.question) {
+                        AskEntry(
+                            ask = ask,
+                            first = i == 0,
+                            editing = ask.ref != null && ask.ref == editing,
+                            onStartEdit = { editing = ask.ref },
+                            onCancel = { editing = null },
+                            onSave = { title, answer ->
+                                ask.ref?.let { save(it, title, answer, ask.title, ask.answer) }
+                            },
+                        )
+                    }
+                }
+                target.about?.facts?.forEach { fact ->
+                    key(fact.ref ?: fact.label) {
+                        FactEntry(
+                            fact = fact,
+                            colors = colors,
+                            editing = fact.ref != null && fact.ref == editing,
+                            onStartEdit = { editing = fact.ref },
+                            onCancel = { editing = null },
+                            onSave = { answer ->
+                                fact.ref?.let { save(it, null, answer, null, fact.value) }
+                            },
+                        )
                     }
                 }
             }
-            RatingSlider(
-                rating = live,
-                onRatingChange = { live = it },
-                orientation = Orientation.Horizontal,
-                // The sheet scrolls and drags away: a swipe across the bar is the sheet's, not a score.
-                claimOnDown = false,
-                onInteractionChange = { active -> if (!active) commit(live) },
-                gestureKey = track.songId,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-            )
-            target.about?.asks?.forEachIndexed { i, ask ->
-                key(ask.ref ?: ask.question) {
-                    AskEntry(
-                        ask = ask,
-                        first = i == 0,
-                        editing = ask.ref != null && ask.ref == editing,
-                        onStartEdit = { editing = ask.ref },
-                        onCancel = { editing = null },
-                        onSave = { title, answer -> ask.ref?.let { save(it, title, answer) } },
-                    )
-                }
-            }
-            target.about?.facts?.forEach { fact ->
-                key(fact.ref ?: fact.label) {
-                    FactEntry(
-                        fact = fact,
-                        colors = colors,
-                        editing = fact.ref != null && fact.ref == editing,
-                        onStartEdit = { editing = fact.ref },
-                        onCancel = { editing = null },
-                        onSave = { answer -> fact.ref?.let { save(it, null, answer) } },
-                    )
-                }
+            // Over the sheet's foot while it is open; the page shows the same host once it closes.
+            snackbar?.let { host ->
+                SnackbarHost(
+                    hostState = host,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding(),
+                )
             }
         }
     }
