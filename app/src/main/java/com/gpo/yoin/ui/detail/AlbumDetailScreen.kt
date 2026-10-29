@@ -577,8 +577,8 @@ private fun AlbumDetailContent(
             (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
         }
         val pageShift: () -> Float = { pageFraction() * widthPx * if (rtl) -1f else 1f }
-        // Phone and short hero: the cover and the Last Play time fly to the
-        // scrapbook page with the pager instead of sliding off (owner 2026-10-29).
+        // Phone and short hero: the cover flies to the scrapbook page's cover with
+        // the pager instead of sliding off (owner 2026-10-29).
         val flies = hasScrapbook && (barLayout == AlbumBarLayout.Compact || barLayout == AlbumBarLayout.Short)
         val flight = remember(flies, widthPx, rtl) {
             if (!flies) {
@@ -1231,8 +1231,7 @@ private fun AlbumHeroDetails(
         Spacer(modifier = Modifier.height(28.dp))
 
         // Total track count + runtime, then when it was last played — left-aligned
-        // with the flowing titles. The time is its own text so it can fly to the
-        // scrapbook page with the pager (AlbumPageFlight); tapping it goes there.
+        // with the flowing titles. Tapping the time opens the scrapbook page.
         if (content.songs.isNotEmpty()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
