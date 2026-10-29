@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.gpo.yoin.ui.experience.LayoutMode
@@ -321,25 +322,29 @@ fun Modifier.pageBesideNowPlayingPanel(
         val layer = obtainGraphicsLayer()
         val cornerPx = NowPlayingPanelCornerRadius.toPx()
         onDrawWithContent {
-            // The same edge besideNowPlayingPanel places the page against.
+            // The same edge besideNowPlayingPanel places the page against:
+            // the panel takes the end side, so in RTL the page starts at inset.
             val inset = panel.insetPx(this).roundToInt().coerceIn(0, size.width.toInt())
-            val pageEnd = size.width - inset
-            if (inset == 0 || pageEnd < 1f || !fillCorners()) {
+            if (inset == 0 || size.width - inset < 1f || !fillCorners()) {
                 drawContent()
                 return@onDrawWithContent
             }
             layer.record { this@onDrawWithContent.drawContent() }
             drawLayer(layer)
+            val rtl = layoutDirection == LayoutDirection.Rtl
+            val pageEdge = if (rtl) inset.toFloat() else size.width - inset
             val stripWidth = minOf(cornerPx, inset.toFloat())
             val stripHeight = minOf(cornerPx, size.height / 2f)
+            // The page's last column, and the strip behind the corners it fills.
+            val columnLeft = if (rtl) pageEdge else pageEdge - 1f
+            val stripLeft = if (rtl) pageEdge - stripWidth else pageEdge
             for (stripTop in floatArrayOf(0f, size.height - stripHeight)) {
-                clipRect(pageEnd, stripTop, pageEnd + stripWidth, stripTop + stripHeight) {
-                    // Map the page's last column [pageEnd − 1, pageEnd] onto
-                    // [pageEnd, pageEnd + stripWidth].
+                clipRect(stripLeft, stripTop, stripLeft + stripWidth, stripTop + stripHeight) {
+                    // Map [columnLeft, columnLeft + 1] onto the strip.
                     withTransform({
-                        translate(left = pageEnd)
+                        translate(left = stripLeft)
                         scale(scaleX = stripWidth, scaleY = 1f, pivot = Offset.Zero)
-                        translate(left = 1f - pageEnd)
+                        translate(left = -columnLeft)
                     }) {
                         drawLayer(layer)
                     }
