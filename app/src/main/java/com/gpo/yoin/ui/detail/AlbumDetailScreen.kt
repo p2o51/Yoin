@@ -282,6 +282,7 @@ fun AlbumDetailScreen(
                             is AlbumDetailUiState.Content ->
                                 AlbumDetailContent(
                                     content = state,
+                                    nowPlayingOpen = nowPlayingOpen,
                                     onBackClick = onBackClick,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
@@ -368,6 +369,7 @@ fun AlbumDetailScreen(
 @Composable
 private fun AlbumDetailContent(
     content: AlbumDetailUiState.Content,
+    nowPlayingOpen: Boolean,
     onBackClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
@@ -571,7 +573,7 @@ private fun AlbumDetailContent(
             derivedStateOf { barLayout != null && progress() > AlbumBarDockedThreshold && pageFraction() < 0.5f }
         }
         AlbumBarStatusBarEffect(
-            enabled = barLayout != null && !inColumn,
+            enabled = barLayout != null && !inColumn && !nowPlayingOpen,
             docked = { docked },
             darkTheme = isSystemInDarkTheme(),
         )
