@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
@@ -80,6 +81,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -4502,7 +4504,18 @@ internal fun CompactBottomHero(
     // artist on the same baseline.
     oneLine: Boolean = false,
 ) {
+    // Reopened before its close finished, Now Playing keeps this composition,
+    // and the one-row hero's reused title/artist bounds then settle on the
+    // pill's rect instead of morphing (the pill's small title is drawn there,
+    // the hero title is gone until the transition ends). Each open gets fresh
+    // shared-bounds nodes, as a first open does.
+    val heroOpenCount = remember { intArrayOf(0) }
+    val heroOpening = animatedVisibilityScope?.transition?.targetState == EnterExitState.Visible
+    val heroOpenGeneration = remember(heroOpening) {
+        if (heroOpening) ++heroOpenCount[0] else heroOpenCount[0]
+    }
     StageHeightSlot(height = height, alpha = alpha, modifier = modifier) {
+        key(heroOpenGeneration) {
             val titleModifier = if (
                 sharedTransitionScope != null &&
                 animatedVisibilityScope != null
@@ -4644,6 +4657,7 @@ internal fun CompactBottomHero(
                     }
                 }
             }
+        }
     }
 }
 
