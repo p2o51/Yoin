@@ -18,7 +18,12 @@ internal fun rememberActiveOnlySharedContentConfig(
     return remember(animatedVisibilityScope) {
         object : SharedTransitionScope.SharedContentConfig {
             override val SharedTransitionScope.SharedContentState.isEnabled: Boolean
-                get() = currentEnabled.value && transition.currentState != transition.targetState
+                // A reversed transition (Now Playing reopened mid-close) reads
+                // currentState == targetState while its springs still run; the
+                // state pair alone drops this side while its peer stays in, and
+                // the peer is drawn alone at its resting bounds.
+                get() = currentEnabled.value &&
+                    (transition.currentState != transition.targetState || transition.isRunning)
 
             override val shouldKeepEnabledForOngoingAnimation: Boolean
                 get() = false
