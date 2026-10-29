@@ -1190,22 +1190,27 @@ private fun AlbumHeroDetails(
         modifier = modifier.padding(top = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Last Play + score emblem + comment — a cover-width block.
+        // Score emblem + comment on one row, cover-width. Last Play rides the
+        // track-count line below (owner 2026-10-29).
         AlbumHeroMetaBlocks(
             content = content,
             interactive = interactive,
             onEditComment = onEditComment,
             onTapBun = onTapBun,
+            showLastPlay = false,
+            scoreBesideComment = true,
             modifier = Modifier.width(contentWidth),
         )
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        // Total track count + runtime — left-aligned with the flowing titles.
+        // Total track count + runtime + when it was last played — left-aligned
+        // with the flowing titles.
         if (content.songs.isNotEmpty()) {
             AlbumTrackCountLabel(
                 count = content.trackTotal,
                 totalDurationSeconds = content.totalDuration,
+                lastPlayedAt = content.lastPlayedAt,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(6.dp))
@@ -1248,6 +1253,12 @@ private fun AlbumHeroMetaBlocks(
     // Short portrait: one block per line (Last Play, then the score, then the
     // comment) in the narrow column beside the cover, instead of Last Play | score.
     stacked: Boolean = false,
+    // Compact portrait and short portrait drop the Last Play block: the phone
+    // hero carries it on the track-count line instead, and the short column
+    // has no room for it (owner 2026-10-29).
+    showLastPlay: Boolean = true,
+    // Compact portrait: the score emblem and the comment share one row.
+    scoreBesideComment: Boolean = false,
 ) {
     Column(
         modifier = modifier,
@@ -1313,22 +1324,53 @@ private fun AlbumHeroMetaBlocks(
                 onClick = onTapBun,
             )
         }
-        if (stacked) {
-            lastPlay()
-            emblem()
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                lastPlay()
-                emblem()
-            }
-        }
-
         // The comment is the user's own words, so no "Comment" caption: written,
         // it shows as text (tap to edit); not written yet, only a pen.
+        val comment: @Composable (Modifier) -> Unit = { commentModifier ->
+            AlbumHeroComment(
+                content = content,
+                interactive = interactive,
+                onEditComment = onEditComment,
+                modifier = commentModifier,
+            )
+        }
+        when {
+            scoreBesideComment -> Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                emblem()
+                comment(Modifier.weight(1f))
+            }
+            stacked -> {
+                if (showLastPlay) lastPlay()
+                emblem()
+                comment(Modifier)
+            }
+            else -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (showLastPlay) lastPlay()
+                    emblem()
+                }
+                comment(Modifier)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlbumHeroComment(
+    content: AlbumDetailUiState.Content,
+    interactive: Boolean,
+    onEditComment: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier) {
         if (content.userReview.isNotBlank()) {
             val writtenAt = content.userReviewAt?.let { at ->
                 albumLastPlayLabels(at, LocalContext.current.resources).first
@@ -1840,6 +1882,7 @@ private fun AlbumShortOverview(
                         onEditComment = onEditComment,
                         onTapBun = onEditComment,
                         stacked = true,
+                        showLastPlay = false,
                         modifier = Modifier.weight(1f),
                     )
                 }

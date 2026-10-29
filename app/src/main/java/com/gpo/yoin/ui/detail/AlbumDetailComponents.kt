@@ -374,7 +374,11 @@ internal fun AlbumTrackCountLabel(
     count: Int,
     totalDurationSeconds: Int?,
     modifier: Modifier = Modifier,
+    // The phone hero's Last Play, label-less: the day emphasised, the time muted
+    // ("Yesterday 15:43"). Dropped first when the line runs out of width.
+    lastPlayedAt: Long? = null,
 ) {
+    val lastPlay = lastPlayedAt?.let { at -> albumLastPlayLabels(at, LocalContext.current.resources) }
     val groups = buildList {
         add(
             MetaGroup.Stat(
@@ -385,6 +389,7 @@ internal fun AlbumTrackCountLabel(
         totalDurationSeconds?.takeIf { it > 0 }?.let { seconds ->
             addAll(totalDurationGroups(seconds))
         }
+        lastPlay?.let { (day, time) -> add(MetaGroup.Stat(value = day, unit = time)) }
     }
     DetailMetaLine(
         groups = groups,
