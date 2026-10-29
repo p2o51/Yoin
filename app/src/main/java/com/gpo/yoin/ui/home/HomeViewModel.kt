@@ -2147,12 +2147,17 @@ class HomeViewModel(
         // Memories and the album page resolve it, so one album never reads two titles (owner F6, 2026-10-05).
         // Cache-only on the AI side: Home never triggers a Gemini request.
         val resolvedTitle = guardedOrNull { memoryTitle(candidate) }
-        val rating = candidate.albumRating ?: candidate.averageSongRating
+        // The album's own score wins over the track average, as on the album page.
+        val manualRating = candidate.albumRating?.takeIf { it > 0f }
+        val rating = manualRating ?: candidate.averageSongRating
         val score = formatMemoryScore(rating)
-        // A reviewed memory dates itself off its last touch (the Figma "record"
-        // card); an auto-averaged one shows what the score rests on.
-        val basisDate = if (hasReview) candidate.lastPlayedAt ?: candidate.firstPlayedAt else null
-        val trackBasis = basisDate == null && candidate.ratedTrackCount > 0 && candidate.totalTracks > 0
+        val (basisDate, trackBasis) = memoryCardBasis(
+            hasReview = hasReview,
+            hasManualRating = manualRating != null,
+            ratedTrackCount = candidate.ratedTrackCount,
+            totalTracks = candidate.totalTracks,
+            lastTouchedAt = candidate.lastPlayedAt ?: candidate.firstPlayedAt,
+        )
         val basis = when {
             basisDate != null -> formatMemoryDate(basisDate)
             trackBasis -> "Based on ${candidate.ratedTrackCount}/${candidate.totalTracks} tracks"
@@ -2711,6 +2716,24 @@ private fun toRediscoverItem(pick: RediscoverPick): HomeRediscoverItem? {
         ratedTrackCount = candidate.ratedTrackCount,
         fromNotes = pick.fromNotes,
     )
+}
+
+/**
+ * What the memory 1×2's line under the score rests on: a date (the record's
+ * last touch) or the "Based on rated/total tracks" count. A reviewed or
+ * hand-scored album is the user's own record and dates itself; only an
+ * auto-averaged score shows its track basis, as on the album page.
+ */
+internal fun memoryCardBasis(
+    hasReview: Boolean,
+    hasManualRating: Boolean,
+    ratedTrackCount: Int,
+    totalTracks: Int,
+    lastTouchedAt: Long?,
+): Pair<Long?, Boolean> {
+    val basisDate = if (hasReview || hasManualRating) lastTouchedAt else null
+    val trackBasis = !hasReview && !hasManualRating && ratedTrackCount > 0 && totalTracks > 0
+    return basisDate to trackBasis
 }
 
 /**
