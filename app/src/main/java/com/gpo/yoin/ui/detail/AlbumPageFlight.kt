@@ -86,7 +86,18 @@ internal class AlbumPageFlight(
  * slides across the cover on its way to page 1. 1 when nothing flies.
  */
 internal fun albumHeroPageFade(flight: AlbumPageFlight?): Float =
-    if (flight == null || !flight.coverFlying()) 1f else (1f - flight.t() * 3.5f).coerceIn(0f, 1f)
+    if (flight == null || !flight.coverFlying()) 1f else (1f - flight.t() / AlbumHeroFadeEnd).coerceIn(0f, 1f)
+
+/** Page progress by which page 0's hero text is gone ([albumHeroPageFade]). */
+private const val AlbumHeroFadeEnd = 1f / 3.5f
+
+/**
+ * The Last Play time's own progress: it holds its place on the track-count line
+ * until the hero text around it has faded, then flies, so it never crosses the
+ * comment on its way up (owner review 2026-10-29).
+ */
+internal fun albumLastPlayFlightProgress(t: Float): Float =
+    ((t - AlbumHeroFadeEnd) / (1f - AlbumHeroFadeEnd)).coerceIn(0f, 1f)
 
 internal val LocalAlbumPageFlight = staticCompositionLocalOf<AlbumPageFlight?> { null }
 
@@ -122,7 +133,7 @@ internal fun AlbumLastPlayFlight(
                     alpha = 0f
                     return@graphicsLayer
                 }
-                val r = lerpRect(from, to, t)
+                val r = lerpRect(from, to, albumLastPlayFlightProgress(t))
                 val baseHeight = size.height.coerceAtLeast(1f)
                 val scale = r.height / baseHeight
                 transformOrigin = TransformOrigin(0f, 0f)
