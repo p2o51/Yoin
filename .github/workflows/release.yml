@@ -36,9 +36,12 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
-          # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: 82f8f65998f9d2ea926b1165100c3ee62f734097
+          # Follows main: a merged icon change reaches the next build with nothing to bump.
+          ref: main
           path: yoin-symbols
+
+      - name: Record the Yoin Symbols commit
+        run: echo "Yoin Symbols $(git -C yoin-symbols rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fetch Apple MusicKit SDK
         uses: ./.github/actions/apple-musickit

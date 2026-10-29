@@ -26,6 +26,13 @@ This repository is **Yoin**, an Android Compose music client focused on MD3 Expr
 - Room for local persistence
 - MVVM with `ViewModel`, `StateFlow`, and `UiState` sealed hierarchies
 
+## Icons
+
+- Every UI icon is `com.gpo.yoin.symbols.YoinSymbols.*` from Yoin Symbols, which Gradle builds from the sibling checkout `../yoin-symbols` (`includeBuild` in `settings.gradle.kts`); CI and release builds check out `p2o51/yoin-symbols` at `main` and pass `-PyoinSymbolsDir=yoin-symbols`, so a merged icon change reaches the next build with nothing to bump. Locally, `git -C ../yoin-symbols pull` brings it in.
+- Do not draw icons in the app (`ImageVector.Builder`, `addPathNodes`, `PathParser` glyphs, icon-like `Canvas` drawings) and do not copy `YoinSymbols.kt`, drawables or SVGs into this repo. The same rule holds in PiliPaw, WeiPaw, CronPaw and PipePaw.
+- Missing a symbol? Add it in `../yoin-symbols` first, following its `CONTRIBUTING.md` ("Requesting or adding a symbol from an app") and its `add-symbol` skill, then use it here. Merge the yoin-symbols pull request before the Yoin one that uses the symbol; renaming or removing a symbol needs Yoin and the Paw apps updated in the same round.
+- Brand marks (the service logos in `ui/settings/ServiceMarks.kt`, the mascot) are artwork, not symbols, and stay in the app.
+
 ## Core Product Constraints
 
 ### Animation is mandatory
