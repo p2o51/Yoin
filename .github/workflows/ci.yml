@@ -64,7 +64,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       - name: ktlint
         run: ./gradlew ktlintCheck -PyoinSymbolsDir=yoin-symbols
       - name: Upload ktlint reports
@@ -99,14 +99,14 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       # Robolectric downloads its android-all jars from Maven Central on first
       # use, and that download sometimes fails mid-run. Keep them cached.
       - name: Read Robolectric version
         id: robolectric
         run: echo "version=$(sed -n 's/^robolectric = "\(.*\)"$/\1/p' gradle/libs.versions.toml)" >> "$GITHUB_OUTPUT"
       - name: Cache Robolectric android-all jars
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository/org/robolectric
           key: robolectric-${{ steps.robolectric.outputs.version }}
@@ -145,7 +145,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       - name: Android Lint (fails only on issues not in lint-baseline.xml)
         run: ./gradlew :app:lintDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload lint report
@@ -180,7 +180,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       - name: Assemble debug APK
         run: ./gradlew assembleDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload debug APK

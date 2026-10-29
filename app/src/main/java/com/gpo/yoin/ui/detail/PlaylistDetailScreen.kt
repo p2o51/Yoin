@@ -360,7 +360,7 @@ fun PlaylistDetailScreen(
                             derivedStateOf { useBar && progress() > AlbumBarDockedThreshold }
                         }
                         AlbumBarStatusBarEffect(
-                            enabled = useBar && !inColumn,
+                            enabled = useBar && !inColumn && !nowPlayingOpen,
                             docked = { docked },
                             darkTheme = isSystemInDarkTheme(),
                         )

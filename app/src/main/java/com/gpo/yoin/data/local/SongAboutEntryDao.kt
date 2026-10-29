@@ -55,7 +55,7 @@ interface SongAboutEntryDao {
         """
         SELECT COUNT(*) FROM song_about_entries
         WHERE titleKey = :titleKey AND artistKey = :artistKey AND albumKey = :albumKey
-          AND kind = 'ask'
+          AND kind = 'ask' AND TRIM(answerText) != ''
         """,
     )
     suspend fun countAskRows(
@@ -72,7 +72,7 @@ interface SongAboutEntryDao {
     @Query(
         """
         SELECT titleKey, artistKey, COUNT(*) AS askCount FROM song_about_entries
-        WHERE albumKey = :albumKey AND kind = 'ask'
+        WHERE albumKey = :albumKey AND kind = 'ask' AND TRIM(answerText) != ''
         GROUP BY titleKey, artistKey
         """,
     )
@@ -92,6 +92,22 @@ interface SongAboutEntryDao {
         """,
     )
     fun observeByAlbum(albumKey: String): Flow<List<SongAboutEntry>>
+
+    @Query(
+        """
+        SELECT * FROM song_about_entries
+        WHERE titleKey = :titleKey AND artistKey = :artistKey AND albumKey = :albumKey
+          AND kind = :kind AND entryKey = :entryKey
+        LIMIT 1
+        """,
+    )
+    suspend fun get(
+        titleKey: String,
+        artistKey: String,
+        albumKey: String,
+        kind: String,
+        entryKey: String,
+    ): SongAboutEntry?
 
     @Upsert
     suspend fun upsert(row: SongAboutEntry)

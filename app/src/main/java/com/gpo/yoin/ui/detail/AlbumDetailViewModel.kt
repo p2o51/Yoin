@@ -658,6 +658,23 @@ class AlbumDetailViewModel(
         viewModelScope.launch { runCatching { store.setTitle(id, title) } }
     }
 
+    /** Page 2's track sheet: a track's score, or the listener's own version of an Ask / About text. */
+    fun editScrapbook(edit: ScrapEdit) {
+        when (edit) {
+            is ScrapEdit.Score -> {
+                val id = MediaId.parseOrNull(edit.songId) ?: return
+                repository.setRating(id, edit.score)
+            }
+            is ScrapEdit.About -> viewModelScope.launch {
+                runCatching { repository.editAboutEntry(edit.ref, edit.title, edit.answer) }
+                    .onFailure { error ->
+                        if (error is CancellationException) throw error
+                        Log.w(TAG, "Couldn't save the scrapbook edit", error)
+                    }
+            }
+        }
+    }
+
     /** Drops the user's name: the AI title shows again. */
     fun restoreMemoryTitle() {
         val store = memoryTitleStore ?: return
