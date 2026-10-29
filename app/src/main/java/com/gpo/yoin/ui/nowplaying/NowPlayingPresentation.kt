@@ -15,6 +15,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -293,6 +298,49 @@ fun Modifier.besideNowPlayingPanel(panel: NowPlayingPanelInset): Modifier = layo
     )
     layout(placeable.width + inset, placeable.height) { placeable.placeRelative(0, 0) }
 }
+
+/** Left corners of the side panel (FoldNPPanel). */
+internal val NowPlayingPanelCornerRadius = 28.dp
+
+/**
+ * [besideNowPlayingPanel] for the PAGE beside the panel: it also fills what
+ * shows through the panel's rounded left corners with the page's own edge —
+ * its last pixel column, stretched across the corner. One fixed fill can't
+ * match every page there: the album's dark spectrum bar sits above its light
+ * list, covers tint the wash, and a scroll swaps the hero for the bar, so the
+ * corners showed the window or shell behind instead (51, 10-29, tablet).
+ */
+fun Modifier.pageBesideNowPlayingPanel(panel: NowPlayingPanelInset): Modifier =
+    drawWithCache {
+        val layer = obtainGraphicsLayer()
+        val cornerPx = NowPlayingPanelCornerRadius.toPx()
+        onDrawWithContent {
+            // The same edge besideNowPlayingPanel places the page against.
+            val inset = panel.insetPx(this).roundToInt().coerceIn(0, size.width.toInt())
+            val pageEnd = size.width - inset
+            if (inset == 0 || pageEnd < 1f) {
+                drawContent()
+                return@onDrawWithContent
+            }
+            layer.record { this@onDrawWithContent.drawContent() }
+            drawLayer(layer)
+            val stripWidth = minOf(cornerPx, inset.toFloat())
+            val stripHeight = minOf(cornerPx, size.height / 2f)
+            for (stripTop in floatArrayOf(0f, size.height - stripHeight)) {
+                clipRect(pageEnd, stripTop, pageEnd + stripWidth, stripTop + stripHeight) {
+                    // Map the page's last column [pageEnd − 1, pageEnd] onto
+                    // [pageEnd, pageEnd + stripWidth].
+                    withTransform({
+                        translate(left = pageEnd)
+                        scale(scaleX = stripWidth, scaleY = 1f, pivot = Offset.Zero)
+                        translate(left = 1f - pageEnd)
+                    }) {
+                        drawLayer(layer)
+                    }
+                }
+            }
+        }
+    }.besideNowPlayingPanel(panel)
 
 /**
  * Host content beside the open panel reads its OWN remaining width (window −
