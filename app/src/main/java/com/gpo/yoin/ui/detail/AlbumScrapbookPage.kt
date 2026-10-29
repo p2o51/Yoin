@@ -100,6 +100,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.ParentDataModifierNode
 import androidx.compose.ui.platform.LocalContext
@@ -768,6 +769,9 @@ private fun Opening(
                 Spacer(Modifier.width(emblemSize * ScrapbookLayout.EmblemOverhangX + 8.dp))
                 Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
                     OpeningTitle(title, wide, onRenameTitle, onRestoreTitle)
+                    // Last Play in full, where the hero's time lands (owner 2026-10-29: the
+                    // space under the title was empty).
+                    AlbumScrapLastPlay(content.lastPlayedAt, Modifier.padding(top = 16.dp))
                     if (reviewBeside) {
                         // Wide: the review (and the sticky tucked under it) follows the title in its column.
                         Spacer(Modifier.height(16.dp))
@@ -879,6 +883,7 @@ private fun CoverWithEmblem(
     // The stamp (D3 §8): once per album page, the emblem's own award ceremony plays when the pager comes to
     // rest here; until then it waits uncut. Later score changes rebuild it at rest (no replay).
     val award = rememberAlbumScoreAward(spec, emblemSize, onCover = true)
+    val flight = LocalAlbumPageFlight.current
     LaunchedEffect(award, settled, stamped) {
         if (stamped) return@LaunchedEffect
         if (settled) {
@@ -895,6 +900,19 @@ private fun CoverWithEmblem(
             contentDescription = content.albumName,
             modifier = Modifier
                 .size(coverSide)
+                .then(
+                    if (flight == null) {
+                        Modifier
+                    } else {
+                        // Where the hero's cover lands; hidden until it has (AlbumPageFlight).
+                        Modifier
+                            .onGloballyPositioned {
+                                flight.coverTarget = flight.restRect(it, page = 1)
+                                flight.coverTargetTilt = tilt
+                            }
+                            .graphicsLayer { alpha = if (flight.coverFlying() && flight.t() < 0.999f) 0f else 1f }
+                    },
+                )
                 .scrapLayer(tilt, depth = 0.25f)
                 .seamDissolve(),
             shape = YoinArtworkShapes.Hero,

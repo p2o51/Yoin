@@ -464,6 +464,9 @@ internal fun AlbumFlyingCover(
     modifier: Modifier = Modifier,
     // Reduced motion: no flight — the cover fades out where it rests and the stamp fades in.
     reduced: Boolean = false,
+    // Phone / short hero: on the swipe to the scrapbook the resting cover flies to
+    // the page's cover instead of sliding away with page 0 (owner 2026-10-29).
+    pageFlight: AlbumPageFlight? = null,
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -488,12 +491,25 @@ internal fun AlbumFlyingCover(
                     albumBarCoverRect(now, coverNow(), p)
                 }
                 if (reduced) alpha = abs(1f - 2f * p)
-                val scale = r.width / side
-                transformOrigin = TransformOrigin(0f, 0f)
-                translationX = r.left - pageShift()
-                translationY = r.top
+                val target = pageFlight?.coverTarget
+                // Toward the scrapbook's cover as much as the hero is at rest (p = 0);
+                // pulled up into the bar, it slides away with page 0 as before.
+                val toPage = if (target == null || reduced) 0f else pageFlight.t() * (1f - p)
+                val flown = if (target == null || toPage <= 0f) {
+                    r.translate(-pageShift() * (1f - toPage), 0f)
+                } else {
+                    lerpRect(r.translate(-pageShift() * p, 0f), target, toPage)
+                }
+                // Landed: the page's own cover (tilted, under its emblem) takes over.
+                if (target != null && toPage >= 0.999f) alpha = 0f
+                val scale = flown.width / side
+                // Scale and tilt about the centre, so the tilt lands as the page holds it.
+                transformOrigin = TransformOrigin.Center
+                translationX = flown.left - side * (1f - scale) / 2f
+                translationY = flown.top - side * (1f - scale) / 2f
                 scaleX = scale
                 scaleY = scale
+                rotationZ = if (target == null) 0f else pageFlight.coverTargetTilt * toPage
                 val corner = if (reduced) {
                     if (p < 0.5f) restingPx else stampPx
                 } else {

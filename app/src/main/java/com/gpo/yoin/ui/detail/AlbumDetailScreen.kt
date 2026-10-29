@@ -49,7 +49,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -498,7 +500,8 @@ private fun AlbumDetailContent(
     val statusBarTopPx = WindowInsets.statusBars.getTop(density)
     val headerTopPaddingPx = with(density) { AlbumHeaderTopPadding.roundToPx() }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    var pageFlight by remember { mutableStateOf<AlbumPageFlight?>(null) }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().albumPageFlightOrigin(pageFlight)) {
         val widthPx = constraints.maxWidth.toFloat()
         val heightPx = constraints.maxHeight.toFloat()
         // The height breakpoint on Compact width (albumHeroFitsPortrait): when the
@@ -574,6 +577,25 @@ private fun AlbumDetailContent(
             (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
         }
         val pageShift: () -> Float = { pageFraction() * widthPx * if (rtl) -1f else 1f }
+        // Phone and short hero: the cover and the Last Play time fly to the
+        // scrapbook page with the pager instead of sliding off (owner 2026-10-29).
+        val flies = hasScrapbook && (barLayout == AlbumBarLayout.Compact || barLayout == AlbumBarLayout.Short)
+        val flight = remember(flies, widthPx, rtl) {
+            if (!flies) {
+                null
+            } else {
+                AlbumPageFlight(
+                    pageFraction = pageFraction,
+                    pageWidthPx = widthPx,
+                    rtl = rtl,
+                    heroResting = { progress() < 0.01f },
+                    openScrapbook = {
+                        pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
+                    },
+                )
+            }
+        }
+        SideEffect { pageFlight = flight }
         val docked by remember(barLayout) {
             derivedStateOf { barLayout != null && progress() > AlbumBarDockedThreshold && pageFraction() < 0.5f }
         }
@@ -611,6 +633,7 @@ private fun AlbumDetailContent(
                 progress = progress,
                 coverNow = coverNow,
                 pageShift = pageShift,
+                pageFlight = flight,
                 // Hero → Thumb (YoinArtworkShapes), as arcs while they move.
                 restingCorner = 8.dp,
                 stampCorner = 4.dp,
@@ -656,6 +679,7 @@ private fun AlbumDetailContent(
             }
         }
 
+        CompositionLocalProvider(LocalAlbumPageFlight provides flight) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -836,7 +860,14 @@ private fun AlbumDetailContent(
                 }
 
         }
+        }
 
+        // Over both pages: the Last Play time on its way between them.
+        val lastPlayedAt = content.lastPlayedAt
+        if (flight != null && lastPlayedAt != null && barLayout == AlbumBarLayout.Compact) {
+            val (day, time) = albumLastPlayLabels(lastPlayedAt, LocalContext.current.resources)
+            AlbumLastPlayFlight(flight = flight, text = "$day $time", modifier = Modifier.fillMaxSize())
+        }
     }
 
     LaunchedEffect(showEditSheet) {
@@ -1059,6 +1090,7 @@ private fun AlbumOverviewPage(
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
+    val pageFlight = LocalAlbumPageFlight.current
     // The reshape only traverses the upper region, not the full page height, so
     // scale the drag against a fraction of it for a closer-to-1:1 finger feel.
     // Held in state so the remembered draggable / connection read the latest.
@@ -1161,7 +1193,7 @@ private fun AlbumOverviewPage(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    alpha = (1f - expand).coerceIn(0f, 1f)
+                                    alpha = (1f - expand).coerceIn(0f, 1f) * albumHeroPageFade(pageFlight)
                                     translationY = -expand * 40f
                                 }
                                 .stagedBeat(
@@ -1204,15 +1236,23 @@ private fun AlbumHeroDetails(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        // Total track count + runtime + when it was last played — left-aligned
-        // with the flowing titles.
+        // Total track count + runtime, then when it was last played — left-aligned
+        // with the flowing titles. The time is its own text so it can fly to the
+        // scrapbook page with the pager (AlbumPageFlight); tapping it goes there.
         if (content.songs.isNotEmpty()) {
-            AlbumTrackCountLabel(
-                count = content.trackTotal,
-                totalDurationSeconds = content.totalDuration,
-                lastPlayedAt = content.lastPlayedAt,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AlbumTrackCountLabel(
+                    count = content.trackTotal,
+                    totalDurationSeconds = content.totalDuration,
+                )
+                content.lastPlayedAt?.let { at ->
+                    Spacer(modifier = Modifier.width(12.dp))
+                    AlbumHeroLastPlay(epochMillis = at, interactive = interactive)
+                }
+            }
             Spacer(modifier = Modifier.height(6.dp))
         }
 
@@ -1253,9 +1293,8 @@ private fun AlbumHeroMetaBlocks(
     // Short portrait: one block per line (Last Play, then the score, then the
     // comment) in the narrow column beside the cover, instead of Last Play | score.
     stacked: Boolean = false,
-    // Compact portrait and short portrait drop the Last Play block: the phone
-    // hero carries it on the track-count line instead, and the short column
-    // has no room for it (owner 2026-10-29).
+    // Compact portrait drops the Last Play block: the phone hero carries it on
+    // the track-count line instead (owner 2026-10-29).
     showLastPlay: Boolean = true,
     // Compact portrait: the score emblem and the comment share one row.
     scoreBesideComment: Boolean = false,
@@ -1270,11 +1309,13 @@ private fun AlbumHeroMetaBlocks(
         val timeStyle = if (stacked) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
         val lastPlay: @Composable () -> Unit = {
             Column {
-                AlbumSectionLabel(
-                    text = stringResource(R.string.detail_album_last_play),
-                    modifier = Modifier.padding(bottom = if (stacked) 2.dp else 4.dp),
-                    small = stacked,
-                )
+                // The narrow column keeps the day and time but not the caption.
+                if (!stacked) {
+                    AlbumSectionLabel(
+                        text = stringResource(R.string.detail_album_last_play),
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
                 val resources = LocalContext.current.resources
                 val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it, resources) }
                 // The first play on this page turns "Never" into a date and adds
@@ -1815,6 +1856,7 @@ private fun AlbumShortOverview(
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
+    val pageFlight = LocalAlbumPageFlight.current
     val travelPx = remember { mutableFloatStateOf(1f) }
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         travelPx.floatValue = with(density) { maxHeight.toPx() } * DetailPullUpTravelFraction
@@ -1866,7 +1908,7 @@ private fun AlbumShortOverview(
                     .fillMaxSize()
                     .then(gestures.heroDrag(enabled = !expanded))
                     .graphicsLayer {
-                        alpha = (1f - expand).coerceIn(0f, 1f)
+                        alpha = (1f - expand).coerceIn(0f, 1f) * albumHeroPageFade(pageFlight)
                         translationY = -expand * 40f
                     }
                     .stagedBeat(progress = { stagedReveal.meta }, rise = 14.dp)
@@ -1882,7 +1924,6 @@ private fun AlbumShortOverview(
                         onEditComment = onEditComment,
                         onTapBun = onEditComment,
                         stacked = true,
-                        showLastPlay = false,
                         modifier = Modifier.weight(1f),
                     )
                 }
