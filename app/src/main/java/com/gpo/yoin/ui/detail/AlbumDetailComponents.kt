@@ -319,6 +319,8 @@ internal fun AlbumSectionLabel(
     text: String,
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
+    // One step down (labelMedium), for the album's narrow short-layout meta column.
+    small: Boolean = false,
 ) {
     Row(
         modifier = modifier,
@@ -327,7 +329,7 @@ internal fun AlbumSectionLabel(
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelLarge.copy(
+            style = (if (small) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge).copy(
                 textDecoration = TextDecoration.Underline,
                 fontWeight = FontWeight.Medium,
             ),

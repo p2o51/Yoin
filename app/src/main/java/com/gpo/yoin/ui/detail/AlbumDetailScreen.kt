@@ -1253,11 +1253,16 @@ private fun AlbumHeroMetaBlocks(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        // Stacked (the narrow column beside the cover), Last Play steps down a
+        // size: at full size it outweighed the cover beside it (owner 2026-10-29).
+        val dayStyle = if (stacked) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+        val timeStyle = if (stacked) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
         val lastPlay: @Composable () -> Unit = {
             Column {
                 AlbumSectionLabel(
                     text = stringResource(R.string.detail_album_last_play),
-                    modifier = Modifier.padding(bottom = 4.dp),
+                    modifier = Modifier.padding(bottom = if (stacked) 2.dp else 4.dp),
+                    small = stacked,
                 )
                 val resources = LocalContext.current.resources
                 val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it, resources) }
@@ -1274,7 +1279,7 @@ private fun AlbumHeroMetaBlocks(
                 ) { day ->
                     Text(
                         text = day,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = dayStyle,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
@@ -1290,7 +1295,7 @@ private fun AlbumHeroMetaBlocks(
                     // The gap rides inside the row so it grows in with it.
                     Text(
                         text = shownTime.value,
-                        style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
+                        style = timeStyle.withTabularFigures(),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp),
                     )
