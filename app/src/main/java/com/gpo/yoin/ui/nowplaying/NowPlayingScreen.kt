@@ -4183,7 +4183,7 @@ internal fun OneLineLyricPreview(
         // too when both songs sit on line 0.
         targetState = OneLineLyricFrame(state.songId, lineIndex, displayText, state.lyricsLoading),
         contentKey = { Triple(it.songId, it.lineIndex, it.text) },
-        transitionSpec = { oneLineLyricTransition(OneLineLyricMotionStyle) using SizeTransform(clip = false) },
+        transitionSpec = { oneLineLyricLanding() using SizeTransform(clip = false) },
         contentAlignment = Alignment.TopStart,
         label = "oneLineLyric",
         modifier = modifier,
@@ -4213,57 +4213,24 @@ private data class OneLineLyricFrame(
 )
 
 /**
- * How the one-line lyric hands over to the next line. All three ride the
- * spatial spring for movement and the effects spring for alpha.
+ * The next line lands: it grows from 94% at its left edge, the same landing
+ * the active line does in the multi-line view, while the old line settles
+ * back and fades. Movement rides the spatial spring, alpha the effects spring.
  */
-internal enum class OneLineLyricMotion {
-    // The stream rolls on: the old line drifts up and dissolves while the
-    // next rises from below, like one step of the multi-line scroll.
-    Roll,
-
-    // The next line lands: it grows from 94% at its left edge, the same
-    // landing the active line does in the multi-line view; the old one
-    // settles back and fades.
-    Land,
-
-    // The next line unfolds in reading order from the left edge while the
-    // old one fades in place.
-    Unfold,
-}
-
-internal val OneLineLyricMotionStyle = OneLineLyricMotion.Roll
-
-private fun oneLineLyricTransition(motion: OneLineLyricMotion): ContentTransform {
-    val fadeIn = YoinMotion.fadeIn(role = YoinMotionRole.Standard)
-    val fadeOut = YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
+private fun oneLineLyricLanding(): ContentTransform {
     val leftEdge = TransformOrigin(0f, 0.5f)
-    return when (motion) {
-        OneLineLyricMotion.Roll -> {
-            val enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it / 2 } + fadeIn
-            val exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Expressive) { -it / 2 } + fadeOut
-            enter togetherWith exit
-        }
-        OneLineLyricMotion.Land -> {
-            val enter = YoinMotion.scaleIn(
-                role = YoinMotionRole.Expressive,
-                initialScale = 0.94f,
-                transformOrigin = leftEdge,
-            ) + YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it / 6 } + fadeIn
-            val exit = YoinMotion.scaleOut(
-                role = YoinMotionRole.Standard,
-                targetScale = 0.94f,
-                transformOrigin = leftEdge,
-            ) + fadeOut
-            enter togetherWith exit
-        }
-        OneLineLyricMotion.Unfold -> {
-            val enter = YoinMotion.expandHorizontally(
-                role = YoinMotionRole.Standard,
-                expandFrom = Alignment.Start,
-            ) + fadeIn
-            enter togetherWith fadeOut
-        }
-    }
+    val enter = YoinMotion.scaleIn(
+        role = YoinMotionRole.Expressive,
+        initialScale = 0.94f,
+        transformOrigin = leftEdge,
+    ) + YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it / 6 } +
+        YoinMotion.fadeIn(role = YoinMotionRole.Standard)
+    val exit = YoinMotion.scaleOut(
+        role = YoinMotionRole.Standard,
+        targetScale = 0.94f,
+        transformOrigin = leftEdge,
+    ) + YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
+    return enter togetherWith exit
 }
 
 /**
