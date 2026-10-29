@@ -5,11 +5,18 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.navigation.back.ProvideSheetBack
 import com.gpo.yoin.ui.navigation.back.SheetWindowBackInput
 import com.gpo.yoin.ui.navigation.back.rememberSheetBackBridge
@@ -19,6 +26,9 @@ import com.gpo.yoin.ui.navigation.back.rememberSheetBackBridge
  * opens: on a Wide window the page lives in the shell's detail column, which provides its own back
  * dispatcher, and a raw ModalBottomSheet there ignores back (see SheetWindowBack.kt). Everything
  * else — the predictive shrink, scrim, drag-to-dismiss — is M3's own.
+ *
+ * The status bar icons stay as the page left them: M3 picks them from the sheet's content colour,
+ * which turns them dark over an album's docked spectrum bar (dark under the scrim) in light theme.
  *
  * No @Preview: a sheet is its own dialog window, which previews don't render.
  */
@@ -33,6 +43,20 @@ fun YoinModalBottomSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val back = rememberSheetBackBridge()
+    val view = LocalView.current
+    val lightNavigationBars = contentColorFor(containerColor).let { it != Color.Transparent && it.luminance() <= 0.5f }
+    val properties = remember(view, lightNavigationBars) {
+        val window = view.context.findActivityOrNull()?.window
+        if (window == null) {
+            ModalBottomSheetProperties()
+        } else {
+            val pageBars = WindowCompat.getInsetsController(window, view)
+            ModalBottomSheetProperties(
+                isAppearanceLightStatusBars = pageBars.isAppearanceLightStatusBars,
+                isAppearanceLightNavigationBars = lightNavigationBars,
+            )
+        }
+    }
     ProvideSheetBack(back) {
         ModalBottomSheet(
             onDismissRequest = onDismissRequest,
@@ -40,6 +64,7 @@ fun YoinModalBottomSheet(
             sheetState = sheetState,
             containerColor = containerColor,
             contentWindowInsets = contentWindowInsets,
+            properties = properties,
         ) {
             SheetWindowBackInput(back)
             content()
