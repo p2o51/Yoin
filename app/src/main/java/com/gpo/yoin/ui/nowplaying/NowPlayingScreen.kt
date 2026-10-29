@@ -2,9 +2,11 @@ package com.gpo.yoin.ui.nowplaying
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -170,6 +172,7 @@ import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.nowplaying.compact.NoteCompactPane
 import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
+import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -4155,27 +4158,42 @@ internal fun OneLineLyricPreview(
     // derivedStateOf absorbs the 4Hz position tick: the text recomputes per
     // tick, but this composable only recomposes when the resolved line changes.
     val currentPositionMs by rememberUpdatedState(positionMs)
-    val lyricText by remember(state.lyrics, state.showLyricsTranslation) {
+    val activeLine by remember(state.lyrics, state.showLyricsTranslation) {
         derivedStateOf {
-            state.lyrics.currentLyricText(
+            state.lyrics.currentLyricLine(
                 positionMs = currentPositionMs(),
                 showTranslation = state.showLyricsTranslation,
             )
         }
     }
+    val (lineIndex, lyricText) = activeLine
     val displayText = when {
         state.lyricsLoading -> stringResource(R.string.np_lyric_loading)
         lyricText.isNotBlank() -> lyricText
         else -> state.songTitle
     }
-    Box(
-        modifier = modifier,
+    // Same voice as the active line of the multi-line view (LyricsDisplay):
+    // bodyLarge in the rounded cut at SemiBold, so shrinking to one line
+    // keeps the line the user was reading, only alone.
+    val style = MaterialTheme.typography.bodyLarge.copy(
+        fontFamily = GoogleSansFlexRounded,
+        fontWeight = FontWeight.SemiBold,
+    )
+    AnimatedContent(
+        // Keyed by line, not just text: a repeated line ("oh, oh") still
+        // reads as the lyric moving on. The song id makes a song change move
+        // too when both songs sit on line 0.
+        targetState = OneLineLyricFrame(state.songId, lineIndex, displayText, state.lyricsLoading),
+        contentKey = { Triple(it.songId, it.lineIndex, it.text) },
+        transitionSpec = { oneLineLyricLanding() using SizeTransform(clip = false) },
         contentAlignment = Alignment.TopStart,
-    ) {
+        label = "oneLineLyric",
+        modifier = modifier,
+    ) { (_, _, text, loading) ->
         Text(
-            text = displayText,
-            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-            color = if (state.lyricsLoading) {
+            text = text,
+            style = style,
+            color = if (loading) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.primary
@@ -4189,8 +4207,36 @@ internal fun OneLineLyricPreview(
     }
 }
 
+private data class OneLineLyricFrame(
+    val songId: String,
+    val lineIndex: Int,
+    val text: String,
+    val loading: Boolean,
+)
+
 /**
- * The 16:9 lyric entry (断点交接 §3.1): the current line, bold primary, one
+ * The next line lands: it grows from 94% at its left edge, the same landing
+ * the active line does in the multi-line view, while the old line settles
+ * back and fades. Movement rides the spatial spring, alpha the effects spring.
+ */
+private fun oneLineLyricLanding(): ContentTransform {
+    val leftEdge = TransformOrigin(0f, 0.5f)
+    val enter = YoinMotion.scaleIn(
+        role = YoinMotionRole.Expressive,
+        initialScale = 0.94f,
+        transformOrigin = leftEdge,
+    ) + YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it / 6 } +
+        YoinMotion.fadeIn(role = YoinMotionRole.Standard)
+    val exit = YoinMotion.scaleOut(
+        role = YoinMotionRole.Standard,
+        targetScale = 0.94f,
+        transformOrigin = leftEdge,
+    ) + YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
+    return enter togetherWith exit
+}
+
+/**
+ * The 16:9 lyric entry (断点交接 §3.1): the current line, rounded primary, one
  * line, and the whole row is the button that expands the lyrics page.
  *
  * When a line holds for [LyricIdleHintDelayMs] (intro, break, a long note)
@@ -4703,19 +4749,23 @@ internal fun PlainAlbumCover(
 private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp =
     start + (end - start) * fraction.coerceIn(0f, 1f)
 
-private fun List<LyricLine>.currentLyricText(
+// The active line's index (0 before the first timestamp, -1 with no lyrics)
+// and the text to show for it.
+private fun List<LyricLine>.currentLyricLine(
     positionMs: Long,
     showTranslation: Boolean,
-): String {
-    if (isEmpty()) return ""
-    val active = lastOrNull { line ->
+): Pair<Int, String> {
+    if (isEmpty()) return -1 to ""
+    val index = indexOfLast { line ->
         line.startMs?.let { positionMs >= it } == true
-    } ?: first()
-    return if (showTranslation && !active.translation.isNullOrBlank()) {
+    }.coerceAtLeast(0)
+    val active = this[index]
+    val text = if (showTranslation && !active.translation.isNullOrBlank()) {
         active.translation.orEmpty()
     } else {
         active.text
     }
+    return index to text
 }
 
 private fun Modifier.tapWithoutConsumingDrag(
