@@ -178,6 +178,7 @@ import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.canOpenNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.nowPlayingCoversHome
+import com.gpo.yoin.ui.nowplaying.pageBesideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
@@ -989,7 +990,10 @@ private fun YoinShell(
             modifier = Modifier
                 .fillMaxSize()
                 .voteHighFrameRate(columnsMoving)
-                .besideNowPlayingPanel(npPanel),
+                // The detail column's page fills the panel's corners with its
+                // edge; the shell pages alone keep the wash below (their
+                // full-bleed rows run under the panel and would streak).
+                .pageBesideNowPlayingPanel(npPanel, fillCorners = { paneState.isVisible }),
             shell = {
         CompositionLocalProvider(
             LocalYoinWindowInfo provides columnWindowInfos.shell.value,

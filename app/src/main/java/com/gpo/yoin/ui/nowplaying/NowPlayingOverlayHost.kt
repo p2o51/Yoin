@@ -496,7 +496,7 @@ fun NowPlayingOverlayHost(
             } else {
                 maxWidth
             }
-            val panelCorner = if (panelFamily) PanelCornerRadius * (1f - fullFraction) else 0.dp
+            val panelCorner = if (panelFamily) NowPlayingPanelCornerRadius * (1f - fullFraction) else 0.dp
             val panelShape = RoundedCornerShape(topStart = panelCorner, bottomStart = panelCorner)
             val panelShadowPx = with(density) { PanelShadowElevation.toPx() }
             Box(
@@ -743,8 +743,6 @@ private fun PanelToggleButton(
     }
 }
 
-/** Left corners of the side panel (FoldNPPanel). */
-private val PanelCornerRadius = 28.dp
 private val PanelShadowElevation = 16.dp
 
 /** The panel's back preview travels a third of the phone's 1200px chase. */

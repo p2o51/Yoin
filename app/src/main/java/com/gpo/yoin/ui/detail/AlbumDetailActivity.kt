@@ -33,7 +33,7 @@ import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.ProvideBesidePanelWindowInfo
-import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.pageBesideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
@@ -294,7 +294,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     playbackProgress = miniPlayerProgress,
                     modifier = Modifier
                         .fillMaxSize()
-                        .besideNowPlayingPanel(nowPlayingPanel),
+                        .pageBesideNowPlayingPanel(nowPlayingPanel),
                 )
                 }
 
