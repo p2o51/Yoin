@@ -309,8 +309,14 @@ internal val NowPlayingPanelCornerRadius = 28.dp
  * match every page there: the album's dark spectrum bar sits above its light
  * list, covers tint the wash, and a scroll swaps the hero for the bar, so the
  * corners showed the window or shell behind instead (51, 10-29, tablet).
+ * [fillCorners] (read at draw) lets a host skip the fill while its edge is
+ * content that bleeds under the panel — Home's full-bleed rows, stretched,
+ * streak the corner — and show its own background there instead.
  */
-fun Modifier.pageBesideNowPlayingPanel(panel: NowPlayingPanelInset): Modifier =
+fun Modifier.pageBesideNowPlayingPanel(
+    panel: NowPlayingPanelInset,
+    fillCorners: () -> Boolean = { true },
+): Modifier =
     drawWithCache {
         val layer = obtainGraphicsLayer()
         val cornerPx = NowPlayingPanelCornerRadius.toPx()
@@ -318,7 +324,7 @@ fun Modifier.pageBesideNowPlayingPanel(panel: NowPlayingPanelInset): Modifier =
             // The same edge besideNowPlayingPanel places the page against.
             val inset = panel.insetPx(this).roundToInt().coerceIn(0, size.width.toInt())
             val pageEnd = size.width - inset
-            if (inset == 0 || pageEnd < 1f) {
+            if (inset == 0 || pageEnd < 1f || !fillCorners()) {
                 drawContent()
                 return@onDrawWithContent
             }
