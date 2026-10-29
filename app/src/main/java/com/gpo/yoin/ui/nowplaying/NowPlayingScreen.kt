@@ -109,6 +109,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -121,6 +122,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -4586,6 +4588,12 @@ internal fun CompactBottomHero(
                 )
             }
             if (oneLine) {
+                // The title's stretch (playing) and press scale grow it past its
+                // layout box from the start edge; the artist rides that growth
+                // so the gap holds instead of the title running onto the artist
+                // (owner 2026-10-29, Fold outer screen).
+                var titleWidthPx by remember { mutableIntStateOf(0) }
+                val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(HeroOneLineGap),
@@ -4596,6 +4604,7 @@ internal fun CompactBottomHero(
                         modifier = Modifier
                             .weight(1f, fill = false)
                             .alignByBaseline()
+                            .onSizeChanged { titleWidthPx = it.width }
                             .then(titleModifier)
                             .then(titleClickModifier),
                     ) {
@@ -4610,6 +4619,12 @@ internal fun CompactBottomHero(
                         modifier = Modifier
                             .maxWidthFraction(HeroOneLineArtistShare)
                             .alignByBaseline()
+                            .graphicsLayer {
+                                if (ltr) {
+                                    val grown = titleStretchScale * (titleRouteInteraction?.scaleX ?: 1f) - 1f
+                                    translationX = titleWidthPx * grown.coerceAtLeast(0f)
+                                }
+                            }
                             .then(artistModifier)
                             .then(artistClickModifier),
                     ) {
@@ -4744,7 +4759,7 @@ private fun Modifier.maxWidthFraction(fraction: Float): Modifier = layout { meas
 }
 
 /** The one-row hero: gap after the title; the artist takes at most this share. */
-private val HeroOneLineGap = 10.dp
+private val HeroOneLineGap = 12.dp
 private const val HeroOneLineArtistShare = 0.4f
 
 /** Enlarged phone: the tab row grows to hold the lyric tools at its end. */
