@@ -4183,7 +4183,7 @@ internal fun OneLineLyricPreview(
         // too when both songs sit on line 0.
         targetState = OneLineLyricFrame(state.songId, lineIndex, displayText, state.lyricsLoading),
         contentKey = { Triple(it.songId, it.lineIndex, it.text) },
-        transitionSpec = { oneLineLyricTransition(OneLineLyricMotionStyle) },
+        transitionSpec = { oneLineLyricTransition(OneLineLyricMotionStyle) using SizeTransform(clip = false) },
         contentAlignment = Alignment.TopStart,
         label = "oneLineLyric",
         modifier = modifier,
@@ -4237,7 +4237,7 @@ private fun oneLineLyricTransition(motion: OneLineLyricMotion): ContentTransform
     val fadeIn = YoinMotion.fadeIn(role = YoinMotionRole.Standard)
     val fadeOut = YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
     val leftEdge = TransformOrigin(0f, 0.5f)
-    val transform = when (motion) {
+    return when (motion) {
         OneLineLyricMotion.Roll -> {
             val enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it / 2 } + fadeIn
             val exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Expressive) { -it / 2 } + fadeOut
@@ -4264,7 +4264,6 @@ private fun oneLineLyricTransition(motion: OneLineLyricMotion): ContentTransform
             enter togetherWith fadeOut
         }
     }
-    return transform using SizeTransform(clip = false)
 }
 
 /**
