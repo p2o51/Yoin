@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -126,7 +127,9 @@ internal fun ScrapTrackSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp),
+                    .padding(top = 10.dp)
+                    // The button's height, held when it fades out: clearing a score must not shift the sheet.
+                    .heightIn(min = 48.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
