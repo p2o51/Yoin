@@ -106,7 +106,7 @@ jobs:
         id: robolectric
         run: echo "version=$(sed -n 's/^robolectric = "\(.*\)"$/\1/p' gradle/libs.versions.toml)" >> "$GITHUB_OUTPUT"
       - name: Cache Robolectric android-all jars
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository/org/robolectric
           key: robolectric-${{ steps.robolectric.outputs.version }}
