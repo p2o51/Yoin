@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.repository
 
+import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.local.AlbumNoteDao
 import com.gpo.yoin.data.local.AlbumRatingDao
@@ -435,6 +436,49 @@ class YoinRepositoryTest {
         assertEquals(SongAboutEntry.KIND_ASK, saved.kind)
         assertEquals(9_000L, saved.createdAt)
         assertEquals(9_000L, saved.updatedAt)
+    }
+
+    @Test
+    fun editAboutEntry_keeps_the_row_with_a_blank_answer_when_removed() = runTest {
+        val row = SongAboutEntry(
+            titleKey = "fake love",
+            artistKey = "drake",
+            albumKey = "clb",
+            titleDisplay = "Fake Love",
+            artistDisplay = "Drake",
+            albumDisplay = "CLB",
+            kind = SongAboutEntry.KIND_ASK,
+            entryKey = "what does the chorus mean?",
+            promptText = "What does the chorus mean?",
+            titleText = "Chorus meaning",
+            answerText = "It's about betrayal.",
+            createdAt = 1_000L,
+            updatedAt = 1_000L,
+        )
+        coEvery {
+            songAboutEntryDao.get("fake love", "drake", "clb", SongAboutEntry.KIND_ASK, "what does the chorus mean?")
+        } returns row
+        val captured = mutableListOf<SongAboutEntry>()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+        val ref = AlbumScrapbookAboutRef(
+            titleKey = "fake love",
+            artistKey = "drake",
+            albumKey = "clb",
+            kind = SongAboutEntry.KIND_ASK,
+            entryKey = "what does the chorus mean?",
+        )
+
+        currentTime = 9_000L
+        repository.editAboutEntry(ref, title = " Betrayal ", answer = " Someone lied. ")
+        repository.editAboutEntry(ref, title = null, answer = "")
+
+        assertEquals("Betrayal", captured[0].titleText)
+        assertEquals("Someone lied.", captured[0].answerText)
+        assertEquals(9_000L, captured[0].updatedAt)
+        assertEquals(1_000L, captured[0].createdAt)
+        // removed: still there (so the blank syncs), the old title kept, the answer empty
+        assertEquals("", captured[1].answerText)
+        assertEquals("Chorus meaning", captured[1].titleText)
     }
 
     @Test

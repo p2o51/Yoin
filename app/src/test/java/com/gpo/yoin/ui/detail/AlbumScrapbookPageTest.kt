@@ -1,21 +1,28 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextReplacement
 import com.gpo.yoin.data.album.AlbumScrapbookAbout
+import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.AlbumScrapbookAlbumNote
 import com.gpo.yoin.data.album.AlbumScrapbookAsk
 import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.album.AlbumScrapbookNote
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Assert.assertEquals
@@ -37,6 +44,8 @@ class AlbumScrapbookPageTest {
     private val played = mutableListOf<String>()
     private val moments = mutableListOf<Pair<String, Long?>>()
     private var reviewEdits = 0
+    private val edits = mutableListOf<ScrapEdit>()
+    private val askRef = AlbumScrapbookAboutRef("song 3", "artist", "album", SongAboutEntry.KIND_ASK, "who plays?")
 
     @Test
     fun should_playTheSong_when_ticketTapped() {
@@ -64,6 +73,47 @@ class AlbumScrapbookPageTest {
         rule.waitForIdle()
 
         rule.onNodeWithText("Second sentence. Third sentence.", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun should_clearTheScore_when_ticketLongPressedAndScoreCleared() {
+        show()
+
+        rule.onNode(hasContentDescription("Track 1, Song 1, rated 8.5", substring = true))
+            .performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnLongClick)
+        rule.waitForIdle()
+        rule.onNodeWithText("Clear score").performClick()
+
+        assertEquals(listOf<ScrapEdit>(ScrapEdit.Score("subsonic:t1", 0f)), edits)
+    }
+
+    @Test
+    fun should_saveTheEditedAnswer_when_questionEditedInTheTrackSheet() {
+        show()
+
+        rule.onNode(hasContentDescription("Asked about Song 3", substring = true)).performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Edit").performClick()
+        rule.waitForIdle()
+        rule.onNode(hasSetTextAction() and hasText("First sentence.", substring = true))
+            .performTextReplacement("Just the drummer.")
+        rule.onNodeWithText("Save").performClick()
+
+        assertEquals(listOf<ScrapEdit>(ScrapEdit.About(askRef, "The band", "Just the drummer.")), edits)
+    }
+
+    @Test
+    fun should_removeTheQuestion_when_deletedInTheTrackSheet() {
+        show()
+
+        rule.onNode(hasContentDescription("Asked about Song 3", substring = true)).performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Edit").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Delete").performClick()
+
+        assertEquals(listOf<ScrapEdit>(ScrapEdit.About(askRef, null, "")), edits)
     }
 
     @Test
@@ -118,6 +168,7 @@ class AlbumScrapbookPageTest {
                             question = "Who plays?",
                             title = "The band",
                             answer = "First sentence. Second sentence. Third sentence.",
+                            ref = askRef,
                         ),
                     ),
                 ),
@@ -135,6 +186,7 @@ class AlbumScrapbookPageTest {
                     onSongClick = { played += it },
                     onNoteMomentClick = { songId, at -> moments += songId to at },
                     onEditReview = { reviewEdits++ },
+                    onEdit = { edits += it },
                 )
             }
         }
