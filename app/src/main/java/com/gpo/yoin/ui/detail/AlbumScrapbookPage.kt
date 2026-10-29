@@ -6,6 +6,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,6 +47,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.toShape
@@ -53,11 +58,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -110,6 +117,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -157,6 +165,7 @@ import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -169,6 +178,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /*
  * Page 2 of the album page: the scrapbook (see AlbumScrapbook.kt for what goes where and why).
@@ -321,6 +331,8 @@ internal fun AlbumScrapbookPage(
     // The Memory title beside the cover: rename it (blank = back to Yoin's), or restore the AI one.
     onRenameTitle: (String) -> Unit = {},
     onRestoreTitle: () -> Unit = {},
+    // The track sheet's changes: a score, or an edited / removed Ask / About text.
+    onEdit: (ScrapEdit) -> Unit = {},
     // The pager has come to rest on this page; [stamped] once its emblem ceremony has played.
     settled: Boolean = true,
     stamped: Boolean = true,
@@ -343,6 +355,7 @@ internal fun AlbumScrapbookPage(
             onEditReview = onEditReview,
             onRenameTitle = onRenameTitle,
             onRestoreTitle = onRestoreTitle,
+            onEdit = onEdit,
             settled = settled,
             stamped = stamped,
             onStamped = onStamped,
@@ -366,6 +379,7 @@ private fun ScrapbookPaper(
     onEditReview: () -> Unit,
     onRenameTitle: (String) -> Unit,
     onRestoreTitle: () -> Unit,
+    onEdit: (ScrapEdit) -> Unit,
     settled: Boolean,
     stamped: Boolean,
     onStamped: () -> Unit,
@@ -399,7 +413,25 @@ private fun ScrapbookPaper(
     }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
-    var aboutSheet by remember { mutableStateOf<ScrapAboutSheet?>(null) }
+    // The track whose sheet is open (its score, every question and fact, each editable).
+    var trackSheet by remember { mutableStateOf<String?>(null) }
+    // "Deleted · Undo" (owner 2026-10-29: like Google Photos): the row goes at once, Undo writes it back.
+    val removedSnackbar = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    val deletedLabel = stringResource(R.string.detail_scrap_deleted)
+    val undoLabel = stringResource(R.string.detail_scrap_undo)
+    val onRemoved: (ScrapEdit.About) -> Unit = { restore ->
+        snackbarScope.launch {
+            // One at a time: a second delete replaces the first notice (the first stays deleted).
+            removedSnackbar.currentSnackbarData?.dismiss()
+            val result = removedSnackbar.showSnackbar(
+                message = deletedLabel,
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) onEdit(restore)
+        }
+    }
     var notesSheet by remember { mutableStateOf<ScrapPiece.TrackCluster?>(null) }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -469,7 +501,7 @@ private fun ScrapbookPaper(
                                 onPlay = { onSongClick(piece.track.songId) },
                                 onNote = { line -> onNoteMomentClick(line.songId, line.positionMs) },
                                 onMoreNotes = { notesSheet = piece },
-                                onAbout = { aboutSheet = piece.sheet },
+                                onManage = { trackSheet = piece.track.songId },
                                 modifier = slot,
                             )
                             is ScrapPiece.ContactSheet -> ContactSheet(
@@ -477,6 +509,7 @@ private fun ScrapbookPaper(
                                 colors = colors,
                                 currentTrackId = currentTrackId,
                                 onPlay = onSongClick,
+                                onManage = { songId -> trackSheet = songId },
                                 modifier = slot,
                             )
                             is ScrapPiece.NotYet -> NotYet(piece, colors, onSongClick, slot)
@@ -486,10 +519,37 @@ private fun ScrapbookPaper(
                 }
             }
         }
+        // The track sheet carries this host while it is open; after it closes the notice sits here,
+        // above the window's bar.
+        if (trackSheet == null) {
+            SnackbarHost(
+                hostState = removedSnackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = navBottom + ScrapSnackbarAboveBar),
+            )
+        }
     }
 
-    aboutSheet?.let { sheet ->
-        ScrapAboutSheetContent(sheet = sheet, colors = colors, onDismiss = { aboutSheet = null })
+    trackSheet?.let { songId ->
+        val fresh = remember(book, songId) { book.trackSheetFor(songId) }
+        // A cleared score or a removed question can take the ticket off the page: the sheet keeps
+        // what it last showed until it is closed.
+        val last = remember(songId) { mutableStateOf(fresh) }
+        SideEffect { if (fresh != null) last.value = fresh }
+        val shown = fresh ?: last.value
+        if (shown == null) {
+            SideEffect { trackSheet = null }
+        } else {
+            ScrapTrackSheet(
+                target = shown,
+                colors = colors,
+                onEdit = onEdit,
+                onDismiss = { trackSheet = null },
+                onRemoved = onRemoved,
+                snackbar = removedSnackbar,
+            )
+        }
     }
     notesSheet?.let { cluster ->
         ScrapNotesSheet(
@@ -1015,7 +1075,7 @@ private fun TrackCluster(
     onPlay: () -> Unit,
     onNote: (ScrapNoteLine) -> Unit,
     onMoreNotes: () -> Unit,
-    onAbout: () -> Unit,
+    onManage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     ScrapStack(mirror = piece.mirror, modifier = modifier.padding(top = 6.dp)) {
@@ -1029,6 +1089,7 @@ private fun TrackCluster(
             mini = false,
             tilt = piece.ticketTilt,
             onClick = onPlay,
+            onLongClick = onManage,
             modifier = Modifier
                 .scrapSlot(cross = false, overlap = 0.dp)
                 .fillMaxWidth(0.66f)
@@ -1056,7 +1117,7 @@ private fun TrackCluster(
                 tilt = piece.cardTilt,
                 colors = colors,
                 trackTitle = piece.track.title,
-                onClick = onAbout,
+                onClick = onManage,
                 modifier = Modifier
                     .scrapSlot(cross = false)
                     .fillMaxWidth(0.92f)
@@ -1068,7 +1129,7 @@ private fun TrackCluster(
                 tilt = piece.cardTilt,
                 colors = colors,
                 trackTitle = piece.track.title,
-                onClick = onAbout,
+                onClick = onManage,
                 modifier = Modifier
                     .scrapSlot(cross = false)
                     .fillMaxWidth(0.92f)
@@ -1080,7 +1141,7 @@ private fun TrackCluster(
                 tag = tag,
                 colors = colors,
                 extra = if (i == piece.tags.lastIndex) piece.hiddenTags else 0,
-                onClick = onAbout,
+                onClick = onManage,
                 modifier = Modifier
                     .scrapSlot(cross = true, overlap = if (i == 0) ScrapbookLayout.TagOverlap else (-6).dp)
                     .padding(horizontal = 12.dp)
@@ -1096,6 +1157,7 @@ private fun ContactSheet(
     colors: ScrapbookColors,
     currentTrackId: String?,
     onPlay: (String) -> Unit,
+    onManage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (piece.tracks.size == 1) {
@@ -1109,6 +1171,7 @@ private fun ContactSheet(
                 mini = true,
                 tilt = piece.tilts.single(),
                 onClick = { onPlay(track.songId) },
+                onLongClick = { onManage(track.songId) },
                 modifier = Modifier
                     .fillMaxWidth(0.52f)
                     .widthIn(min = 168.dp, max = 220.dp),
@@ -1130,6 +1193,7 @@ private fun ContactSheet(
                     mini = true,
                     tilt = piece.tilts[i],
                     onClick = { onPlay(track.songId) },
+                    onLongClick = { onManage(track.songId) },
                     modifier = Modifier
                         .weight(1f)
                         .padding(top = if (i % 2 == 1) 12.dp else 0.dp),
@@ -1152,8 +1216,10 @@ private fun Ticket(
     mini: Boolean,
     tilt: Float,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     val container by animateColorAsState(
         targetValue = when {
             best -> colors.ink
@@ -1177,6 +1243,7 @@ private fun Ticket(
     val description = ticketContentDescription(track)
     val playingLabel = stringResource(R.string.detail_scrap_cd_playing)
     val playLabel = stringResource(R.string.detail_scrap_cd_play_track, track.title)
+    val manageLabel = stringResource(R.string.detail_scrap_cd_manage_track)
     val stub = TicketStub
     Box(
         modifier = modifier
@@ -1190,6 +1257,10 @@ private fun Ticket(
                     onClick()
                     true
                 }
+                onLongClick(label = manageLabel) {
+                    onLongClick()
+                    true
+                }
             },
     ) {
         Row(
@@ -1198,7 +1269,13 @@ private fun Ticket(
                 .heightIn(min = if (mini) 56.dp else 64.dp)
                 .clip(TicketShape)
                 .background(container)
-                .clickable(onClick = onClick)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = {
+                        haptics.performLongPress()
+                        onLongClick()
+                    },
+                )
                 .drawBehind {
                     // the perforation between stub and body
                     val x = stub.toPx()
@@ -1292,6 +1369,9 @@ private fun Ticket(
         }
     }
 }
+
+/** Room under a page-level snackbar for the window's floating bar (the page's own foot padding, less a gap). */
+private val ScrapSnackbarAboveBar = 96.dp
 
 /** The stub's width (the number column) and where the perforation and notches sit. */
 private val TicketStub = 48.dp
@@ -1388,7 +1468,7 @@ private fun receiptGlyph(text: String): String {
 }
 
 @Composable
-private fun scrapFactLabel(label: String): String = when (label) {
+internal fun scrapFactLabel(label: String): String = when (label) {
     "Created" -> stringResource(R.string.detail_scrap_fact_created)
     "Recorded in" -> stringResource(R.string.detail_scrap_fact_recorded)
     "Lyricist" -> stringResource(R.string.detail_scrap_fact_lyricist)
@@ -1531,7 +1611,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
 }
 
 @Composable
-private fun userTextStyle() = MaterialTheme.typography.bodyLarge.copy(
+internal fun userTextStyle() = MaterialTheme.typography.bodyLarge.copy(
     fontFamily = GoogleSansFlex,
     fontSize = 15.sp,
     lineHeight = 1.5.em,
@@ -1809,58 +1889,6 @@ private fun androidx.graphics.shapes.RoundedPolygon.toShapeCompat(): Shape = toS
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScrapAboutSheetContent(sheet: ScrapAboutSheet, colors: ScrapbookColors, onDismiss: () -> Unit) {
-    ScrapSheet(onDismiss = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
-        ) {
-            AlbumSectionLabel(text = "${sheet.trackNumber.toString().padStart(2, '0')}  ${sheet.trackTitle}")
-            sheet.asks.forEachIndexed { i, ask ->
-                Text(
-                    text = ask.question,
-                    style = userTextStyle(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = if (i == 0) 14.dp else 28.dp),
-                )
-                ask.title?.let { title ->
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 10.dp),
-                    )
-                }
-                Text(
-                    text = markdownBoldAnnotatedString(ask.answer),
-                    style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.6.em),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            sheet.facts.forEach { fact ->
-                Text(
-                    text = scrapFactLabel(fact.label),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = colors.ink,
-                    modifier = Modifier.padding(top = 22.dp),
-                )
-                Text(
-                    text = markdownBoldAnnotatedString(fact.value),
-                    style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.5.em),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
 private fun ScrapNotesSheet(
     cluster: ScrapPiece.TrackCluster,
     colors: ScrapbookColors,
@@ -1902,7 +1930,7 @@ private fun ScrapNotesSheet(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScrapSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun ScrapSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     YoinModalBottomSheet(
         onDismissRequest = onDismiss,
         modifier = Modifier.statusBarsPadding(),

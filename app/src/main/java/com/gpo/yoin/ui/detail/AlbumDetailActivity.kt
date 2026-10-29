@@ -246,6 +246,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     onResumed = viewModel::onResumed,
                     onRenameMemoryTitle = viewModel::renameMemoryTitle,
                     onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
+                    onScrapEdit = viewModel::editScrapbook,
                     notedSongIds = notedSongIds,
                     currentTrackId = currentTrackId,
                     trackMenu = trackMenu,

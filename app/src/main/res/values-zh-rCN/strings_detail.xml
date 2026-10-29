@@ -175,6 +175,17 @@
     <string name="detail_scrap_fact_producer">制作人</string>
     <string name="detail_scrap_fact_about">关于</string>
     <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
+    <string name="detail_scrap_score">评分</string>
+    <string name="detail_scrap_clear_score">清除评分</string>
+    <string name="detail_scrap_cd_manage_track">评分和编辑</string>
+    <string name="detail_scrap_cd_edit">编辑</string>
+    <string name="detail_scrap_edit_title_hint">标题</string>
+    <string name="detail_scrap_edit_text_hint">留空即删除</string>
+    <string name="detail_scrap_delete">删除</string>
+    <string name="detail_scrap_cancel">取消</string>
+    <string name="detail_scrap_save">保存</string>
+    <string name="detail_scrap_deleted">已删除</string>
+    <string name="detail_scrap_undo">撤销</string>
     <string name="track_menu_go_to_album">前往专辑</string>
     <string name="track_menu_go_to_artist">前往艺术家</string>
     <string name="track_menu_share">分享</string>

@@ -242,7 +242,36 @@ class AlbumScrapbookSourceTest {
 
         assertEquals(setOf(id("t1"), id("t2")), matched.keys)
         assertEquals("a1", matched[id("t1")]?.asks?.single()?.answer)
-        assertEquals(listOf(AlbumScrapbookFact(SongAboutEntry.CANON_LYRICIST, "RM")), matched[id("t2")]?.facts)
+        assertEquals(
+            listOf(
+                AlbumScrapbookFact(
+                    SongAboutEntry.CANON_LYRICIST,
+                    "RM",
+                    ref = AlbumScrapbookAboutRef(
+                        titleKey = "euphoria",
+                        artistKey = "jungkook",
+                        albumKey = "album",
+                        kind = SongAboutEntry.KIND_CANONICAL,
+                        entryKey = SongAboutEntry.CANON_LYRICIST,
+                    ),
+                ),
+            ),
+            matched[id("t2")]?.facts,
+        )
+    }
+
+    @Test
+    fun should_hideRemovedAsk_when_itsAnswerWasBlanked() {
+        val tracks = listOf(AlbumScrapbookTrackKey(id("t1"), "Euphoria", "BTS"))
+        val rows = listOf(
+            about("euphoria", "bts", "album", SongAboutEntry.KIND_ASK, "q1", answer = ""),
+            about("euphoria", "bts", "album", SongAboutEntry.KIND_ASK, "q2", answer = "a2"),
+        )
+
+        val asks = matchAboutToTracks(rows, tracks)[id("t1")]?.asks.orEmpty()
+
+        assertEquals(listOf("a2"), asks.map { it.answer })
+        assertEquals("q2", asks.single().ref?.entryKey)
     }
 
     @Test

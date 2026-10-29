@@ -5,6 +5,7 @@ import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import androidx.room.withTransaction
+import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
@@ -2883,7 +2884,32 @@ class YoinRepository(
         titleKey = SongAboutEntry.normalize(title),
         artistKey = SongAboutEntry.normalize(artist),
         albumKey = SongAboutEntry.normalize(album),
-    )
+    ).map { rows ->
+        // A blank answer is a question removed on the album page's scrapbook ([editAboutEntry]).
+        rows.filterNot { it.kind == SongAboutEntry.KIND_ASK && it.answerText.isBlank() }
+    }
+
+    /**
+     * The listener's own edit of one About row from the album page's scrapbook: [answer] (and, on an
+     * ask row, [title]) replace Gemini's text. A blank [answer] removes the row from every view; it
+     * stays as a blank row rather than being deleted, because About deletes never sync and the
+     * row would come back from Drive. Asking the same question again in Now Playing fills it in.
+     */
+    suspend fun editAboutEntry(ref: AlbumScrapbookAboutRef, title: String?, answer: String) {
+        val row = songAboutEntryDao.get(ref.titleKey, ref.artistKey, ref.albumKey, ref.kind, ref.entryKey) ?: return
+        val text = answer.trim()
+        songAboutEntryDao.upsert(
+            row.copy(
+                titleText = if (row.kind == SongAboutEntry.KIND_ASK && text.isNotEmpty()) {
+                    title?.trim()?.takeIf(String::isNotEmpty)
+                } else {
+                    row.titleText
+                },
+                answerText = text,
+                updatedAt = clock(),
+            ),
+        )
+    }
 
     /**
      * Ensure the 6 canonical About rows exist for this song. No-op when
