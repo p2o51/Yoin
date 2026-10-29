@@ -37,7 +37,7 @@ jobs:
         with:
           repository: p2o51/yoin-symbols
           # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: 418ebc3d588d8e2f76215f6b72938312e5cb1a1d
+          ref: 0a2c731f44681899574060aa975b711bab298bfe
           path: yoin-symbols
 
       - name: Fetch Apple MusicKit SDK
