@@ -29,6 +29,7 @@ import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.integration.neodb.NeoDBApi
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
+import com.gpo.yoin.data.integration.neodb.NeoDbRestoreGuard
 import com.gpo.yoin.data.integration.neodb.NeoDbTokenStore
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.LibraryRecentsSource
@@ -153,6 +154,17 @@ class AppContainer(private val context: Context) {
             val unknownTitle = context.getString(R.string.landing_spotoolfy_unknown_title)
             val result = runCatching { spotoolfyImporter.resumeInterrupted(spotify?.id, unknownTitle) }.getOrNull()
             if (result is SpotoolfyImporter.CommitResult.Committed) trackAlbumLinkEnricher.kick()
+        }
+    }
+
+    /** After a backup restore, drops the old phone's NeoDB dirty flags ([NeoDbRestoreGuard]). */
+    fun clearNeoDbPendingAfterRestore() {
+        applicationScope.launch {
+            runCatching {
+                NeoDbRestoreGuard.clearIfRestored(context.noBackupFilesDir) {
+                    database.albumRatingDao().clearAllNeoDbPending()
+                }
+            }
         }
     }
 
