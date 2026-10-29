@@ -862,12 +862,6 @@ private fun AlbumDetailContent(
         }
         }
 
-        // Over both pages: the Last Play time on its way between them.
-        val lastPlayedAt = content.lastPlayedAt
-        if (flight != null && lastPlayedAt != null && barLayout == AlbumBarLayout.Compact) {
-            val (day, time) = albumLastPlayLabels(lastPlayedAt, LocalContext.current.resources)
-            AlbumLastPlayFlight(flight = flight, text = "$day $time", modifier = Modifier.fillMaxSize())
-        }
     }
 
     LaunchedEffect(showEditSheet) {
