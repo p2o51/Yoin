@@ -586,7 +586,7 @@ private fun AlbumDetailContent(
         // Phone and short hero: the cover flies to the scrapbook page's cover with
         // the pager instead of sliding off (owner 2026-10-29).
         val flies = hasScrapbook && (barLayout == AlbumBarLayout.Compact || barLayout == AlbumBarLayout.Short)
-        val flight = remember(flies, widthPx, rtl) {
+        val flight = remember(flies, widthPx, rtl, reduced) {
             if (!flies) {
                 null
             } else {
@@ -594,7 +594,9 @@ private fun AlbumDetailContent(
                     pageFraction = pageFraction,
                     pageWidthPx = widthPx,
                     rtl = rtl,
-                    heroResting = { progress() < 0.01f },
+                    // Reduced motion: the cover slides off with page 0 (AlbumFlyingCover), so
+                    // nothing flies and the scrapbook keeps its own cover showing.
+                    heroResting = { !reduced && progress() < 0.01f },
                     openScrapbook = {
                         pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
                     },
