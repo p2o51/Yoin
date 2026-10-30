@@ -72,7 +72,10 @@ class MotionAuditActivity : ComponentActivity() {
         // Debug-only seam: do not add a fake playback API to the shipped player.
         val track = Track(
             id = MediaId.subsonic("motion-audit-track"),
-            title = "Motion study", artist = "Yoin", artistId = MediaId.subsonic("motion-artist"),
+            // `--es title …` / `--es artist …`: long titles for the one-line hero QA.
+            title = intent.getStringExtra("title") ?: "Motion study",
+            artist = intent.getStringExtra("artist") ?: "Yoin",
+            artistId = MediaId.subsonic("motion-artist"),
             album = "Return to the player", albumId = MediaId.subsonic("motion-album"),
             coverArt = CoverRef.Url("android.resource://$packageName/${R.drawable.ic_yoin_launcher_foreground}"), durationSec = 240, trackNumber = 1, year = 2026,
             genre = null, userRating = null,

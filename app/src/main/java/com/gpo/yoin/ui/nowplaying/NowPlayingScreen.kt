@@ -98,6 +98,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
@@ -1315,7 +1316,13 @@ private fun CompactPlayingContent(
         val tabSpacerHeight = stage(restPose.tabGap, focusPose.tabGap, ExpandedTabGap)
         val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress)
         val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
-        val ratingSlotWidth = lerpDp(ratingColumn, 0.dp, ratingRetreatProgress)
+        // A height-capped cover (Fold outer, the side panel, short windows) left
+        // an empty band between it and the rating bar: the bar takes that band
+        // and reads thick, with the heart in a row under it (owner 2026-10-30).
+        val ratingBand = (stageWidth - horizontalPadding * 2 - 12.dp - restPose.cover).coerceAtLeast(ratingColumn)
+        val thickRating = ratingBand - ratingColumn >= ThickRatingMinGain
+        val ratingColumnWidth = if (thickRating) ratingBand else ratingColumn
+        val ratingSlotWidth = lerpDp(ratingColumnWidth, 0.dp, ratingRetreatProgress)
         val lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics
         val idleEligible = lyricToolsIdleEligible(
             isPlaying = state.isPlaying,
@@ -1561,9 +1568,9 @@ private fun CompactPlayingContent(
                                     .clipToBounds(),
                             ) {
                                 Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    horizontalAlignment = if (thickRating) Alignment.Start else Alignment.CenterHorizontally,
                                     modifier = Modifier
-                                        .width(ratingColumn)
+                                        .width(ratingColumnWidth)
                                         .fillMaxHeight()
                                         .graphicsLayer {
                                             alpha = (1f - ratingRetreatProgress).coerceIn(0f, 1f)
@@ -1574,11 +1581,17 @@ private fun CompactPlayingContent(
                                         songId = state.songId,
                                         rating = state.rating,
                                         onRatingCommit = onRatingChange,
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .then(if (thickRating) Modifier.fillMaxWidth() else Modifier),
                                     )
 
                                     Spacer(modifier = Modifier.height(8.dp))
 
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
                                     if (state.serviceFeatures.supportsFavorites) {
                                         FavoriteButton(
                                             isStarred = state.isStarred,
@@ -1600,6 +1613,7 @@ private fun CompactPlayingContent(
                                             isWorking = state.libraryActionInFlight,
                                             onClick = onAddCurrentToLibrary,
                                         )
+                                    }
                                     }
 
                                     // Room for the heart's tap-bounce (scales to
@@ -4650,11 +4664,24 @@ internal fun CompactBottomHero(
                 // The title's stretch (playing) and press scale grow it past its
                 // layout box from the start edge; the artist rides that growth
                 // so the gap holds instead of the title running onto the artist
-                // (owner 2026-10-29, Fold outer screen).
+                // (owner 2026-10-29, Fold outer screen). It rides only into the
+                // row's free end: a long (marquee) title fills the row, so there
+                // the title's growth is clipped at its own slot instead and the
+                // artist stays put, never pushed off the edge (owner 2026-10-30).
                 var titleWidthPx by remember { mutableIntStateOf(0) }
+                var artistWidthPx by remember { mutableIntStateOf(0) }
+                var rowWidthPx by remember { mutableIntStateOf(0) }
+                val gapPx = with(LocalDensity.current) { HeroOneLineGap.toPx() }
                 val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
+                fun titleGrowthPx(): Float {
+                    val grown = titleStretchScale * (titleRouteInteraction?.scaleX ?: 1f) - 1f
+                    return titleWidthPx * grown.coerceAtLeast(0f)
+                }
+                fun rowFreePx(): Float = (rowWidthPx - titleWidthPx - gapPx - artistWidthPx).coerceAtLeast(0f)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { rowWidthPx = it.width },
                     horizontalArrangement = Arrangement.spacedBy(HeroOneLineGap),
                 ) {
                     // The artist is measured first (capped), the title takes
@@ -4664,6 +4691,17 @@ internal fun CompactBottomHero(
                             .weight(1f, fill = false)
                             .alignByBaseline()
                             .onSizeChanged { titleWidthPx = it.width }
+                            // Only the end edge clips (glyph tops and the start stay whole).
+                            .drawWithContent {
+                                if (!ltr) {
+                                    drawContent()
+                                    return@drawWithContent
+                                }
+                                val end = size.width + minOf(titleGrowthPx(), rowFreePx())
+                                clipRect(left = -size.width, top = -size.height, right = end, bottom = size.height * 2f) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
                             .then(titleModifier)
                             .then(titleClickModifier),
                     ) {
@@ -4678,11 +4716,9 @@ internal fun CompactBottomHero(
                         modifier = Modifier
                             .maxWidthFraction(HeroOneLineArtistShare)
                             .alignByBaseline()
+                            .onSizeChanged { artistWidthPx = it.width }
                             .graphicsLayer {
-                                if (ltr) {
-                                    val grown = titleStretchScale * (titleRouteInteraction?.scaleX ?: 1f) - 1f
-                                    translationX = titleWidthPx * grown.coerceAtLeast(0f)
-                                }
+                                if (ltr) translationX = minOf(titleGrowthPx(), rowFreePx())
                             }
                             .then(artistModifier)
                             .then(artistClickModifier),
@@ -5011,6 +5047,9 @@ private fun PlayingFromLabel(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+/** The rating bar turns thick only when the band beside the cover is at least this much wider than the bar. */
+private val ThickRatingMinGain = 24.dp
+
 @Composable
 internal fun FavoriteButton(
     isStarred: Boolean,
