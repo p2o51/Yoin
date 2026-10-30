@@ -55,8 +55,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
-          # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: cd9186032983f7165c4aad872c1e4d8796b95777
+          # Follows main: a merged icon change reaches the next build with nothing to bump.
+          ref: main
           path: yoin-symbols
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -64,7 +64,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       - name: ktlint
         run: ./gradlew ktlintCheck -PyoinSymbolsDir=yoin-symbols
       - name: Upload ktlint reports
@@ -86,8 +86,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
-          # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: cd9186032983f7165c4aad872c1e4d8796b95777
+          # Follows main: a merged icon change reaches the next build with nothing to bump.
+          ref: main
           path: yoin-symbols
       - name: Fetch Apple MusicKit SDK
         uses: ./.github/actions/apple-musickit
@@ -99,14 +99,14 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       # Robolectric downloads its android-all jars from Maven Central on first
       # use, and that download sometimes fails mid-run. Keep them cached.
       - name: Read Robolectric version
         id: robolectric
         run: echo "version=$(sed -n 's/^robolectric = "\(.*\)"$/\1/p' gradle/libs.versions.toml)" >> "$GITHUB_OUTPUT"
       - name: Cache Robolectric android-all jars
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository/org/robolectric
           key: robolectric-${{ steps.robolectric.outputs.version }}
@@ -132,8 +132,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
-          # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: cd9186032983f7165c4aad872c1e4d8796b95777
+          # Follows main: a merged icon change reaches the next build with nothing to bump.
+          ref: main
           path: yoin-symbols
       - name: Fetch Apple MusicKit SDK
         uses: ./.github/actions/apple-musickit
@@ -145,7 +145,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       - name: Android Lint (fails only on issues not in lint-baseline.xml)
         run: ./gradlew :app:lintDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload lint report
@@ -167,8 +167,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: p2o51/yoin-symbols
-          # Pinned commit (the repo has no tags yet); bump with the app.
-          ref: cd9186032983f7165c4aad872c1e4d8796b95777
+          # Follows main: a merged icon change reaches the next build with nothing to bump.
+          ref: main
           path: yoin-symbols
       - name: Fetch Apple MusicKit SDK
         uses: ./.github/actions/apple-musickit
@@ -180,7 +180,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.4.0
       - name: Assemble debug APK
         run: ./gradlew assembleDebug -PyoinSymbolsDir=yoin-symbols
       - name: Upload debug APK

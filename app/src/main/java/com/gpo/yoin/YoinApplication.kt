@@ -62,6 +62,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         registerHostLifecycle()
         registerActivityEmbeddingRules()
         if (containerOverrideForTests == null) {
+            container.clearNeoDbPendingAfterRestore()
             WidgetRefresher.start(this, container)
             PlaylistBackupFollower.start(container)
         }

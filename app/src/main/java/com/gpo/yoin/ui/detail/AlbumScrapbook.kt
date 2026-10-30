@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.runtime.Immutable
+import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.AlbumScrapbookAsk
 import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.album.AlbumScrapbookFact
@@ -141,7 +142,13 @@ data class ScrapNoteLine(
 )
 
 @Immutable
-data class ScrapTag(val label: String, val value: String, val tilt: Float)
+data class ScrapTag(
+    val label: String,
+    val value: String,
+    val tilt: Float,
+    /** The About row behind it, for editing; null in previews and tests. */
+    val ref: AlbumScrapbookAboutRef? = null,
+)
 
 @Immutable
 data class ScrapNotYet(val songId: String, val number: Int, val title: String, val tilt: Float)
@@ -154,6 +161,21 @@ data class ScrapAboutSheet(
     val asks: List<AlbumScrapbookAsk>,
     val facts: List<ScrapTag>,
 )
+
+/**
+ * What the listener changes from page 2's track sheet (owner 2026-10-29: manage the AI text and the scores
+ * in the scrapbook). Written straight to Room; the page re-reads its data, so nothing here is optimistic.
+ */
+sealed interface ScrapEdit {
+    /** A track's score, 0–10; 0 clears it (a stored 0 is "not rated"). */
+    data class Score(val songId: String, val score: Float) : ScrapEdit
+
+    /**
+     * New text for one Ask / About row: [title] only applies to a question. A blank [answer] removes the
+     * row from the page (and from Now Playing's About).
+     */
+    data class About(val ref: AlbumScrapbookAboutRef, val title: String?, val answer: String) : ScrapEdit
+}
 
 /** The page's fixed rules (D3 §5). */
 internal object ScrapbookRules {
@@ -475,7 +497,8 @@ internal fun factLabel(key: String): String = when (key) {
     else -> key
 }
 
-private fun AlbumScrapbookFact.toTag(tilt: Float) = ScrapTag(label = factLabel(key), value = value, tilt = tilt)
+private fun AlbumScrapbookFact.toTag(tilt: Float) =
+    ScrapTag(label = factLabel(key), value = value, tilt = tilt, ref = ref)
 
 private fun AlbumScrapbookNote.toLine(songId: String) =
     ScrapNoteLine(noteId = id, songId = songId, positionMs = positionMs, text = content)

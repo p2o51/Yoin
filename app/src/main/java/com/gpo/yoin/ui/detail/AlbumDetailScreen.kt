@@ -169,6 +169,8 @@ fun AlbumDetailScreen(
     // Page 2's Memory title: rename (blank = back to Yoin's) and restore the AI title.
     onRenameMemoryTitle: (String) -> Unit = {},
     onRestoreMemoryTitle: () -> Unit = {},
+    // Page 2's track sheet: a track's score, or an edited / removed Ask / About text.
+    onScrapEdit: (ScrapEdit) -> Unit = {},
     onPlayAlbum: () -> Unit = {},
     onShufflePlay: () -> Unit = {},
     onShare: () -> Unit = {},
@@ -284,6 +286,7 @@ fun AlbumDetailScreen(
                             is AlbumDetailUiState.Content ->
                                 AlbumDetailContent(
                                     content = state,
+                                    nowPlayingOpen = nowPlayingOpen,
                                     onBackClick = onBackClick,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
@@ -302,6 +305,7 @@ fun AlbumDetailScreen(
                                     onNoteMomentClick = onNoteMomentClick,
                                     onRenameMemoryTitle = onRenameMemoryTitle,
                                     onRestoreMemoryTitle = onRestoreMemoryTitle,
+                                    onScrapEdit = onScrapEdit,
                                 )
                         }
                     }
@@ -370,6 +374,7 @@ fun AlbumDetailScreen(
 @Composable
 private fun AlbumDetailContent(
     content: AlbumDetailUiState.Content,
+    nowPlayingOpen: Boolean,
     onBackClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
@@ -388,6 +393,7 @@ private fun AlbumDetailContent(
     onNoteMomentClick: (songId: String, positionMs: Long?) -> Unit,
     onRenameMemoryTitle: (String) -> Unit,
     onRestoreMemoryTitle: () -> Unit,
+    onScrapEdit: (ScrapEdit) -> Unit,
 ) {
     // Material color roles seeded from the album's OWN cover (MCU
     // SchemeExpressive) — not raw Palette swatches, which read "off" used as
@@ -600,7 +606,7 @@ private fun AlbumDetailContent(
             derivedStateOf { barLayout != null && progress() > AlbumBarDockedThreshold && pageFraction() < 0.5f }
         }
         AlbumBarStatusBarEffect(
-            enabled = barLayout != null && !inColumn,
+            enabled = barLayout != null && !inColumn && !nowPlayingOpen,
             docked = { docked },
             darkTheme = isSystemInDarkTheme(),
         )
@@ -850,6 +856,7 @@ private fun AlbumDetailContent(
                             onEditReview = { showEditSheet = true },
                             onRenameTitle = onRenameMemoryTitle,
                             onRestoreTitle = onRestoreMemoryTitle,
+                            onEdit = onScrapEdit,
                             settled = pagerState.settledPage == 1,
                             stamped = scrapbookStamped,
                             onStamped = { scrapbookStamped = true },

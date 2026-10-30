@@ -525,7 +525,9 @@ internal fun AlbumFlyingCover(
 /**
  * Status bar icons follow the bar in a full window: light over the formed
  * spectrum, the theme's default otherwise. A detail column leaves them alone
- * (the status bar belongs to the whole window, half of it over the shell).
+ * (the status bar belongs to the whole window, half of it over the shell), and
+ * so does an open Now Playing: it covers the page, so the icons go back to the
+ * theme's default with it (else a light Now Playing keeps the bar's white icons).
  */
 @Composable
 internal fun AlbumBarStatusBarEffect(enabled: Boolean, docked: () -> Boolean, darkTheme: Boolean) {

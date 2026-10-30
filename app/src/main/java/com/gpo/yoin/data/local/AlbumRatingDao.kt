@@ -73,6 +73,13 @@ interface AlbumRatingDao {
         now: Long,
     ): Int
 
+    /** A backup restore: the NeoDB dirty flags were the old phone's (NeoDbRestoreGuard). Rows and words stay. */
+    @Query(
+        "UPDATE album_ratings SET ratingNeedsSync = 0, reviewNeedsSync = 0 " +
+            "WHERE ratingNeedsSync = 1 OR reviewNeedsSync = 1",
+    )
+    suspend fun clearAllNeoDbPending(): Int
+
     @Query(
         "DELETE FROM album_ratings " +
             "WHERE profileId = :profileId AND albumId = :albumId AND provider = :provider",
