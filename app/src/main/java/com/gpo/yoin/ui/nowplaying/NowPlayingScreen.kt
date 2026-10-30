@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
@@ -93,11 +94,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
@@ -113,6 +116,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -125,6 +129,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -1305,14 +1310,41 @@ private fun CompactPlayingContent(
         // Rest ⇄ focus by immersive, then ⇄ the Expanded layout by detail.
         fun stage(rest: Dp, focus: Dp, expanded: Dp): Dp =
             lerpDp(lerpDp(rest, focus, immersiveProgress), expanded, detailProgress)
-        val visibleCoverHeight = lerpDp(restPose.cover, focusPose.cover, immersiveProgress)
-        val coverRowHeight = stage(restPose.cover, focusPose.cover, 0.dp)
+        // Short focus (owner 2026-10-30): where the regular focus can't grow the
+        // cover (Fold outer screen, 16:9), a tap still focuses it — the heart,
+        // rating bar and title fold away, PREVIOUS glides up into the top transport
+        // row and the progress bar takes its own row; the freed height goes to the
+        // cover, centred. The current lyric line stays, as in every focus.
+        var shortFocus by remember { mutableStateOf(false) }
+        val shortFocusProgress by animateFloatAsState(
+            targetValue = if (shortFocus) 1f else 0f,
+            animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+            label = "npShortFocus",
+        )
+        val shortFocusControls = shortFocusControlsHeight(stageControlSize)
+        val shortFocusFreed = (restPose.hero + restPose.controls - shortFocusControls).coerceAtLeast(0.dp)
+        val shortFocusCover = minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2)
+        val shortFocusAvailable = !focusOffered && shortFocusCover - restPose.cover >= ShortFocusMinGrowth
+        LaunchedEffect(shortFocusAvailable, stageMode) {
+            if (!shortFocusAvailable || stageMode != NowPlayingStageMode.Compact) shortFocus = false
+        }
+        val visibleCoverHeight = lerpDp(
+            lerpDp(restPose.cover, focusPose.cover, immersiveProgress),
+            shortFocusCover,
+            shortFocusProgress,
+        )
+        val coverRowHeight = lerpDp(stage(restPose.cover, focusPose.cover, 0.dp), shortFocusCover, shortFocusProgress)
         val coverRowAlpha = compactProgress
         val topBarHeight = stage(restPose.topBar, focusPose.topBar, ExpandedTopBarHeight)
         val tabHeight = stage(restPose.tabs, focusPose.tabs, ExpandedTabRowHeight)
         val tabSpacerHeight = stage(restPose.tabGap, focusPose.tabGap, ExpandedTabGap)
-        val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress)
+        val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress, shortFocusProgress)
         val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
+        // A height-capped cover (Fold outer, 16:9) leaves a band between it and the
+        // rating bar: the song's album, artist and title run up it, a record's
+        // spine (owner 2026-10-30, option 2 over a thick bar).
+        val spineBand = stageWidth - horizontalPadding * 2 - 12.dp - ratingColumn - restPose.cover
+        val showSpine = spineBand >= SpineMinWidth
         val ratingSlotWidth = lerpDp(ratingColumn, 0.dp, ratingRetreatProgress)
         val lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics
         val idleEligible = lyricToolsIdleEligible(
@@ -1369,12 +1401,13 @@ private fun CompactPlayingContent(
             label = "nowPlayingBottomAccessoryHeight",
         )
         val bottomAccessoryHeight = stage(restPose.accessory, focusPose.accessory, expandedAccessoryHeight)
-        val controlsHeight = stage(restPose.controls, focusPose.controls, 0.dp)
+        val controlsHeight =
+            lerpDp(stage(restPose.controls, focusPose.controls, 0.dp), shortFocusControls, shortFocusProgress)
         val coverSpacerHeight = stage(restPose.coverGap, focusPose.coverGap, ExpandedCoverGap)
         // The title keeps its resting slot in Expanded — unless the Note
         // composer owns the bottom edge (keyboard up).
         val expandedHeroHeight = lerpDp(restPose.hero, 0.dp, noteHeroYield.coerceIn(0f, 1f))
-        val heroHeight = stage(restPose.hero, focusPose.hero, expandedHeroHeight)
+        val heroHeight = lerpDp(stage(restPose.hero, focusPose.hero, expandedHeroHeight), 0.dp, shortFocusProgress)
         // Add back the space the surrounding slots will release at Expanded.
         // Round each slot separately, exactly as their layout modifiers do, so
         // the lazy list receives identical pixel constraints on every frame.
@@ -1500,8 +1533,23 @@ private fun CompactPlayingContent(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight(),
-                                contentAlignment = Alignment.TopStart,
+                                // Short focus centres the grown cover.
+                                contentAlignment = BiasAlignment(
+                                    horizontalBias = -1f + shortFocusProgress,
+                                    verticalBias = -1f,
+                                ),
                             ) {
+                                if (showSpine) {
+                                    NowPlayingSpineMarquee(
+                                        text = "${state.albumName}   ${state.artist}   ${state.songTitle}",
+                                        length = restPose.cover,
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .width(spineBand)
+                                            .height(restPose.cover)
+                                            .graphicsLayer { alpha = 1f - ratingRetreatProgress },
+                                    )
+                                }
                                 AlbumCover(
                                     songId = state.songId,
                                     coverArtUrl = state.coverArtUrl,
@@ -1543,6 +1591,8 @@ private fun CompactPlayingContent(
                                                         onStageModeChange(NowPlayingStageMode.Immersive)
                                                     }
                                                 }
+                                            } else if (shortFocusAvailable) {
+                                                { shortFocus = !shortFocus }
                                             } else {
                                                 null
                                             },
@@ -1815,6 +1865,7 @@ private fun CompactPlayingContent(
                             onSetPlayMode = playbackActions.onSetPlayMode,
                             controlSize = stageControlSize,
                             live = stageControlsLive,
+                            prevToTopRow = shortFocusProgress,
                             modifier = Modifier
                                 .padding(horizontal = horizontalPadding)
                                 .graphicsLayer {
@@ -4470,6 +4521,7 @@ private fun TickingPlaybackControls(
     noteAnchorsMs: List<Long> = emptyList(),
     modifier: Modifier = Modifier,
     live: Boolean = true,
+    prevToTopRow: Float = 0f,
 ) {
     val position = positionMs()
     val progress = if (durationMs > 0) {
@@ -4503,6 +4555,7 @@ private fun TickingPlaybackControls(
         onExpandLyrics = onExpandLyrics,
         modifier = modifier,
         live = live,
+        prevToTopRow = prevToTopRow,
     )
 }
 
@@ -4645,8 +4698,27 @@ internal fun CompactBottomHero(
                 )
             }
             if (oneLine) {
+                // The title's stretch (playing) and press scale grow it past its
+                // layout box from the start edge; the artist rides that growth
+                // so the gap holds instead of the title running onto the artist
+                // (owner 2026-10-29, Fold outer screen). It rides only into the
+                // row's free end: a long (marquee) title fills the row, so there
+                // the title's growth is clipped at its own slot instead and the
+                // artist stays put, never pushed off the edge (owner 2026-10-30).
+                var titleWidthPx by remember { mutableIntStateOf(0) }
+                var artistWidthPx by remember { mutableIntStateOf(0) }
+                var rowWidthPx by remember { mutableIntStateOf(0) }
+                val gapPx = with(LocalDensity.current) { HeroOneLineGap.toPx() }
+                val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
+                fun titleGrowthPx(): Float {
+                    val grown = titleStretchScale * (titleRouteInteraction?.scaleX ?: 1f) - 1f
+                    return titleWidthPx * grown.coerceAtLeast(0f)
+                }
+                fun rowFreePx(): Float = (rowWidthPx - titleWidthPx - gapPx - artistWidthPx).coerceAtLeast(0f)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { rowWidthPx = it.width },
                     horizontalArrangement = Arrangement.spacedBy(HeroOneLineGap),
                 ) {
                     // The artist is measured first (capped), the title takes
@@ -4655,6 +4727,23 @@ internal fun CompactBottomHero(
                         modifier = Modifier
                             .weight(1f, fill = false)
                             .alignByBaseline()
+                            .onSizeChanged { titleWidthPx = it.width }
+                            // Only the end edge clips (glyph tops and the start stay whole).
+                            .drawWithContent {
+                                if (!ltr) {
+                                    drawContent()
+                                    return@drawWithContent
+                                }
+                                val end = size.width + minOf(titleGrowthPx(), rowFreePx())
+                                clipRect(
+                                    left = -size.width,
+                                    top = -size.height,
+                                    right = end,
+                                    bottom = size.height * 2f,
+                                ) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
                             .then(titleModifier)
                             .then(titleClickModifier),
                     ) {
@@ -4669,6 +4758,10 @@ internal fun CompactBottomHero(
                         modifier = Modifier
                             .maxWidthFraction(HeroOneLineArtistShare)
                             .alignByBaseline()
+                            .onSizeChanged { artistWidthPx = it.width }
+                            .graphicsLayer {
+                                if (ltr) translationX = minOf(titleGrowthPx(), rowFreePx())
+                            }
                             .then(artistModifier)
                             .then(artistClickModifier),
                     ) {
@@ -4808,7 +4901,7 @@ private fun Modifier.maxWidthFraction(fraction: Float): Modifier = layout { meas
 }
 
 /** The one-row hero: gap after the title; the artist takes at most this share. */
-private val HeroOneLineGap = 10.dp
+private val HeroOneLineGap = 12.dp
 private const val HeroOneLineArtistShare = 0.4f
 
 /** Enlarged phone: the tab row grows to hold the lyric tools at its end. */
@@ -4996,6 +5089,36 @@ private fun PlayingFromLabel(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+/** Short focus is offered only where folding the rest away grows the cover by at least this. */
+private val ShortFocusMinGrowth = 24.dp
+
+/** The spine shows only in a band at least this wide. */
+private val SpineMinWidth = 24.dp
+
+/**
+ * The band between a height-capped cover and the rating bar: the song's info
+ * running up it, a record's spine. Laid out [length] (the cover's side) long,
+ * turned a quarter round, and marqueed with the title's fade and pause.
+ */
+@Composable
+private fun NowPlayingSpineMarquee(text: String, length: Dp, modifier: Modifier = Modifier) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier
+                .requiredWidth(length)
+                .graphicsLayer { rotationZ = -90f }
+                .clipToBounds()
+                .horizontalFadeMask(edgeWidth = 28.dp)
+                .basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000),
+        )
+    }
+}
+
 @Composable
 internal fun FavoriteButton(
     isStarred: Boolean,

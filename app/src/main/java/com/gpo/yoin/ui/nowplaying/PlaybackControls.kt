@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -133,6 +134,10 @@ internal fun PlaybackControls(
     playModeModifier: Modifier = Modifier,
     // The tip page's demo: a scrub of the progress bar it acts out (WaveProgressBar).
     actedScrub: (() -> Float?)? = null,
+    // Short-window focus, 0 → 1 on its spring: PREVIOUS glides up into the top
+    // row (PLAY and NEXT make room) and the progress bar takes the second row
+    // alone, growing to the full width as PREVIOUS leaves it.
+    prevToTopRow: Float = 0f,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -224,275 +229,307 @@ internal fun PlaybackControls(
                 label = "textStretch",
             )
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TransportKeyGroup(
-                        interactions = listOf(playInteractionSource, nextInteractionSource),
-                        // Weighted, not filling: measured AFTER the fixed trailing
-                        // controls, so the group gets what they leave.
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .height(controlButtonSize),
-                    ) {
-                        FilledTonalButton(
-                            onClick = {
-                                if (playCenter.isSpecified) {
-                                    transportSignal?.recordTap(playCenter, TransportTapKind.PlayPause)
-                                }
-                                haptics.performClick()
-                                onTogglePlayPause()
-                            },
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .onGloballyPositioned {
-                                    playCenter = it.boundsInRoot().center
-                                    transportSignal?.gatherAnchorRoot = playCenter
-                                },
-                            shape = MaterialTheme.shapes.extraLarge,
-                            interactionSource = playInteractionSource,
-                            contentPadding = PaddingValues(horizontal = playHorizontalPadding),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
-                        ) {
-                            // The word's box carries the pill's width (see
-                            // pillSpatialSpec); the English word lays out at its
-                            // own width inside it, so it never re-sizes the pill.
-                            // Every other language shows the symbol in the same
-                            // box, swelling with the word's stretch.
-                            Box(
-                                modifier = Modifier.width(wordWidth),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (wordLabel) {
-                                    Text(
-                                        text = word,
-                                        style = wordStyle,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier
-                                            .wrapContentWidth(unbounded = true)
-                                            .graphicsLayer {
-                                                scaleX = textStretchScale
-                                                transformOrigin = TransformOrigin(0f, 0.5f)
-                                            },
-                                    )
-                                } else {
-                                    Icon(
-                                        painter = rememberPlayPauseSymbolPainter(playing = isPlaying),
-                                        contentDescription = if (isPlaying) {
-                                            stringResource(R.string.np_cd_transport_pause)
-                                        } else {
-                                            stringResource(R.string.np_cd_transport_play)
-                                        },
-                                        modifier = Modifier
-                                            .size(controlIconSize)
-                                            .graphicsLayer {
-                                                scaleX = textStretchScale
-                                                scaleY = textStretchScale
-                                            },
-                                    )
-                                }
-                            }
-                        }
-
-                        FilledIconButton(
-                            onClick = {
-                                if (nextCenter.isSpecified) {
-                                    transportSignal?.recordTap(nextCenter, TransportTapKind.SkipNext)
-                                }
-                                haptics.performTick()
-                                onSkipNext()
-                            },
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(controlButtonSize)
-                                .onGloballyPositioned {
-                                    nextCenter = it.boundsInRoot().center
-                                },
-                            interactionSource = nextInteractionSource,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
-                        ) {
-                            Icon(
-                                imageVector = YoinSymbols.SkipNextFilled,
-                                contentDescription = stringResource(R.string.np_cd_skip_next),
-                                modifier = Modifier.size(controlIconSize),
+            val prevButton: @Composable () -> Unit = {
+                FilledIconButton(
+                    onClick = {
+                        if (prevCenter.isSpecified) {
+                            transportSignal?.recordTap(
+                                prevCenter,
+                                TransportTapKind.SkipPrevious,
+                                positionMs = latestPositionMs,
                             )
+                        }
+                        haptics.performTick()
+                        onSkipPrevious()
+                    },
+                    modifier = Modifier
+                        .size(controlSize)
+                        .onGloballyPositioned {
+                            prevCenter = it.boundsInRoot().center
+                        },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = YoinSymbols.SkipPreviousFilled,
+                        contentDescription = stringResource(R.string.np_cd_skip_previous),
+                        modifier = Modifier.size(controlIconSize),
+                    )
+                }
+            }
+            val transportGroup: @Composable RowScope.() -> Unit = {
+                TransportKeyGroup(
+                    interactions = listOf(playInteractionSource, nextInteractionSource),
+                    // Weighted, not filling: measured AFTER the fixed trailing
+                    // controls, so the group gets what they leave.
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .height(controlButtonSize),
+                ) {
+                    FilledTonalButton(
+                        onClick = {
+                            if (playCenter.isSpecified) {
+                                transportSignal?.recordTap(playCenter, TransportTapKind.PlayPause)
+                            }
+                            haptics.performClick()
+                            onTogglePlayPause()
+                        },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .onGloballyPositioned {
+                                playCenter = it.boundsInRoot().center
+                                transportSignal?.gatherAnchorRoot = playCenter
+                            },
+                        shape = MaterialTheme.shapes.extraLarge,
+                        interactionSource = playInteractionSource,
+                        contentPadding = PaddingValues(horizontal = playHorizontalPadding),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        // The word's box carries the pill's width (see
+                        // pillSpatialSpec); the English word lays out at its
+                        // own width inside it, so it never re-sizes the pill.
+                        // Every other language shows the symbol in the same
+                        // box, swelling with the word's stretch.
+                        Box(
+                            modifier = Modifier.width(wordWidth),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (wordLabel) {
+                                Text(
+                                    text = word,
+                                    style = wordStyle,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .wrapContentWidth(unbounded = true)
+                                        .graphicsLayer {
+                                            scaleX = textStretchScale
+                                            transformOrigin = TransformOrigin(0f, 0.5f)
+                                        },
+                                )
+                            } else {
+                                Icon(
+                                    painter = rememberPlayPauseSymbolPainter(playing = isPlaying),
+                                    contentDescription = if (isPlaying) {
+                                        stringResource(R.string.np_cd_transport_pause)
+                                    } else {
+                                        stringResource(R.string.np_cd_transport_play)
+                                    },
+                                    modifier = Modifier
+                                        .size(controlIconSize)
+                                        .graphicsLayer {
+                                            scaleX = textStretchScale
+                                            scaleY = textStretchScale
+                                        },
+                                )
+                            }
                         }
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Tabletop adds an "expand lyrics" toggle to the right group (left of
-                        // the play-mode button); other layouts pass null and never render it.
-                        if (onExpandLyrics != null) {
-                            val expandContainer = if (lyricsExpanded) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.tertiaryContainer
+                    FilledIconButton(
+                        onClick = {
+                            if (nextCenter.isSpecified) {
+                                transportSignal?.recordTap(nextCenter, TransportTapKind.SkipNext)
                             }
-                            val expandContent = if (lyricsExpanded) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onTertiaryContainer
-                            }
-                            FilledIconButton(
-                                onClick = {
-                                    haptics.performTick()
-                                    onExpandLyrics()
-                                },
-                                modifier = Modifier.size(controlSize),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = expandContainer,
-                                    contentColor = expandContent,
-                                ),
-                            ) {
-                                Icon(
-                                    imageVector = if (lyricsExpanded) {
-                                        YoinSymbols.UnfoldLess
-                                    } else {
-                                        YoinSymbols.UnfoldMore
-                                    },
-                                    contentDescription = if (lyricsExpanded) {
-                                        stringResource(R.string.np_cd_collapse_lyrics)
-                                    } else {
-                                        stringResource(R.string.np_cd_expand_lyrics)
-                                    },
-                                    modifier = Modifier.size(controlIconSize),
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-
-                        if (playModeSplitState == null) {
-                            // Until the Play modes tip is read, a run round the whole cycle
-                            // splits the button once to show it, and that reads the tip.
-                            val context = LocalContext.current
-                            val tips = LocalTipReadStore.current
-                                ?: remember(context) { SharedPrefsTipReadStore.get(context) }
-                            val readTips by tips.read.collectAsState()
-                            PlayModeButton(
-                                playMode = playMode,
-                                onSetPlayMode = onSetPlayMode,
-                                height = controlSize,
-                                splitWidth = fit.playModeWidth,
-                                iconSize = controlIconSize,
-                                modifier = playModeModifier,
-                                showSplitOnFullCycle = HomeBubbleTip.PlayModes !in readTips,
-                                onShowedSplit = { tips.setRead(HomeBubbleTip.PlayModes, true) },
-                            )
-                        } else {
-                            PlayModeButton(
-                                playMode = playMode,
-                                onSetPlayMode = onSetPlayMode,
-                                height = controlSize,
-                                splitWidth = fit.playModeWidth,
-                                iconSize = controlIconSize,
-                                modifier = playModeModifier,
-                                splitState = playModeSplitState,
-                            )
-                        }
+                            haptics.performTick()
+                            onSkipNext()
+                        },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(controlButtonSize)
+                            .onGloballyPositioned {
+                                nextCenter = it.boundsInRoot().center
+                            },
+                        interactionSource = nextInteractionSource,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = YoinSymbols.SkipNextFilled,
+                            contentDescription = stringResource(R.string.np_cd_skip_next),
+                            modifier = Modifier.size(controlIconSize),
+                        )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(TransportRowGap))
-
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                    // Below ~360dp the ~96dp of inline time labels would starve the wave
-                    // bar to a sliver (the narrow Fold left pane at ~1:1.5). There, drop
-                    // the labels under the bar so it keeps full width. Compact/Tabletop
-                    // (full width) stay inline exactly as before. The prev button + bar
-                    // live in one Row in both cases — only the labels move.
-                    val labelsInline = maxWidth >= PlaybackLabelsInlineMinWidth
-                    Column(modifier = Modifier.fillMaxWidth()) {
+            }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.weight(1f, fill = false),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            FilledIconButton(
-                                onClick = {
-                                    if (prevCenter.isSpecified) {
-                                        transportSignal?.recordTap(
-                                            prevCenter,
-                                            TransportTapKind.SkipPrevious,
-                                            positionMs = latestPositionMs,
-                                        )
-                                    }
-                                    haptics.performTick()
-                                    onSkipPrevious()
-                                },
-                                modifier = Modifier
-                                    .size(controlSize)
-                                    .onGloballyPositioned {
-                                        prevCenter = it.boundsInRoot().center
+                            // PREVIOUS's place in this row, opening as it arrives.
+                            Spacer(modifier = Modifier.width((controlSize + 8.dp) * prevToTopRow))
+                            transportGroup()
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Tabletop adds an "expand lyrics" toggle to the right group (left of
+                            // the play-mode button); other layouts pass null and never render it.
+                            if (onExpandLyrics != null) {
+                                val expandContainer = if (lyricsExpanded) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.tertiaryContainer
+                                }
+                                val expandContent = if (lyricsExpanded) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onTertiaryContainer
+                                }
+                                FilledIconButton(
+                                    onClick = {
+                                        haptics.performTick()
+                                        onExpandLyrics()
                                     },
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondary,
-                                    contentColor = MaterialTheme.colorScheme.onSecondary,
-                                ),
-                            ) {
-                                Icon(
-                                    imageVector = YoinSymbols.SkipPreviousFilled,
-                                    contentDescription = stringResource(R.string.np_cd_skip_previous),
-                                    modifier = Modifier.size(controlIconSize),
-                                )
+                                    modifier = Modifier.size(controlSize),
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = expandContainer,
+                                        contentColor = expandContent,
+                                    ),
+                                ) {
+                                    Icon(
+                                        imageVector = if (lyricsExpanded) {
+                                            YoinSymbols.UnfoldLess
+                                        } else {
+                                            YoinSymbols.UnfoldMore
+                                        },
+                                        contentDescription = if (lyricsExpanded) {
+                                            stringResource(R.string.np_cd_collapse_lyrics)
+                                        } else {
+                                            stringResource(R.string.np_cd_expand_lyrics)
+                                        },
+                                        modifier = Modifier.size(controlIconSize),
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
                             }
 
-                            if (labelsInline) {
-                                PlaybackTimeLabel(
-                                    text = formatTrackDurationMs(positionMs),
-                                    modifier = Modifier
-                                        // minWidth (not fixed width): fontScale>1 grows
-                                        // instead of clipping; tabular figures keep the
-                                        // fontScale-1 footprint identical.
-                                        .defaultMinSize(minWidth = 44.dp)
-                                        .offset(y = 6.dp),
+                            if (playModeSplitState == null) {
+                                // Until the Play modes tip is read, a run round the whole cycle
+                                // splits the button once to show it, and that reads the tip.
+                                val context = LocalContext.current
+                                val tips = LocalTipReadStore.current
+                                    ?: remember(context) { SharedPrefsTipReadStore.get(context) }
+                                val readTips by tips.read.collectAsState()
+                                PlayModeButton(
+                                    playMode = playMode,
+                                    onSetPlayMode = onSetPlayMode,
+                                    height = controlSize,
+                                    splitWidth = fit.playModeWidth,
+                                    iconSize = controlIconSize,
+                                    modifier = playModeModifier,
+                                    showSplitOnFullCycle = HomeBubbleTip.PlayModes !in readTips,
+                                    onShowedSplit = { tips.setRead(HomeBubbleTip.PlayModes, true) },
                                 )
-                            }
-                            WaveProgressBar(
-                                progress = progress,
-                                buffered = buffered,
-                                durationMs = durationMs,
-                                onSeek = onSeek,
-                                isPlaying = isPlaying,
-                                noteAnchorsMs = noteAnchorsMs,
-                                animating = live,
-                                actedScrub = actedScrub,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (labelsInline) {
-                                PlaybackTimeLabel(
-                                    text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
-                                    modifier = Modifier
-                                        .defaultMinSize(minWidth = 52.dp)
-                                        .offset(y = 6.dp),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            } else {
+                                PlayModeButton(
+                                    playMode = playMode,
+                                    onSetPlayMode = onSetPlayMode,
+                                    height = controlSize,
+                                    splitWidth = fit.playModeWidth,
+                                    iconSize = controlIconSize,
+                                    modifier = playModeModifier,
+                                    splitState = playModeSplitState,
                                 )
                             }
                         }
-                        if (!labelsInline) {
+                    }
+
+                    Spacer(modifier = Modifier.height(TransportRowGap))
+
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        // Below ~360dp the ~96dp of inline time labels would starve the wave
+                        // bar to a sliver (the narrow Fold left pane at ~1:1.5). There, drop
+                        // the labels under the bar so it keeps full width. Compact/Tabletop
+                        // (full width) stay inline exactly as before. The prev button + bar
+                        // live in one Row in both cases — only the labels move.
+                        val labelsInline = maxWidth >= PlaybackLabelsInlineMinWidth || prevToTopRow >= 0.5f
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = controlSize + 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                    // Short focus: the row shrinks to the progress bar's own height.
+                                    .height(lerp(controlSize, ShortFocusProgressRowHeight, prevToTopRow)),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                PlaybackTimeLabel(text = formatTrackDurationMs(positionMs))
-                                PlaybackTimeLabel(
-                                    text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                // PREVIOUS's slot (button + gap) narrows to nothing as the
+                                // button rises into the top row (drawn over both rows, below).
+                                Spacer(modifier = Modifier.width((controlSize + 8.dp) * (1f - prevToTopRow)))
+
+                                if (labelsInline) {
+                                    PlaybackTimeLabel(
+                                        text = formatTrackDurationMs(positionMs),
+                                        modifier = Modifier
+                                            // minWidth (not fixed width): fontScale>1 grows
+                                            // instead of clipping; tabular figures keep the
+                                            // fontScale-1 footprint identical.
+                                            .defaultMinSize(minWidth = 44.dp)
+                                            .offset(y = 6.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                WaveProgressBar(
+                                    progress = progress,
+                                    buffered = buffered,
+                                    durationMs = durationMs,
+                                    onSeek = onSeek,
+                                    isPlaying = isPlaying,
+                                    noteAnchorsMs = noteAnchorsMs,
+                                    animating = live,
+                                    actedScrub = actedScrub,
+                                    modifier = Modifier.weight(1f),
                                 )
+                                if (labelsInline) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    PlaybackTimeLabel(
+                                        text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
+                                        modifier = Modifier
+                                            .defaultMinSize(minWidth = 52.dp)
+                                            .offset(y = 6.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                    )
+                                }
+                            }
+                            if (!labelsInline) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = (controlSize + 8.dp) * (1f - prevToTopRow)),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    PlaybackTimeLabel(text = formatTrackDurationMs(positionMs))
+                                    PlaybackTimeLabel(
+                                        text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                    )
+                                }
                             }
                         }
                     }
+                }
+                // PREVIOUS: at the start of the progress row at rest, gliding up to the
+                // start of the top row in short focus (one button, so one press state).
+                Box(
+                    modifier = Modifier.offset {
+                        val secondRowTop = (controlSize + TransportRowGap).toPx()
+                        val secondRowHeight = lerp(controlSize, ShortFocusProgressRowHeight, prevToTopRow).toPx()
+                        val restTop = secondRowTop + (secondRowHeight - controlSize.toPx()) / 2f
+                        IntOffset(0, (restTop * (1f - prevToTopRow)).roundToInt())
+                    },
+                ) {
+                    prevButton()
                 }
             }
         }
@@ -899,6 +936,12 @@ internal fun playbackControlsHeight(controlSize: Dp, width: Dp, labelLine: Dp): 
 
 /** Below this the inline time labels would starve the wave; they move under it. */
 internal val PlaybackLabelsInlineMinWidth = 360.dp
+
+/** The progress bar's own row in short focus (prevToTopRow = 1). */
+internal val ShortFocusProgressRowHeight = 36.dp
+
+/** The controls' height in short focus: one transport row, then the progress bar's row. */
+internal fun shortFocusControlsHeight(controlSize: Dp): Dp = controlSize + TransportRowGap + ShortFocusProgressRowHeight
 private val TransportRowGap = 4.dp
 
 private val PlayRestPadding = 24.dp

@@ -59,8 +59,12 @@ import kotlin.math.roundToInt
  * the bar. Everything per-frame is read in layout / draw only.
  */
 
-/** Which layout the bar is morphing out of. */
-internal enum class AlbumBarLayout { Compact, Landscape, Medium }
+/**
+ * Which layout the bar is morphing out of. [Short] is a Compact-width window
+ * too short for the portrait hero ([albumHeroFitsPortrait]): the cover moves
+ * to the start with the meta stacked beside it.
+ */
+internal enum class AlbumBarLayout { Compact, Short, Landscape, Medium }
 
 /** A placement of the Yoin mark: box, layer scale + translationY about its centre, horizontal squash about the hub. */
 @Immutable
@@ -130,6 +134,49 @@ internal fun albumHeroCoverSidePx(width: Float, density: Density): Float =
 internal fun albumHeroBandPx(width: Float, density: Density): Float =
     albumHeroCoverSidePx(width, density) + with(density) { 56.dp.toPx() }
 
+// Short portrait (cover beside the meta): the cover starts on the titles' 16dp
+// line, takes over 60% of the width, and sits under the header like landscape.
+// Big on purpose: the row (and the meta beside it, narrower and so taller) pushes
+// the flowing titles down until the last lines run under the bar, as on a
+// portrait phone, instead of ending in a gap above it (owner 2026-10-28). The
+// meta keeps at least [AlbumShortMetaMinWidth] so "Yesterday" and the stamp fit.
+internal val AlbumShortCoverStart = 16.dp
+internal val AlbumShortCoverMaxSide = 260.dp
+internal val AlbumShortMetaMinWidth = 112.dp
+// Cover start + gap to the meta + the page's end padding.
+private val AlbumShortHeroHorizontalChrome = 48.dp
+private const val AlbumShortCoverWidthFraction = 0.62f
+
+/** Short-portrait cover side for a page [width] px wide. */
+internal fun albumShortCoverSidePx(width: Float, density: Density): Float = with(density) {
+    val besideMeta = width - (AlbumShortHeroHorizontalChrome + AlbumShortMetaMinWidth).toPx()
+    minOf(width * AlbumShortCoverWidthFraction, besideMeta, AlbumShortCoverMaxSide.toPx())
+}
+
+// What the portrait hero needs besides the cover band, so at least one line of
+// the flowing track titles shows above the bar. Chrome: status bar, header row,
+// page dots, bottom bar + nav (≈ 24 + 62 + 25 + 104). Text: Last Play | score,
+// comment, gaps, track count and one title line (≈ 146 + 36 + 26 + 40), which
+// grows with the font scale.
+private const val AlbumPortraitChromeReserveDp = 220f
+private const val AlbumPortraitTextReserveDp = 250f
+
+/**
+ * The album page's height breakpoint on Compact width: whether a [widthDp] ×
+ * [heightDp] container keeps the portrait hero (cover over meta over the
+ * flowing titles) or turns it sideways ([AlbumBarLayout.Short]).
+ *
+ * Not a size-class line: the Compact hero's height grows with its width (the
+ * cover is 0.74 × width, capped at 300), so what decides is the height left
+ * once the cover band is taken. 390 × 844 keeps 499dp (portrait); a near-3:2
+ * outer screen such as Fold 8's (~420 × 640) keeps ~284dp (short).
+ */
+internal fun albumHeroFitsPortrait(widthDp: Float, heightDp: Float, fontScale: Float = 1f): Boolean {
+    val band = min(widthDp * 0.74f, 300f) + 56f
+    val needed = AlbumPortraitChromeReserveDp + AlbumPortraitTextReserveDp * fontScale
+    return heightDp - band >= needed
+}
+
 /**
  * The geometry for one layout. [titleRowTop] / [titleRowHeight] place the stamp
  * level with the title; [startInset] / [endInset] are the landscape capsule band
@@ -187,8 +234,12 @@ internal fun albumBarGeometry(
                 huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, HuggingEdgeClearance.toPx())
             }
         }
-        AlbumBarLayout.Landscape, AlbumBarLayout.Medium -> {
-            if (layout == AlbumBarLayout.Landscape) {
+        AlbumBarLayout.Short, AlbumBarLayout.Landscape, AlbumBarLayout.Medium -> {
+            if (layout == AlbumBarLayout.Short) {
+                coverSide = albumShortCoverSidePx(width, density)
+                coverStart = AlbumShortCoverStart.toPx()
+                coverTop = headerHeight + 4.dp.toPx()
+            } else if (layout == AlbumBarLayout.Landscape) {
                 coverSide = min(AlbumLandscapeCoverSide.toPx(), height - headerHeight - 24.dp.toPx())
                 coverStart = startInset + AlbumLandscapeCoverInset.toPx()
                 coverTop = headerHeight + 4.dp.toPx()
@@ -198,7 +249,11 @@ internal fun albumBarGeometry(
                 coverStart = (width - column) / 2f + 16.dp.toPx()
                 coverTop = headerHeight + AlbumTrackListTopPadding.toPx()
             }
-            fromPose = huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, HuggingEdgeClearance.toPx())
+            // Short sits its cover on the 16dp line, too close to the edge for the
+            // 8dp clearance to leave the mark its size (only a sliver showed past
+            // the cover); on a screen edge its near arm may run to the edge itself.
+            val clearance = if (layout == AlbumBarLayout.Short && pageEdgesAreScreenEdges) 0f else HuggingEdgeClearance.toPx()
+            fromPose = huggingPose(coverStart, coverTop, coverSide, HuggingMarkScale, clearance)
         }
     }
     fun mirror(x: Float, w: Float) = if (rtl) width - x - w else x
@@ -409,6 +464,9 @@ internal fun AlbumFlyingCover(
     modifier: Modifier = Modifier,
     // Reduced motion: no flight — the cover fades out where it rests and the stamp fades in.
     reduced: Boolean = false,
+    // Phone / short hero: on the swipe to the scrapbook the resting cover flies to
+    // the page's cover instead of sliding away with page 0 (owner 2026-10-29).
+    pageFlight: AlbumPageFlight? = null,
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -433,12 +491,25 @@ internal fun AlbumFlyingCover(
                     albumBarCoverRect(now, coverNow(), p)
                 }
                 if (reduced) alpha = abs(1f - 2f * p)
-                val scale = r.width / side
-                transformOrigin = TransformOrigin(0f, 0f)
-                translationX = r.left - pageShift()
-                translationY = r.top
+                val target = pageFlight?.coverTarget
+                // Toward the scrapbook's cover as much as the hero is at rest (p = 0);
+                // pulled up into the bar, it slides away with page 0 as before.
+                val toPage = if (target == null || reduced) 0f else pageFlight.t() * (1f - p)
+                val flown = if (target == null || toPage <= 0f) {
+                    r.translate(-pageShift() * (1f - toPage), 0f)
+                } else {
+                    lerpRect(r.translate(-pageShift() * p, 0f), target, toPage)
+                }
+                // Landed: the page's own cover (tilted, under its emblem) takes over.
+                if (target != null && toPage >= 0.999f) alpha = 0f
+                val scale = flown.width / side
+                // Scale and tilt about the centre, so the tilt lands as the page holds it.
+                transformOrigin = TransformOrigin.Center
+                translationX = flown.left - side * (1f - scale) / 2f
+                translationY = flown.top - side * (1f - scale) / 2f
                 scaleX = scale
                 scaleY = scale
+                rotationZ = if (target == null) 0f else pageFlight.coverTargetTilt * toPage
                 val corner = if (reduced) {
                     if (p < 0.5f) restingPx else stampPx
                 } else {
