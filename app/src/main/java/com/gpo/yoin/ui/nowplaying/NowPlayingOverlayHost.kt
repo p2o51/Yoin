@@ -800,11 +800,13 @@ fun BoxScope.NowPlayingAccessories(
         }
     }
 
-    LaunchedEffect(viewModel, context) {
+    val regeneratedText by rememberUpdatedState(stringResource(R.string.np_about_regenerated))
+    val undoText by rememberUpdatedState(stringResource(R.string.np_about_undo))
+    LaunchedEffect(viewModel) {
         viewModel.aboutRegenerated.collect { done ->
             val result = snackbarHostState.showYoinSnackbar(
-                message = context.getString(R.string.np_about_regenerated),
-                actionLabel = context.getString(R.string.np_about_undo),
+                message = regeneratedText,
+                actionLabel = undoText,
                 icon = YoinSymbols.Sparkle,
                 duration = SnackbarDuration.Long,
             )
