@@ -94,6 +94,7 @@ import androidx.compose.ui.unit.lerp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.R
+import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.BarExtraAction
@@ -127,8 +128,8 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
-import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 // Page 1 of the pager is the scrapbook (AlbumScrapbookPage, D3 — owner-approved
 // 2026-10-05). It also needs a host that passes `scrapbook`: a host that doesn't
@@ -169,8 +170,10 @@ fun AlbumDetailScreen(
     // Page 2's Memory title: rename (blank = back to Yoin's) and restore the AI title.
     onRenameMemoryTitle: (String) -> Unit = {},
     onRestoreMemoryTitle: () -> Unit = {},
-    // Page 2's track sheet: a track's score, or an edited / removed Ask / About text.
+    // Page 2's track sheet: a track's score, an About row, a new entry, a note.
     onScrapEdit: (ScrapEdit) -> Unit = {},
+    // The track sheet's lyrics (its Note tab) and Gemini's work from page 2.
+    scrapFeeds: ScrapSheetFeeds = ScrapSheetFeeds.None,
     onPlayAlbum: () -> Unit = {},
     onShufflePlay: () -> Unit = {},
     onShare: () -> Unit = {},
@@ -306,6 +309,7 @@ fun AlbumDetailScreen(
                                     onRenameMemoryTitle = onRenameMemoryTitle,
                                     onRestoreMemoryTitle = onRestoreMemoryTitle,
                                     onScrapEdit = onScrapEdit,
+                                    scrapFeeds = scrapFeeds,
                                 )
                         }
                     }
@@ -394,6 +398,7 @@ private fun AlbumDetailContent(
     onRenameMemoryTitle: (String) -> Unit,
     onRestoreMemoryTitle: () -> Unit,
     onScrapEdit: (ScrapEdit) -> Unit,
+    scrapFeeds: ScrapSheetFeeds,
 ) {
     // Material color roles seeded from the album's OWN cover (MCU
     // SchemeExpressive) — not raw Palette swatches, which read "off" used as
@@ -445,6 +450,8 @@ private fun AlbumDetailContent(
     val pageSpec = YoinMotion.defaultSpatialSpec<Float>()
     // "View in Scrapbook" (a song's sheet): page 2, with that song brought into view there.
     var scrapbookFocusSongId by remember { mutableStateOf<String?>(null) }
+    // Now Playing's "Manage in Scrapbook": that song's sheet then opens on this About row's editor.
+    var scrapbookFocusEdit by remember { mutableStateOf<AlbumScrapbookAboutRef?>(null) }
     val viewInScrapbook: (String) -> Unit = { songId ->
         scrapbookFocusSongId = songId
         pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
@@ -456,7 +463,10 @@ private fun AlbumDetailContent(
     val pendingFocus = ScrapbookFocusRequest.pending
     LaunchedEffect(pendingFocus, hasScrapbook, content.songs) {
         if (pendingFocus == null || !hasScrapbook) return@LaunchedEffect
-        ScrapbookFocusRequest.takeFor(content.songs.map { it.id })?.let(viewInScrapbook)
+        ScrapbookFocusRequest.takeFor(content.songs.map { it.id })?.let { request ->
+            scrapbookFocusEdit = request.edit
+            viewInScrapbook(request.songId)
+        }
     }
 
     // Back always finishes the Activity (native cross-Activity predictive back):
@@ -863,7 +873,12 @@ private fun AlbumDetailContent(
                             stamped = scrapbookStamped,
                             onStamped = { scrapbookStamped = true },
                             focusSongId = scrapbookFocusSongId,
-                            onFocused = { scrapbookFocusSongId = null },
+                            focusEdit = scrapbookFocusEdit,
+                            onFocused = {
+                                scrapbookFocusSongId = null
+                                scrapbookFocusEdit = null
+                            },
+                            feeds = scrapFeeds,
                         )
                     }
                 }

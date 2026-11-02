@@ -9,6 +9,7 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally as composeExpandHorizontally
+import androidx.compose.animation.expandVertically as composeExpandVertically
 import androidx.compose.animation.fadeIn as composeFadeIn
 import androidx.compose.animation.fadeOut as composeFadeOut
 import androidx.compose.animation.scaleIn as composeScaleIn
@@ -18,6 +19,7 @@ import androidx.compose.animation.slideInVertically as composeSlideInVertically
 import androidx.compose.animation.slideOutHorizontally as composeSlideOutHorizontally
 import androidx.compose.animation.slideOutVertically as composeSlideOutVertically
 import androidx.compose.animation.shrinkHorizontally as composeShrinkHorizontally
+import androidx.compose.animation.shrinkVertically as composeShrinkVertically
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.Composable
@@ -426,6 +428,34 @@ object YoinMotion {
         expressiveScheme: MotionScheme = expressiveMotionScheme,
         shrinkTowards: Alignment.Horizontal = Alignment.End,
     ): ExitTransition = composeShrinkHorizontally(
+        animationSpec = spatialSpecForScheme(
+            scheme = resolveScheme(role, expressiveScheme, standardMotionScheme),
+            speed = speed,
+        ),
+        shrinkTowards = shrinkTowards,
+    )
+
+    // The same clip on the vertical axis: content pinned to [expandFrom] / [shrinkTowards] (the top by
+    // default, so a row opening under a header unfolds downward).
+    fun expandVertically(
+        role: YoinMotionRole,
+        speed: YoinMotionSpeed = YoinMotionSpeed.Default,
+        expressiveScheme: MotionScheme = expressiveMotionScheme,
+        expandFrom: Alignment.Vertical = Alignment.Top,
+    ): EnterTransition = composeExpandVertically(
+        animationSpec = spatialSpecForScheme(
+            scheme = resolveScheme(role, expressiveScheme, standardMotionScheme),
+            speed = speed,
+        ),
+        expandFrom = expandFrom,
+    )
+
+    fun shrinkVertically(
+        role: YoinMotionRole,
+        speed: YoinMotionSpeed = YoinMotionSpeed.Default,
+        expressiveScheme: MotionScheme = expressiveMotionScheme,
+        shrinkTowards: Alignment.Vertical = Alignment.Top,
+    ): ExitTransition = composeShrinkVertically(
         animationSpec = spatialSpecForScheme(
             scheme = resolveScheme(role, expressiveScheme, standardMotionScheme),
             speed = speed,

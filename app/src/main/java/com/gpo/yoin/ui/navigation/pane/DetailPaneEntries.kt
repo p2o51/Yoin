@@ -216,6 +216,7 @@ internal fun AlbumPaneEntry(
         onRenameMemoryTitle = viewModel::renameMemoryTitle,
         onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
         onScrapEdit = viewModel::editScrapbook,
+        scrapFeeds = viewModel.scrapFeeds,
         notedSongIds = notedSongIds,
         currentTrackId = playback.currentTrackId,
         trackMenu = trackMenu,

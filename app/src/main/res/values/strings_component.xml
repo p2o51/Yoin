@@ -148,4 +148,14 @@
     <string name="cmp_error_details_copied">Copied</string>
     <string name="cmp_error_details_clip_label">Yoin diagnostics</string>
     <string name="cmp_snackbar_dismiss">Dismiss</string>
+    <!-- Quick questions offered under an empty Ask field (the scrapbook's new entry, Now Playing's Ask bar). -->
+    <string name="cmp_quick_prompts_label">Quick questions</string>
+    <string-array name="cmp_quick_prompts">
+        <item>What does this song sample?</item>
+        <item>Who sampled this song?</item>
+        <item>What are the lyrics about?</item>
+        <item>How was it written?</item>
+        <item>What covers are there?</item>
+        <item>How was it received?</item>
+    </string-array>
 </resources>
