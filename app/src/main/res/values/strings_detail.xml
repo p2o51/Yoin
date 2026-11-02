@@ -221,7 +221,6 @@
     <string name="detail_scrap_done">Done</string>
     <string name="detail_scrap_regenerated">Regenerated</string>
     <string name="detail_scrap_deleted_named">Deleted “%1$s”</string>
-    <string name="detail_scrap_cd_thinking">Gemini is writing</string>
     <string name="detail_scrap_new_title_hint">A title, like: what is this song about</string>
     <string name="detail_scrap_new_text_hint">Write what you know…</string>
     <string name="detail_scrap_ask_gemini">Ask Gemini</string>

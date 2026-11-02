@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.model.Lyrics
+import com.gpo.yoin.ui.component.remainingQuickPrompts
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

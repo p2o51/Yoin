@@ -199,7 +199,6 @@
     <string name="detail_scrap_done">完成</string>
     <string name="detail_scrap_regenerated">已重新生成</string>
     <string name="detail_scrap_deleted_named">已删除「%1$s」</string>
-    <string name="detail_scrap_cd_thinking">Gemini 正在写</string>
     <string name="detail_scrap_new_title_hint">写个标题，比如：这首歌在讲什么</string>
     <string name="detail_scrap_new_text_hint">写下你知道的…</string>
     <string name="detail_scrap_ask_gemini">问 Gemini</string>

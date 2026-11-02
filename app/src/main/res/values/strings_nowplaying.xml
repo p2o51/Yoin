@@ -76,6 +76,13 @@
     <string name="np_about_composer">Composer</string>
     <string name="np_about_producer">Producer</string>
     <string name="np_about_review">About</string>
+    <string name="np_about_cd_entry_menu">Options for this entry</string>
+    <string name="np_about_manage">Manage in Scrapbook</string>
+    <string name="np_about_regenerate">Regenerate with Gemini</string>
+    <string name="np_about_regenerated">Regenerated</string>
+    <string name="np_about_undo">Undo</string>
+    <string name="np_about_regenerate_nothing">Gemini had nothing new</string>
+    <string name="np_about_regenerate_failed">Gemini couldn\'t answer. Try again.</string>
 
     <string name="np_ask_placeholder">Ask Gemini</string>
     <string name="np_ask_gemini">Ask Gemini</string>

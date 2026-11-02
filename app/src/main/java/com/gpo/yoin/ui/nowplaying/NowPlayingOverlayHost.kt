@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
+import com.gpo.yoin.data.album.aboutRef
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.symbols.YoinSymbols
@@ -65,6 +66,8 @@ import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.component.YoinSnackbarHost
+import com.gpo.yoin.ui.component.showYoinSnackbar
+import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
 import com.gpo.yoin.ui.detail.TrackMenuHost
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
@@ -136,6 +139,24 @@ fun NowPlayingOverlayHost(
             onAddToPlaylist = viewModel::requestAddTracksToPlaylist,
             onGoToAlbum = { id -> currentOnAlbumClick(id) },
             onGoToArtist = { id -> currentOnArtistClick(id) },
+        )
+    }
+    // A long-pressed About row's sheet (LocalAboutEntryActions): the row in
+    // its album's scrapbook, opened at its editor, or Gemini's answer again.
+    val aboutActions = remember(container, viewModel) {
+        val currentTrack = { container.playbackManager.playbackState.value.currentTrack }
+        AboutEntryActions(
+            regenerating = viewModel.aboutRegenerating,
+            canManage = { currentTrack()?.albumId != null },
+            onManage = { entry ->
+                currentTrack()?.let { track ->
+                    track.albumId?.let { albumId ->
+                        ScrapbookFocusRequest.request(track.id.toString(), edit = entry.aboutRef())
+                        currentOnAlbumClick(albumId.toString())
+                    }
+                }
+            },
+            onRegenerate = viewModel::regenerateAbout,
         )
     }
 
@@ -558,7 +579,10 @@ fun NowPlayingOverlayHost(
                 // before this composition catches up; a late release still owns
                 // the displayed song, never whichever song is current by then.
                 val ratingSongId = (nowPlayingUiState as? NowPlayingUiState.Playing)?.songId
-                CompositionLocalProvider(LocalNowPlayingCoverMenu provides coverMenuHost) {
+                CompositionLocalProvider(
+                    LocalNowPlayingCoverMenu provides coverMenuHost,
+                    LocalAboutEntryActions provides aboutActions,
+                ) {
                     NowPlayingScreen(
                         // Playing.isPlaying is overridden with the EAGER projection:
                         // uiState's combine can serve a stale cached snapshot after a
@@ -772,6 +796,20 @@ fun BoxScope.NowPlayingAccessories(
             )
             if (result == SnackbarResult.ActionPerformed) {
                 viewModel.addCurrentToLibrary()
+            }
+        }
+    }
+
+    LaunchedEffect(viewModel, context) {
+        viewModel.aboutRegenerated.collect { done ->
+            val result = snackbarHostState.showYoinSnackbar(
+                message = context.getString(R.string.np_about_regenerated),
+                actionLabel = context.getString(R.string.np_about_undo),
+                icon = YoinSymbols.Sparkle,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoAboutRegenerate(done)
             }
         }
     }

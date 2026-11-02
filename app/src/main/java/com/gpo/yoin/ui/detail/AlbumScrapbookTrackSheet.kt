@@ -3,18 +3,12 @@ package com.gpo.yoin.ui.detail
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +29,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -71,7 +64,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -81,7 +73,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -99,15 +90,16 @@ import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.AlbumScrapbookAsk
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.QuickPrompts
 import com.gpo.yoin.ui.component.RatingSlider
+import com.gpo.yoin.ui.component.ThinkingDots
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.YoinTabGroup
 import com.gpo.yoin.ui.component.formatNotePosition
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
-import com.gpo.yoin.ui.experience.LocalMotionProfile
-import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.component.quickPromptsFor
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -350,22 +342,28 @@ private fun ScoreHeader(track: ScrapTrack, colors: ScrapbookColors, onEdit: (Scr
                 gestureKey = track.songId,
                 modifier = Modifier.weight(1f),
             )
-            // The button's width, held when it fades out: clearing a score must not shift the bar.
-            Box(modifier = Modifier.widthIn(min = 72.dp), contentAlignment = Alignment.CenterEnd) {
-                AnimatedVisibility(
-                    visible = live > 0f,
-                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
-                ) {
-                    TextButton(
-                        onClick = {
-                            live = 0f
-                            commit(0f)
-                        },
-                    ) {
-                        Text(stringResource(R.string.detail_scrap_clear))
-                    }
-                }
+            ClearScoreButton(
+                visible = live > 0f,
+                onClick = {
+                    live = 0f
+                    commit(0f)
+                },
+            )
+        }
+    }
+}
+
+/** "Clear" beside the slider; its width is held when it fades out, so clearing a score doesn't shift the bar. */
+@Composable
+private fun ClearScoreButton(visible: Boolean, onClick: () -> Unit) {
+    Box(modifier = Modifier.widthIn(min = 72.dp), contentAlignment = Alignment.CenterEnd) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+            exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+        ) {
+            TextButton(onClick = onClick) {
+                Text(stringResource(R.string.detail_scrap_clear))
             }
         }
     }
@@ -502,10 +500,7 @@ private fun AboutTab(
         val asked = remember(about) { about?.asks.orEmpty().filterNot { it.own }.map { it.question } }
         NewEntry(
             colors = colors,
-            prompts = remainingQuickPrompts(
-                prompts = stringArrayResource(R.array.cmp_quick_prompts).toList(),
-                asked = asked + pending.map { it.question },
-            ),
+            prompts = quickPromptsFor(asked + pending.map { it.question }),
             onAsk = { question -> onEdit(ScrapEdit.Ask(songId, question)) },
             onWrite = { heading, text -> onEdit(ScrapEdit.Write(songId, heading, text)) },
             modifier = Modifier.padding(top = 22.dp),
@@ -980,41 +975,6 @@ private fun NewEntry(
     }
 }
 
-/** The quick questions as a row of pills (Now Playing's Ask bar has the same row). */
-@Composable
-internal fun QuickPrompts(
-    prompts: List<String>,
-    container: Color,
-    content: Color,
-    onPick: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val label = stringResource(R.string.cmp_quick_prompts_label)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = label }
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        prompts.forEach { prompt ->
-            Surface(
-                onClick = { onPick(prompt) },
-                shape = YoinShapeTokens.Full,
-                color = container,
-                contentColor = content,
-            ) {
-                Text(
-                    text = prompt,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                )
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Note.
 // ---------------------------------------------------------------------------
@@ -1419,41 +1379,6 @@ private fun EditButton(
                     modifier = Modifier.size(18.dp),
                 )
             }
-        }
-    }
-}
-
-/** Three dots blinking in turn while Gemini writes (still under reduced motion). */
-@Composable
-private fun ThinkingDots(color: Color, modifier: Modifier = Modifier) {
-    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
-    val description = stringResource(R.string.detail_scrap_cd_thinking)
-    val transition = rememberInfiniteTransition(label = "scrapThinking")
-    Row(
-        modifier = modifier.semantics { contentDescription = description },
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        repeat(3) { i ->
-            val alpha = if (reduced) {
-                0.6f
-            } else {
-                transition.animateFloat(
-                    initialValue = 1f,
-                    targetValue = 0.25f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 500, delayMillis = i * 150),
-                        repeatMode = RepeatMode.Reverse,
-                    ),
-                    label = "scrapThinkingDot$i",
-                ).value
-            }
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .alpha(alpha)
-                    .clip(CircleShape)
-                    .background(color),
-            )
         }
     }
 }

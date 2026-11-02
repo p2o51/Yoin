@@ -283,7 +283,7 @@ private fun List<SongAboutEntry>.toAbout(): AlbumScrapbookAbout {
                     question = row.titleText?.takeIf(String::isNotBlank) ?: row.entryKey,
                     title = null,
                     answer = row.answerText.trim(),
-                    ref = row.ref(),
+                    ref = row.aboutRef(),
                     own = true,
                 )
             } else {
@@ -291,19 +291,20 @@ private fun List<SongAboutEntry>.toAbout(): AlbumScrapbookAbout {
                     question = row.promptText?.takeIf(String::isNotBlank) ?: row.entryKey,
                     title = row.titleText?.takeIf(String::isNotBlank),
                     answer = row.answerText.trim(),
-                    ref = row.ref(),
+                    ref = row.aboutRef(),
                 )
             }
         }
     val canonical = filter { it.kind == SongAboutEntry.KIND_CANONICAL && it.answerText.isNotBlank() }
         .associateBy { it.entryKey }
     val facts = SongAboutEntry.CANONICAL_ORDER.mapNotNull { key ->
-        canonical[key]?.let { AlbumScrapbookFact(key = key, value = it.answerText.trim(), ref = it.ref()) }
+        canonical[key]?.let { AlbumScrapbookFact(key = key, value = it.answerText.trim(), ref = it.aboutRef()) }
     }
     return AlbumScrapbookAbout(asks = asks, facts = facts)
 }
 
-private fun SongAboutEntry.ref() = AlbumScrapbookAboutRef(
+/** The row's address for an edit (the page's, Now Playing's long-press). */
+fun SongAboutEntry.aboutRef() = AlbumScrapbookAboutRef(
     titleKey = titleKey,
     artistKey = artistKey,
     albumKey = albumKey,

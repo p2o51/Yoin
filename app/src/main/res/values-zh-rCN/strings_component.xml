@@ -133,6 +133,7 @@
     <string name="cmp_error_details_copied">已复制</string>
     <string name="cmp_error_details_clip_label">Yoin 诊断信息</string>
     <string name="cmp_snackbar_dismiss">关闭</string>
+    <string name="cmp_cd_gemini_thinking">Gemini 正在写</string>
     <string name="cmp_quick_prompts_label">快捷提问</string>
     <string-array name="cmp_quick_prompts">
         <item>这首歌采样了谁？</item>

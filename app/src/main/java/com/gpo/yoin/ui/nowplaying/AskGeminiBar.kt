@@ -2,16 +2,17 @@
 
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.InteractionSource
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,12 +44,17 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.component.QuickPrompts
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.quickPromptsFor
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
@@ -59,16 +66,18 @@ internal fun AskGeminiBar(
     onCollapseRequest: () -> Unit,
     onDismissError: () -> Unit,
     modifier: Modifier = Modifier,
+    // What was already asked about this song: those quick prompts aren't offered again.
+    asked: List<String> = emptyList(),
 ) {
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
-    var draft by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf(TextFieldValue()) }
 
     // Idle after a Loading → answer landed, reset the draft so the bar is
     // empty on next tap.
     LaunchedEffect(askState) {
         if (askState is AskBarState.Idle) {
-            draft = ""
+            draft = TextFieldValue()
         }
     }
 
@@ -141,9 +150,10 @@ internal fun AskGeminiBar(
             AskBarState.Focused -> FocusedLayout(
                 draft = draft,
                 onDraftChange = { draft = it },
+                prompts = quickPromptsFor(asked),
                 focusRequester = focusRequester,
                 onSubmit = {
-                    val text = draft.trim()
+                    val text = draft.text.trim()
                     if (text.isNotEmpty()) {
                         focusManager.clearFocus()
                         onSubmit(text)
@@ -193,8 +203,9 @@ private fun IdleOrErrorLayout(
 
 @Composable
 private fun FocusedLayout(
-    draft: String,
-    onDraftChange: (String) -> Unit,
+    draft: TextFieldValue,
+    onDraftChange: (TextFieldValue) -> Unit,
+    prompts: List<String>,
     focusRequester: FocusRequester,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
@@ -204,12 +215,13 @@ private fun FocusedLayout(
     // the tree so the requester is attached and can legally focus.
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
+    // The column pads only top and bottom so the quick prompts can scroll edge to edge.
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(vertical = 16.dp),
     ) {
-        StaticIndicator()
+        StaticIndicator(modifier = Modifier.padding(horizontal = 20.dp))
         Spacer(modifier = Modifier.height(12.dp))
         BasicTextField(
             value = draft,
@@ -217,6 +229,7 @@ private fun FocusedLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .padding(horizontal = 20.dp)
                 .focusRequester(focusRequester),
             // Inherit the themed style (Google Sans Flex + its tracking) —
             // a bare TextStyle here fell back to the system font.
@@ -228,7 +241,7 @@ private fun FocusedLayout(
             keyboardActions = KeyboardActions(onSend = { onSubmit() }),
             decorationBox = { inner ->
                 Box {
-                    if (draft.isEmpty()) {
+                    if (draft.text.isEmpty()) {
                         Text(
                             text = stringResource(R.string.np_ask_placeholder),
                             style = MaterialTheme.typography.titleMedium,
@@ -239,8 +252,30 @@ private fun FocusedLayout(
                 }
             },
         )
+        // Quick questions while the field is empty (owner 2026-11-02); a tap fills the field, the
+        // keyboard's Send asks it. Ones already asked about this song aren't offered.
+        AnimatedVisibility(
+            visible = draft.text.isEmpty() && prompts.isNotEmpty(),
+            enter = YoinMotion.expandVertically(YoinMotionRole.Standard) + YoinMotion.fadeIn(YoinMotionRole.Standard),
+            exit = YoinMotion.shrinkVertically(YoinMotionRole.Standard) + YoinMotion.fadeOut(YoinMotionRole.Standard),
+        ) {
+            QuickPrompts(
+                prompts = prompts,
+                container = MaterialTheme.colorScheme.surface,
+                content = MaterialTheme.colorScheme.onSurface,
+                onPick = { prompt -> onDraftChange(TextFieldValue(prompt, TextRange(prompt.length))) },
+                modifier = Modifier.padding(top = 8.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp),
+            )
+        }
     }
 }
+
+/** What was already asked about the song on show, for the quick prompts to leave out. */
+internal fun AboutUiState.askedQuestions(): List<String> =
+    (this as? AboutUiState.Ready)?.entries.orEmpty()
+        .filter { it.kind == SongAboutEntry.KIND_ASK || it.kind == SongAboutEntry.KIND_OWN }
+        .mapNotNull { row -> (row.promptText ?: row.titleText)?.takeIf(String::isNotBlank) }
 
 @Composable
 private fun LoadingLayout(title: String, modifier: Modifier = Modifier) {

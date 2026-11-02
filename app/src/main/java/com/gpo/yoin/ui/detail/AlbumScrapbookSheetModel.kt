@@ -3,7 +3,6 @@ package com.gpo.yoin.ui.detail
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
-import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.ui.common.UiText
 import kotlinx.coroutines.flow.Flow
@@ -15,7 +14,7 @@ import kotlinx.coroutines.flow.flowOf
 /*
  * The track sheet's model beyond the page (owner-approved prototype v3, 2026-11-02): one song's timed lyrics
  * for the Note tab, Gemini's work in flight, what it says when it is done, and the pure rules the sheet
- * draws by — which lyric lines go around each note, which quick prompts are left to offer.
+ * draws by — which lyric lines go around each note.
  */
 
 /** One song's lyrics as the Note tab reads them: timed lines only (an untimed text has no moments). */
@@ -182,10 +181,4 @@ internal fun scrapNoteRows(
         if (loose.isNotEmpty() && shownRanges.isNotEmpty()) add(ScrapNoteRow.Gap(after = lines.lastIndex))
         addAll(loose)
     }
-}
-
-/** The quick prompts still worth offering: those not already asked about this song. */
-internal fun remainingQuickPrompts(prompts: List<String>, asked: Collection<String>): List<String> {
-    val done = asked.mapTo(HashSet(), SongAboutEntry::normalize)
-    return prompts.filter { SongAboutEntry.normalize(it) !in done }
 }

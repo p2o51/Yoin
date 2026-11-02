@@ -149,6 +149,7 @@
     <string name="cmp_error_details_clip_label">Yoin diagnostics</string>
     <string name="cmp_snackbar_dismiss">Dismiss</string>
     <!-- Quick questions offered under an empty Ask field (the scrapbook's new entry, Now Playing's Ask bar). -->
+    <string name="cmp_cd_gemini_thinking">Gemini is writing</string>
     <string name="cmp_quick_prompts_label">Quick questions</string>
     <string-array name="cmp_quick_prompts">
         <item>What does this song sample?</item>
