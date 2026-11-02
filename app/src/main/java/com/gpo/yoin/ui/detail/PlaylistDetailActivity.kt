@@ -1,9 +1,5 @@
 package com.gpo.yoin.ui.detail
 
-import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
-import androidx.compose.ui.res.stringResource
-import com.gpo.yoin.ui.settings.backup.PlaylistBackupActivity
-import androidx.compose.material3.SnackbarResult
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -12,10 +8,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -36,6 +32,8 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.component.YoinSnackbarHost
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.navigation.trackCoverArtId
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
@@ -46,6 +44,7 @@ import com.gpo.yoin.ui.nowplaying.pageBesideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
+import com.gpo.yoin.ui.settings.backup.PlaylistBackupActivity
 
 /**
  * Standalone Activity for a playlist detail page. Unlike the shell-hosted
@@ -261,14 +260,12 @@ class PlaylistDetailActivity : ComponentActivity() {
                     container = app.container,
                 )
 
-                    SnackbarHost(
+                    YoinSnackbarHost(
                         hostState = snackbarHostState,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 24.dp, start = 12.dp, end = 12.dp),
-                    ) { data ->
-                        Snackbar(snackbarData = data)
-                    }
+                    )
                 }
             }
         }

@@ -132,4 +132,5 @@
     <string name="cmp_error_copy_details">复制诊断信息</string>
     <string name="cmp_error_details_copied">已复制</string>
     <string name="cmp_error_details_clip_label">Yoin 诊断信息</string>
+    <string name="cmp_snackbar_dismiss">关闭</string>
 </resources>

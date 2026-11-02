@@ -47,8 +47,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -102,6 +100,7 @@ import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.LocalSettingsRowShape
 import com.gpo.yoin.ui.settings.SettingsBackButton
@@ -123,8 +122,8 @@ import com.gpo.yoin.ui.settings.tone
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 // Settings › Cloud sync. Back surface: full-screen destination without shared
 // chrome → Pattern A (native cross-Activity back); the arrow just finishes.
@@ -306,7 +305,7 @@ fun CloudSyncContent(
                         ),
                     )
                 },
-                snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
+                snackbarHost = { YoinSnackbarHost(snackbarHostState) },
             ) { innerPadding ->
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 // Full width on every window, like the rest of the Settings family.

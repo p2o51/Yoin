@@ -26,9 +26,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
@@ -51,8 +49,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
@@ -66,6 +64,7 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
+import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.detail.TrackMenuHost
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
@@ -75,12 +74,12 @@ import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.roundToInt
 
 /**
  * The complete Now Playing overlay — scrim, slide-up visibility, drag-to-
@@ -807,15 +806,13 @@ fun BoxScope.NowPlayingAccessories(
         )
     }
 
-    SnackbarHost(
+    YoinSnackbarHost(
         hostState = snackbarHostState,
         modifier = Modifier
             .align(Alignment.BottomCenter)
             // Clear of the window's bar (its reserve), never over it.
             .padding(bottom = LocalShellChromeInsets.current.calculateBottomPadding(), start = 12.dp, end = 12.dp),
-    ) { data ->
-        Snackbar(snackbarData = data)
-    }
+    )
 }
 
 @Composable

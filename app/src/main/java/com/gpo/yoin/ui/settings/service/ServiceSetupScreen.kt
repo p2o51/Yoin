@@ -38,8 +38,6 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,6 +79,7 @@ import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.landing.CopyRow
@@ -219,7 +218,7 @@ fun ServiceSetupContent(
                         ),
                     )
                 },
-                snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
+                snackbarHost = { YoinSnackbarHost(snackbarHostState) },
             ) { innerPadding ->
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val connectGroup: @Composable () -> Unit = {

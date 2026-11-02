@@ -147,4 +147,5 @@
     <string name="cmp_error_copy_details">Copy details</string>
     <string name="cmp_error_details_copied">Copied</string>
     <string name="cmp_error_details_clip_label">Yoin diagnostics</string>
+    <string name="cmp_snackbar_dismiss">Dismiss</string>
 </resources>
