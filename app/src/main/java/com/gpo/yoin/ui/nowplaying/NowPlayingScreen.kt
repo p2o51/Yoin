@@ -115,6 +115,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -134,6 +135,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.R
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.data.model.YoinDevice
@@ -1315,15 +1317,24 @@ private fun CompactPlayingContent(
         // rating bar and title fold away, PREVIOUS glides up into the top transport
         // row and the progress bar takes its own row; the freed height goes to the
         // cover, centred. The current lyric line stays, as in every focus.
+        // On a short window where the regular focus IS offered (the Fold 8 outer
+        // screen is tall enough), its focus takes the same arrangement: the lyric
+        // frame already folds to one line there, so that is the short-window test
+        // (owner 2026-11-02, device screenshot).
         var shortFocus by remember { mutableStateOf(false) }
+        val shortArrangement = shortFocus || (lyricOneLine && stageMode == NowPlayingStageMode.Immersive)
         val shortFocusProgress by animateFloatAsState(
-            targetValue = if (shortFocus) 1f else 0f,
+            targetValue = if (shortArrangement) 1f else 0f,
             animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
             label = "npShortFocus",
         )
         val shortFocusControls = shortFocusControlsHeight(stageControlSize)
         val shortFocusFreed = (restPose.hero + restPose.controls - shortFocusControls).coerceAtLeast(0.dp)
-        val shortFocusCover = minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2)
+        // Never smaller than the regular focus's own cover where that is offered.
+        val shortFocusCover = maxOf(
+            minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2),
+            if (focusOffered) focusPose.cover else 0.dp,
+        )
         val shortFocusAvailable = !focusOffered && shortFocusCover - restPose.cover >= ShortFocusMinGrowth
         LaunchedEffect(shortFocusAvailable, stageMode) {
             if (!shortFocusAvailable || stageMode != NowPlayingStageMode.Compact) shortFocus = false
@@ -1341,8 +1352,10 @@ private fun CompactPlayingContent(
         val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress, shortFocusProgress)
         val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
         // A height-capped cover (Fold outer, 16:9) leaves a band between it and the
-        // rating bar: the song's album, artist and title run up it, a record's
-        // spine (owner 2026-10-30, option 2 over a thick bar).
+        // rating bar: the song's About credits run up it like end credits, a
+        // record's spine (owner 2026-10-30 / 2026-11-02). Only what About already
+        // holds in its cache — the spine never asks Gemini; until then, the album,
+        // artist and title.
         val spineBand = stageWidth - horizontalPadding * 2 - 12.dp - ratingColumn - restPose.cover
         val showSpine = spineBand >= SpineMinWidth
         val ratingSlotWidth = lerpDp(ratingColumn, 0.dp, ratingRetreatProgress)
@@ -1540,8 +1553,11 @@ private fun CompactPlayingContent(
                                 ),
                             ) {
                                 if (showSpine) {
+                                    val resources = LocalContext.current.resources
+                                    val credits = (aboutUiState as? AboutUiState.Ready)?.entries
+                                        ?.let { entries -> spineCredits(entries) { key -> labelFor(key, resources) } }
                                     NowPlayingSpineMarquee(
-                                        text = "${state.albumName}   ${state.artist}   ${state.songTitle}",
+                                        text = credits ?: "${state.albumName}   ${state.artist}   ${state.songTitle}",
                                         length = restPose.cover,
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
@@ -5094,6 +5110,29 @@ private val ShortFocusMinGrowth = 24.dp
 
 /** The spine shows only in a band at least this wide. */
 private val SpineMinWidth = 24.dp
+
+/** The About credits the spine reads, in the About tab's order (the review is too long for it). */
+private val SpineCreditKeys = listOf(
+    SongAboutEntry.CANON_CREATION_TIME,
+    SongAboutEntry.CANON_CREATION_LOCATION,
+    SongAboutEntry.CANON_LYRICIST,
+    SongAboutEntry.CANON_COMPOSER,
+    SongAboutEntry.CANON_PRODUCER,
+)
+
+/** The spine's credits line ("Lyricist  X   Composer  Y …") from cached About rows; null when there are none yet. */
+internal fun spineCredits(entries: List<SongAboutEntry>, label: (String) -> String): String? {
+    val parts = SpineCreditKeys.mapNotNull { key ->
+        entries
+            .firstOrNull { it.kind == SongAboutEntry.KIND_CANONICAL && it.entryKey == key }
+            ?.answerText
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { value -> "${label(key)}  $value" }
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString("     ")
+}
 
 /**
  * The band between a height-capped cover and the rating bar: the song's info
