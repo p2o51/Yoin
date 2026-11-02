@@ -117,6 +117,10 @@ interface SongAboutEntryDao {
 
     @Query("DELETE FROM song_about_entries")
     suspend fun deleteAll()
+
+    /** Everything Gemini wrote (a language switch makes it stale); the listener's own entries stay. */
+    @Query("DELETE FROM song_about_entries WHERE kind != 'own'")
+    suspend fun deleteGenerated()
 }
 
 data class AskRowCount(

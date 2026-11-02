@@ -79,7 +79,7 @@ data class AlbumScrapbookNote(
 )
 
 data class AlbumScrapbookAbout(
-    /** Questions asked in Now Playing, newest asked first. */
+    /** Questions asked in Now Playing or on page 2, and the listener's own entries; newest first. */
     val asks: List<AlbumScrapbookAsk> = emptyList(),
     /** Non-blank canonical facts in [SongAboutEntry.CANONICAL_ORDER] (the "review" paragraph included). */
     val facts: List<AlbumScrapbookFact> = emptyList(),
@@ -94,11 +94,15 @@ data class AlbumScrapbookAlbumNote(
 )
 
 data class AlbumScrapbookAsk(
+    /** The listener's words: the question asked, or the heading of their own entry ([own]). */
     val question: String,
+    /** Gemini's short heading for the answer; null on the listener's own entries. */
     val title: String?,
     val answer: String,
     /** The row it came from, for editing it on page 2; null in previews and tests. */
     val ref: AlbumScrapbookAboutRef? = null,
+    /** Written by the listener (`SongAboutEntry.KIND_OWN`), not Gemini: nothing to regenerate. */
+    val own: Boolean = false,
 )
 
 data class AlbumScrapbookFact(
@@ -270,16 +274,26 @@ fun matchAboutToTracks(
 }
 
 private fun List<SongAboutEntry>.toAbout(): AlbumScrapbookAbout {
-    val asks = filter { it.kind == SongAboutEntry.KIND_ASK && it.answerText.isNotBlank() }
+    val asks = filter { it.kind != SongAboutEntry.KIND_CANONICAL && it.answerText.isNotBlank() }
         // By when it was first asked: an answer edited (or restored by Undo) on page 2 keeps its place.
         .sortedWith(compareByDescending<SongAboutEntry> { it.createdAt }.thenByDescending { it.updatedAt })
         .map { row ->
-            AlbumScrapbookAsk(
-                question = row.promptText?.takeIf(String::isNotBlank) ?: row.entryKey,
-                title = row.titleText?.takeIf(String::isNotBlank),
-                answer = row.answerText.trim(),
-                ref = row.ref(),
-            )
+            if (row.kind == SongAboutEntry.KIND_OWN) {
+                AlbumScrapbookAsk(
+                    question = row.titleText?.takeIf(String::isNotBlank) ?: row.entryKey,
+                    title = null,
+                    answer = row.answerText.trim(),
+                    ref = row.ref(),
+                    own = true,
+                )
+            } else {
+                AlbumScrapbookAsk(
+                    question = row.promptText?.takeIf(String::isNotBlank) ?: row.entryKey,
+                    title = row.titleText?.takeIf(String::isNotBlank),
+                    answer = row.answerText.trim(),
+                    ref = row.ref(),
+                )
+            }
         }
     val canonical = filter { it.kind == SongAboutEntry.KIND_CANONICAL && it.answerText.isNotBlank() }
         .associateBy { it.entryKey }

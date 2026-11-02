@@ -400,7 +400,9 @@ private fun receiptLines(
     // the album's one album note counts with the track notes (D3's receipt)
     val albumNotes = if (data.albumNote?.content.isNullOrBlank()) 0 else 1
     add("Notes" to (trackNotes + albumNotes).toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
-    val askCount = data.about.entries.filter { it.key.toString() in songIds }.sumOf { it.value.asks.size }
+    val askCount = data.about.entries
+        .filter { it.key.toString() in songIds }
+        .sumOf { (_, about) -> about.asks.count { !it.own } }
     add("Asked" to askCount.toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
 }
 
