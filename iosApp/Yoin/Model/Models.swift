@@ -103,3 +103,28 @@ protocol MusicLibrary: Sendable {
 protocol PlaybackSource: Sendable {
     func current() -> PlaybackSnapshot
 }
+
+/// A playlist: mixed tracks, each with its own album.
+struct PlaylistEntry: Hashable, Sendable {
+    var album: Album
+    var track: Track
+}
+
+struct PlaylistInfo: Hashable, Sendable {
+    var id: MediaId
+    var title: String
+    var owner: String
+    var isPublic: Bool?
+    var description: String?
+    var palette: CoverPalette
+    var entries: [PlaylistEntry]
+
+    /// The playlist as an Album, so it can reuse the album page's hero,
+    /// spectrum and pull-up (Android shares them the same way).
+    var asAlbum: Album {
+        Album(id: id, title: title, artist: owner, year: 0, palette: palette,
+              tracks: entries.enumerated().map { i, e in
+                  var t = e.track; t.number = i + 1; return t
+              })
+    }
+}

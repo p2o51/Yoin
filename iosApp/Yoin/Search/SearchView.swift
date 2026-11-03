@@ -292,7 +292,10 @@ struct SearchView: View {
     private func playlistList(_ items: [LibraryItem]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(items) { p in
-                HStack(spacing: 12) {
+                Button {
+                    withAnimation(Yoin.spatial) { model.searchActive = false }
+                    model.openPlaylist(p.id.rawId)
+                } label: { HStack(spacing: 12) {
                     EntityBackdrop(entity: .playlist, palette: p.palette, seed: 3, size: 48)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(p.title).font(.gsf(16)).foregroundStyle(Yoin.ink)
@@ -300,6 +303,8 @@ struct SearchView: View {
                     }
                     Spacer()
                 }
+                .contentShape(.rect) }
+                .buttonStyle(.plain)
                 .padding(.vertical, 6)
             }
         }

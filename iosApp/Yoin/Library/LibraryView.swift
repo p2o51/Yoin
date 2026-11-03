@@ -16,13 +16,53 @@ struct LibraryView: View {
     @State private var filter: LibraryKind? = LaunchConfig.screen == "library-albums" ? .albums
         : LaunchConfig.screen == "library-songs" ? .songs : nil
     @State private var width: CGFloat = 370
+    @State private var sort = "Recents"
+    @State private var position = ScrollPosition()
+    @State private var metrics = ScrollMetrics()
+    @State private var awake = LaunchConfig.screen == "library-scroller"
+    @State private var held = LaunchConfig.screen == "library-scroller"
+    @State private var hideTask: Task<Void, Never>?
+
+    struct ScrollMetrics: Equatable {
+        var offset: CGFloat = 0, content: CGFloat = 1, viewport: CGFloat = 1
+        var fraction: CGFloat { max(0, min(1, offset / max(1, content - viewport))) }
+    }
 
     private var scheme: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
     }
 
+    /// Sorted items for the current sort (mock: Recents keeps library order).
     private var items: [LibraryItem] {
+        let base = filtered
+        switch sort {
+        case "Alphabetical": return base.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        case "Creator": return base.sorted { creator($0).localizedCompare(creator($1)) == .orderedAscending }
+        case "Recently added": return base.sorted { ($0.album?.year ?? 0) > ($1.album?.year ?? 0) }
+        default: return base
+        }
+    }
+
+    private func creator(_ i: LibraryItem) -> String { i.kind == .artist ? i.title : (i.album?.artist ?? "") }
+
+    /// Fast-scroller sections per sort (Android LibraryIndex / LibraryScrollIndex).
+    private var sections: [LibraryFastScroller.Section] {
+        var out: [LibraryFastScroller.Section] = []
+        for (i, item) in items.enumerated() {
+            let label: String
+            switch sort {
+            case "Alphabetical": label = String(item.title.prefix(1)).uppercased()
+            case "Creator": label = String(creator(item).prefix(1)).uppercased()
+            case "Recently added": label = item.album.map { String($0.year) } ?? "#"
+            default: label = i < 3 ? "Today" : i < 8 ? "This week" : i < 16 ? "This month" : "Not opened"
+            }
+            if out.last?.label != label { out.append(.init(label: label, start: i)) }
+        }
+        return out
+    }
+
+    private var filtered: [LibraryItem] {
         let all = model.library.libraryItems()
         switch filter {
         case .none: return all
@@ -51,11 +91,53 @@ struct LibraryView: View {
         }
         .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: ScrollMetrics.self) {
+            ScrollMetrics(offset: $0.contentOffset.y + $0.contentInsets.top, content: $0.contentSize.height,
+                          viewport: $0.containerSize.height)
+        } action: { _, m in
+            metrics = m
+            wake()
+        }
+        .overlay {
+            // Grid views only (All, Artists, Albums), past three screens.
+            if filter == nil || filter == .artists || filter == .albums {
+                LibraryFastScroller(
+                    fraction: held && LaunchConfig.screen == "library-scroller" && metrics.offset == 0 ? 0.45 : metrics.fraction,
+                    worthShowing: metrics.content > metrics.viewport * 3,
+                    awake: awake, sections: sections, itemCount: items.count, columns: 3, scheme: scheme,
+                    onDrag: { f in
+                        position.scrollTo(y: f * max(0, metrics.content - metrics.viewport))
+                        wake()
+                    },
+                    held: $held)
+                .padding(.top, 140)
+                .padding(.bottom, 96)
+            }
+        }
+        .onAppear {
+            if LaunchConfig.screen == "library-scroller" {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    position.scrollTo(y: 0.45 * max(0, metrics.content - metrics.viewport))
+                }
+            }
+        }
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
                            startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
         )
+    }
+
+    /// Awake while scrolling; asleep 1.6 s after scrolling and holding stop.
+    private func wake() {
+        awake = true
+        hideTask?.cancel()
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1600))
+            if !Task.isCancelled && !held && LaunchConfig.screen != "library-scroller" { awake = false }
+        }
     }
 
     // MARK: Header: search pill + avatar
@@ -155,13 +237,20 @@ struct LibraryView: View {
     /// The sort row: label + sort symbol, as the grid's first row.
     private var sortRow: some View {
         Menu {
-            Button {} label: { Label { Text("Recents") } icon: { YoinIcon("check", size: 18) } }
-            Button("Recently added") {}
-            Button("Alphabetical") {}
-            Button("Creator") {}
+            ForEach(["Recents", "Recently added", "Alphabetical", "Creator"], id: \.self) { option in
+                Button {
+                    withAnimation(Yoin.spatial) { sort = option }
+                } label: {
+                    if option == sort {
+                        Label { Text(option) } icon: { YoinIcon("check", size: 18) }
+                    } else {
+                        Text(option)
+                    }
+                }
+            }
         } label: {
             HStack(spacing: 6) {
-                Text("Recents").font(.gsf(14, .medium)).foregroundStyle(scheme.onSurface)
+                Text(sort).font(.gsf(14, .medium)).foregroundStyle(scheme.onSurface)
                 YoinIcon("sort", size: 18).foregroundStyle(scheme.onSurfaceVariant)
             }
             .padding(.horizontal, 8)
@@ -179,7 +268,9 @@ struct LibraryView: View {
     private func gridCell(_ item: LibraryItem, side: CGFloat) -> some View {
         let isArtist = item.kind == .artist
         Button {
-            if isArtist { model.openArtist(item.title) } else if let album = item.album { model.open(album) }
+            if isArtist { model.openArtist(item.title) }
+            else if item.kind == .playlist { model.openPlaylist(item.id.rawId) }
+            else if let album = item.album { model.open(album) }
         } label: {
             VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,

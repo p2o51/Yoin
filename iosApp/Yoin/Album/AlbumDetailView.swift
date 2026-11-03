@@ -19,8 +19,14 @@ struct AlbumDetailView: View {
     @Environment(\.dismiss) private var dismiss
     var album: Album
     var padColumn = false
+    /// Playlist mode (Android PlaylistDetailScreen): same hero / pull-up /
+    /// spectrum, but owner + "Playlist" meta, a ⋮ menu, the stacked-V
+    /// backdrop, a Length / Owner / Description block instead of the emblem,
+    /// thumb-led track rows, and no scrapbook page.
+    var playlist: PlaylistInfo? = nil
 
-    @State private var p: CGFloat = LaunchConfig.screen == "album-list" ? 1 : LaunchConfig.screen == "album-mid" ? 0.42 : 0
+    @State private var p: CGFloat = ["album-list", "playlist-list"].contains(LaunchConfig.screen) ? 1
+        : LaunchConfig.screen == "album-mid" ? 0.42 : 0
     @State private var dragBase: CGFloat?
     /// Pager: 0 = overview, 1 = scrapbook.
     @State private var page: CGFloat = LaunchConfig.screen.hasPrefix("album-scrapbook") ? 1 : 0
@@ -49,8 +55,13 @@ struct AlbumDetailView: View {
                 background
                 // Page 0: the bar, the stamp and the hero slide away with it.
                 ZStack(alignment: .topLeading) {
-                    butterfly(w: w, side: side, band: band)
-                        .opacity(1 - smooth(p, 0.62, 0.98))
+                    if playlist != nil {
+                        stackedV(w: w, side: side, band: band)
+                            .opacity(1 - smooth(p, 0, 0.6))
+                    } else {
+                        butterfly(w: w, side: side, band: band)
+                            .opacity(1 - smooth(p, 0.62, 0.98))
+                    }
                     hero(w: w, side: side, band: band)
                         .opacity(1 - e)
                         .offset(y: -e * 15) // Android: −40 px
@@ -61,12 +72,14 @@ struct AlbumDetailView: View {
                     spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
                 }
                 .offset(x: -f * w)
-                // Page 1: the scrapbook, under the header.
-                AlbumScrapbookView(album: album, settled: page == 1 && pageDrag == 0)
-                    .padding(.top, headerContent)
-                    .frame(width: w)
-                    .clipped()
-                    .offset(x: (1 - f) * w)
+                // Page 1: the scrapbook, under the header (albums only).
+                if playlist == nil {
+                    AlbumScrapbookView(album: album, settled: page == 1 && pageDrag == 0)
+                        .padding(.top, headerContent)
+                        .frame(width: w)
+                        .clipped()
+                        .offset(x: (1 - f) * w)
+                }
                 header(white: false, w: w)
                     .opacity(1 - smooth(p, 0.25, 0.7) * (1 - f))
                 header(white: true, w: w)
@@ -76,7 +89,7 @@ struct AlbumDetailView: View {
             }
             .contentShape(.rect)
             .simultaneousGesture(pullUp(travel: geo.size.height * 0.55))
-            .simultaneousGesture(pager(width: w))
+            .simultaneousGesture(pager(width: w), isEnabled: playlist == nil)
             .onAppear { pageWidth = w }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -112,20 +125,42 @@ struct AlbumDetailView: View {
                         .font(.gsf(24))
                         .foregroundStyle(white ? .white : s.primary)
                         .lineLimit(1)
-                    // MetaLine: [artist] [Album] [year], 12 pt apart, no separators.
+                    // MetaLine, 12 pt apart, no separators: album [artist] [Album]
+                    // [year]; playlist [owner] [Playlist].
                     HStack(spacing: 12) {
-                        Button { model.openArtist(album.artist) } label: {
-                            Text(album.artist).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
+                        if let playlist {
+                            Text(playlist.owner).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
+                            Text("Playlist").fontWeight(.medium).foregroundStyle(white ? .white.opacity(0.88) : app.primary)
+                        } else {
+                            Button { model.openArtist(album.artist) } label: {
+                                Text(album.artist).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
+                            }
+                            .buttonStyle(.plain)
+                            Text("Album").fontWeight(.medium).foregroundStyle(white ? .white.opacity(0.88) : app.primary)
+                            Text(String(album.year)).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
                         }
-                        .buttonStyle(.plain)
-                        Text("Album").fontWeight(.medium).foregroundStyle(white ? .white.opacity(0.88) : app.primary)
-                        Text(String(album.year)).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
                     }
                     .font(.gsf(14))
                     .lineLimit(1)
                 }
-                .padding(.trailing, 60 * smooth(p))
+                .padding(.trailing, (playlist != nil ? 48 + 12 + 4 : 60) * smooth(p))
                 Spacer(minLength: 0)
+                if playlist != nil {
+                    // ⋮: Cloud backup, Rename, Delete (playlist pages only).
+                    Menu {
+                        Button("Cloud backup") {}
+                        Button("Rename") {}
+                        Button("Delete", role: .destructive) {}
+                    } label: {
+                        YoinIcon("more_vertical", size: 24)
+                            .foregroundStyle(ink)
+                            .frame(width: 48, height: 48)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("More actions")
+                    .padding(.trailing, -12)
+                }
             }
             .frame(height: 52)
             HStack(spacing: 0) {
@@ -147,6 +182,7 @@ struct AlbumDetailView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 5)
+            .opacity(playlist == nil ? 1 : 0)
         }
         .padding(.leading, 8)
         .padding(.trailing, 16)
@@ -177,7 +213,8 @@ struct AlbumDetailView: View {
     private func cover(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
         let e = smooth(p)
         let heroRect = CGRect(x: (w - side) / 2, y: headerContent + 28, width: side, height: side)
-        let stampRect = CGRect(x: w - 16 - 48, y: 4 + 2, width: 48, height: 48)
+        // Playlists: the stamp sits 4 pt before the ⋮ (end inset 40 + 16 page).
+        let stampRect = CGRect(x: w - (playlist != nil ? 16 + 40 : 16) - 48, y: 4 + 2, width: 48, height: 48)
         let r = CGRect(x: lerp(heroRect.minX, stampRect.minX, e), y: lerp(heroRect.minY, stampRect.minY, e),
                        width: lerp(side, 48, e), height: lerp(side, 48, e))
         return Button {
@@ -199,6 +236,11 @@ struct AlbumDetailView: View {
         let score = album.rating ?? album.averageRating ?? 0
         return VStack(alignment: .leading, spacing: 0) {
             Spacer().frame(height: headerContent + band + 8)
+            if let playlist {
+                playlistMeta(playlist).frame(width: side).frame(maxWidth: .infinity)
+                Spacer().frame(height: 28)
+                Text(flowingTitles).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
             // Emblem + comment, as wide as the cover.
             HStack(spacing: 20) {
                 HStack(spacing: 10) {
@@ -239,6 +281,7 @@ struct AlbumDetailView: View {
             Spacer().frame(height: 6)
             Text(flowingTitles)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, 16)
         .frame(width: w, alignment: .topLeading)
@@ -296,11 +339,19 @@ struct AlbumDetailView: View {
                     .padding(.leading, 8)
                     .padding(.top, 2)
                     .padding(.bottom, 10)
+                if let playlist {
+                    ForEach(playlist.entries, id: \.track.id) { e in playlistRow(e) }
+                    playlistMeta(playlist)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 28)
+                        .opacity(max(0, (smooth(p) - 0.6) / 0.4))
+                } else {
                 ForEach(album.tracks) { t in trackRow(t) }
                 linerNotes
                     .padding(.horizontal, 8)
                     .padding(.top, 28)
                     .opacity(max(0, (smooth(p) - 0.6) / 0.4))
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, headerContent + 4)
@@ -343,6 +394,92 @@ struct AlbumDetailView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .frame(minHeight: 56)
+        .contentShape(.rect(cornerRadius: 12))
+    }
+
+    // MARK: Playlist pieces
+
+    /// Android DetailBackdrops stacked V: arm 1 (the upper V) three times,
+    /// back to front tertiary / secondary / primary, scale = W × 1.3 / 674
+    /// about the arm centre (505, 350), dy = side × (−0.06 + 0.14 i).
+    private func stackedV(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
+        Canvas { gc, size in
+            let k = size.width * 1.3 / 674
+            let colors = [s.tertiary, s.secondary, s.primary]
+            for i in 0..<3 {
+                var g = gc
+                g.translateBy(x: size.width / 2, y: size.height / 2 + side * (-0.06 + 0.14 * CGFloat(i)))
+                g.scaleBy(x: k, y: k)
+                g.translateBy(x: -505, y: -350)
+                let arm = YoinMarkPaths.arms[1]
+                g.fill(arm.fill, with: .color(colors[i]))
+                g.fill(arm.line, with: .color(app.surface.opacity(0.65)))
+            }
+        }
+        .frame(width: w, height: band)
+        .clipped()
+        .offset(y: headerContent)
+        .allowsHitTesting(false)
+    }
+
+    /// Length (tracks + duration) and Owner (+ Public / Private), then the
+    /// description (3 lines). Labels: labelLarge Medium underlined.
+    private func playlistMeta(_ pl: PlaylistInfo) -> some View {
+        let mins = pl.entries.map(\.track.durationSec).reduce(0, +) / 60
+        func label(_ t: String) -> some View {
+            Text(t).font(.gsf(14, .medium)).underline().foregroundStyle(app.onSurface)
+        }
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    label("Length")
+                    Text("\(pl.entries.count) tracks").font(.gsf(16)).monospacedDigit().foregroundStyle(app.onSurface)
+                    Text(mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min")
+                        .font(.gsf(14)).monospacedDigit().foregroundStyle(app.onSurfaceVariant)
+                }
+                Spacer()
+                VStack(alignment: .leading, spacing: 4) {
+                    label("Owner")
+                    Text(pl.owner).font(.gsf(16)).foregroundStyle(app.onSurface).lineLimit(1)
+                    if let isPublic = pl.isPublic {
+                        Text(isPublic ? "Public" : "Private").font(.gsf(14)).foregroundStyle(app.onSurfaceVariant)
+                    }
+                }
+            }
+            if let d = pl.description {
+                VStack(alignment: .leading, spacing: 6) {
+                    label("Description")
+                    Text(d).font(.gsf(14)).foregroundStyle(app.onSurface).lineLimit(3)
+                }
+            }
+        }
+    }
+
+    /// Playlist row: 44 album thumb (4 corners), title, "artist · album"
+    /// (album muted), duration; v8 padding, no number, no heart.
+    private func playlistRow(_ e: PlaylistEntry) -> some View {
+        let playing = model.playback.track.id == e.track.id
+        return HStack(spacing: 12) {
+            CoverArt(palette: e.album.palette, cornerRadius: 0, seed: e.album.seed)
+                .frame(width: 44, height: 44)
+                .clipShape(.rect(cornerRadius: 4, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(e.track.title).font(.gsf(16, .medium))
+                    .foregroundStyle(playing ? s.primary : app.onSurface)
+                HStack(spacing: 0) {
+                    Text(e.album.artist).foregroundStyle(app.onSurfaceVariant)
+                    Text(" · \(e.album.title)").foregroundStyle(app.onSurfaceVariant.opacity(0.6))
+                }
+                .font(.gsf(12))
+            }
+            .lineLimit(1)
+            Spacer(minLength: 0)
+            Text(formatTime(e.track.durationSec))
+                .font(.gsf(14, .medium)).monospacedDigit()
+                .foregroundStyle(app.onSurfaceVariant)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
         .contentShape(.rect(cornerRadius: 12))
     }
 

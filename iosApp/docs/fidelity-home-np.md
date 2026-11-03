@@ -116,6 +116,20 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Receipt | AlbumScrapbookPage.kt:1827-1876, 2057 | surfaceContainer, 20 top corners, zig-zag bottom (≈ 14 teeth, 8 deep); monospace 12.5; dotted leaders | Same |
 | Tilt | AlbumScrapbook.kt:223, 471 | FNV-1a over "albumId/key"; sets Paper ±0.5/1/1.5, Ticket ±1.25/2, Sticker ±5/8/12, Cover ±3; opposite rules for notes and sticky | Same (drag parallax not ported) |
 
+## Playlist detail (Compact)
+
+Same as Album page 1 except:
+
+| Element | Android source | Android value | iOS |
+|---|---|---|---|
+| Meta line | PlaylistDetailScreen.kt:705-711 | [owner] [Playlist] | Same |
+| Overflow | PlaylistDetailScreen.kt:732-779 | 48 ⋮: Cloud backup, Rename, Delete | Same (a Menu) |
+| Backdrop | DetailBackdrops.kt:68-117 | Arm 1 (upper V) three times, tertiary / secondary / primary back to front, scale W × 1.3 / 674 about (505, 350), dy = side × (−0.06 + 0.14 i); fades over smoothstep(0, 0.6, p) | Same |
+| Hero block | PlaylistDetailScreen.kt:1526-1588 | No emblem; Length (tracks, duration) and Owner (Public / Private) side by side, Description (3 lines) below; labels labelLarge underlined | Same |
+| Stamp | PlaylistDetailScreen.kt:270-272 | 4 before the ⋮ (end inset 40) | Same |
+| Track row | PlaylistDetailScreen.kt:1367-1429 | 44 album thumb, padding 8 × 8, title titleMedium, "artist · album" bodySmall (album muted), duration; no number, no heart | Same |
+| Pages | — | No scrapbook page | Same (no dots, no pager) |
+
 ## Library (Compact)
 
 | Element | Android source | Android value | iOS |
@@ -125,7 +139,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Sort row | LibrarySortRow.kt:46-107 | First grid row; label labelLarge + Sort 18; Recents / Recently added / Alphabetical / Creator | Same (a Menu) |
 | Grid | LibraryScreen.kt:1630-1727 | Fixed 3 columns, 16 sides, 12 / 16 gaps; artists circle, name + "N albums"; albums and playlists square, title titleSmall + subtitle bodySmall | Same; covers follow the iOS bare-cover rule |
 | Songs | SongListItem.kt:84-204 | Rows 16 × 10, 48 thumb (4 corners), titleSmall, "artist · album" bodySmall, duration labelLarge | Same |
-| Fast scroller | LibraryFastScroller.kt | Alphabet / date ticks on All, Artists, Albums | Not built yet |
+| Fast scroller | YoinFastScroller.kt; LibraryFastScroller.kt | All / Artists / Albums, only past 3 screens; awake while scrolling or held, hides 1.6 s later sliding 32 toward the edge; thumb 24 × 48 half-pill in a 32 × 64 box (secondaryContainer → primary held, chevrons); while held a tick column (surfaceContainerHigh, 28 corners, labelMedium, current SemiBold primary, ≥ 18 apart) and a bubble (primaryContainer, ≥ 56, titleLarge); sections per sort | Same; drag maps proportionally to the scroll offset (Android's row "knee" mapping and haptic ticks are not ported) |
 
 ## Artist detail (Compact)
 

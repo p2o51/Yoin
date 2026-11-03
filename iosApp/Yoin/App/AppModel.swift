@@ -4,6 +4,7 @@ import SwiftUI
 enum Route: Hashable {
     case album(Album)
     case artist(String)
+    case playlist(String)
 }
 
 enum ShellSection: Hashable {
@@ -45,7 +46,7 @@ final class AppModel {
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
-        case "library-albums", "library-songs": section = .library
+        case "library-albums", "library-songs", "library-scroller": section = .library
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
         case "np": npExpanded = true
         case "np-short": npExpanded = true; npForceShort = true
@@ -53,6 +54,7 @@ final class AppModel {
         case "np-panel": npPanel = true
         case "landing": showLanding = true
         case "artist", "artist-bottom": path = [.artist("Mina Asahi")]
+        case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": self.playback.positionSec = Int(Double(self.playback.track.durationSec) * 0.35)
         case "search", "search-results", "search-catalog", "search-albums", "search-songs": searchActive = true
         case "idle": isIdle = true
@@ -74,6 +76,7 @@ final class AppModel {
         switch path.last {
         case .album(let a): return a
         case .artist(let name): return MockLibrary.shared.releases(by: name).first
+        case .playlist(let id): return MockLibrary.shared.playlist(id).asAlbum
         case nil: return nil
         }
     }
@@ -84,6 +87,10 @@ final class AppModel {
         } else {
             path.append(.album(album))
         }
+    }
+
+    func openPlaylist(_ id: String) {
+        path.append(.playlist(id))
     }
 
     func openArtist(_ name: String) {

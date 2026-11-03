@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Mock content. Everything here is invented; no network.
 struct MockLibrary: MusicLibrary, PlaybackSource {
@@ -76,6 +77,15 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
         return [single, ep, lp, comp]
     }()
 
+    func playlist(_ rawId: String) -> PlaylistInfo {
+        let a = Self.allAlbums
+        let picks: [(Int, Int)] = [(6, 2), (0, 1), (9, 0), (1, 0), (3, 1), (11, 2), (4, 4), (8, 3), (7, 0), (0, 10)]
+        return PlaylistInfo(id: MediaId(provider: "mock", rawId: rawId), title: "Night Walks", owner: "51",
+                            isPublic: false, description: "Long way home after the last train. Streetlights, slow tempo, nothing too loud.",
+                            palette: a[6].palette,
+                            entries: picks.map { PlaylistEntry(album: a[$0.0], track: a[$0.0].tracks[$0.1]) })
+    }
+
     func releases(by artist: String) -> [Album] {
         (Self.allAlbums + Self.extraReleases).filter { $0.artist == artist }.sorted { $0.year > $1.year }
     }
@@ -97,6 +107,28 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
         return [a[11], a[2], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[1], a[3], a[0]]
     }
 
+    /// Generated filler albums so Library is long enough for its fast scroller
+    /// (Android shows it only past three screens of rows).
+    static let fillerAlbums: [Album] = {
+        let first = ["Amber", "Blue", "Cedar", "Distant", "Echo", "Falling", "Golden", "Hollow", "Iris", "Juniper",
+                     "Kindred", "Lunar", "Marble", "Northern", "Opal", "Paper", "Quiet", "River", "Silver", "Tidal",
+                     "Umber", "Velvet", "Winter", "Yellow", "Zephyr", "After", "Bright", "Coral", "Dusk", "Ember"]
+        let second = ["Rooms", "Hours", "Letters", "Signals", "Gardens", "Lines", "Tapes", "Weather", "Coast", "Fields"]
+        let artists = ["Hana Ueda", "The Lanterns", "Oro", "Fieldwork", "Sora Kim", "Low Tide Club", "Mei", "Northbound"]
+        return first.enumerated().map { i, f in
+            let hue = Double(i) / Double(first.count)
+            func c(_ h: Double, _ s: Double, _ b: Double) -> UInt32 {
+                let col = UIColor(hue: h.truncatingRemainder(dividingBy: 1), saturation: s, brightness: b, alpha: 1)
+                var r: CGFloat = 0, g: CGFloat = 0, bl: CGFloat = 0, a: CGFloat = 0
+                col.getRed(&r, green: &g, blue: &bl, alpha: &a)
+                return UInt32(r * 255) << 16 | UInt32(g * 255) << 8 | UInt32(bl * 255)
+            }
+            return album(100 + i, "\(f) \(second[i % second.count])", artists[i % artists.count], 2010 + i % 15,
+                         c(hue, 0.6, 0.75), c(hue + 0.08, 0.35, 0.95), c(hue - 0.05, 0.7, 0.3),
+                         tracks: ["One", "Two", "Three", "Four", "Five"])
+        }
+    }()
+
     func libraryItems() -> [LibraryItem] {
         let a = Self.allAlbums
         var items: [LibraryItem] = []
@@ -112,6 +144,10 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
                                      subtitle: "Album · \(al.artist)", palette: al.palette, album: al))
             if i == 1 { items.append(artist1) }
             if i == 4 { items.append(artist2) }
+        }
+        for al in Self.fillerAlbums {
+            items.append(LibraryItem(id: al.id, kind: .album, title: al.title,
+                                     subtitle: "Album · \(al.artist)", palette: al.palette, album: al))
         }
         return items
     }

@@ -41,6 +41,9 @@ struct PhoneShell: View {
                                 .navigationTransition(.zoom(sourceID: album.id, in: zoomNS))
                         case .artist(let name):
                             ArtistDetailView(artist: name)
+                        case .playlist(let id):
+                            let info = MockLibrary.shared.playlist(id)
+                            AlbumDetailView(album: info.asAlbum, playlist: info)
                         }
                     }
             }
