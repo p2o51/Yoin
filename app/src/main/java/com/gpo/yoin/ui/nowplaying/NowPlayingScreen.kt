@@ -59,6 +59,7 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -362,6 +363,16 @@ fun NowPlayingScreen(
             transportSignal.recordLineTap()
             latestOnSeekToMs(targetMs)
         }
+    }
+
+    // Focus's edge band swells once per lyric line (EdgeDotBand.kt).
+    val bandLyrics = playingState?.lyrics
+    val latestPositionMs by rememberUpdatedState(positionMs)
+    val bandLine by remember(bandLyrics) {
+        derivedStateOf { bandLyrics?.currentLyricLine(latestPositionMs(), showTranslation = false)?.first ?: -1 }
+    }
+    LaunchedEffect(bandLine) {
+        if (bandLine >= 0) transportSignal.lyricLineChanged()
     }
 
     ReportMotionPressure(
@@ -1495,7 +1506,10 @@ private fun CompactPlayingContent(
                 onArtistClick = navigationActions.onArtistClick,
                 onPlaylistClick = navigationActions.onPlaylistClick,
                 trailingAction = topBarAction,
-                height = topBarHeight,
+                // Clean focus: the bar steps up and away; its slot keeps only
+                // a little air above the grown cover (owner 2026-11-03). The
+                // row keeps its touch height and the slot clips it.
+                height = maxOf(topBarHeight, TopBarTouchHeight),
                 // Writing with the keyboard up: the title that stepped aside
                 // reads here, beside the docked cover.
                 trackTitleFraction = if (noteOwnsBottom || noteHeroYield > 0f) {
@@ -1503,7 +1517,12 @@ private fun CompactPlayingContent(
                 } else {
                     null
                 },
-                modifier = Modifier.padding(horizontal = horizontalPadding),
+                modifier = Modifier
+                    .height(topBarHeight)
+                    .clipToBounds()
+                    .wrapContentHeight(Alignment.Bottom, unbounded = true)
+                    .padding(horizontal = horizontalPadding)
+                    .focusRetreat { resolvedStageProgress.immersive * (1f - resolvedStageProgress.detail) },
             )
 
             Box(
@@ -1722,11 +1741,12 @@ private fun CompactPlayingContent(
                     val pagerEdgeFade = if (lyricsSelection.active) 0.dp else horizontalPadding
                     // The lyrics lead when their page is current and visible:
                     // the expanded page, or the small window at rest (not the
-                    // one-line row, not a focus that hides the list).
+                    // one-line row). In focus the cover leads, list or not: a
+                    // song change flows in from the tapped side (owner 2026-11-03).
                     val lyricsLead = detailPage == NowPlayingDetailPage.Lyrics &&
                         (
                             stageMode == NowPlayingStageMode.Expanded ||
-                                !lyricOneLine && (stageMode != NowPlayingStageMode.Immersive || focusKeepsList)
+                                !lyricOneLine && stageMode != NowPlayingStageMode.Immersive
                             )
                     Box(
                         modifier = Modifier
@@ -1773,6 +1793,17 @@ private fun CompactPlayingContent(
                                     notes = notesState,
                                     immersiveProgress = if (focusKeepsList) 0f else immersiveProgress,
                                     onRetryFetchSongInfo = onRetryFetchSongInfo,
+                                    listFocus = if (focusKeepsList) {
+                                        { resolvedStageProgress.immersive }
+                                    } else {
+                                        { 0f }
+                                    },
+                                    upNext = if (focusKeepsList && stageMode == NowPlayingStageMode.Immersive) {
+                                        state.upNextLyrics
+                                    } else {
+                                        null
+                                    },
+                                    endOverflow = horizontalPadding,
                                     // Progress read in the layer, not captured: the
                                     // modifier stays the same across reshape frames,
                                     // so the hidden compact page can skip them.
@@ -1807,6 +1838,7 @@ private fun CompactPlayingContent(
                                         onDeleteNote = onDeleteNote,
                                         noteDraft = noteDraft,
                                         noteWriting = noteBar.open,
+                                        lyricsEndOverflow = horizontalPadding,
                                         modifier = pageModifier.graphicsLayer {
                                             // Fade + grow the lyrics IN WITH the
                                             // reshape (fully visible by ~70%),
@@ -1952,11 +1984,15 @@ private fun CompactPlayingContent(
                                 // white gradient bottom under the nav bar.
                                 // Padding (was on the wrapper Box) keeps the pills
                                 // at the 24dp inset now that the Box is edge-to-edge.
+                                // Clean focus: the pills break into dots and
+                                // stop taking taps (owner 2026-11-03).
                                 modifier = Modifier
                                     .padding(horizontal = horizontalPadding)
                                     .graphicsLayer {
                                         alpha = compactProgress
-                                    },
+                                    }
+                                    .dotDissolve { immersiveProgress }
+                                    .retreatInput { resolvedStageProgress.immersive },
                             )
                             // Only compose the accessory action-bar pager while
                             // it's at least partly visible. Otherwise, when
@@ -2336,9 +2372,9 @@ private fun WidePlayingContent(
             WideTopBar(
                 state = state,
                 dismissFraction = dismissFraction,
-                // "Title - Artist" under the label: while focused, or always
-                // when the window is too short for the title block.
-                subline = { if (titleInBar) 1f else focus },
+                // "Title - Artist" under the label when the window is too
+                // short for the title block (focus keeps the title in place).
+                subline = { if (titleInBar) 1f else 0f },
                 onBack = onDismiss,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
@@ -2360,7 +2396,7 @@ private fun WidePlayingContent(
                 // bands); everything under the cover stays 312 wide.
                 val slotWidth = lerpDp(restPose.slot, focusPose.slot, focus)
                 val coverSize = lerpDp(restPose.cover, focusPose.cover, focus)
-                // Rating + title retreat (fade + height collapse) in focus.
+                // Rating + pills retreat (fade + height collapse) in focus.
                 // Clip OUTSIDE the collapsing layout, or the fading row draws
                 // over the transport while it folds.
                 val retreat = Modifier
@@ -2503,10 +2539,9 @@ private fun WidePlayingContent(
                         // Title/artist sit right above the pills, as on every
                         // Now Playing (TabletNP). Same press language as
                         // Compact: route stretch, no ripple.
+                        // The title stays in focus (owner 2026-11-03).
                         Column(
-                            modifier = Modifier
-                                .width(DualPaneStackWidth)
-                                .then(retreat),
+                            modifier = Modifier.width(DualPaneStackWidth),
                         ) {
                             val wideArtistRoute = artistId?.let { id ->
                                 rememberNowPlayingRouteInteraction(
@@ -2584,10 +2619,12 @@ private fun WidePlayingContent(
                         castState = castState,
                         onCastClick = onCastClick,
                         // Pinned at the bottom of the left column; clears the nav bar
-                        // since the content runs edge-to-edge.
+                        // since the content runs edge-to-edge. Focus: the pills
+                        // retreat with the rating (owner 2026-11-03).
                         modifier = Modifier
                             .width(DualPaneStackWidth)
-                            .navigationBarsPadding(),
+                            .navigationBarsPadding()
+                            .then(retreat),
                     )
                 }
 
@@ -4181,17 +4218,41 @@ private fun CompactDetailPage(
     immersiveProgress: Float,
     onRetryFetchSongInfo: () -> Unit,
     modifier: Modifier = Modifier,
+    // Focus with the list kept (owner 2026-11-03): the lines print through
+    // dots and the outro plays here (last line held, next song's first line);
+    // read in draw. 0 = the resting page.
+    listFocus: () -> Float = { 0f },
+    upNext: UpNextLyrics? = null,
+    // The page's end padding up to the screen edge: the held last line may
+    // run on into it (the lines still wrap at the page edge).
+    endOverflow: Dp = 0.dp,
 ) {
     when (page) {
-        NowPlayingDetailPage.Lyrics -> Box(modifier = modifier.clipToBounds()) {
+        NowPlayingDetailPage.Lyrics -> Box(
+            // Clipped top and bottom only: the held last line may run on past
+            // the page's end edge.
+            modifier = modifier.drawWithContent {
+                clipRect(
+                    left = -endOverflow.toPx(),
+                    top = 0f,
+                    right = size.width + endOverflow.toPx(),
+                    bottom = size.height,
+                ) { this@drawWithContent.drawContent() }
+            },
+        ) {
             LyricsDisplay(
                 lyrics = state.lyrics,
                 positionMs = positionMs,
                 loading = state.lyricsLoading,
                 trackKey = state.songId,
                 queueIndex = state.currentQueueIndex,
+                focus = listFocus,
+                durationMs = state.durationMs,
+                upNext = upNext,
+                endOverflow = endOverflow,
                 modifier = Modifier
                     .fillMaxSize()
+                    .ignoreParentHorizontalPadding(start = { 0.dp }, end = { endOverflow })
                     .graphicsLayer { translationY = -8.dp.toPx() * immersiveProgress }
                     // Focus: the list breaks into dots as the one line takes over.
                     .dotDissolve { immersiveProgress },
@@ -4458,6 +4519,9 @@ private fun ExpandedDetailPage(
     noteWriting: Boolean = false,
     lyricsViewportGrowthPx: Int = 0,
     lyricsSelection: LyricsSelectionState? = null,
+    // The page's end padding up to the screen edge (single column): the held
+    // last line may run on into it.
+    lyricsEndOverflow: Dp = 0.dp,
 ) {
     val haptics = rememberYoinHaptics()
     when (page) {
@@ -4483,6 +4547,7 @@ private fun ExpandedDetailPage(
             recenterRequestKey = lyricsRecenterTick,
             onUserScroll = onLyricsUserScroll,
             onSeekToMs = onSeekToMs,
+            endOverflow = lyricsEndOverflow,
             modifier = modifier,
         )
         NowPlayingDetailPage.About -> AboutFullscreenPane(
@@ -4904,6 +4969,9 @@ internal val OneLineLyricRowHeight = 44.dp
 
 /** The Expanded stage's fixed geometry (the budget's third endpoint). */
 private val ExpandedTopBarHeight = 56.dp
+
+/** The top bar's touch height; in focus its slot shrinks below it and clips. */
+private val TopBarTouchHeight = 48.dp
 private val ExpandedCoverGap = 8.dp
 private val ExpandedTabRowHeight = 52.dp
 private val ExpandedTabGap = 12.dp

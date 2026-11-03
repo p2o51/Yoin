@@ -110,6 +110,28 @@ class NowPlayingTransportSignal {
     private var pointerDownLocal: Offset? = null
     private var pointerDownUptimeMs = 0L
 
+    /**
+     * The last transport key tapped, for its ring of dots (owner 2026-11-03:
+     * on top of the gradient pulse, in focus and at rest). Observed with
+     * snapshotFlow, never composed.
+     */
+    internal var tapDots by mutableStateOf<TapDots?>(null)
+        private set
+
+    /** A transport key was tapped: [boundsRoot] its outline, [lean] −1 PREVIOUS, +1 NEXT, 0 PLAY. */
+    internal fun recordTapDots(boundsRoot: Rect, lean: Int) {
+        if (boundsRoot.isEmpty) return
+        tapDots = TapDots(boundsRoot, lean, SystemClock.uptimeMillis())
+    }
+
+    /** Bumped whenever the current lyric line moves on; observed with snapshotFlow, never composed. */
+    internal var lyricLineChanges by mutableIntStateOf(0)
+        private set
+
+    internal fun lyricLineChanged() {
+        lyricLineChanges++
+    }
+
     /** Bumped on every lyric-line tap; observed with snapshotFlow, never composed. */
     internal var lineTaps by mutableIntStateOf(0)
         private set
@@ -347,6 +369,7 @@ fun Modifier.nowPlayingAuroraBackground(
     // One clock for the two things that drift: per frame while Gemini
     // thinks, ≤30 fps for the slow focus field. Continuous across restarts.
     val clock = remember { mutableFloatStateOf(0f) }
+    val edgeBand = remember { EdgeBandState() }
     val clockLive = auroraVisible || focusShown
     LaunchedEffect(clockLive, auroraVisible) {
         if (!clockLive) return@LaunchedEffect
@@ -355,7 +378,9 @@ fun Modifier.nowPlayingAuroraBackground(
         var last = start
         while (true) {
             withFrameMillis { now ->
-                if (auroraVisible || now - last >= FocusFrameMs) {
+                // Every frame while Gemini thinks or the edge band bursts out.
+                val bandFast = clock.floatValue - edgeBand.bornAtMs < EdgeBandFastMs
+                if (auroraVisible || bandFast || now - last >= FocusFrameMs) {
                     last = now
                     clock.floatValue = base + (now - start)
                 }
@@ -413,13 +438,39 @@ fun Modifier.nowPlayingAuroraBackground(
     }
     val effectMoving by remember {
         derivedStateOf {
-            wash.progress.isRunning || band.isRunning || burst.isRunning || fieldFade.isRunning
+            wash.progress.isRunning || band.isRunning || burst.isRunning || fieldFade.isRunning ||
+                tapDotsProgress.isRunning
         }
     }
 
     var originRoot by remember { mutableStateOf(Offset.Zero) }
     val focusCanvas = remember { FocusCanvas() }
     val dots = remember { DotBatch() }
+
+    // Focus's edge band (EdgeDotBand.kt): born when focus opens, again on a
+    // song change in focus; a lyric line moving on swells it.
+    val bandDots = remember { DotLayers(EdgeBandLayers) }
+    val focusOn by remember { derivedStateOf { latestFocus() > 0.02f } }
+    LaunchedEffect(focusOn) {
+        if (focusOn) edgeBand.enter(clock.floatValue)
+    }
+    var bandSongId by remember { mutableStateOf(pulseTrigger?.songId) }
+    LaunchedEffect(pulseTrigger?.songId) {
+        val songId = pulseTrigger?.songId
+        if (songId != bandSongId && bandSongId != null && latestFocus() > 0.5f) {
+            edgeBand.songChange(clock.floatValue)
+        }
+        bandSongId = songId
+    }
+    val bandPlaying by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0f,
+        animationSpec = YoinMotion.slowEffectsSpec(),
+        label = "edgeBandPlaying",
+    )
+    // The transport keys' tap dots.
+    val tapDotsLayer = remember { DotLayers(1) }
+    val tapDotsProgress = remember { Animatable(1f) }
+    var tapDotsShown by remember { mutableStateOf<TapDots?>(null) }
 
     // Pulses run in this scope, not the keyed effects: the next commit must
     // not cancel one mid-sweep and leave it frozen on screen.
@@ -515,6 +566,23 @@ fun Modifier.nowPlayingAuroraBackground(
         }
     }
 
+    LaunchedEffect(transportSignal) {
+        val signal = transportSignal ?: return@LaunchedEffect
+        launch {
+            snapshotFlow { signal.lyricLineChanges }.drop(1).collect {
+                if (latestFocus() > 0.02f) edgeBand.lineChange(clock.floatValue)
+            }
+        }
+        snapshotFlow { signal.tapDots }.drop(1).collect { tap ->
+            if (tap == null) return@collect
+            tapDotsShown = tap
+            pulseScope.launch {
+                tapDotsProgress.snapTo(0f)
+                tapDotsProgress.animateTo(1f, tween(durationMillis = TapDotsMs, easing = LinearEasing))
+            }
+        }
+    }
+
     val pointerModifier = if (transportSignal != null) {
         Modifier.pointerInput(transportSignal) {
             awaitPointerEventScope {
@@ -601,7 +669,22 @@ fun Modifier.nowPlayingAuroraBackground(
                     alpha = min(1f, f * 1.25f),
                     filterQuality = FilterQuality.Low,
                 )
-                if (f > 0.4f) drawEdgeDots(dots, points.wandererColor(), isDark, t, min(1f, (f - 0.4f) / 0.5f))
+                if (edgeBand.alive(t)) {
+                    drawEdgeBand(
+                        state = edgeBand,
+                        dots = bandDots,
+                        nowMs = t,
+                        focus = f,
+                        playing = bandPlaying,
+                        cover = cover,
+                        lyrics = transportSignal?.lyricsSurface?.boundsRoot
+                            ?.takeIf { !it.isEmpty }
+                            ?.translate(-originRoot)?.center,
+                        palette = field.palette,
+                        primary = primary,
+                        dark = isDark,
+                    )
+                }
             }
 
             // Ask Gemini thinking.
@@ -653,6 +736,19 @@ fun Modifier.nowPlayingAuroraBackground(
                         blend,
                     )
                 }
+            }
+
+            // A transport key tapped: its ring of dots.
+            val td = tapDotsProgress.value
+            val tapped = tapDotsShown
+            if (tapped != null && td < 1f) {
+                drawTapDots(
+                    dots = tapDotsLayer,
+                    key = tapped.boundsRoot.translate(-originRoot),
+                    lean = tapped.lean,
+                    t = td,
+                    color = primary.copy(alpha = if (isDark) 0.75f else 0.6f),
+                )
             }
         }
 }
@@ -869,47 +965,6 @@ private fun DrawScope.drawGeminiWash(
     drawBloom(Offset(w * 0.5f, h * 0.95f), w * 0.6f, hsl(hueB, 1f), a * 0.35f, blend)
 }
 
-/** Focus: fine dots around the room's edges, in the wanderer's colour. */
-private fun DrawScope.drawEdgeDots(dots: DotBatch, wanderer: Int, dark: Boolean, t: Float, fade: Float) {
-    val w = size.width
-    val h = size.height
-    val dp = density
-    val grid = 6f * dp
-    val band = 34f * dp
-    val topShift = 40f * dp
-    val rMax = 1.25f * dp
-    dots.reset()
-    var y = 0f
-    var row = 0
-    while (y < h) {
-        val rowEdge = min(h - y, y + topShift)
-        var x = if (row and 1 == 1) grid / 2f else 0f
-        while (x < w) {
-            val d = min(min(x, w - x), rowEdge)
-            if (d <= band) {
-                val n = 0.5f + 0.5f * sin(x / dp * 0.07f + y / dp * 0.045f + t / 1500f)
-                val r = rMax * (1f - d / band).pow(1.3f) * (0.3f + 0.7f * n)
-                if (r >= 0.28f * dp) dots.add(x, y, r, rMax)
-            } else if (rowEdge > band && x < w - band) {
-                // Skip the room's middle in one step.
-                x = w - band - ((w - band - x) % grid)
-            }
-            x += grid
-        }
-        y += grid
-        row++
-    }
-    val c = Color(wanderer)
-    val dotColor = if (dark) {
-        val lift = 40f / 255f
-        Color(min(1f, c.red * 1.5f + lift), min(1f, c.green * 1.5f + lift), min(1f, c.blue * 1.5f + lift))
-    } else {
-        Color(c.red * 0.55f, c.green * 0.55f, c.blue * 0.55f)
-    }
-    val alpha = (if (dark) 0.5f else 0.35f) * fade
-    dots.draw(drawContext.canvas.nativeCanvas, dotColor.copy(alpha = alpha).toArgb(), rMax)
-}
-
 /** Fine dots, batched by size into a few round-capped point draws. */
 private class DotBatch {
     private val xy = Array(DotBuckets) { FloatArray(512) }
@@ -1013,6 +1068,10 @@ private const val PendingFlowValidMs = 1_500L
 private const val ColoursFirstClaimMs = 400L
 
 private const val FocusFrameMs = 32L
+
+/** The edge band runs every frame for its burst, then at the field's pace. */
+private const val EdgeBandFastMs = 1200f
+private const val EdgeBandLayers = 12
 private const val FOCUS_GRID_WIDTH = 50
 private const val DotBuckets = 4
 

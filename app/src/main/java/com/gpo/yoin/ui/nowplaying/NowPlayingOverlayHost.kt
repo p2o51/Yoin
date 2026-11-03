@@ -285,7 +285,10 @@ fun NowPlayingOverlayHost(
     // Now Playing closes. The three levels' `enabled` flags are mutually
     // exclusive, so a closed overlay — or a level that doesn't exist here —
     // never swallows the host's back.
-    val stageBackLevel = expanded && stageMode == NowPlayingStageMode.Expanded && !dualPaneNowPlaying
+    // Focus is a level of its own (owner 2026-11-03): lyrics opened from focus
+    // step back to focus, and focus steps back to the resting player.
+    val stageBackLevel = expanded && !dualPaneNowPlaying &&
+        (stageMode == NowPlayingStageMode.Expanded || stageMode == NowPlayingStageMode.Immersive)
     val fullscreenBackLevel = expanded && !stageBackLevel &&
         (presentation == NowPlayingPresentation.Enlarged || dualPaneNowPlaying) &&
         frame.panelAvailable

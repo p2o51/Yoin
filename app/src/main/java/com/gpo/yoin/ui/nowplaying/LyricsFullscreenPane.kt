@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
@@ -103,6 +104,10 @@ fun LyricsFullscreenPane(
     selecting: Boolean = false,
     selectedLines: Set<Int> = emptySet(),
     onToggleLine: (Int) -> Unit = {},
+    // The caller's end padding up to the screen edge: the held last line may
+    // run on into it (and off the screen) instead of being cut at the page
+    // edge (owner 2026-11-03). The lines still wrap at the page edge.
+    endOverflow: Dp = 0.dp,
 ) {
     val followsPlayhead = autoScrollEnabled && !selecting
     val liveTrackKey by rememberUpdatedState(trackKey)
@@ -116,7 +121,10 @@ fun LyricsFullscreenPane(
         // Rows carry their own inset so a selected line's container can reach
         // past the text into the page margin; the pane escapes that much of the
         // caller's padding, so the text itself stays on the page's edge line.
-        modifier = modifier.ignoreParentHorizontalPadding(LyricsRowInset),
+        modifier = modifier.ignoreParentHorizontalPadding(
+            start = { LyricsRowInset },
+            end = { LyricsRowInset + endOverflow },
+        ),
         continuesInto = { from, fromPositionMs, toKey -> from.handedOverTo(toKey, fromPositionMs) },
     ) { frame, songPositionMs ->
         // Loading → lyrics arriving: the lines rise into place (a short
@@ -165,6 +173,7 @@ fun LyricsFullscreenPane(
                 selecting = selecting,
                 selectedLines = selectedLines,
                 onToggleLine = onToggleLine,
+                endOverflow = endOverflow,
             )
         }
     }
@@ -224,10 +233,13 @@ private fun LyricsFullscreenList(
     selectedLines: Set<Int>,
     onToggleLine: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    endOverflow: Dp = 0.dp,
 ) {
     if (lyrics.isEmpty()) {
         Box(
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier
+                .fillMaxSize()
+                .padding(end = endOverflow),
             contentAlignment = Alignment.Center,
         ) {
             if (loading) {
@@ -562,7 +574,7 @@ private fun LyricsFullscreenList(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(LyricsItemSpacing),
-                    contentPadding = PaddingValues(vertical = 48.dp),
+                    contentPadding = PaddingValues(top = 48.dp, bottom = 48.dp, end = endOverflow),
                 ) {
                     val currentBlock: () -> Float = { currentBlockAlpha }
                     if (hasHeader) {
@@ -843,7 +855,7 @@ private fun LyricRow(
         if (lastLineStretch != null) {
             // Held last line (I-2): the whole line widens at draw time on the
             // slow spatial spring and lets go on the default one — no relayout,
-            // so it never judders (a full row widens a little into the inset).
+            // so it never judders; a full row runs on past the page edge.
             HeldLastLineText(
                 text = text,
                 style = lineStyle,
