@@ -4,9 +4,12 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
@@ -108,6 +111,9 @@ fun LyricsFullscreenPane(
     // run on into it (and off the screen) instead of being cut at the page
     // edge (owner 2026-11-03). The lines still wrap at the page edge.
     endOverflow: Dp = 0.dp,
+    // Two-column focus (0..1, read in the draw phase): the lines print
+    // through the focus halftone, as the single column's focus list does.
+    focus: () -> Float = { 0f },
 ) {
     val followsPlayhead = autoScrollEnabled && !selecting
     val liveTrackKey by rememberUpdatedState(trackKey)
@@ -174,6 +180,7 @@ fun LyricsFullscreenPane(
                 selectedLines = selectedLines,
                 onToggleLine = onToggleLine,
                 endOverflow = endOverflow,
+                halftoneFocus = focus,
             )
         }
     }
@@ -234,6 +241,7 @@ private fun LyricsFullscreenList(
     onToggleLine: (Int) -> Unit,
     modifier: Modifier = Modifier,
     endOverflow: Dp = 0.dp,
+    halftoneFocus: () -> Float = { 0f },
 ) {
     if (lyrics.isEmpty()) {
         Box(
@@ -580,6 +588,7 @@ private fun LyricsFullscreenList(
                     if (hasHeader) {
                         item(key = "header") {
                             LyricRow(
+                                focus = halftoneFocus,
                                 text = songTitle.orEmpty(),
                                 secondary = artist,
                                 showSecondary = !artist.isNullOrBlank(),
@@ -602,6 +611,7 @@ private fun LyricsFullscreenList(
                         val active = !selecting && item == focusItem
                         val selectRole = lyricSelectionRole(index, selectedLines)
                         LyricRow(
+                            focus = halftoneFocus,
                             text = line.text,
                             secondary = line.translation,
                             showSecondary = showTranslation && !line.translation.isNullOrBlank(),
@@ -639,6 +649,7 @@ private fun LyricsFullscreenList(
                         item(key = "upNextGap") { Spacer(modifier = Modifier.height(UpNextGap)) }
                         item(key = "upNextHeader") {
                             LyricRow(
+                                focus = halftoneFocus,
                                 text = shownUpNext.title,
                                 secondary = shownUpNext.artist,
                                 showSecondary = shownUpNext.artist.isNotBlank(),
@@ -652,6 +663,7 @@ private fun LyricsFullscreenList(
                         itemsIndexed(shownUpNext.lines, key = { index, _ -> "upNext$index" }) { index, line ->
                             val item = upNextHeaderIndex + 1 + index
                             LyricRow(
+                                focus = halftoneFocus,
                                 text = line.text,
                                 secondary = line.translation,
                                 showSecondary = false,
@@ -746,8 +758,27 @@ private fun LyricRow(
     // The song's last timed line only (null on every other row): its I-2
     // stretch, the quantized outro progress (0 = at rest).
     lastLineStretch: Float? = null,
+    // Focus (two columns): 0..1, read in the draw phase.
+    focus: () -> Float = { 0f },
 ) {
     val selected = selectMode && selectRole == LyricSelectionRole.Picked
+    // Focus's halftone (see LyricHalftone.kt): the current line develops
+    // from dots to solid, a sung line breaks back into dots, the rest stay
+    // fine dots. A line that is current when it first shows starts solid.
+    val dots = remember { Animatable(if (isActive) LyricDotsSolid else LyricDotsRest) }
+    val shownBefore = remember { booleanArrayOf(false) }
+    LaunchedEffect(isActive) {
+        if (!shownBefore[0]) {
+            shownBefore[0] = true
+            return@LaunchedEffect
+        }
+        if (isActive) {
+            dots.snapTo(minOf(dots.value, LyricDotsDevelopFrom))
+            dots.animateTo(LyricDotsSolid, tween(LyricDotsDevelopMs, easing = EaseOutCubic))
+        } else if (dots.value > LyricDotsRest) {
+            dots.animateTo(LyricDotsRest, tween(LyricDotsBreakMs, easing = EaseOutCubic))
+        }
+    }
     val emphasized = isActive || selected
     val textColor by animateColorAsState(
         targetValue = when {
@@ -836,7 +867,8 @@ private fun LyricRow(
                 scaleX = scale
                 scaleY = scale
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
-            },
+            }
+            .lyricHalftone { lyricDotRadius(dots.value, focus()) },
     ) {
         // Current line = the OLD non-current weight (SemiBold) in the rounded
         // variable cut (ROND 100); non-current drops one more step to Medium.

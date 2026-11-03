@@ -2070,6 +2070,7 @@ private fun CompactPlayingContent(
             startX = stageOffsetX + horizontalPadding,
             startY = lerpDp(restPose.topBar, focusPose.topBar, immersiveProgress),
             startSize = compactCoverSize,
+            requestSize = maxOf(restPose.cover, focusPose.cover),
             endX = stageOffsetX + horizontalPadding + 56.dp,
             // The docked cover's 48dp slot is centred in the 56dp bar.
             endY = (ExpandedTopBarHeight - DockedCoverSlot) / 2,
@@ -2298,6 +2299,8 @@ private fun WidePlayingContent(
     // Small by default; the Ask Gemini bar grows when focused (matches Compact).
     val bottomAccessoryTargetHeight = when {
         detailPage == NowPlayingDetailPage.About && askState is AskBarState.Focused -> 276.dp
+        // Focus: the lyric tools step away with the tabs and the lyrics grow.
+        stageMode == NowPlayingStageMode.Immersive && detailPage == NowPlayingDetailPage.Lyrics -> 0.dp
         detailPage == NowPlayingDetailPage.Lyrics && lyricToolsIdle.idle -> 0.dp
         detailPage == NowPlayingDetailPage.Note ->
             noteBar.height(LocalDensity.current) + NoteWriteBarDefaults.TopGap
@@ -2357,6 +2360,15 @@ private fun WidePlayingContent(
         val focusPose = budget.focus ?: restPose
         val focus = if (focusOffered) stageProgress?.immersive ?: 0f else 0f
         val titleInBar = budget.titleForm == DualPaneTitleForm.TopBar
+        // Focus (owner 2026-11-03), as in the single column: the top bar,
+        // the tabs and the lyric tools step away and the lyrics print as
+        // halftone. A short window keeps its bar, which carries the title.
+        // Read in the draw phase and by the input guards, so through state.
+        val focusGate by rememberUpdatedState(focusOffered)
+        val barStays by rememberUpdatedState(titleInBar)
+        val focusNow: () -> Float = { if (focusGate) stageProgress?.immersive ?: 0f else 0f }
+        val barRetreat: () -> Float = { if (barStays) 0f else focusNow() }
+        val inFocus = stageMode == NowPlayingStageMode.Immersive
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -2379,7 +2391,9 @@ private fun WidePlayingContent(
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
                 onPlaylistClick = onPlaylistClick,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRetreat(barRetreat),
                 trailingAction = topBarAction,
             )
             Spacer(modifier = Modifier.height(budget.barGap))
@@ -2442,13 +2456,13 @@ private fun WidePlayingContent(
                                 },
                                 onClick = if (focusOffered || stageMode == NowPlayingStageMode.Immersive) {
                                     {
-                                        onStageModeChange(
-                                            if (stageMode == NowPlayingStageMode.Immersive) {
-                                                NowPlayingStageMode.Compact
-                                            } else {
-                                                NowPlayingStageMode.Immersive
-                                            },
-                                        )
+                                        if (stageMode == NowPlayingStageMode.Immersive) {
+                                            onStageModeChange(NowPlayingStageMode.Compact)
+                                        } else {
+                                            // Focus shows the lyrics, as in the single column.
+                                            onDetailPageChange(NowPlayingDetailPage.Lyrics)
+                                            onStageModeChange(NowPlayingStageMode.Immersive)
+                                        }
                                     }
                                 } else {
                                     null
@@ -2638,7 +2652,7 @@ private fun WidePlayingContent(
                         // it: the first tap there only wakes the tools.
                         .lyricToolsWakeGuard(
                             state = lyricToolsIdle,
-                            enabled = detailPage == NowPlayingDetailPage.Lyrics,
+                            enabled = detailPage == NowPlayingDetailPage.Lyrics && !inFocus,
                             band = WideAccessoryHeight + navBottom,
                         ),
                 ) {
@@ -2649,7 +2663,9 @@ private fun WidePlayingContent(
                         onSelect = { page ->
                             pagerScope.launch { pagerState.settleToPage(page.ordinal) }
                         },
-                        modifier = Modifier.padding(start = 24.dp),
+                        modifier = Modifier
+                            .padding(start = 24.dp)
+                            .focusRetreat(focusNow),
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Box(
@@ -2674,7 +2690,8 @@ private fun WidePlayingContent(
                         HorizontalPager(
                             state = pagerState,
                             beyondViewportPageCount = 1,
-                            userScrollEnabled = !lyricsSelection.active,
+                            // Focus holds the Lyrics page (its tabs have stepped away).
+                            userScrollEnabled = !lyricsSelection.active && !inFocus,
                             modifier = Modifier.fillMaxSize(),
                         ) { page ->
                         ExpandedDetailPage(
@@ -2698,6 +2715,7 @@ private fun WidePlayingContent(
                             onDeleteNote = onDeleteNote,
                             noteDraft = noteDraft,
                             noteWriting = noteBar.open,
+                            lyricsFocus = focusNow,
                             // Inset the content by the same amount the edgeFade masks,
                             // so the fade lands in the gap — never on the lyric text
                             // (matches the Compact pager's pageModifier).
@@ -2741,7 +2759,9 @@ private fun WidePlayingContent(
                                         NowPlayingDetailPage.Lyrics -> LyricsTools(
                                             state = state,
                                             selection = lyricsSelection,
-                                            modifier = Modifier.graphicsLayer { alpha = lyricToolsAlpha },
+                                            modifier = Modifier
+                                                .graphicsLayer { alpha = lyricToolsAlpha }
+                                                .focusRetreat(focusNow),
                                             searchBarState = lyricsSearchBarState,
                                             canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                                             onSearchClick = onOpenLyricsSearch,
@@ -4005,6 +4025,11 @@ private fun CoverTransitionOverlay(
     endX: Dp,
     endY: Dp,
     endSize: Dp,
+    // The size the bitmap is decoded at. It must not follow [startSize] when
+    // that moves (lyrics opened from focus step back while the cover grows
+    // back to its focus size): a new request size every frame restarts the
+    // load and the flight shows its empty placeholder.
+    requestSize: Dp = startSize,
     // Start radius tracks the resting hero cover (favourite-button radius, 22dp)
     // so there is no corner-size pop when the flight proxy takes over on expand;
     // the proxy itself stays a plain rounded corner (continuous smoothing is
@@ -4024,7 +4049,7 @@ private fun CoverTransitionOverlay(
     // Decode the bitmap ONCE at the flight's large end (fixed requestSizePx):
     // letting Coil resolve at the live, shrinking size resamples high-contrast
     // artwork against the clip edge into shimmering stair-steps.
-    val requestSizePx = with(LocalDensity.current) { startSize.roundToPx() }
+    val requestSizePx = with(LocalDensity.current) { requestSize.roundToPx() }
 
     // Draw-only transform: the box stays a FIXED startSize and is moved/shrunk
     // entirely in graphicsLayer (translation + scale). The previous per-frame
@@ -4522,6 +4547,8 @@ private fun ExpandedDetailPage(
     // The page's end padding up to the screen edge (single column): the held
     // last line may run on into it.
     lyricsEndOverflow: Dp = 0.dp,
+    // Two-column focus (0..1, draw phase): the lyrics print as halftone.
+    lyricsFocus: () -> Float = { 0f },
 ) {
     val haptics = rememberYoinHaptics()
     when (page) {
@@ -4548,6 +4575,7 @@ private fun ExpandedDetailPage(
             onUserScroll = onLyricsUserScroll,
             onSeekToMs = onSeekToMs,
             endOverflow = lyricsEndOverflow,
+            focus = lyricsFocus,
             modifier = modifier,
         )
         NowPlayingDetailPage.About -> AboutFullscreenPane(
