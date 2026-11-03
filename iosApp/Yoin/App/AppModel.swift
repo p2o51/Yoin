@@ -47,6 +47,9 @@ final class AppModel {
     /// Native playback (AVQueuePlayer, lock screen, remote commands).
     let playbackSystem: PlaybackSystem
     var player: PlayerEngine { playbackSystem.engine }
+    /// The signed-in Subsonic server (shared Kotlin client); signed out =
+    /// the mock library, as the screenshots use.
+    let session = ServerSession()
     /// Queue sheet on Now Playing.
     var queueSheetOpen = false
 
