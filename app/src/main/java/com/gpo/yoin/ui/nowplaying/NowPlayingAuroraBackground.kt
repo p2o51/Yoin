@@ -298,6 +298,8 @@ fun Modifier.reportFocusCover(): Modifier {
  * @param pulseTrigger the committed state (song id + playing flag + queue
  *   position, never the playhead), null when not playing; see [resolveTransportPulse].
  * @param focusProgress the focus (immersive) stage progress, read in draw.
+ * @param darkRoom the colours dark focus paints the room in (the screen's own
+ *   dark scheme); null = the cover's colours toned dark.
  */
 @Composable
 fun Modifier.nowPlayingAuroraBackground(
@@ -313,6 +315,7 @@ fun Modifier.nowPlayingAuroraBackground(
     transportSignal: NowPlayingTransportSignal? = null,
     coverField: CoverField? = null,
     focusProgress: () -> Float = { 0f },
+    darkRoom: RoomPalette? = null,
 ): Modifier {
     val isDark = baseBottom.luminance() < 0.5f
     val primary = accentColors.getOrElse(0) { baseTop }
@@ -563,6 +566,7 @@ fun Modifier.nowPlayingAuroraBackground(
                     coverSize = min(cover.width, cover.height).coerceAtLeast(w * 0.3f),
                     spread = smoothstep(f),
                     timeMs = t,
+                    room = if (isDark) darkRoom else null,
                 )
                 val incoming = pointsOf(field)
                 val outgoing = fieldFrom

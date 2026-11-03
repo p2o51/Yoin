@@ -119,6 +119,26 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
     return CoverField(grid, palette, accent)
 }
 
+/**
+ * A ready-made room palette: the theme's own colours (ARGB), used as they
+ * are instead of toning the cover's. Dark focus paints the room in Now
+ * Playing's dark scheme (owner 2026-11-03: "把现在默认的深色配色，做成全屏听歌的渐变").
+ * [colors] holds four, most important first; [accent] is the wanderer.
+ */
+@Immutable
+class RoomPalette(val colors: IntArray, val accent: Int) {
+    init {
+        require(colors.size == 4) { "RoomPalette takes four colours" }
+    }
+
+    /** The colour [phase] of the way round the four (wraps), for the rim's creep. */
+    fun around(phase: Float): Int {
+        val x = ((phase % 4f) + 4f) % 4f
+        val i = x.toInt().coerceIn(0, 3)
+        return mix(colors[i], colors[(i + 1) % 4], x - i)
+    }
+}
+
 /** One control point of the field, in the field's own px. */
 data class FieldPoint(val x: Float, val y: Float, val color: Int, val reach: Float, val weight: Float)
 
@@ -128,6 +148,8 @@ data class FieldPoint(val x: Float, val y: Float, val color: Int, val reach: Flo
  * [coverCenterX]/[coverCenterY]/[coverSize]: the cover as laid out in focus
  * (px); [width]/[height]: the field; [spread] 0 = every point packed into the
  * cover, 1 = opened out; [timeMs] drives the slow paths (hold it to freeze).
+ * With a [room] palette the colours come from it as they are (same points,
+ * same motion); without one they are the cover's, toned by [toneForRoom].
  */
 fun focusFieldPoints(
     field: CoverField,
@@ -139,6 +161,7 @@ fun focusFieldPoints(
     coverSize: Float,
     spread: Float,
     timeMs: Float,
+    room: RoomPalette? = null,
 ): List<FieldPoint> {
     val s = spread.coerceIn(0f, 1f)
     val open = 0.3f + 0.7f * s
@@ -149,7 +172,8 @@ fun focusFieldPoints(
     for (i in 0 until 6) {
         val a = i / 6f * TAU + 0.4f
         val ua = a + timeMs / 16_000f
-        val color = toneForRoom(field.at(0.5f + 0.4f * cos(ua), 0.5f + 0.4f * sin(ua)), dark)
+        val color = room?.around(ua / TAU * 4f)
+            ?: toneForRoom(field.at(0.5f + 0.4f * cos(ua), 0.5f + 0.4f * sin(ua)), dark)
         points += FieldPoint(
             x = px(coverCenterX + cos(a) * coverSize * 0.48f),
             y = py(coverCenterY + sin(a) * coverSize * 0.48f),
@@ -167,7 +191,8 @@ fun focusFieldPoints(
         points += FieldPoint(
             x = px(fx * width + dx),
             y = py(fy * height + dy),
-            color = toneForRoom(mix(hue, near, 0.3f), dark, if (i % 2 == 1) -0.04f else 0.03f),
+            color = room?.colors?.get(RoomHueOrder[i])
+                ?: toneForRoom(mix(hue, near, 0.3f), dark, if (i % 2 == 1) -0.04f else 0.03f),
             reach = coverSize * 0.69f * open,
             weight = 0.9f,
         )
@@ -176,7 +201,7 @@ fun focusFieldPoints(
     points += FieldPoint(
         x = px(width * 0.23f + sin(timeMs / 8_800f) * coverSize * 0.12f),
         y = py(height * 0.81f + sin(timeMs / 6_100f + 1f) * coverSize * 0.28f),
-        color = toneForRoom(field.palette[1], dark, if (dark) 0.06f else 0f),
+        color = room?.colors?.get(1) ?: toneForRoom(field.palette[1], dark, if (dark) 0.06f else 0f),
         reach = coverSize * 0.34f * open,
         weight = 1.4f,
     )
@@ -184,7 +209,7 @@ fun focusFieldPoints(
     points += FieldPoint(
         x = px(width * (0.5f + 0.35f * sin(timeMs / 7_300f + 0.6f))),
         y = py(height * (0.52f + 0.33f * sin(timeMs / 9_700f + 2.2f))),
-        color = toneForRoom(field.accent, dark, if (dark) 0.12f else -0.02f),
+        color = room?.accent ?: toneForRoom(field.accent, dark, if (dark) 0.12f else -0.02f),
         reach = coverSize * 0.37f * open,
         weight = 2.2f,
     )

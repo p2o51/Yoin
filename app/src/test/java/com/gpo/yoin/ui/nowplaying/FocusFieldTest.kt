@@ -121,6 +121,28 @@ class FocusFieldTest {
         assertEquals(130f, ((half.color shr 16) and 0xFF).toFloat(), 1f)
     }
 
+    @Test
+    fun should_paintOnlyThePalettesColours_when_aRoomPaletteIsGiven() {
+        val field = buildCoverField(splitCover(), 48, 48)!!
+        val room = RoomPalette(
+            colors = intArrayOf(argb(30, 40, 90), argb(60, 30, 70), argb(20, 70, 60), argb(40, 40, 50)),
+            accent = argb(90, 80, 160),
+        )
+        val withRoom = focusFieldPoints(field, true, 400f, 800f, 200f, 300f, 300f, 1f, 12_000f, room)
+        val without = focusFieldPoints(field, true, 400f, 800f, 200f, 300f, 300f, 1f, 12_000f)
+
+        // Same points, same motion…
+        assertEquals(without.map { it.x to it.y }, withRoom.map { it.x to it.y })
+        // …the room points and the corner take the palette as it is, the wanderer its accent.
+        assertEquals(room.colors[0], withRoom[6].color)
+        assertEquals(room.colors[1], withRoom[7].color)
+        assertEquals(room.colors[1], withRoom[14].color)
+        assertEquals(room.accent, withRoom.wandererColor())
+        // The rim creeps between neighbouring palette colours.
+        assertEquals(room.colors[2], room.around(2f))
+        assertEquals(room.colors[0], room.around(4f))
+    }
+
     private fun dist(p: FieldPoint, x: Float, y: Float): Float {
         val dx = p.x - x
         val dy = p.y - y

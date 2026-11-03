@@ -111,6 +111,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -380,6 +382,17 @@ fun NowPlayingScreen(
                     coverField = LocalCoverField.current,
                     // Focus = the immersive stage (tap the cover); read in draw.
                     focusProgress = { stageProgress?.immersive ?: 0f },
+                    // Dark focus: the room in this screen's own dark scheme
+                    // (owner 2026-11-03), with the same field motion and dots.
+                    darkRoom = RoomPalette(
+                        colors = intArrayOf(
+                            scheme.primaryContainer.toArgb(),
+                            scheme.secondaryContainer.toArgb(),
+                            scheme.tertiaryContainer.toArgb(),
+                            scheme.surfaceContainerHigh.toArgb(),
+                        ),
+                        accent = lerp(scheme.primaryContainer, scheme.primary, 0.25f).toArgb(),
+                    ),
                 ),
         ) {
             when (uiState) {
