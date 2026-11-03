@@ -8,9 +8,32 @@ import YoinShared
 /// with notes or the best score, contact sheets of two for score-only runs →
 /// receipt. Tilts come from an FNV-1a hash of "albumId/key" (shared Kotlin; graphics only;
 /// layout stays square). Mock content stands in for the user's records.
+///
+/// While the pager drags, each piece trails by its depth × 12 % of the page
+/// and leans 3° further, settling to its own angle (Android scrapLayer). The
+/// page scrolls under the album header with the system's soft scroll edge.
 struct AlbumScrapbookView: View {
     var album: Album
     var settled: Bool
+    /// The album header's height: the page scrolls under it.
+    var topInset: CGFloat = 0
+    /// The pager as the pieces read it: 0 settled here, 1 a page away.
+    var pageOffset: CGFloat = 0
+    var pageWidth: CGFloat = 402
+    /// The hero cover is flying here: this page's cover waits hidden until it lands.
+    var coverInFlight = false
+    /// The cover's resting rect in `space` and its tilt (the flight's target).
+    var onCoverPlaced: (CGRect, Double) -> Void = { _, _ in }
+
+    /// The coordinate space the cover reports in; the host names it.
+    static let space = "albumScrapbook"
+
+    /// A top safe-area bar that only holds room for the album header (which
+    /// floats above, outside the scroll view). Not `Color.clear`: an empty bar
+    /// draws no scroll edge effect.
+    static func edgeBar(height: CGFloat) -> some View {
+        Rectangle().fill(.white.opacity(0.01)).frame(height: height).allowsHitTesting(false)
+    }
     @Environment(\.colorScheme) private var colorScheme
     @State private var stamped = false
 
@@ -45,6 +68,11 @@ struct AlbumScrapbookView: View {
             .background { DotPaper(color: s.outlineVariant.opacity(colorScheme == .dark ? 0.35 : 0.45)) }
         }
         .scrollIndicators(.hidden)
+        // The header's room as a bar: pieces fade under the status bar with
+        // the system's soft edge; the host lays a ProgressiveEdgeBlur over
+        // the header band, so nothing meets it in a hard cut.
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .safeAreaBar(edge: .top) { Self.edgeBar(height: topInset) }
         .defaultScrollAnchor(LaunchConfig.screen == "album-scrapbook-bottom" ? .bottom : .top)
         .onChange(of: settled, initial: true) { _, now in
             if now && !stamped {
@@ -63,7 +91,12 @@ struct AlbumScrapbookView: View {
                     CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                         .frame(width: 148, height: 148)
                         .clipShape(.rect(cornerRadius: 8, style: .continuous))
-                        .rotationEffect(.degrees(tilt("cover", Tilt.cover)))
+                        // Where the hero's cover lands; hidden until it has.
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                            onCoverPlaced($0, tilt("cover", Tilt.cover))
+                        }
+                        .opacity(coverInFlight ? 0 : 1)
+                        .modifier(layer(tilt("cover", Tilt.cover), depth: 0.25))
                         .frame(width: 148, height: 148 + 0.24 * 64, alignment: .top)
                     ScoreEmblem(score: album.rating ?? album.averageRating ?? 0, kind: kind,
                                 rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: 64)
@@ -71,6 +104,7 @@ struct AlbumScrapbookView: View {
                         .scaleEffect(stamped ? 1 : 1.35)
                         .opacity(stamped ? 1 : 0.0)
                         .offset(x: 0.30 * 64)
+                        .modifier(layer(0, depth: 0.6))
                 }
                 Spacer().frame(width: 0.3 * 64 + 8)
                 VStack(alignment: .leading, spacing: 0) {
@@ -100,7 +134,7 @@ struct AlbumScrapbookView: View {
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(s.primaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
-            .rotationEffect(.degrees(tilt("review", Tilt.paper)))
+            .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
             // Album note sticky: own row on the end side, tucks 6 over the review.
             Text(albumNote)
                 .font(.gsf(14.5)).lineSpacing(7)
@@ -109,7 +143,7 @@ struct AlbumScrapbookView: View {
                 .frame(width: min(0.72 * 368, 280), alignment: .leading)
                 .background { StickyNote(fill: s.secondaryContainer,
                                          flap: s.secondaryContainer.mix(with: s.secondary, by: 0.32, in: .perceptual)) }
-                .rotationEffect(.degrees(-sign(tilt("review", Tilt.paper)) * abs(tilt("albumnote", Tilt.paper))))
+                .modifier(layer(-sign(tilt("review", Tilt.paper)) * abs(tilt("albumnote", Tilt.paper)), depth: 0.45))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, -6)
                 .accessibilityLabel("Album note: \(albumNote)")
@@ -237,11 +271,12 @@ struct AlbumScrapbookView: View {
             if starred.contains(t.number) {
                 YoinIcon("favorite_filled", size: 26)
                     .foregroundStyle(s.primary)
-                    .rotationEffect(.degrees(tilt("\(t.number)/heart", Tilt.sticker)))
+                    // Rides on the ticket's layer: only a little extra lag of its own.
+                    .modifier(layer(tilt("\(t.number)/heart", Tilt.sticker), depth: 0.1))
                     .offset(x: -9, y: -10)
             }
         }
-        .rotationEffect(.degrees(tilt("\(t.number)/tk", Tilt.ticket)))
+        .modifier(layer(tilt("\(t.number)/tk", Tilt.ticket), depth: 0.5))
     }
 
     private func notesClipping(_ t: Track, _ ns: [Note]) -> some View {
@@ -261,7 +296,7 @@ struct AlbumScrapbookView: View {
         }
         .frame(width: min(330, 0.78 * 368), alignment: .leading)
         .background(s.surfaceContainerHighest, in: .rect(cornerRadius: 16, style: .continuous))
-        .rotationEffect(.degrees(-sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/nt", Tilt.paper))))
+        .modifier(layer(-sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/nt", Tilt.paper)), depth: 0.4))
     }
 
     // MARK: Receipt
@@ -294,7 +329,7 @@ struct AlbumScrapbookView: View {
         .padding(.leading, 18).padding(.trailing, 18).padding(.top, 16).padding(.bottom, 24)
         .frame(maxWidth: 330)
         .background { ReceiptShape().fill(s.surfaceContainer) }
-        .rotationEffect(.degrees(tilt("receipt", Tilt.paper)))
+        .modifier(layer(tilt("receipt", Tilt.paper), depth: 0.35))
     }
 
     // MARK: Tilt
@@ -312,6 +347,29 @@ struct AlbumScrapbookView: View {
     }
 
     private func sign(_ x: Double) -> Double { x < 0 ? -1 : 1 }
+
+    private func layer(_ tilt: Double, depth: CGFloat) -> ScrapLayer {
+        ScrapLayer(tilt: tilt, depth: depth, offset: pageOffset, width: pageWidth)
+    }
+}
+
+/// A piece's resting tilt plus its share of the pager drag (Android
+/// scrapLayer): it trails by depth × 12 % of the page and leans 3° further
+/// while away. Transform only; layout and hit areas stay square.
+private struct ScrapLayer: ViewModifier {
+    static let share: CGFloat = 0.12
+    static let leanDegrees = 3.0
+    var tilt: Double
+    var depth: CGFloat
+    var offset: CGFloat
+    var width: CGFloat
+
+    func body(content: Content) -> some View {
+        let lean = tilt == 0 ? 0 : (tilt < 0 ? -1 : 1) * Self.leanDegrees * Double(offset)
+        content
+            .rotationEffect(.degrees(tilt + lean))
+            .offset(x: offset * width * depth * Self.share)
+    }
 }
 
 // MARK: - Shapes
@@ -398,5 +456,25 @@ struct DotPaper: View {
             }
         }
         .padding(.horizontal, -16)
+    }
+}
+
+/// A progressive blur for content passing under a floating header: a thin
+/// material plus the page's own color, solid at the top and fading out over
+/// the lower 45 %. Draws only; touches pass through.
+struct ProgressiveEdgeBlur: View {
+    var tint: Color
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.thinMaterial)
+            Rectangle().fill(tint.opacity(0.72))
+        }
+        .mask {
+            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
+                                   .init(color: .black.opacity(0.6), location: 0.75), .init(color: .clear, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .allowsHitTesting(false)
     }
 }

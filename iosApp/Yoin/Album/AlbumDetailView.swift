@@ -10,12 +10,21 @@ import UIKit
 ///   end of the title row, the header turns into the cover's color spectrum
 ///   with white text, and the list fades in.
 ///
+/// Page 1 ↔ page 2 (Android AlbumPageFlight, AlbumScrapbookPage scrapLayer):
+/// the pager follows the finger 1:1. With the hero at rest the cover flies to
+/// the scrapbook's cover (taking its tilt) instead of sliding off, the hero
+/// text is gone a third of the way in, and each scrapbook piece trails the
+/// drag by its own depth and leans a little further.
+///
 /// iOS adaptations: the back button is a glass circle (Android: a tonal
-/// circle), and edge-swipe back still works with the navigation bar hidden.
-/// Page 2 (scrapbook) is not built yet; the dots show it exists.
+/// circle), and edge-swipe back still works with the navigation bar hidden
+/// and always wins over the pager. The pulled-up top bar is a Glass Lab
+/// choice (`detailTopBar`): the spectrum (Android, default), Liquid Glass, or
+/// the system's progressive scroll-edge blur.
 struct AlbumDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var album: Album
     var padColumn = false
     /// Playlist mode (Android PlaylistDetailScreen): same hero / pull-up /
@@ -31,7 +40,26 @@ struct AlbumDetailView: View {
     @State private var page: CGFloat = LaunchConfig.screen.hasPrefix("album-scrapbook") ? 1 : 0
     @State private var pageDrag: CGFloat = 0
     @State private var pageWidth: CGFloat = 402
-    private var pageFrac: CGFloat { min(1, max(0, page - pageDrag / max(pageWidth, 1))) }
+    /// Ends a pager drag the system cancelled (e.g. the edge swipe took over).
+    @GestureState private var pagerLive = false
+    private var pageFrac: CGFloat {
+        if let f = Self.forcedPageFrac, page == 0, pageDrag == 0 { return f }
+        return min(1, max(0, page - pageDrag / max(pageWidth, 1)))
+    }
+    /// Screenshots: `-pageFrac 0.5` holds the pager mid-swipe.
+    private static let forcedPageFrac = UserDefaults.standard.string(forKey: "pageFrac")
+        .flatMap(Double.init).map { CGFloat($0) }
+    /// The scrapbook cover's resting rect (this page's coordinates) and tilt:
+    /// where the hero cover lands (Android AlbumPageFlight.coverTarget).
+    @State private var scrapCover: CGRect?
+    @State private var scrapCoverTilt: Double = 0
+    /// Screenshots: `-listScroll 160` opens the pulled-up list scrolled.
+    @State private var listPosition = ScrollPosition(y: CGFloat(UserDefaults.standard.double(forKey: "listScroll")))
+
+    /// Pulled-up top bar (Glass Lab): 0 spectrum, 1 Liquid Glass, 2 progressive blur.
+    private var topBar: Int { Int(GlassLab.shared.extra("detailTopBar").rounded()) }
+    /// The hero's cover flies to page 2 (hero at rest, an album, motion allowed).
+    private var coverFlies: Bool { playlist == nil && !reduceMotion && scrapCover != nil && p < 0.01 }
 
     /// The cover's own scheme (title, blocks, dots, Play) and the app's
     /// (everything else), as on Android.
@@ -50,6 +78,10 @@ struct AlbumDetailView: View {
             let band = side + 56
             let e = smooth(p)
             let f = pageFrac
+            // The spectrum turns the header white; glass and blur keep its ink.
+            let white = topBar == 0 ? smooth(p, 0.25, 0.7) : 0
+            // Hero text while its cover flies: gone a third of the way in (albumHeroPageFade).
+            let heroFade = coverFlies ? min(1, max(0, 1 - f * 3.5)) : 1
             ZStack(alignment: .topLeading) {
                 background
                 // Page 0: the bar, the stamp and the hero slide away with it.
@@ -62,34 +94,58 @@ struct AlbumDetailView: View {
                             .opacity(1 - smooth(p, 0.62, 0.98))
                     }
                     hero(w: w, side: side, band: band)
-                        .opacity(1 - e)
+                        .opacity((1 - e) * heroFade)
                         .offset(y: -e * 15) // Android: −40 px
                         .allowsHitTesting(e < 0.5)
                     trackList(w: w)
                         .opacity(e)
                         .allowsHitTesting(e >= 0.5)
-                    spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
+                    switch topBar {
+                    case 1: glassBar(w: w, top: geo.safeAreaInsets.top)
+                    case 2:
+                        // With the track list's own soft scroll edge.
+                        ProgressiveEdgeBlur(tint: topTint)
+                            .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                            .offset(y: -geo.safeAreaInsets.top)
+                            .opacity(smooth(p, 0.3, 0.85))
+                    default: spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
+                    }
                 }
                 .offset(x: -f * w)
-                // Page 1: the scrapbook, under the header (albums only).
+                // Page 1: the scrapbook, scrolling under the header (albums only).
                 if playlist == nil {
-                    AlbumScrapbookView(album: album, settled: page == 1 && pageDrag == 0)
-                        .padding(.top, headerContent)
-                        .frame(width: w)
-                        .clipped()
-                        .offset(x: (1 - f) * w)
+                    AlbumScrapbookView(album: album, settled: page == 1 && pageDrag == 0,
+                                       topInset: headerContent, pageOffset: 1 - f, pageWidth: w,
+                                       coverInFlight: coverFlies && f < 0.999) { rect, tilt in
+                        scrapCover = rect
+                        scrapCoverTilt = tilt
+                    }
+                    // Its own frame is the space its cover reports in (= this ZStack's).
+                    .coordinateSpace(.named(AlbumScrapbookView.space))
+                    .frame(width: w)
+                    // Clip the sides only: it scrolls under the status bar and header.
+                    .mask { Rectangle().padding(.vertical, -2000) }
+                    .offset(x: (1 - f) * w)
+                    // Its top edge: a progressive blur under the header, not a hard cut.
+                    ProgressiveEdgeBlur(tint: topTint)
+                        .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                        .offset(x: (1 - f) * w, y: -geo.safeAreaInsets.top)
                 }
                 header(white: false, w: w)
-                    .opacity(1 - smooth(p, 0.25, 0.7) * (1 - f))
+                    .opacity(1 - white * (1 - f))
                 header(white: true, w: w)
-                    .opacity(smooth(p, 0.25, 0.7) * (1 - f))
+                    .opacity(white * (1 - f))
                 cover(w: w, side: side, band: band)
-                    .offset(x: -f * w)
             }
             .contentShape(.rect)
             .simultaneousGesture(pullUp(travel: geo.size.height * 0.55))
             .simultaneousGesture(pager(width: w), isEnabled: playlist == nil)
+            .onChange(of: pagerLive) { _, live in
+                guard !live, pageDrag != 0 else { return }
+                withAnimation(Yoin.spatial) { page = pageFrac > 0.5 ? 1 : 0; pageDrag = 0 }
+            }
             .onAppear { pageWidth = w }
+            .onChange(of: w) { _, now in pageWidth = now }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
@@ -97,16 +153,28 @@ struct AlbumDetailView: View {
 
     // MARK: Pieces
 
+    /// The page background's top color.
+    private var topTint: Color { app.surfaceContainer.mix(with: s.primary, by: 0.18, in: .perceptual) }
+
     /// ExpressivePageBackground: [lerp(surfaceContainer, accent, 0.18), background, surfaceContainerLow].
     private var background: some View {
-        LinearGradient(colors: [app.surfaceContainer.mix(with: s.primary, by: 0.18, in: .perceptual),
+        LinearGradient(colors: [topTint,
                                 app.background, app.surfaceContainerLow],
                        startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
     }
 
     private func header(white: Bool, w: CGFloat) -> some View {
-        let ink: Color = white ? .white : app.onSurface
+        // Playlists: the header glass takes the playlist's own container color,
+        // so it reads clean over the colorful page instead of a grey film.
+        // Light: primaryContainer + its ink; dark: a high container (the
+        // expressive dark primaryContainer is mid-tone) + the primary ink.
+        let tinted = playlist != nil && !white
+        let dark = colorScheme == .dark
+        let ink: Color = white ? .white : !tinted ? app.onSurface : dark ? s.primary : s.onPrimaryContainer
+        let glass: Glass = white ? .regular.tint(.white.opacity(0.18)).interactive()
+            : !tinted ? .regular.interactive()
+            : .regular.tint(dark ? s.surfaceContainerHighest.opacity(0.7) : s.primaryContainer.opacity(0.6)).interactive()
         return VStack(spacing: 0) {
             HStack(spacing: 14) {
                 Button { model.back() } label: {
@@ -116,8 +184,7 @@ struct AlbumDetailView: View {
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(white ? .regular.tint(.white.opacity(0.18)).interactive() : .regular.interactive(),
-                             in: .circle)
+                .glassEffect(glass, in: .circle)
                 .accessibilityLabel("Back")
                 VStack(alignment: .leading, spacing: 0) {
                     Text(album.title)
@@ -157,8 +224,7 @@ struct AlbumDetailView: View {
                             .contentShape(.circle)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(white ? .regular.tint(.white.opacity(0.18)).interactive() : .regular.interactive(),
-                                 in: .circle)
+                    .glassEffect(glass, in: .circle)
                     .frame(width: 48, height: 48)
                     .accessibilityLabel("More actions")
                     .padding(.trailing, -12)
@@ -211,25 +277,55 @@ struct AlbumDetailView: View {
             .allowsHitTesting(false)
     }
 
-    /// Hero cover ↔ 48 pt stamp at the end of the title row.
+    /// Hero cover ↔ 48 pt stamp at the end of the title row, and, with the
+    /// hero at rest, hero cover → the scrapbook's cover on the swipe to page 2
+    /// (Android AlbumFlyingCover + AlbumPageFlight): toward the page's cover
+    /// as much as the hero is at rest (toPage = f × (1 − p)), taking its tilt;
+    /// pulled up into the bar, the stamp slides away with page 0.
     private func cover(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
         let e = smooth(p)
+        let f = pageFrac
         let heroRect = CGRect(x: (w - side) / 2, y: headerContent + 28, width: side, height: side)
         // Playlists: the stamp sits 4 pt before the ⋮ (end inset 40 + 16 page).
         let stampRect = CGRect(x: w - (playlist != nil ? 16 + 40 : 16) - 48, y: 4 + 2, width: 48, height: 48)
         let r = CGRect(x: lerp(heroRect.minX, stampRect.minX, e), y: lerp(heroRect.minY, stampRect.minY, e),
                        width: lerp(side, 48, e), height: lerp(side, 48, e))
+        let target = playlist == nil && !reduceMotion ? scrapCover : nil
+        let toPage = target == nil ? 0 : f * (1 - p)
+        let flown = if let target, toPage > 0 {
+            lerpRect(r.offsetBy(dx: -f * w * p, dy: 0), target, toPage)
+        } else {
+            r.offsetBy(dx: -f * w, dy: 0)
+        }
         return Button {
             if e > 0.5 { withAnimation(Yoin.spatial) { p = 0 } }
         } label: {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
-                .frame(width: r.width, height: r.height)
+                .frame(width: flown.width, height: flown.height)
                 .clipShape(.rect(cornerRadius: lerp(8, 4, e), style: .continuous))
         }
         .buttonStyle(.plain)
-        .allowsHitTesting(e > 0.5)
+        .allowsHitTesting(e > 0.5 && f < 0.5)
         .accessibilityLabel("Show cover")
-        .offset(x: r.minX, y: r.minY)
+        .rotationEffect(.degrees(scrapCoverTilt * Double(toPage)))
+        // Landed: the scrapbook's own cover (tilted, under its emblem) takes over.
+        .opacity(toPage >= 0.999 ? 0 : 1)
+        .offset(x: flown.minX, y: flown.minY)
+    }
+
+    // MARK: Top bar variants (Glass Lab `detailTopBar`)
+
+    /// Liquid Glass over the header once the list is pulled up, lightly
+    /// tinted with the cover's container color; slides away with page 0.
+    private func glassBar(w: CGFloat, top: CGFloat) -> some View {
+        Color.clear
+            .frame(width: w, height: top + headerContent)
+            .glassEffect(.regular.tint(s.surfaceContainer.opacity(0.35)),
+                         in: UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28,
+                                                    style: .continuous))
+            .opacity(smooth(p, 0.3, 0.85))
+            .offset(y: -top)
+            .allowsHitTesting(false)
     }
 
     private func hero(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
@@ -356,9 +452,15 @@ struct AlbumDetailView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, headerContent + 4)
+            .padding(.top, 4)
         }
+        .scrollPosition($listPosition)
         .contentMargins(.bottom, 112, for: .scrollContent)
+        // The header's room as a bar, so the blur variant's soft scroll edge
+        // runs under it (spectrum and glass cover it themselves).
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .scrollEdgeEffectHidden(topBar != 2, for: .top)
+        .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent) }
         .scrollDisabled(p < 1)
         .frame(width: w)
     }
@@ -548,11 +650,21 @@ struct AlbumDetailView: View {
 
     // MARK: Pager
 
+    /// Drags starting this close to the left edge belong to the system back swipe.
+    private static let backEdge: CGFloat = 24
+
     private func pager(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 14)
+            .updating($pagerLive) { _, live, _ in live = true }
             .onChanged { v in
-                guard abs(v.translation.width) > abs(v.translation.height) * 1.2, dragBase == nil else { return }
-                // Clamp at both ends (page 0 dragged right is the system back swipe's job).
+                // Once engaged the page follows the finger 1:1; it engages on a
+                // horizontal drag that doesn't start at the back edge and isn't
+                // a pull-up. Page 0 dragged right is the system back swipe's job.
+                let engaged = pageDrag != 0
+                    || (abs(v.translation.width) > abs(v.translation.height) * 1.2
+                        && v.startLocation.x > Self.backEdge && dragBase == nil
+                        && !(page == 0 && v.translation.width > 0))
+                guard engaged else { return }
                 pageDrag = min(page * width, max((page - 1) * width, v.translation.width))
             }
             .onEnded { v in
@@ -596,9 +708,17 @@ struct AlbumDetailView: View {
     }
 
     private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
+
+    private func lerpRect(_ a: CGRect, _ b: CGRect, _ t: CGFloat) -> CGRect {
+        CGRect(x: lerp(a.minX, b.minX, t), y: lerp(a.minY, b.minY, t),
+               width: lerp(a.width, b.width, t), height: lerp(a.height, b.height, t))
+    }
 }
 
-/// Edge-swipe back keeps working on pushed pages that hide the navigation bar.
+/// Edge-swipe back keeps working on pushed pages that hide the navigation
+/// bar, and always wins: the page's own drags (the album pager, SwiftUI drag
+/// gestures, scroll views) wait for it to fail, which it does at once for any
+/// touch that doesn't start at the edge.
 extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     override open func viewDidLoad() {
         super.viewDidLoad()
@@ -607,5 +727,11 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         viewControllers.count > 1
+    }
+
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                  shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === interactivePopGestureRecognizer && viewControllers.count > 1
+            && other.view?.isDescendant(of: view) == true
     }
 }
