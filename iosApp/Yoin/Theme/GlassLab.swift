@@ -170,6 +170,12 @@ final class GlassLab {
             extras["barSelectedStyle"] = 1
             suppressSave = false
         }
+        // Screenshots: `-detailTopBar 0|1|2`.
+        if let mode = UserDefaults.standard.string(forKey: "detailTopBar").flatMap(Double.init) {
+            suppressSave = true
+            extras["detailTopBar"] = mode
+            suppressSave = false
+        }
     }
 
     private struct Saved: Codable {
@@ -179,6 +185,11 @@ final class GlassLab {
         var extras: [String: Double]
     }
 
+    /// Extras that aren't a glass surface's: the album page's pulled-up top
+    /// bar, 0 = the cover's spectrum (Android, default), 1 = Liquid Glass,
+    /// 2 = the system's progressive scroll-edge blur.
+    static let pageExtras: [(String, Double)] = [("detailTopBar", 0)]
+
     private func resetValues() {
         var s: [String: SurfaceStyle] = [:]
         var e: [String: Double] = [:]
@@ -186,6 +197,7 @@ final class GlassLab {
             s[surface.id] = surface.defaults
             for x in surface.extras { e[x.0] = x.3 }
         }
+        for x in Self.pageExtras { e[x.0] = x.1 }
         styles = s
         extras = e
     }
@@ -401,6 +413,15 @@ struct GlassLabPanel: View {
                 Text("System").tag(0); Text("Light").tag(1); Text("Dark").tag(2)
             }
             .pickerStyle(.segmented)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Album page · pulled-up top bar").font(.gsf(13)).foregroundStyle(.secondary)
+                Picker("Detail top bar", selection: Binding(
+                    get: { Int(lab.extra("detailTopBar").rounded()) },
+                    set: { lab.extras["detailTopBar"] = Double($0) })) {
+                    Text("Spectrum").tag(0); Text("Glass").tag(1); Text("Blur").tag(2)
+                }
+                .pickerStyle(.segmented)
+            }
             Picker("Page", selection: Binding(
                 get: { model.npExpanded ? 1 : 0 },
                 set: { model.setNowPlaying(expanded: $0 == 1) })) {

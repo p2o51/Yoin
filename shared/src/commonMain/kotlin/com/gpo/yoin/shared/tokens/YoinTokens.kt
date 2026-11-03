@@ -376,6 +376,9 @@ object YoinTokens {
             Extra("neighbourStrength", 1.0),
             Extra("coverBlur", 26.0),
             Extra("coverStrength", 0.85),
+            // The album page's pulled-up top bar: 0 the cover's spectrum (Android),
+            // 1 Liquid Glass, 2 the system's progressive scroll-edge blur.
+            Extra("detailTopBar", 0.0),
         )
 
         fun balancedSurface(id: String): Surface? = balanced.firstOrNull { it.id == id }
