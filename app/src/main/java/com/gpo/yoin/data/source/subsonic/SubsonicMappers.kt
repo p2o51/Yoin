@@ -30,6 +30,9 @@ internal fun SubsonicSong.toTrack(): Track {
     contentType?.let { extras[EXTRA_CONTENT_TYPE] = it }
     suffix?.let { extras[EXTRA_SUFFIX] = it }
     path?.let { extras[EXTRA_PATH] = it }
+    samplingRate?.let { extras[EXTRA_SAMPLING_RATE] = it.toString() }
+    bitDepth?.let { extras[EXTRA_BIT_DEPTH] = it.toString() }
+    discNumber?.let { extras[EXTRA_DISC_NUMBER] = it.toString() }
     return Track(
         id = MediaId.subsonic(id),
         title = title,
@@ -166,3 +169,6 @@ internal const val EXTRA_SIZE = "subsonic.size"
 internal const val EXTRA_CONTENT_TYPE = "subsonic.contentType"
 internal const val EXTRA_SUFFIX = "subsonic.suffix"
 internal const val EXTRA_PATH = "subsonic.path"
+internal const val EXTRA_SAMPLING_RATE = "subsonic.samplingRate"
+internal const val EXTRA_BIT_DEPTH = "subsonic.bitDepth"
+internal const val EXTRA_DISC_NUMBER = "subsonic.discNumber"
