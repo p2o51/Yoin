@@ -211,7 +211,7 @@ object YoinTokens {
      * Type: the M3 type scale both apps set in Google Sans Flex (Type.kt
      * YoinTypography; iOS `Font.gsf` / YoinFont), plus the variable-font axes.
      */
-    object Type {
+    object Typography {
         /** One text style: size and line height (sp / pt), static-cut weight, tracking (sp / pt). */
         class Style internal constructor(
             val size: Double,

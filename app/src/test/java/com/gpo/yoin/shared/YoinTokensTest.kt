@@ -98,7 +98,7 @@ class YoinTokensTest {
     @Test
     fun should_match_material_type_scale_and_yoin_tracking_when_comparing_type_tokens() {
         val m3 = Typography()
-        val t = YoinTokens.Type
+        val t = YoinTokens.Typography
         listOf(
             "displayLarge" to Triple(t.displayLarge, m3.displayLarge, YoinTypography.displayLarge),
             "displayMedium" to Triple(t.displayMedium, m3.displayMedium, YoinTypography.displayMedium),

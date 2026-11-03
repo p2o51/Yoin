@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The golden fixture the iOS port of MCU (iosApp/Yoin/Theme/MCU) is tested
+ * The golden fixture the iOS app's MCU (the :shared Kotlin, via YoinShared) is tested
  * against: every role [ExpressiveColorSchemeFactory] maps (SchemeExpressive,
  * SPEC_2025, contrast 0, phone) for a set of seeds, light and dark.
  *
