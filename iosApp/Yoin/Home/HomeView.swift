@@ -58,6 +58,9 @@ struct HomeView: View {
                     .font(YoinFont.rounded(28, relativeTo: .largeTitle))
                     .foregroundStyle(scheme.onSurface)
                     .frame(height: 36)
+                    // An easy way into Glass Lab on a real phone (besides the
+                    // three-finger long-press).
+                    .onLongPressGesture { withAnimation(Yoin.spatial) { GlassLab.shared.panelOpen = true } }
             }
             .lineLimit(1)
             .padding(.trailing, 24)

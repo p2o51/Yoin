@@ -8,8 +8,12 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    CODE_SIGNING_ALLOWED: NO
-    CODE_SIGNING_REQUIRED: NO
+    # Simulator builds stay unsigned; device builds sign automatically with
+    # 51's development team (a team ID, not a secret).
+    "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": NO
+    "CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]": NO
+    DEVELOPMENT_TEAM: M75T74PTC4
+    CODE_SIGN_STYLE: Automatic
 targets:
   Yoin:
     type: application
