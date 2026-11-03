@@ -25,6 +25,8 @@ struct SearchView: View {
     @State private var scope: Scope = LaunchConfig.screen == "search-catalog" ? .catalog : .library
     @State private var filter: Filter = LaunchConfig.searchFilter
     @Namespace private var segNS
+    /// The results column's width (inside the 16 margins), for the 3-column cells.
+    @State private var width: CGFloat = 370
 
     private var scheme: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -34,22 +36,27 @@ struct SearchView: View {
     var body: some View {
         ScrollView {
             content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 24) // SearchResultsBottomReserve
         }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.soft, for: .top)
         // The header is a safe-area bar so the system soft edge runs under it.
         .safeAreaBar(edge: .top) { header }
-        .background(Yoin.surface.ignoresSafeArea())
+        // Android ExpandedFullScreenSearchBar: SearchBarDefaults.colors()
+        // container = surfaceContainerHigh of the playing scheme.
+        .background(scheme.surfaceContainerHigh.ignoresSafeArea())
         .onAppear { focused = LaunchConfig.searchQuery.isEmpty }
     }
 
     // MARK: Header
 
     private var header: some View {
-        VStack(spacing: 10) {
+        // Android LibrarySearchFilterRow sits 8 under the field (its vertical 8).
+        VStack(spacing: 8) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
                     HStack(spacing: 8) {
@@ -91,53 +98,60 @@ struct SearchView: View {
         .padding(.bottom, 8)
     }
 
-    /// Full-width glass segmented control; the selected scope is a lighter pill.
+    /// Full-width glass segmented control; the selected scope carries the
+    /// accent in the glass (Search = primary role; owner, 2026-11-04).
     private var scopes: some View {
-        HStack(spacing: 0) {
-            ForEach(Scope.allCases, id: \.self) { s in
-                Button { withAnimation(Yoin.spatial) { scope = s } } label: {
-                    Text(s.rawValue)
-                        .font(.gsf(15, scope == s ? .semibold : .medium))
-                        .foregroundStyle(scope == s ? scheme.primary : Yoin.ink)
-                        .frame(maxWidth: .infinity, minHeight: 40)
-                        .background {
-                            if scope == s {
-                                // Same selection pill as the bottom bar: grey on light glass.
-                                Capsule()
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
-                                    .matchedGeometryEffect(id: "seg", in: segNS)
-                            }
-                        }
-                        .contentShape(.capsule)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(4)
-        .glassEffect(.regular, in: .capsule)
-    }
-
-    /// Android's type chips, shown once there is a query.
-    private var filters: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(Filter.allCases, id: \.self) { f in
-                    let on = filter == f
-                    Button { withAnimation(Yoin.spatial) { filter = f } } label: {
-                        Text(f.rawValue)
-                            .font(.gsf(14, .medium))
-                            .foregroundStyle(on ? AnyShapeStyle(scheme.primary) : AnyShapeStyle(.primary))
-                            .padding(.horizontal, 14)
-                            .frame(height: 34)
-                            .background { if on { SelectionPill(cornerRadius: 13) } }
+        GlassEffectContainer(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(Scope.allCases, id: \.self) { s in
+                    let on = scope == s
+                    Button { withAnimation(Yoin.spatial) { scope = s } } label: {
+                        Text(s.rawValue)
+                            .lineLimit(1)
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(on ? scheme.onPrimary : scheme.onSurface)
+                            .frame(maxWidth: .infinity, minHeight: 40)
                             .contentShape(.capsule)
+                            .animation(Yoin.effects, value: on)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .background {
+                        if on {
+                            Capsule().fill(.clear)
+                                .glassEffect(.regular.tint(scheme.primary.opacity(0.85)).interactive(), in: .capsule)
+                                .glassEffectID("scope", in: segNS)
+                        }
+                    }
                 }
+            }
+            .padding(4)
+            .glassEffect(.regular, in: .capsule)
+        }
+    }
+
+    /// Android's type chips (ExpressiveSegmentChip: 44 high, 18 corners,
+    /// labelLarge, 16 × 10), shown once there is a query; the one on carries
+    /// primary in the glass.
+    private var filters: some View {
+        ScrollView(.horizontal) {
+            GlassEffectContainer(spacing: 4) {
+                HStack(spacing: 8) {
+                    ForEach(Filter.allCases, id: \.self) { f in
+                        let on = filter == f
+                        Button { withAnimation(Yoin.spatial) { filter = f } } label: {
+                            LibraryChipLabel(text: f.rawValue, on: on, onAccent: scheme.onPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        .libraryChipGlass(on: on, accent: scheme.primary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
             }
         }
         .scrollIndicators(.hidden)
+        // Full bleed like Android's row: chips scroll out under the edges.
+        .padding(.horizontal, -16)
     }
 
     // MARK: Content
@@ -146,10 +160,10 @@ struct SearchView: View {
     private var content: some View {
         if query.isEmpty {
             VStack(spacing: 10) {
-                YoinIcon("search", size: 44).foregroundStyle(Yoin.inkVariant)
+                YoinIcon("search", size: 44).foregroundStyle(scheme.onSurfaceVariant)
                 Text(scope == .library ? "Search library" : "Search Apple Music")
                     .font(.gsf(20, .semibold))
-                    .foregroundStyle(Yoin.ink)
+                    .foregroundStyle(scheme.onSurface)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 140)
@@ -163,11 +177,18 @@ struct SearchView: View {
             case .playlists: r.playlists.isEmpty
             }
             if shownEmpty {
+                // Android EmptyState: a Card (16) panel, surfaceContainerHighest
+                // at 72 %, bodyLarge onSurfaceVariant, padding 20 × 18,
+                // centred in the results area.
                 Text("No results found")
-                    .font(.gsf(16))
-                    .foregroundStyle(Yoin.inkVariant)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 140)
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(scheme.surfaceContainerHighest.opacity(0.72),
+                                in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+                    .containerRelativeFrame(.vertical) { h, _ in h * 0.6 }
             } else {
                 switch filter {
                 case .all: allResults(r)
@@ -208,107 +229,184 @@ struct SearchView: View {
         return r
     }
 
+    /// Android SearchAllResults: artists, albums, playlists, songs, each
+    /// under a SectionHeader; rows touch (no list spacing).
     @ViewBuilder
     private func allResults(_ r: Results) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 0) {
             if !r.artists.isEmpty {
-                section("Artists") {
-                    ForEach(r.artists) { a in artistRow(a) }
-                }
+                sectionHeader("Artists")
+                ForEach(r.artists) { a in artistRow(a) }
             }
             if !r.albums.isEmpty {
-                section("Albums") { grid(r.albums.map { ($0, false) }) }
+                sectionHeader("Albums")
+                // Fixed 3 columns on Compact, chunked into rows with no
+                // vertical gap (a LazyColumn of Rows, spacedBy 12 across).
+                albumRows(r.albums)
             }
             if !r.playlists.isEmpty {
-                section("Playlists") { playlistList(r.playlists) }
+                sectionHeader("Playlists")
+                playlistList(r.playlists)
             }
             if !r.tracks.isEmpty {
-                section("Songs") { songList(r.tracks) }
+                sectionHeader("Songs")
+                songList(r.tracks)
             }
         }
     }
 
-    private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.gsf(18, .semibold)).foregroundStyle(Yoin.ink)
-            c()
-        }
+    /// Android SectionHeader: labelLarge onSurfaceVariant, padding 16 / 18 top / 6 bottom.
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .yoinRole(Tokens.type.labelLarge)
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
     }
 
+    /// Library's Compact cell: (width − 32 − 24) / 3.
+    private var cell: CGFloat { (width - 24) / 3 }
+
+    /// Android ArtistListItem: 16 × 10 padding, 48 circle, 12, titleSmall,
+    /// then 8 and the album-count meta pill.
     private func artistRow(_ a: Album) -> some View {
         Button {
             focused = false
             withAnimation(Yoin.spatial) { model.searchActive = false }
             model.openArtist(a.artist)
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 0) {
                 EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: 48)
-                Text(a.artist).font(.gsf(16, .medium)).foregroundStyle(Yoin.ink)
-                Spacer()
+                Spacer().frame(width: 12)
+                Text(a.artist)
+                    .lineLimit(1)
+                    .yoinRole(Tokens.type.titleSmall)
+                    .foregroundStyle(scheme.onSurface)
+                Spacer(minLength: 8)
+                metaPill(albumCount(a.artist))
             }
+            .padding(.vertical, 10)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
     }
 
+    private func albumCount(_ artist: String) -> String {
+        let n = model.library.albums().filter { $0.artist == artist }.count
+        return n == 1 ? "1 album" : "\(n) albums"
+    }
+
+    /// Android ExpressiveMetaPill: labelMedium onSurfaceVariant, padding 10 × 6,
+    /// full round, surfaceContainerHighest at 90 %.
+    private func metaPill(_ text: String) -> some View {
+        Text(text)
+            .lineLimit(1)
+            .yoinRole(Tokens.type.labelMedium)
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(scheme.surfaceContainerHighest.opacity(0.9), in: .capsule)
+    }
+
+    private func albumRows(_ albums: [Album]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(stride(from: 0, to: albums.count, by: 3)), id: \.self) { i in
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(albums[i..<min(i + 3, albums.count)]) { a in gridCell(a, isArtist: false) }
+                }
+            }
+        }
+    }
+
+    /// Android SearchResultsGrid: the Library grid (3 fixed columns, 12 / 16).
     private func grid(_ items: [(Album, Bool)]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)],
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: 12, alignment: .top), count: 3),
                   alignment: .leading, spacing: 16) {
-            ForEach(items, id: \.0.id) { a, isArtist in
-                Button { model.open(a) } label: {
-                    VStack(alignment: isArtist ? .center : .leading, spacing: 6) {
-                        EntityBackdrop(entity: isArtist ? .artist : .album, palette: a.palette, seed: a.seed, size: 104)
-                        Text(isArtist ? a.artist : a.title)
-                            .font(YoinFont.font(size: 14, YoinFont.Axes(weight: 600, round: 100)))
-                            .foregroundStyle(Yoin.ink)
-                        if !isArtist {
-                            Text(a.artist).font(.gsf(12)).foregroundStyle(Yoin.inkVariant)
-                        }
-                    }
-                    .lineLimit(1)
-                    .frame(width: 104, alignment: isArtist ? .center : .leading)
-                }
-                .buttonStyle(PressScale())
-            }
+            ForEach(items, id: \.0.id) { a, isArtist in gridCell(a, isArtist: isArtist) }
         }
     }
 
-    /// Android SearchSongRow: 48 cover, 12 gap, title over artist · album.
+    /// AlbumCard / ArtistGridItem: cover, 5, titleSmall, bodySmall (12).
+    private func gridCell(_ a: Album, isArtist: Bool) -> some View {
+        Button {
+            if isArtist {
+                focused = false
+                withAnimation(Yoin.spatial) { model.searchActive = false }
+                model.openArtist(a.artist)
+            } else {
+                model.open(a)
+            }
+        } label: {
+            VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
+                EntityBackdrop(entity: isArtist ? .artist : .album, palette: a.palette, seed: a.seed, size: cell,
+                               stroke: scheme.primary)
+                Spacer().frame(height: 5)
+                Text(isArtist ? a.artist : a.title)
+                    .lineLimit(1)
+                    .yoinRole(Tokens.type.titleSmall)
+                    .foregroundStyle(scheme.onSurface)
+                Text(isArtist ? albumCount(a.artist) : a.artist)
+                    .lineLimit(1)
+                    .yoinRole(Tokens.type.bodySmall)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+            }
+            .frame(width: cell, alignment: isArtist ? .center : .leading)
+        }
+        .buttonStyle(PressScale())
+    }
+
+    /// Android SearchSongRow = SongListItem (Library's song row).
     private func songList(_ tracks: [(Album, Track)]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(tracks, id: \.1.id) { a, t in
-                HStack(spacing: 12) {
-                    EntityBackdrop(entity: .album, palette: a.palette, seed: a.seed, size: 48)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(t.title).font(.gsf(16)).foregroundStyle(Yoin.ink)
-                        Text("\(a.artist)  \(a.title)").font(.gsf(14)).foregroundStyle(Yoin.inkVariant)
-                    }
-                    .lineLimit(1)
-                    Spacer()
-                }
-                .padding(.vertical, 6)
+                LibrarySongRow(album: a, track: t, current: model.playback.track.id == t.id, scheme: scheme,
+                               horizontalPadding: 0)
             }
         }
     }
 
+    /// Android PlaylistListItem: 16 × 10 padding, 48 Thumb (4), 12,
+    /// titleSmall over PlaylistMeta (owner, then "N tracks" as a stat).
     private func playlistList(_ items: [LibraryItem]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(items) { p in
                 Button {
                     withAnimation(Yoin.spatial) { model.searchActive = false }
                     model.openPlaylist(p.id.rawId)
-                } label: { HStack(spacing: 12) {
-                    EntityBackdrop(entity: .playlist, palette: p.palette, seed: 3, size: 48)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(p.title).font(.gsf(16)).foregroundStyle(Yoin.ink)
-                        Text(p.subtitle).font(.gsf(14)).foregroundStyle(Yoin.inkVariant)
+                } label: {
+                    HStack(spacing: 12) {
+                        CoverArt(palette: p.palette, cornerRadius: 0, seed: 3)
+                            .frame(width: 48, height: 48)
+                            .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(p.title)
+                                .lineLimit(1)
+                                .yoinRole(Tokens.type.titleSmall)
+                                .foregroundStyle(scheme.onSurface)
+                            playlistMeta(p)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer()
+                    .padding(.vertical, 10)
+                    .contentShape(.rect)
                 }
-                .contentShape(.rect) }
                 .buttonStyle(.plain)
-                .padding(.vertical, 6)
             }
+        }
+    }
+
+    /// MetaLine Stat: the number in Medium, tabular; the unit Regular at 60 %.
+    @ViewBuilder
+    private func playlistMeta(_ p: LibraryItem) -> some View {
+        if let n = p.subtitle.split(separator: " ").compactMap({ Int($0) }).first {
+            HStack(spacing: 4) {
+                Text("\(n)").monospacedDigit().yoinRole(Tokens.type.bodySmall, weight: .medium)
+                    .foregroundStyle(scheme.onSurface)
+                Text(n == 1 ? "track" : "tracks").yoinRole(Tokens.type.bodySmall)
+                    .foregroundStyle(scheme.onSurface.opacity(0.6))
+            }
+        } else {
+            Text("Playlist").yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurfaceVariant)
         }
     }
 

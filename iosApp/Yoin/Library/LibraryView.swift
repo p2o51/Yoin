@@ -6,10 +6,12 @@ import YoinShared
 /// ✕ that appears while one is on, the sort row as the grid's first row, and
 /// the All grid fixed at 3 columns (16 sides, 12 / 16 gaps) mixing artists
 /// (circles) with albums and playlists (bare covers, as on iOS Home). Songs
-/// is a 68 pt row list. Numbers are cited in iosApp/docs/fidelity-home-np.md.
+/// is a 68 pt row list under the Random mix header. Numbers are cited in
+/// iosApp/docs/fidelity/library.md.
 ///
 /// iOS adaptations: the pill opens the shared Search screen; covers follow
-/// the iOS bare-cover rule; the fast scroller is not built yet.
+/// the iOS bare-cover rule; the header and chips float in glass, and the chip
+/// that is on carries the secondary role in the glass.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
@@ -105,15 +107,16 @@ struct LibraryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                Group {
-                    if filter == .songs || filter == .favorites {
-                        songList
-                    } else {
-                        grid
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                if filter == .songs || filter == .favorites {
+                    // Android SongsTabContent: Random mix header, then the
+                    // list's 8 top padding.
+                    randomMixHeader
+                    songList.padding(.top, 8)
+                } else {
+                    // Grid contentPadding top 8 (LibraryScreen.kt AllTabContent).
+                    grid.padding(.top, 8)
                 }
-                .padding(.top, 8)
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
@@ -123,11 +126,13 @@ struct LibraryView: View {
         // over the grid as glass, so they sit in a top safe-area bar and the
         // system soft edge runs under them.
         .safeAreaBar(edge: .top) {
-            VStack(alignment: .leading, spacing: 4) {
+            // Android: the app bar (64), the chips right under it, then the
+            // Column's 4 gap. The chips' 4 vertical padding (room for the
+            // glass press bloom) overlaps the bar and is that 4 gap.
+            VStack(alignment: .leading, spacing: -4) {
                 header
                 chips
             }
-            .padding(.bottom, 4)
         }
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollMetrics.self) {
@@ -150,8 +155,11 @@ struct LibraryView: View {
                         wake()
                     },
                     held: $held)
-                .padding(.top, 136) // below the header and chips
-                .padding(.bottom, 96)
+                // Android LibraryGridFastScroller: the grid box (under the 64
+                // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
+                // bottom = floatingBottomGroupContentPadding 108 over the inset.
+                .padding(.top, 64 + 44 + 4 + 8)
+                .padding(.bottom, 108)
             }
         }
         .onAppear {
@@ -216,49 +224,47 @@ struct LibraryView: View {
 
     // MARK: Chips
 
+    /// Android LibraryFilterRow: the ✕ (44, 16 from the edge) stays put while
+    /// the chips scroll; the chips start 8 after it, or at the 16 margin.
     private var chips: some View {
-        ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 4) { HStack(spacing: 8) {
-                if filter != nil {
-                    Button { withAnimation(Yoin.spatial) { filter = nil } } label: {
-                        YoinIcon("close", size: 20)
-                            .foregroundStyle(.primary)
-                            .frame(width: 44, height: 44)
-                            .contentShape(.circle)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
-                    .accessibilityLabel("Clear filter")
+        HStack(spacing: 0) {
+            if filter != nil {
+                Button { withAnimation(Yoin.spatial) { filter = nil } } label: {
+                    YoinIcon("close", size: 20)
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(.circle)
                 }
-                ForEach([LibraryKind.playlists, .artists, .albums, .songs, .favorites], id: \.self) { kind in
-                    let on = filter == kind
-                    Button { withAnimation(Yoin.spatial) { filter = on ? nil : kind } } label: {
-                        Text(kind.rawValue)
-                            .font(.gsf(14, on ? .semibold : .medium))
-                            .foregroundStyle(on ? AnyShapeStyle(scheme.primary) : AnyShapeStyle(.primary))
-                            .lineLimit(1)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .frame(minHeight: 44)
-                            .background { if on { SelectionPill(cornerRadius: 14) } }
-                            .contentShape(.rect(cornerRadius: 18))
-                    }
-                    .buttonStyle(.plain)
-                    // Pinned chips float over the grid: untinted glass; the
-                    // selected one in the bar's accent style.
-                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
-                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .padding(.leading, 16)
+                .padding(.vertical, 4)
+                .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
+                .accessibilityLabel("Clear filter")
             }
-            .padding(.leading, filter == nil ? 16 : 8)
-            .padding(.trailing, 16)
-            .padding(.vertical, 4) }
+            ScrollView(.horizontal) {
+                GlassEffectContainer(spacing: 4) { HStack(spacing: 8) {
+                    ForEach([LibraryKind.playlists, .artists, .albums, .songs, .favorites], id: \.self) { kind in
+                        let on = filter == kind
+                        Button { withAnimation(Yoin.spatial) { filter = on ? nil : kind } } label: {
+                            LibraryChipLabel(text: kind.rawValue, on: on, onAccent: scheme.onSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        // Library is the secondary role: the chip that is on
+                        // carries secondary in the glass (owner, 2026-11-04).
+                        .libraryChipGlass(on: on, accent: scheme.secondary)
+                    }
+                }
+                .padding(.leading, filter == nil ? 16 : 8)
+                .padding(.trailing, 16)
+                .padding(.vertical, 4) }
+            }
+            .scrollIndicators(.hidden)
+            .mask(
+                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.94),
+                                       .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing)
+            )
         }
-        .scrollIndicators(.hidden)
-        .mask(
-            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.94),
-                                   .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing)
-        )
     }
 
     // MARK: All / Artists / Albums / Playlists grid
@@ -295,7 +301,7 @@ struct LibraryView: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Text(sort).font(.gsf(14, .medium)).foregroundStyle(scheme.onSurface)
+                Text(sort).yoinRole(Tokens.type.labelLarge).foregroundStyle(scheme.onSurface)
                 YoinIcon("sort", size: 18).foregroundStyle(scheme.onSurfaceVariant)
             }
             .padding(.horizontal, 8)
@@ -322,14 +328,15 @@ struct LibraryView: View {
                                seed: item.id.rawId.count, size: side, stroke: scheme.primary)
                     .zoomSource(item.id, zoomNS)
                 Spacer().frame(height: 5)
+                // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
                 Text(item.title)
-                    .font(.gsf(14, .medium))
+                    .lineLimit(1)
+                    .yoinRole(Tokens.type.titleSmall)
                     .foregroundStyle(scheme.onSurface)
-                    .lineLimit(1)
                 Text(subtitle(item))
-                    .font(.gsf(12))
-                    .foregroundStyle(scheme.onSurfaceVariant)
                     .lineLimit(1)
+                    .yoinRole(Tokens.type.bodySmall)
+                    .foregroundStyle(scheme.onSurfaceVariant)
             }
             .frame(width: side, alignment: isArtist ? .center : .leading)
         }
@@ -348,33 +355,131 @@ struct LibraryView: View {
 
     // MARK: Songs
 
+    /// Android RandomMixHeader: labelLarge onSurfaceVariant, a 20 shuffle in
+    /// a 48 button; 16 start, 8 end.
+    private var randomMixHeader: some View {
+        HStack(spacing: 0) {
+            Text("Random mix")
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(scheme.onSurfaceVariant)
+            Spacer(minLength: 0)
+            Button {} label: {
+                YoinIcon("shuffle", size: 20)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                    .frame(width: 48, height: 48)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Reshuffle")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+    }
+
     private var songList: some View {
         let tracks = model.library.albums().flatMap { a in a.tracks.prefix(3).map { (a, $0) } }
         return LazyVStack(spacing: 0) {
             ForEach(tracks, id: \.1.id) { a, t in
-                let current = model.playback.track.id == t.id
-                HStack(spacing: 12) {
-                    CoverArt(palette: a.palette, cornerRadius: 0, seed: a.seed)
-                        .frame(width: 48, height: 48)
-                        .clipShape(.rect(cornerRadius: 4, style: .continuous))
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: 0) {
-                            if current {
-                                YoinIcon("equalizer", size: 16).foregroundStyle(scheme.primary).padding(.trailing, 6)
-                            }
-                            Text(t.title).font(.gsf(14, .medium))
-                                .foregroundStyle(current ? scheme.primary : scheme.onSurface)
-                        }
-                        Text("\(a.artist) · \(a.title)").font(.gsf(12)).foregroundStyle(scheme.onSurfaceVariant)
+                LibrarySongRow(album: a, track: t, current: model.playback.track.id == t.id, scheme: scheme)
+            }
+        }
+    }
+}
+
+// MARK: Shared with Search
+
+extension View {
+    /// One YoinTypography role from the shared tokens (Type.kt): GSF at the
+    /// role's size and static weight, its tracking (0, or 0.1 on
+    /// labelMedium/Small) and its line box, so rows measure as on Android.
+    func yoinRole(_ s: YoinTokens.TypographyStyle, weight: Font.Weight? = nil) -> some View {
+        let w = weight ?? (s.weight >= 700 ? .bold : s.weight >= 600 ? .semibold : s.weight >= 500 ? .medium : .regular)
+        return font(.gsf(s.size.cg, w))
+            .tracking(s.letterSpacing.cg)
+            .frame(minHeight: s.lineHeight.cg)
+    }
+
+    /// A segment chip's glass. Off: plain glass. On: the accent in the glass
+    /// (tinted, 85 %), the iOS form of Android's filled secondaryContainer.
+    func libraryChipGlass(on: Bool, accent: Color) -> some View {
+        glassEffect(on ? .regular.tint(accent.opacity(0.85)).interactive() : .regular.interactive(),
+                    in: .rect(cornerRadius: 18, style: .circular))
+    }
+}
+
+/// Android ExpressiveSegmentChip's label: labelLarge (14 Medium, 20 line) in
+/// a 44-high chip, padding 16 × 10. On: the accent's on-color.
+struct LibraryChipLabel: View {
+    var text: String
+    var on: Bool
+    var onAccent: Color
+
+    var body: some View {
+        Text(text)
+            .lineLimit(1)
+            .yoinRole(Tokens.type.labelLarge)
+            .foregroundStyle(on ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
+            .contentShape(.rect(cornerRadius: 18))
+            .animation(Yoin.effects, value: on)
+    }
+}
+
+/// Android component/SongListItem.kt: 16 × 10 padding, 48 Thumb cover
+/// (corner 4), 12 gap; titleSmall (primary with the equalizer when current)
+/// over MetaLine (bodySmall: artist onSurface, 12, album onSurface at 60 %);
+/// 6, then the duration in labelLarge tabular, onSurfaceVariant. 68 tall.
+struct LibrarySongRow: View {
+    var album: Album
+    var track: Track
+    var current: Bool
+    var scheme: CoverScheme
+    var horizontalPadding: CGFloat = 16
+
+    var body: some View {
+        HStack(spacing: 12) {
+            CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
+                .frame(width: 48, height: 48)
+                .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 0) {
+                    if current {
+                        YoinIcon("equalizer", size: 16).foregroundStyle(scheme.primary).padding(.trailing, 6)
                     }
-                    .lineLimit(1)
-                    Spacer(minLength: 6)
-                    Text(formatTime(t.durationSec))
-                        .font(.gsf(14, .medium)).monospacedDigit()
-                        .foregroundStyle(scheme.onSurfaceVariant)
+                    Text(track.title)
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.titleSmall)
+                        .foregroundStyle(current ? scheme.primary : scheme.onSurface)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                LibraryMetaLine(parts: [(album.artist, false), (album.title, true)], scheme: scheme)
+            }
+            Spacer(minLength: 6)
+            Text(formatTime(track.durationSec))
+                .monospacedDigit()
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(scheme.onSurfaceVariant)
+        }
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, 10)
+        .contentShape(.rect)
+    }
+}
+
+/// Android component/MetaLine.kt: groups 12 apart, no separator glyph; a
+/// muted group is the ink at 60 %. bodySmall, ink onSurface.
+struct LibraryMetaLine: View {
+    var parts: [(String, Bool)]
+    var scheme: CoverScheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                Text(part.0)
+                    .lineLimit(1)
+                    .yoinRole(Tokens.type.bodySmall)
+                    .foregroundStyle(scheme.onSurface.opacity(part.1 ? 0.6 : 1))
             }
         }
     }
