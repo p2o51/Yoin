@@ -110,6 +110,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -310,6 +311,19 @@ fun NowPlayingScreen(
     }
     val scheme = MaterialTheme.colorScheme
     val surfaceContainer = scheme.surfaceContainer
+    // Dark focus: the room in this screen's own dark scheme (owner
+    // 2026-11-03), with the same field motion and dots. From the cover's
+    // resolved scheme, so a song change crosses the room over on the field's
+    // own fade, not in the theme wash's few steps.
+    val roomScheme = LocalCoverDarkScheme.current ?: scheme
+    val darkRoom = remember(roomScheme) {
+        darkRoomOf(
+            primary = roomScheme.primary.toArgb(),
+            secondary = roomScheme.secondary.toArgb(),
+            tertiary = roomScheme.tertiary.toArgb(),
+            surface = roomScheme.surfaceContainerHigh.toArgb(),
+        )
+    }
     val background = scheme.background
 
     // Reactions for the Now Playing background (see nowPlayingAuroraBackground):
@@ -343,6 +357,8 @@ fun NowPlayingScreen(
     val seekToMsSettled: (Long) -> Unit = remember(transportSignal) {
         { targetMs ->
             transportSignal.recordSeek()
+            // A lyric line / note row: a faint band lights at its height.
+            transportSignal.recordLineTap()
             latestOnSeekToMs(targetMs)
         }
     }
@@ -366,21 +382,18 @@ fun NowPlayingScreen(
                 .nowPlayingAuroraBackground(
                     baseTop = surfaceContainer,
                     baseBottom = background,
-                    auroraColors = listOf(
-                        scheme.primary,
-                        scheme.tertiary,
-                        scheme.secondary,
-                        scheme.primaryContainer,
-                    ),
+                    accentColors = listOf(scheme.primary, scheme.secondary, scheme.tertiary),
                     auroraActive = auroraActive,
-                    playColor = scheme.primary,
-                    pauseColor = scheme.tertiary,
                     pulseTrigger = pulseTrigger,
                     isPlaying = isPlayingNow,
                     pressActive = transportSignal.playHeld,
                     gatherFocalRoot = transportSignal.gatherAnchorRoot,
                     burstFocalRoot = null,
                     transportSignal = transportSignal,
+                    coverField = LocalCoverField.current,
+                    // Focus = the immersive stage (tap the cover); read in draw.
+                    focusProgress = { stageProgress?.immersive ?: 0f },
+                    darkRoom = darkRoom,
                 ),
         ) {
             when (uiState) {
@@ -1623,7 +1636,8 @@ private fun CompactPlayingContent(
                                             } else {
                                                 null
                                             },
-                                        ),
+                                        )
+                                        .reportFocusCover(),
                                 )
                             }
 
@@ -1641,9 +1655,11 @@ private fun CompactPlayingContent(
                                         .width(ratingColumn)
                                         .fillMaxHeight()
                                         .graphicsLayer {
-                                            alpha = (1f - ratingRetreatProgress).coerceIn(0f, 1f)
+                                            // Focus breaks it into dots instead (below).
+                                            alpha = (1f - maxOf(detailProgress, shortFocusProgress)).coerceIn(0f, 1f)
                                             translationX = 72.dp.toPx() * ratingRetreatProgress
-                                        },
+                                        }
+                                        .dotDissolve { immersiveProgress },
                                 ) {
                                     NowPlayingRatingBar(
                                         songId = state.songId,
@@ -1720,7 +1736,9 @@ private fun CompactPlayingContent(
                         } else {
                             null
                         },
-                        modifier = Modifier.padding(horizontal = horizontalPadding),
+                        modifier = Modifier
+                            .padding(horizontal = horizontalPadding)
+                            .dotDissolve { immersiveProgress },
                     )
 
                     Spacer(modifier = Modifier.height(tabSpacerHeight))
@@ -2426,7 +2444,8 @@ private fun WidePlayingContent(
                                 } else {
                                     null
                                 },
-                            ),
+                            )
+                            .reportFocusCover(),
                     )
                     Spacer(modifier = Modifier.height(lerpDp(restPose.coverToRating, focusPose.coverToRating, focus)))
                     // Always-visible full rating slider; the favorite is
@@ -2976,7 +2995,8 @@ private fun LandscapePlayingContent(
                             } else {
                                 null
                             },
-                        ),
+                        )
+                        .reportFocusCover(),
                 )
                 Spacer(modifier = Modifier.height(lerpDp(LandscapeRatingGap, 0.dp, focus)))
                 // The rating row folds down and away in focus.
@@ -3543,7 +3563,8 @@ private fun TabletopPlayingContent(
                                 interactionSource = tabletopCoverInteraction,
                                 menu = tabletopCoverMenu,
                                 onClick = null,
-                            ),
+                            )
+                            .reportFocusCover(),
                     )
                     Spacer(modifier = Modifier.width(20.dp))
                     Column(
@@ -4198,10 +4219,9 @@ private fun CompactDetailPage(
                 queueIndex = state.currentQueueIndex,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = (1f - immersiveProgress).coerceIn(0f, 1f)
-                        translationY = -8.dp.toPx() * immersiveProgress
-                    },
+                    .graphicsLayer { translationY = -8.dp.toPx() * immersiveProgress }
+                    // Focus: the list breaks into dots as the one line takes over.
+                    .dotDissolve { immersiveProgress },
             )
             OneLineLyricPreview(
                 state = state,

@@ -405,19 +405,6 @@ private fun YoinShell(
     val playbackConnectionError by remember(playbackManager) {
         playbackManager.playbackState.map { it.connectionErrorMessage }.distinctUntilChanged()
     }.collectAsState(initial = playbackSeed.connectionErrorMessage)
-    // playbackSignal is a heavily-throttled Float (≤3% change to emit); safe
-    // to collect at the shell level without recomposing at ~30Hz.
-    // The full VisualizerData stream stays out of composition entirely — the
-    // Now Playing overlay only derives a Boolean spectrum-presence from it.
-    // Held while a detail window covers the shell (nothing of Home is seen).
-    val shellCovered = LocalWindowCovered.current
-    val playbackSignal by remember(app, shellCovered) {
-        app.container.audioVisualizerManager.playbackSignal
-            .combine(snapshotFlow { shellCovered.value }) { signal, covered -> signal to covered }
-            .filter { (_, covered) -> !covered }
-            .map { (signal, _) -> signal }
-            .distinctUntilChanged()
-    }.collectAsState(initial = app.container.audioVisualizerManager.playbackSignal.value)
     val windowInfo = LocalYoinWindowInfo.current
     // One Button Group, three forms (断点交接 §1): portrait bar, edge-split
     // capsules for short windows, centred capped bar from Medium up. The old
@@ -1032,7 +1019,6 @@ private fun YoinShell(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,
                                 isPlaying = isPlaying,
-                                playbackSignal = if (isPlaying) playbackSignal else 0f,
                                 activeSongId = currentTrack?.id?.toString(),
                                 // Something above Home owns the screen (Now
                                 // Playing, the detail column): Home keeps quiet
@@ -1184,7 +1170,6 @@ private fun YoinShell(
                             collapseSearchOnOpen = hasDetailPane,
                             activeSongId = currentTrack?.id?.toString(),
                             isPlaying = isPlaying,
-                            playbackSignal = if (isPlaying) playbackSignal else 0f,
                             onNavigateToSettings = { navigateToSettingsFromShell(null) },
                             onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
                             onAlbumClick = { albumId -> navigateToAlbumFromShell(albumId, null) },
@@ -1278,7 +1263,6 @@ private fun YoinShell(
                                     app = app,
                                     isPlaying = isPlaying,
                                     currentTrackId = currentTrack?.id?.toString(),
-                                    playbackSignal = if (isPlaying) playbackSignal else 0f,
                                     registry = paneRegistry,
                                     onPopEntry = { popPaneEntry() },
                                     onPush = pushPane,

@@ -66,7 +66,6 @@ class DetailScreenshotActivity : ComponentActivity() {
                     onToggleStar = {},
                     onRetry = {},
                     isPlaying = true,
-                    playbackSignal = 0.35f,
                     // Fake pill state so the bottom bar can be QA'd without playback.
                     miniPlayerState = DetailMiniPlayerState(
                         trackId = "qa-fake-track",

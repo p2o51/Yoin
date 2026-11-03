@@ -116,7 +116,6 @@ class HomeSeamPreviewTest {
                             recentlyAddedAlbums = albums,
                         ),
                         isPlaying = false,
-                        playbackSignal = 0f,
                         onNavigateToSettings = {},
                         onNavigateToMemories = {},
                         onAlbumClick = { _, _ -> },
