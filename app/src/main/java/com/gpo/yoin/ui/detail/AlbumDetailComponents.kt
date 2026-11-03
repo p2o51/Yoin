@@ -391,6 +391,17 @@ internal fun AlbumTrackCountLabel(
     )
 }
 
+/** The label that opens one disc's tracks on a multi-disc album. */
+@Composable
+internal fun AlbumDiscHeading(disc: Int, modifier: Modifier = Modifier) {
+    Text(
+        text = stringResource(R.string.detail_disc_heading, disc),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.semantics { heading() },
+    )
+}
+
 /** Hours and leftover minutes as separate stats. Zero leftover minutes are omitted. */
 @Composable
 private fun totalDurationGroups(seconds: Int): List<MetaGroup> {

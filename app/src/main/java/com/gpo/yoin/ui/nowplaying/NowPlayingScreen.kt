@@ -1,4 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -2521,24 +2524,29 @@ private fun WidePlayingContent(
                                     onNavigate = { onArtistClick(id) },
                                 )
                             }
-                            Text(
-                                text = state.artist,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = wideArtistRoute?.let { route ->
-                                    Modifier
-                                        .graphicsLayer {
-                                            scaleX = route.scaleX
-                                            transformOrigin = TransformOrigin(0f, 0.5f)
-                                        }
-                                        .noRippleClickable(
-                                            interactionSource = route.interactionSource,
-                                            onClick = route.onClick,
-                                        )
-                                } ?: Modifier,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = state.artist,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false).then(
+                                        wideArtistRoute?.let { route ->
+                                            Modifier
+                                                .graphicsLayer {
+                                                    scaleX = route.scaleX
+                                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                                }
+                                                .noRippleClickable(
+                                                    interactionSource = route.interactionSource,
+                                                    onClick = route.onClick,
+                                                )
+                                        } ?: Modifier,
+                                    ),
+                                )
+                                NowPlayingFormatTags(state)
+                            }
                             Spacer(modifier = Modifier.height(2.dp))
                             val wideTitleRoute = albumId?.let { id ->
                                 rememberNowPlayingRouteInteraction(
@@ -3599,26 +3607,31 @@ private fun TabletopPlayingContent(
                                 onNavigate = { onArtistClick(id) },
                             )
                         }
-                        Text(
-                            text = state.artist,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = (16f - 4f * lyricsEmphasis).sp / density.fontScale,
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = tabletopArtistRoute?.let { route ->
-                                Modifier
-                                    .graphicsLayer {
-                                        scaleX = route.scaleX
-                                        transformOrigin = TransformOrigin(0f, 0.5f)
-                                    }
-                                    .noRippleClickable(
-                                        interactionSource = route.interactionSource,
-                                        onClick = route.onClick,
-                                    )
-                            } ?: Modifier,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = state.artist,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontSize = (16f - 4f * lyricsEmphasis).sp / density.fontScale,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false).then(
+                                    tabletopArtistRoute?.let { route ->
+                                        Modifier
+                                            .graphicsLayer {
+                                                scaleX = route.scaleX
+                                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                            }
+                                            .noRippleClickable(
+                                                interactionSource = route.interactionSource,
+                                                onClick = route.onClick,
+                                            )
+                                    } ?: Modifier,
+                                ),
+                            )
+                            NowPlayingFormatTags(state)
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         // Collapsed: a small 3-line peek. Expanded: a bigger font that
                         // FILLS the column. Both the height (≈3 lines → fill) and the
@@ -4800,10 +4813,15 @@ internal fun CompactBottomHero(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(artistModifier)
-                            .then(artistClickModifier),
+                            .then(artistModifier),
                     ) {
-                        artistText(Modifier.fillMaxWidth())
+                        // The format tags ride the artist line: no height of their own.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.weight(1f, fill = false).then(artistClickModifier)) {
+                                artistText(Modifier)
+                            }
+                            NowPlayingFormatTags(state)
+                        }
                     }
                     Spacer(modifier = Modifier.height(2.dp))
 
@@ -5548,4 +5566,22 @@ private fun BottomPillsPreview() {
     }
 }
 
-
+/**
+ * What is playing, as format tags after the artist ("FLAC 24/96", "Opus 192",
+ * "5.1"); nothing when nothing is known (Spotify, Apple Music). They fade in
+ * and out on the effects spring as the decoder reports.
+ */
+@Composable
+private fun NowPlayingFormatTags(state: NowPlayingUiState.Playing) {
+    AnimatedVisibility(
+        visible = state.formatTags.isNotEmpty(),
+        enter = fadeIn(YoinMotion.defaultEffectsSpec()),
+        exit = fadeOut(YoinMotion.defaultEffectsSpec()),
+    ) {
+        AudioFormatTagRow(
+            tags = state.formatTags,
+            transcodedFrom = state.transcodedFrom,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}

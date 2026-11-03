@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_playback">播放</string>
+    <string name="settings_stream_quality_title">播放音质</string>
+    <string name="settings_stream_quality_wifi">Wi‑Fi</string>
+    <string name="settings_stream_quality_mobile">移动数据</string>
+    <string name="settings_stream_quality_original">原始</string>
+    <string name="settings_stream_quality_kbps">%1$d kbps</string>
+    <string name="settings_stream_quality_summary">Wi‑Fi %1$s，移动数据 %2$s</string>
+    <string name="np_format_description">音频格式 %1$s</string>
+    <string name="np_format_transcoded_description">音频格式 %1$s，由 %2$s 转码</string>
+    <string name="track_menu_go_to_named_artist">前往 %1$s</string>
+    <string name="detail_disc_heading">第 %1$d 碟</string>
+</resources>

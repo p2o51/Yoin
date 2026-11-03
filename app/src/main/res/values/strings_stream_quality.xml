@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_section_playback">Playback</string>
+    <string name="settings_stream_quality_title">Streaming quality</string>
+    <string name="settings_stream_quality_wifi">Wi‑Fi</string>
+    <string name="settings_stream_quality_mobile">Mobile data</string>
+    <string name="settings_stream_quality_original">Original</string>
+    <string name="settings_stream_quality_kbps">%1$d kbps</string>
+    <string name="settings_stream_quality_summary">Wi‑Fi %1$s, mobile data %2$s</string>
+    <string name="np_format_description">Audio format %1$s</string>
+    <string name="np_format_transcoded_description">Audio format %1$s, transcoded from %2$s</string>
+    <string name="track_menu_go_to_named_artist">Go to %1$s</string>
+    <string name="detail_disc_heading">Disc %1$d</string>
+</resources>

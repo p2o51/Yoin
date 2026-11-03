@@ -2,6 +2,7 @@ package com.gpo.yoin.data.cache
 
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
+import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
@@ -33,6 +34,8 @@ internal data class TrackDto(
     val isStarred: Boolean = false,
     val extras: Map<String, String> = emptyMap(),
     val addedAt: String? = null,
+    val audioFormat: AudioFormatDto? = null,
+    val discNumber: Int? = null,
 ) {
     fun toDomain(): Track = Track(
         id = MediaId.parse(id),
@@ -50,6 +53,8 @@ internal data class TrackDto(
         isStarred = isStarred,
         extras = extras,
         addedAt = addedAt,
+        audioFormat = audioFormat?.toDomain(),
+        discNumber = discNumber,
     )
 
     companion object {
@@ -69,7 +74,25 @@ internal data class TrackDto(
             isStarred = t.isStarred,
             extras = t.extras,
             addedAt = t.addedAt,
+            audioFormat = t.audioFormat?.let(AudioFormatDto::from),
+            discNumber = t.discNumber,
         )
+    }
+}
+
+@Serializable
+internal data class AudioFormatDto(
+    val codec: String? = null,
+    val bitRateKbps: Int? = null,
+    val bitDepth: Int? = null,
+    val sampleRateHz: Int? = null,
+    val channels: Int? = null,
+) {
+    fun toDomain(): AudioFormat = AudioFormat(codec, bitRateKbps, bitDepth, sampleRateHz, channels)
+
+    companion object {
+        fun from(f: AudioFormat): AudioFormatDto =
+            AudioFormatDto(f.codec, f.bitRateKbps, f.bitDepth, f.sampleRateHz, f.channels)
     }
 }
 

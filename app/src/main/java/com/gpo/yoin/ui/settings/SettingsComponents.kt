@@ -306,10 +306,10 @@ internal fun SettingsItem(
 }
 
 /** Pixel / M3 two-line list row height. */
-private val SettingsRowMinHeight = 72.dp
+internal val SettingsRowMinHeight = 72.dp
 
 /** Icon column (40dp) to text, as in Pixel Settings and M3 list tokens. */
-private val SettingsRowIconGap = 12.dp
+internal val SettingsRowIconGap = 12.dp
 
 /** Where a row's text starts: 16dp inset + 40dp icon column + the gap. */
 internal val SettingsRowTextInset = 16.dp + 40.dp + SettingsRowIconGap

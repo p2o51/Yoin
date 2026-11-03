@@ -91,6 +91,13 @@ enum class Capability {
      */
     PLAYLIST_IMPORT,
     LYRICS,
+
+    /**
+     * The player streams the service's files itself and the server can
+     * transcode them to a lower bit rate (Subsonic `stream` with `maxBitRate`),
+     * so Settings offers Streaming quality for Wi‑Fi and mobile data.
+     */
+    STREAM_QUALITY,
 }
 
 interface MusicLibrary {

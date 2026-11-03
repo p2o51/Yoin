@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.player.StreamQualityPreference
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.Capability
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -436,6 +439,18 @@ fun SettingsContent(
                                                 },
                                                 selected = openFeature == SettingsFeature.NeoDb,
                                             )
+                                        }
+                                    }
+                                    val activeProvider = state.profileCards.firstOrNull { it.isActive }?.provider
+                                    if (Capability.STREAM_QUALITY in ServiceFeatureCatalog.forProvider(activeProvider?.key).capabilities) {
+                                        SettingsGroup(title = stringResource(R.string.settings_section_playback)) {
+                                            item(key = SettingsFeature.StreamQuality, paintsOwnSegment = listDetail) {
+                                                StreamQualityItem(
+                                                    listDetail = listDetail,
+                                                    selected = openFeature == SettingsFeature.StreamQuality,
+                                                    onOpenPage = { onOpenFeature(SettingsFeature.StreamQuality) },
+                                                )
+                                            }
                                         }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_motion)) {
@@ -1488,7 +1503,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, Tips, PlaylistBackups, Licenses }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, StreamQuality, Tips, PlaylistBackups, Licenses }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1523,6 +1538,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
+        SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
         SettingsFeature.Licenses -> stringResource(R.string.settings_about_licenses)
@@ -1578,6 +1594,8 @@ internal fun SettingsFeatureScreen(
                     if (feature == SettingsFeature.ScrollEdge) {
                         // Reads only the global style: no need to wait for the Settings state.
                         ScrollEdgePageContent()
+                    } else if (feature == SettingsFeature.StreamQuality) {
+                        StreamQualityPageContent()
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
                     } else if (feature == SettingsFeature.Licenses) {
@@ -1609,8 +1627,8 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.Tips, SettingsFeature.PlaylistBackups,
-                                    SettingsFeature.Licenses,
+                                    SettingsFeature.ScrollEdge, SettingsFeature.StreamQuality, SettingsFeature.Tips,
+                                    SettingsFeature.PlaylistBackups, SettingsFeature.Licenses,
                                     -> Unit
                                 }
                             }
@@ -1641,6 +1659,27 @@ private fun ScrollEdgeItem(
         FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Playback › Streaming quality: what a Subsonic song streams as on Wi‑Fi and on mobile data. */
+@Composable
+private fun StreamQualityItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_stream_quality_title)
+    val settings by StreamQualityPreference.observe(LocalContext.current).collectAsState()
+    val summary = stringResource(
+        R.string.settings_stream_quality_summary,
+        streamQualityLabel(settings.wifi),
+        streamQualityLabel(settings.mobile),
+    )
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Equalizer, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Equalizer, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 
