@@ -7,6 +7,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.album.AlbumScrapbookFact
 import com.gpo.yoin.data.album.AlbumScrapbookNote
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.shared.detail.ScrapbookTilt
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -199,12 +200,13 @@ internal object ScrapbookRules {
     const val AnswerSentences = 2
 
     // Tilt sets in degrees; no 0 (a 0° piece reads as an alignment slip).
-    val PaperTilts = floatArrayOf(-1.5f, -1f, -0.5f, 0.5f, 1f, 1.5f)
-    val CardTilts = floatArrayOf(-1f, -0.6f, 0.6f, 1f)
-    val TicketTilts = floatArrayOf(-2f, -1.25f, 1.25f, 2f)
-    val StickerTilts = floatArrayOf(-12f, -8f, -5f, 5f, 8f, 12f)
-    val CoverTilts = floatArrayOf(-3f, 3f)
-    val TagTilts = floatArrayOf(-3f, -2f, 2f, 3f)
+    // (Shared with iOS: com.gpo.yoin.shared.detail.ScrapbookTilt.)
+    val PaperTilts = ScrapbookTilt.PAPER
+    val CardTilts = ScrapbookTilt.CARD
+    val TicketTilts = ScrapbookTilt.TICKET
+    val StickerTilts = ScrapbookTilt.STICKER
+    val CoverTilts = ScrapbookTilt.COVER
+    val TagTilts = ScrapbookTilt.TAG
 }
 
 /**
@@ -220,7 +222,7 @@ internal fun buildAlbumScrapbook(
     title: ScrapTitle? = null,
 ): AlbumScrapbook {
     val seed = content.albumId
-    fun tilt(key: String, set: FloatArray): Float = set[(scrapHash("$seed/$key") % set.size).toInt()]
+    fun tilt(key: String, set: FloatArray): Float = ScrapbookTilt.tilt(seed, key, set)
 
     val ratings = data.ratings.mapKeys { it.key.toString() }
     val notes = data.notes.mapKeys { it.key.toString() }
@@ -267,7 +269,7 @@ internal fun buildAlbumScrapbook(
         .filter { it.score != null && it.score >= ScrapbookRules.BestFrom }
         .maxByOrNull { it.score ?: 0f }
         ?.key
-    val startMirror = (scrapHash(seed) and 1L) == 1L
+    val startMirror = ScrapbookTilt.startsMirrored(seed)
     var clusterIndex = 0
     val run = mutableListOf<ScrapTrack>()
     fun mirrorNow(): Boolean = ((clusterIndex % 2) == 1) != startMirror
@@ -466,16 +468,6 @@ internal fun splitSentences(text: String): List<String> =
 /** Characters with CJK / full-width counting 2 and markdown bold markers counting 0. */
 internal fun weightedLength(text: String): Int =
     text.replace("**", "").sumOf { c -> if (c.code in 0x3000..0x9FFF || c.code in 0xFF00..0xFFEF) 2 else 1 }
-
-/** FNV-1a over UTF-16 units, as an unsigned 32-bit value (the prototype's `hash`). */
-internal fun scrapHash(text: String): Long {
-    var h = 0x811C9DC5.toInt()
-    for (c in text) {
-        h = h xor c.code
-        h *= 16777619
-    }
-    return h.toLong() and 0xFFFFFFFFL
-}
 
 /** Neighbours lean opposite ways: [angle] flipped when it leans the same way as [previous]. */
 internal fun opposite(previous: Float?, angle: Float): Float =
