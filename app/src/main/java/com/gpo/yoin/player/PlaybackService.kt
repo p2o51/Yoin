@@ -190,9 +190,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onTracksChanged(tracks: Tracks) {
-            val format = tracks.groups
-                .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
-                ?.let { group -> (0 until group.length).firstOrNull(group::isTrackSelected)?.let(group::getTrackFormat) }
+            val group = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+            val format = group?.let { (0 until it.length).firstOrNull(it::isTrackSelected)?.let(it::getTrackFormat) }
             val mediaId = player.currentMediaItem?.mediaId
             _playingFormat.value = if (format != null && mediaId != null) {
                 PlayingFormat(mediaId = mediaId, decoded = format.toAudioFormat())

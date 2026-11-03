@@ -6,14 +6,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SubsonicStreamUrlsTest {
-    private val credentials = ServerCredentials(serverUrl = "https://music.example.com/nd", username = "u", password = "p")
+    private val credentials =
+        ServerCredentials(serverUrl = "https://music.example.com/nd", username = "u", password = "p")
     private val original = SubsonicApiFactory.buildStreamUrl(credentials, "song-1")
 
     @Test
     fun should_addMaxBitRateFormatAndLength_when_transcoding() {
-        val url = SubsonicStreamUrls.withTranscode(original, 192, "opus", estimateContentLength = true).toHttpUrl()
+        val url = SubsonicStreamUrls.withTranscode(original, 192, "mp3", estimateContentLength = true).toHttpUrl()
         assertEquals("192", url.queryParameter("maxBitRate"))
-        assertEquals("opus", url.queryParameter("format"))
+        assertEquals("mp3", url.queryParameter("format"))
         assertEquals("true", url.queryParameter("estimateContentLength"))
         assertNull(url.queryParameter("timeOffset"))
         // The signature and the song stay.
@@ -25,7 +26,9 @@ class SubsonicStreamUrlsTest {
 
     @Test
     fun should_buildSameUrlAsFactory_when_factoryGivesBitRateAndFormat() {
-        val fromFactory = SubsonicApiFactory.buildStreamUrl(credentials, "song-1", maxBitRate = 320, format = "mp3").toHttpUrl()
+        val fromFactory = SubsonicApiFactory
+            .buildStreamUrl(credentials, "song-1", maxBitRate = 320, format = "mp3")
+            .toHttpUrl()
         val rewritten = SubsonicStreamUrls.withTranscode(original, 320, "mp3").toHttpUrl()
         assertEquals(fromFactory.queryParameter("maxBitRate"), rewritten.queryParameter("maxBitRate"))
         assertEquals(fromFactory.queryParameter("format"), rewritten.queryParameter("format"))
@@ -48,7 +51,7 @@ class SubsonicStreamUrlsTest {
 
     @Test
     fun should_stripTranscode_when_originalAsked() {
-        val transcoded = SubsonicStreamUrls.withTranscode(original, 192, "opus", estimateContentLength = true)
+        val transcoded = SubsonicStreamUrls.withTranscode(original, 192, "mp3", estimateContentLength = true)
         val back = SubsonicStreamUrls.withTranscode(transcoded, null, "opus").toHttpUrl()
         assertNull(back.queryParameter("maxBitRate"))
         assertNull(back.queryParameter("format"))
@@ -58,8 +61,9 @@ class SubsonicStreamUrlsTest {
     @Test
     fun should_leaveUrlAlone_when_notASubsonicStream() {
         val cover = SubsonicApiFactory.buildCoverArtUrl(credentials, "c1")
-        assertEquals(cover, SubsonicStreamUrls.withTranscode(cover, 192, "opus"))
-        assertEquals("https://cdn.example.com/a.mp3", SubsonicStreamUrls.withTranscode("https://cdn.example.com/a.mp3", 192, "opus"))
+        assertEquals(cover, SubsonicStreamUrls.withTranscode(cover, 192, "mp3"))
+        val elsewhere = "https://cdn.example.com/a.mp3"
+        assertEquals(elsewhere, SubsonicStreamUrls.withTranscode(elsewhere, 192, "mp3"))
         assertNull(SubsonicStreamUrls.songIdOf(cover))
     }
 

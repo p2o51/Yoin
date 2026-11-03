@@ -72,7 +72,9 @@ class SubsonicOpenSubsonicSongTest {
 
     @Test
     fun should_keepOneCredit_when_songHasOneArtist() {
-        val track = song(""","artist":"A","artistId":"ar1","artists":[{"id":"ar1","name":"A"}]""").toTrack()
+        val track = song(
+            ""","artist":"A","artistId":"ar1","artists":[{"id":"ar1","name":"A"}]""",
+        ).toTrack()
         assertEquals(listOf("A"), track.creditedArtists)
         assertEquals(MediaId.subsonic("ar1"), track.artistCredits.single().id)
     }

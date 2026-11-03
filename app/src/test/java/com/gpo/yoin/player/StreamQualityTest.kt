@@ -2,8 +2,10 @@ package com.gpo.yoin.player
 
 import android.net.Uri
 import androidx.media3.datasource.DataSpec
+import com.gpo.yoin.data.remote.OpenSubsonicExtension
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApiFactory
+import com.gpo.yoin.data.remote.SubsonicResponseBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,7 +19,7 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class StreamQualityTest {
     private val credentials = ServerCredentials(serverUrl = "https://music.example.com", username = "u", password = "p")
-    private val navidrome = SubsonicServerTraits(transcodeFormat = "opus", timeOffset = true)
+    private val navidrome = SubsonicServerTraits(transcodeFormat = "mp3", timeOffset = true)
     private val settings = StreamQualitySettings(wifi = StreamQuality.Original, mobile = StreamQuality.Kbps192)
 
     private fun spec(songId: String, position: Long = 0L) =
@@ -51,19 +53,27 @@ class StreamQualityTest {
 
     @Test
     fun should_planServersFormat_when_qualityHasBitRate() {
-        assertEquals(StreamDelivery(128, "opus"), StreamDelivery.plan(StreamQuality.Kbps128, navidrome))
+        assertEquals(StreamDelivery(128, "mp3"), StreamDelivery.plan(StreamQuality.Kbps128, navidrome))
         assertEquals(StreamDelivery(320, "mp3"), StreamDelivery.plan(StreamQuality.Kbps320, SubsonicServerTraits.Plain))
     }
 
     @Test
-    fun should_askOpus_when_serverIsNavidrome() {
-        assertEquals("opus", SubsonicServerTraits.transcodeFormatFor("navidrome"))
+    fun should_askMp3WithOffset_when_navidromeHasTranscodeOffset() {
+        // Constant bit rate, so a transcode seeks with one timeOffset request.
+        val traits = SubsonicServerTraits.from(
+            SubsonicResponseBody(
+                status = "ok",
+                type = "navidrome",
+                openSubsonicExtensions = listOf(OpenSubsonicExtension("transcodeOffset", listOf(1))),
+            ),
+        )
+        assertEquals(SubsonicServerTraits("mp3", timeOffset = true), traits)
     }
 
     @Test
-    fun should_fallBackToMp3_when_serverMayLackOpus() {
-        assertEquals("mp3", SubsonicServerTraits.transcodeFormatFor("gonic"))
-        assertEquals("mp3", SubsonicServerTraits.transcodeFormatFor(null))
+    fun should_notOffset_when_serverListsNoTranscodeOffset() {
+        val traits = SubsonicServerTraits.from(SubsonicResponseBody(status = "ok", type = "gonic"))
+        assertEquals(SubsonicServerTraits("mp3", timeOffset = false), traits)
     }
 
     @Test
@@ -78,7 +88,7 @@ class StreamQualityTest {
         val resolver = SubsonicStreamResolver({ settings }, { false }, { navidrome })
         val url = resolver.resolveDataSpec(spec("s1")).uri.toString().toHttpUrl()
         assertEquals("192", url.queryParameter("maxBitRate"))
-        assertEquals("opus", url.queryParameter("format"))
+        assertEquals("mp3", url.queryParameter("format"))
         assertEquals("true", url.queryParameter("estimateContentLength"))
     }
 

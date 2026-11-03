@@ -1,6 +1,4 @@
 package com.gpo.yoin.ui.nowplaying
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.fadeIn
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -5575,8 +5573,8 @@ private fun BottomPillsPreview() {
 private fun NowPlayingFormatTags(state: NowPlayingUiState.Playing) {
     AnimatedVisibility(
         visible = state.formatTags.isNotEmpty(),
-        enter = fadeIn(YoinMotion.defaultEffectsSpec()),
-        exit = fadeOut(YoinMotion.defaultEffectsSpec()),
+        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
     ) {
         AudioFormatTagRow(
             tags = state.formatTags,

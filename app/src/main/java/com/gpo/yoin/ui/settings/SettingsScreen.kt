@@ -442,7 +442,8 @@ fun SettingsContent(
                                         }
                                     }
                                     val activeProvider = state.profileCards.firstOrNull { it.isActive }?.provider
-                                    if (Capability.STREAM_QUALITY in ServiceFeatureCatalog.forProvider(activeProvider?.key).capabilities) {
+                                    val activeFeatures = ServiceFeatureCatalog.forProvider(activeProvider?.key)
+                                    if (Capability.STREAM_QUALITY in activeFeatures.capabilities) {
                                         SettingsGroup(title = stringResource(R.string.settings_section_playback)) {
                                             item(key = SettingsFeature.StreamQuality, paintsOwnSegment = listDetail) {
                                                 StreamQualityItem(

@@ -82,9 +82,11 @@ object StreamQualityPreference {
         synchronized(this) {
             if (loaded) return
             val prefs = prefs(context)
+            val wifi = StreamQuality.fromKey(prefs.getString(KEY_WIFI, null))
+            val mobile = StreamQuality.fromKey(prefs.getString(KEY_MOBILE, null))
             state.value = StreamQualitySettings(
-                wifi = StreamQuality.fromKey(prefs.getString(KEY_WIFI, null)) ?: StreamQualitySettings.DefaultWifi,
-                mobile = StreamQuality.fromKey(prefs.getString(KEY_MOBILE, null)) ?: StreamQualitySettings.DefaultMobile,
+                wifi = wifi ?: StreamQualitySettings.DefaultWifi,
+                mobile = mobile ?: StreamQualitySettings.DefaultMobile,
             )
             loaded = true
         }

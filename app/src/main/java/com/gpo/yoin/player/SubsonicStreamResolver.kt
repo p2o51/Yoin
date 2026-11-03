@@ -18,7 +18,7 @@ import okhttp3.Request
 
 /** What a server can do with a transcode, from `getOpenSubsonicExtensions`. */
 data class SubsonicServerTraits(
-    /** The format Yoin asks for: opus where the server is known to have it, else mp3. */
+    /** The format Yoin asks for: mp3 ([from]). */
     val transcodeFormat: String,
     /** OpenSubsonic `transcodeOffset`: `stream` takes `timeOffset`, so a transcode can start mid-song. */
     val timeOffset: Boolean,
@@ -27,22 +27,23 @@ data class SubsonicServerTraits(
         /** A server that didn't answer: mp3 is every Subsonic server's transcode. */
         val Plain = SubsonicServerTraits(transcodeFormat = FORMAT_MP3, timeOffset = false)
 
+        /**
+         * mp3 on every server, Navidrome's opus included (measured 2026-11-03
+         * on the Pixel Tablet against a Navidrome-shaped server): a transcode
+         * has no byte ranges, and an Ogg stream finds a time by reading pages
+         * at byte offsets, so every opus seek made the server transcode from
+         * the start up to there, several times, and its duration came out
+         * short. A constant-bit-rate mp3 maps a time to a byte, so a seek is
+         * one `timeOffset` request and the duration is right.
+         */
         fun from(body: SubsonicResponseBody): SubsonicServerTraits {
             val extensions = body.openSubsonicExtensions.map { it.name }.toSet()
             return SubsonicServerTraits(
-                transcodeFormat = transcodeFormatFor(body.type),
+                transcodeFormat = FORMAT_MP3,
                 timeOffset = "transcodeOffset" in extensions,
             )
         }
 
-        /**
-         * Navidrome ships an opus transcoding by default; no other server says
-         * which formats it transcodes to, so they get mp3, which every one has.
-         */
-        internal fun transcodeFormatFor(serverType: String?): String =
-            if (serverType.equals("navidrome", ignoreCase = true)) FORMAT_OPUS else FORMAT_MP3
-
-        const val FORMAT_OPUS = "opus"
         const val FORMAT_MP3 = "mp3"
     }
 }
