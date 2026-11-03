@@ -1,8 +1,10 @@
 package com.gpo.yoin.player
 
 import android.os.Bundle
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.util.UnstableApi
 import com.gpo.yoin.data.model.AudioFormat
 
 /** [AudioFormat] across a MediaItem's metadata extras; absent fields stay absent. */
@@ -34,6 +36,7 @@ private const val KEY_CHANNELS = "channels"
 data class PlayingFormat(val mediaId: String, val decoded: AudioFormat)
 
 /** A decoder input [Format] as an [AudioFormat]; unknown fields are null. */
+@OptIn(UnstableApi::class)
 internal fun Format.toAudioFormat(): AudioFormat = AudioFormat(
     codec = AudioFormat.codecForMime(sampleMimeType),
     bitRateKbps = (if (averageBitrate != Format.NO_VALUE) averageBitrate else bitrate)
