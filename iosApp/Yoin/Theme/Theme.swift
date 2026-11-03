@@ -68,6 +68,15 @@ struct YoinIcon: View {
 /// Launch arguments, e.g. `-screen np-short -glass yoin`.
 enum LaunchConfig {
     static var screen: String { UserDefaults.standard.string(forKey: "screen") ?? "home" }
+    /// Search screenshots: `-screen search-results` etc. open with a query.
+    static var searchQuery: String { screen == "search" ? "" : (screen.hasPrefix("search") ? "la" : "") }
+    static var searchFilter: SearchView.Filter {
+        switch screen {
+        case "search-albums": .albums
+        case "search-songs": .songs
+        default: .all
+        }
+    }
     static var glass: String {
         if screen.hasSuffix("-yoinglass") { return "yoin" }
         return UserDefaults.standard.string(forKey: "glass") ?? "system"

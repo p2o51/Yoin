@@ -87,6 +87,18 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 - **Lyrics under the buttons:** the lyric list continues below its Android window, under the transport, fading out by the progress row. The current line always stays in the clear band above the buttons. In the short layout the clear band is Android's 44 pt one-line row and the following lines run under the buttons.
 - **Dismissing Now Playing:** ⌄ and drag-down; there is no sheet grabber.
 
+## Search (Apple Music iOS 26 form, Android content)
+
+| Element | Android source | Android value | iOS |
+|---|---|---|---|
+| Scopes | library/LibraryUiState.kt:150; strings_library.xml:10-15 | CurrentLibrary + SpotifyGlobal / AppleMusicGlobal ("Library", "Spotify", "Apple Music"); placeholders "Search library" / "Search Apple Music" | Full-width glass segmented control; the selected scope is a lighter pill |
+| Type filters | library/LibrarySearchFilter.kt | All, Artists, Albums, Songs, Playlists (Playlists only where the service supports it) | Chips under the scopes once there is a query |
+| All results | LibraryScreen.kt SearchAllResults | Sections Artists → Albums → Playlists → Songs | Same; bare covers, artists as circles |
+| One type | LibraryScreen.kt SearchResultsGrid / SearchResultsList | Artists and Albums in a grid (16 sides, 12 / 16 gaps); Songs and Playlists in a list | Same |
+| Song row | LibraryScreen.kt SearchSongRow | 48 cover, title over artist and album | Same |
+| Empty | strings_library.xml:28 | "No results found" (per shown type) | Same; Android has no recent searches, so the idle state only names the scope |
+| iOS form | n/a | n/a | The bar's search circle grows into a glass field (magnifier, field, mic) with a separate glass close circle. The keyboard comes up at once, the bar slides under it, and the header is a top safe-area bar so the system soft edge runs under it |
+
 ## Gaps not closed
 
 - **Color scheme:** closed. Palette and MCU are ported and verified (see Shared).

@@ -112,7 +112,7 @@ struct ShellBar: View {
     }
 
     private var searchButton: some View {
-        Button {} label: {
+        Button { withAnimation(Yoin.spatial) { model.searchActive = true } } label: {
             YoinIcon("search", size: 24)
                 .foregroundStyle(Yoin.ink)
                 .labContrast("barUnselected")
@@ -122,6 +122,12 @@ struct ShellBar: View {
         .buttonStyle(.plain)
         .labGlass("barUnselected", scheme: scheme, brand: brand, auto: scheme.tertiary, in: Circle())
         .glassEffectID("search", in: glassNS)
+        .background {
+            // The search field grows out of this circle.
+            if !model.searchActive {
+                Circle().fill(.clear).matchedGeometryEffect(id: "search.surface", in: npNamespace)
+            }
+        }
         .accessibilityLabel("Search")
     }
 

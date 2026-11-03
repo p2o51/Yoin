@@ -26,6 +26,8 @@ final class AppModel {
     var slowMorph = false
     var glassFlavor: GlassFlavor = .system
     var showLanding = false
+    /// Search surface open (from the bar's search circle).
+    var searchActive = false
     /// Nothing playing: the bar folds the pill away (Android idle bar).
     var isIdle = false
     var playback: PlaybackSnapshot
@@ -44,6 +46,7 @@ final class AppModel {
         case "np-panel": npPanel = true
         case "landing": showLanding = true
         case "progress35": self.playback.positionSec = Int(Double(self.playback.track.durationSec) * 0.35)
+        case "search", "search-results", "search-catalog", "search-albums", "search-songs": searchActive = true
         case "idle": isIdle = true
         case "library-idle": isIdle = true; section = .library
         default: break

@@ -47,6 +47,15 @@ struct PhoneShell: View {
                 ShellBar(npNamespace: npNS)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 2)
+                    // Slides away under the keyboard while searching.
+                    .offset(y: model.searchActive ? 140 : 0)
+                    .opacity(model.searchActive ? 0 : 1)
+            }
+
+            if model.searchActive {
+                SearchView(npNamespace: npNS)
+                    .zIndex(0.5)
+                    .transition(.opacity)
             }
 
             if model.npExpanded {
