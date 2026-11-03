@@ -1439,6 +1439,20 @@ class YoinRepository(
         }
     }
 
+    /**
+     * Forget every album, artist and playlist page kept for [profileId] (memory and disk), so each reads
+     * afresh: after a setting that changes what the service answers, such as an Apple Music account's
+     * name region.
+     */
+    suspend fun forgetDetails(profileId: String) {
+        if (profileId == activeProfileId.value) {
+            albumDetailCache.clear()
+            artistDetailCache.clear()
+            playlistDetailCache.clear()
+        }
+        detailCacheStore?.removeProfile(profileId)
+    }
+
     /** Drop the cached album detail (mem + disk) so its next read re-derives. */
     private fun invalidateAlbumDetail(id: MediaId) {
         val profileId = activeProfileId.value

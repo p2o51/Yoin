@@ -16,7 +16,12 @@ import com.gpo.yoin.player.applemusic.AppleMusicValidationService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
+import com.gpo.yoin.data.source.applemusic.AppleMusicNameRegion
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -38,11 +43,34 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
     val authorization = authIntents.receiveAsFlow()
     private val savedProfiles = Channel<String>(Channel.BUFFERED)
     val saved = savedProfiles.receiveAsFlow()
+    private val regionStore = container.appleMusicNameRegionStore
+    private val nameRegionProfileId = MutableStateFlow<String?>(null)
+
+    /** This account's name region ([AppleMusicNameRegionGroup]); the default until the account exists. */
+    val nameRegion: StateFlow<AppleMusicNameRegion> =
+        combine(nameRegionProfileId, regionStore.regions) { id, regions ->
+            id?.let { regions[it] } ?: AppleMusicNameRegion.Default
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, AppleMusicNameRegion.Default)
+
+    /**
+     * Keeps [region] for this account. Pages already read carry the old names, so they are forgotten and
+     * every screen reads its content again, as after the account's connection changes.
+     */
+    fun setNameRegion(region: AppleMusicNameRegion) {
+        val id = profileId ?: return
+        if (regionStore.get(id) == region) return
+        regionStore.put(id, region)
+        viewModelScope.launch {
+            container.repository.forgetDetails(id)
+            container.notifyMusicConfigurationChanged()
+        }
+    }
 
     fun initialize(targetProfileId: String?) {
         if (initialized) return
         initialized = true
         profileId = targetProfileId
+        nameRegionProfileId.value = targetProfileId
         viewModelScope.launch {
             try {
                 val profile = manager.profiles.first().firstOrNull { it.id == targetProfileId }
@@ -119,6 +147,7 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
             existingId
         }
         profileId = savedId
+        nameRegionProfileId.value = savedId
         container.notifyMusicConfigurationChanged()
         mutableState.update {
             it.copy(

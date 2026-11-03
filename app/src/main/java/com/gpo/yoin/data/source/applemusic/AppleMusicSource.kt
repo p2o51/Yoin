@@ -59,7 +59,9 @@ class AppleMusicSource(
     val credentials: ProfileCredentials.AppleMusic,
     private val tokenProvider: AppleMusicDeveloperTokenProvider =
         AppleMusicDeveloperTokenProvider(credentials.endpoint.toHttpUrl()),
-    private val api: AppleMusicApiClient = AppleMusicApiClient(tokenProvider::token, { credentials.musicUserToken })
+    private val api: AppleMusicApiClient = AppleMusicApiClient(tokenProvider::token, { credentials.musicUserToken }),
+    /** The account's name region (Settings › this account), read on every list so a change applies at once. */
+    private val nameRegion: () -> AppleMusicNameRegion = { AppleMusicNameRegion.Default },
 ) : MusicSource, MusicLibrary, MusicMetadata, MusicWriteActions, MusicPlayback {
     override val id = MediaId.PROVIDER_APPLE_MUSIC
     override val capabilities: Set<Capability> = ServiceFeatureCatalog.appleMusic.capabilities
@@ -75,6 +77,11 @@ class AppleMusicSource(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TrackNames?>?) =
             size > ALTERNATE_NAMES_MEMORY
     }
+
+    private val regionalNames = AppleMusicNameResolver(
+        catalog = { segments, query -> api.resourcePage(segments, personal = false, query = query) },
+        songsByIsrc = { storefront, isrcs, language -> api.catalogSongsByIsrc(storefront, isrcs, language) },
+    )
 
     // Apple answered recent/played's catalog include with a 400: later reads leave it out.
     @Volatile private var recentPlayedRefusesCatalog = false
@@ -109,6 +116,27 @@ class AppleMusicSource(
 
     private suspend fun storefrontDetails(): AppleMusicStorefront = storefront ?: storefrontMutex.withLock {
         storefront ?: api.storefrontDetails().also { storefront = it }
+    }
+
+    /** The account's storefront for [regionalNames], or null while it can't be read (then every region is asked). */
+    private suspend fun storefrontOrNull(): String? = try {
+        storefront()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    private suspend fun regionalTracks(tracks: List<Track>): List<Track> {
+        val region = nameRegion()
+        if (region == AppleMusicNameRegion.Off) return tracks
+        return regionalNames.tracks(region, storefrontOrNull(), tracks)
+    }
+
+    private suspend fun regionalAlbums(albums: List<Album>): List<Album> {
+        val region = nameRegion()
+        if (region == AppleMusicNameRegion.Off) return albums
+        return regionalNames.albums(region, storefrontOrNull(), albums)
     }
 
     override fun library() = this
@@ -193,7 +221,7 @@ class AppleMusicSource(
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
         } while (next != null && albums.size < size && visited.size < RecentPlayedMaxPages)
-        return albums.distinctBy { it.id }.take(size)
+        return regionalAlbums(albums.distinctBy { it.id }.take(size))
     }
 
     override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
@@ -225,7 +253,7 @@ class AppleMusicSource(
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
         } while (next != null && albums.size < skip + size)
-        return albums.drop(skip).take(size)
+        return regionalAlbums(albums.drop(skip).take(size))
     }
 
     /**
@@ -236,6 +264,13 @@ class AppleMusicSource(
      * for one catalog song, which would otherwise collide as one list key.
      */
     override suspend fun getAlbum(id: MediaId): Album? {
+        val album = readAlbum(id) ?: return null
+        val region = nameRegion()
+        if (region == AppleMusicNameRegion.Off) return album
+        return regionalNames.album(region, storefrontOrNull(), album)
+    }
+
+    private suspend fun readAlbum(id: MediaId): Album? {
         if (!id.rawId.startsWith("library:")) return catalogAlbum(id, libraryCopyTracks = null)
         val path = path("albums", id)
         return coroutineScope {
@@ -442,7 +477,7 @@ class AppleMusicSource(
         val resource = response.resources().firstOrNull() ?: return null
         val artist = artist(resource)
         // The albums relationship pages 25 by default, 100 at most.
-        val albums = all(path + "albums", PageLimitQuery).map(::album)
+        val albums = regionalAlbums(all(path + "albums", PageLimitQuery).map(::album))
         return ArtistDetail(artist.id, artist.name, albums.size, artist.coverArt, albums = albums)
     }
 
@@ -456,6 +491,11 @@ class AppleMusicSource(
      * playlist only in the library has no catalog playlist: those fail as they did.
      */
     override suspend fun getPlaylist(id: MediaId): Playlist? {
+        val playlist = readPlaylistOrCatalog(id) ?: return null
+        return playlist.copy(tracks = regionalTracks(playlist.tracks))
+    }
+
+    private suspend fun readPlaylistOrCatalog(id: MediaId): Playlist? {
         if (!id.rawId.startsWith("library:")) return readPlaylist(id)
         return try {
             readPlaylist(id)
@@ -521,8 +561,8 @@ class AppleMusicSource(
             )
         )["results"]?.jsonObject ?: return SearchResults()
         return SearchResults(
-            tracks = results["songs"]?.jsonObject?.resources().orEmpty().songTracks(),
-            albums = results["albums"]?.jsonObject?.resources().orEmpty().map(::album),
+            tracks = regionalTracks(results["songs"]?.jsonObject?.resources().orEmpty().songTracks()),
+            albums = regionalAlbums(results["albums"]?.jsonObject?.resources().orEmpty().map(::album)),
             artists = results["artists"]?.jsonObject?.resources().orEmpty().map(::artist),
             playlists = results["playlists"]?.jsonObject?.resources().orEmpty().map(::playlist)
         )
@@ -540,9 +580,13 @@ class AppleMusicSource(
         )["results"]?.jsonObject ?: return SearchResults()
         // Two library songs (or albums) can share one catalog identity; the result lists key rows by id.
         return SearchResults(
-            tracks = librarySearchSongs(results["library-songs"]?.jsonObject?.resources().orEmpty())
-                .songTracks().distinctBy { it.id },
-            albums = results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album).distinctBy { it.id },
+            tracks = regionalTracks(
+                librarySearchSongs(results["library-songs"]?.jsonObject?.resources().orEmpty())
+                    .songTracks().distinctBy { it.id },
+            ),
+            albums = regionalAlbums(
+                results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album).distinctBy { it.id },
+            ),
             artists = results["library-artists"]?.jsonObject?.resources().orEmpty().map(::artist),
             playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::listedPlaylist)
         )
@@ -594,7 +638,7 @@ class AppleMusicSource(
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
         } while (next != null && tracks.distinctBy { it.id }.size < size)
-        return tracks.distinctBy { it.id }.take(size)
+        return regionalTracks(tracks.distinctBy { it.id }.take(size))
     }
 
     override suspend fun libraryMembership(trackId: MediaId): Result<LibraryMembership> = cancellableResult {

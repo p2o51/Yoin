@@ -48,4 +48,7 @@ interface DetailCacheDao {
 
     @Query("DELETE FROM detail_cache WHERE cachedAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
+
+    @Query("DELETE FROM detail_cache WHERE profileId = :profileId")
+    suspend fun deleteProfile(profileId: String)
 }

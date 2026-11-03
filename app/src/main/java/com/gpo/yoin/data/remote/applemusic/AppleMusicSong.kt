@@ -5,6 +5,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -38,7 +39,9 @@ data class AppleMusicSong(
      */
     val libraryChecked: Boolean = false,
     /** A catalog song's ISRC, upper case; library songs carry none. */
-    val isrc: String? = null
+    val isrc: String? = null,
+    /** The song's first genre (`genreNames`), as its storefront names it. */
+    val genre: String? = null
 ) {
     fun toTrack(): Track = Track(
         id = MediaId(MediaId.PROVIDER_APPLE_MUSIC, catalogId ?: "library:$resourceId"),
@@ -52,7 +55,7 @@ data class AppleMusicSong(
         durationSec = durationMs?.div(1000),
         trackNumber = trackNumber,
         year = null,
-        genre = null,
+        genre = genre,
         userRating = null,
         // Library membership is deliberately not represented as favorite/heart.
         extras = buildMap {
@@ -116,7 +119,11 @@ data class AppleMusicSong(
                     catalogId != null,
                 libraryChecked = type == "songs" && libraryRelationship != null,
                 isrc = (attributes?.string("isrc") ?: catalog?.get("attributes")?.jsonObject?.string("isrc"))
-                    ?.trim()?.uppercase()?.takeIf(String::isNotEmpty)
+                    ?.trim()?.uppercase()?.takeIf(String::isNotEmpty),
+                genre = (
+                    attributes?.get("genreNames") as? JsonArray
+                        ?: catalog?.get("attributes")?.jsonObject?.get("genreNames") as? JsonArray
+                    )?.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }?.takeIf(String::isNotBlank)
             )
         }
 
