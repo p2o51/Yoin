@@ -44,6 +44,9 @@ struct NowPlayingView: View {
     @State private var draftAnchorMs: Int64?
     @State private var notesSaved = 0
     @FocusState private var composerFocused: Bool
+    /// The page's geometry before the keyboard came up (see `page`).
+    @State private var frozenGeometry: PageGeometry?
+    @State private var keyboardHeight: CGFloat = 0
 
     /// The engine's song; nil = the mock snapshot (screenshots) as before.
     private var engineTrack: PlayableTrack? { model.player.currentTrack }
@@ -64,31 +67,19 @@ struct NowPlayingView: View {
     // contrast shadow 22 %, container spacing 3.
 
     var body: some View {
-        // The background sits outside the GeometryReader so it reaches the
-        // screen's bottom edge (inside, it stopped at the home indicator inset).
-        ZStack {
-            if panel {
-                pageGradient.ignoresSafeArea()
-            } else {
-                base
+        // The page doesn't move for the keyboard; the composer sits on it
+        // (see `page`).
+        page
+            .offset(y: max(0, dragY))
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { n in
+                guard let end = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+                      let screen = (n.object as? UIScreen) ?? UIApplication.shared.connectedScenes
+                        .compactMap({ ($0 as? UIWindowScene)?.screen }).first else { return }
+                withAnimation(Yoin.spatial) { keyboardHeight = max(0, screen.bounds.maxY - end.minY) }
             }
-            GeometryReader { geo in
-                content(geo)
-                    .frame(maxWidth: model.isPad ? 520 : .infinity)
-                    .frame(width: geo.size.width, height: geo.size.height)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(Yoin.spatial) { keyboardHeight = 0 }
             }
-            // The page keeps its budget under the keyboard; only the
-            // composer rides up with it.
-            .ignoresSafeArea(.keyboard)
-            if composing {
-                composerLayer
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        // The page never moves for the keyboard (its children still see the
-        // keyboard inset, so the composer sits on top of it).
-        .ignoresSafeArea(.keyboard)
-        .offset(y: max(0, dragY))
         .gesture(dismissDrag, isEnabled: !panel)
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet()
@@ -119,6 +110,50 @@ struct NowPlayingView: View {
             try? await Task.sleep(for: .seconds(1.5))
             airPlay.present()
         }
+    }
+
+    /// The background sits outside the GeometryReader so it reaches the
+    /// screen's bottom edge (inside, it stopped at the home indicator inset).
+    private var page: some View {
+        ZStack {
+            if panel {
+                pageGradient.ignoresSafeArea()
+            } else {
+                base
+            }
+            GeometryReader { geo in
+                // With the keyboard up the shell hands this page a shorter
+                // frame (and drops its top inset); the page keeps the
+                // geometry it had before the keyboard, pinned to the screen.
+                let live = PageGeometry(size: geo.size, top: geo.safeAreaInsets.top,
+                                        bottom: geo.safeAreaInsets.bottom, minY: geo.frame(in: .global).minY)
+                let g = composing ? (frozenGeometry ?? live) : live
+                content(size: g.size, bottomInset: g.bottom)
+                    .frame(maxWidth: model.isPad ? 520 : .infinity)
+                    .frame(width: g.size.width, height: g.size.height)
+                    .overlay(alignment: .bottom) {
+                        if composing {
+                            composerLayer
+                                // The frame ends `g.bottom` above the screen's
+                                // edge; the keyboard's top is `keyboardHeight` up.
+                                .padding(.bottom, max(0, keyboardHeight - g.bottom))
+                                .ignoresSafeArea(.keyboard)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
+                    .offset(y: g.minY - live.minY)
+                    .onChange(of: live, initial: true) { _, now in
+                        if !composing { frozenGeometry = now }
+                    }
+            }
+        }
+    }
+
+    struct PageGeometry: Equatable {
+        var size: CGSize
+        var top: CGFloat
+        var bottom: CGFloat
+        var minY: CGFloat
     }
 
     // MARK: Morph
@@ -202,11 +237,11 @@ struct NowPlayingView: View {
 
     // MARK: Content (Android CompactPlayingContent)
 
-    private func content(_ geo: GeometryProxy) -> some View {
+    private func content(size: CGSize, bottomInset: CGFloat) -> some View {
         let p = model.playback
         let budget = NowPlayingBudget(
-            width: min(geo.size.width, model.isPad ? 520 : geo.size.width),
-            height: geo.size.height - max(geo.safeAreaInsets.bottom, 16) + geo.safeAreaInsets.bottom,
+            width: min(size.width, model.isPad ? 520 : size.width),
+            height: size.height - max(bottomInset, 16) + bottomInset,
             forceShort: model.npForceShort
         )
         return VStack(alignment: .leading, spacing: 0) {
