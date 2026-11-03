@@ -51,3 +51,15 @@ struct CookieBadge: View {
         .accessibilityLabel(String(format: "Rating %.1f", score))
     }
 }
+
+/// The bar's accent-style selection: a subtle pill inside the glass (grey on
+/// light glass, light on dark), under accent-colored text.
+struct SelectionPill: View {
+    var cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
+            .padding(3)
+    }
+}

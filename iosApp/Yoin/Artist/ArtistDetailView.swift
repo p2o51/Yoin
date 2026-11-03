@@ -108,12 +108,15 @@ struct ArtistDetailView: View {
             Button {
                 withAnimation(.spring(duration: 0.09)) { following.toggle() }
             } label: {
-                YoinIcon(following ? "star_filled" : "star", size: 24)
-                    .foregroundStyle(following ? s.primary : app.onSurfaceVariant)
-                    .frame(width: 48, height: 48)
-                    .contentShape(.rect)
+                YoinIcon(following ? "star_filled" : "star", size: 22)
+                    .foregroundStyle(following ? AnyShapeStyle(s.primary) : AnyShapeStyle(.primary))
+                    .frame(width: 40, height: 40)
+                    .contentShape(.circle)
             }
-            .buttonStyle(PressScale())
+            .buttonStyle(.plain)
+            // Pinned header button over scrolling content: a glass circle.
+            .glassEffect(.regular.interactive(), in: .circle)
+            .frame(width: 48, height: 48)
             .accessibilityLabel(following ? "Favorited" : "Favorite")
         }
         .padding(.leading, 8).padding(.trailing, 4).padding(.top, 4).padding(.bottom, 6)
@@ -250,6 +253,7 @@ struct ArtistDetailView: View {
                 .lineLimit(1)
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(minHeight: 44)
+                // These chips scroll with the page, so they stay solid (not glass).
                 .background(on ? app.secondaryContainer : app.surfaceContainerHigh, in: .rect(cornerRadius: 18))
         }
         .buttonStyle(PressScale())

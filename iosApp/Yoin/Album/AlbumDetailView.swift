@@ -152,12 +152,15 @@ struct AlbumDetailView: View {
                         Button("Rename") {}
                         Button("Delete", role: .destructive) {}
                     } label: {
-                        YoinIcon("more_vertical", size: 24)
+                        YoinIcon("more_vertical", size: 22)
                             .foregroundStyle(ink)
-                            .frame(width: 48, height: 48)
-                            .contentShape(.rect)
+                            .frame(width: 40, height: 40)
+                            .contentShape(.circle)
                     }
                     .buttonStyle(.plain)
+                    .glassEffect(white ? .regular.tint(.white.opacity(0.18)).interactive() : .regular.interactive(),
+                                 in: .circle)
+                    .frame(width: 48, height: 48)
                     .accessibilityLabel("More actions")
                     .padding(.trailing, -12)
                 }

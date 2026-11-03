@@ -62,8 +62,8 @@ struct SurfaceStyle: Codable, Equatable, Sendable {
     var contrastShadow: Double = 0
 }
 
-/// Glass Lab (debug): live, persisted glass parameters per surface. Defaults
-/// are the shipped values, so nothing changes until a control is touched.
+/// Glass Lab (debug): live, persisted glass parameters per surface. The
+/// default is the Balanced preset; Current and Apple HIG stay for comparison.
 /// Open with `-glassLab 1` or a three-finger long-press.
 @MainActor
 @Observable
@@ -122,19 +122,23 @@ final class GlassLab {
     var appearance = 0 { didSet { save() } }
     var styles: [String: SurfaceStyle] = [:] { didSet { save() } }
     var extras: [String: Double] = [:] { didSet { save() } }
-    var preset: GlassPreset = .current { didSet { save() } }
+    var preset: GlassPreset = .balanced { didSet { save() } }
     var panelOpen = false
     var panelAtTop = false
     var panelCollapsed = false
 
-    private static let key = "glassLab.v1"
+    /// v2: Balanced became the default (51, 2026-11-03), so older saved
+    /// values (Current) don't carry over.
+    private static let key = "glassLab.v2"
 
     private init() {
-        resetValues()
+        suppressSave = true
+        apply(.balanced)
+        suppressSave = false
         if let data = UserDefaults.standard.data(forKey: Self.key),
            let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             appearance = saved.appearance
-            preset = saved.preset ?? .current
+            preset = saved.preset ?? .balanced
             styles.merge(saved.styles) { _, new in new }
             extras.merge(saved.extras) { _, new in new }
         }
@@ -169,9 +173,9 @@ final class GlassLab {
         extras = e
     }
 
+    /// Back to the shipped defaults: the Balanced preset.
     func reset() {
-        resetValues()
-        preset = .current
+        apply(.balanced)
         appearance = 0
     }
 

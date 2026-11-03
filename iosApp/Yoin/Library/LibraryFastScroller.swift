@@ -43,11 +43,11 @@ struct LibraryFastScroller: View {
                     HStack(alignment: .top, spacing: 8) {
                         Text(current?.label ?? "")
                             .font(.gsf(22)).monospacedDigit()
-                            .foregroundStyle(scheme.onPrimaryContainer)
+                            .foregroundStyle(scheme.primary)
                             .lineLimit(1)
                             .padding(.horizontal, 16)
                             .frame(minWidth: 56, minHeight: 56)
-                            .background(scheme.primaryContainer, in: .rect(cornerRadius: 28))
+                            .glassEffect(.regular, in: .rect(cornerRadius: 28))
                             .offset(y: min(max(0, thumbY + 32 - 28), g.size.height - 56))
                             .transition(.scale(scale: 0.6, anchor: .trailing).combined(with: .opacity))
                         ZStack(alignment: .top) {
@@ -55,14 +55,14 @@ struct LibraryFastScroller: View {
                                 let on = t.0 == current?.label
                                 Text(t.0)
                                     .font(.gsf(12, on ? .semibold : .medium)).monospacedDigit()
-                                    .foregroundStyle(on ? scheme.primary : scheme.onSurfaceVariant)
+                                    .foregroundStyle(on ? AnyShapeStyle(scheme.primary) : AnyShapeStyle(.secondary))
                                     .lineLimit(1)
                                     .fixedSize()
                                     .position(x: tickWidth / 2, y: t.1)
                             }
                         }
                         .frame(width: tickWidth, height: g.size.height)
-                        .background(scheme.surfaceContainerHigh, in: .rect(cornerRadius: 28))
+                        .glassEffect(.regular, in: .rect(cornerRadius: 28))
                         .transition(.scale(scale: 0.92, anchor: .trailing).combined(with: .opacity))
                     }
                     .padding(.trailing, 24 + 4)
@@ -118,12 +118,13 @@ struct LibraryFastScroller: View {
     }
 
     private func thumb(held: Bool) -> some View {
-        let fill = held ? scheme.primary : scheme.secondaryContainer
-        let ink = held ? scheme.onPrimary : scheme.onSecondaryContainer
+        // Untinted glass; held = the bar's accent style (accent chevrons on a pill).
+        let ink: AnyShapeStyle = held ? AnyShapeStyle(scheme.primary) : AnyShapeStyle(.primary)
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
+                                           bottomTrailingRadius: 4, topTrailingRadius: 4)
         return ZStack {
-            UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
-                                   bottomTrailingRadius: 4, topTrailingRadius: 4)
-                .fill(fill)
+            shape.fill(.clear).glassEffect(.regular.interactive(), in: shape)
+            if held { SelectionPill(cornerRadius: 9) }
             Path { p in
                 // Up and down chevrons: tips at ±6.5, half-width 4, rise 3.
                 p.move(to: CGPoint(x: 8, y: 24 - 6.5 + 3)); p.addLine(to: CGPoint(x: 12, y: 24 - 6.5))

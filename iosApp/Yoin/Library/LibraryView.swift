@@ -76,8 +76,6 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                header
-                chips
                 Group {
                     if filter == .songs || filter == .favorites {
                         songList
@@ -91,6 +89,16 @@ struct LibraryView: View {
         }
         .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        // Header and chips stay put (Android: only the grid scrolls) and float
+        // over the grid as glass, so they sit in a top safe-area bar and the
+        // system soft edge runs under them.
+        .safeAreaBar(edge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                header
+                chips
+            }
+            .padding(.bottom, 4)
+        }
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollMetrics.self) {
             ScrollMetrics(offset: $0.contentOffset.y + $0.contentInsets.top, content: $0.contentSize.height,
@@ -111,7 +119,7 @@ struct LibraryView: View {
                         wake()
                     },
                     held: $held)
-                .padding(.top, 140)
+                .padding(.top, 136) // below the header and chips
                 .padding(.bottom, 96)
             }
         }
@@ -146,16 +154,17 @@ struct LibraryView: View {
         HStack(spacing: 8) {
             Button { withAnimation(Yoin.spatial) { model.searchActive = true } } label: {
                 HStack(spacing: 12) {
-                    YoinIcon("search", size: 24).foregroundStyle(scheme.onSurfaceVariant)
-                    Text("Search library").font(.gsf(16)).foregroundStyle(scheme.onSurfaceVariant)
+                    // Adaptive label colors: they flip with the glass over dark content.
+                    YoinIcon("search", size: 24).foregroundStyle(.secondary)
+                    Text("Search library").font(.gsf(16)).foregroundStyle(.secondary)
                     Spacer()
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 56)
-                .background(scheme.surfaceContainerHighest, in: .capsule)
                 .contentShape(.capsule)
             }
             .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .capsule)
             Button {} label: {
                 Text("5")
                     .font(.gsf(14, .semibold))
@@ -178,15 +187,16 @@ struct LibraryView: View {
 
     private var chips: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 8) {
+            GlassEffectContainer(spacing: 4) { HStack(spacing: 8) {
                 if filter != nil {
                     Button { withAnimation(Yoin.spatial) { filter = nil } } label: {
                         YoinIcon("close", size: 20)
-                            .foregroundStyle(scheme.onSurfaceVariant)
+                            .foregroundStyle(.primary)
                             .frame(width: 44, height: 44)
-                            .background(scheme.surfaceContainerHigh, in: .circle)
+                            .contentShape(.circle)
                     }
-                    .buttonStyle(PressScale())
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
                     .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
                     .accessibilityLabel("Clear filter")
                 }
@@ -194,20 +204,24 @@ struct LibraryView: View {
                     let on = filter == kind
                     Button { withAnimation(Yoin.spatial) { filter = on ? nil : kind } } label: {
                         Text(kind.rawValue)
-                            .font(.gsf(14, .medium))
-                            .foregroundStyle(on ? scheme.onSecondaryContainer : scheme.onSurfaceVariant)
+                            .font(.gsf(14, on ? .semibold : .medium))
+                            .foregroundStyle(on ? AnyShapeStyle(scheme.primary) : AnyShapeStyle(.primary))
                             .lineLimit(1)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
                             .frame(minHeight: 44)
-                            .background(on ? scheme.secondaryContainer : scheme.surfaceContainerHigh,
-                                        in: .rect(cornerRadius: 18))
+                            .background { if on { SelectionPill(cornerRadius: 14) } }
+                            .contentShape(.rect(cornerRadius: 18))
                     }
-                    .buttonStyle(PressScale())
+                    .buttonStyle(.plain)
+                    // Pinned chips float over the grid: untinted glass; the
+                    // selected one in the bar's accent style.
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
                 }
             }
             .padding(.leading, filter == nil ? 16 : 8)
             .padding(.trailing, 16)
+            .padding(.vertical, 4) }
         }
         .scrollIndicators(.hidden)
         .mask(

@@ -126,12 +126,14 @@ struct SearchView: View {
                     Button { withAnimation(Yoin.spatial) { filter = f } } label: {
                         Text(f.rawValue)
                             .font(.gsf(14, .medium))
-                            .foregroundStyle(on ? scheme.onPrimary : Yoin.ink)
+                            .foregroundStyle(on ? AnyShapeStyle(scheme.primary) : AnyShapeStyle(.primary))
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .background(on ? scheme.primary : Yoin.surfaceContainerHigh, in: .capsule)
+                            .background { if on { SelectionPill(cornerRadius: 13) } }
+                            .contentShape(.capsule)
                     }
-                    .buttonStyle(PressScale())
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .capsule)
                 }
             }
         }
