@@ -68,10 +68,6 @@ struct YoinIcon: View {
 /// Launch arguments, e.g. `-screen np-short -glass yoin`.
 enum LaunchConfig {
     static var screen: String { UserDefaults.standard.string(forKey: "screen") ?? "home" }
-    /// Home cards: plain glass (default) or grainy "gummy" glass.
-    static var homeCardGummy: Bool {
-        screen.hasPrefix("home-gummy") || UserDefaults.standard.string(forKey: "homeCard") == "gummy"
-    }
     static var glass: String {
         if screen.hasSuffix("-yoinglass") { return "yoin" }
         return UserDefaults.standard.string(forKey: "glass") ?? "system"

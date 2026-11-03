@@ -23,30 +23,34 @@ struct NowPlayingView: View {
     @State private var shown = false
 
     private var palette: CoverPalette { model.playback.album.palette }
-    private var scheme: CoverScheme { CoverScheme(seed: palette.a, dark: colorScheme == .dark) }
-    /// Full page; the radius matches the iPhone's screen corners so the morph
-    /// from the pill lands on the display's own shape.
-    private let baseShape = RoundedRectangle(cornerRadius: 62, style: .continuous)
-    /// Glass tint strength on the transport buttons: enough to keep the
-    /// white glyphs legible over the lyrics, low enough to see them through.
-    private let glassTint = 0.72
+    private var scheme: CoverScheme { CoverScheme(album: model.playback.album, dark: colorScheme == .dark) }
+    /// Full page. The radius stays under the iPhone's screen-corner radius
+    /// (62 let Home peek out at the bottom corners); the display mask rounds
+    /// the rest.
+    private let baseShape = RoundedRectangle(cornerRadius: 44, style: .continuous)
+    /// Glass tint on the transport buttons and heart: low enough that the
+    /// lyrics behind them lens and refract at the edges; the on-color glyph
+    /// and label carry the contrast.
+    private let glassTint = 0.55
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                if panel {
-                    pageGradient.ignoresSafeArea()
-                } else {
-                    base(geo)
-                }
+        // The background sits outside the GeometryReader so it reaches the
+        // screen's bottom edge (inside, it stopped at the home indicator inset).
+        ZStack {
+            if panel {
+                pageGradient.ignoresSafeArea()
+            } else {
+                base
+            }
+            GeometryReader { geo in
                 content(geo)
                     .frame(maxWidth: model.isPad ? 520 : .infinity)
+                    .frame(width: geo.size.width, height: geo.size.height)
                     .opacity(shown ? 1 : 0)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .offset(y: max(0, dragY))
-            .gesture(dismissDrag, isEnabled: !panel)
         }
+        .offset(y: max(0, dragY))
+        .gesture(dismissDrag, isEnabled: !panel)
         .onAppear {
             let anim: Animation = model.slowMorph ? .easeIn(duration: 2).delay(4.5) : Yoin.effects.delay(0.08)
             withAnimation(anim) { shown = true }
@@ -63,7 +67,7 @@ struct NowPlayingView: View {
 
     /// Frosted glass over the albums around this one: previous album's color
     /// at the top edge, next album's at the bottom, this cover in the middle.
-    private func base(_ geo: GeometryProxy) -> some View {
+    private var base: some View {
         ZStack {
             neighbourAmbient.clipShape(baseShape)
             baseShape.fill(.clear)
@@ -73,15 +77,21 @@ struct NowPlayingView: View {
         .ignoresSafeArea()
     }
 
+    /// Colors come from each album's own scheme (Palette seed → MCU
+    /// SchemeExpressive): this one's primary in the middle, the previous
+    /// album's at the top edge, the next album's at the bottom.
     private var neighbourAmbient: some View {
         let albums = model.library.albums()
+        let dark = colorScheme == .dark
+        let previous = CoverScheme(album: albums[11], dark: dark)
+        let next = CoverScheme(album: albums[1], dark: dark)
         return ZStack {
             scheme.background
-            Circle().fill(palette.a.opacity(0.7)).frame(width: 360).blur(radius: 90)
+            Circle().fill(scheme.primary.opacity(0.55)).frame(width: 360).blur(radius: 90)
             VStack {
-                Ellipse().fill(albums[11].palette.a).frame(height: 300).offset(y: -90).blur(radius: 50)
+                Ellipse().fill(previous.primaryContainer).frame(height: 300).offset(y: -90).blur(radius: 50)
                 Spacer()
-                Ellipse().fill(albums[1].palette.a).frame(height: 320).offset(y: 110).blur(radius: 50)
+                Ellipse().fill(next.primaryContainer).frame(height: 320).offset(y: 110).blur(radius: 50)
             }
         }
     }
@@ -187,6 +197,7 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.tint((favorite ? scheme.tertiary : scheme.tertiaryContainer).opacity(glassTint))
                         .interactive(), in: .circle)
+        .shadow(color: scheme.tertiary.opacity(0.18), radius: 10, y: 5)
         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
     }
 
@@ -245,7 +256,11 @@ struct NowPlayingView: View {
 
     // 6. Transport: [PAUSE][Next] … [Repeat] / [Prev] 1:14 ~~~ -2:41
     private func transport(_ p: PlaybackSnapshot) -> some View {
-        GlassEffectContainer(spacing: 2) {
+        // One glass layer: Pause, Next and Prev sit 4–8 pt apart. A 3 pt
+        // container spacing keeps them separate at rest (10 bridged Pause and
+        // Prev into one blob) and lets neighbours blend as interactive glass
+        // swells on press.
+        GlassEffectContainer(spacing: 3) {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Button {} label: {
@@ -254,12 +269,14 @@ struct NowPlayingView: View {
                         .tracking(0.5)
                         .scaleEffect(x: 1.06, y: 1)
                         .foregroundStyle(scheme.onPrimary)
+                        .shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
                         .padding(.horizontal, 24)
                         .frame(height: 56)
                         .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.tint(scheme.primary.opacity(glassTint)).interactive(), in: .capsule)
+                .shadow(color: scheme.primary.opacity(0.18), radius: 12, y: 6)
                 .accessibilityLabel("Pause")
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next")
                 Spacer(minLength: 0)
@@ -294,11 +311,13 @@ struct NowPlayingView: View {
         Button {} label: {
             YoinIcon(icon, size: 28)
                 .foregroundStyle(ink)
+                .shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
                 .frame(width: 56, height: 56)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.tint(fill.opacity(glassTint)).interactive(), in: .circle)
+        .shadow(color: fill.opacity(0.18), radius: 12, y: 6)
         .accessibilityLabel(label)
     }
 
@@ -449,7 +468,10 @@ struct RatingBar: View {
             let h = geo.size.height
             let fraction = value / 10
             ZStack(alignment: .top) {
-                Capsule().fill(scheme.surfaceVariant)
+                // Track: glass tinted with the container role, so the
+                // background shows through; the fill (the score) stays solid.
+                Capsule().fill(.clear)
+                    .glassEffect(.regular.tint(scheme.surfaceVariant.opacity(0.3)), in: .capsule)
                 Capsule()
                     .fill(scheme.primary)
                     .frame(height: max(48, h * fraction))

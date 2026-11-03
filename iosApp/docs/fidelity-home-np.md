@@ -9,7 +9,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Fonts | theme/Type.kt | Google Sans Flex (GSF) static cuts 400/500/600/700; letterSpacing 0, except labelMedium/labelSmall +0.1sp | Same static files, plus the variable file through `YoinFont` (CoreText `kCTFontVariationAttribute`) |
 | Rounded cut | theme/Type.kt:27-44 | Variable GSF, ROND 100, at Medium or SemiBold | `YoinFont.rounded(size, semibold:)` |
 | Score numerals | memories/emblem/GrooveType.kt | wght 690/640, ROND 50, wdth 76 ("10.0") or 92, opsz = size | `YoinFont.score` (cookie badge on Album/Library) |
-| Color scheme | theme/CoverSeedExtractor.kt, theme/ExpressiveColorSchemeFactory.kt | MCU SchemeExpressive (SPEC_2025) from the cover seed | `CoverScheme`: HSL approximation. Primary = seed hue. Secondary and tertiary use MCU Expressive's hue-rotation table. **Approximation, see Gaps** |
+| Color scheme | theme/CoverSeedExtractor.kt, theme/ExpressiveColorSchemeFactory.kt | AndroidX Palette (200 px, 112×112 resize, 16 colors, default filter; vibrant → dominant → muted), then MCU SchemeExpressive (SPEC_2025, contrast 0) | Faithful Swift port in `Theme/MCU/` (Palette, ColorCutQuantizer, Target; Hct, Cam16, HctSolver, TonalPalette, DynamicColor, ColorSpec2025, SchemeExpressive). `CoverScheme(album:dark:)`. **Verified:** Palette is byte-identical to Android (Robolectric, same pixels, 12 covers); MCU golden test passes 1152/1152 roles (`YoinTests/McuGoldenTests` against the fixture written by `app/src/test/.../McuGoldenFixtureTest.kt`) |
 | Card backdrop colors | component/ExpressiveBackdropPalette.kt:226-333 | base = S×0.82 ∈ [0.18, 0.78], L×0.72+0.12 ∈ [0.24, 0.62]; accent = S×1.08 ∈ [0.24, 0.92], L+0.14 ∈ [0.36, 0.82] | `BackdropColors`, same formulas (accent from the mock's second cover color) |
 
 ## Now Playing (phone portrait, `CompactPlayingContent`)
@@ -68,17 +68,21 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 ## iOS-only decisions
 
 - **Home album items:** Mobbin check (Apple Music, Spotify, YouTube Music, Deezer, SoundCloud): iOS music apps show bare square covers with 1–2 lines of text, never a shape behind them. Decided (2026-11-03): bare cover (option A) is the only style; a tinted-tile alternative was tried and dropped. Title in GSF SemiBold ROND 100. The memory mark sits on the cover's top-trailing corner, inset 8. The Rediscover score stays a solid capsule.
-- **Home cards as glass:** the Activities hero, small and wide cards, the strip and the Rediscover cards are Liquid Glass. Behind each card is its own cover, scaled ×1.6, blurred 26 and clipped to the card. On top is `.regular` glass tinted with Android's card wash (lerp(surfaceContainerLow, base, 0.30)) at 60%, so text keeps the solid card's contrast. `-homeCard gummy` adds grain, a 72% tint, a bright top rim and a cover-colored glow. Covers, artist circles, the score capsule and the bare-cover grids stay solid.
+- **Home cards as glass:** the Activities hero, small and wide cards, the strip and the Rediscover cards are Liquid Glass. Behind each card is its own cover, scaled ×1.6, blurred 26 and clipped to the card. On top is `.regular` glass tinted with Android's card wash (lerp(surfaceContainerLow, base, 0.30)) at 60%, so text keeps the solid card's contrast. Decided (2026-11-03): plain glass; a grainy "gummy" variant was tried and dropped. Covers, artist circles, the score capsule and the bare-cover grids stay solid.
 - **Bottom bar:** stays Liquid Glass (Home · Now Playing pill · Library + Search circle), not Android's 68 dp surfaceContainerHigh bar.
 - **Opening Now Playing:** the full page grows out of the bar's pill (matched geometry), with a 62 pt radius so it lands on the screen's own corners.
-- **Now Playing background:** frosted glass over the current cover's color, with the previous album's color at the top edge and the next album's at the bottom. Android uses a surfaceContainer → background gradient; the iPad panel keeps that gradient.
-- **Transport and heart:** Pause, Next, Prev, Repeat and the heart are Liquid Glass tinted with their Android color roles (primary / secondary / tertiaryContainer / tertiary) at 72%, interactive, at Android's sizes and positions.
+- **Now Playing background:** frosted glass over this album's primary, with the previous album's primaryContainer at the top edge and the next album's at the bottom (each from its own scheme). Android uses a surfaceContainer → background gradient; the iPad panel keeps that gradient.
+- **Transport and heart:** Pause, Next, Prev, Repeat and the heart are Liquid Glass, interactive, at Android's sizes and positions.
+  - Tint: their Android color roles (primary / secondary / tertiaryContainer / tertiary) at 55%, so the lyrics behind lens through.
+  - Legibility: glyphs and the PAUSE label get a 1.5 pt black shadow at 22% so they stay readable. Each button casts a soft shadow in its own role color.
+  - Grouping: Pause, Next and Prev share one GlassEffectContainer (spacing 3). They stay separate at rest; a spacing of 10 bridged Pause and Prev into one blob. They blend as interactive glass swells on press.
+- **Rating rail:** the track is glass tinted with surfaceVariant at 30%; the fill (the score) stays solid primary.
 - **Lyrics under the buttons:** the lyric list continues below its Android window, under the transport, fading out by the progress row. The current line always stays in the clear band above the buttons. In the short layout the clear band is Android's 44 pt one-line row and the following lines run under the buttons.
 - **Dismissing Now Playing:** ⌄ and drag-down; there is no sheet grabber.
 
 ## Gaps not closed
 
-- **Color scheme:** MCU (HCT and SchemeExpressive SPEC_2025) is not ported. The tones are an HSL approximation, so primary/secondary/tertiary are close but not identical to Android's for the same cover.
+- **Color scheme:** closed. Palette and MCU are ported and verified (see Shared).
 - **Shapes:** MaterialShapes.Bun and Ghostish are hand-drawn approximations. Bun keeps the published waist and lobe points but not RoundedPolygon's corner smoothing.
 - **Behavior not ported:**
   - Lyrics don't scroll or sync (static mock).

@@ -44,3 +44,17 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    scheme:
+      testTargets:
+        - YoinTests
+  YoinTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: YoinTests
+    dependencies:
+      - target: Yoin
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.tests
