@@ -93,3 +93,8 @@ Only numbers and pure functions are shared. Everything that is UI is written onc
 - **Glass.** It is iOS-only. Only the preset values are shared.
 - **Fonts and shapes.** Each platform loads Google Sans Flex itself (Compose `FontVariation`, CoreText variation axes), using the shared axis values. Continuous corners, MaterialShapes and the Yoin mark paths are drawn per platform.
 - **Remaining literals.** Values not yet in `YoinTokens` stay as literals on each side: Home card insides, the album page header, artist, playlist and search metrics, the iOS-only glass bar sizes. Move them over when you next touch them. `fidelity-home-np.md` maps them.
+
+## Release builds and motion (2026-11-03)
+
+- Xcode links `shared/build/XCFrameworks/current/YoinShared.xcframework`, a symlink the scheme pre-action points at `debug` or `release` to match `$CONFIGURATION` (Release / Archive run `:shared:assembleYoinSharedReleaseXCFramework`). Verified: Debug (simulator), Release (generic simulator) and Release (generic iOS device, unsigned) all build. The framework has arm64 slices only, so simulator builds exclude x86_64 (`EXCLUDED_ARCHS[sdk=iphonesimulator*]`).
+- Motion: Glass Lab › Motion switches `Yoin.spatial / spatialFast / effects` between the current iOS springs (default) and Android's `YoinTokens.Motion` springs (expressiveDefaultSpatial, expressiveFastSpatial, expressiveDefaultEffects; damping ratio → SwiftUI damping = ratio × 2√stiffness, mass 1).

@@ -135,6 +135,11 @@ final class GlassLab {
     var styles: [String: SurfaceStyle] = [:] { didSet { save() } }
     var extras: [String: Double] = [:] { didSet { save() } }
     var preset: GlassPreset = .balanced { didSet { save() } }
+    /// Motion: false = the current iOS springs (default until 51 decides),
+    /// true = Android's springs from the shared YoinTokens.Motion.
+    var sharedMotion = UserDefaults.standard.bool(forKey: "glassLab.sharedMotion") {
+        didSet { UserDefaults.standard.set(sharedMotion, forKey: "glassLab.sharedMotion") }
+    }
     var panelOpen = false
     var panelAtTop = false
     var panelCollapsed = false
@@ -386,6 +391,10 @@ struct GlassLabPanel: View {
         return VStack(alignment: .leading, spacing: 10) {
             Picker("Preset", selection: Binding(get: { lab.preset }, set: { lab.apply($0) })) {
                 ForEach(GlassPreset.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Picker("Motion", selection: $lab.sharedMotion) {
+                Text("Current iOS").tag(false); Text("Shared (Android)").tag(true)
             }
             .pickerStyle(.segmented)
             Picker("Appearance", selection: $lab.appearance) {

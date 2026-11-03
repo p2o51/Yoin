@@ -11,6 +11,7 @@ enum Tokens {
     static var detail: YoinTokens.Detail { .shared }
     static var type: YoinTokens.Typography { .shared }
     static var glass: YoinTokens.Glass { .shared }
+    static var motion: YoinTokens.Motion { .shared }
 }
 
 extension Double {

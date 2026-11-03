@@ -20,7 +20,7 @@ targets:
     # YoinTokens, layout / colour algorithms) as a static XCFramework.
     # docs/shared-kmp.md.
     dependencies:
-      - framework: ../shared/build/XCFrameworks/debug/YoinShared.xcframework
+      - framework: ../shared/build/XCFrameworks/current/YoinShared.xcframework
         embed: false
     preBuildScripts:
       # The scheme's build pre-action (below) runs Gradle before Xcode plans
@@ -30,14 +30,14 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           if [ "${YOIN_SKIP_SHARED_BUILD:-0}" = "1" ]; then exit 0; fi
-          FW="$SRCROOT/../shared/build/XCFrameworks/debug/YoinShared.xcframework/Info.plist"
+          FW="$SRCROOT/../shared/build/XCFrameworks/current/YoinShared.xcframework/Info.plist"
           if [ ! -f "$FW" ]; then
-            echo "error: YoinShared.xcframework is missing. Run ./gradlew :shared:assembleYoinSharedDebugXCFramework (iosApp/docs/shared-kmp.md)."
+            echo "error: YoinShared.xcframework is missing. Build once from Xcode (the scheme pre-action runs Gradle), or see iosApp/docs/shared-kmp.md."
             exit 1
           fi
           NEWER=$(find "$SRCROOT/../shared/src" "$SRCROOT/../shared/build.gradle.kts" -newer "$FW" -type f | head -1)
           if [ -n "$NEWER" ]; then
-            echo "error: YoinShared.xcframework is older than $NEWER. Run ./gradlew :shared:assembleYoinSharedDebugXCFramework, or build again (the scheme pre-action runs it)."
+            echo "error: YoinShared.xcframework is older than $NEWER. Build again (the scheme pre-action runs Gradle), or see iosApp/docs/shared-kmp.md."
             exit 1
           fi
     info:
@@ -66,6 +66,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin
         # The YoinShared check reads ../shared outside the sandbox.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # YoinShared has iosArm64 + iosSimulatorArm64 slices only (no Intel
+        # simulator), so generic simulator builds skip x86_64.
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         TARGETED_DEVICE_FAMILY: "1,2"
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -73,7 +76,7 @@ targets:
     scheme:
       testTargets:
         - YoinTests
-      # Rebuilds ../shared/build/XCFrameworks/debug/YoinShared.xcframework
+      # Rebuilds ../shared/build/XCFrameworks/<debug or release>/YoinShared.xcframework
       # before Xcode plans the build (Gradle skips it when :shared is
       # unchanged). YOIN_SKIP_SHARED_BUILD=1 links the framework as is.
       preActions:
@@ -85,7 +88,12 @@ targets:
               export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
             fi
             mkdir -p "$SRCROOT/build"
-            cd "$SRCROOT/.." && ./gradlew --quiet :shared:assembleYoinSharedDebugXCFramework > "$SRCROOT/build/yoin-shared-gradle.log" 2>&1
+            # Release / Archive link the release framework, everything else the
+            # debug one; Xcode always links XCFrameworks/current (a symlink).
+            if [ "$CONFIGURATION" = "Release" ]; then FLAVOR=release; TASK=assembleYoinSharedReleaseXCFramework
+            else FLAVOR=debug; TASK=assembleYoinSharedDebugXCFramework; fi
+            cd "$SRCROOT/.." && ./gradlew --quiet ":shared:$TASK" > "$SRCROOT/build/yoin-shared-gradle.log" 2>&1
+            ln -sfn "$FLAVOR" "$SRCROOT/../shared/build/XCFrameworks/current"
   YoinTests:
     type: bundle.unit-test
     platform: iOS
@@ -94,7 +102,7 @@ targets:
     dependencies:
       - target: Yoin
       # Headers only: the app already links YoinShared statically.
-      - framework: ../shared/build/XCFrameworks/debug/YoinShared.xcframework
+      - framework: ../shared/build/XCFrameworks/current/YoinShared.xcframework
         embed: false
         link: false
     settings:

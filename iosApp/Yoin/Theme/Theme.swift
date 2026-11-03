@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import YoinShared
 
 /// Yoin tokens for iOS. Names follow the Android MD3 roles loosely.
 enum Yoin {
@@ -22,11 +23,27 @@ enum Yoin {
     static let violet = dyn(0x6B4FD8, 0xCFBDFF)
 
     /// MD3 Expressive spatial spring (position, size).
-    static let spatial: Animation = .spring(response: 0.42, dampingFraction: 0.78)
+    @MainActor static var spatial: Animation {
+        GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveDefaultSpatial)
+            : .spring(response: 0.42, dampingFraction: 0.78)
+    }
     /// Fast spatial spring for small components.
-    static let spatialFast: Animation = .spring(response: 0.3, dampingFraction: 0.72)
+    @MainActor static var spatialFast: Animation {
+        GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveFastSpatial)
+            : .spring(response: 0.3, dampingFraction: 0.72)
+    }
     /// Effects spring (color, alpha). No overshoot.
-    static let effects: Animation = .spring(response: 0.35, dampingFraction: 1)
+    @MainActor static var effects: Animation {
+        GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveDefaultEffects)
+            : .spring(response: 0.35, dampingFraction: 1)
+    }
+
+    /// Android's MD3 Expressive spring (damping ratio + stiffness, mass 1)
+    /// from the shared YoinTokens.Motion, as a SwiftUI spring.
+    private static func shared(_ s: YoinTokens.MotionSpring) -> Animation {
+        let k = s.stiffness
+        return .interpolatingSpring(mass: 1, stiffness: k, damping: s.damping * 2 * k.squareRoot())
+    }
 }
 
 extension Font {
