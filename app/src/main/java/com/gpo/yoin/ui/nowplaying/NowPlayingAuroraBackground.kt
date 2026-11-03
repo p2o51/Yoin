@@ -374,7 +374,9 @@ fun Modifier.nowPlayingAuroraBackground(
     var fieldShown by remember { mutableStateOf(coverField) }
     var fieldFrom by remember { mutableStateOf<CoverField?>(null) }
     val fieldFade = remember { Animatable(1f) }
-    val fieldFadeSpec = YoinMotion.slowEffectsSpec<Float>(role = YoinMotionRole.Expressive)
+    // Room-sized colour change: as long as the song-change flow, not the
+    // ~0.35 s slow effects spring (on device that read as a quick blink).
+    val fieldFadeSpec = tween<Float>(durationMillis = FIELD_CROSS_MS, easing = FastOutSlowInEasing)
     LaunchedEffect(coverField) {
         if (coverField == fieldShown) return@LaunchedEffect
         val outgoing = fieldShown
@@ -978,6 +980,7 @@ private const val PAUSE_BURST_MS = 2200
 
 private const val LINE_BAND_MS = 1400
 private const val WASH_FLOW_MS = 820
+private const val FIELD_CROSS_MS = 900
 
 /** How long a commit waits for the new cover's colours before flowing anyway. */
 private const val FlowWaitMs = 700L
