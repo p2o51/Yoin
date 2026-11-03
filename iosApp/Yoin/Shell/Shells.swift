@@ -52,6 +52,12 @@ struct PhoneShell: View {
             }
         }
         .background(Yoin.surface)
+        .task {
+            // `-screen np-morph`: a deliberately slow pill → page expansion.
+            guard model.slowMorph else { return }
+            try? await Task.sleep(for: .seconds(1))
+            withAnimation(.linear(duration: 6)) { model.npExpanded = true }
+        }
     }
 }
 

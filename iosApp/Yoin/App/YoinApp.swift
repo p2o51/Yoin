@@ -15,7 +15,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if hsc == .regular {
+            if LaunchConfig.baseScreen == "type" {
+                TypeSpecimenView()
+            } else if hsc == .regular {
                 PadShell()
             } else {
                 PhoneShell()

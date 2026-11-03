@@ -5,11 +5,21 @@ enum ShellSection: Hashable {
     case library
 }
 
-enum NowPlayingBase: String {
-    /// A: flat cover color under the glass sheet.
-    case flat
-    /// B: frosted base, so Now Playing reads as two layers of glass.
-    case frost
+/// Two-layer Now Playing variants (base glass + compact top glass card).
+enum NPVariant: String, CaseIterable {
+    /// Base: cover-tinted clear glass over the shell content.
+    case v1
+    /// Base: heavier frosted glass with grain over a blown-up cover.
+    case v2
+    /// Base: flat cover color.
+    case v3
+    /// Base: glass over the previous/next albums' colors; card casts a colored shadow.
+    case v4
+
+    var next: NPVariant {
+        let all = Self.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
+    }
 }
 
 @MainActor
@@ -27,7 +37,9 @@ final class AppModel {
     var npPanel = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
-    var npBase: NowPlayingBase = .flat
+    var npVariant: NPVariant = .v1
+    /// Screenshot aid: expand Now Playing slowly so a mid-morph frame can be captured.
+    var slowMorph = false
     var glassFlavor: GlassFlavor = .system
     var showLanding = false
     var playback: PlaybackSnapshot
@@ -36,12 +48,13 @@ final class AppModel {
         self.library = library
         self.playbackSource = playback
         self.playback = playback.current()
-        npBase = NowPlayingBase(rawValue: LaunchConfig.npBase) ?? .flat
+        npVariant = NPVariant(rawValue: LaunchConfig.npVariant) ?? .v1
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
         case "album": path = [library.albums()[0]]
-        case "np", "np-frost": npExpanded = true
+        case "np", "np-frost", "np-v1", "np-v2", "np-v3", "np-v4": npExpanded = true
+        case "np-morph": slowMorph = true
         case "np-panel": npPanel = true
         case "landing": showLanding = true
         default: break

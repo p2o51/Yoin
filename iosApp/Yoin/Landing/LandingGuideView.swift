@@ -62,8 +62,9 @@ struct LandingGuideView: View {
                     .foregroundStyle(Yoin.inkVariant)
                 Spacer()
             }
+            // The guide speaks in the mascot's voice: rounded cut (Android landing bubble).
             Text(s.text)
-                .font(.gsf(22, .semibold))
+                .font(YoinFont.rounded(22, semibold: true, relativeTo: .title2))
                 .foregroundStyle(Yoin.ink)
                 .contentTransition(.opacity)
             if let value = s.copy {

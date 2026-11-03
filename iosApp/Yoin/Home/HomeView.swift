@@ -33,11 +33,12 @@ struct HomeView: View {
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
+                // Android HomeGreetingTitle: both lines in the rounded cut (ROND 100, Medium).
                 Text(greeting)
-                    .font(.gsf(16, .medium))
+                    .font(YoinFont.rounded(16, relativeTo: .subheadline))
                     .foregroundStyle(Yoin.inkVariant)
                 Text("Home")
-                    .font(.gsf(30, .medium))
+                    .font(YoinFont.rounded(30, relativeTo: .largeTitle))
                     .foregroundStyle(Yoin.ink)
             }
             Spacer()
@@ -292,6 +293,8 @@ struct CookieBadge: View {
     var size: CGFloat = 84
     var rings: Int = 0
     var ratedRings: Int = 0
+    /// Album rating (wght 690) vs. track average (640), as GrooveType.
+    var albumRating = true
 
     var body: some View {
         ZStack {
@@ -306,9 +309,9 @@ struct CookieBadge: View {
                         .frame(width: size * f, height: size * f)
                 }
             }
-            Text(String(format: "%.1f", score))
-                .font(.gsf(size * 0.32, .semibold))
-                .monospacedDigit()
+            let label = String(format: "%.1f", score)
+            Text(label)
+                .font(YoinFont.score(label, size: size * 0.32, albumRating: albumRating))
                 .foregroundStyle(.white)
         }
         .frame(width: size, height: size)

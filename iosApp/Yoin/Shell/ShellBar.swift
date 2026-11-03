@@ -76,9 +76,15 @@ struct ShellBar: View {
             model.setNowPlaying(expanded: true)
         } label: {
             HStack(spacing: 10) {
-                CoverArt(palette: p.album.palette, cornerRadius: 6, seed: p.album.seed)
-                    .frame(width: 42, height: 42)
-                    .matchedGeometryEffect(id: "np.cover", in: npNamespace, isSource: !model.npExpanded)
+                // Matched only while closed, so on open the page's cover and
+                // surface start from these frames and grow (and shrink back).
+                if model.npExpanded {
+                    Color.clear.frame(width: 42, height: 42)
+                } else {
+                    CoverArt(palette: p.album.palette, cornerRadius: 6, seed: p.album.seed)
+                        .frame(width: 42, height: 42)
+                        .matchedGeometryEffect(id: "np.cover", in: npNamespace)
+                }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(p.track.title)
                         .font(.gsf(15, .semibold))
@@ -99,8 +105,10 @@ struct ShellBar: View {
         .yoinGlass(Capsule(), tint: model.accent, flavor: flavor)
         .glassEffectID("np", in: glassNS)
         .background {
-            Capsule().fill(.clear)
-                .matchedGeometryEffect(id: "np.surface", in: npNamespace, isSource: !model.npExpanded)
+            if !model.npExpanded {
+                Capsule().fill(.clear)
+                    .matchedGeometryEffect(id: "np.surface", in: npNamespace)
+            }
         }
         .accessibilityLabel("Now playing, \(p.track.title) by \(p.album.artist)")
     }

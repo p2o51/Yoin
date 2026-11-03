@@ -61,7 +61,8 @@ struct AlbumDetailView: View {
                 .padding(.trailing, 44)
                 .overlay(alignment: .bottomTrailing) {
                     CookieBadge(score: score ?? 0, palette: album.palette, size: 96,
-                                rings: album.tracks.count, ratedRings: album.ratedCount)
+                                rings: album.tracks.count, ratedRings: album.ratedCount,
+                                albumRating: album.rating != nil)
                         .opacity(score == nil ? 0.5 : 1)
                         .offset(x: 0, y: 26)
                 }
