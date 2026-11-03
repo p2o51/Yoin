@@ -193,6 +193,8 @@ public struct WavyProgressBar: View {
     /// finger makes the exact position harder to read; the glass time bubble carries the motion.
     public var flattensWhileScrubbing: Bool
     public var onSeek: (Double) -> Void
+    /// True while a finger is on the bar, false when it lifts.
+    public var onScrubbing: (Bool) -> Void
 
     @State private var shown: Double
     @State private var amplitude: CGFloat
@@ -212,6 +214,7 @@ public struct WavyProgressBar: View {
         metrics: WavyProgressMetrics = .yoin,
         look: WavyLook = .tint,
         flattensWhileScrubbing: Bool = true,
+        onScrubbing: @escaping (Bool) -> Void = { _ in },
         onSeek: @escaping (Double) -> Void
     ) {
         self.progress = progress
@@ -224,6 +227,7 @@ public struct WavyProgressBar: View {
         self.look = look
         self.flattensWhileScrubbing = flattensWhileScrubbing
         self.onSeek = onSeek
+        self.onScrubbing = onScrubbing
         _shown = State(initialValue: progress)
         _amplitude = State(initialValue: isPlaying ? 1 : 0)
     }
@@ -352,6 +356,7 @@ public struct WavyProgressBar: View {
             .onChanged { value in
                 let f = min(max(value.location.x / max(width, 1), 0), 1)
                 if scrub == nil {
+                    onScrubbing(true)
                     withAnimation(.spring(duration: 0.35, bounce: 0.3)) { scrub = f }
                 } else {
                     scrub = f
@@ -364,6 +369,7 @@ public struct WavyProgressBar: View {
                 withTransaction(t) { shown = f }
                 withAnimation(.spring(duration: 0.3, bounce: 0)) { scrub = nil }
                 seekCount += 1
+                onScrubbing(false)
                 onSeek(f)
             }
     }

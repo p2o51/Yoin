@@ -10,18 +10,32 @@ import YoinShared
 /// frosted glass over the current, previous and next albums' colors; the
 /// transport buttons and the heart are tinted Liquid Glass, and the lyrics run
 /// on underneath them. Drag down or tap ⌄ to collapse.
+///
+/// Open / close morph (phone): the shell mounts this view at the pill's
+/// frames with `open == false`, then springs `open` on; closing springs it
+/// off and unmounts when the spring lands. The surface, cover and title are
+/// matched to the pill (whoever is "open" is the geometry source), so they
+/// grow out of it and shrink back into it; the rest fades.
 struct NowPlayingView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     var npNamespace: Namespace.ID
     /// iPad side panel: no sheet morph, no drag-to-dismiss.
     var panel = false
+    /// Morph target: true = the full page, false = folded into the bar's pill.
+    var open = true
 
     @State private var dragY: CGFloat = 0
     @State private var tab = 0
     @State private var rating: Double = 6.3
     @State private var favorite = true
-    @State private var shown = false
+    /// One "hands on the controls" state for rating, heart, transport and
+    /// the progress bar: while it is on, the progress bar sits in glass.
+    /// `-screen np-touch` starts with it (and a held rating) on.
+    @State private var interacting = LaunchConfig.baseScreen == "np-touch"
+    @State private var ratingHeld = LaunchConfig.baseScreen == "np-touch"
+    @State private var touching: Set<String> = []
+    @State private var release: Task<Void, Never>?
 
     private var palette: CoverPalette { model.playback.album.palette }
     private var scheme: CoverScheme { CoverScheme(album: model.playback.album, dark: colorScheme == .dark) }
@@ -50,14 +64,47 @@ struct NowPlayingView: View {
                 content(geo)
                     .frame(maxWidth: model.isPad ? 520 : .infinity)
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .opacity(shown ? 1 : 0)
             }
         }
         .offset(y: max(0, dragY))
         .gesture(dismissDrag, isEnabled: !panel)
-        .onAppear {
-            let anim: Animation = model.slowMorph ? .easeIn(duration: 2).delay(4.5) : Yoin.effects.delay(0.08)
-            withAnimation(anim) { shown = true }
+    }
+
+    // MARK: Morph
+
+    /// Surface, cover and title: in quickly on open; on close they hold
+    /// until they are nearly pill-sized, then hand over to the pill.
+    private var presenceFade: Animation {
+        if model.slowMorph { return open ? .easeOut(duration: 1) : .easeIn(duration: 1.5).delay(4.2) }
+        return open ? .spring(response: 0.18, dampingFraction: 1) : Yoin.effects.delay(0.12)
+    }
+
+    /// Everything else: in once the page has room, out at once on close.
+    private var contentFade: Animation {
+        if model.slowMorph { return open ? .easeIn(duration: 2).delay(3.5) : .easeOut(duration: 1) }
+        return open ? Yoin.effects.delay(0.08) : .spring(response: 0.2, dampingFraction: 1)
+    }
+
+    /// Pill title (15 pt) over the hero title (36 pt).
+    private static let titleFoldScale: CGFloat = 15 / 36
+
+    // MARK: Interaction
+
+    /// A control reports a finger down / up. The glass progress bar stays
+    /// for a second after the last finger lifts.
+    private func touch(_ source: String, _ down: Bool) {
+        release?.cancel()
+        if down {
+            touching.insert(source)
+            if !interacting { withAnimation(Yoin.spatial) { interacting = true } }
+        } else {
+            touching.remove(source)
+            guard touching.isEmpty else { return }
+            release = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, touching.isEmpty else { return }
+                withAnimation(Yoin.spatial) { interacting = false }
+            }
         }
     }
 
@@ -77,7 +124,8 @@ struct NowPlayingView: View {
             baseShape.fill(.clear)
                 .labGlass("npBackground", scheme: scheme, brand: brand, auto: scheme.background, in: baseShape)
         }
-        .matchedGeometryEffect(id: "np.surface", in: npNamespace)
+        .matchedGeometryEffect(id: "np.surface", in: npNamespace, isSource: open)
+        .npFade(open, presenceFade)
         .ignoresSafeArea()
     }
 
@@ -113,11 +161,13 @@ struct NowPlayingView: View {
         return VStack(alignment: .leading, spacing: 0) {
             topBar(p)
                 .frame(height: budget.topBar)
+                .npFade(open, contentFade)
             coverRow(budget.cover)
             Spacer().frame(height: budget.coverGap)
             if !budget.oneLineLyric {
                 tabs
                     .frame(height: budget.tabs, alignment: .top)
+                    .npFade(open, contentFade)
                 Spacer().frame(height: budget.tabGap)
             }
             // The lyrics run on under the glass transport; the current line
@@ -130,6 +180,7 @@ struct NowPlayingView: View {
                     .padding(.top, clear)
             }
             .frame(height: clear + budget.transport, alignment: .top)
+            .npFade(open, contentFade)
             if budget.slack > 0 {
                 Spacer().frame(height: budget.slack)
             }
@@ -137,6 +188,7 @@ struct NowPlayingView: View {
                 .frame(height: budget.hero, alignment: budget.inlineHero ? .bottom : .top)
             pills
                 .frame(height: budget.pills, alignment: .bottomLeading)
+                .npFade(open, contentFade)
         }
         .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -145,13 +197,19 @@ struct NowPlayingView: View {
     // 1. Top bar: ⌄ + "PLAYING FROM ALBUM" / album name.
     private func topBar(_ p: PlaybackSnapshot) -> some View {
         HStack(spacing: 4) {
+            // A glass circle (the transport's secondary glass), so it reads
+            // as a control over the page; it rides along with the drag.
             Button { collapse() } label: {
-                YoinIcon("chevron_down", size: 28)
-                    .foregroundStyle(scheme.onSurfaceVariant)
-                    .frame(width: 48, height: 48)
-                    .contentShape(.rect)
+                YoinIcon("chevron_down", size: 26)
+                    .foregroundStyle(scheme.onSurface)
+                    .labContrast("transportSecondary")
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
             }
             .buttonStyle(.plain)
+            .labGlass("transportSecondary", scheme: scheme, brand: brand,
+                      auto: scheme.surfaceContainerHighest, in: Circle())
+            .frame(width: 48, height: 48)
             .accessibilityLabel("Collapse Now Playing")
             VStack(alignment: .leading, spacing: 0) {
                 Text("PLAYING FROM ALBUM")
@@ -180,16 +238,22 @@ struct NowPlayingView: View {
             CoverArt(palette: p.album.palette, cornerRadius: 0, seed: p.album.seed)
                 .frame(width: cover, height: cover)
                 // ContinuousRoundedCornerShape(16dp), smoothing 0.6 ≈ Apple's continuous corners.
-                .clipShape(.rect(cornerRadius: Tokens.shape.NOW_PLAYING_COVER.cg, style: .continuous))
-                .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace)
+                // Folded, it takes the pill cover's 42 pt frame and 6 pt corners.
+                .clipShape(.rect(cornerRadius: open ? Tokens.shape.NOW_PLAYING_COVER.cg : 6, style: .continuous))
+                .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace, isSource: open)
+                .npFade(open, presenceFade)
             VStack(spacing: 0) {
-                RatingBar(value: $rating, scheme: scheme)
-                    .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
+                RatingBar(value: $rating, scheme: scheme, held: ratingHeld) { down in
+                    withAnimation(Yoin.spatialFast) { ratingHeld = down }
+                    touch("rating", down)
+                }
+                .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
                 heart
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
             .frame(width: Tokens.np.PHONE_RATING_COLUMN.cg)
+            .npFade(open, contentFade)
         }
     }
 
@@ -203,7 +267,7 @@ struct NowPlayingView: View {
                 .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressReport { touch("heart", $0) })
         .labGlass("heart", scheme: scheme, brand: brand,
                   auto: favorite ? scheme.tertiary : scheme.tertiaryContainer, in: Circle())
         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
@@ -286,7 +350,7 @@ struct NowPlayingView: View {
                         .frame(height: 56)
                         .contentShape(.capsule)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressReport { touch("pause", $0) })
                 .labGlass("transportPrimary", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
                 .accessibilityLabel("Pause")
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next")
@@ -297,18 +361,7 @@ struct NowPlayingView: View {
             HStack(spacing: 0) {
                 roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: "Previous")
                 Spacer().frame(width: 8)
-                Text(formatTime(p.positionSec))
-                    .frame(minWidth: 44, alignment: .leading)
-                    .offset(y: 6)
-                Spacer().frame(width: 8)
-                WavyProgressBar(progress: Double(p.positionSec) / Double(p.track.durationSec),
-                                duration: TimeInterval(p.track.durationSec), isPlaying: p.isPlaying,
-                                tint: scheme.primary, trackTint: scheme.surfaceContainerHighest) { _ in }
-                    .frame(height: 40, alignment: .bottom)
-                Spacer().frame(width: 8)
-                Text("-" + formatTime(p.track.durationSec - p.positionSec))
-                    .frame(minWidth: 52, alignment: .trailing)
-                    .offset(y: 6)
+                progress(p)
             }
             .font(.gsf(14, .medium))
             .monospacedDigit()
@@ -316,6 +369,35 @@ struct NowPlayingView: View {
             .frame(height: 56)
         }
         }
+    }
+
+    /// 1:14 ~~~ -2:41. While any control is touched it morphs into glass:
+    /// a capsule grows out of the bar's line to hold the times and the bar
+    /// (iOS 26 Music's scrubber), and shrinks back a second after release.
+    /// The 10 pt inset is constant, so the bar never changes width under
+    /// the finger.
+    private func progress(_ p: PlaybackSnapshot) -> some View {
+        HStack(spacing: 0) {
+            Text(formatTime(p.positionSec))
+                .frame(minWidth: 40, alignment: .leading)
+                .offset(y: 6)
+            Spacer().frame(width: 6)
+            WavyProgressBar(progress: Double(p.positionSec) / Double(p.track.durationSec),
+                            duration: TimeInterval(p.track.durationSec), isPlaying: p.isPlaying,
+                            tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
+                            onScrubbing: { touch("progress", $0) }) { _ in }
+                .frame(height: 40, alignment: .bottom)
+            Spacer().frame(width: 6)
+            Text("-" + formatTime(p.track.durationSec - p.positionSec))
+                .frame(minWidth: 48, alignment: .trailing)
+                .offset(y: 6)
+        }
+        .padding(.horizontal, 10)
+        // The row itself carries the glass (as glass content the times and
+        // the bar draw over it; a background glass in the transport's
+        // container would be lifted above them). The shape does the morph.
+        .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: true,
+                 in: ScrubberGlassShape(grow: interacting ? 1 : 0))
     }
 
     private func roundButton(_ icon: String, fill: Color, ink: Color, label: String) -> some View {
@@ -328,7 +410,7 @@ struct NowPlayingView: View {
                 .frame(width: 56, height: 56)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressReport { touch(label, $0) })
         .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: fill, in: Circle())
         .accessibilityLabel(label)
     }
@@ -338,14 +420,12 @@ struct NowPlayingView: View {
     private func hero(_ p: PlaybackSnapshot, inline: Bool) -> some View {
         if inline {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(p.track.title)
-                    .font(.gsf(36))
-                    .foregroundStyle(scheme.onSurface)
-                    .scaleEffect(x: 1.03, y: 1, anchor: .leading)
+                heroTitle(p)
                     .layoutPriority(1)
                 Text(p.album.artist)
                     .font(.gsf(14.4, .medium))
                     .foregroundStyle(scheme.onSurfaceVariant)
+                    .npFade(open, contentFade)
             }
             .lineLimit(1)
             .padding(.bottom, 12)
@@ -356,22 +436,35 @@ struct NowPlayingView: View {
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .frame(height: 24, alignment: .leading)
                     .scaleEffect(x: 1.02, y: 1, anchor: .leading)
-                Text(p.track.title)
-                    .font(.gsf(36))
-                    .foregroundStyle(scheme.onSurface)
+                    .npFade(open, contentFade)
+                heroTitle(p)
                     .frame(height: 44, alignment: .leading)
-                    .scaleEffect(x: 1.03, y: 1, anchor: .leading)
             }
             .lineLimit(1)
         }
     }
 
+    /// The title is matched to the pill's title by its leading edge; folded,
+    /// it scales down to the pill's 15 pt so the glyphs line up.
+    private func heroTitle(_ p: PlaybackSnapshot) -> some View {
+        Text(p.track.title)
+            .font(.gsf(36))
+            .foregroundStyle(scheme.onSurface)
+            .scaleEffect(x: 1.03, y: 1, anchor: .leading)
+            .scaleEffect(open ? 1 : Self.titleFoldScale, anchor: .leading)
+            .matchedGeometryEffect(id: panel ? "np.title.panel" : "np.title", in: npNamespace,
+                                   properties: .position, anchor: .leading, isSource: open)
+            .npFade(open, presenceFade)
+    }
+
     // 8. Bottom pills: Queue · Devices · Write.
     private var pills: some View {
-        HStack(spacing: 2) {
-            pill("queue", "Queue", shape: AnyShape(Capsule()))
-            pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20)))
-            pill("note", "Write", shape: AnyShape(Capsule()))
+        GlassEffectContainer(spacing: 0) {
+            HStack(spacing: 2) {
+                pill("queue", "Queue", shape: AnyShape(Capsule()))
+                pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20)))
+                pill("note", "Write", shape: AnyShape(Capsule()))
+            }
         }
         .padding(.bottom, 8)
     }
@@ -382,7 +475,12 @@ struct NowPlayingView: View {
                 YoinIcon(icon, size: 15.8)
                 Text(title).font(.gsf(12, .medium)).tracking(0.1)
             }
-            .foregroundStyle(scheme.onPrimary)
+            // The primary glass reads mid-tone in both modes: onPrimary in
+            // light; white in dark, where dark onPrimary (and, on glass,
+            // onPrimaryContainer too) sank into it.
+            .foregroundStyle(colorScheme == .dark ? Color.white : scheme.onPrimary)
+            // Same contrast shadow as PAUSE on the same primary glass.
+            .labContrast("transportPrimary")
             .padding(.horizontal, 13.2)
             .frame(minWidth: 58, minHeight: 44)
             .labGlass("npPills", scheme: scheme, brand: brand, auto: scheme.primary, in: shape)
@@ -409,8 +507,10 @@ struct NowPlayingView: View {
             }
             .onEnded { v in
                 if v.translation.height > 140 || v.predictedEndTranslation.height > 380 {
+                    // The page folds into the pill from where the finger
+                    // left it: the offset springs home with the morph.
+                    withAnimation(Yoin.spatial) { dragY = 0 }
                     model.setNowPlaying(expanded: false)
-                    dragY = 0
                 } else {
                     withAnimation(Yoin.spatial) { dragY = 0 }
                 }
@@ -487,24 +587,32 @@ struct NowPlayingBudget {
 /// Android RatingSlider: 48 dp capsule, primary fill from the bottom, number
 /// (titleLarge, tabular) at the top in onSurfaceVariant, onPrimary once the
 /// fill passes 80 % of the height.
+///
+/// iOS: the track is glass. Held, the whole control reads as a glass
+/// slider (iOS 26 sliders): interactive glass, a touch larger, and the fill
+/// drawn inset so it sits inside the glass capsule.
 struct RatingBar: View {
     @Binding var value: Double
     var scheme: CoverScheme
+    var held = false
+    /// Finger down / up.
+    var onHold: (Bool) -> Void = { _ in }
 
     var body: some View {
         GeometryReader { geo in
             let h = geo.size.height
             let fraction = value / 10
+            let inset: CGFloat = held ? 4 : 0
             ZStack(alignment: .top) {
                 // Track: glass tinted with the container role, so the
                 // background shows through; the fill (the score) stays solid.
                 Capsule().fill(.clear)
-                    .labGlass("ratingTrack", scheme: scheme, brand: .brand(dark: false),
-                              auto: scheme.surfaceVariant, in: Capsule())
+                    .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: held, in: Capsule())
                 Capsule()
                     .fill(scheme.primary.opacity(GlassLab.shared.extra("ratingFill")))
-                    .frame(height: max(48, h * fraction))
+                    .frame(height: max(48 - inset * 2, (h - inset * 2) * fraction))
                     .frame(maxHeight: .infinity, alignment: .bottom)
+                    .padding(inset)
                 Text(value >= 10 ? "10" : String(format: "%.1f", value))
                     .font(.gsf(22))
                     .monospacedDigit()
@@ -514,15 +622,77 @@ struct RatingBar: View {
             }
             .contentShape(.capsule)
             .gesture(
-                DragGesture(minimumDistance: 0).onChanged { v in
-                    let raw = Double((1 - v.location.y / h) * 10)
-                    value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
-                }
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        if !held { onHold(true) }
+                        let raw = Double((1 - v.location.y / h) * 10)
+                        value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
+                    }
+                    .onEnded { _ in onHold(false) }
             )
             .animation(Yoin.spatialFast, value: value)
         }
+        .scaleEffect(held ? 1.08 : 1)
         .accessibilityElement()
         .accessibilityLabel("Rating")
         .accessibilityValue(String(format: "%.1f", value))
+    }
+}
+
+/// The progress row's glass: at 0 an empty sliver on the bar's line, at 1
+/// a 42 pt capsule across the row, centered on the times and the bar
+/// (they sit 9 pt below the 56 pt row's middle).
+struct ScrubberGlassShape: Shape {
+    var grow: CGFloat
+
+    var animatableData: CGFloat {
+        get { grow }
+        set { grow = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let g = max(0, grow)
+        let inset = (1 - min(g, 1)) * 50
+        let h = 42 * g
+        let r = CGRect(x: rect.minX + inset, y: rect.midY + 9 - h / 2,
+                       width: max(0, rect.width - inset * 2), height: h)
+        return Capsule().path(in: r)
+    }
+}
+
+/// A plain button that reports press down / up (Now Playing's shared
+/// "interacting" state).
+struct PressReport: ButtonStyle {
+    var onPress: (Bool) -> Void
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onChange(of: configuration.isPressed) { _, pressed in onPress(pressed) }
+    }
+}
+
+extension View {
+    /// Morph opacity with its own animation, leaving the transaction's
+    /// spring to the geometry.
+    func npFade(_ visible: Bool, _ animation: Animation) -> some View {
+        self.animation(animation) { $0.opacity(visible ? 1 : 0) }
+    }
+
+    /// A Glass Lab surface that turns into interactive glass while `held`,
+    /// with its tint thinned so the glass itself carries the look. One
+    /// `glassEffect` either way, so holding doesn't rebuild the glass.
+    /// Non-glass variants (Apple HIG preset) fall back to `labGlass`.
+    @ViewBuilder
+    func npGlass<S: Shape>(_ id: String, scheme: CoverScheme, auto: Color, held: Bool, in shape: S) -> some View {
+        let st = GlassLab.shared.style(id)
+        switch st.variant {
+        case .regular, .clear:
+            let tint = st.role.color(in: scheme, brand: .brand(dark: false), auto: auto)
+            let base: Glass = st.variant == .clear ? .clear : .regular
+            let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity * (held ? 0.6 : 1))) : base
+            glassEffect(held || st.interactive ? tinted.interactive() : tinted, in: shape)
+        case .none, .material:
+            labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
+        }
     }
 }

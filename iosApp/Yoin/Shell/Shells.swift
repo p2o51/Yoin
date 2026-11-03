@@ -27,6 +27,8 @@ struct PhoneShell: View {
     @Environment(AppModel.self) private var model
     @Namespace private var zoomNS
     @Namespace private var npNS
+    /// Now Playing is in the tree: from the open tap until the close morph lands.
+    @State private var npMounted = false
 
     var body: some View {
         @Bindable var model = model
@@ -66,10 +68,12 @@ struct PhoneShell: View {
                     .transition(.opacity)
             }
 
-            if model.npExpanded {
-                NowPlayingView(npNamespace: npNS)
+            if npMounted {
+                // Mounted and unmounted without a transition: the morph
+                // (`open`) carries the whole in and out.
+                NowPlayingView(npNamespace: npNS, open: model.npMorphOpen)
                     .zIndex(1)
-                    .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(Yoin.effects)))
+                    .transition(.identity)
             }
         }
         .background(Yoin.surface)
@@ -92,11 +96,43 @@ struct PhoneShell: View {
                 .allowsHitTesting(false)
             }
         }
+        .onChange(of: model.npExpanded) { _, open in morph(open) }
+        .onAppear {
+            if model.npExpanded {
+                npMounted = true
+                model.npMorphOpen = true
+            }
+        }
         .task {
-            // `-screen np-morph`: a deliberately slow pill → page expansion.
+            // `-screen np-morph` / `np-morph-close`: a deliberately slow
+            // pill → page (or page → pill) morph, for frame-by-frame review.
             guard model.slowMorph else { return }
             try? await Task.sleep(for: .seconds(1))
-            withAnimation(.linear(duration: 6)) { model.npExpanded = true }
+            model.setNowPlaying(expanded: !model.npExpanded)
+        }
+    }
+
+    /// Open: mount at the pill (no animation), then on the next frame
+    /// spring the morph open, so the page grows out of the pill instead of
+    /// appearing at full size. Close: spring the morph shut, unmount when it
+    /// lands (unless it was reopened meanwhile).
+    private func morph(_ open: Bool) {
+        let spring = model.slowMorph ? Animation.linear(duration: 6) : Yoin.spatial
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        if open {
+            withTransaction(instant) { npMounted = true }
+            DispatchQueue.main.async {
+                guard model.npExpanded else { return }
+                withAnimation(spring) { model.npMorphOpen = true }
+            }
+        } else {
+            withAnimation(spring) {
+                model.npMorphOpen = false
+            } completion: {
+                guard !model.npExpanded else { return }
+                withTransaction(instant) { npMounted = false }
+            }
         }
     }
 }

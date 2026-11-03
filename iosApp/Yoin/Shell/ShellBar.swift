@@ -142,19 +142,28 @@ struct ShellBar: View {
             if model.isPad { model.openNowPlayingOnPad() } else { model.setNowPlaying(expanded: true) }
         } label: {
             HStack(spacing: 10) {
-                // Matched only while closed, so on open the page's cover and
-                // surface start from these frames and grow (and shrink back).
-                if model.npExpanded {
-                    Color.clear.frame(width: 42, height: 42)
-                } else {
-                    CoverArt(palette: p.album.palette, cornerRadius: 6, seed: p.album.seed)
-                        .frame(width: 42, height: 42)
-                        .matchedGeometryEffect(id: "np.cover", in: npNamespace)
-                }
+                // The pill is the geometry source for the page's cover, title
+                // and surface while the morph is folded: invisible proxies,
+                // present only then, so the page grows out of these frames
+                // and shrinks back into them. The pill's own content stays
+                // put underneath (the page's opaque surface covers it).
+                CoverArt(palette: p.album.palette, cornerRadius: 6, seed: p.album.seed)
+                    .frame(width: 42, height: 42)
+                    .overlay {
+                        if !model.npMorphOpen {
+                            Color.clear.matchedGeometryEffect(id: "np.cover", in: npNamespace)
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(p.track.title)
                         .font(.gsf(15, .semibold))
                         .foregroundStyle(Yoin.ink)
+                        .background {
+                            if !model.npMorphOpen {
+                                Color.clear.matchedGeometryEffect(id: "np.title", in: npNamespace,
+                                                                  properties: .position, anchor: .leading)
+                            }
+                        }
                     Text(p.album.artist)
                         .font(.gsf(13))
                         .foregroundStyle(Yoin.inkVariant)
@@ -178,7 +187,7 @@ struct ShellBar: View {
         .labGlass("miniPlayer", scheme: scheme, brand: brand, auto: scheme.primaryContainer, in: Capsule())
         .glassEffectID("np", in: glassNS)
         .background {
-            if !model.npExpanded {
+            if !model.npMorphOpen {
                 Capsule().fill(.clear)
                     .matchedGeometryEffect(id: "np.surface", in: npNamespace)
             }

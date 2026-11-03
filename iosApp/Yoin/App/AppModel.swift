@@ -23,6 +23,10 @@ final class AppModel {
     var padSelection: Album?
     var isPad = false
     var npExpanded = false
+    /// Phone: the Now Playing morph's target (lags `npExpanded` by a frame on
+    /// open so the page mounts at the pill first). The pill is the geometry
+    /// source for cover / title / surface whenever this is false.
+    var npMorphOpen = false
     /// iPad: Now Playing as a right-hand inspector panel (Closed → Panel → Full).
     var npPanel = false
     /// iPad: the window's content width, for the panel/columns budget.
@@ -48,9 +52,10 @@ final class AppModel {
         case "library": section = .library
         case "library-albums", "library-songs", "library-scroller": section = .library
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
-        case "np": npExpanded = true
+        case "np", "np-touch": npExpanded = true
         case "np-short": npExpanded = true; npForceShort = true
         case "np-morph": slowMorph = true
+        case "np-morph-close": slowMorph = true; npExpanded = true
         case "np-panel": npPanel = true
         case "landing": showLanding = true
         case "artist", "artist-bottom": path = [.artist("Mina Asahi")]
