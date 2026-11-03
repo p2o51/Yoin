@@ -87,6 +87,22 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 - **Lyrics under the buttons:** the lyric list continues below its Android window, under the transport, fading out by the progress row. The current line always stays in the clear band above the buttons. In the short layout the clear band is Android's 44 pt one-line row and the following lines run under the buttons.
 - **Dismissing Now Playing:** ⌄ and drag-down; there is no sheet grabber.
 
+## Album detail, page 1 (phone portrait)
+
+| Element | Android source | Android value | iOS |
+|---|---|---|---|
+| Header | AlbumDetailScreen.kt:928-1004 | Status bar + 4 + 52 (row) + 25 (dots) + 6; padding start 8, end 16. Back = 40 tonal circle (surfaceContainer), 22 icon, 14 gap. Title headlineSmall in the cover's primary. MetaLine [artist] [Album, W500 app primary] [year], 12 apart, bodyMedium. Two page dots 24×20 cells, 4 radius, active cover secondary | Same; back is a glass circle |
+| Cover | AlbumDetailScreen.kt:639-686; AlbumSpectrumBar.kt | min(0.74 W, 300), centred, 28 below the header, Hero 8 corner | Same |
+| Butterfly | AlbumSpectrumBar.kt:355-391 | Yoin mark arms 0 and 2 (cover primary and secondary), scaled 1.8, squashed, clipped at the header | Two rotated capsules approximating the arms |
+| Emblem row | AlbumDetailComponents.kt:250-309 | 64 ScoreEmblem; "%d/%d rated" (labelSmall) only for Average; comment bodyMedium 3 lines + date labelMedium; empty = 40 tonal edit button | Same (ScoreEmblem ported: rings, rated arcs, dotted unrated, Cookie12 label, GrooveType score) |
+| Count line | AlbumDetailScreen.kt:1245-1258 | "12 tracks  44 min" (number W500 tnum, unit 60 %), then last play labelMedium W500 | Same |
+| Flowing titles | AlbumDetailComponents.kt:425-506 | headlineMedium, single-space joined, even onSurface / odd onSurfaceVariant, ≤ 16-unit titles glued | Same |
+| Pull-up | DetailPullUpReshape.kt | travel 0.55 × height, release velocity ±1.6 travel/s else nearest; hero fades and lifts 40 px | Same |
+| Spectrum bar | AlbumSpectrum.kt | 28 strips, OKLab k-means (k 5, 10 rounds), tone lock L' = 0.30 + 0.16 L, white ≥ 7:1, per-strip lag 0.22 | Ported (strips fade in with the lag; the per-strip flight from the cover slice is not ported) |
+| Stamp | AlbumSpectrumBar.kt:125-127 | 48, end 16 from the edge, centred on the title row, corner 8 → 4 | Same |
+| Track row | AlbumDetailComponents.kt:514-718 | 56 tall, padding 8 × 10, 12 gaps; number labelMedium min 18; title titleMedium; duration labelLarge m:ss; heart 28 circle in 36 (off: 1.5 outline ring, on: accent fill) | Same (heart on = mock rating ≥ 9) |
+| Bottom bar | DetailBottomBar.kt; PlaySplitButton.kt | [Play split 156][8][pill]; cover primary / onPrimary; ▾ menu order Shuffle play, Play next, Add to queue, Add to playlist, Open in…, Go to artist, Share | Same, glass tinted with the cover primary |
+
 ## Search (Apple Music iOS 26 form, Android content)
 
 | Element | Android source | Android value | iOS |

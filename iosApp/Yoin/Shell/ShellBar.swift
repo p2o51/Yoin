@@ -189,39 +189,53 @@ struct ShellBar: View {
 
     // MARK: Album page form
 
+    /// Android detail pose: [Play split, 156 pt][8][now-playing pill]. Both
+    /// halves in the cover's primary / onPrimary; ▾ opens the detail menu.
     private func playSplit(_ album: Album) -> some View {
         let s = CoverScheme(album: album, dark: colorScheme == .dark)
         let tint = s.primary.opacity(0.85)
-        return HStack(spacing: 3) {
+        return HStack(spacing: 2) {
             Button {} label: {
                 HStack(spacing: 8) {
-                    YoinIcon("play_filled", size: 22)
-                    Text("Play").font(.gsf(17, .semibold))
+                    YoinIcon("play_filled", size: 20)
+                    Text("Play").font(.gsf(16, .medium))
                 }
                 .foregroundStyle(s.onPrimary)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity)
                 .frame(height: height)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(tint).interactive(),
                          in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
-                                                    bottomTrailingRadius: 8, topTrailingRadius: 8))
+                                                    bottomTrailingRadius: 6, topTrailingRadius: 6))
             .glassEffectID("home", in: glassNS)
 
-            Button {} label: {
+            Menu {
+                Button("Shuffle play") {}
+                Button("Play next") {}
+                Button("Add to queue") {}
+                Button("Add to playlist") {}
+                Button("Open in Apple Music") {}
+                Divider()
+                Button("Go to artist") {}
+                Button("Share") {}
+            } label: {
                 YoinIcon("chevron_down", size: 22)
                     .foregroundStyle(s.onPrimary)
-                    .frame(width: 44, height: height)
+                    .padding(.horizontal, 14)
+                    .frame(height: height)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(tint).interactive(),
-                         in: UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8,
+                         in: UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 6,
                                                     bottomTrailingRadius: 30, topTrailingRadius: 30))
             .glassEffectID("split", in: glassNS)
             .accessibilityLabel("More play options")
         }
+        .frame(width: 156)
     }
 }
 

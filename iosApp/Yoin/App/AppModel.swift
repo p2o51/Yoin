@@ -39,7 +39,7 @@ final class AppModel {
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
-        case "album": path = [library.albums()[0]]
+        case "album", "album-list": path = [library.albums()[0]]
         case "np": npExpanded = true
         case "np-short": npExpanded = true; npForceShort = true
         case "np-morph": slowMorph = true
