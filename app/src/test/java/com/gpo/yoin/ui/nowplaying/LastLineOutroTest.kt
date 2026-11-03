@@ -87,27 +87,23 @@ class LastLineOutroTest {
     }
 
     @Test
-    fun should_widenByScaleUpToEightPercent_when_theLineLeavesRoom() {
-        assertEquals(1f, lastLineStretchScale(0f, 0.5f), 0f)
-        assertEquals(1.04f, lastLineStretchScale(0.5f, 0.5f), 1e-6f)
-        assertEquals(1.08f, lastLineStretchScale(1f, 0.5f), 1e-6f)
-        // Room left in the row caps it: the widened line still fits.
-        assertTrue(lastLineStretchScale(1f, 0.95f) * 0.95f <= 1f + 1e-6f)
+    fun should_widenByScaleUpToEightPercent() {
+        assertEquals(1f, lastLineStretchScale(0f), 0f)
+        assertEquals(1.04f, lastLineStretchScale(0.5f), 1e-6f)
+        assertEquals(1.08f, lastLineStretchScale(1f), 1e-6f)
     }
 
     @Test
     fun should_followTheSpringOvershoot_when_theStretchLetsGo() {
-        assertTrue(lastLineStretchScale(-0.01f, 0.5f) < 1f)
+        assertTrue(lastLineStretchScale(-0.01f) < 1f)
     }
 
     @Test
-    fun should_stillScaleTheWholeLineIntoTheGutter_when_theLineIsNearlyFullWidth() {
-        assertEquals(1f + LastLineStretchGutterRoom, lastLineStretchScale(1f, 0.99f), 1e-6f)
-        assertEquals(1f + LastLineStretchGutterRoom / 2f, lastLineStretchScale(0.5f, 1f), 1e-6f)
-    }
-
-    @Test
-    fun should_holdStill_when_theLineIsNotMeasuredYet() {
-        assertEquals(1f, lastLineStretchScale(1f, 0f), 0f)
+    fun should_widenTheFullAmount_when_theLineFillsItsRow() {
+        // No gutter cap any more (owner 2026-11-03): a full row runs on past
+        // the screen edge instead of holding back or re-wrapping.
+        val usage = 0.99f
+        assertEquals(1.08f * usage, lastLineStretchScale(1f) * usage, 1e-6f)
+        assertTrue(lastLineStretchScale(1f) * usage > 1f)
     }
 }

@@ -53,6 +53,7 @@
     <string name="np_cd_remove_favorite">Remove from favorites</string>
     <string name="np_lyric_loading">Loading lyrics</string>
     <string name="np_lyrics_none">No lyrics available</string>
+    <string name="np_lyric_up_next">Up next · %1$s</string>
 
     <string name="np_dock_playing_from_album">PLAYING FROM ALBUM</string>
     <string name="np_dock_playing_from_playlist">PLAYING FROM PLAYLIST</string>

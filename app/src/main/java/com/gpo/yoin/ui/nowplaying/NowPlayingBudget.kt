@@ -21,9 +21,10 @@ import androidx.compose.ui.unit.lerp
  * Never yields: the two transport rows, the three pills, one title line, the
  * lyric entry, 48dp touch targets.
  *
- * Tapping the cover is FOCUS (the shared Immersive stage): the rating, the
- * tabs, the lyric window and the gaps give way so the cover visibly grows —
- * the current lyric line always stays.
+ * Tapping the cover is FOCUS (the shared Immersive stage): the top bar, the
+ * rating, the tabs and the pills give way so the cover visibly grows; the
+ * title and the two transport rows stay as they rest, and the lyrics keep
+ * their list where it fits (else the current line always stays).
  * Focus is offered only when it grows by at least max(40dp, 12%); otherwise
  * the cover is a plain image (no click, no press, no semantics).
  *
@@ -251,35 +252,49 @@ fun resolveStageColumnBudget(
     }
 
     // ── Focus ───────────────────────────────────────────────────────────
-    // The cover grows, but the current lyric line stays (a focused cover
-    // with the lyrics gone read as a broken player).
+    // Clean focus (owner 2026-11-03): the top bar, rating, tabs and the three
+    // pills retreat; the cover grows; the title and the two transport rows
+    // stay exactly as they rest. The lyric slot keeps its list where the
+    // cover yields at most [FocusCoverYield] for it, else the current line
+    // stays (a focused cover with the lyrics gone read as a broken player).
     val focusWidthCap = if (enlarged != null) {
         stageWidth - ColumnPadding * 2
     } else {
         minOf(stageWidth - ColumnPadding * 2, PhoneFocusCoverMax)
     }
     val focusTarget = minOf(focusWidthCap, rest.cover * CoverFocusMaxScale)
-    val focusLower = lowerGaps(hero)
-    val focusUpper = listOf(topBar, coverGap)
-    val focusFixedMin = nominalSum(focusLower) + nominalSum(focusUpper) - slackOf(focusLower) - slackOf(focusUpper)
-    val previewSlot = metrics.oneLineContent + OneLineAirMin
-    val focusCover = minOf(focusTarget, (height - focusFixedMin - previewSlot).coerceAtLeast(0.dp))
-    val focus = if (rest.cover > 0.dp && coverFocusOffered(rest.cover, focusCover)) {
-        // Room left after the cover and the line goes back to the gaps
-        // (upper first), then to the lyric slot.
-        val spare = height - focusFixedMin - previewSlot - focusCover
-        val restored = minOf(spare, slackOf(focusLower) + slackOf(focusUpper))
-        val squeeze = squeezeGaps(
-            slackOf(focusLower) + slackOf(focusUpper) - restored,
-            focusLower,
-            focusUpper,
+    val focusTop = NpGap(FocusTopNominal, FocusTopMin)
+    val focusBottom = NpGap(FocusBottomNominal, FocusBottomMin)
+    val focusLower = listOf(controls, hero, focusBottom)
+    val focusUpper = listOf(focusTop, coverGap)
+    val focusNominal = nominalSum(focusLower) + nominalSum(focusUpper)
+    val focusFixedMin = focusNominal - slackOf(focusLower) - slackOf(focusUpper)
+
+    fun focusPose(frame: LyricFrame, cover: Dp, lyricMin: Dp): StageColumnPose {
+        val squeeze = squeezeGaps((focusNominal + lyricMin + cover - height).coerceAtLeast(0.dp), focusLower, focusUpper)
+        val top = focusTop.at(squeeze.upper)
+        val cg = coverGap.at(squeeze.upper)
+        val ctl = controls.at(squeeze.lower)
+        val hr = hero.at(squeeze.lower)
+        val bottom = focusBottom.at(squeeze.lower)
+        val lyric = (height - top - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
+        return StageColumnPose(
+            topBar = top, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
+            lyricSlot = lyric, lyricFrame = frame,
+            controls = ctl, hero = hr, accessory = bottom,
+            lower = squeeze.lower, upper = squeeze.upper,
         )
-        val p = pose(LyricFrame.Preview, focusCover, hero, squeeze).copy(tabs = 0.dp, tabGap = 0.dp)
-        val slot = height - (p.total - p.lyricSlot)
-        val frame = if (slot >= metrics.lyric.cleanLines(EnlargedCleanLines)) LyricFrame.List else LyricFrame.Preview
-        p.copy(lyricSlot = slot.coerceAtLeast(0.dp), lyricFrame = frame)
-    } else {
-        null
+    }
+
+    val previewSlot = metrics.oneLineContent + OneLineAirMin
+    val listCover = minOf(focusTarget, (height - focusFixedMin - listMin).coerceAtLeast(0.dp))
+    val previewCover = minOf(focusTarget, (height - focusFixedMin - previewSlot).coerceAtLeast(0.dp))
+    val focus = when {
+        rest.cover <= 0.dp -> null
+        listCover >= focusTarget * (1f - FocusCoverYield) && coverFocusOffered(rest.cover, listCover) ->
+            focusPose(LyricFrame.List, listCover, listMin)
+        coverFocusOffered(rest.cover, previewCover) -> focusPose(LyricFrame.Preview, previewCover, previewSlot)
+        else -> null
     }
     return StageColumnBudget(stageWidth = stageWidth, rest = rest, focus = focus, heroOneLine = heroCompact)
 }
@@ -308,7 +323,7 @@ data class DualPanePose(
     val coverToRating: Dp,
     val ratingToTransport: Dp,
     val transportToTitle: Dp,
-    /** 0 when the rating / title retreat (focus) or the title folded into the top bar. */
+    /** Rating: 0 when it retreats (focus). Title: 0 when it folded into the top bar. */
     val rating: Dp,
     val title: Dp,
 )
@@ -391,11 +406,12 @@ fun resolveDualPaneBudget(
         title = title,
     )
 
-    // Focus: the rating and title retreat, the inner gaps close, the cover
-    // grows (≤ 1.5×, the lyrics keep 320) and the slot follows the cover.
+    // Focus: the rating retreats, the inner gaps close, the cover grows
+    // (≤ 1.5×, the lyrics keep 320) and the slot follows the cover. The title
+    // stays as it rests (owner 2026-11-03: the title never changes).
     val focusHeight = contentHeight - barHeight - metrics.transport - metrics.pills - metrics.navBottom -
         frameTop.at(restSqueeze.upper) - barGap.at(restSqueeze.upper) - frameBottom.at(restSqueeze.lower) -
-        WideCoverToRatingMin - WideRatingToTransportMin
+        WideCoverToRatingMin - WideRatingToTransportMin - restPose.transportToTitle - restPose.title
     val focusCover = minOf(
         restCover * CoverFocusMaxScale,
         rowWidth - WideColumnGapToken - WideRightColumnMinToken,
@@ -407,9 +423,9 @@ fun resolveDualPaneBudget(
             cover = focusCover,
             coverToRating = WideCoverToRatingMin,
             ratingToTransport = WideRatingToTransportMin,
-            transportToTitle = 0.dp,
+            transportToTitle = restPose.transportToTitle,
             rating = 0.dp,
-            title = 0.dp,
+            title = restPose.title,
         )
     } else {
         null
@@ -527,6 +543,13 @@ private val AccessoryAirMin = 8.dp
 private val OneLineRowNominal = 44.dp
 private val OneLineAirMin = 4.dp
 private val LyricFrameHysteresis = 8.dp
+private val FocusTopNominal = 24.dp
+private val FocusTopMin = 12.dp
+private val FocusBottomNominal = 20.dp
+private val FocusBottomMin = 8.dp
+
+/** How much of its focus size the cover gives up to keep the lyric list in focus. */
+private const val FocusCoverYield = 0.15f
 
 const val CoverFocusMaxScale = 1.5f
 private val CoverFocusMinGrowth = 40.dp
