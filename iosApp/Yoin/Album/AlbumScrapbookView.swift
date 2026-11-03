@@ -60,7 +60,7 @@ struct AlbumScrapbookView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: Tokens.detail.SCRAPBOOK_PIECE_GAP.cg) {
                 opening
                 ForEach(Array(blocks.enumerated()), id: \.offset) { i, b in
                     block(b, mirrored: (i + mirrorSeed).isMultiple(of: 2))
@@ -91,11 +91,14 @@ struct AlbumScrapbookView: View {
 
     private var opening: some View {
         let kind: ScoreEmblem.Kind = album.rating != nil ? .album : .average
+        let cover = Tokens.detail.SCRAPBOOK_COVER.cg
+        let badge = Tokens.detail.SCRAPBOOK_BADGE.cg
+        let overhangX = Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_X.cg
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                     CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
-                        .frame(width: 148, height: 148)
+                        .frame(width: cover, height: cover)
                         .clipShape(.rect(cornerRadius: Tokens.shape.HERO.cg, style: .continuous))
                         // Where the hero's cover lands; hidden until it has.
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
@@ -103,16 +106,16 @@ struct AlbumScrapbookView: View {
                         }
                         .opacity(coverInFlight ? 0 : 1)
                         .modifier(layer(tilt("cover", Tilt.cover), depth: 0.25))
-                        .frame(width: 148, height: 148 + 0.24 * 64, alignment: .top)
+                        .frame(width: cover, height: cover + Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_Y.cg * badge, alignment: .top)
                     ScoreEmblem(score: album.rating ?? album.averageRating ?? 0, kind: kind,
-                                rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: 64)
+                                rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: badge)
                         // The award "stamp" once page 2 settles: lands from a swell.
                         .scaleEffect(stamped ? 1 : 1.35)
                         .opacity(stamped ? 1 : 0.0)
-                        .offset(x: 0.30 * 64)
+                        .offset(x: overhangX * badge)
                         .modifier(layer(0, depth: 0.6))
                 }
-                Spacer().frame(width: 0.3 * 64 + 8)
+                Spacer().frame(width: overhangX * badge + 8)
                 VStack(alignment: .leading, spacing: 0) {
                     // OpeningTitle: the serif (a title someone or the AI wrote),
                     // 22 SemiBold, line 1.25 em (27.5).
@@ -139,7 +142,7 @@ struct AlbumScrapbookView: View {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
                 Text(review)
-                    .font(.gsf(15)).lineSpacing(AlbumType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
+                    .font(.gsf(15)).lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
                     .foregroundStyle(s.onPrimaryContainer)
                 Text("Yesterday")
                     .yoinRole(Tokens.type.labelMedium)
@@ -147,20 +150,20 @@ struct AlbumScrapbookView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(s.primaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
+            .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
             // Album note sticky: own row on the end side, tucks 6 over the review.
             Text(albumNote)
                 // userTextStyle at 14.5: line 1.5 em.
-                .font(.gsf(14.5)).lineSpacing(AlbumType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
+                .font(.gsf(14.5)).lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
                 .foregroundStyle(s.onSecondaryContainer)
                 .padding(.leading, 18).padding(.trailing, 18).padding(.top, 14).padding(.bottom, 18)
-                .frame(width: min(0.72 * 368, 280), alignment: .leading)
+                .frame(width: min(0.72 * 368, Tokens.detail.SCRAPBOOK_STICKY_MAX_WIDTH.cg), alignment: .leading)
                 .background { StickyNote(fill: s.secondaryContainer,
                                          flap: s.secondaryContainer.mix(with: s.secondary, by: 0.32, in: .perceptual)) }
                 .modifier(layer(-sign(tilt("review", Tilt.paper)) * abs(tilt("albumnote", Tilt.paper)), depth: 0.45))
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.top, -6)
+                .padding(.top, -Tokens.detail.SCRAPBOOK_STICKY_TUCK.cg)
                 .accessibilityLabel("Album note: \(albumNote)")
         }
     }
@@ -200,7 +203,7 @@ struct AlbumScrapbookView: View {
     private func block(_ b: Block, mirrored: Bool) -> some View {
         switch b {
         case .cluster(let t):
-            VStack(alignment: mirrored ? .trailing : .leading, spacing: -12) {
+            VStack(alignment: mirrored ? .trailing : .leading, spacing: -Tokens.detail.SCRAPBOOK_PIECE_OVERLAP.cg) {
                 ticket(t, width: min(280, max(200, 0.66 * 368)), mini: false)
                     .zIndex(0)
                 if let ns = notes[t.number] {
@@ -235,11 +238,11 @@ struct AlbumScrapbookView: View {
             Text(String(format: "%02d", t.number))
                 .font(.gsf(mini ? 16 : 18, .medium)).monospacedDigit()
                 .foregroundStyle(ink.opacity(0.72))
-                .frame(width: 48)
+                .frame(width: Tokens.detail.SCRAPBOOK_TICKET_STUB.cg)
             VStack(alignment: .leading, spacing: 3) {
                 // titleMedium SemiBold at 15 / 16, line 1.25 em.
                 Text(t.title).font(.gsf(mini ? 15 : 16, .semibold)).foregroundStyle(ink).lineLimit(2)
-                    .lineSpacing(AlbumType.lineSpacing(size: mini ? 15 : 16, lineHeight: (mini ? 15 : 16) * 1.25))
+                    .lineSpacing(YoinType.lineSpacing(size: mini ? 15 : 16, lineHeight: (mini ? 15 : 16) * 1.25))
                 // Duration and plays on one row; when it doesn't fit, plays
                 // wrap under the duration (both kept). Mini tickets trail the score.
                 // ScrapTicketMetaLine: Stat groups in labelMedium at 12,
@@ -285,7 +288,8 @@ struct AlbumScrapbookView: View {
         .background { TicketShape().fill(fill) }
         .overlay(alignment: .leading) {
             // Perforation at the stub.
-            Path { p in p.move(to: CGPoint(x: 48, y: 8)); p.addLine(to: CGPoint(x: 48, y: 200)) }
+            let stub = Tokens.detail.SCRAPBOOK_TICKET_STUB.cg
+            Path { p in p.move(to: CGPoint(x: stub, y: 8)); p.addLine(to: CGPoint(x: stub, y: 200)) }
                 .stroke(ink.opacity(0.24), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
                 .mask(Rectangle().padding(.vertical, 8))
         }
@@ -311,7 +315,7 @@ struct AlbumScrapbookView: View {
                             .frame(width: 42, alignment: .leading)
                         // userTextStyle: GSF 15, line 1.5 em.
                         Text(n.text).font(.gsf(15))
-                            .lineSpacing(AlbumType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
+                            .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
                             .foregroundStyle(s.onSurface)
                     }
                     .padding(.vertical, 4)
@@ -320,7 +324,7 @@ struct AlbumScrapbookView: View {
             .padding(.leading, 24).padding(.trailing, 12).padding(.vertical, 8)
         }
         .frame(width: min(330, 0.78 * 368), alignment: .leading)
-        .background(s.surfaceContainerHighest, in: .rect(cornerRadius: 16, style: .continuous))
+        .background(s.surfaceContainerHighest, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         .modifier(layer(-sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/nt", Tilt.paper)), depth: 0.4))
     }
 
@@ -382,8 +386,8 @@ struct AlbumScrapbookView: View {
 /// scrapLayer): it trails by depth × 12 % of the page and leans 3° further
 /// while away. Transform only; layout and hit areas stay square.
 private struct ScrapLayer: ViewModifier {
-    static let share: CGFloat = 0.12
-    static let leanDegrees = 3.0
+    static var share: CGFloat { Tokens.detail.SCRAPBOOK_PARALLAX_SHARE.cg }
+    static var leanDegrees: Double { Tokens.detail.SCRAPBOOK_LEAN_DEGREES }
     var tilt: Double
     var depth: CGFloat
     var offset: CGFloat
@@ -399,13 +403,15 @@ private struct ScrapLayer: ViewModifier {
 
 // MARK: - Shapes
 
-/// 16 pt card with 7 pt half-circle notches top and bottom at x = 48.
+/// Card-cornered (16) ticket with 7 pt half-circle notches top and bottom at
+/// the stub's edge (x = 48).
 struct TicketShape: Shape {
     func path(in r: CGRect) -> Path {
-        let card = Path(roundedRect: r, cornerRadius: 16, style: .continuous)
+        let card = Path(roundedRect: r, cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+        let x = r.minX + Tokens.detail.SCRAPBOOK_TICKET_STUB.cg, n = Tokens.detail.SCRAPBOOK_TICKET_NOTCH.cg
         var notches = Path()
-        notches.addEllipse(in: CGRect(x: r.minX + 48 - 7, y: r.minY - 7, width: 14, height: 14))
-        notches.addEllipse(in: CGRect(x: r.minX + 48 - 7, y: r.maxY - 7, width: 14, height: 14))
+        notches.addEllipse(in: CGRect(x: x - n, y: r.minY - n, width: 2 * n, height: 2 * n))
+        notches.addEllipse(in: CGRect(x: x - n, y: r.maxY - n, width: 2 * n, height: 2 * n))
         return card.subtracting(notches)
     }
 }
@@ -417,18 +423,18 @@ struct StickyNote: View {
     var flap: Color
     var body: some View {
         GeometryReader { g in
-            let w = g.size.width, h = g.size.height
+            let w = g.size.width, h = g.size.height, c = Tokens.shape.CARD.cg
             ZStack {
                 Path { p in
-                    p.move(to: CGPoint(x: 16, y: 0))
-                    p.addLine(to: CGPoint(x: w - 16, y: 0))
-                    p.addQuadCurve(to: CGPoint(x: w, y: 16), control: CGPoint(x: w, y: 0))
+                    p.move(to: CGPoint(x: c, y: 0))
+                    p.addLine(to: CGPoint(x: w - c, y: 0))
+                    p.addQuadCurve(to: CGPoint(x: w, y: c), control: CGPoint(x: w, y: 0))
                     p.addLine(to: CGPoint(x: w, y: h - 17))
                     p.addLine(to: CGPoint(x: w - 17, y: h))
-                    p.addLine(to: CGPoint(x: 16, y: h))
-                    p.addQuadCurve(to: CGPoint(x: 0, y: h - 16), control: CGPoint(x: 0, y: h))
-                    p.addLine(to: CGPoint(x: 0, y: 16))
-                    p.addQuadCurve(to: CGPoint(x: 16, y: 0), control: .zero)
+                    p.addLine(to: CGPoint(x: c, y: h))
+                    p.addQuadCurve(to: CGPoint(x: 0, y: h - c), control: CGPoint(x: 0, y: h))
+                    p.addLine(to: CGPoint(x: 0, y: c))
+                    p.addQuadCurve(to: CGPoint(x: c, y: 0), control: .zero)
                 }
                 .fill(fill)
                 Path { p in
@@ -473,15 +479,16 @@ struct ReceiptShape: Shape {
 struct DotPaper: View {
     var color: Color
     var body: some View {
+        let pitch = Tokens.detail.SCRAPBOOK_DOT_SPACING.cg, dot = Tokens.detail.SCRAPBOOK_DOT_RADIUS.cg
         Canvas { gc, size in
-            var y: CGFloat = 8
+            var y: CGFloat = pitch / 2
             while y < size.height {
-                var x: CGFloat = 8
-                while x < size.width + 16 {
-                    gc.fill(Path(ellipseIn: CGRect(x: x - 1.2, y: y - 1.2, width: 2.4, height: 2.4)), with: .color(color))
-                    x += 16
+                var x: CGFloat = pitch / 2
+                while x < size.width + pitch {
+                    gc.fill(Path(ellipseIn: CGRect(x: x - dot, y: y - dot, width: 2 * dot, height: 2 * dot)), with: .color(color))
+                    x += pitch
                 }
-                y += 16
+                y += pitch
             }
         }
         .padding(.horizontal, -16)

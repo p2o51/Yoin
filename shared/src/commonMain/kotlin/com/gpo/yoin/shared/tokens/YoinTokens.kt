@@ -194,9 +194,33 @@ object YoinTokens {
         const val LANDSCAPE_COVER_FLOOR = 120.0
         const val LANDSCAPE_COLUMN_GAP = 28.0
         const val LANDSCAPE_FOCUS_RIGHT_MIN = 360.0
+
+        // Phone column details (NowPlayingScreen.kt, PlaybackControls.kt, RatingSlider.kt).
+
+        /** StageTopBar: the ⌄ ChevronDown glyph. */
+        const val CHEVRON_GLYPH = 28.0
+
+        /** CompactTextTabs: tabs 12 apart; the selected one stretches × this from its leading edge. */
+        const val TAB_GAP = 12.0
+        const val TAB_SELECTED_STRETCH = 1.08
+
+        /** Transport rows: gap between PAUSE / Next, and Previous → the progress row. */
+        const val TRANSPORT_GAP = 8.0
+
+        /** PlaybackTimeLabel: min widths of the elapsed / remaining labels, and their gap to the bar. */
+        const val TIME_LABEL_MIN_START = 44.0
+        const val TIME_LABEL_MIN_END = 52.0
+        const val TIME_LABEL_GAP = 8.0
+
+        /** Hero on one row (short screens): artist 12 after the title, capped at this share of the row. */
+        const val HERO_ONE_LINE_GAP = 12.0
+        const val HERO_ONE_LINE_ARTIST_SHARE = 0.4
+
+        /** RatingSlider: the number's colour crosses onSurfaceVariant → onPrimary from this fill to full. */
+        const val RATING_LABEL_CROSSOVER = 0.8
     }
 
-    /** Album / playlist / artist detail pages (AlbumDetailScreen.kt, AlbumSpectrum.kt; iOS AlbumDetailView). */
+    /** Album / playlist / artist detail pages (AlbumDetailScreen.kt, AlbumSpectrum.kt; iOS AlbumDetailView, AlbumScrapbookView, ArtistDetailView). */
     object Detail {
         /** The hero cover: min(width × fraction, max), this far below the header. */
         const val ALBUM_COVER_WIDTH_FRACTION = 0.74
@@ -205,6 +229,174 @@ object YoinTokens {
 
         /** Strips the cover breaks into for the spectrum bar. */
         const val SPECTRUM_STRIPS = 28
+
+        /** Detail headers: back button → title (AlbumDetailScreen.kt, ArtistDetailScreen.kt). */
+        const val HEADER_TITLE_GAP = 14.0
+
+        /** Pulled up, the cover docks as a stamp at the title row's end (AlbumSpectrumBar.kt). */
+        const val ALBUM_STAMP = 48.0
+        const val ALBUM_STAMP_END_INSET = 16.0
+
+        /** The title gives up the stamp plus this gap when pulled up (AlbumDetailScreen.kt). */
+        const val ALBUM_BAR_TITLE_GAP = 12.0
+
+        /** Playlist header: room the ⋮ takes at the end, and the stamp's extra gap before it (PlaylistDetailScreen.kt). */
+        const val PLAYLIST_MENU_RESERVE = 40.0
+        const val PLAYLIST_MENU_GAP = 4.0
+
+        // Album page 2, the scrapbook (AlbumScrapbookPage.kt).
+
+        /** Pieces sit this far apart down the page. */
+        const val SCRAPBOOK_PIECE_GAP = 28.0
+
+        /** Opening cover, and the score emblem overhanging it by these shares of its size (x / y). */
+        const val SCRAPBOOK_COVER = 148.0
+        const val SCRAPBOOK_BADGE = 64.0
+        const val SCRAPBOOK_BADGE_OVERHANG_X = 0.3
+        const val SCRAPBOOK_BADGE_OVERHANG_Y = 0.24
+
+        /** A track's notes ride this far up over its ticket. */
+        const val SCRAPBOOK_PIECE_OVERLAP = 12.0
+
+        /** The album-note sticky tucks this far over the review; its width cap. */
+        const val SCRAPBOOK_STICKY_TUCK = 6.0
+        const val SCRAPBOOK_STICKY_MAX_WIDTH = 280.0
+
+        /** Ticket: the number stub's width (perforation at its edge) and the notch radius. */
+        const val SCRAPBOOK_TICKET_STUB = 48.0
+        const val SCRAPBOOK_TICKET_NOTCH = 7.0
+
+        /** Dot paper: pitch and dot radius. */
+        const val SCRAPBOOK_DOT_SPACING = 16.0
+        const val SCRAPBOOK_DOT_RADIUS = 1.2
+
+        /** scrapLayer: while the pager drags, a piece trails by depth × this share of the page and leans this much further. */
+        const val SCRAPBOOK_PARALLAX_SHARE = 0.12
+        const val SCRAPBOOK_LEAN_DEGREES = 3.0
+
+        // Artist page (ArtistDetailScreen.kt, DetailBackdrops.kt).
+
+        /** Round portrait: min(width × fraction, max). */
+        const val ARTIST_PORTRAIT_WIDTH_FRACTION = 0.52
+        const val ARTIST_PORTRAIT_MAX = 216.0
+
+        /** The pinwheel band is the portrait plus this tall. */
+        const val ARTIST_BAND_EXTRA = 150.0
+
+        /** The Yoin mark behind the portrait: portrait × scale; rests at this angle, turns this much per px scrolled. */
+        const val ARTIST_MARK_SCALE = 2.1
+        const val ARTIST_MARK_REST_DEGREES = 30.0
+        const val ARTIST_MARK_DEGREES_PER_PX = 0.06
+
+        /** Discography: the year column's width, and the releases shown before "Show all". */
+        const val ARTIST_YEAR_COLUMN = 48.0
+        const val ARTIST_COLLAPSED_COUNT = 8
+
+        /** The column's bottom padding, so the last release clears the bar. */
+        const val ARTIST_BOTTOM_PADDING = 120.0
+    }
+
+    /** Android MetaLine (component/MetaLine.kt): groups never joined by a glyph. */
+    object MetaLine {
+        /** Gap between groups. */
+        const val GROUP_GAP = 12.0
+
+        /** A Stat's number → unit gap. */
+        const val INNER_GAP = 4.0
+
+        /** A Stat's unit (and a muted group) at this alpha of the ink. */
+        const val MUTED_ALPHA = 0.6
+    }
+
+    /** Home's phone feed (HomeEditorialContent.kt, HomeRowPresets.kt, HomeWidgetGrid.kt, RediscoverSection.kt; iOS HomeView). */
+    object Home {
+        /** The greeting / title keep this clear of the account button (HomeMemoryPill.kt). */
+        const val HEADER_TITLE_BREATHING = 24.0
+
+        /** Activities bento: row height and the gap between cards (HomeRowPresets.kt). */
+        const val ACTIVITY_ROW_HEIGHT = 118.0
+        const val ACTIVITY_ROW_GAP = 10.0
+
+        /** Card container = lerp(surfaceContainerLow, backdrop base, this). */
+        const val CARD_WASH_FRACTION = 0.30
+
+        /** Jump Back In: the 1×1 cover, and the grid's column / row gaps (HomeWidgetGrid.kt). */
+        const val JBI_COVER = 100.0
+        const val JBI_COLUMN_GAP = 12.0
+        const val JBI_ROW_GAP = 16.0
+
+        /** Recently Added: track-tile cover, album-card cover, and the gap inside the track grid. */
+        const val RECENTLY_ADDED_TRACK_COVER = 52.0
+        const val RECENTLY_ADDED_ALBUM_COVER = 82.0
+        const val RECENTLY_ADDED_TILE_GAP = 8.0
+
+        /** Rediscover card (RediscoverSection.kt): height, backdrop, padding, shelf gap. */
+        const val REDISCOVER_CARD_HEIGHT = 132.0
+        const val REDISCOVER_BACKDROP = 104.0
+        const val REDISCOVER_PADDING = 14.0
+        const val REDISCOVER_GAP = 12.0
+
+        /** Rediscover score badge: height, horizontal padding, how far it hangs past the backdrop. */
+        const val REDISCOVER_BADGE_HEIGHT = 24.0
+        const val REDISCOVER_BADGE_PADDING = 8.0
+        const val REDISCOVER_BADGE_HANG = 6.0
+    }
+
+    /** Library root, Compact (LibraryScreen.kt, LibraryFilterRow.kt, ExpressiveComponents.kt, SongListItem.kt; iOS LibraryView, SearchView). */
+    object Library {
+        /** ExpressiveSegmentChip: height, corner, padding (h / v), gap between chips. */
+        const val CHIP_HEIGHT = 44.0
+        const val CHIP_CORNER = 18.0
+        const val CHIP_PADDING_H = 16.0
+        const val CHIP_PADDING_V = 10.0
+        const val CHIP_GAP = 8.0
+
+        /** LibraryFilterRow: the ✕ glyph. */
+        const val CLEAR_ICON = 20.0
+
+        /** The grid: column / row gaps, top padding, cover → title. */
+        const val GRID_GUTTER_H = 12.0
+        const val GRID_GUTTER_V = 16.0
+        const val GRID_TOP_PADDING = 8.0
+        const val COVER_TO_TITLE = 5.0
+
+        /** floatingBottomGroupContentPadding: room the list keeps over the bottom bar. */
+        const val BOTTOM_GROUP_PADDING = 108.0
+
+        /** LibraryScrollerTopInset: the fast scroller's track starts this far into the grid. */
+        const val SCROLLER_TOP_INSET = 8.0
+
+        /** LibrarySortRow: the press area bleeds this far past the label (padded, then pulled back). */
+        const val SORT_ROW_PRESS_BLEED = 8.0
+
+        /** SongListItem: padding (h / v), the Thumb cover, cover → text. */
+        const val ROW_PADDING_H = 16.0
+        const val ROW_PADDING_V = 10.0
+        const val ROW_THUMB = 48.0
+        const val ROW_GAP = 12.0
+
+        /** ExpressiveMetaPill: padding (h / v), its surfaceContainerHighest alpha. */
+        const val META_PILL_PADDING_H = 10.0
+        const val META_PILL_PADDING_V = 6.0
+        const val META_PILL_ALPHA = 0.9
+
+        /** EmptyState panel: padding (h / v), its surfaceContainerHighest alpha. */
+        const val EMPTY_STATE_PADDING_H = 20.0
+        const val EMPTY_STATE_PADDING_V = 18.0
+        const val EMPTY_STATE_ALPHA = 0.72
+    }
+
+    /** Library search (LibraryScreen.kt search results; iOS SearchView). */
+    object Search {
+        /** LibrarySearchFilterRow's vertical padding: it sits this far under the field. */
+        const val FILTER_ROW_PADDING_V = 8.0
+
+        /** SearchResultsBottomReserve. */
+        const val RESULTS_BOTTOM_RESERVE = 24.0
+
+        /** SectionHeader: padding above / below. */
+        const val SECTION_HEADER_TOP = 18.0
+        const val SECTION_HEADER_BOTTOM = 6.0
     }
 
     /**
@@ -223,6 +415,12 @@ object YoinTokens {
         /** Google Sans Flex is set solid: 0 tracking, except a hair on the two smallest labels. */
         const val LETTER_SPACING = 0.0
         const val SMALL_LABEL_LETTER_SPACING = 0.1
+
+        /**
+         * Google Sans Flex's own line, × size: (hhea ascent 1932 + descent 572) / 2000.
+         * iOS sets text at this; Compose at the role's lineHeight, so iOS pads the difference.
+         */
+        const val GSF_NATURAL_LINE_HEIGHT = 1.252
 
         val displayLarge = Style(57.0, 64.0, 400, LETTER_SPACING)
         val displayMedium = Style(45.0, 52.0, 400, LETTER_SPACING)

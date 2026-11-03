@@ -64,7 +64,7 @@ struct HomeView: View {
                     .onLongPressGesture { withAnimation(Yoin.spatial) { GlassLab.shared.panelOpen = true } }
             }
             .lineLimit(1)
-            .padding(.trailing, 24)
+            .padding(.trailing, Tokens.home.HEADER_TITLE_BREATHING.cg)
             Spacer(minLength: 0)
             Button { model.showLanding = true } label: {
                 // 32 dp avatar in a 48 dp target; profile 0 = Cookie6Sided.
@@ -89,16 +89,17 @@ struct HomeView: View {
 
     private var activities: some View {
         let a = model.library.albums()
-        let small = contentWidth > 0 ? (contentWidth - 10) / 3 : 120
-        return VStack(alignment: .leading, spacing: 10) {
+        let gap = Tokens.home.ACTIVITY_ROW_GAP.cg
+        let small = contentWidth > 0 ? (contentWidth - gap) / 3 : 120
+        return VStack(alignment: .leading, spacing: gap) {
             HomeSectionTitle("Activities").padding(.bottom, 6)
             HeroCard(album: a[0], timeAgo: "12m ago")
-            HStack(spacing: 10) {
+            HStack(spacing: gap) {
                 SmallCard(album: a[3], entity: .artist, typeLabel: "Artist", timeAgo: "2h ago", title: a[3].artist)
                     .frame(width: small)
                 WideCard(album: a[1], timeAgo: "1d ago")
             }
-            .frame(height: 118)
+            .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
             StripCard(album: a[11], timeAgo: "3d ago")
         }
     }
@@ -110,21 +111,22 @@ struct HomeView: View {
         // Compose Row weights (HomeWidgetGrid.kt phone path): each row splits
         // what its own 12 dp gaps leave, so a 1×2 row (one gap) gets
         // (C − 12) × 2/3 + (C − 12)/3 and a three-cover row (C − 24)/3 each.
-        let col = (contentWidth - 24) / 3
-        let pairUnit = (contentWidth - 12) / 3
-        return VStack(alignment: .leading, spacing: 16) {
+        let colGap = Tokens.home.JBI_COLUMN_GAP.cg
+        let col = (contentWidth - 2 * colGap) / 3
+        let pairUnit = (contentWidth - colGap) / 3
+        return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
             HomeSectionTitle("Jump Back In")
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
+                HStack(alignment: .top, spacing: colGap) {
                     SignalCard(album: a[0], kind: .ratedAlbum).frame(width: pairUnit * 2, alignment: .leading)
                     JBICell(album: a[1], mark: .solid).frame(width: pairUnit, alignment: .leading)
                 }
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: colGap) {
                     JBICell(album: a[2], mark: nil).frame(width: pairUnit, alignment: .leading)
                     SignalCard(album: a[5], kind: .notedTrack).frame(width: pairUnit * 2, alignment: .leading)
                 }
                 ForEach(0..<2, id: \.self) { row in
-                    HStack(alignment: .top, spacing: 12) {
+                    HStack(alignment: .top, spacing: colGap) {
                         ForEach(0..<3, id: \.self) { i in
                             let idx = 3 + row * 3 + i
                             JBICell(album: a[idx], mark: idx == 4 ? .outline : idx == 7 ? .dashed : nil)
@@ -141,17 +143,18 @@ struct HomeView: View {
     private var recentlyAdded: some View {
         let a = model.library.albums()
         let gridWidth = min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
+        let tileGap = Tokens.home.RECENTLY_ADDED_TILE_GAP.cg
         return VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle("Recently Added")
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(0..<2, id: \.self) { r in
-                            HStack(spacing: 8) {
+                            HStack(spacing: tileGap) {
                                 ForEach(0..<2, id: \.self) { c in
                                     let al = a[[9, 6, 2, 8][r * 2 + c]]
                                     TrackTile(album: al, track: al.tracks[r + c])
-                                        .frame(width: (gridWidth - 8) / 2, alignment: .leading)
+                                        .frame(width: (gridWidth - tileGap) / 2, alignment: .leading)
                                 }
                             }
                         }
@@ -175,7 +178,7 @@ struct HomeView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle("Rediscover")
             ScrollView(.horizontal) {
-                HStack(spacing: 12) {
+                HStack(spacing: Tokens.home.REDISCOVER_GAP.cg) {
                     RediscoverCard(album: a[6], reason: "Reviewed", away: "7 months away", score: 8.8,
                                    footnote: ("2020.11", "14"))
                         .frame(width: contentWidth * 0.86)
@@ -206,7 +209,7 @@ extension EnvironmentValues {
 
 /// Android card wash: container = lerp(surfaceContainerLow, backdrop base, 0.30).
 func cardWash(_ scheme: CoverScheme, _ palette: CoverPalette) -> Color {
-    scheme.surfaceContainerLow.mix(with: BackdropColors(palette).base, by: 0.30, in: .perceptual)
+    scheme.surfaceContainerLow.mix(with: BackdropColors(palette).base, by: Tokens.home.CARD_WASH_FRACTION, in: .perceptual)
 }
 
 /// Android's cover-tone accent (ActivityCardColors.ink, the JBI score rule):
@@ -217,44 +220,7 @@ func cardInk(_ palette: CoverPalette, dark: Bool) -> Color {
     return dark ? b.accent : b.base
 }
 
-// MARK: - Type (Compose line boxes)
-
-/// GSF's natural line on iOS: (hhea ascent 1932 + descent 572) / 2000 em.
-private let gsfNaturalLine: CGFloat = 1.252
-
-extension Font.Weight {
-    /// A YoinTokens.Typography weight (400/500/600/700) as a GSF static cut.
-    init(gsf w: Int32) {
-        switch w {
-        case ..<450: self = .regular
-        case ..<550: self = .medium
-        case ..<650: self = .semibold
-        default: self = .bold
-        }
-    }
-}
-
-extension View {
-    /// Compose sets every line `lineHeight` tall; iOS sets GSF at 1.252 × size.
-    /// Pads each line out to Android's line box (leading split above/below,
-    /// like Compose's proportional line-height span).
-    func homeLine(_ size: CGFloat, _ lineHeight: CGFloat) -> some View {
-        let extra = max(0, lineHeight - size * gsfNaturalLine)
-        return lineSpacing(extra).padding(.vertical, extra / 2)
-    }
-
-    /// An Android M3 role (YoinTokens.Typography) in GSF: size, weight, line
-    /// height and tracking (0, +0.1 on labelMedium / labelSmall), with the
-    /// `.copy(...)` overrides Home makes.
-    func homeType(_ style: YoinTokens.TypographyStyle, _ weight: Font.Weight? = nil,
-                  size: CGFloat? = nil, lineHeight: CGFloat? = nil, digits: Bool = false) -> some View {
-        let sz = size ?? style.size.cg
-        let f = Font.gsf(sz, weight ?? Font.Weight(gsf: style.weight))
-        return font(digits ? f.monospacedDigit() : f)
-            .tracking(style.letterSpacing.cg)
-            .homeLine(sz, lineHeight ?? style.lineHeight.cg)
-    }
-}
+// MARK: - Type (helpers in Theme/TypeRoles.swift)
 
 /// Section title: titleLarge SemiBold at 18 sp (line height 28).
 struct HomeSectionTitle: View {
@@ -277,12 +243,12 @@ private struct MetaLine: View {
     var style: YoinTokens.TypographyStyle = Tokens.type.labelSmall
     var color: Color
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
                 if let unit = g.1 {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
                         Text(g.0).homeType(style, .medium, digits: true)
-                        Text(unit).homeType(style, .regular).opacity(0.6)
+                        Text(unit).homeType(style, .regular).opacity(Tokens.metaLine.MUTED_ALPHA)
                     }
                 } else {
                     Text(g.0).homeType(style)
@@ -435,7 +401,7 @@ private struct JBICell: View {
     var body: some View {
         let s = scheme!
         Button { model.open(album) } label: {
-            AlbumItem(album: album, size: 100) {
+            AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg) {
                 // albumMemoryMarkInk: palette base, accent in dark mode.
                 if let mark { markView(mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
             }
@@ -518,7 +484,7 @@ private struct SignalCard: View {
         Button { model.open(album) } label: {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
-                    EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 100,
+                    EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: Tokens.home.JBI_COVER.cg,
                                    stroke: s.primary)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(kind == .ratedAlbum ? album.title : album.tracks[0].title)
@@ -528,7 +494,7 @@ private struct SignalCard: View {
                         Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
                     }
                     .lineLimit(1)
-                    .frame(width: 100, alignment: .leading)
+                    .frame(width: Tokens.home.JBI_COVER.cg, alignment: .leading)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     // Row(verticalAlignment = Bottom): the basis sits 3 dp off the score's line-box bottom.
@@ -570,8 +536,8 @@ private struct TrackTile: View {
     var body: some View {
         let s = scheme!
         HStack(spacing: 8) {
-            CoverArt(palette: album.palette, cornerRadius: 4, seed: album.seed)
-                .frame(width: 52, height: 52)
+            CoverArt(palette: album.palette, cornerRadius: Tokens.shape.THUMB.cg, seed: album.seed)
+                .frame(width: Tokens.home.RECENTLY_ADDED_TRACK_COVER.cg, height: Tokens.home.RECENTLY_ADDED_TRACK_COVER.cg)
             VStack(alignment: .leading, spacing: 0) {
                 // bodyMedium at 13 sp Medium (line height stays 20).
                 Text(track.title).homeType(Tokens.type.bodyMedium, .medium, size: 13).foregroundStyle(s.onSurface)
@@ -589,7 +555,7 @@ private struct AlbumMini: View {
     var body: some View {
         Button { model.open(album) } label: {
             // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
-            AlbumItem(album: album, size: 82, titleSize: 12, titleLineHeight: 16,
+            AlbumItem(album: album, size: Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg, titleSize: 12, titleLineHeight: 16,
                       artistStyle: Tokens.type.labelSmall, gap: 6)
         }
         .buttonStyle(PressScale())
@@ -615,16 +581,17 @@ private struct RediscoverCard: View {
         let container = cardWash(s, album.palette)
         Button { model.open(album) } label: {
             HStack(spacing: 14) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
+                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed,
+                               size: Tokens.home.REDISCOVER_BACKDROP.cg, stroke: s.primary)
                     .overlay(alignment: .bottomTrailing) {
                         if let score {
                             Text(String(format: "%.1f", score))
                                 .homeType(Tokens.type.labelLarge, .bold, digits: true)
                                 .foregroundStyle(container)
-                                .padding(.horizontal, 8)
-                                .frame(height: 24)
+                                .padding(.horizontal, Tokens.home.REDISCOVER_BADGE_PADDING.cg)
+                                .frame(height: Tokens.home.REDISCOVER_BADGE_HEIGHT.cg)
                                 .background(ink, in: .capsule)
-                                .offset(x: 6)
+                                .offset(x: Tokens.home.REDISCOVER_BADGE_HANG.cg)
                         }
                     }
                 VStack(alignment: .leading, spacing: 0) {
@@ -641,8 +608,8 @@ private struct RediscoverCard: View {
                 .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(14)
-            .frame(height: 132)
+            .padding(Tokens.home.REDISCOVER_PADDING.cg)
+            .frame(height: Tokens.home.REDISCOVER_CARD_HEIGHT.cg)
             .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())

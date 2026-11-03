@@ -28,7 +28,7 @@ struct ArtistDetailView: View {
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            let portrait = min(0.52 * w, 216)
+            let portrait = min(Tokens.detail.ARTIST_PORTRAIT_WIDTH_FRACTION.cg * w, Tokens.detail.ARTIST_PORTRAIT_MAX.cg)
             ZStack(alignment: .top) {
                 background
                 ScrollView {
@@ -44,7 +44,7 @@ struct ArtistDetailView: View {
                         .frame(maxWidth: 720)
                         // Android pads the column 120 above the nav bar
                         // (ArtistDetailScreen.kt:112): the last release clears the bar.
-                        Spacer().frame(height: 120)
+                        Spacer().frame(height: Tokens.detail.ARTIST_BOTTOM_PADDING.cg)
                     }
                 }
                 .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in scrollY = y }
@@ -120,7 +120,7 @@ struct ArtistDetailView: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
-            Spacer().frame(width: 14)
+            Spacer().frame(width: Tokens.detail.HEADER_TITLE_GAP.cg)
             VStack(alignment: .leading, spacing: 0) {
                 Text(artist).lineLimit(1)
                     .yoinRole(Tokens.type.headlineSmall)
@@ -164,12 +164,12 @@ struct ArtistDetailView: View {
     /// (−512, −500); arms 0, 1, 2 in tertiary / primary / secondary; centre
     /// lines in surface @ 0.65. The round portrait sits on the hub.
     private func pinwheel(w: CGFloat, portrait: CGFloat) -> some View {
-        let degrees = 30 + scrollY * 3 * 0.06
+        let degrees = Tokens.detail.ARTIST_MARK_REST_DEGREES.cg + scrollY * 3 * Tokens.detail.ARTIST_MARK_DEGREES_PER_PX.cg
         return ZStack {
             Canvas { gc, size in
                 gc.translateBy(x: size.width / 2, y: size.height / 2)
                 gc.rotate(by: .degrees(degrees))
-                let k = portrait * 2.1 / YoinMarkPaths.viewBox
+                let k = portrait * Tokens.detail.ARTIST_MARK_SCALE.cg / YoinMarkPaths.viewBox
                 gc.scaleBy(x: k, y: k)
                 gc.translateBy(x: -512, y: -500)
                 let colors = [s.tertiary, s.primary, s.secondary]
@@ -188,7 +188,7 @@ struct ArtistDetailView: View {
                 .frame(width: portrait, height: portrait)
                 .clipShape(.circle)
         }
-        .frame(width: w, height: portrait + 150)
+        .frame(width: w, height: portrait + Tokens.detail.ARTIST_BAND_EXTRA.cg)
     }
 
     // MARK: Most Played
@@ -262,7 +262,8 @@ struct ArtistDetailView: View {
             case let k?: r.kind == k
             }
         }
-        let visible = showAll ? shown : Array(shown.prefix(8))
+        let collapsed = Int(Tokens.detail.ARTIST_COLLAPSED_COUNT)
+        let visible = showAll ? shown : Array(shown.prefix(collapsed))
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader("Discography", releases.count == 1 ? "1 release" : "\(releases.count) releases")
             if kinds.count >= 2 {
@@ -287,7 +288,7 @@ struct ArtistDetailView: View {
             ForEach(Array(visible.enumerated()), id: \.element.id) { i, r in
                 releaseRow(r, firstOfYear: i == 0 || visible[i - 1].year != r.year, latest: r.id == releases.first?.id)
             }
-            if shown.count > 8 {
+            if shown.count > collapsed {
                 // M3 TextButton: 12 × 8 content padding, min height 40.
                 Button {
                     withAnimation(Yoin.spatial) { showAll.toggle() }
@@ -300,7 +301,7 @@ struct ArtistDetailView: View {
                         .contentShape(.capsule)
                 }
                 .buttonStyle(PressScale())
-                .padding(.leading, 48)
+                .padding(.leading, Tokens.detail.ARTIST_YEAR_COLUMN.cg)
             }
         }
         .animation(Yoin.spatial, value: kindFilter)
@@ -332,7 +333,7 @@ struct ArtistDetailView: View {
                     .yoinRole(Tokens.type.labelLarge)
                     .foregroundStyle(app.onSurfaceVariant)
                     .padding(.leading, 8)
-                    .frame(width: 48, alignment: .leading)
+                    .frame(width: Tokens.detail.ARTIST_YEAR_COLUMN.cg, alignment: .leading)
                 EntityBackdrop(entity: .album, palette: r.palette, seed: r.seed, size: 56, stroke: app.primary)
                 Spacer().frame(width: 12)
                 VStack(alignment: .leading, spacing: 2) {
@@ -342,19 +343,19 @@ struct ArtistDetailView: View {
                     // MetaLine (bodySmall): Kind groups in Medium (Latest in
                     // primary, the kind in onSurfaceVariant), then a Stat:
                     // the count Medium tabular onSurface, the unit at 60 %.
-                    HStack(spacing: 12) {
+                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
                         if latest {
                             Text("Latest").yoinRole(Tokens.type.bodySmall, weight: .medium).foregroundStyle(app.primary)
                         }
                         Text(r.kind.rawValue).yoinRole(Tokens.type.bodySmall, weight: .medium)
                             .foregroundStyle(app.onSurfaceVariant)
-                        HStack(spacing: 4) {
+                        HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
                             Text("\(r.tracks.count)").monospacedDigit()
                                 .yoinRole(Tokens.type.bodySmall, weight: .medium)
                                 .foregroundStyle(app.onSurface)
                             Text(r.tracks.count == 1 ? "song" : "songs")
                                 .yoinRole(Tokens.type.bodySmall)
-                                .foregroundStyle(app.onSurface.opacity(0.6))
+                                .foregroundStyle(app.onSurface.opacity(Tokens.metaLine.MUTED_ALPHA))
                         }
                     }
                     .lineLimit(1)

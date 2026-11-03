@@ -40,7 +40,7 @@ struct SearchView: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 24) // SearchResultsBottomReserve
+                .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.soft, for: .top)
@@ -56,7 +56,7 @@ struct SearchView: View {
 
     private var header: some View {
         // Android LibrarySearchFilterRow sits 8 under the field (its vertical 8).
-        VStack(spacing: 8) {
+        VStack(spacing: Tokens.search.FILTER_ROW_PADDING_V.cg) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
                     HStack(spacing: 8) {
@@ -95,7 +95,7 @@ struct SearchView: View {
             if !query.isEmpty { filters }
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.bottom, Tokens.search.FILTER_ROW_PADDING_V.cg)
     }
 
     /// Full-width glass segmented control; the selected scope carries the
@@ -135,7 +135,7 @@ struct SearchView: View {
     private var filters: some View {
         ScrollView(.horizontal) {
             GlassEffectContainer(spacing: 4) {
-                HStack(spacing: 8) {
+                HStack(spacing: Tokens.library.CHIP_GAP.cg) {
                     ForEach(Filter.allCases, id: \.self) { f in
                         let on = filter == f
                         Button { withAnimation(Yoin.spatial) { filter = f } } label: {
@@ -183,10 +183,10 @@ struct SearchView: View {
                 Text("No results found")
                     .yoinRole(Tokens.type.bodyLarge)
                     .foregroundStyle(scheme.onSurfaceVariant)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 18)
+                    .padding(.horizontal, Tokens.library.EMPTY_STATE_PADDING_H.cg)
+                    .padding(.vertical, Tokens.library.EMPTY_STATE_PADDING_V.cg)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(scheme.surfaceContainerHighest.opacity(0.72),
+                    .background(scheme.surfaceContainerHighest.opacity(Tokens.library.EMPTY_STATE_ALPHA),
                                 in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
                     .containerRelativeFrame(.vertical) { h, _ in h * 0.6 }
             } else {
@@ -260,12 +260,12 @@ struct SearchView: View {
         Text(title)
             .yoinRole(Tokens.type.labelLarge)
             .foregroundStyle(scheme.onSurfaceVariant)
-            .padding(.top, 18)
-            .padding(.bottom, 6)
+            .padding(.top, Tokens.search.SECTION_HEADER_TOP.cg)
+            .padding(.bottom, Tokens.search.SECTION_HEADER_BOTTOM.cg)
     }
 
     /// Library's Compact cell: (width − 32 − 24) / 3.
-    private var cell: CGFloat { (width - 24) / 3 }
+    private var cell: CGFloat { (width - 2 * Tokens.library.GRID_GUTTER_H.cg) / 3 }
 
     /// Android ArtistListItem: 16 × 10 padding, 48 circle, 12, titleSmall,
     /// then 8 and the album-count meta pill.
@@ -276,8 +276,8 @@ struct SearchView: View {
             model.openArtist(a.artist)
         } label: {
             HStack(spacing: 0) {
-                EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: 48)
-                Spacer().frame(width: 12)
+                EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: Tokens.library.ROW_THUMB.cg)
+                Spacer().frame(width: Tokens.library.ROW_GAP.cg)
                 Text(a.artist)
                     .lineLimit(1)
                     .yoinRole(Tokens.type.titleSmall)
@@ -285,7 +285,7 @@ struct SearchView: View {
                 Spacer(minLength: 8)
                 metaPill(albumCount(a.artist))
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -303,15 +303,15 @@ struct SearchView: View {
             .lineLimit(1)
             .yoinRole(Tokens.type.labelMedium)
             .foregroundStyle(scheme.onSurfaceVariant)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(scheme.surfaceContainerHighest.opacity(0.9), in: .capsule)
+            .padding(.horizontal, Tokens.library.META_PILL_PADDING_H.cg)
+            .padding(.vertical, Tokens.library.META_PILL_PADDING_V.cg)
+            .background(scheme.surfaceContainerHighest.opacity(Tokens.library.META_PILL_ALPHA), in: .capsule)
     }
 
     private func albumRows(_ albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(stride(from: 0, to: albums.count, by: 3)), id: \.self) { i in
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: Tokens.library.GRID_GUTTER_H.cg) {
                     ForEach(albums[i..<min(i + 3, albums.count)]) { a in gridCell(a, isArtist: false) }
                 }
             }
@@ -320,8 +320,8 @@ struct SearchView: View {
 
     /// Android SearchResultsGrid: the Library grid (3 fixed columns, 12 / 16).
     private func grid(_ items: [(Album, Bool)]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: 12, alignment: .top), count: 3),
-                  alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: Tokens.library.GRID_GUTTER_H.cg, alignment: .top), count: 3),
+                  alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
             ForEach(items, id: \.0.id) { a, isArtist in gridCell(a, isArtist: isArtist) }
         }
     }
@@ -340,7 +340,7 @@ struct SearchView: View {
             VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: a.palette, seed: a.seed, size: cell,
                                stroke: scheme.primary)
-                Spacer().frame(height: 5)
+                Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
                 Text(isArtist ? a.artist : a.title)
                     .lineLimit(1)
                     .yoinRole(Tokens.type.titleSmall)
@@ -374,9 +374,9 @@ struct SearchView: View {
                     withAnimation(Yoin.spatial) { model.searchActive = false }
                     model.openPlaylist(p.id.rawId)
                 } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: Tokens.library.ROW_GAP.cg) {
                         CoverArt(palette: p.palette, cornerRadius: 0, seed: 3)
-                            .frame(width: 48, height: 48)
+                            .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
                             .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
                         VStack(alignment: .leading, spacing: 0) {
                             Text(p.title)
@@ -387,7 +387,7 @@ struct SearchView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.vertical, 10)
+                    .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -399,11 +399,11 @@ struct SearchView: View {
     @ViewBuilder
     private func playlistMeta(_ p: LibraryItem) -> some View {
         if let n = p.subtitle.split(separator: " ").compactMap({ Int($0) }).first {
-            HStack(spacing: 4) {
+            HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
                 Text("\(n)").monospacedDigit().yoinRole(Tokens.type.bodySmall, weight: .medium)
                     .foregroundStyle(scheme.onSurface)
                 Text(n == 1 ? "track" : "tracks").yoinRole(Tokens.type.bodySmall)
-                    .foregroundStyle(scheme.onSurface.opacity(0.6))
+                    .foregroundStyle(scheme.onSurface.opacity(Tokens.metaLine.MUTED_ALPHA))
             }
         } else {
             Text("Playlist").yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurfaceVariant)

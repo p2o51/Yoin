@@ -180,7 +180,7 @@ struct AlbumDetailView: View {
             : !tinted ? .regular.interactive()
             : .regular.tint(dark ? s.surfaceContainerHighest.opacity(0.7) : s.primaryContainer.opacity(0.6)).interactive()
         return VStack(spacing: 0) {
-            HStack(spacing: 14) {
+            HStack(spacing: Tokens.detail.HEADER_TITLE_GAP.cg) {
                 Button { model.back() } label: {
                     YoinIcon("back", size: 22)
                         .foregroundStyle(ink)
@@ -201,7 +201,7 @@ struct AlbumDetailView: View {
                     // onSurface white, primary white @ 0.88.
                     let plain: Color = white ? .white : app.onSurface
                     let kind: Color = white ? .white.opacity(0.88) : app.primary
-                    HStack(spacing: 12) {
+                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
                         if let playlist {
                             Text(playlist.owner).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             Text("Playlist").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
@@ -216,7 +216,9 @@ struct AlbumDetailView: View {
                     }
                     .lineLimit(1)
                 }
-                .padding(.trailing, (playlist != nil ? 48 + 12 + 4 : 60) * smooth(p))
+                // Pulled up, the title gives up the stamp + 12 (+ 4 before a playlist's ⋮).
+                .padding(.trailing, (Tokens.detail.ALBUM_STAMP.cg + Tokens.detail.ALBUM_BAR_TITLE_GAP.cg
+                                     + (playlist != nil ? Tokens.detail.PLAYLIST_MENU_GAP.cg : 0)) * smooth(p))
                 Spacer(minLength: 0)
                 if playlist != nil {
                     // ⋮: Cloud backup, Rename, Delete (playlist pages only).
@@ -295,9 +297,11 @@ struct AlbumDetailView: View {
         let f = pageFrac
         let heroRect = CGRect(x: (w - side) / 2, y: headerContent + 28, width: side, height: side)
         // Playlists: the stamp sits 4 pt before the ⋮ (end inset 40 + 16 page).
-        let stampRect = CGRect(x: w - (playlist != nil ? 16 + 40 : 16) - 48, y: 4 + 2, width: 48, height: 48)
+        let stamp = Tokens.detail.ALBUM_STAMP.cg
+        let stampEnd = Tokens.detail.ALBUM_STAMP_END_INSET.cg + (playlist != nil ? Tokens.detail.PLAYLIST_MENU_RESERVE.cg : 0)
+        let stampRect = CGRect(x: w - stampEnd - stamp, y: 4 + 2, width: stamp, height: stamp)
         let r = CGRect(x: lerp(heroRect.minX, stampRect.minX, e), y: lerp(heroRect.minY, stampRect.minY, e),
-                       width: lerp(side, 48, e), height: lerp(side, 48, e))
+                       width: lerp(side, stamp, e), height: lerp(side, stamp, e))
         let target = playlist == nil && !reduceMotion ? scrapCover : nil
         let toPage = target == nil ? 0 : f * (1 - p)
         let flown = if let target, toPage > 0 {
@@ -347,7 +351,7 @@ struct AlbumDetailView: View {
                 playlistMeta(playlist).frame(width: side).frame(maxWidth: .infinity)
                 Spacer().frame(height: 28)
                 Text(flowingTitles)
-                    .lineSpacing(AlbumType.lineSpacing(Tokens.type.headlineMedium))
+                    .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
             // Emblem + comment, as wide as the cover.
@@ -371,7 +375,7 @@ struct AlbumDetailView: View {
             }
             Spacer().frame(height: 6)
             Text(flowingTitles)
-                .lineSpacing(AlbumType.lineSpacing(Tokens.type.headlineMedium))
+                .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -394,11 +398,11 @@ struct AlbumDetailView: View {
         } else if mins > 0 {
             groups.append(("\(mins)", "min"))
         }
-        return HStack(spacing: 12) {
+        return HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(groups, id: \.1) { value, unit in
-                HStack(spacing: 4) {
+                HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
                     Text(value).monospacedDigit().yoinRole(Tokens.type.labelMedium, weight: .medium)
-                    Text(unit).yoinRole(Tokens.type.labelMedium, weight: .regular).opacity(0.6)
+                    Text(unit).yoinRole(Tokens.type.labelMedium, weight: .regular).opacity(Tokens.metaLine.MUTED_ALPHA)
                 }
             }
         }
@@ -599,7 +603,7 @@ struct AlbumDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     sectionLabel("Description")
                     Text(d).lineLimit(3)
-                        .lineSpacing(AlbumType.lineSpacing(Tokens.type.bodyMedium))
+                        .lineSpacing(YoinType.lineSpacing(Tokens.type.bodyMedium))
                         .font(.gsf(Tokens.type.bodyMedium.size.cg))
                         .foregroundStyle(app.onSurface)
                 }
@@ -795,20 +799,5 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
                                   shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
         gestureRecognizer === interactivePopGestureRecognizer && viewControllers.count > 1
             && other.view?.isDescendant(of: view) == true
-    }
-}
-
-/// Line boxes for wrapping text in Compose's type roles. SwiftUI's
-/// `lineSpacing` adds to the font's own line (Google Sans Flex: 1.252 × size),
-/// so the role's line height minus that is the extra.
-enum AlbumType {
-    static let gsfNaturalLine: CGFloat = 1.252
-
-    static func lineSpacing(size: CGFloat, lineHeight: CGFloat) -> CGFloat {
-        max(0, lineHeight - size * gsfNaturalLine)
-    }
-
-    static func lineSpacing(_ role: YoinTokens.TypographyStyle) -> CGFloat {
-        lineSpacing(size: role.size.cg, lineHeight: role.lineHeight.cg)
     }
 }

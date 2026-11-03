@@ -6,7 +6,7 @@ Kept on purpose (owner decisions, not discrepancies): bare covers with no backdr
 
 ## Line boxes
 
-Compose gives every text line the role's `lineHeight` (no `LineHeightStyle` is set, so nothing is trimmed). iOS sets Google Sans Flex at its natural line height, (hhea ascent 1932 + descent 572) / 2000 = 1.252 × size. So every iOS line was shorter than Android's: labelSmall 13.8 instead of 16, bodyMedium 17.5 instead of 20, titleLarge 27.5 instead of 28. Stacks drifted closer together and the strip came out 41.5 tall instead of 44. The new `homeType(_:)` / `homeLine(_:_:)` helpers in HomeView.swift set a YoinTokens.Typography role: size, weight, tracking (0, or +0.1 on labelMedium/labelSmall), and the extra leading split above and below each line.
+Compose gives every text line the role's `lineHeight` (no `LineHeightStyle` is set, so nothing is trimmed). iOS sets Google Sans Flex at its natural line height, (hhea ascent 1932 + descent 572) / 2000 = 1.252 × size. So every iOS line was shorter than Android's: labelSmall 13.8 instead of 16, bodyMedium 17.5 instead of 20, titleLarge 27.5 instead of 28. Stacks drifted closer together and the strip came out 41.5 tall instead of 44. The `homeType(_:)` / `homeLine(_:_:)` helpers (now in Theme/TypeRoles.swift, reading `YoinTokens.Typography.GSF_NATURAL_LINE_HEIGHT`) set a YoinTokens.Typography role: size, weight, tracking (0, or +0.1 on labelMedium/labelSmall), and the extra leading split above and below each line.
 
 ## Table
 

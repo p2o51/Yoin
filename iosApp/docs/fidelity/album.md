@@ -1,6 +1,6 @@
 # Album: Android → iOS fidelity (Compact portrait)
 
-Android source of truth: `app/src/main/java/com/gpo/yoin/ui/detail/` (paths below are relative to it; `component/` and `theme/` are relative to `ui/`). iOS: `iosApp/Yoin/Album/AlbumDetailView.swift` (page 1 and the pull-up), `AlbumScrapbookView.swift` (page 2), `ScoreEmblem.swift`, `AlbumSpectrum.swift`. 1 dp = 1 pt. Type roles come from the shared `YoinTokens.Typography` through `View.yoinRole(_:)` (GSF size + static weight, tracking, the role's line height as the line box). Wrapping text gets the role's line height through `AlbumType.lineSpacing` (line height − 1.252 × size, GSF's own line).
+Android source of truth: `app/src/main/java/com/gpo/yoin/ui/detail/` (paths below are relative to it; `component/` and `theme/` are relative to `ui/`). iOS: `iosApp/Yoin/Album/AlbumDetailView.swift` (page 1 and the pull-up), `AlbumScrapbookView.swift` (page 2), `ScoreEmblem.swift`, `AlbumSpectrum.swift`. 1 dp = 1 pt. Type roles come from the shared `YoinTokens.Typography` through `View.yoinRole(_:)` (GSF size + static weight, tracking, the role's line height as the line box). Wrapping text gets the role's line height through `YoinType.lineSpacing` (line height − `GSF_NATURAL_LINE_HEIGHT` 1.252 × size, GSF's own line; Theme/TypeRoles.swift).
 
 Pass of 2026-11-04. Checked on the iPhone 17 Pro Max simulator, light and dark, with `-screen album`, `album-list`, `album-mid`, `album-scrapbook`, `album-scrapbook-bottom`, plus `-listScroll 600` for the liner notes.
 

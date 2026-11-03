@@ -205,7 +205,7 @@ struct NowPlayingView: View {
             // as a control over the page; it rides along with the drag.
             Button { collapse() } label: {
                 // Android StageTopBar: 28 dp ChevronDown in onSurfaceVariant.
-                YoinIcon("chevron_down", size: 28)
+                YoinIcon("chevron_down", size: Tokens.np.CHEVRON_GLYPH.cg)
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .labContrast("transportSecondary")
                     .frame(width: 44, height: 44)
@@ -289,7 +289,7 @@ struct NowPlayingView: View {
 
     // 4. Text tabs.
     private var tabs: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.np.TAB_GAP.cg) {
             ForEach(Array(["Lyrics", "About", "Note"].enumerated()), id: \.offset) { i, title in
                 let on = tab == i
                 Button { withAnimation(Yoin.spatialFast) { tab = i } } label: {
@@ -297,7 +297,7 @@ struct NowPlayingView: View {
                     Text(title)
                         .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : nil)
                         .foregroundStyle(scheme.onSurfaceVariant.opacity(on ? 1 : 0.5))
-                        .scaleEffect(x: on ? 1.08 : 1, y: 1, anchor: .leading)
+                        .scaleEffect(x: on ? Tokens.np.TAB_SELECTED_STRETCH.cg : 1, y: 1, anchor: .leading)
                 }
                 .buttonStyle(.plain)
             }
@@ -359,7 +359,7 @@ struct NowPlayingView: View {
         // swells on press.
         GlassEffectContainer(spacing: lab.extra("containerSpacing")) {
         VStack(spacing: 4) {
-            HStack(spacing: 8) {
+            HStack(spacing: Tokens.np.TRANSPORT_GAP.cg) {
                 Button {} label: {
                     // titleLarge × 0.9, Bold, 0.5 tracking; the playing
                     // stretch (1.06) grows from the word's leading edge.
@@ -385,7 +385,7 @@ struct NowPlayingView: View {
             .frame(height: 56)
             HStack(spacing: 0) {
                 roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: "Previous")
-                Spacer().frame(width: 8)
+                Spacer().frame(width: Tokens.np.TRANSPORT_GAP.cg)
                 progress(p)
             }
             .font(.gsf(14, .medium))
@@ -405,17 +405,17 @@ struct NowPlayingView: View {
         HStack(spacing: 0) {
             // PlaybackTimeLabel: labelLarge tabular, min 44 / 52, 8 apart.
             Text(formatTime(p.positionSec))
-                .frame(minWidth: 44, alignment: .leading)
+                .frame(minWidth: Tokens.np.TIME_LABEL_MIN_START.cg, alignment: .leading)
                 .offset(y: 6)
-            Spacer().frame(width: 8)
+            Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
             WavyProgressBar(progress: Double(p.positionSec) / Double(p.track.durationSec),
                             duration: TimeInterval(p.track.durationSec), isPlaying: p.isPlaying,
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
                             onScrubbing: { touch("progress", $0) }) { _ in }
                 .frame(height: 40, alignment: .bottom)
-            Spacer().frame(width: 8)
+            Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
             Text("-" + formatTime(p.track.durationSec - p.positionSec))
-                .frame(minWidth: 52, alignment: .trailing)
+                .frame(minWidth: Tokens.np.TIME_LABEL_MIN_END.cg, alignment: .trailing)
                 .offset(y: 6)
         }
         // The row itself carries the glass (as glass content the times and
@@ -449,14 +449,14 @@ struct NowPlayingView: View {
             // One row: title, then the artist on its baseline 12 after it,
             // the artist capped at 40 % of the row (HeroOneLineArtistShare).
             GeometryReader { g in
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: Tokens.np.HERO_ONE_LINE_GAP.cg) {
                     heroTitle(p)
                         .layoutPriority(1)
                     Text(p.album.artist)
                         .font(.gsf(14.4, .medium))
                         .foregroundStyle(scheme.onSurfaceVariant)
                         .scaleEffect(x: 1.02, y: 1, anchor: .leading)
-                        .frame(maxWidth: g.size.width * 0.4, alignment: .leading)
+                        .frame(maxWidth: g.size.width * Tokens.np.HERO_ONE_LINE_ARTIST_SHARE.cg, alignment: .leading)
                         // Measured first (capped); the title takes the rest.
                         .layoutPriority(2)
                         .npFade(open, contentFade)
@@ -637,6 +637,7 @@ struct RatingBar: View {
         GeometryReader { geo in
             let h = geo.size.height
             let fraction = value / 10
+            let crossover = Tokens.np.RATING_LABEL_CROSSOVER
             let inset: CGFloat = held ? 4 : 0
             ZStack(alignment: .top) {
                 // Track: glass tinted with the container role, so the
@@ -654,7 +655,7 @@ struct RatingBar: View {
                     .yoinRole(Tokens.type.titleLarge)
                     .monospacedDigit()
                     .foregroundStyle(scheme.onSurfaceVariant.mix(with: scheme.onPrimary,
-                                                                 by: min(1, max(0, (fraction - 0.8) / 0.2))))
+                                                                 by: min(1, max(0, (fraction - crossover) / (1 - crossover)))))
                     .frame(minWidth: 36)
                     .padding(.top, 8)
             }

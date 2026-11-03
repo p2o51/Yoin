@@ -112,10 +112,10 @@ struct LibraryView: View {
                     // Android SongsTabContent: Random mix header, then the
                     // list's 8 top padding.
                     randomMixHeader
-                    songList.padding(.top, 8)
+                    songList.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
                 } else {
                     // Grid contentPadding top 8 (LibraryScreen.kt AllTabContent).
-                    grid.padding(.top, 8)
+                    grid.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -159,8 +159,8 @@ struct LibraryView: View {
                 // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
                 // bottom = floatingBottomGroupContentPadding 108 over the inset,
                 // less the 62 the shell already reserves for the bar.
-                .padding(.top, 64 + 44 + 4 + 8)
-                .padding(.bottom, 108 - 62)
+                .padding(.top, 64 + Tokens.library.CHIP_HEIGHT.cg + 4 + Tokens.library.SCROLLER_TOP_INSET.cg)
+                .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
             }
         }
         .onAppear {
@@ -231,9 +231,9 @@ struct LibraryView: View {
         HStack(spacing: 0) {
             if filter != nil {
                 Button { withAnimation(Yoin.spatial) { filter = nil } } label: {
-                    YoinIcon("close", size: 20)
+                    YoinIcon("close", size: Tokens.library.CLEAR_ICON.cg)
                         .foregroundStyle(.primary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: Tokens.library.CHIP_HEIGHT.cg, height: Tokens.library.CHIP_HEIGHT.cg)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
@@ -244,7 +244,7 @@ struct LibraryView: View {
                 .accessibilityLabel("Clear filter")
             }
             ScrollView(.horizontal) {
-                GlassEffectContainer(spacing: 4) { HStack(spacing: 8) {
+                GlassEffectContainer(spacing: 4) { HStack(spacing: Tokens.library.CHIP_GAP.cg) {
                     ForEach([LibraryKind.playlists, .artists, .albums, .songs, .favorites], id: \.self) { kind in
                         let on = filter == kind
                         Button { withAnimation(Yoin.spatial) { filter = on ? nil : kind } } label: {
@@ -256,7 +256,7 @@ struct LibraryView: View {
                         .libraryChipGlass(on: on, accent: scheme.secondary)
                     }
                 }
-                .padding(.leading, filter == nil ? 16 : 8)
+                .padding(.leading, filter == nil ? 16 : Tokens.library.CHIP_GAP.cg)
                 .padding(.trailing, 16)
                 .padding(.vertical, 4) }
             }
@@ -271,9 +271,10 @@ struct LibraryView: View {
     // MARK: All / Artists / Albums / Playlists grid
 
     private var grid: some View {
-        let cell = (width - 32 - 24) / 3
-        return LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: 12, alignment: .top), count: 3),
-                         alignment: .leading, spacing: 16) {
+        let gutter = Tokens.library.GRID_GUTTER_H.cg
+        let cell = (width - 32 - 2 * gutter) / 3
+        return LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gutter, alignment: .top), count: 3),
+                         alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
             Section {
                 ForEach(items) { item in
                     gridCell(item, side: cell)
@@ -305,13 +306,13 @@ struct LibraryView: View {
                 Text(sort).yoinRole(Tokens.type.labelLarge).foregroundStyle(scheme.onSurface)
                 YoinIcon("sort", size: 18).foregroundStyle(scheme.onSurfaceVariant)
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Tokens.library.SORT_ROW_PRESS_BLEED.cg)
             .padding(.vertical, 10)
             .frame(minHeight: 48)
             .contentShape(.rect(cornerRadius: 12))
         }
         .buttonStyle(.plain)
-        .offset(x: -8)
+        .offset(x: -Tokens.library.SORT_ROW_PRESS_BLEED.cg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityLabel("Sort")
     }
@@ -328,7 +329,7 @@ struct LibraryView: View {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
                                seed: item.id.rawId.count, size: side, stroke: scheme.primary)
                     .zoomSource(item.id, zoomNS)
-                Spacer().frame(height: 5)
+                Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
                 // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
                 Text(item.title)
                     .lineLimit(1)
@@ -390,21 +391,11 @@ struct LibraryView: View {
 // MARK: Shared with Search
 
 extension View {
-    /// One YoinTypography role from the shared tokens (Type.kt): GSF at the
-    /// role's size and static weight, its tracking (0, or 0.1 on
-    /// labelMedium/Small) and its line box, so rows measure as on Android.
-    func yoinRole(_ s: YoinTokens.TypographyStyle, weight: Font.Weight? = nil) -> some View {
-        let w = weight ?? (s.weight >= 700 ? .bold : s.weight >= 600 ? .semibold : s.weight >= 500 ? .medium : .regular)
-        return font(.gsf(s.size.cg, w))
-            .tracking(s.letterSpacing.cg)
-            .frame(minHeight: s.lineHeight.cg)
-    }
-
     /// A segment chip's glass. Off: plain glass. On: the accent in the glass
     /// (tinted, 85 %), the iOS form of Android's filled secondaryContainer.
     func libraryChipGlass(on: Bool, accent: Color) -> some View {
         glassEffect(on ? .regular.tint(accent.opacity(0.85)).interactive() : .regular.interactive(),
-                    in: .rect(cornerRadius: 18, style: .circular))
+                    in: .rect(cornerRadius: Tokens.library.CHIP_CORNER.cg, style: .circular))
     }
 }
 
@@ -420,10 +411,10 @@ struct LibraryChipLabel: View {
             .lineLimit(1)
             .yoinRole(Tokens.type.labelLarge)
             .foregroundStyle(on ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .frame(minHeight: 44)
-            .contentShape(.rect(cornerRadius: 18))
+            .padding(.horizontal, Tokens.library.CHIP_PADDING_H.cg)
+            .padding(.vertical, Tokens.library.CHIP_PADDING_V.cg)
+            .frame(minHeight: Tokens.library.CHIP_HEIGHT.cg)
+            .contentShape(.rect(cornerRadius: Tokens.library.CHIP_CORNER.cg))
             .animation(Yoin.effects, value: on)
     }
 }
@@ -437,12 +428,12 @@ struct LibrarySongRow: View {
     var track: Track
     var current: Bool
     var scheme: CoverScheme
-    var horizontalPadding: CGFloat = 16
+    var horizontalPadding: CGFloat = Tokens.library.ROW_PADDING_H.cg
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.library.ROW_GAP.cg) {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
-                .frame(width: 48, height: 48)
+                .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
@@ -463,7 +454,7 @@ struct LibrarySongRow: View {
                 .foregroundStyle(scheme.onSurfaceVariant)
         }
         .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, 10)
+        .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
         .contentShape(.rect)
     }
 }
@@ -475,12 +466,12 @@ struct LibraryMetaLine: View {
     var scheme: CoverScheme
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 Text(part.0)
                     .lineLimit(1)
                     .yoinRole(Tokens.type.bodySmall)
-                    .foregroundStyle(scheme.onSurface.opacity(part.1 ? 0.6 : 1))
+                    .foregroundStyle(scheme.onSurface.opacity(part.1 ? Tokens.metaLine.MUTED_ALPHA : 1))
             }
         }
     }

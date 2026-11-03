@@ -9,6 +9,10 @@ enum Tokens {
     static var shape: YoinTokens.Shape { .shared }
     static var np: YoinTokens.NowPlaying { .shared }
     static var detail: YoinTokens.Detail { .shared }
+    static var home: YoinTokens.Home { .shared }
+    static var library: YoinTokens.Library { .shared }
+    static var search: YoinTokens.Search { .shared }
+    static var metaLine: YoinTokens.MetaLine { .shared }
     static var type: YoinTokens.Typography { .shared }
     static var glass: YoinTokens.Glass { .shared }
     static var motion: YoinTokens.Motion { .shared }

@@ -9,7 +9,7 @@ Yoin's Android app (Compose) and iOS app (SwiftUI) share their design numbers an
 | Material Color Utilities (MCU) | `hct`, `utils`, `palettes`, `dynamiccolor`, `scheme`, `temperature`, `contrast`, `dislike` (the vendored Google code, moved unchanged apart from JVM-only calls) | `ExpressiveColorSchemeFactory`, `DefaultColorScheme` | `CoverScheme` via `ExpressiveRoles` |
 | Cover colour roles | `com.gpo.yoin.shared.theme.ExpressiveRoles` (SchemeExpressive SPEC_2025 → ARGB per Compose role) | — (Compose builds its `ColorScheme` directly) | `CoverScheme.argbRoles` |
 | Palette | `com.gpo.yoin.shared.palette` (androidx.palette's `ColorCutQuantizer`, `Palette`, `Target`, default filter) | `CoverSeedExtractor` (decode + Builder resize stay on Android bitmaps) | `CoverSeed.pick` (`Palette.scaleDownPixels` stands in for the resize) |
-| Tokens | `com.gpo.yoin.shared.tokens.YoinTokens`: `Bar`, `Shape`, `NowPlaying`, `Detail`, `Typography`, `Motion`, `Glass` | `FloatingBottomBar`, `WindowAdaptiveRuntime`, `Shape.kt`, `Type.kt`, `GrooveType`, `Motion.kt`, `NowPlayingMetrics`, the NP phone column, the album hero cover | `Tokens.swift` → `NowPlayingView`, `ShellBar` (split button), `YoinFont`, `GlassLab` (Balanced preset), `AlbumDetailView`, Home cards |
+| Tokens | `com.gpo.yoin.shared.tokens.YoinTokens`: `Bar`, `Shape`, `NowPlaying`, `Detail`, `MetaLine`, `Home`, `Library`, `Search`, `Typography`, `Motion`, `Glass` | `FloatingBottomBar`, `WindowAdaptiveRuntime`, `Shape.kt`, `Type.kt`, `GrooveType`, `Motion.kt`, `NowPlayingMetrics`, the NP phone column, the album hero cover | `Tokens.swift` → `NowPlayingView`, `ShellBar` (split button), `YoinFont`, `GlassLab` (Balanced preset), `AlbumDetailView`, `AlbumScrapbookView`, `ArtistDetailView`, `HomeView`, `LibraryView`, `SearchView`, `TypeRoles` |
 | NP height budget | `com.gpo.yoin.shared.nowplaying` (`resolveStageColumnBudget`, DualPane, landscape, `squeezeGaps`) | `ui/nowplaying/NowPlayingBudget.kt` (Dp wrapper) | `NowPlayingBudget` (CGFloat wrapper) |
 | Album spectrum | `com.gpo.yoin.shared.detail.computeAlbumSpectrum` + tone lock | `ui/detail/AlbumSpectrum.kt` | `AlbumSpectrum.strips(for:)` |
 | Fast scroller maths | `com.gpo.yoin.shared.library.FastScrollMath` | `FastScrollMath` in `YoinFastScroller.kt` | `LibraryFastScroller`, `LibraryView.ScrollMetrics` |
@@ -23,6 +23,18 @@ How it is kept honest:
 - `YoinTokensTest` (Android) checks every adopted token against the literal it replaced, and the mirrored type scale and motion schemes against Material's own.
 - `CrossPlatformDigestTest` (`shared/src/commonTest`) folds MCU, Palette, budget, spectrum, scroller and hash results into digests. The JVM and the iOS simulator must produce the same ones (`./gradlew :shared:allTests`).
 - `SharedKotlinTests` (iOS) checks the Swift wrappers: the Balanced glass preset, the tilt hash, the budget filling the column, the spectrum slots.
+
+## iOS parity tokens (2026-11-04)
+
+The per-screen fidelity passes (`docs/fidelity/*.md`) moved the constants iOS matched by hand into shared groups. Android doesn't read these yet; the values are the ones Android uses at the cited files, and adopting them there is a later, separate change.
+
+- `Typography.GSF_NATURAL_LINE_HEIGHT` (1.252): Google Sans Flex's own line on iOS. `Theme/TypeRoles.swift` holds the one set of role helpers that read it: `yoinRole` (one-line roles: line box as min height), `homeType` / `homeLine` (wrapping text: the extra leading on every line), `YoinType.lineSpacing` (album and scrapbook paragraphs).
+- `MetaLine`: group gap 12, Stat number → unit 4, muted 0.6. Home, Library, Search, album and artist meta lines.
+- `Home`: header breathing, Activities row and gap, card wash, Jump Back In cover and gaps, Recently Added covers and tile gap, Rediscover card, backdrop, padding, shelf gap and score badge.
+- `Library`: segment chips (height, corner, padding, gap, ✕ glyph), the grid (gutters, top padding, cover → title), bottom group padding, fast-scroller top inset, sort-row press bleed, song row (padding, thumb, gap), meta pill, empty state. Search reuses the chip, grid, row, pill and empty-state values.
+- `Search`: filter-row padding, results bottom reserve, section header top / bottom.
+- `NowPlaying`: ⌄ glyph, tab gap and selected stretch, transport gap, time-label widths and gap, one-row hero gap and artist share, rating label crossover.
+- `Detail`: header back → title gap, album stamp (size, end inset, title gap), playlist ⋮ reserve and gap, the scrapbook (piece gap, cover, emblem and its overhang, overlap, sticky tuck and width cap, ticket stub and notch, dot paper, pager parallax and lean), the artist page (portrait, pinwheel band, mark scale / rest angle / turn per px, year column, collapsed count, bottom padding).
 
 ## Changing a token so both apps follow
 
@@ -92,7 +104,7 @@ Only numbers and pure functions are shared. Everything that is UI is written onc
 - **Image decoding and scaling.** Android decodes with Coil and resizes with `Bitmap.createScaledBitmap`. iOS renders with `ImageRenderer` and resizes with `Palette.scaleDownPixels`, which is pixel-exact against Skia for the 200 px decode both apps use.
 - **Glass.** It is iOS-only. Only the preset values are shared.
 - **Fonts and shapes.** Each platform loads Google Sans Flex itself (Compose `FontVariation`, CoreText variation axes), using the shared axis values. Continuous corners, MaterialShapes and the Yoin mark paths are drawn per platform.
-- **Remaining literals.** Values not yet in `YoinTokens` stay as literals on each side: Home card insides, the album page header, artist, playlist and search metrics, the iOS-only glass bar sizes. Move them over when you next touch them. `fidelity-home-np.md` maps them.
+- **Remaining literals.** Values not yet in `YoinTokens` stay as literals on each side: Home card insides (text gaps, small/wide card padding, memory marks), one-off text sizes and line heights, the scrapbook's piece-local insets and ticket widths, the album header paddings, the iOS-only glass and bar sizes. Move them over when you next touch them. `fidelity/*.md` maps them to Android.
 
 ## Release builds and motion (2026-11-03)
 

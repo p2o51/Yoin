@@ -51,6 +51,8 @@ Pass of 2026-11-04. Checked on the iPhone Air simulator, light and dark, with `-
 
 ## Values to move into shared YoinTokens
 
+Moved on 2026-11-04 (iosApp/docs/shared-kmp.md › iOS parity tokens): `Search.*` as named here; the meta pill and empty state are `Library.META_PILL_*` / `Library.EMPTY_STATE_*`. `FILTER_DIVIDER_HEIGHT` is not added: iOS has no divider (scope and types are separate rows).
+
 | Proposed token | Value | Android source |
 |---|---|---|
 | `Search.FILTER_ROW_PADDING_V` | 8 | ui/library/LibraryScreen.kt:1039 |

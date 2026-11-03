@@ -69,6 +69,8 @@ Pass of 2026-11-04. Checked on the iPhone Air simulator, light and dark, with `-
 
 ## Values to move into shared YoinTokens
 
+Moved on 2026-11-04 (iosApp/docs/shared-kmp.md › iOS parity tokens): the `Library.*` values as named here, except the song row, which is `Library.ROW_PADDING_H` / `_V`, `ROW_THUMB`, `ROW_GAP`; MetaLine is `YoinTokens.MetaLine`.
+
 | Proposed token | Value | Android source |
 |---|---|---|
 | `Library.CHIP_HEIGHT` | 44 | ui/library/LibraryFilterRow.kt:71; ui/component/ExpressiveComponents.kt:522 |
