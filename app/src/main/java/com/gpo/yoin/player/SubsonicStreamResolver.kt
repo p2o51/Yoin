@@ -55,8 +55,16 @@ data class StreamDelivery(val maxBitRateKbps: Int?, val format: String?) {
     companion object {
         val Original = StreamDelivery(maxBitRateKbps = null, format = null)
 
-        fun plan(quality: StreamQuality, traits: SubsonicServerTraits): StreamDelivery =
-            quality.maxBitRateKbps?.let { StreamDelivery(it, traits.transcodeFormat) } ?: Original
+        /**
+         * The file when [quality] is Original, or when the file is already at
+         * or under the cap ([sourceKbps]): the server would send it as it is,
+         * and the file seeks by byte. [traits] is asked only for a transcode.
+         */
+        fun plan(quality: StreamQuality, sourceKbps: Int?, traits: () -> SubsonicServerTraits): StreamDelivery {
+            val cap = quality.maxBitRateKbps ?: return Original
+            if (sourceKbps != null && sourceKbps <= cap) return Original
+            return StreamDelivery(cap, traits().transcodeFormat)
+        }
     }
 }
 
@@ -80,6 +88,8 @@ internal class SubsonicStreamResolver(
     private val settings: () -> StreamQualitySettings,
     private val isUnmetered: () -> Boolean,
     private val traitsFor: (streamUrl: String) -> SubsonicServerTraits,
+    /** The file's own bit rate as the server lists it, by Subsonic song id; null when unknown. */
+    private val sourceKbpsFor: (songRawId: String) -> Int? = { null },
 ) : ResolvingDataSource.Resolver {
 
     private val pinned = ConcurrentHashMap<String, StreamDelivery>()
@@ -95,11 +105,16 @@ internal class SubsonicStreamResolver(
     override fun resolveDataSpec(dataSpec: DataSpec): DataSpec {
         val url = dataSpec.uri.toString()
         val songId = SubsonicStreamUrls.songIdOf(url) ?: return dataSpec
+        val sourceKbps = sourceKbpsFor(songId)
         val delivery = pinned.getOrPut(songId) {
-            StreamDelivery.plan(settings().forNetwork(isUnmetered()), traitsFor(url))
+            StreamDelivery.plan(settings().forNetwork(isUnmetered()), sourceKbps) { traitsFor(url) }
         }
         if (!delivery.transcoded) return dataSpec
-        val offset = if (delivery.format == SubsonicServerTraits.FORMAT_MP3 && traitsFor(url).timeOffset) {
+        // A byte is a time only when the server is known to encode at the cap:
+        // a file listed above it. Otherwise the reopen keeps its byte position.
+        val constantAtCap = sourceKbps != null && sourceKbps > delivery.maxBitRateKbps!!
+        val seeksByTime = constantAtCap && delivery.format == SubsonicServerTraits.FORMAT_MP3
+        val offset = if (seeksByTime && traitsFor(url).timeOffset) {
             timeOffsetSeconds(dataSpec.position, delivery.maxBitRateKbps!!)
         } else {
             0
@@ -177,6 +192,21 @@ internal class SubsonicServerTraitsCache(private val client: OkHttpClient) {
             isLenient = true
         }
     }
+}
+
+/**
+ * The bit rate each queued Subsonic file has, by song id, as the server lists
+ * it: written when a song is queued, read by [SubsonicStreamResolver] on the
+ * loader thread.
+ */
+internal object SubsonicSourceBitrates {
+    private val kbps = ConcurrentHashMap<String, Int>()
+
+    fun record(songRawId: String, bitRateKbps: Int?) {
+        if (bitRateKbps != null && bitRateKbps > 0) kbps[songRawId] = bitRateKbps
+    }
+
+    fun of(songRawId: String): Int? = kbps[songRawId]
 }
 
 /** NET_CAPABILITY_NOT_METERED on the active network; no network counts as metered. */

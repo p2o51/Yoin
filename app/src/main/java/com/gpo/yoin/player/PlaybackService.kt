@@ -92,6 +92,7 @@ class PlaybackService : MediaSessionService() {
             settings = { StreamQualityPreference.current(this) },
             isUnmetered = { connectivity?.activeNetworkUnmetered() ?: false },
             traitsFor = traits::traitsFor,
+            sourceKbpsFor = SubsonicSourceBitrates::of,
         )
         streamResolver = resolver
         // Resolved above the cache, so a transcode is stored under its own key

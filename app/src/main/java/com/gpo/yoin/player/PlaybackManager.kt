@@ -1344,6 +1344,9 @@ class PlaybackManager(
                 null // DRM streams never become URLs or enter ExoPlayer's cache.
             }
         }
+        if (handle is PlaybackHandle.DirectStream && track.id.provider == MediaId.PROVIDER_SUBSONIC) {
+            SubsonicSourceBitrates.record(track.id.rawId, track.audioFormat?.bitRateKbps)
+        }
         val artworkUri = track.coverArt
             ?.let { ref -> source.resolveCoverUrl(ref) }
             ?.let(Uri::parse)

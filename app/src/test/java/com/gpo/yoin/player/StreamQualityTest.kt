@@ -48,13 +48,29 @@ class StreamQualityTest {
 
     @Test
     fun should_planOriginal_when_qualityOriginal() {
-        assertFalse(StreamDelivery.plan(StreamQuality.Original, navidrome).transcoded)
+        assertFalse(StreamDelivery.plan(StreamQuality.Original, 900) { navidrome }.transcoded)
     }
 
     @Test
     fun should_planServersFormat_when_qualityHasBitRate() {
-        assertEquals(StreamDelivery(128, "mp3"), StreamDelivery.plan(StreamQuality.Kbps128, navidrome))
-        assertEquals(StreamDelivery(320, "mp3"), StreamDelivery.plan(StreamQuality.Kbps320, SubsonicServerTraits.Plain))
+        assertEquals(StreamDelivery(128, "mp3"), StreamDelivery.plan(StreamQuality.Kbps128, 900) { navidrome })
+        assertEquals(
+            StreamDelivery(320, "mp3"),
+            StreamDelivery.plan(StreamQuality.Kbps320, null) { SubsonicServerTraits.Plain },
+        )
+    }
+
+    @Test
+    fun should_playFile_when_fileAlreadyUnderCap() {
+        assertEquals(StreamDelivery.Original, StreamDelivery.plan(StreamQuality.Kbps320, 320) { navidrome })
+    }
+
+    @Test
+    fun should_notAskServer_when_qualityOriginal() {
+        var asked = 0
+        val resolver = SubsonicStreamResolver({ settings }, { true }, { asked++; navidrome })
+        resolver.resolveDataSpec(spec("s1"))
+        assertEquals(0, asked)
     }
 
     @Test
@@ -119,11 +135,20 @@ class StreamQualityTest {
     @Test
     fun should_startServerAtSecond_when_mp3TranscodeReopensMidStream() {
         val mp3 = SubsonicServerTraits(transcodeFormat = "mp3", timeOffset = true)
-        val resolver = SubsonicStreamResolver({ settings }, { false }, { mp3 })
+        val resolver = SubsonicStreamResolver({ settings }, { false }, { mp3 }, { 1_000 })
         // 192 kbps = 24 000 bytes a second: byte 2 400 000 is 100 s in.
         val resolved = resolver.resolveDataSpec(spec("s1", position = 2_400_000L))
         assertEquals("100", resolved.uri.toString().toHttpUrl().queryParameter("timeOffset"))
         assertEquals(0L, resolved.position)
+    }
+
+    @Test
+    fun should_keepBytePosition_when_fileBitRateUnknown() {
+        // The server may send less than the cap: a byte is no time then.
+        val resolver = SubsonicStreamResolver({ settings }, { false }, { navidrome })
+        val resolved = resolver.resolveDataSpec(spec("s1", position = 2_400_000L))
+        assertNull(resolved.uri.toString().toHttpUrl().queryParameter("timeOffset"))
+        assertEquals(2_400_000L, resolved.position)
     }
 
     @Test
