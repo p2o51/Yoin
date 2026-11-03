@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.pow
 
 /** The focus field (gradient lab round 4, owner 2026-11-03). */
 class FocusFieldTest {
@@ -141,6 +142,32 @@ class FocusFieldTest {
         // The rim creeps between neighbouring palette colours.
         assertEquals(room.colors[2], room.around(2f))
         assertEquals(room.colors[0], room.around(4f))
+    }
+
+    @Test
+    fun should_keepWhiteTextReadable_when_theRoomComesFromABrightDarkScheme() {
+        // The 2025 expressive dark scheme's primary sits near tone 90.
+        val room = darkRoomOf(
+            primary = argb(220, 240, 150),
+            secondary = argb(200, 200, 180),
+            tertiary = argb(150, 230, 220),
+            surface = argb(30, 32, 28),
+        )
+        (room.colors.toList() + room.accent).forEach { c ->
+            assertTrue("white on ${Integer.toHexString(c)}", 1.05f / (luminance(c) + 0.05f) >= 7f)
+        }
+        // The hue survives: the primary room colour is still yellow-green.
+        val hsl = FloatArray(3)
+        argbToHsl(room.colors[0], hsl)
+        assertEquals(75f, hsl[0], 20f)
+    }
+
+    private fun luminance(c: Int): Float {
+        fun ch(v: Int): Float {
+            val x = v / 255f
+            return if (x <= 0.04045f) x / 12.92f else ((x + 0.055f) / 1.055f).toDouble().pow(2.4).toFloat()
+        }
+        return 0.2126f * ch((c shr 16) and 0xFF) + 0.7152f * ch((c shr 8) and 0xFF) + 0.0722f * ch(c and 0xFF)
     }
 
     private fun dist(p: FieldPoint, x: Float, y: Float): Float {

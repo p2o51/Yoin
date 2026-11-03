@@ -111,7 +111,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -319,14 +318,11 @@ fun NowPlayingScreen(
     // own fade, not in the theme wash's few steps.
     val roomScheme = LocalCoverDarkScheme.current ?: scheme
     val darkRoom = remember(roomScheme) {
-        RoomPalette(
-            colors = intArrayOf(
-                roomScheme.primaryContainer.toArgb(),
-                roomScheme.secondaryContainer.toArgb(),
-                roomScheme.tertiaryContainer.toArgb(),
-                roomScheme.surfaceContainerHigh.toArgb(),
-            ),
-            accent = lerp(roomScheme.primaryContainer, roomScheme.primary, 0.25f).toArgb(),
+        darkRoomOf(
+            primary = roomScheme.primary.toArgb(),
+            secondary = roomScheme.secondary.toArgb(),
+            tertiary = roomScheme.tertiary.toArgb(),
+            surface = roomScheme.surfaceContainerHigh.toArgb(),
         )
     }
     val background = scheme.background

@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.runtime.Immutable
+import hct.Hct
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
@@ -118,6 +119,35 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
     }
     return CoverField(grid, palette, accent)
 }
+
+/**
+ * Dark focus's room from Now Playing's dark scheme: the hues of [primary],
+ * [secondary] and [tertiary] (and [surface] as it is) at the dark tones the
+ * page itself sits in. The 2025 expressive scheme puts its dark containers
+ * at tone 75-93, far too bright for white lyrics on top (2.5-3.5:1 on
+ * device, round 3); at these tones white stays near 10:1.
+ */
+fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int, surface: Int): RoomPalette {
+    fun at(color: Int, tone: Double): Int {
+        val hct = Hct.fromInt(color)
+        return Hct.from(hct.hue, min(hct.chroma, DarkRoomMaxChroma), tone).toInt()
+    }
+    return RoomPalette(
+        colors = intArrayOf(
+            at(primary, DarkRoomPrimaryTone),
+            at(secondary, DarkRoomSecondaryTone),
+            at(tertiary, DarkRoomTertiaryTone),
+            surface,
+        ),
+        accent = at(primary, DarkRoomAccentTone),
+    )
+}
+
+private const val DarkRoomPrimaryTone = 26.0
+private const val DarkRoomSecondaryTone = 20.0
+private const val DarkRoomTertiaryTone = 24.0
+private const val DarkRoomAccentTone = 32.0
+private const val DarkRoomMaxChroma = 48.0
 
 /**
  * A ready-made room palette: the theme's own colours (ARGB), used as they
