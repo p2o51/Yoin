@@ -16,8 +16,14 @@ struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.zoomNamespace) private var zoomNS
-    @State private var filter: LibraryKind? = LaunchConfig.screen == "library-albums" ? .albums
-        : LaunchConfig.screen == "library-songs" ? .songs : nil
+    @State private var filter: LibraryKind? = switch LaunchConfig.screen {
+    case "library-albums": .albums
+    case "library-songs": .songs
+    case "library-artists": .artists
+    case "library-playlists": .playlists
+    case "library-favorites": .favorites
+    default: nil
+    }
     @State private var width: CGFloat = 370
     @State private var sort = "Recents"
     @State private var position = ScrollPosition()
@@ -71,7 +77,9 @@ struct LibraryView: View {
         switch sort {
         case "Alphabetical": return base.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
         case "Creator": return base.sorted { creator($0).localizedCompare(creator($1)) == .orderedAscending }
-        case "Recently added": return base.sorted { ($0.album?.year ?? 0) > ($1.album?.year ?? 0) }
+        case "Recently added":
+            if model.store.isReal { return base.sorted { ($0.album?.created ?? "") > ($1.album?.created ?? "") } }
+            return base.sorted { ($0.album?.year ?? 0) > ($1.album?.year ?? 0) }
         default: return base
         }
     }
@@ -95,6 +103,16 @@ struct LibraryView: View {
     }
 
     private var filtered: [LibraryItem] {
+        if model.store.isReal {
+            let store = model.store
+            switch filter {
+            case .none: return store.libraryItems
+            case .albums: return store.libraryItems.filter { $0.kind == .album }
+            case .artists: return store.artists
+            case .playlists: return store.playlists
+            case .songs, .favorites: return []
+            }
+        }
         let all = model.library.libraryItems()
         switch filter {
         case .none: return all
@@ -116,12 +134,17 @@ struct LibraryView: View {
                 } else {
                     // Grid contentPadding top 8 (LibraryScreen.kt AllTabContent).
                     grid.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+                    if items.isEmpty && model.store.isReal { loadState }
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
         .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        .task(id: LoadKey(generation: model.store.generation, filter: filter)) {
+            await model.store.loadLibrary(filter)
+        }
+        .refreshable { if model.store.isReal { await reload(force: true) } }
         // Header and chips stay put (Android: only the grid scrolls) and float
         // over the grid as glass, so they sit in a top safe-area bar and the
         // system soft edge runs under them.
@@ -205,7 +228,7 @@ struct LibraryView: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
-            Button {} label: {
+            Button { model.openSettings() } label: {
                 Text("5")
                     .font(.gsf(14, .semibold))
                     .foregroundStyle(scheme.onPrimary)
@@ -321,7 +344,7 @@ struct LibraryView: View {
     private func gridCell(_ item: LibraryItem, side: CGFloat) -> some View {
         let isArtist = item.kind == .artist
         Button {
-            if isArtist { model.openArtist(item.title) }
+            if isArtist { model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId) }
             else if item.kind == .playlist { model.openPlaylist(item.id.rawId) }
             else if let album = item.album { model.open(album) }
         } label: {
@@ -348,7 +371,7 @@ struct LibraryView: View {
     private func subtitle(_ item: LibraryItem) -> String {
         switch item.kind {
         case .artist:
-            let n = model.library.albums().filter { $0.artist == item.title }.count
+            let n = item.count ?? model.library.albums().filter { $0.artist == item.title }.count
             return n == 1 ? "1 album" : "\(n) albums"
         case .album: return item.album?.artist ?? ""
         case .playlist: return "Playlist"
@@ -365,7 +388,10 @@ struct LibraryView: View {
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(scheme.onSurfaceVariant)
             Spacer(minLength: 0)
-            Button {} label: {
+            Button {
+                if filter == .songs { Task { await model.store.loadSongs(force: true) } }
+                else { model.play(songEntries, shuffle: true) }
+            } label: {
                 YoinIcon("shuffle", size: 20)
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .frame(width: 48, height: 48)
@@ -378,12 +404,75 @@ struct LibraryView: View {
         .padding(.trailing, 8)
     }
 
+    /// Songs: the server's random mix / starred songs; mock: three per album.
+    private var songEntries: [PlaylistEntry] {
+        guard model.store.isReal else {
+            return model.library.albums().flatMap { a in a.tracks.prefix(3).map { PlaylistEntry(album: a, track: $0) } }
+        }
+        return filter == .favorites ? model.store.favorites : model.store.songs
+    }
+
+    @ViewBuilder
     private var songList: some View {
-        let tracks = model.library.albums().flatMap { a in a.tracks.prefix(3).map { (a, $0) } }
-        return LazyVStack(spacing: 0) {
-            ForEach(tracks, id: \.1.id) { a, t in
-                LibrarySongRow(album: a, track: t, current: model.playback.track.id == t.id, scheme: scheme)
+        let entries = songEntries
+        if entries.isEmpty && model.store.isReal {
+            let key = filter == .favorites ? "favorites" : "songs"
+            if model.store.phase(key) == .failed {
+                RetryRow(scheme: scheme) { Task { await reload(force: true) } }
+            } else if model.store.phase(key) != .loaded {
+                RowSkeleton(scheme: scheme)
             }
+        }
+        LazyVStack(spacing: 0) {
+            ForEach(Array(entries.enumerated()), id: \.offset) { i, e in
+                LibrarySongRow(album: e.album, track: e.track, current: model.playback.track.id == e.track.id,
+                               scheme: scheme)
+                    .onTapGesture { model.play(entries, startAt: i) }
+            }
+        }
+    }
+
+    // MARK: Server load states
+
+    private struct LoadKey: Hashable {
+        var generation: Int
+        var filter: LibraryKind?
+    }
+
+    private var phaseKeys: [String] {
+        switch filter {
+        case .none: ["albums", "artists", "playlists"]
+        case .albums?: ["albums"]
+        case .artists?: ["artists"]
+        case .playlists?: ["playlists"]
+        case .songs?: ["songs"]
+        case .favorites?: ["favorites"]
+        }
+    }
+
+    private func reload(force: Bool) async {
+        switch filter {
+        case .none:
+            await model.store.loadAlbums(force: force)
+            await model.store.loadArtists(force: force)
+            await model.store.loadPlaylists(force: force)
+        case .albums?: await model.store.loadAlbums(force: force)
+        case .artists?: await model.store.loadArtists(force: force)
+        case .playlists?: await model.store.loadPlaylists(force: force)
+        case .songs?: await model.store.loadSongs(force: force)
+        case .favorites?: await model.store.loadFavorites(force: force)
+        }
+    }
+
+    @ViewBuilder
+    private var loadState: some View {
+        let phases = phaseKeys.map { model.store.phase($0) }
+        if phases.contains(.failed) {
+            RetryRow(scheme: scheme) { Task { await reload(force: false) } }
+        } else if phases.contains(where: { $0 != .loaded }) {
+            let gutter = Tokens.library.GRID_GUTTER_H.cg
+            GridSkeleton(cell: (width - 32 - 2 * gutter) / 3, gutter: gutter, scheme: scheme)
+                .padding(.horizontal, 16)
         }
     }
 }

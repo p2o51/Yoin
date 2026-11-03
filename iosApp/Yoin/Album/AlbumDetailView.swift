@@ -26,13 +26,25 @@ struct AlbumDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var album: Album
+    private var routeAlbum: Album
     var padColumn = false
     /// Playlist mode (Android PlaylistDetailScreen): same hero / pull-up /
     /// spectrum, but owner + "Playlist" meta, a ⋮ menu, the stacked-V
     /// backdrop, a Length / Owner / Description block instead of the emblem,
     /// thumb-led track rows, and no scrapbook page.
-    var playlist: PlaylistInfo? = nil
+    private var routePlaylist: PlaylistInfo?
+
+    init(album: Album, padColumn: Bool = false, playlist: PlaylistInfo? = nil) {
+        routeAlbum = album
+        self.padColumn = padColumn
+        routePlaylist = playlist
+    }
+
+    /// The page's album / playlist as the store has it now (a server album's
+    /// tracks arrive after the push; the mock is the route's own).
+    private var playlist: PlaylistInfo? { routePlaylist.map { model.playlistInfo($0.id.rawId) } }
+    private var album: Album { playlist?.asAlbum ?? model.resolved(routeAlbum) }
+    private var isMock: Bool { routeAlbum.id.provider == "mock" }
 
     @State private var p: CGFloat = ["album-list", "playlist-list"].contains(LaunchConfig.screen) ? 1
         : LaunchConfig.screen == "album-mid" ? 0.42 : 0
@@ -153,6 +165,32 @@ struct AlbumDetailView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
+        .task(id: "\(model.store.generation)|\(routeAlbum.id.rawId)") {
+            guard !isMock, playlist == nil else { return }
+            await model.store.loadAlbum(routeAlbum.id.rawId)
+        }
+    }
+
+    /// Server page whose tracks didn't load: a retry under the header.
+    private var loadFailed: Bool {
+        guard !isMock else { return false }
+        let key = playlist.map { "playlist:\($0.id.rawId)" } ?? "album:\(routeAlbum.id.rawId)"
+        return model.store.phase(key) == .failed
+    }
+
+    private func retry() {
+        Task {
+            if let playlist { await model.store.loadPlaylist(playlist.id.rawId, force: true) }
+            else { await model.store.loadAlbum(routeAlbum.id.rawId, force: true) }
+        }
+    }
+
+    // MARK: Playing
+
+    private func playAlbum(from track: Track) {
+        let a = album
+        let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
+        model.play(entries, startAt: entries.firstIndex { $0.track.id == track.id } ?? 0)
     }
 
     // MARK: Pieces
@@ -206,7 +244,7 @@ struct AlbumDetailView: View {
                             Text(playlist.owner).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             Text("Playlist").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
                         } else {
-                            Button { model.openArtist(album.artist) } label: {
+                            Button { model.openArtist(album.artist, id: album.artistId) } label: {
                                 Text(album.artist).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             }
                             .buttonStyle(.plain)
@@ -368,10 +406,14 @@ struct AlbumDetailView: View {
             HStack(spacing: 12) {
                 countLabel
                 // AlbumHeroLastPlay: labelMedium Medium tabular, onSurface.
-                Text("Yesterday 16:04")
-                    .monospacedDigit()
-                    .yoinRole(Tokens.type.labelMedium, weight: .medium)
-                    .foregroundStyle(app.onSurface)
+                // (Mock only: iOS keeps no play history yet.)
+                if isMock {
+                    Text("Yesterday 16:04")
+                        .monospacedDigit()
+                        .yoinRole(Tokens.type.labelMedium, weight: .medium)
+                        .foregroundStyle(app.onSurface)
+                }
+                if loadFailed { retryButton }
             }
             Spacer().frame(height: 6)
             Text(flowingTitles)
@@ -387,9 +429,8 @@ struct AlbumDetailView: View {
     /// apart ("12 tracks", "1 h", "12 min"); each number Medium tabular, its
     /// unit Regular at 60 %, 4 apart. Hours and minutes are separate groups.
     private var countLabel: some View {
-        let count = playlist?.entries.count ?? album.tracks.count
-        let secs = playlist.map { $0.entries.map(\.track.durationSec).reduce(0, +) }
-            ?? album.tracks.map(\.durationSec).reduce(0, +)
+        let count = playlist?.entries.count ?? album.trackCount
+        let secs = playlist.map { $0.entries.map(\.track.durationSec).reduce(0, +) } ?? album.totalSec
         let mins = secs / 60
         var groups: [(String, String)] = [("\(count)", count == 1 ? "track" : "tracks")]
         if mins >= 60 {
@@ -467,7 +508,19 @@ struct AlbumDetailView: View {
     }
 
     private var mockComment: String? {
-        album.rating != nil ? "A record for the walk home, warm even on the cold tracks" : nil
+        isMock && album.rating != nil ? "A record for the walk home, warm even on the cold tracks" : nil
+    }
+
+    private var retryButton: some View {
+        Button { retry() } label: {
+            Text("Retry")
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(app.primary)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 32)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
     }
 
     // MARK: Track list (pulled up)
@@ -479,14 +532,20 @@ struct AlbumDetailView: View {
                     .padding(.leading, 8)
                     .padding(.top, 2)
                     .padding(.bottom, 10)
+                if loadFailed { retryButton.padding(.leading, 4) }
                 if let playlist {
-                    ForEach(playlist.entries, id: \.track.id) { e in playlistRow(e) }
+                    ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
+                        playlistRow(e)
+                            .onTapGesture { model.play(playlist.entries, startAt: i) }
+                    }
                     playlistMeta(playlist)
                         .padding(.horizontal, 8)
                         .padding(.top, 28)
                         .opacity(max(0, (smooth(p) - 0.6) / 0.4))
                 } else {
-                ForEach(album.tracks) { t in trackRow(t) }
+                ForEach(album.tracks) { t in
+                    trackRow(t).onTapGesture { playAlbum(from: t) }
+                }
                 linerNotes
                     .padding(.horizontal, 8)
                     .padding(.top, 28)
@@ -529,15 +588,20 @@ struct AlbumDetailView: View {
                 .monospacedDigit()
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(app.onSurfaceVariant)
-            let liked = t.rating.map { $0 >= 9 } ?? false
-            YoinIcon(liked ? "favorite_filled" : "favorite", size: 16)
-                .foregroundStyle(liked ? s.onPrimary : app.onSurfaceVariant)
-                .frame(width: 28, height: 28)
-                .background {
-                    if liked { Circle().fill(s.primary) }
-                    else { Circle().strokeBorder(app.outline.opacity(0.5), lineWidth: 1.5) }
-                }
-                .frame(width: 36, height: 36)
+            let liked = model.store.isStarred(t)
+            Button { withAnimation(Yoin.effects) { model.store.toggleStar(t) } } label: {
+                YoinIcon(liked ? "favorite_filled" : "favorite", size: 16)
+                    .foregroundStyle(liked ? s.onPrimary : app.onSurfaceVariant)
+                    .frame(width: 28, height: 28)
+                    .background {
+                        if liked { Circle().fill(s.primary) }
+                        else { Circle().strokeBorder(app.outline.opacity(0.5), lineWidth: 1.5) }
+                    }
+                    .frame(width: 36, height: 36)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(PressScale())
+            .accessibilityLabel(liked ? "Remove from favorites" : "Add to favorites")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
@@ -649,12 +713,14 @@ struct AlbumDetailView: View {
         let kind: ScoreEmblem.Kind = album.rating != nil ? .album : .average
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 0) {
-                    sectionLabel("Last Play").padding(.bottom, 4)
-                    Text("Yesterday").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                    Text("16:04").monospacedDigit()
-                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
-                        .padding(.top, 4)
+                if isMock {
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionLabel("Last Play").padding(.bottom, 4)
+                        Text("Yesterday").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                        Text("16:04").monospacedDigit()
+                            .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                            .padding(.top, 4)
+                    }
                 }
                 Spacer()
                 HStack(spacing: 10) {

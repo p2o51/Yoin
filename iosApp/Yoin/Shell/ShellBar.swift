@@ -213,7 +213,7 @@ struct ShellBar: View {
         let tint = s.primary.opacity(0.85)
         let inner = Tokens.bar.SPLIT_INNER_CORNER.cg
         return GlassEffectContainer(spacing: 0) { HStack(spacing: Tokens.bar.SPLIT_GAP.cg) {
-            Button {} label: {
+            Button { playDetail(shuffle: false) } label: {
                 HStack(spacing: 8) {
                     YoinIcon("play_filled", size: 20)
                     Text("Play").font(.gsf(16, .medium))
@@ -232,14 +232,19 @@ struct ShellBar: View {
             .glassEffectTransition(.materialize)
 
             Menu {
-                Button("Shuffle play") {}
-                Button("Play next") {}
-                Button("Add to queue") {}
-                Button("Add to playlist") {}
-                Button("Open in Apple Music") {}
+                Button("Shuffle play") { playDetail(shuffle: true) }
+                Button("Play next") { enqueueDetail(next: true) }
+                Button("Add to queue") { enqueueDetail(next: false) }
+                // Not on a Subsonic server yet (no playlist writes, no catalog link, no share links).
+                if !model.store.isReal {
+                    Button("Add to playlist") {}
+                    Button("Open in Apple Music") {}
+                }
                 Divider()
-                Button("Go to artist") {}
-                Button("Share") {}
+                if case .album = model.path.last {
+                    Button("Go to artist") { model.openArtist(album.artist, id: album.artistId) }
+                }
+                if !model.store.isReal { Button("Share") {} }
             } label: {
                 YoinIcon("chevron_down", size: 22)
                     .foregroundStyle(s.onPrimary)
@@ -257,6 +262,16 @@ struct ShellBar: View {
         } }
         .frame(width: Tokens.bar.SPLIT_WIDTH.cg, height: height)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The page's songs (album tracks, playlist entries, the artist's Most
+    /// Played) into the engine.
+    private func playDetail(shuffle: Bool) {
+        Task { model.play(await model.detailEntries(), shuffle: shuffle) }
+    }
+
+    private func enqueueDetail(next: Bool) {
+        Task { model.enqueue(await model.detailEntries(), next: next) }
     }
 }
 

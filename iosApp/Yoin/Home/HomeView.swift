@@ -13,14 +13,24 @@ struct HomeView: View {
     /// App-wide tokens follow the playing cover (design.md 颜色系统 3).
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
 
+    /// Signed in: the server's shelves (nil while the first load runs);
+    /// signed out: the mock shelf the screenshots use.
+    private var feed: HomeFeed? { model.store.isReal ? model.store.home : MockLibrary.shared.homeFeed() }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                activities
-                jumpBackIn
-                recentlyAdded
-                rediscover
+                if let feed {
+                    if !feed.activities.isEmpty { activities(feed.activities) }
+                    if !feed.jumpBackIn.isEmpty { jumpBackIn(feed) }
+                    if !feed.recentTracks.isEmpty || !feed.recentAlbums.isEmpty { recentlyAdded(feed) }
+                    if !feed.rediscover.isEmpty { rediscover(feed.rediscover) }
+                } else if model.store.homePhase == .failed {
+                    RetryRow(scheme: scheme) { Task { await model.store.loadHome(force: true) } }
+                } else {
+                    HomeSkeleton(width: contentWidth, scheme: scheme)
+                }
             }
             .padding(.horizontal, 16)
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
@@ -35,6 +45,8 @@ struct HomeView: View {
             .ignoresSafeArea()
         )
         .environment(\.homeScheme, scheme)
+        .task(id: model.store.generation) { await model.store.loadHome() }
+        .refreshable { if model.store.isReal { await model.store.loadHome(force: true) } }
     }
 
     // MARK: Header (HomeGreetingTitle.kt)
@@ -66,7 +78,7 @@ struct HomeView: View {
             .lineLimit(1)
             .padding(.trailing, Tokens.home.HEADER_TITLE_BREATHING.cg)
             Spacer(minLength: 0)
-            Button { model.showLanding = true } label: {
+            Button { model.openSettings() } label: {
                 // 32 dp avatar in a 48 dp target; profile 0 = Cookie6Sided.
                 Text("5")
                     .font(.gsf(14, .semibold))
@@ -87,27 +99,49 @@ struct HomeView: View {
 
     // MARK: Activities (bento, phone preset L)
 
-    private var activities: some View {
-        let a = model.library.albums()
+    private func activities(_ a: [ActivityEntry]) -> some View {
         let gap = Tokens.home.ACTIVITY_ROW_GAP.cg
         let small = contentWidth > 0 ? (contentWidth - gap) / 3 : 120
         return VStack(alignment: .leading, spacing: gap) {
             HomeSectionTitle("Activities").padding(.bottom, 6)
-            HeroCard(album: a[0], timeAgo: "12m ago")
-            HStack(spacing: gap) {
-                SmallCard(album: a[3], entity: .artist, typeLabel: "Artist", timeAgo: "2h ago", title: a[3].artist)
-                    .frame(width: small)
-                WideCard(album: a[1], timeAgo: "1d ago")
+            HeroCard(album: a[0].album, timeAgo: a[0].eyebrow)
+            if a.count > 1 {
+                HStack(spacing: gap) {
+                    SmallCard(album: a[1].album, entity: .artist, typeLabel: "Artist", timeAgo: a[1].eyebrow,
+                              title: a[1].album.artist)
+                        .frame(width: small)
+                    if a.count > 2 { WideCard(album: a[2].album, timeAgo: a[2].eyebrow) }
+                }
+                .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
             }
-            .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
-            StripCard(album: a[11], timeAgo: "3d ago")
+            if a.count > 3 { StripCard(album: a[3].album, timeAgo: a[3].eyebrow) }
         }
     }
 
     // MARK: Jump Back In (3 columns, two 1×2 signal cards)
 
-    private var jumpBackIn: some View {
-        let a = model.library.jumpBackIn()
+    @ViewBuilder
+    private func jumpBackIn(_ feed: HomeFeed) -> some View {
+        if feed.layout == .mock { mockJumpBackIn(feed.jumpBackIn) } else { serverJumpBackIn(feed.jumpBackIn) }
+    }
+
+    /// A server's shelf: plain cells, three to a row.
+    private func serverJumpBackIn(_ a: [Album]) -> some View {
+        let colGap = Tokens.home.JBI_COLUMN_GAP.cg
+        let col = (contentWidth - 2 * colGap) / 3
+        return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
+            HomeSectionTitle("Jump Back In")
+            ForEach(Array(stride(from: 0, to: a.count, by: 3)), id: \.self) { i in
+                HStack(alignment: .top, spacing: colGap) {
+                    ForEach(a[i..<min(i + 3, a.count)]) { album in
+                        JBICell(album: album, mark: nil).frame(width: col, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+    private func mockJumpBackIn(_ a: [Album]) -> some View {
         // Compose Row weights (HomeWidgetGrid.kt phone path): each row splits
         // what its own 12 dp gaps leave, so a 1×2 row (one gap) gets
         // (C − 12) × 2/3 + (C − 12)/3 and a three-cover row (C − 24)/3 each.
@@ -140,28 +174,30 @@ struct HomeView: View {
 
     // MARK: Recently Added (2×2 track grid, then album cards)
 
-    private var recentlyAdded: some View {
-        let a = model.library.albums()
+    private func recentlyAdded(_ feed: HomeFeed) -> some View {
+        let tiles = feed.recentTracks
         let gridWidth = min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
         let tileGap = Tokens.home.RECENTLY_ADDED_TILE_GAP.cg
         return VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle("Recently Added")
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(0..<2, id: \.self) { r in
-                            HStack(spacing: tileGap) {
-                                ForEach(0..<2, id: \.self) { c in
-                                    let al = a[[9, 6, 2, 8][r * 2 + c]]
-                                    TrackTile(album: al, track: al.tracks[r + c])
-                                        .frame(width: (gridWidth - tileGap) / 2, alignment: .leading)
+                    if !tiles.isEmpty {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(Array(stride(from: 0, to: min(tiles.count, 4), by: 2)), id: \.self) { r in
+                                HStack(spacing: tileGap) {
+                                    ForEach(r..<min(r + 2, tiles.count), id: \.self) { i in
+                                        TrackTile(album: tiles[i].album, track: tiles[i].track)
+                                            .frame(width: (gridWidth - tileGap) / 2, alignment: .leading)
+                                            .onTapGesture { model.play(tiles, startAt: i) }
+                                    }
                                 }
                             }
                         }
+                        .frame(width: gridWidth, alignment: .topLeading)
                     }
-                    .frame(width: gridWidth)
-                    ForEach([10, 4, 7, 5, 2, 8], id: \.self) { i in
-                        AlbumMini(album: a[i])
+                    ForEach(Array(feed.recentAlbums.enumerated()), id: \.offset) { _, album in
+                        AlbumMini(album: album)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -173,18 +209,16 @@ struct HomeView: View {
 
     // MARK: Rediscover (peeking shelf)
 
-    private var rediscover: some View {
-        let a = model.library.albums()
-        return VStack(alignment: .leading, spacing: 12) {
+    private func rediscover(_ cards: [RediscoverEntry]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle("Rediscover")
             ScrollView(.horizontal) {
                 HStack(spacing: Tokens.home.REDISCOVER_GAP.cg) {
-                    RediscoverCard(album: a[6], reason: "Reviewed", away: "7 months away", score: 8.8,
-                                   footnote: ("2020.11", "14"))
-                        .frame(width: contentWidth * 0.86)
-                    RediscoverCard(album: a[8], reason: "3 notes", away: "1 year away", score: nil,
-                                   footnote: ("2019.04", "9"))
-                        .frame(width: contentWidth * 0.86)
+                    ForEach(Array(cards.enumerated()), id: \.offset) { _, c in
+                        RediscoverCard(album: c.album, reason: c.reason, away: c.away, score: c.score,
+                                       footnote: (c.footnoteDate, c.footnotePlays))
+                            .frame(width: contentWidth * 0.86)
+                    }
                 }
                 .padding(.horizontal, 16)
             }
@@ -269,6 +303,16 @@ private struct HeroCard: View {
     var album: Album
     var timeAgo: String
 
+    /// [year] [N songs] [M min]; the mock keeps its hand-set 48 min.
+    private var heroMeta: [(String, String?)] {
+        var g: [(String, String?)] = []
+        if album.year > 0 { g.append(("\(album.year)", nil)) }
+        g.append(("\(album.trackCount)", "songs"))
+        let mins = album.id.provider == "mock" ? 48 : album.totalSec / 60
+        if mins > 0 { g.append(("\(mins)", "min")) }
+        return g
+    }
+
     var body: some View {
         let s = scheme!
         let muted = s.onSurfaceVariant
@@ -280,8 +324,7 @@ private struct HeroCard: View {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(muted)
                     Text(album.title).homeType(Tokens.type.titleLarge, .semibold).foregroundStyle(s.onSurface)
                     Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(muted)
-                    MetaLine(groups: [("\(album.year)", nil), ("\(album.tracks.count)", "songs"), ("48", "min")],
-                             color: muted)
+                    MetaLine(groups: heroMeta, color: muted)
                 }
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -304,7 +347,9 @@ private struct SmallCard: View {
 
     var body: some View {
         let s = scheme!
-        Button { model.open(album) } label: {
+        Button {
+            if entity == .artist { model.openArtist(album.artist, id: album.artistId) } else { model.open(album) }
+        } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 10) {
                     EntityBackdrop(entity: entity, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)

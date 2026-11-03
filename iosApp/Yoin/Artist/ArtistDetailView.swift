@@ -8,17 +8,25 @@ import SwiftUI
 /// Colors: the newest release's cover scheme for the name, star, arms and
 /// "Show all"; the app scheme for everything else.
 struct ArtistDetailView: View {
-    var artist: String
+    var ref: ArtistRef
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
-    @State private var following = true
     @State private var kindFilter: ReleaseKind?
     @State private var showAll = false
     @State private var scrollY: CGFloat = 0
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
-    private var releases: [Album] { MockLibrary.shared.releases(by: artist) }
-    private var hero: Album { releases.first ?? MockLibrary.allAlbums[0] }
+    /// The server's page when signed in (releases, Most Played by play
+    /// count), else the mock artist.
+    private var page: ArtistPage { model.artistPage(ref) }
+    private var isMock: Bool { page.id.provider == "mock" }
+    private var artist: String { page.name }
+    private var following: Bool { model.store.isStarred(artist: page) }
+    private var releases: [Album] { page.releases }
+    private var hero: Album {
+        releases.first ?? (isMock ? MockLibrary.allAlbums[0]
+            : Album(id: page.id, title: "", artist: page.name, year: 0, palette: page.palette, tracks: []))
+    }
     private var s: CoverScheme { CoverScheme(album: hero, dark: colorScheme == .dark) }
     private var app: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -85,6 +93,10 @@ struct ArtistDetailView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: "\(model.store.generation)|\(ref.id ?? ref.name)") {
+            guard let id = ref.id, model.store.isReal else { return }
+            await model.store.loadArtist(id)
+        }
     }
 
     /// 4 top + the title column (headlineSmall 32 + bodyMedium 20 line boxes,
@@ -103,7 +115,7 @@ struct ArtistDetailView: View {
     // MARK: Header
 
     private var yearSpan: String? {
-        let years = releases.map(\.year)
+        let years = releases.map(\.year).filter { $0 > 0 }
         guard let lo = years.min(), let hi = years.max() else { return nil }
         return lo == hi ? "\(lo)" : "\(lo) – \(hi)"
     }
@@ -133,7 +145,7 @@ struct ArtistDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Button {
-                withAnimation(Yoin.effects) { following.toggle() }
+                withAnimation(Yoin.effects) { model.store.toggleStar(artist: page) }
             } label: {
                 // M3 IconButton: 24 icon in a 40 box; tint primary-of-cover on,
                 // onSurfaceVariant off. The tap pops it (tween 90 ms up, spring back).
@@ -184,7 +196,8 @@ struct ArtistDetailView: View {
                     }
                 }
             }
-            CoverArt(palette: hero.palette, cornerRadius: portrait / 2, seed: hero.seed + 3)
+            // Mock: the newest cover; server: the artist's image (else that cover).
+            CoverArt(palette: isMock ? hero.palette : page.palette, cornerRadius: portrait / 2, seed: hero.seed + 3)
                 .frame(width: portrait, height: portrait)
                 .clipShape(.circle)
         }
@@ -207,18 +220,23 @@ struct ArtistDetailView: View {
     }
 
     private var mostPlayed: some View {
-        let picks: [(Album, Track, Int)] = releases.flatMap { a in a.tracks.prefix(2).map { (a, $0) } }
-            .prefix(5).enumerated().map { ($1.0, $1.1, 30 - $0 * 5) }
+        let picks: [(Album, Track, Int)] = page.mostPlayed.map { ($0.album, $0.track, $0.track.playCount ?? 0) }
         return VStack(alignment: .leading, spacing: 0) {
+            if !picks.isEmpty {
             sectionHeader("Most Played", "\(picks.map(\.2).reduce(0, +)) plays")
             Spacer().frame(height: 6)
+            }
             ForEach(Array(picks.enumerated()), id: \.offset) { i, item in
                 let (a, t, plays) = item
                 Button {
-                    withAnimation(Yoin.effects) {
-                        model.playback.album = a
-                        model.playback.track = t
-                        model.playback.positionSec = 0
+                    if isMock {
+                        withAnimation(Yoin.effects) {
+                            model.playback.album = a
+                            model.playback.track = t
+                            model.playback.positionSec = 0
+                        }
+                    } else {
+                        model.play(page.mostPlayed, startAt: i)
                     }
                 } label: {
                     HStack(spacing: 12) {
@@ -350,10 +368,10 @@ struct ArtistDetailView: View {
                         Text(r.kind.rawValue).yoinRole(Tokens.type.bodySmall, weight: .medium)
                             .foregroundStyle(app.onSurfaceVariant)
                         HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
-                            Text("\(r.tracks.count)").monospacedDigit()
+                            Text("\(r.trackCount)").monospacedDigit()
                                 .yoinRole(Tokens.type.bodySmall, weight: .medium)
                                 .foregroundStyle(app.onSurface)
-                            Text(r.tracks.count == 1 ? "song" : "songs")
+                            Text(r.trackCount == 1 ? "song" : "songs")
                                 .yoinRole(Tokens.type.bodySmall)
                                 .foregroundStyle(app.onSurface.opacity(Tokens.metaLine.MUTED_ALPHA))
                         }

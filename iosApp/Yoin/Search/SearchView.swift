@@ -50,6 +50,13 @@ struct SearchView: View {
         // container = surfaceContainerHigh of the playing scheme.
         .background(scheme.surfaceContainerHigh.ignoresSafeArea())
         .onAppear { focused = LaunchConfig.searchQuery.isEmpty }
+        // Server search: search3 once typing pauses (300 ms).
+        .task(id: "\(model.store.generation)|\(query)") {
+            guard model.store.isReal else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await model.store.runSearch(query)
+        }
     }
 
     // MARK: Header
@@ -91,7 +98,8 @@ struct SearchView: View {
                     .accessibilityLabel("Close search")
                 }
             }
-            scopes
+            // A Subsonic server has no catalog apart from the library.
+            if !model.store.isReal { scopes }
             if !query.isEmpty { filters }
         }
         .padding(.horizontal, 16)
@@ -161,7 +169,7 @@ struct SearchView: View {
         if query.isEmpty {
             VStack(spacing: 10) {
                 YoinIcon("search", size: 44).foregroundStyle(scheme.onSurfaceVariant)
-                Text(scope == .library ? "Search library" : "Search Apple Music")
+                Text(scope == .library || model.store.isReal ? "Search library" : "Search Apple Music")
                     .font(.gsf(20, .semibold))
                     .foregroundStyle(scheme.onSurface)
             }
@@ -176,7 +184,11 @@ struct SearchView: View {
             case .songs: r.tracks.isEmpty
             case .playlists: r.playlists.isEmpty
             }
-            if shownEmpty {
+            if shownEmpty && model.store.isReal && model.store.searchPhase == .failed {
+                RetryRow(scheme: scheme) { Task { await model.store.runSearch(query) } }
+            } else if shownEmpty && model.store.isReal && model.store.search?.query != query.trimmingCharacters(in: .whitespacesAndNewlines) {
+                RowSkeleton(scheme: scheme, rows: 5)
+            } else if shownEmpty {
                 // Android EmptyState: a Card (16) panel, surfaceContainerHighest
                 // at 72 %, bodyLarge onSurfaceVariant, padding 20 × 18,
                 // centred in the results area.
@@ -192,7 +204,7 @@ struct SearchView: View {
             } else {
                 switch filter {
                 case .all: allResults(r)
-                case .artists: grid(r.artists.map { ($0, true) })
+                case .artists: artistGrid(r.artists)
                 case .albums: grid(r.albums.map { ($0, false) })
                 case .songs: songList(r.tracks)
                 case .playlists: playlistList(r.playlists)
@@ -201,8 +213,18 @@ struct SearchView: View {
         }
     }
 
+    /// An artist result: the mock borrows its first album's cover.
+    struct ArtistHit: Identifiable {
+        var id: MediaId
+        var name: String
+        var serverId: String?
+        var palette: CoverPalette
+        var seed: Int
+        var albumCount: Int
+    }
+
     private struct Results {
-        var artists: [Album] = []   // artist rows use the artist's first album palette
+        var artists: [ArtistHit] = []
         var albums: [Album] = []
         var playlists: [LibraryItem] = []
         var tracks: [(Album, Track)] = []
@@ -211,12 +233,22 @@ struct SearchView: View {
     /// Mock search over the mock library. The catalog scope pretends to be
     /// the whole service, so it searches everything with artist names too.
     private var results: Results {
+        if model.store.isReal {
+            guard let hits = model.store.search else { return Results() }
+            return Results(artists: hits.artists.map {
+                               ArtistHit(id: $0.id, name: $0.title, serverId: $0.id.rawId, palette: $0.palette,
+                                         seed: 0, albumCount: $0.count ?? 0)
+                           },
+                           albums: hits.albums, playlists: hits.playlists,
+                           tracks: hits.songs.map { ($0.album, $0.track) })
+        }
         let q = query.lowercased()
         let all = model.library.albums()
         var r = Results()
         var seenArtists = Set<String>()
         for a in all where a.artist.lowercased().contains(q) && seenArtists.insert(a.artist).inserted {
-            r.artists.append(a)
+            r.artists.append(ArtistHit(id: a.id, name: a.artist, serverId: nil, palette: a.palette, seed: a.seed,
+                                       albumCount: all.filter { $0.artist == a.artist }.count))
         }
         r.albums = all.filter { $0.title.lowercased().contains(q) || (scope == .catalog && $0.artist.lowercased().contains(q)) }
         r.tracks = all.flatMap { a in a.tracks.filter { $0.title.lowercased().contains(q) }.map { (a, $0) } }
@@ -269,21 +301,17 @@ struct SearchView: View {
 
     /// Android ArtistListItem: 16 × 10 padding, 48 circle, 12, titleSmall,
     /// then 8 and the album-count meta pill.
-    private func artistRow(_ a: Album) -> some View {
-        Button {
-            focused = false
-            withAnimation(Yoin.spatial) { model.searchActive = false }
-            model.openArtist(a.artist)
-        } label: {
+    private func artistRow(_ a: ArtistHit) -> some View {
+        Button { openArtist(a) } label: {
             HStack(spacing: 0) {
                 EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: Tokens.library.ROW_THUMB.cg)
                 Spacer().frame(width: Tokens.library.ROW_GAP.cg)
-                Text(a.artist)
+                Text(a.name)
                     .lineLimit(1)
                     .yoinRole(Tokens.type.titleSmall)
                     .foregroundStyle(scheme.onSurface)
                 Spacer(minLength: 8)
-                metaPill(albumCount(a.artist))
+                metaPill(albumCount(a.albumCount))
             }
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
@@ -291,9 +319,34 @@ struct SearchView: View {
         .buttonStyle(.plain)
     }
 
-    private func albumCount(_ artist: String) -> String {
-        let n = model.library.albums().filter { $0.artist == artist }.count
-        return n == 1 ? "1 album" : "\(n) albums"
+    private func albumCount(_ n: Int) -> String {
+        n == 1 ? "1 album" : "\(n) albums"
+    }
+
+    private func openArtist(_ a: ArtistHit) {
+        focused = false
+        withAnimation(Yoin.spatial) { model.searchActive = false }
+        model.openArtist(a.name, id: a.serverId)
+    }
+
+    /// Artists alone: the Library grid's circles.
+    private func artistGrid(_ artists: [ArtistHit]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: Tokens.library.GRID_GUTTER_H.cg, alignment: .top), count: 3),
+                  alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
+            ForEach(artists) { a in
+                Button { openArtist(a) } label: {
+                    VStack(alignment: .center, spacing: 0) {
+                        EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: cell, stroke: scheme.primary)
+                        Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
+                        Text(a.name).lineLimit(1).yoinRole(Tokens.type.titleSmall).foregroundStyle(scheme.onSurface)
+                        Text(albumCount(a.albumCount)).lineLimit(1).yoinRole(Tokens.type.bodySmall)
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                    }
+                    .frame(width: cell, alignment: .center)
+                }
+                .buttonStyle(PressScale())
+            }
+        }
     }
 
     /// Android ExpressiveMetaPill: labelMedium onSurfaceVariant, padding 10 × 6,
@@ -332,8 +385,10 @@ struct SearchView: View {
             if isArtist {
                 focused = false
                 withAnimation(Yoin.spatial) { model.searchActive = false }
-                model.openArtist(a.artist)
+                model.openArtist(a.artist, id: a.artistId)
             } else {
+                focused = false
+                withAnimation(Yoin.spatial) { model.searchActive = false }
                 model.open(a)
             }
         } label: {
@@ -345,7 +400,7 @@ struct SearchView: View {
                     .lineLimit(1)
                     .yoinRole(Tokens.type.titleSmall)
                     .foregroundStyle(scheme.onSurface)
-                Text(isArtist ? albumCount(a.artist) : a.artist)
+                Text(isArtist ? albumCount(model.library.albums().filter { $0.artist == a.artist }.count) : a.artist)
                     .lineLimit(1)
                     .yoinRole(Tokens.type.bodySmall)
                     .foregroundStyle(scheme.onSurfaceVariant)
@@ -358,9 +413,12 @@ struct SearchView: View {
     /// Android SearchSongRow = SongListItem (Library's song row).
     private func songList(_ tracks: [(Album, Track)]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(tracks, id: \.1.id) { a, t in
-                LibrarySongRow(album: a, track: t, current: model.playback.track.id == t.id, scheme: scheme,
-                               horizontalPadding: 0)
+            ForEach(Array(tracks.enumerated()), id: \.offset) { i, item in
+                LibrarySongRow(album: item.0, track: item.1, current: model.playback.track.id == item.1.id,
+                               scheme: scheme, horizontalPadding: 0)
+                    .onTapGesture {
+                        model.play(tracks.map { PlaylistEntry(album: $0.0, track: $0.1) }, startAt: i)
+                    }
             }
         }
     }
