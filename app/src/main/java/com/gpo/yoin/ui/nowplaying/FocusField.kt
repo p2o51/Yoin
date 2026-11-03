@@ -221,18 +221,28 @@ fun renderFocusField(
     val baseR = ((base shr 16) and 0xFF) * BaseWeight
     val baseG = ((base shr 8) and 0xFF) * BaseWeight
     val baseB = (base and 0xFF) * BaseWeight
-    for (j in 0 until gridHeight) {
-        val y = (j + 0.5f) * cellH
+    // The Gaussian splits into x and y factors: one exp per point per column
+    // and per row instead of per cell, which keeps a 30 fps field cheap.
+    val ex = FloatArray(n * gridWidth)
+    val ey = FloatArray(n * gridHeight)
+    for (k in 0 until n) {
         for (i in 0 until gridWidth) {
-            val x = (i + 0.5f) * cellW
+            val dx = (i + 0.5f) * cellW - xs[k]
+            ex[k * gridWidth + i] = exp(-dx * dx * inv[k])
+        }
+        for (j in 0 until gridHeight) {
+            val dy = (j + 0.5f) * cellH - ys[k]
+            ey[k * gridHeight + j] = ws[k] * exp(-dy * dy * inv[k])
+        }
+    }
+    for (j in 0 until gridHeight) {
+        for (i in 0 until gridWidth) {
             var r = baseR
             var g = baseG
             var b = baseB
             var w = BaseWeight
             for (k in 0 until n) {
-                val dx = x - xs[k]
-                val dy = y - ys[k]
-                val wt = ws[k] * exp(-(dx * dx + dy * dy) * inv[k])
+                val wt = ey[k * gridHeight + j] * ex[k * gridWidth + i]
                 r += rs[k] * wt
                 g += gs[k] * wt
                 b += bs[k] * wt
