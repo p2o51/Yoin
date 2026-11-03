@@ -15,6 +15,7 @@ struct ArtistDetailView: View {
     @State private var kindFilter: ReleaseKind?
     @State private var showAll = false
     @State private var scrollY: CGFloat = 0
+    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var releases: [Album] { MockLibrary.shared.releases(by: artist) }
     private var hero: Album { releases.first ?? MockLibrary.allAlbums[0] }
@@ -41,11 +42,30 @@ struct ArtistDetailView: View {
                         }
                         .padding(.horizontal, 16)
                         .frame(maxWidth: 720)
+                        // Android pads the column 120 above the nav bar
+                        // (ArtistDetailScreen.kt:112): the last release clears the bar.
+                        Spacer().frame(height: 120)
                     }
                 }
                 .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in scrollY = y }
-                .contentMargins(.bottom, 24, for: .scrollContent)
-                .defaultScrollAnchor(LaunchConfig.screen == "artist-bottom" ? .bottom : .top)
+                // Content starts under the header and dissolves at its bottom
+                // edge (Android: the column sits below the header; tide line).
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: headerHeight - 8)
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 16)
+                        Color.black
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                }
+                .scrollPosition($scrollPosition)
+                .task {
+                    // `-screen artist-bottom`: the default anchor settled short of
+                    // the end, so scroll there once the page has laid out.
+                    guard LaunchConfig.screen == "artist-bottom" else { return }
+                    try? await Task.sleep(for: .milliseconds(300))
+                    scrollPosition.scrollTo(edge: .bottom)
+                }
                 .scrollEdgeEffectStyle(.soft, for: .bottom)
                 header
                     .background(alignment: .top) {
@@ -67,7 +87,11 @@ struct ArtistDetailView: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    private var headerHeight: CGFloat { 4 + 48 + 6 }
+    /// 4 top + the title column (headlineSmall 32 + bodyMedium 20 line boxes,
+    /// taller than the 48 buttons) + 6 bottom.
+    private var headerHeight: CGFloat {
+        4 + max(48, Tokens.type.headlineSmall.lineHeight.cg + (yearSpan == nil ? 0 : Tokens.type.bodyMedium.lineHeight.cg)) + 6
+    }
 
     private var background: some View {
         LinearGradient(colors: [app.surfaceContainer.mix(with: s.primary, by: 0.18, in: .perceptual),
@@ -98,17 +122,29 @@ struct ArtistDetailView: View {
             .accessibilityLabel("Back")
             Spacer().frame(width: 14)
             VStack(alignment: .leading, spacing: 0) {
-                Text(artist).font(.gsf(24)).foregroundStyle(s.primary).lineLimit(1)
+                Text(artist).lineLimit(1)
+                    .yoinRole(Tokens.type.headlineSmall)
+                    .foregroundStyle(s.primary)
                 if let yearSpan {
-                    Text(yearSpan).font(.gsf(14)).foregroundStyle(app.onSurface)
+                    Text(yearSpan).lineLimit(1)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurface)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Button {
-                withAnimation(.spring(duration: 0.09)) { following.toggle() }
+                withAnimation(Yoin.effects) { following.toggle() }
             } label: {
-                YoinIcon(following ? "star_filled" : "star", size: 22)
-                    .foregroundStyle(following ? AnyShapeStyle(s.primary) : AnyShapeStyle(.primary))
+                // M3 IconButton: 24 icon in a 40 box; tint primary-of-cover on,
+                // onSurfaceVariant off. The tap pops it (tween 90 ms up, spring back).
+                YoinIcon(following ? "star_filled" : "star", size: 24)
+                    .foregroundStyle(following ? s.primary : app.onSurfaceVariant)
+                    .keyframeAnimator(initialValue: 1.0, trigger: following) { v, k in
+                        v.scaleEffect(k)
+                    } keyframes: { _ in
+                        LinearKeyframe(following ? 1.25 : 1.15, duration: 0.09)
+                        SpringKeyframe(1.0, duration: 0.4, spring: .init(response: 0.35, dampingRatio: 0.6))
+                    }
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
@@ -158,10 +194,14 @@ struct ArtistDetailView: View {
     // MARK: Most Played
 
     private func sectionHeader(_ title: String, _ trailing: String) -> some View {
-        HStack {
-            Text(title).font(.gsf(14, .medium)).underline().foregroundStyle(app.onSurface)
-            Spacer()
-            Text(trailing).font(.gsf(12, .medium)).tracking(0.1).foregroundStyle(app.onSurfaceVariant)
+        HStack(spacing: 0) {
+            Text(title).underline()
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(app.onSurface)
+            Spacer(minLength: 8)
+            Text(trailing)
+                .yoinRole(Tokens.type.labelMedium)
+                .foregroundStyle(app.onSurfaceVariant)
         }
         .padding(.horizontal, 8)
     }
@@ -174,27 +214,37 @@ struct ArtistDetailView: View {
             Spacer().frame(height: 6)
             ForEach(Array(picks.enumerated()), id: \.offset) { i, item in
                 let (a, t, plays) = item
-                HStack(spacing: 12) {
-                    Text("\(i + 1)").font(.gsf(14, .medium)).monospacedDigit()
-                        .foregroundStyle(app.onSurfaceVariant).frame(minWidth: 16, alignment: .trailing)
-                    CoverArt(palette: a.palette, cornerRadius: 0, seed: a.seed)
-                        .frame(width: 44, height: 44)
-                        .clipShape(.rect(cornerRadius: 4, style: .continuous))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(t.title).font(.gsf(16, .medium)).foregroundStyle(app.onSurface)
-                        HStack(spacing: 12) {
-                            Text(a.title).foregroundStyle(app.onSurface)
-                            Text(formatTime(t.durationSec)).foregroundStyle(app.onSurface.opacity(0.6))
-                        }
-                        .font(.gsf(12)).monospacedDigit()
+                Button {
+                    withAnimation(Yoin.effects) {
+                        model.playback.album = a
+                        model.playback.track = t
+                        model.playback.positionSec = 0
                     }
-                    .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(plays == 1 ? "1 play" : "\(plays) plays")
-                        .font(.gsf(14, .medium)).monospacedDigit()
-                        .foregroundStyle(app.onSurfaceVariant)
+                } label: {
+                    HStack(spacing: 12) {
+                        Text("\(i + 1)").monospacedDigit()
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(app.onSurfaceVariant)
+                            .frame(minWidth: 16, alignment: .trailing)
+                        CoverArt(palette: a.palette, cornerRadius: 0, seed: a.seed)
+                            .frame(width: 44, height: 44)
+                            .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(t.title).lineLimit(1)
+                                .yoinRole(Tokens.type.titleMedium)
+                                .foregroundStyle(app.onSurface)
+                            LibraryMetaLine(parts: [(a.title, false), (formatTime(t.durationSec), true)], scheme: app)
+                                .monospacedDigit()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(plays == 1 ? "1 play" : "\(plays) plays").monospacedDigit()
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(app.onSurfaceVariant)
+                    }
+                    .padding(8)
+                    .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
                 }
-                .padding(8)
+                .buttonStyle(PressScale())
             }
         }
     }
@@ -216,6 +266,9 @@ struct ArtistDetailView: View {
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader("Discography", releases.count == 1 ? "1 release" : "\(releases.count) releases")
             if kinds.count >= 2 {
+                // Full-bleed with the 16 page margin inside the scroll, so the
+                // chips run off the screen edge instead of stopping mid-page
+                // (owner rule; Android clips at the section padding with a fade).
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         chip("All", on: kindFilter == nil) { kindFilter = nil }
@@ -226,6 +279,8 @@ struct ArtistDetailView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                .contentMargins(.horizontal, 16, for: .scrollContent)
+                .padding(.horizontal, -16)
                 .padding(.top, 12)
             }
             Spacer().frame(height: 8)
@@ -233,11 +288,18 @@ struct ArtistDetailView: View {
                 releaseRow(r, firstOfYear: i == 0 || visible[i - 1].year != r.year, latest: r.id == releases.first?.id)
             }
             if shown.count > 8 {
-                Button(showAll ? "Show fewer" : "Show all \(shown.count)") {
+                // M3 TextButton: 12 × 8 content padding, min height 40.
+                Button {
                     withAnimation(Yoin.spatial) { showAll.toggle() }
+                } label: {
+                    Text(showAll ? "Show fewer" : "Show all \(shown.count)")
+                        .yoinRole(Tokens.type.labelLarge)
+                        .foregroundStyle(s.primary)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .frame(minHeight: 40)
+                        .contentShape(.capsule)
                 }
-                .font(.gsf(14, .medium))
-                .foregroundStyle(s.primary)
+                .buttonStyle(PressScale())
                 .padding(.leading, 48)
             }
         }
@@ -247,13 +309,15 @@ struct ArtistDetailView: View {
     private func chip(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button { withAnimation(Yoin.effects) { action() } } label: {
             Text(title)
-                .font(.gsf(14, .medium))
-                .foregroundStyle(on ? app.onSecondaryContainer : app.onSurfaceVariant)
                 .lineLimit(1)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(on ? app.onSecondaryContainer : app.onSurfaceVariant)
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(minHeight: 44)
                 // These chips scroll with the page, so they stay solid (not glass).
-                .background(on ? app.secondaryContainer : app.surfaceContainerHigh, in: .rect(cornerRadius: 18))
+                // RoundedCornerShape(18): circular corners, not continuous.
+                .background(on ? app.secondaryContainer : app.surfaceContainerHigh,
+                            in: .rect(cornerRadius: 18, style: .circular))
         }
         .buttonStyle(PressScale())
     }
@@ -264,28 +328,41 @@ struct ArtistDetailView: View {
         Button { model.open(r) } label: {
             HStack(spacing: 0) {
                 Text(firstOfYear ? String(r.year) : "")
-                    .font(.gsf(14, .medium)).monospacedDigit()
+                    .monospacedDigit()
+                    .yoinRole(Tokens.type.labelLarge)
                     .foregroundStyle(app.onSurfaceVariant)
                     .padding(.leading, 8)
                     .frame(width: 48, alignment: .leading)
                 EntityBackdrop(entity: .album, palette: r.palette, seed: r.seed, size: 56, stroke: app.primary)
                 Spacer().frame(width: 12)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r.title).font(.gsf(16, .medium)).foregroundStyle(app.onSurface).lineLimit(1)
+                    Text(r.title).lineLimit(1)
+                        .yoinRole(Tokens.type.titleMedium)
+                        .foregroundStyle(app.onSurface)
+                    // MetaLine (bodySmall): Kind groups in Medium (Latest in
+                    // primary, the kind in onSurfaceVariant), then a Stat:
+                    // the count Medium tabular onSurface, the unit at 60 %.
                     HStack(spacing: 12) {
-                        if latest { Text("Latest").fontWeight(.medium).foregroundStyle(app.primary) }
-                        Text(r.kind.rawValue).fontWeight(.medium).foregroundStyle(app.onSurfaceVariant)
+                        if latest {
+                            Text("Latest").yoinRole(Tokens.type.bodySmall, weight: .medium).foregroundStyle(app.primary)
+                        }
+                        Text(r.kind.rawValue).yoinRole(Tokens.type.bodySmall, weight: .medium)
+                            .foregroundStyle(app.onSurfaceVariant)
                         HStack(spacing: 4) {
-                            Text("\(r.tracks.count)").fontWeight(.medium).monospacedDigit().foregroundStyle(app.onSurface)
-                            Text(r.tracks.count == 1 ? "song" : "songs").foregroundStyle(app.onSurface.opacity(0.6))
+                            Text("\(r.tracks.count)").monospacedDigit()
+                                .yoinRole(Tokens.type.bodySmall, weight: .medium)
+                                .foregroundStyle(app.onSurface)
+                            Text(r.tracks.count == 1 ? "song" : "songs")
+                                .yoinRole(Tokens.type.bodySmall)
+                                .foregroundStyle(app.onSurface.opacity(0.6))
                         }
                     }
-                    .font(.gsf(12))
+                    .lineLimit(1)
                 }
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.trailing, 8).padding(.vertical, 8)
-            .contentShape(.rect(cornerRadius: 12))
+            .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
         }
         .buttonStyle(PressScale())
     }
