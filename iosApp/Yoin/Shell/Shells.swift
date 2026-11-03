@@ -34,9 +34,14 @@ struct PhoneShell: View {
             NavigationStack(path: $model.path) {
                 SectionContent()
                     .toolbar(.hidden, for: .navigationBar)
-                    .navigationDestination(for: Album.self) { album in
-                        AlbumDetailView(album: album)
-                            .navigationTransition(.zoom(sourceID: album.id, in: zoomNS))
+                    .navigationDestination(for: Route.self) { route in
+                        switch route {
+                        case .album(let album):
+                            AlbumDetailView(album: album)
+                                .navigationTransition(.zoom(sourceID: album.id, in: zoomNS))
+                        case .artist(let name):
+                            ArtistDetailView(artist: name)
+                        }
                     }
             }
             .environment(\.zoomNamespace, zoomNS)

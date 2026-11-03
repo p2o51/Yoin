@@ -61,6 +61,25 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
               ratings: [9.4, 9.0, 8.8, 9.1], rating: 9.3),
     ]
 
+    /// Mina Asahi's other releases, for the artist page's discography.
+    static let extraReleases: [Album] = {
+        var single = album(13, "Ninety Days", "Mina Asahi", 2025, 0xB44FD6, 0xF7B2D9, 0x2A1E5A, tracks: ["Ninety Days"])
+        single.kind = .single
+        var ep = album(14, "Window Seat", "Mina Asahi", 2023, 0x5A4FD6, 0xA8C8FF, 0x1E2440,
+                       tracks: ["Window Seat", "Platform 4", "Tunnel Light", "Arrival"])
+        ep.kind = .ep
+        let lp = album(15, "Small Hours", "Mina Asahi", 2021, 0x3F5BD6, 0xF2C1A1, 0x1A1F3A,
+                       tracks: ["Small Hours", "Kettle", "Streetlamp", "Lull", "Morning Bus", "Static Snow", "Postcard", "Fold"])
+        var comp = album(16, "Early Lights", "Mina Asahi", 2019, 0x8A6FD6, 0xE0E0F0, 0x2E2550,
+                         tracks: ["Early Lights", "First Room", "Demo 3", "Paper Moon (Demo)"])
+        comp.kind = .compilation
+        return [single, ep, lp, comp]
+    }()
+
+    func releases(by artist: String) -> [Album] {
+        (Self.allAlbums + Self.extraReleases).filter { $0.artist == artist }.sorted { $0.year > $1.year }
+    }
+
     func albums() -> [Album] { Self.allAlbums }
 
     func activities() -> [ActivityEntry] {

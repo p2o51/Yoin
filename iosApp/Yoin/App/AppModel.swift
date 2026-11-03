@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// Pushed pages on the phone's NavigationStack.
+enum Route: Hashable {
+    case album(Album)
+    case artist(String)
+}
+
 enum ShellSection: Hashable {
     case home
     case library
@@ -12,7 +18,7 @@ final class AppModel {
     let playbackSource: any PlaybackSource
 
     var section: ShellSection = .home
-    var path: [Album] = []
+    var path: [Route] = []
     var padSelection: Album?
     var isPad = false
     var npExpanded = false
@@ -40,12 +46,13 @@ final class AppModel {
         switch LaunchConfig.baseScreen {
         case "library": section = .library
         case "library-albums", "library-songs": section = .library
-        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [library.albums()[0]]
+        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
         case "np": npExpanded = true
         case "np-short": npExpanded = true; npForceShort = true
         case "np-morph": slowMorph = true
         case "np-panel": npPanel = true
         case "landing": showLanding = true
+        case "artist", "artist-bottom": path = [.artist("Mina Asahi")]
         case "progress35": self.playback.positionSec = Int(Double(self.playback.track.durationSec) * 0.35)
         case "search", "search-results", "search-catalog", "search-albums", "search-songs": searchActive = true
         case "idle": isIdle = true
@@ -60,14 +67,27 @@ final class AppModel {
 
     /// The album page is on screen (phone), so the bar takes its detail form.
     var isDetail: Bool { !isPad && !path.isEmpty }
-    var detailAlbum: Album? { isPad ? padSelection : path.last }
+    /// The album whose scheme colors the detail bar: the album page's own,
+    /// or an artist page's newest release.
+    var detailAlbum: Album? {
+        if isPad { return padSelection }
+        switch path.last {
+        case .album(let a): return a
+        case .artist(let name): return MockLibrary.shared.releases(by: name).first
+        case nil: return nil
+        }
+    }
 
     func open(_ album: Album) {
         if isPad {
             withAnimation(Yoin.spatial) { padSelection = album }
         } else {
-            path.append(album)
+            path.append(.album(album))
         }
+    }
+
+    func openArtist(_ name: String) {
+        path.append(.artist(name))
     }
 
     /// Glass Lab cover picker: play this album's first track at the same progress.

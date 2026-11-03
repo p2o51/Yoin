@@ -234,11 +234,19 @@ struct SearchView: View {
     }
 
     private func artistRow(_ a: Album) -> some View {
-        HStack(spacing: 12) {
-            EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: 48)
-            Text(a.artist).font(.gsf(16, .medium)).foregroundStyle(Yoin.ink)
-            Spacer()
+        Button {
+            focused = false
+            withAnimation(Yoin.spatial) { model.searchActive = false }
+            model.openArtist(a.artist)
+        } label: {
+            HStack(spacing: 12) {
+                EntityBackdrop(entity: .artist, palette: a.palette, seed: a.seed, size: 48)
+                Text(a.artist).font(.gsf(16, .medium)).foregroundStyle(Yoin.ink)
+                Spacer()
+            }
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
     }
 
     private func grid(_ items: [(Album, Bool)]) -> some View {

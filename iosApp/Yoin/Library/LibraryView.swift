@@ -179,7 +179,7 @@ struct LibraryView: View {
     private func gridCell(_ item: LibraryItem, side: CGFloat) -> some View {
         let isArtist = item.kind == .artist
         Button {
-            if let album = item.album { model.open(album) }
+            if isArtist { model.openArtist(item.title) } else if let album = item.album { model.open(album) }
         } label: {
             VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,

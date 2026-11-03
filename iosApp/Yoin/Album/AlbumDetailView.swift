@@ -114,7 +114,10 @@ struct AlbumDetailView: View {
                         .lineLimit(1)
                     // MetaLine: [artist] [Album] [year], 12 pt apart, no separators.
                     HStack(spacing: 12) {
-                        Text(album.artist).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
+                        Button { model.openArtist(album.artist) } label: {
+                            Text(album.artist).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
+                        }
+                        .buttonStyle(.plain)
                         Text("Album").fontWeight(.medium).foregroundStyle(white ? .white.opacity(0.88) : app.primary)
                         Text(String(album.year)).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
                     }

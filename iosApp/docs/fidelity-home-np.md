@@ -116,6 +116,27 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Receipt | AlbumScrapbookPage.kt:1827-1876, 2057 | surfaceContainer, 20 top corners, zig-zag bottom (≈ 14 teeth, 8 deep); monospace 12.5; dotted leaders | Same |
 | Tilt | AlbumScrapbook.kt:223, 471 | FNV-1a over "albumId/key"; sets Paper ±0.5/1/1.5, Ticket ±1.25/2, Sticker ±5/8/12, Cover ±3; opposite rules for notes and sticky | Same (drag parallax not ported) |
 
+## Library (Compact)
+
+| Element | Android source | Android value | iOS |
+|---|---|---|---|
+| Header | LibraryScreen.kt:835-870 | No title on Compact; M3 AppBarWithSearch pill ("Search library", surfaceContainerHighest) + 32 avatar in 48 | Same; the pill opens the shared Search screen |
+| Chips | LibraryFilterRow.kt; ExpressiveComponents.kt:489-530 | Playlists, Artists, Albums, Songs, Favorites; 44 min height, 18 corners, 16 × 10 padding, labelLarge; off surfaceContainerHigh / onSurfaceVariant, on secondaryContainer / onSecondaryContainer; ✕ 44 circle while one is on | Same |
+| Sort row | LibrarySortRow.kt:46-107 | First grid row; label labelLarge + Sort 18; Recents / Recently added / Alphabetical / Creator | Same (a Menu) |
+| Grid | LibraryScreen.kt:1630-1727 | Fixed 3 columns, 16 sides, 12 / 16 gaps; artists circle, name + "N albums"; albums and playlists square, title titleSmall + subtitle bodySmall | Same; covers follow the iOS bare-cover rule |
+| Songs | SongListItem.kt:84-204 | Rows 16 × 10, 48 thumb (4 corners), titleSmall, "artist · album" bodySmall, duration labelLarge | Same |
+| Fast scroller | LibraryFastScroller.kt | Alphabet / date ticks on All, Artists, Albums | Not built yet |
+
+## Artist detail (Compact)
+
+| Element | Android source | Android value | iOS |
+|---|---|---|---|
+| Header | ArtistDetailScreen.kt:376-484 | Fixed; back 40 tonal circle; name headlineSmall in cover primary; "2016 – 2025" bodyMedium; follow star 48 / 24 (filled = cover primary) | Same; back is a glass circle |
+| Pinwheel | ArtistDetailScreen.kt:553, 704-818; DetailBackdrops.kt:33-66 | Portrait min(0.52 W, 216) circle; band portrait + 150; whole mark at portrait × 2.1, rotated 30° + scroll × 0.06 px; arms tertiary / primary / secondary; lines surface @ 0.65 | Same (real mark paths) |
+| Most Played | ArtistDetailScreen.kt:613-956 | Header labelLarge underlined + "N plays"; rows: rank, 44 thumb, titleMedium, album + duration, "N plays" | Same (mock counts) |
+| Discography | ArtistDetailScreen.kt:1013-1191 | "N releases"; chips All / Albums / Singles & EPs / Compilations (only kinds present, ≥ 2); year column 48 (first row of a year only); 56 cover; MetaLine [Latest] [kind] [N songs]; 8 rows then "Show all N" | Same |
+| Bottom bar | YoinButtonGroup.kt:646-718 | Play split 156 (cover primary) + pill | Same (the newest release's scheme) |
+
 ## Search (Apple Music iOS 26 form, Android content)
 
 | Element | Android source | Android value | iOS |

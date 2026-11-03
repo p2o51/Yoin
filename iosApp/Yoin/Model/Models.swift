@@ -34,6 +34,10 @@ struct Track: Identifiable, Hashable, Sendable {
     var rating: Double?
 }
 
+enum ReleaseKind: String, Hashable, Sendable {
+    case album = "Album", ep = "EP", single = "Single", compilation = "Compilation"
+}
+
 struct Album: Identifiable, Hashable, Sendable {
     var id: MediaId
     var title: String
@@ -42,6 +46,7 @@ struct Album: Identifiable, Hashable, Sendable {
     var palette: CoverPalette
     var tracks: [Track]
     var rating: Double?
+    var kind: ReleaseKind = .album
 
     var ratedCount: Int { tracks.filter { $0.rating != nil }.count }
     var averageRating: Double? {
