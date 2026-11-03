@@ -38,6 +38,10 @@ retrofit = "3.0.0"
 retrofitKotlinxSerialization = "1.0.0"
 kotlinxSerialization = "1.12.0"
 gson = "2.13.1"
+# :shared Subsonic client (iOS only for now). 3.4.x keeps the Android app's
+# resolved coroutines (1.10.2), okhttp (5.5.1) and serialization (1.12.0) as they are.
+ktor = "3.4.3"
+kotlinxCoroutines = "1.10.2"
 
 # Image
 coil = "3.4.0"
@@ -126,6 +130,11 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-kotlinx-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-darwin = { group = "io.ktor", name = "ktor-client-darwin", version.ref = "ktor" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 
 # Image loading
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }

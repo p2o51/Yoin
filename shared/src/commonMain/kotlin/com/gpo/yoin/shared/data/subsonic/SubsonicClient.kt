@@ -1,0 +1,368 @@
+/*
+ * SubsonicClient — Yoin's shared Subsonic / OpenSubsonic client (iOS today;
+ * Android still uses its own Retrofit client in app/data/remote).
+ *
+ * Using it from Swift (framework `YoinShared`):
+ *
+ *     import YoinShared
+ *
+ *     let client = SubsonicClient(baseUrl: "https://music.example.com",
+ *                                 username: "alice", password: "secret")
+ *     // or, with a token you saved instead of the password:
+ *     // SubsonicClient(baseUrl:username:token:salt:)
+ *
+ *     do {
+ *         let info = try await client.ping()                       // ServerInfo
+ *         let newest = try await client.getAlbumList2(type: .newest, size: 20, offset: 0)
+ *         let album = try await client.getAlbum(id: newest[0].id)   // AlbumInfo?
+ *         let url = client.streamUrl(id: album!.songs[0].id, maxBitRate: nil, format: nil)
+ *         let art = client.coverArtUrl(id: album!.coverArtId, size: 600)
+ *         let lyrics = try await client.lyricsFor(songId: song.id, artist: song.artist, title: song.title)
+ *     } catch {
+ *         // Every failure is a SubsonicException; CancellationException on Task cancel.
+ *         if let e = (error as NSError).kotlinException as? SubsonicException {
+ *             switch e.kind {
+ *             case .wrongCredentials, .tokenAuthNotSupported: break // ask to sign in again
+ *             case .notFound: break
+ *             case .network: break
+ *             default: break
+ *             }
+ *         }
+ *     }
+ *     client.close()   // when the profile goes away
+ *
+ * Notes for Swift:
+ * - Every `suspend fun` here is `async throws` in Swift and is annotated
+ *   @Throws(SubsonicException, CancellationException): network, HTTP and
+ *   parse failures are all wrapped, so nothing else escapes (an undeclared
+ *   Kotlin exception would abort the process).
+ * - Kotlin default arguments aren't exported: pass every argument (`nil` for
+ *   optional ones).
+ * - Optional numbers arrive as `KotlinInt?` / `KotlinLong?`; pass them with
+ *   `KotlinInt(int: 320)` / `KotlinLong(value: ms)`.
+ * - Calls can be made from any thread / Task; completion comes back on the
+ *   main thread (Kotlin/Native's default for suspend → async bridging).
+ * - The client is cheap but owns an NSURLSession: keep one per server
+ *   profile, `close()` it when the profile is removed.
+ */
+package com.gpo.yoin.shared.data.subsonic
+
+import com.gpo.yoin.shared.data.model.AlbumInfo
+import com.gpo.yoin.shared.data.model.ArtistIndex
+import com.gpo.yoin.shared.data.model.ArtistInfo
+import com.gpo.yoin.shared.data.model.Lyrics
+import com.gpo.yoin.shared.data.model.PlaylistDetail
+import com.gpo.yoin.shared.data.model.PlaylistSummary
+import com.gpo.yoin.shared.data.model.SearchResult
+import com.gpo.yoin.shared.data.model.ServerInfo
+import com.gpo.yoin.shared.data.model.SongInfo
+import com.gpo.yoin.shared.data.model.Starred
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.URLBuilder
+import io.ktor.http.appendPathSegments
+import io.ktor.http.isSuccess
+import kotlinx.serialization.json.Json
+import kotlin.coroutines.cancellation.CancellationException
+
+/** `getAlbumList2` list types. Swift: `AlbumListType.newest`, `.alphabeticalByName`, … */
+enum class AlbumListType(val apiValue: String) {
+    NEWEST("newest"),
+    RECENT("recent"),
+    FREQUENT("frequent"),
+    RANDOM("random"),
+    ALPHABETICAL_BY_NAME("alphabeticalByName"),
+    ALPHABETICAL_BY_ARTIST("alphabeticalByArtist"),
+    STARRED("starred"),
+    HIGHEST("highest"),
+}
+
+class SubsonicClient private constructor(
+    /** Server root as configured, e.g. `https://host/navidrome` (`/rest/...` is appended). */
+    val baseUrl: String,
+    val username: String,
+    private val auth: TokenPair,
+    engine: HttpClientEngine?,
+) {
+    /** Password auth: a fresh 16-char salt per client, `t = md5(password + salt)`. */
+    constructor(baseUrl: String, username: String, password: String) :
+        this(baseUrl, username, TokenPair.fromPassword(password, SubsonicAuth.newSalt()), null)
+
+    /** Token auth with a token / salt pair you already have (see [token], [salt]). */
+    constructor(baseUrl: String, username: String, token: String, salt: String) :
+        this(baseUrl, username, TokenPair(token, salt), null)
+
+    /** Tests: a MockEngine and a fixed salt. */
+    internal constructor(
+        baseUrl: String,
+        username: String,
+        password: String,
+        salt: String,
+        engine: HttpClientEngine,
+    ) : this(baseUrl, username, TokenPair.fromPassword(password, salt), engine)
+
+    /** `md5(password + salt)`; save it with [salt] to rebuild the client without the password. */
+    val token: String get() = auth.token
+    val salt: String get() = auth.salt
+
+    internal class TokenPair(val token: String, val salt: String) {
+        companion object {
+            fun fromPassword(password: String, salt: String) = TokenPair(SubsonicAuth.token(password, salt), salt)
+        }
+    }
+
+    private val http = HttpClient(engine ?: platformHttpEngine()) {
+        expectSuccess = false
+        install(HttpTimeout) {
+            connectTimeoutMillis = CONNECT_TIMEOUT_MS
+            requestTimeoutMillis = REQUEST_TIMEOUT_MS
+        }
+    }
+
+    // ---------------------------------------------------------------- library
+
+    /** `ping`: checks URL + credentials and reports what the server is. */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun ping(): ServerInfo {
+        val body = call("ping")
+        return ServerInfo(
+            apiVersion = body.version,
+            type = body.type,
+            serverVersion = body.serverVersion,
+            openSubsonic = body.openSubsonic == true,
+        )
+    }
+
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getAlbumList2(type: AlbumListType, size: Int, offset: Int): List<AlbumInfo> =
+        call("getAlbumList2", "type" to type.apiValue, "size" to size.toString(), "offset" to offset.toString())
+            .albumList2?.album.orEmpty().map { it.toAlbumInfo() }
+
+    /** Album with its songs; null when the server answers ok without one. A missing id throws [SubsonicErrorKind.NOT_FOUND]. */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getAlbum(id: String): AlbumInfo? =
+        call("getAlbum", "id" to id).album?.toAlbumInfo()
+
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getArtists(): List<ArtistIndex> =
+        call("getArtists").artists?.index.orEmpty().map { it.toArtistIndex() }
+
+    /** Artist with its albums (no songs). */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getArtist(id: String): ArtistInfo? =
+        call("getArtist", "id" to id).artist?.toArtistInfo()
+
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getPlaylists(): List<PlaylistSummary> =
+        call("getPlaylists").playlists?.playlist.orEmpty().map { it.toPlaylistSummary(username) }
+
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getPlaylist(id: String): PlaylistDetail? =
+        call("getPlaylist", "id" to id).playlist?.toPlaylistDetail(username)
+
+    /** `search3`. Counts are per kind; Subsonic's own default is 20. */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun search3(query: String, artistCount: Int, albumCount: Int, songCount: Int): SearchResult {
+        val body = call(
+            "search3",
+            "query" to query,
+            "artistCount" to artistCount.toString(),
+            "albumCount" to albumCount.toString(),
+            "songCount" to songCount.toString(),
+        )
+        return body.searchResult3?.toSearchResult() ?: SearchResult(emptyList(), emptyList(), emptyList())
+    }
+
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getStarred2(): Starred =
+        call("getStarred2").starred2?.toStarred() ?: Starred(emptyList(), emptyList(), emptyList())
+
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getRandomSongs(size: Int): List<SongInfo> =
+        call("getRandomSongs", "size" to size.toString()).randomSongs?.song.orEmpty().map { it.toSongInfo() }
+
+    // ----------------------------------------------------------- write actions
+
+    /**
+     * `star`: pass exactly the id kind you mean — a song in [id], an album in
+     * [albumId], an artist in [artistId] (spec-strict servers only star an
+     * artist through artistId). The others are nil.
+     */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun star(id: String?, albumId: String?, artistId: String?) {
+        call("star", *starParams(id, albumId, artistId))
+    }
+
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun unstar(id: String?, albumId: String?, artistId: String?) {
+        call("unstar", *starParams(id, albumId, artistId))
+    }
+
+    /** `setRating`: 1–5, 0 clears. Out-of-range values are clamped like Android. */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun setRating(id: String, rating: Int) {
+        call("setRating", "id" to id, "rating" to rating.coerceIn(0, 5).toString())
+    }
+
+    /**
+     * `scrobble`: [submission] false = "now playing", true = a finished play.
+     * [timeMs] is when it was played (ms since 1970); nil lets the server use now.
+     */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun scrobble(id: String, submission: Boolean, timeMs: Long?) {
+        val params = buildList {
+            add("id" to id)
+            add("submission" to submission.toString())
+            timeMs?.let { add("time" to it.toString()) }
+        }
+        call("scrobble", *params.toTypedArray())
+    }
+
+    // ----------------------------------------------------------------- lyrics
+
+    /** OpenSubsonic `getLyricsBySongId` (structured, usually synced). Null when the server has none. */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getLyricsBySongId(id: String): Lyrics? =
+        call("getLyricsBySongId", "id" to id).lyricsList?.toLyrics()
+
+    /** Classic `getLyrics(artist, title)`: plain text (parsed as LRC when it carries timestamps). */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getLyrics(artist: String?, title: String?): Lyrics? {
+        val params = buildList {
+            artist?.let { add("artist" to it) }
+            title?.let { add("title" to it) }
+        }
+        return call("getLyrics", *params.toTypedArray()).lyrics?.toLyrics()
+    }
+
+    /**
+     * Best lyrics the server has: [getLyricsBySongId] first; when that's
+     * empty or the server doesn't know the endpoint (plain Subsonic), the
+     * classic [getLyrics] with artist + title. Auth and network failures
+     * are not swallowed.
+     */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun lyricsFor(songId: String, artist: String?, title: String?): Lyrics? {
+        val structured = try {
+            getLyricsBySongId(songId)
+        } catch (e: SubsonicException) {
+            if (e.isAuthFailure || e.kind == SubsonicErrorKind.NETWORK) throw e
+            null
+        }
+        if (structured != null && structured.lines.isNotEmpty()) return structured
+        if (artist.isNullOrBlank() && title.isNullOrBlank()) return structured
+        return getLyrics(artist, title)?.takeIf { it.lines.isNotEmpty() } ?: structured
+    }
+
+    // ------------------------------------------------------------ URL builders
+
+    /** Authenticated `stream.view` URL for AVPlayer. No network. */
+    fun streamUrl(id: String, maxBitRate: Int?, format: String?): String {
+        val params = buildList {
+            add("id" to id)
+            maxBitRate?.let { add("maxBitRate" to it.toString()) }
+            format?.let { add("format" to it) }
+        }
+        return restUrl("stream", params)
+    }
+
+    /** Authenticated `getCoverArt.view` URL. [size] is the longest edge in px; nil = original. No network. */
+    fun coverArtUrl(id: String, size: Int?): String {
+        val params = buildList {
+            add("id" to id)
+            size?.let { add("size" to it.toString()) }
+        }
+        return restUrl("getCoverArt", params)
+    }
+
+    /** Releases the HTTP engine. Calls after this fail. */
+    fun close() {
+        http.close()
+    }
+
+    // --------------------------------------------------------------- plumbing
+
+    private fun starParams(id: String?, albumId: String?, artistId: String?): Array<Pair<String, String>> =
+        buildList {
+            id?.let { add("id" to it) }
+            albumId?.let { add("albumId" to it) }
+            artistId?.let { add("artistId" to it) }
+        }.toTypedArray()
+
+    /** `<base>/rest/<endpoint>.view?<params>&u&t&s&v&c&f` — the Android URL shape and order. */
+    internal fun restUrl(endpoint: String, params: List<Pair<String, String>>): String {
+        val builder = URLBuilder(baseUrl.trim().trimEnd('/'))
+        builder.appendPathSegments("rest", "$endpoint.view")
+        params.forEach { (k, v) -> builder.parameters.append(k, v) }
+        builder.parameters.append("u", username)
+        builder.parameters.append("t", token)
+        builder.parameters.append("s", salt)
+        builder.parameters.append("v", API_VERSION)
+        builder.parameters.append("c", CLIENT_NAME)
+        builder.parameters.append("f", RESPONSE_FORMAT)
+        return builder.buildString()
+    }
+
+    private suspend fun call(endpoint: String, vararg params: Pair<String, String>): SubsonicBody {
+        val url = try {
+            restUrl(endpoint, params.toList())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw SubsonicException(SubsonicErrorKind.NETWORK, SubsonicErrorKind.NETWORK.code, "Invalid server URL: $baseUrl", cause = e)
+        }
+        val response = try {
+            http.get(url)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw SubsonicException(
+                SubsonicErrorKind.NETWORK,
+                SubsonicErrorKind.NETWORK.code,
+                e.message ?: "Network error",
+                cause = e,
+            )
+        }
+        val status = response.status.value
+        val text = try {
+            response.bodyAsText()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw SubsonicException(SubsonicErrorKind.NETWORK, SubsonicErrorKind.NETWORK.code, e.message ?: "Network error", status, e)
+        }
+        val body = try {
+            json.decodeFromString(SubsonicEnvelope.serializer(), text).response
+        } catch (e: Throwable) {
+            if (!response.status.isSuccess()) {
+                throw SubsonicException(SubsonicErrorKind.HTTP, SubsonicErrorKind.HTTP.code, "HTTP $status", status)
+            }
+            throw SubsonicException(SubsonicErrorKind.PARSE, SubsonicErrorKind.PARSE.code, "Not a Subsonic response: ${e.message}", status, e)
+        }
+        if (body.status != "ok") {
+            val error = body.error
+            throw SubsonicException.api(error?.code ?: SubsonicErrorKind.GENERIC.code, error?.message, status)
+        }
+        if (!response.status.isSuccess()) {
+            throw SubsonicException(SubsonicErrorKind.HTTP, SubsonicErrorKind.HTTP.code, "HTTP $status", status)
+        }
+        return body
+    }
+
+    companion object {
+        const val API_VERSION: String = "1.16.1"
+        const val CLIENT_NAME: String = "Yoin"
+        const val RESPONSE_FORMAT: String = "json"
+        private const val CONNECT_TIMEOUT_MS = 15_000L
+        private const val REQUEST_TIMEOUT_MS = 30_000L
+
+        internal val json = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+        }
+    }
+}

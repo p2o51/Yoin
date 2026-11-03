@@ -5,10 +5,15 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
  * Utilities (MCU) port, the Palette port, YoinTokens and the pure layout /
  * colour algorithms. Android consumes it as a library; iOS links the
  * YoinShared XCFramework (iosApp/docs/shared-kmp.md).
+ *
+ * com.gpo.yoin.shared.data (Subsonic client, neutral models, LRC parser) is
+ * used by iOS only for now; Android keeps its Retrofit client in app/
+ * (iosApp/docs/shared-data.md).
  */
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kotlin.multiplatform.library)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -29,8 +34,21 @@ kotlin {
     }
 
     sourceSets {
+        commonMain.dependencies {
+            implementation(libs.ktor.client.core)
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
+        }
+        androidMain.dependencies {
+            implementation(libs.ktor.client.okhttp)
+        }
+        iosMain.dependencies {
+            implementation(libs.ktor.client.darwin)
+        }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.coroutines.test)
         }
     }
 }
