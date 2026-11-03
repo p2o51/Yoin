@@ -146,7 +146,9 @@ final class GlassLab {
 
     /// v2: Balanced became the default (51, 2026-11-03), so older saved
     /// values (Current) don't carry over.
-    private static let key = "glassLab.v2"
+    /// v3: 51's 11-03 night decisions (tinted bar selection, glass rating
+    /// track and NP pills) change Balanced again; saved v2 values would hide them.
+    private static let key = "glassLab.v3"
 
     private init() {
         suppressSave = true
