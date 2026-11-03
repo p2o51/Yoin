@@ -65,6 +65,16 @@ targets:
           - google_sans_flex_500.ttf
           - google_sans_flex_600.ttf
           - google_sans_flex_700.ttf
+        # Native playback keeps playing with the screen off / app in the background.
+        UIBackgroundModes:
+          - audio
+        NSAppTransportSecurity:
+          # Self-hosted Subsonic / Navidrome servers are often plain http on a
+          # LAN or a home IP, entered by the user at runtime, so ATS can't list
+          # them ahead of time: allow arbitrary loads (plus local networking).
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin
