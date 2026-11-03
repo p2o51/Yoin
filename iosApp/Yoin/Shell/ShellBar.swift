@@ -191,10 +191,12 @@ struct ShellBar: View {
 
     /// Android detail pose: [Play split, 156 pt][8][now-playing pill]. Both
     /// halves in the cover's primary / onPrimary; ▾ opens the detail menu.
+    /// M3 SplitButton: 2 pt gap, 4 pt inner corners, full outer corners. Own
+    /// container with 0 spacing, so the halves don't melt into one blob.
     private func playSplit(_ album: Album) -> some View {
         let s = CoverScheme(album: album, dark: colorScheme == .dark)
         let tint = s.primary.opacity(0.85)
-        return HStack(spacing: 2) {
+        return GlassEffectContainer(spacing: 0) { HStack(spacing: 2) {
             Button {} label: {
                 HStack(spacing: 8) {
                     YoinIcon("play_filled", size: 20)
@@ -209,7 +211,7 @@ struct ShellBar: View {
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(tint).interactive(),
                          in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
-                                                    bottomTrailingRadius: 6, topTrailingRadius: 6))
+                                                    bottomTrailingRadius: 4, topTrailingRadius: 4))
             .glassEffectID("home", in: glassNS)
 
             Menu {
@@ -230,11 +232,11 @@ struct ShellBar: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(tint).interactive(),
-                         in: UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 6,
+                         in: UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 4,
                                                     bottomTrailingRadius: 30, topTrailingRadius: 30))
             .glassEffectID("split", in: glassNS)
             .accessibilityLabel("More play options")
-        }
+        } }
         .frame(width: 156)
     }
 }

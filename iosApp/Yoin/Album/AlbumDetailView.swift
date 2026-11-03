@@ -20,7 +20,7 @@ struct AlbumDetailView: View {
     var album: Album
     var padColumn = false
 
-    @State private var p: CGFloat = LaunchConfig.screen == "album-list" ? 1 : 0
+    @State private var p: CGFloat = LaunchConfig.screen == "album-list" ? 1 : LaunchConfig.screen == "album-mid" ? 0.42 : 0
     @State private var dragBase: CGFloat?
 
     /// The cover's own scheme (title, blocks, dots, Play) and the app's
@@ -50,7 +50,7 @@ struct AlbumDetailView: View {
                 trackList(w: w)
                     .opacity(e)
                     .allowsHitTesting(e >= 0.5)
-                spectrum(w: w, top: geo.safeAreaInsets.top)
+                spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
                 header(white: false, w: w)
                     .opacity(1 - smooth(p, 0.25, 0.7))
                 header(white: true, w: w)
@@ -126,29 +126,22 @@ struct AlbumDetailView: View {
         .frame(width: w)
     }
 
-    /// The Yoin mark's lower arms behind the cover: arm 0 in the cover's
-    /// primary (left), arm 2 in its secondary (right), scaled up so they bleed
-    /// off both edges, clipped at the header.
+    /// The real Yoin mark's arms 0 and 2 behind the cover (AlbumSpectrumBar
+    /// drawButterfly, Compact pose): box = (0, header bottom, W, band),
+    /// scale 1.8 about its centre, translationY −0.1 × band, squash 1.8 about
+    /// the hub; arm 0 in the cover's primary, arm 2 in its secondary, centre
+    /// lines in surface @ 0.65; clipped above at the header.
     private func butterfly(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
-        let hubY = headerContent + band * 0.5 - band * 0.1
-        return ZStack {
-            Capsule()
-                .fill(s.primary)
-                .frame(width: w * 0.36, height: band * 0.95)
-                .rotationEffect(.degrees(45))
-                .position(x: w * 0.5 - w * 0.26, y: hubY + band * 0.24)
-            Capsule()
-                .fill(s.secondary)
-                .frame(width: w * 0.36, height: band * 0.95)
-                .rotationEffect(.degrees(-45))
-                .position(x: w * 0.5 + w * 0.26, y: hubY + band * 0.24)
-        }
-        // Clipped only above (at the header), so the arms' rounded ends show.
-        .frame(width: w, height: headerContent + band * 1.7, alignment: .top)
-        .mask(alignment: .top) {
-            Rectangle().padding(.top, headerContent)
-        }
-        .allowsHitTesting(false)
+        YoinArmsCanvas(arms: [(0, s.primary), (2, s.secondary)],
+                       lineColor: app.surface.opacity(0.65),
+                       scale: 1.8, translationY: -0.1 * band, squashX: 1.8)
+            .frame(width: w, height: band)
+            .offset(y: headerContent)
+            .frame(width: w, height: headerContent + band * 1.8, alignment: .topLeading)
+            .mask(alignment: .top) {
+                Rectangle().padding(.top, headerContent)
+            }
+            .allowsHitTesting(false)
     }
 
     /// Hero cover ↔ 48 pt stamp at the end of the title row.
@@ -340,22 +333,46 @@ struct AlbumDetailView: View {
 
     // MARK: Spectrum bar
 
-    private func spectrum(w: CGFloat, top: CGFloat) -> some View {
+    /// AlbumSpectrumBar drawSpectrum: each of the 28 strips starts as a slice
+    /// of the cover and flies to its slot in the header bar
+    /// (q = smoothstep(0.06 + lag, 0.6 + lag, p), lag = 0.22 × i / 28); the
+    /// cover slice fades out as the flat locked color fades in over
+    /// smoothstep(0, 0.55, q).
+    private func spectrum(w: CGFloat, side: CGFloat, top: CGFloat) -> some View {
         let colors = AlbumSpectrum.colors(for: album)
         let n = AlbumSpectrum.strips
-        let height = top + headerContent
-        return HStack(spacing: 0) {
+        let slice = side / CGFloat(n)
+        let heroX = (w - side) / 2, heroY = headerContent + 28
+        let barH = top + headerContent
+        return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(i) / CGFloat(n)
-                Rectangle()
-                    .fill(colors[min(i, colors.count - 1)])
-                    .frame(width: w / CGFloat(n) + 1.5)
-                    .opacity(smooth(smooth(p, 0.06 + lag, 0.6 + lag), 0, 0.55))
+                let q = smooth(p, 0.06 + lag, 0.6 + lag)
+                let flat = smooth(q, 0, 0.55)
+                let x = lerp(heroX + CGFloat(i) * slice, CGFloat(i) * w / CGFloat(n), q)
+                let y = lerp(heroY, -top, q)
+                let sw = lerp(slice, w / CGFloat(n), q) + 1.5
+                let sh = lerp(side, barH, q)
+                ZStack(alignment: .topLeading) {
+                    CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
+                        .frame(width: side, height: side)
+                        .offset(x: -CGFloat(i) * slice)
+                        .frame(width: slice, height: side, alignment: .topLeading)
+                        .clipped()
+                        .scaleEffect(x: sw / slice, y: sh / side, anchor: .topLeading)
+                        .frame(width: sw, height: sh, alignment: .topLeading)
+                        .opacity(1 - flat)
+                    Rectangle()
+                        .fill(colors[min(i, colors.count - 1)])
+                        .frame(width: sw, height: sh)
+                        .opacity(flat)
+                }
+                .frame(width: sw, height: sh, alignment: .topLeading)
+                .clipped()
+                .offset(x: x, y: y)
             }
         }
-        .frame(width: w, height: height, alignment: .leading)
-        .clipped()
-        .offset(y: -top)
+        .frame(width: w, alignment: .topLeading)
         .opacity(p > 0.001 ? 1 : 0)
         .allowsHitTesting(false)
     }
