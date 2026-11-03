@@ -20,7 +20,9 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
                 id: MediaId(provider: "mock", rawId: "al\(n)-t\(i + 1)"),
                 number: i + 1, title: t,
                 durationSec: 150 + (i * 37 + n * 11) % 140,
-                rating: i < ratings.count ? ratings[i] : nil
+                rating: i < ratings.count ? ratings[i] : nil,
+                // The mock's hearts: the tracks rated 9 or more.
+                starred: (i < ratings.count ? ratings[i] ?? 0 : 0) >= 9
             )
         }
         return Album(id: id, title: title, artist: artist, year: year,
@@ -100,6 +102,43 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
             ActivityEntry(id: "act3", eyebrow: "Visited yesterday", album: a[1]),
             ActivityEntry(id: "act4", eyebrow: "2 new notes", album: a[11]),
         ]
+    }
+
+    /// Home as the screenshots show it (hand-placed shelf).
+    func homeFeed() -> HomeFeed {
+        let a = Self.allAlbums
+        let grid: [(Int, Int)] = [(9, 0), (6, 1), (2, 1), (8, 2)]
+        return HomeFeed(
+            layout: .mock,
+            activities: [
+                ActivityEntry(id: "hero", eyebrow: "12m ago", album: a[0]),
+                ActivityEntry(id: "artist", eyebrow: "2h ago", album: a[3]),
+                ActivityEntry(id: "wide", eyebrow: "1d ago", album: a[1]),
+                ActivityEntry(id: "strip", eyebrow: "3d ago", album: a[11]),
+            ],
+            jumpBackIn: jumpBackIn(),
+            recentTracks: grid.map { PlaylistEntry(album: a[$0.0], track: a[$0.0].tracks[$0.1]) },
+            recentAlbums: [10, 4, 7, 5, 2, 8].map { a[$0] },
+            rediscover: [
+                RediscoverEntry(album: a[6], reason: "Reviewed", away: "7 months away", score: 8.8,
+                                footnoteDate: "2020.11", footnotePlays: "14"),
+                RediscoverEntry(album: a[8], reason: "3 notes", away: "1 year away", score: nil,
+                                footnoteDate: "2019.04", footnotePlays: "9"),
+            ])
+    }
+
+    /// The artist page for a mock artist (newest release first).
+    func artistPage(_ name: String) -> ArtistPage {
+        let releases = releases(by: name)
+        let hero = releases.first ?? Self.allAlbums[0]
+        let picks = releases.flatMap { a in a.tracks.prefix(2).map { PlaylistEntry(album: a, track: $0) } }.prefix(5)
+        let plays = picks.enumerated().map { i, e in
+            var e = e
+            e.track.playCount = 30 - i * 5
+            return e
+        }
+        return ArtistPage(id: MediaId(provider: "mock", rawId: name), name: name, starred: true,
+                          palette: hero.palette, releases: releases, mostPlayed: plays)
     }
 
     func jumpBackIn() -> [Album] {

@@ -196,6 +196,23 @@ enum CoverSeed {
         return nil
     }
 
+    /// A real cover's three colors from one Palette pass: the seed (as
+    /// `pick`), a light swatch (light vibrant → light muted) and a dark one
+    /// (dark vibrant → dark muted), unsigned ARGB.
+    static func swatches(pixels: [UInt32], width: Int, height: Int) -> (seed: Int, light: Int?, dark: Int?)? {
+        let input = KotlinIntArray(size: Int32(pixels.count))
+        for (i, p) in pixels.enumerated() { input.set(index: Int32(i), value: Int32(bitPattern: p)) }
+        let palettes = Palette.companion
+        let scaled = palettes.scaleDownPixels(pixels: input, width: Int32(width), height: Int32(height))
+        let palette = palettes.generate(pixels: scaled, maximumColorCount: Int32(maxColors),
+                                        filters: [palettes.DEFAULT_FILTER])
+        func argb(_ s: Palette.Swatch?) -> Int? { s.map { Int(UInt32(bitPattern: $0.rgb)) } }
+        guard let seed = argb(palette.vibrantSwatch) ?? argb(palette.dominantSwatch) ?? argb(palette.mutedSwatch)
+        else { return nil }
+        return (seed, argb(palette.lightVibrantSwatch) ?? argb(palette.lightMutedSwatch),
+                argb(palette.darkVibrantSwatch) ?? argb(palette.darkMutedSwatch))
+    }
+
     /// Un-premultiplied ARGB pixels of an image, drawn into an sRGB RGBA8 buffer.
     static func argbPixels(of cgImage: CGImage) -> ([UInt32], Int, Int)? {
         let width = cgImage.width, height = cgImage.height
@@ -237,7 +254,9 @@ enum CoverSeed {
 
     @MainActor
     static func seedArgb(for album: Album) -> Int {
-        pick(for: album)?.argb ?? CoverScheme.argb(of: album.palette.a)
+        // A server cover: its image's seed once loaded, the placeholder until then.
+        if album.palette.cover != nil { return CoverScheme.argb(of: album.palette.a) }
+        return pick(for: album)?.argb ?? CoverScheme.argb(of: album.palette.a)
     }
 
     /// The seed swatch of an album's rendered `CoverArt`, cached by album id.

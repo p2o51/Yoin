@@ -22,13 +22,24 @@ struct CookieShape: Shape {
     }
 }
 
-/// Mock cover art: three-color mesh with a soft Yoin arm shape.
+/// Cover art. Mock covers: a three-color mesh with a soft Yoin arm shape;
+/// server covers (`palette.cover`): the real image.
 struct CoverArt: View {
     var palette: CoverPalette
     var cornerRadius: CGFloat = 6
     var seed: Int = 0
 
     var body: some View {
+        if let cover = palette.cover {
+            // A server cover: the real image (placeholder color until it loads).
+            RemoteCover(ref: cover, placeholder: palette.b.mix(with: palette.a, by: 0.25, in: .perceptual))
+                .clipShape(.rect(cornerRadius: cornerRadius))
+        } else {
+            mesh
+        }
+    }
+
+    private var mesh: some View {
         MeshGradient(
             width: 3, height: 3,
             points: [

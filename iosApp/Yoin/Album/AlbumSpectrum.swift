@@ -23,22 +23,37 @@ enum AlbumSpectrum {
     @MainActor private static var cache: [MediaId: [Strip]] = [:]
 
     /// For each source column of the cover (left to right), its slot and color.
+    @MainActor private static var coverCache: [String: [Strip]] = [:]
+
     @MainActor
     static func strips(for album: Album) -> [Strip] {
+        if let cover = album.palette.cover {
+            // A server cover: its image once loaded (tracked), flat until then.
+            if let c = coverCache[cover.key] { return c }
+            guard let cg = CoverArtwork.shared.image(cover)?.cgImage, let result = strips(of: cg) else {
+                return (0..<strips).map { Strip(slot: $0, color: album.palette.a) }
+            }
+            coverCache[cover.key] = result
+            return result
+        }
         if let c = cache[album.id] { return c }
         let renderer = ImageRenderer(content: CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
             .frame(width: CGFloat(strips), height: CGFloat(strips)))
         renderer.scale = 1
-        guard let cg = renderer.cgImage, let pixels = argbPixels(cg) else {
+        guard let cg = renderer.cgImage, let result = strips(of: cg) else {
             return (0..<strips).map { Strip(slot: $0, color: album.palette.a) }
-        }
-        let bands = AlbumSpectrumKt.computeAlbumSpectrum(pixels: pixels, n: Int32(strips))
-        let result = (0..<strips).map { x in
-            Strip(slot: Int(bands.target.get(index: Int32(x))),
-                  color: CoverScheme.color(Int(UInt32(bitPattern: bands.color.get(index: Int32(x))))))
         }
         cache[album.id] = result
         return result
+    }
+
+    private static func strips(of cg: CGImage) -> [Strip]? {
+        guard let pixels = argbPixels(cg) else { return nil }
+        let bands = AlbumSpectrumKt.computeAlbumSpectrum(pixels: pixels, n: Int32(strips))
+        return (0..<strips).map { x in
+            Strip(slot: Int(bands.target.get(index: Int32(x))),
+                  color: CoverScheme.color(Int(UInt32(bitPattern: bands.color.get(index: Int32(x))))))
+        }
     }
 
     /// The 28 × 28 render as opaque ARGB ints (Android `Bitmap.getPixels` layout).
