@@ -93,15 +93,28 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 |---|---|---|---|
 | Header | AlbumDetailScreen.kt:928-1004 | Status bar + 4 + 52 (row) + 25 (dots) + 6; padding start 8, end 16. Back = 40 tonal circle (surfaceContainer), 22 icon, 14 gap. Title headlineSmall in the cover's primary. MetaLine [artist] [Album, W500 app primary] [year], 12 apart, bodyMedium. Two page dots 24×20 cells, 4 radius, active cover secondary | Same; back is a glass circle |
 | Cover | AlbumDetailScreen.kt:639-686; AlbumSpectrumBar.kt | min(0.74 W, 300), centred, 28 below the header, Hero 8 corner | Same |
-| Butterfly | AlbumSpectrumBar.kt:355-391 | Yoin mark arms 0 and 2 (cover primary and secondary), scaled 1.8, squashed, clipped at the header | Two rotated capsules approximating the arms |
+| Butterfly | AlbumSpectrumBar.kt:355-391; component/YoinMark.kt | Yoin mark arms 0 and 2 (cover primary and secondary), scaled 1.8, squashed, clipped at the header | Same: the real mark paths (`Theme/YoinMarkPaths.swift`, parsed from the Kotlin path data) with the same pose |
 | Emblem row | AlbumDetailComponents.kt:250-309 | 64 ScoreEmblem; "%d/%d rated" (labelSmall) only for Average; comment bodyMedium 3 lines + date labelMedium; empty = 40 tonal edit button | Same (ScoreEmblem ported: rings, rated arcs, dotted unrated, Cookie12 label, GrooveType score) |
 | Count line | AlbumDetailScreen.kt:1245-1258 | "12 tracks  44 min" (number W500 tnum, unit 60 %), then last play labelMedium W500 | Same |
 | Flowing titles | AlbumDetailComponents.kt:425-506 | headlineMedium, single-space joined, even onSurface / odd onSurfaceVariant, ≤ 16-unit titles glued | Same |
 | Pull-up | DetailPullUpReshape.kt | travel 0.55 × height, release velocity ±1.6 travel/s else nearest; hero fades and lifts 40 px | Same |
-| Spectrum bar | AlbumSpectrum.kt | 28 strips, OKLab k-means (k 5, 10 rounds), tone lock L' = 0.30 + 0.16 L, white ≥ 7:1, per-strip lag 0.22 | Ported (strips fade in with the lag; the per-strip flight from the cover slice is not ported) |
+| Spectrum bar | AlbumSpectrum.kt | 28 strips, OKLab k-means (k 5, 10 rounds), tone lock L' = 0.30 + 0.16 L, white ≥ 7:1, per-strip lag 0.22 | Ported, including the per-strip flight from the cover slice to the bar slot |
 | Stamp | AlbumSpectrumBar.kt:125-127 | 48, end 16 from the edge, centred on the title row, corner 8 → 4 | Same |
 | Track row | AlbumDetailComponents.kt:514-718 | 56 tall, padding 8 × 10, 12 gaps; number labelMedium min 18; title titleMedium; duration labelLarge m:ss; heart 28 circle in 36 (off: 1.5 outline ring, on: accent fill) | Same (heart on = mock rating ≥ 9) |
-| Bottom bar | DetailBottomBar.kt; PlaySplitButton.kt | [Play split 156][8][pill]; cover primary / onPrimary; ▾ menu order Shuffle play, Play next, Add to queue, Add to playlist, Open in…, Go to artist, Share | Same, glass tinted with the cover primary |
+| Bottom bar | DetailBottomBar.kt; PlaySplitButton.kt | [Play split 156][8][pill]; cover primary / onPrimary; M3 SplitButton 2 dp gap, 4 dp inner corners; ▾ menu order Shuffle play, Play next, Add to queue, Add to playlist, Open in…, Go to artist, Share | Same, glass tinted with the cover primary, in its own 0-spacing glass container so the halves stay separate |
+
+## Album detail, page 2 (scrapbook)
+
+| Element | Android source | Android value | iOS |
+|---|---|---|---|
+| Frame | AlbumScrapbookPage.kt:201-298, 1966 | 1 lane at 400 dp, rows 28 apart, gutter 16; dot paper 16 tile, 1.2 dot, outlineVariant @ 0.45 (dark 0.35) | Same |
+| Opening cluster | AlbumScrapbookPage.kt:776-1053 | 148 cover (Hero 8, tilt ±3); 64 emblem bottom-end, +19.2 x; memory title headlineSmall SemiBold 22 (serif for AI titles); "Last Play" labelLarge underlined + titleMedium value; review on primaryContainer, 16 corners, 15 sp; album note sticky on secondaryContainer, 17 pt cut corner, flap lerp(secondaryContainer, secondary, 0.32) | Same (mock title, review, note) |
+| Emblem stamp | AlbumScrapbookPage.kt:942-955 | Award plays once when page 2 settles | Spring swell-in once page 2 settles (the groove-cutting choreography is not ported) |
+| Track cluster | AlbumScrapbookPage.kt:1088-1170 | Ticket 0.66 lane (200…280), stub 48 with 7 pt notches and 4/4 perforation; notes clipping 0.78 lane on surfaceContainerHighest with a 3 pt primary rail and 42 pt timestamp column; riding up 12; sides alternate from hash(albumId) & 1 | Same |
+| Contact sheet | AlbumScrapbookPage.kt:1173-1222 | Score-only runs in pairs (second down 12) or a single 0.52-lane ticket | Same |
+| Best track | AlbumScrapbook.kt:266 | Primary / onPrimary ticket, 22 sp score; the "Best on the record" text was removed (2026-10-05) | Same |
+| Receipt | AlbumScrapbookPage.kt:1827-1876, 2057 | surfaceContainer, 20 top corners, zig-zag bottom (≈ 14 teeth, 8 deep); monospace 12.5; dotted leaders | Same |
+| Tilt | AlbumScrapbook.kt:223, 471 | FNV-1a over "albumId/key"; sets Paper ±0.5/1/1.5, Ticket ±1.25/2, Sticker ±5/8/12, Cover ±3; opposite rules for notes and sticky | Same (drag parallax not ported) |
 
 ## Search (Apple Music iOS 26 form, Android content)
 

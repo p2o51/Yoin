@@ -22,6 +22,11 @@ struct AlbumDetailView: View {
 
     @State private var p: CGFloat = LaunchConfig.screen == "album-list" ? 1 : LaunchConfig.screen == "album-mid" ? 0.42 : 0
     @State private var dragBase: CGFloat?
+    /// Pager: 0 = overview, 1 = scrapbook.
+    @State private var page: CGFloat = LaunchConfig.screen.hasPrefix("album-scrapbook") ? 1 : 0
+    @State private var pageDrag: CGFloat = 0
+    @State private var pageWidth: CGFloat = 402
+    private var pageFrac: CGFloat { min(1, max(0, page - pageDrag / max(pageWidth, 1))) }
 
     /// The cover's own scheme (title, blocks, dots, Play) and the app's
     /// (everything else), as on Android.
@@ -39,26 +44,40 @@ struct AlbumDetailView: View {
             let side = min(0.74 * w, 300)
             let band = side + 56
             let e = smooth(p)
+            let f = pageFrac
             ZStack(alignment: .topLeading) {
                 background
-                butterfly(w: w, side: side, band: band)
-                    .opacity(1 - smooth(p, 0.62, 0.98))
-                hero(w: w, side: side, band: band)
-                    .opacity(1 - e)
-                    .offset(y: -e * 15) // Android: −40 px
-                    .allowsHitTesting(e < 0.5)
-                trackList(w: w)
-                    .opacity(e)
-                    .allowsHitTesting(e >= 0.5)
-                spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
+                // Page 0: the bar, the stamp and the hero slide away with it.
+                ZStack(alignment: .topLeading) {
+                    butterfly(w: w, side: side, band: band)
+                        .opacity(1 - smooth(p, 0.62, 0.98))
+                    hero(w: w, side: side, band: band)
+                        .opacity(1 - e)
+                        .offset(y: -e * 15) // Android: −40 px
+                        .allowsHitTesting(e < 0.5)
+                    trackList(w: w)
+                        .opacity(e)
+                        .allowsHitTesting(e >= 0.5)
+                    spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
+                }
+                .offset(x: -f * w)
+                // Page 1: the scrapbook, under the header.
+                AlbumScrapbookView(album: album, settled: page == 1 && pageDrag == 0)
+                    .padding(.top, headerContent)
+                    .frame(width: w)
+                    .clipped()
+                    .offset(x: (1 - f) * w)
                 header(white: false, w: w)
-                    .opacity(1 - smooth(p, 0.25, 0.7))
+                    .opacity(1 - smooth(p, 0.25, 0.7) * (1 - f))
                 header(white: true, w: w)
-                    .opacity(smooth(p, 0.25, 0.7))
+                    .opacity(smooth(p, 0.25, 0.7) * (1 - f))
                 cover(w: w, side: side, band: band)
+                    .offset(x: -f * w)
             }
             .contentShape(.rect)
             .simultaneousGesture(pullUp(travel: geo.size.height * 0.55))
+            .simultaneousGesture(pager(width: w))
+            .onAppear { pageWidth = w }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
@@ -108,12 +127,19 @@ struct AlbumDetailView: View {
             .frame(height: 52)
             HStack(spacing: 0) {
                 ForEach(0..<2, id: \.self) { i in
-                    Circle()
-                        .fill(i == 0 ? (white ? Color.white : s.secondary)
-                                     : (white ? Color.white.opacity(0.4) : app.onSurfaceVariant.opacity(0.3)))
-                        .frame(width: 8, height: 8)
-                        .frame(width: 24, height: 20)
-                        .accessibilityLabel(i == 0 ? "Overview" : "Scrapbook")
+                    // Active by distance from the pager fraction.
+                    let active = 1 - min(1, abs(pageFrac - CGFloat(i)))
+                    let on: Color = white ? .white : s.secondary
+                    let off: Color = white ? .white.opacity(0.4) : app.onSurfaceVariant.opacity(0.3)
+                    Button { withAnimation(Yoin.spatial) { page = CGFloat(i) } } label: {
+                        Circle()
+                            .fill(off.mix(with: on, by: active, in: .perceptual))
+                            .frame(width: 8, height: 8)
+                            .frame(width: 24, height: 20)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(i == 0 ? "Overview" : "Scrapbook")
                 }
             }
             .frame(maxWidth: .infinity)
@@ -377,12 +403,31 @@ struct AlbumDetailView: View {
         .allowsHitTesting(false)
     }
 
+    // MARK: Pager
+
+    private func pager(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 14)
+            .onChanged { v in
+                guard abs(v.translation.width) > abs(v.translation.height) * 1.2, dragBase == nil else { return }
+                // Clamp at both ends (page 0 dragged right is the system back swipe's job).
+                pageDrag = min(page * width, max((page - 1) * width, v.translation.width))
+            }
+            .onEnded { v in
+                guard pageDrag != 0 else { return }
+                let projected = page - v.predictedEndTranslation.width / width
+                withAnimation(Yoin.spatial) {
+                    page = projected > 0.5 ? 1 : 0
+                    pageDrag = 0
+                }
+            }
+    }
+
     // MARK: Pull-up gesture (DetailPullUpReshape)
 
     private func pullUp(travel: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 14)
             .onChanged { v in
-                guard abs(v.translation.height) > abs(v.translation.width) else { return }
+                guard page == 0, pageDrag == 0, abs(v.translation.height) > abs(v.translation.width) else { return }
                 if dragBase == nil {
                     // Collapsed: the hero takes the drag. Expanded: only a pull-down.
                     if p >= 1 && v.translation.height < 0 { return }
