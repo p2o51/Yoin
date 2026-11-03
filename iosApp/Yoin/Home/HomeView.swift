@@ -24,10 +24,10 @@ struct HomeView: View {
             .padding(.horizontal, 16)
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
         }
-        .contentMargins(.bottom, 108, for: .scrollContent)
+        .contentMargins(.bottom, 24, for: .scrollContent)
         // `-screen home-bottom` opens scrolled to the end (screenshots).
         .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
-        .scrollEdgeEffectStyle(.soft, for: .all)
+        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
                            startPoint: .top, endPoint: .bottom)
@@ -577,17 +577,20 @@ extension View {
     /// blurred, clipped to the card; the glass on top is tinted with the
     /// card wash so text keeps the solid card's contrast.
     func homeGlassCard<S: InsettableShape>(_ palette: CoverPalette, scheme: CoverScheme, shape: S) -> some View {
-        background {
+        let lab = GlassLab.shared
+        return background {
             ZStack {
                 CoverArt(palette: palette, cornerRadius: 0, seed: 1)
                     .scaleEffect(1.6)
-                    .blur(radius: 26)
-                    .opacity(0.85)
+                    .blur(radius: lab.extra("coverBlur"))
+                    .opacity(lab.extra("coverStrength"))
                     .clipShape(shape)
                 shape.fill(.clear)
-                    .glassEffect(.regular.tint(cardWash(scheme, palette).opacity(0.6)), in: shape)
+                    .labGlass("homeCards", scheme: scheme, brand: .brand(dark: false),
+                              auto: cardWash(scheme, palette), in: shape)
             }
             .allowsHitTesting(false)
         }
     }
+
 }

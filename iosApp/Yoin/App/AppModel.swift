@@ -26,6 +26,8 @@ final class AppModel {
     var slowMorph = false
     var glassFlavor: GlassFlavor = .system
     var showLanding = false
+    /// Nothing playing: the bar folds the pill away (Android idle bar).
+    var isIdle = false
     var playback: PlaybackSnapshot
 
     init(library: any MusicLibrary = MockLibrary.shared, playback: any PlaybackSource = MockLibrary.shared) {
@@ -41,13 +43,16 @@ final class AppModel {
         case "np-morph": slowMorph = true
         case "np-panel": npPanel = true
         case "landing": showLanding = true
+        case "progress35": self.playback.positionSec = Int(Double(self.playback.track.durationSec) * 0.35)
+        case "idle": isIdle = true
+        case "library-idle": isIdle = true; section = .library
         default: break
         }
         padSelection = library.albums()[0]
     }
 
-    /// Accent for the whole app: the playing cover's color.
-    var accent: Color { playback.album.palette.tint }
+    /// Accent for the whole app: the playing cover's color, Yoin violet when idle.
+    var accent: Color { isIdle ? Yoin.violet : playback.album.palette.tint }
 
     /// The album page is on screen (phone), so the bar takes its detail form.
     var isDetail: Bool { !isPad && !path.isEmpty }
@@ -59,6 +64,15 @@ final class AppModel {
         } else {
             path.append(album)
         }
+    }
+
+    /// Glass Lab cover picker: play this album's first track at the same progress.
+    func play(_ album: Album) {
+        let fraction = Double(playback.positionSec) / Double(playback.track.durationSec)
+        let track = album.tracks[min(2, album.tracks.count - 1)]
+        playback.album = album
+        playback.track = track
+        playback.positionSec = Int(fraction * Double(track.durationSec))
     }
 
     func select(_ s: ShellSection) {

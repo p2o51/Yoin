@@ -27,11 +27,14 @@ struct NowPlayingView: View {
     /// Full page. The radius stays under the iPhone's screen-corner radius
     /// (62 let Home peek out at the bottom corners); the display mask rounds
     /// the rest.
-    private let baseShape = RoundedRectangle(cornerRadius: 44, style: .continuous)
-    /// Glass tint on the transport buttons and heart: low enough that the
-    /// lyrics behind them lens and refract at the edges; the on-color glyph
-    /// and label carry the contrast.
-    private let glassTint = 0.55
+    private var baseShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: lab.style("npBackground").cornerRadius ?? 44, style: .continuous)
+    }
+    private var lab: GlassLab { GlassLab.shared }
+    private var brand: CoverScheme { .brand(dark: colorScheme == .dark) }
+    // Glass parameters live in GlassLab (debug panel); its defaults are the
+    // shipped values: transport/heart tint 55 %, colored shadow 18 %, glyph
+    // contrast shadow 22 %, container spacing 3.
 
     var body: some View {
         // The background sits outside the GeometryReader so it reaches the
@@ -71,7 +74,7 @@ struct NowPlayingView: View {
         ZStack {
             neighbourAmbient.clipShape(baseShape)
             baseShape.fill(.clear)
-                .glassEffect(.regular.tint(scheme.background.opacity(0.5)), in: baseShape)
+                .labGlass("npBackground", scheme: scheme, brand: brand, auto: scheme.background, in: baseShape)
         }
         .matchedGeometryEffect(id: "np.surface", in: npNamespace)
         .ignoresSafeArea()
@@ -87,11 +90,12 @@ struct NowPlayingView: View {
         let next = CoverScheme(album: albums[1], dark: dark)
         return ZStack {
             scheme.background
-            Circle().fill(scheme.primary.opacity(0.55)).frame(width: 360).blur(radius: 90)
+            Circle().fill(scheme.primary.opacity(lab.extra("ambientStrength")))
+                .frame(width: 360).blur(radius: lab.extra("ambientBlur"))
             VStack {
-                Ellipse().fill(previous.primaryContainer).frame(height: 300).offset(y: -90).blur(radius: 50)
+                Ellipse().fill(previous.primaryContainer.opacity(lab.extra("neighbourStrength"))).frame(height: 300).offset(y: -90).blur(radius: 50)
                 Spacer()
-                Ellipse().fill(next.primaryContainer).frame(height: 320).offset(y: 110).blur(radius: 50)
+                Ellipse().fill(next.primaryContainer.opacity(lab.extra("neighbourStrength"))).frame(height: 320).offset(y: 110).blur(radius: 50)
             }
         }
     }
@@ -195,9 +199,8 @@ struct NowPlayingView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.tint((favorite ? scheme.tertiary : scheme.tertiaryContainer).opacity(glassTint))
-                        .interactive(), in: .circle)
-        .shadow(color: scheme.tertiary.opacity(0.18), radius: 10, y: 5)
+        .labGlass("heart", scheme: scheme, brand: brand,
+                  auto: favorite ? scheme.tertiary : scheme.tertiaryContainer, in: Circle())
         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
     }
 
@@ -247,7 +250,7 @@ struct NowPlayingView: View {
                 .init(color: fadeTop ? .clear : .black, location: 0),
                 .init(color: .black, location: fadeTop ? min(0.12, 16 / total) : 0),
                 .init(color: .black, location: clear / total),
-                .init(color: .black.opacity(0.7), location: (clear + 56) / total),
+                .init(color: .black.opacity(GlassLab.shared.extra("lyricsUnder")), location: (clear + 56) / total),
                 .init(color: .clear, location: (clear + 100) / total),
             ], startPoint: .top, endPoint: .bottom)
         )
@@ -260,7 +263,7 @@ struct NowPlayingView: View {
         // container spacing keeps them separate at rest (10 bridged Pause and
         // Prev into one blob) and lets neighbours blend as interactive glass
         // swells on press.
-        GlassEffectContainer(spacing: 3) {
+        GlassEffectContainer(spacing: lab.extra("containerSpacing")) {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Button {} label: {
@@ -269,14 +272,13 @@ struct NowPlayingView: View {
                         .tracking(0.5)
                         .scaleEffect(x: 1.06, y: 1)
                         .foregroundStyle(scheme.onPrimary)
-                        .shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
+                        .labContrast("transport")
                         .padding(.horizontal, 24)
                         .frame(height: 56)
                         .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.tint(scheme.primary.opacity(glassTint)).interactive(), in: .capsule)
-                .shadow(color: scheme.primary.opacity(0.18), radius: 12, y: 6)
+                .labGlass("transport", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
                 .accessibilityLabel("Pause")
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next")
                 Spacer(minLength: 0)
@@ -311,13 +313,12 @@ struct NowPlayingView: View {
         Button {} label: {
             YoinIcon(icon, size: 28)
                 .foregroundStyle(ink)
-                .shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
+                .labContrast("transport")
                 .frame(width: 56, height: 56)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.tint(fill.opacity(glassTint)).interactive(), in: .circle)
-        .shadow(color: fill.opacity(0.18), radius: 12, y: 6)
+        .labGlass("transport", scheme: scheme, brand: brand, auto: fill, in: Circle())
         .accessibilityLabel(label)
     }
 
@@ -373,7 +374,7 @@ struct NowPlayingView: View {
             .foregroundStyle(scheme.onPrimary)
             .padding(.horizontal, 13.2)
             .frame(minWidth: 58, minHeight: 44)
-            .background(scheme.primary, in: shape)
+            .labGlass("npPills", scheme: scheme, brand: brand, auto: scheme.primary, in: shape)
         }
         .buttonStyle(PressScale())
     }
@@ -471,9 +472,10 @@ struct RatingBar: View {
                 // Track: glass tinted with the container role, so the
                 // background shows through; the fill (the score) stays solid.
                 Capsule().fill(.clear)
-                    .glassEffect(.regular.tint(scheme.surfaceVariant.opacity(0.3)), in: .capsule)
+                    .labGlass("ratingTrack", scheme: scheme, brand: .brand(dark: false),
+                              auto: scheme.surfaceVariant, in: Capsule())
                 Capsule()
-                    .fill(scheme.primary)
+                    .fill(scheme.primary.opacity(GlassLab.shared.extra("ratingFill")))
                     .frame(height: max(48, h * fraction))
                     .frame(maxHeight: .infinity, alignment: .bottom)
                 Text(value >= 10 ? "10" : String(format: "%.1f", value))

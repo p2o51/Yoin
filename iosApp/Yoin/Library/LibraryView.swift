@@ -36,7 +36,7 @@ struct LibraryView: View {
                 .animation(Yoin.spatial, value: filter)
             }
         }
-        .contentMargins(.bottom, 110, for: .scrollContent)
+        .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .background(Yoin.surface)
     }

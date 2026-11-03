@@ -69,7 +69,14 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 
 - **Home album items:** Mobbin check (Apple Music, Spotify, YouTube Music, Deezer, SoundCloud): iOS music apps show bare square covers with 1–2 lines of text, never a shape behind them. Decided (2026-11-03): bare cover (option A) is the only style; a tinted-tile alternative was tried and dropped. Title in GSF SemiBold ROND 100. The memory mark sits on the cover's top-trailing corner, inset 8. The Rediscover score stays a solid capsule.
 - **Home cards as glass:** the Activities hero, small and wide cards, the strip and the Rediscover cards are Liquid Glass. Behind each card is its own cover, scaled ×1.6, blurred 26 and clipped to the card. On top is `.regular` glass tinted with Android's card wash (lerp(surfaceContainerLow, base, 0.30)) at 60%, so text keeps the solid card's contrast. Decided (2026-11-03): plain glass; a grainy "gummy" variant was tried and dropped. Covers, artist circles, the score capsule and the bare-cover grids stay solid.
-- **Bottom bar:** stays Liquid Glass (Home · Now Playing pill · Library + Search circle), not Android's 68 dp surfaceContainerHigh bar.
+- **Bottom bar:** stays Liquid Glass (Home · Now Playing pill · Library + Search circle), not Android's 68 dp surfaceContainerHigh bar. It's attached with `.safeAreaBar(edge: .bottom)` so the system soft scroll-edge effect runs under it.
+  - Selected button (default): Apple Music iOS 26 style. The icon and label are in the accent on a lighter selection pill inside the glass. Accent: Home = primary, Library = tertiary.
+  - Accent source: the brand scheme (MCU from YoinSeedArgb 0xFF7B3FE4, Android DefaultColorScheme.kt) when nothing is playing, the cover scheme while playing.
+  - Unselected buttons are plain glass. A "tinted glass" selected style is kept in Glass Lab.
+  - Nothing playing: the pill folds away and Home / Library split the bar with labels (Android idle bar).
+- **Mini player progress:** Android NowPlayingPill wash, primary at 25% from the leading edge with a moving sine edge (4 pt, one wave per pill height), under the cover and text.
+- **Top edge:** the system edge effect needs a real bar and the root pages hide the navigation bar, so a material band fading out over safe-area top + 22 pt approximates it. Yoin's halftone seam dots are not used on iOS.
+- **Glass Lab:** a debug panel (`-glassLab 1`, or a three-finger long-press) for every glass parameter; defaults are the values above. Launch it with `iosApp/scripts/glass-lab.sh`.
 - **Opening Now Playing:** the full page grows out of the bar's pill (matched geometry), with a 62 pt radius so it lands on the screen's own corners.
 - **Now Playing background:** frosted glass over this album's primary, with the previous album's primaryContainer at the top edge and the next album's at the bottom (each from its own scheme). Android uses a surfaceContainer → background gradient; the iPad panel keeps that gradient.
 - **Transport and heart:** Pause, Next, Prev, Repeat and the heart are Liquid Glass, interactive, at Android's sizes and positions.

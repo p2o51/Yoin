@@ -19,7 +19,7 @@ struct AlbumDetailView: View {
             .frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .contentMargins(.bottom, padColumn ? 110 : 120, for: .scrollContent)
+        .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .background(Yoin.surface)
         .navigationBarTitleDisplayMode(.inline)

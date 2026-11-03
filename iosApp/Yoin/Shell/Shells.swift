@@ -40,10 +40,14 @@ struct PhoneShell: View {
                     }
             }
             .environment(\.zoomNamespace, zoomNS)
-
-            ShellBar(npNamespace: npNS)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 2)
+            // A safe-area bar, not an overlay, so scroll views know it is
+            // there: the system soft scroll-edge effect (progressive blur and
+            // fade) runs under it, as under Apple's tab bars.
+            .safeAreaBar(edge: .bottom) {
+                ShellBar(npNamespace: npNS)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 2)
+            }
 
             if model.npExpanded {
                 NowPlayingView(npNamespace: npNS)
@@ -52,6 +56,25 @@ struct PhoneShell: View {
             }
         }
         .background(Yoin.surface)
+        .overlay(alignment: .top) {
+            // Soft top edge under the status bar. The system scroll-edge
+            // effect only runs under a real bar, and the root pages hide the
+            // navigation bar (custom headers), so this approximates it: a
+            // material band that fades out downward, like Apple Music's top.
+            if model.path.isEmpty && !model.npExpanded {
+                GeometryReader { g in
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .mask(LinearGradient(stops: [.init(color: .black, location: 0),
+                                                     .init(color: .black, location: 0.45),
+                                                     .init(color: .clear, location: 1)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(height: g.safeAreaInsets.top + 22)
+                        .ignoresSafeArea(edges: .top)
+                }
+                .allowsHitTesting(false)
+            }
+        }
         .task {
             // `-screen np-morph`: a deliberately slow pill → page expansion.
             guard model.slowMorph else { return }
