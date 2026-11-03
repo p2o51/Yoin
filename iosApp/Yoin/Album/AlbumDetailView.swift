@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import YoinShared
 
 /// Album page, page 1 of Android's two-page album detail (AlbumDetailScreen,
 /// AlbumSpectrumBar, DetailPullUpReshape, AlbumDetailComponents), phone
@@ -69,7 +70,10 @@ struct AlbumDetailView: View {
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
     }
 
-    private let headerContent: CGFloat = 4 + 52 + 25 + 6
+    /// The header below the status bar: 4 top + the 52 title row (headlineSmall
+    /// 32 + bodyMedium 20) + the page dots (5 + 20) + 6 bottom (AlbumTopHeader).
+    /// Playlists have no dots row: 4 + 52 + 6 (PlaylistTopHeader).
+    private var headerContent: CGFloat { playlist == nil ? 4 + 52 + 25 + 6 : 4 + 52 + 6 }
 
     var body: some View {
         GeometryReader { geo in
@@ -188,25 +192,28 @@ struct AlbumDetailView: View {
                 .accessibilityLabel("Back")
                 VStack(alignment: .leading, spacing: 0) {
                     Text(album.title)
-                        .font(.gsf(24))
-                        .foregroundStyle(white ? .white : s.primary)
                         .lineLimit(1)
-                    // MetaLine, 12 pt apart, no separators: album [artist] [Album]
-                    // [year]; playlist [owner] [Playlist].
+                        .yoinRole(Tokens.type.headlineSmall)
+                        .foregroundStyle(white ? .white : s.primary)
+                    // DetailMetaLine in bodyMedium, groups 12 apart, no separators:
+                    // album [artist] [Album] [year]; playlist [owner] [Playlist].
+                    // The kind is Medium in primary. The white twin over the bar:
+                    // onSurface white, primary white @ 0.88.
+                    let plain: Color = white ? .white : app.onSurface
+                    let kind: Color = white ? .white.opacity(0.88) : app.primary
                     HStack(spacing: 12) {
                         if let playlist {
-                            Text(playlist.owner).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
-                            Text("Playlist").fontWeight(.medium).foregroundStyle(white ? .white.opacity(0.88) : app.primary)
+                            Text(playlist.owner).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
+                            Text("Playlist").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
                         } else {
                             Button { model.openArtist(album.artist) } label: {
-                                Text(album.artist).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
+                                Text(album.artist).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             }
                             .buttonStyle(.plain)
-                            Text("Album").fontWeight(.medium).foregroundStyle(white ? .white.opacity(0.88) : app.primary)
-                            Text(String(album.year)).foregroundStyle(white ? .white.opacity(0.82) : app.onSurface)
+                            Text("Album").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
+                            Text(String(album.year)).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                         }
                     }
-                    .font(.gsf(14))
                     .lineLimit(1)
                 }
                 .padding(.trailing, (playlist != nil ? 48 + 12 + 4 : 60) * smooth(p))
@@ -231,6 +238,7 @@ struct AlbumDetailView: View {
                 }
             }
             .frame(height: 52)
+            if playlist == nil {
             HStack(spacing: 0) {
                 ForEach(0..<2, id: \.self) { i in
                     // Active by distance from the pager fraction.
@@ -250,7 +258,7 @@ struct AlbumDetailView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 5)
-            .opacity(playlist == nil ? 1 : 0)
+            }
         }
         .padding(.leading, 8)
         .padding(.trailing, 16)
@@ -302,7 +310,8 @@ struct AlbumDetailView: View {
         } label: {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                 .frame(width: flown.width, height: flown.height)
-                .clipShape(.rect(cornerRadius: lerp(8, 4, e), style: .continuous))
+                // Hero 8 → Cover 4 (Android restingCorner / stampCorner).
+                .clipShape(.rect(cornerRadius: lerp(Tokens.shape.HERO.cg, Tokens.shape.COVER.cg, e), style: .continuous))
         }
         .buttonStyle(.plain)
         .allowsHitTesting(e > 0.5 && f < 0.5)
@@ -337,47 +346,32 @@ struct AlbumDetailView: View {
             if let playlist {
                 playlistMeta(playlist).frame(width: side).frame(maxWidth: .infinity)
                 Spacer().frame(height: 28)
-                Text(flowingTitles).frame(maxWidth: .infinity, alignment: .leading)
+                Text(flowingTitles)
+                    .lineSpacing(AlbumType.lineSpacing(Tokens.type.headlineMedium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
             // Emblem + comment, as wide as the cover.
             HStack(spacing: 20) {
                 HStack(spacing: 10) {
                     ScoreEmblem(score: score, kind: kind, rated: ratedFlags, palette: album.palette, size: 64)
-                    if kind == .average {
-                        Text("\(album.ratedCount)/\(album.tracks.count) rated")
-                            .font(.gsf(11, .medium)).monospacedDigit()
-                            .foregroundStyle(app.onSurfaceVariant)
-                    }
+                    if kind == .average { ratedCoverage }
                 }
-                if let comment = mockComment {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(comment).font(.gsf(14)).foregroundStyle(app.onSurface).lineLimit(3)
-                        Text("Yesterday").font(.gsf(12, .medium)).foregroundStyle(app.onSurfaceVariant)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Button {} label: {
-                        YoinIcon("edit", size: 18)
-                            .foregroundStyle(app.onSecondaryContainer)
-                            .frame(width: 40, height: 40)
-                            .background(app.secondaryContainer, in: .circle)
-                    }
-                    .buttonStyle(PressScale())
-                    .accessibilityLabel("Write a comment")
-                    Spacer(minLength: 0)
-                }
+                comment
             }
             .frame(width: side)
             .frame(maxWidth: .infinity)
             Spacer().frame(height: 28)
             HStack(spacing: 12) {
                 countLabel
+                // AlbumHeroLastPlay: labelMedium Medium tabular, onSurface.
                 Text("Yesterday 16:04")
-                    .font(.gsf(12, .medium)).monospacedDigit()
+                    .monospacedDigit()
+                    .yoinRole(Tokens.type.labelMedium, weight: .medium)
                     .foregroundStyle(app.onSurface)
             }
             Spacer().frame(height: 6)
             Text(flowingTitles)
+                .lineSpacing(AlbumType.lineSpacing(Tokens.type.headlineMedium))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -385,22 +379,66 @@ struct AlbumDetailView: View {
         .frame(width: w, alignment: .topLeading)
     }
 
-    /// "12 tracks  1 h 12 min": numbers Medium tabular, units at 60 %.
+    /// AlbumTrackCountLabel: a MetaLine in labelMedium of Stat groups 12
+    /// apart ("12 tracks", "1 h", "12 min"); each number Medium tabular, its
+    /// unit Regular at 60 %, 4 apart. Hours and minutes are separate groups.
     private var countLabel: some View {
-        let mins = album.tracks.map(\.durationSec).reduce(0, +) / 60
+        let count = playlist?.entries.count ?? album.tracks.count
+        let secs = playlist.map { $0.entries.map(\.track.durationSec).reduce(0, +) }
+            ?? album.tracks.map(\.durationSec).reduce(0, +)
+        let mins = secs / 60
+        var groups: [(String, String)] = [("\(count)", count == 1 ? "track" : "tracks")]
+        if mins >= 60 {
+            groups.append(("\(mins / 60)", "h"))
+            if mins % 60 > 0 { groups.append(("\(mins % 60)", "min")) }
+        } else if mins > 0 {
+            groups.append(("\(mins)", "min"))
+        }
         return HStack(spacing: 12) {
-            HStack(spacing: 4) {
-                Text("\(album.tracks.count)").fontWeight(.medium)
-                Text(album.tracks.count == 1 ? "track" : "tracks").opacity(0.6)
-            }
-            HStack(spacing: 4) {
-                if mins >= 60 { Text("\(mins / 60)").fontWeight(.medium); Text("h").opacity(0.6) }
-                if mins % 60 > 0 { Text("\(mins % 60)").fontWeight(.medium); Text("min").opacity(0.6) }
+            ForEach(groups, id: \.1) { value, unit in
+                HStack(spacing: 4) {
+                    Text(value).monospacedDigit().yoinRole(Tokens.type.labelMedium, weight: .medium)
+                    Text(unit).yoinRole(Tokens.type.labelMedium, weight: .regular).opacity(0.6)
+                }
             }
         }
-        .font(.gsf(12, .medium))
-        .monospacedDigit()
         .foregroundStyle(app.onSurface)
+    }
+
+    /// AlbumRatedCoverage: "2/4 rated" in labelSmall tabular, onSurfaceVariant.
+    private var ratedCoverage: some View {
+        Text("\(album.ratedCount)/\(album.tracks.count) rated")
+            .monospacedDigit()
+            .lineLimit(1)
+            .yoinRole(Tokens.type.labelSmall)
+            .foregroundStyle(app.onSurfaceVariant)
+    }
+
+    /// AlbumHeroComment: written, bodyMedium (3 lines) over its date in
+    /// labelMedium onSurfaceVariant, 4 apart; not written, a 40 tonal pen.
+    @ViewBuilder
+    private var comment: some View {
+        if let comment = mockComment {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(comment).lineLimit(3)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurface)
+                Text("Yesterday")
+                    .yoinRole(Tokens.type.labelMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Button {} label: {
+                YoinIcon("edit", size: 18)
+                    .foregroundStyle(app.onSecondaryContainer)
+                    .frame(width: 40, height: 40)
+                    .background(app.secondaryContainer, in: .circle)
+            }
+            .buttonStyle(PressScale())
+            .accessibilityLabel("Write a comment")
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// Titles in headlineMedium joined by a space, even = onSurface,
@@ -472,18 +510,20 @@ struct AlbumDetailView: View {
                 if playing {
                     YoinIcon("equalizer", size: 16).foregroundStyle(s.primary)
                 } else {
-                    Text("\(t.number)").font(.gsf(12, .medium)).monospacedDigit()
+                    Text("\(t.number)").monospacedDigit()
+                        .yoinRole(Tokens.type.labelMedium)
                         .foregroundStyle(app.onSurfaceVariant)
                 }
             }
             .frame(minWidth: 18, alignment: .trailing)
             Text(t.title)
-                .font(.gsf(16, .medium))
-                .foregroundStyle(playing ? s.primary : app.onSurface)
                 .lineLimit(1)
-            Spacer(minLength: 0)
+                .yoinRole(Tokens.type.titleMedium)
+                .foregroundStyle(playing ? s.primary : app.onSurface)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(formatTime(t.durationSec))
-                .font(.gsf(14, .medium)).monospacedDigit()
+                .monospacedDigit()
+                .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(app.onSurfaceVariant)
             let liked = t.rating.map { $0 >= 9 } ?? false
             YoinIcon(liked ? "favorite_filled" : "favorite", size: 16)
@@ -498,7 +538,7 @@ struct AlbumDetailView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .frame(minHeight: 56)
-        .contentShape(.rect(cornerRadius: 12))
+        .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
     }
 
     // MARK: Playlist pieces
@@ -512,7 +552,7 @@ struct AlbumDetailView: View {
             let colors = [s.tertiary, s.secondary, s.primary]
             for i in 0..<3 {
                 var g = gc
-                g.translateBy(x: size.width / 2, y: size.height / 2 + side * (-0.06 + 0.14 * CGFloat(i)))
+                g.translateBy(x: size.width / 2, y: band / 2 + side * (-0.06 + 0.14 * CGFloat(i)))
                 g.scaleBy(x: k, y: k)
                 g.translateBy(x: -505, y: -350)
                 let arm = YoinMarkPaths.arms[1]
@@ -520,84 +560,106 @@ struct AlbumDetailView: View {
                 g.fill(arm.line, with: .color(app.surface.opacity(0.65)))
             }
         }
-        .frame(width: w, height: band)
-        .clipped()
+        // Laid out on the band, drawn past it: the front V's lip dips below
+        // the band, as on Android (only the Box under the header clips).
+        .frame(width: w, height: band * 1.6)
         .offset(y: headerContent)
+        .frame(width: w, height: headerContent + band * 1.6, alignment: .topLeading)
+        .mask(alignment: .top) { Rectangle().padding(.top, headerContent) }
         .allowsHitTesting(false)
     }
 
-    /// Length (tracks + duration) and Owner (+ Public / Private), then the
-    /// description (3 lines). Labels: labelLarge Medium underlined.
+    /// PlaylistHeroMeta: Length (tracks bodyLarge, duration bodyMedium
+    /// onSurfaceVariant) | Owner (bodyLarge, + Public / Private bodyMedium),
+    /// 4 apart; then the description (bodyMedium, 3 lines) 6 under its label.
+    /// Labels: AlbumSectionLabel (labelLarge Medium underlined).
     private func playlistMeta(_ pl: PlaylistInfo) -> some View {
         let mins = pl.entries.map(\.track.durationSec).reduce(0, +) / 60
-        func label(_ t: String) -> some View {
-            Text(t).font(.gsf(14, .medium)).underline().foregroundStyle(app.onSurface)
-        }
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    label("Length")
-                    Text("\(pl.entries.count) tracks").font(.gsf(16)).monospacedDigit().foregroundStyle(app.onSurface)
-                    Text(mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min")
-                        .font(.gsf(14)).monospacedDigit().foregroundStyle(app.onSurfaceVariant)
+                    sectionLabel("Length")
+                    Text("\(pl.entries.count) tracks").monospacedDigit()
+                        .yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                    Text(mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min").monospacedDigit()
+                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 4) {
-                    label("Owner")
-                    Text(pl.owner).font(.gsf(16)).foregroundStyle(app.onSurface).lineLimit(1)
+                    sectionLabel("Owner")
+                    Text(pl.owner).lineLimit(1)
+                        .yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
                     if let isPublic = pl.isPublic {
-                        Text(isPublic ? "Public" : "Private").font(.gsf(14)).foregroundStyle(app.onSurfaceVariant)
+                        Text(isPublic ? "Public" : "Private")
+                            .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
                     }
                 }
             }
             if let d = pl.description {
                 VStack(alignment: .leading, spacing: 6) {
-                    label("Description")
-                    Text(d).font(.gsf(14)).foregroundStyle(app.onSurface).lineLimit(3)
+                    sectionLabel("Description")
+                    Text(d).lineLimit(3)
+                        .lineSpacing(AlbumType.lineSpacing(Tokens.type.bodyMedium))
+                        .font(.gsf(Tokens.type.bodyMedium.size.cg))
+                        .foregroundStyle(app.onSurface)
                 }
             }
         }
     }
 
-    /// Playlist row: 44 album thumb (4 corners), title, "artist · album"
-    /// (album muted), duration; v8 padding, no number, no heart.
+    /// AlbumSectionLabel: labelLarge Medium, underlined, onSurface.
+    private func sectionLabel(_ t: String) -> some View {
+        Text(t).underline().yoinRole(Tokens.type.labelLarge).foregroundStyle(app.onSurface)
+    }
+
+    /// PlaylistTrackRow: 44 Thumb (corner 4), 12 gap; titleMedium onSurface
+    /// over PlaylistTrackCredit (a bodySmall MetaLine: artist, then the album
+    /// muted to 60 %, 12 apart, no separator), 2 apart; the duration in
+    /// labelLarge tabular. Padding 8 × 8, no number, no heart.
     private func playlistRow(_ e: PlaylistEntry) -> some View {
-        let playing = model.playback.track.id == e.track.id
-        return HStack(spacing: 12) {
+        HStack(spacing: 12) {
             CoverArt(palette: e.album.palette, cornerRadius: 0, seed: e.album.seed)
                 .frame(width: 44, height: 44)
-                .clipShape(.rect(cornerRadius: 4, style: .continuous))
+                .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(e.track.title).font(.gsf(16, .medium))
-                    .foregroundStyle(playing ? s.primary : app.onSurface)
-                HStack(spacing: 0) {
-                    Text(e.album.artist).foregroundStyle(app.onSurfaceVariant)
-                    Text(" · \(e.album.title)").foregroundStyle(app.onSurfaceVariant.opacity(0.6))
-                }
-                .font(.gsf(12))
+                Text(e.track.title).lineLimit(1)
+                    .yoinRole(Tokens.type.titleMedium)
+                    .foregroundStyle(app.onSurface)
+                LibraryMetaLine(parts: [(e.album.artist, false), (e.album.title, true)], scheme: app)
             }
-            .lineLimit(1)
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
             Text(formatTime(e.track.durationSec))
-                .font(.gsf(14, .medium)).monospacedDigit()
+                .monospacedDigit()
+                .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(app.onSurfaceVariant)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .contentShape(.rect(cornerRadius: 12))
+        .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
     }
 
+    /// The list's liner notes (AlbumHeroMetaBlocks, default arrangement):
+    /// Last Play (label, 4, day bodyLarge, 4, time bodyMedium tabular) and the
+    /// emblem (+ "X/N rated") across one row, centred; the comment 14 below.
     private var linerNotes: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Last Play").font(.gsf(14, .medium)).underline().foregroundStyle(app.onSurface)
-                Text("Yesterday").font(.gsf(16)).foregroundStyle(app.onSurface)
-                Text("16:04").font(.gsf(14)).monospacedDigit().foregroundStyle(app.onSurfaceVariant).padding(.top, 4)
+        let kind: ScoreEmblem.Kind = album.rating != nil ? .album : .average
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 0) {
+                    sectionLabel("Last Play").padding(.bottom, 4)
+                    Text("Yesterday").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                    Text("16:04").monospacedDigit()
+                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                        .padding(.top, 4)
+                }
+                Spacer()
+                HStack(spacing: 10) {
+                    ScoreEmblem(score: album.rating ?? album.averageRating ?? 0, kind: kind,
+                                rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: 64)
+                    if kind == .average { ratedCoverage }
+                }
             }
-            Spacer()
-            ScoreEmblem(score: album.rating ?? album.averageRating ?? 0,
-                        kind: album.rating != nil ? .album : .average,
-                        rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: 64)
+            comment
         }
     }
 
@@ -733,5 +795,20 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
                                   shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
         gestureRecognizer === interactivePopGestureRecognizer && viewControllers.count > 1
             && other.view?.isDescendant(of: view) == true
+    }
+}
+
+/// Line boxes for wrapping text in Compose's type roles. SwiftUI's
+/// `lineSpacing` adds to the font's own line (Google Sans Flex: 1.252 × size),
+/// so the role's line height minus that is the extra.
+enum AlbumType {
+    static let gsfNaturalLine: CGFloat = 1.252
+
+    static func lineSpacing(size: CGFloat, lineHeight: CGFloat) -> CGFloat {
+        max(0, lineHeight - size * gsfNaturalLine)
+    }
+
+    static func lineSpacing(_ role: YoinTokens.TypographyStyle) -> CGFloat {
+        lineSpacing(size: role.size.cg, lineHeight: role.lineHeight.cg)
     }
 }

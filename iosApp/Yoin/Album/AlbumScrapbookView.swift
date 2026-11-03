@@ -39,6 +39,12 @@ struct AlbumScrapbookView: View {
 
     private var s: CoverScheme { CoverScheme(album: album, dark: colorScheme == .dark) }
 
+    /// The Memory title's serif (Android FontFamily.Serif), 22 SemiBold.
+    private static let titleFont: UIFont = {
+        let base = UIFont.systemFont(ofSize: 22, weight: .semibold)
+        return base.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: 22) } ?? base
+    }()
+
     // MARK: Mock records
 
     private struct Note { var time: String; var text: String }
@@ -90,7 +96,7 @@ struct AlbumScrapbookView: View {
                 ZStack(alignment: .bottomTrailing) {
                     CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                         .frame(width: 148, height: 148)
-                        .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                        .clipShape(.rect(cornerRadius: Tokens.shape.HERO.cg, style: .continuous))
                         // Where the hero's cover lands; hidden until it has.
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
                             onCoverPlaced($0, tilt("cover", Tilt.cover))
@@ -108,27 +114,35 @@ struct AlbumScrapbookView: View {
                 }
                 Spacer().frame(width: 0.3 * 64 + 8)
                 VStack(alignment: .leading, spacing: 0) {
+                    // OpeningTitle: the serif (a title someone or the AI wrote),
+                    // 22 SemiBold, line 1.25 em (27.5).
                     Text(memoryTitle)
-                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                        .font(Font(Self.titleFont))
+                        .lineSpacing(max(0, 22 * 1.25 - Self.titleFont.lineHeight))
                         .foregroundStyle(s.onSurface)
-                        .lineSpacing(5)
+                    // AlbumScrapLastPlay: AlbumSectionLabel (labelLarge
+                    // underlined), 4, then titleMedium tabular.
                     Text("Last Play")
-                        .font(.gsf(14, .medium)).underline()
+                        .underline()
+                        .yoinRole(Tokens.type.labelLarge)
                         .foregroundStyle(s.onSurface)
                         .padding(.top, 16).padding(.bottom, 4)
                     Text("Yesterday 16:04")
-                        .font(.gsf(16, .medium)).monospacedDigit()
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.titleMedium)
                         .foregroundStyle(s.onSurface)
                 }
                 .padding(.top, 4)
             }
             // Title present → the review goes below, full width.
             VStack(alignment: .leading, spacing: 6) {
+                // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
                 Text(review)
-                    .font(.gsf(15)).lineSpacing(8)
+                    .font(.gsf(15)).lineSpacing(AlbumType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
                     .foregroundStyle(s.onPrimaryContainer)
                 Text("Yesterday")
-                    .font(.gsf(12, .medium))
+                    .yoinRole(Tokens.type.labelMedium)
                     .foregroundStyle(s.onPrimaryContainer.opacity(0.6))
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
@@ -137,7 +151,8 @@ struct AlbumScrapbookView: View {
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
             // Album note sticky: own row on the end side, tucks 6 over the review.
             Text(albumNote)
-                .font(.gsf(14.5)).lineSpacing(7)
+                // userTextStyle at 14.5: line 1.5 em.
+                .font(.gsf(14.5)).lineSpacing(AlbumType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
                 .foregroundStyle(s.onSecondaryContainer)
                 .padding(.leading, 18).padding(.trailing, 18).padding(.top, 14).padding(.bottom, 18)
                 .frame(width: min(0.72 * 368, 280), alignment: .leading)
@@ -222,12 +237,17 @@ struct AlbumScrapbookView: View {
                 .foregroundStyle(ink.opacity(0.72))
                 .frame(width: 48)
             VStack(alignment: .leading, spacing: 3) {
+                // titleMedium SemiBold at 15 / 16, line 1.25 em.
                 Text(t.title).font(.gsf(mini ? 15 : 16, .semibold)).foregroundStyle(ink).lineLimit(2)
+                    .lineSpacing(AlbumType.lineSpacing(size: mini ? 15 : 16, lineHeight: (mini ? 15 : 16) * 1.25))
                 // Duration and plays on one row; when it doesn't fit, plays
                 // wrap under the duration (both kept). Mini tickets trail the score.
-                let duration = Text(formatTime(t.durationSec)).fontWeight(.medium)
+                // ScrapTicketMetaLine: Stat groups in labelMedium at 12,
+                // tracking 0: numbers Medium tabular, the unit Regular at 60 %.
+                let duration = Text(formatTime(t.durationSec)).font(.gsf(12, .medium))
                 let plays = HStack(spacing: 4) {
-                    Text("\(t.number * 3 + 5)").fontWeight(.medium); Text("plays").opacity(0.6)
+                    Text("\(t.number * 3 + 5)").font(.gsf(12, .medium))
+                    Text("plays").font(.gsf(12)).opacity(0.6)
                 }
                 let miniScore = Text(score).font(.gsf(15, .semibold)).foregroundStyle(best ? ink : s.primary)
                 ViewThatFits(in: .horizontal) {
@@ -244,11 +264,14 @@ struct AlbumScrapbookView: View {
                     }
                 }
                 .lineLimit(1)
-                .font(.gsf(12)).monospacedDigit()
+                .monospacedDigit()
+                .frame(minHeight: 16)
                 .foregroundStyle(ink.opacity(0.72))
             }
-            .padding(.leading, 13).padding(.vertical, 10)
-            Spacer(minLength: 8)
+            // The body takes the rest (weight 1): a mini ticket's score sits at
+            // its end, 12 from the edge; a full one's column ends 8 before the score.
+            .padding(.leading, 13).padding(.vertical, 10).padding(.trailing, mini ? 12 : 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if !mini {
                 Text(score)
                     .font(.gsf(best ? 22 : 16, .semibold)).monospacedDigit()
@@ -256,7 +279,6 @@ struct AlbumScrapbookView: View {
                     .padding(.trailing, 14)
             }
         }
-        .padding(.trailing, mini ? 12 : 0)
         .frame(minHeight: mini ? 56 : 64)
         .frame(width: width)
         .frame(maxWidth: width == nil ? .infinity : nil)
@@ -287,7 +309,10 @@ struct AlbumScrapbookView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 0) {
                         Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
                             .frame(width: 42, alignment: .leading)
-                        Text(n.text).font(.gsf(15)).lineSpacing(7).foregroundStyle(s.onSurface)
+                        // userTextStyle: GSF 15, line 1.5 em.
+                        Text(n.text).font(.gsf(15))
+                            .lineSpacing(AlbumType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
+                            .foregroundStyle(s.onSurface)
                     }
                     .padding(.vertical, 4)
                 }
@@ -425,10 +450,14 @@ struct ReceiptShape: Shape {
         var p = Path()
         let teeth = max(1, Int((r.width / 14).rounded()))
         let tw = r.width / CGFloat(teeth)
-        p.move(to: CGPoint(x: r.minX, y: r.minY + 20))
-        p.addQuadCurve(to: CGPoint(x: r.minX + 20, y: r.minY), control: CGPoint(x: r.minX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX - 20, y: r.minY))
-        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY + 20), control: CGPoint(x: r.maxX, y: r.minY))
+        // Circular 20 pt arcs, as Compose's arcTo.
+        let c = min(20, min(r.width, r.height) / 2)
+        p.move(to: CGPoint(x: r.minX, y: r.minY + c))
+        p.addArc(center: CGPoint(x: r.minX + c, y: r.minY + c), radius: c,
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.addLine(to: CGPoint(x: r.maxX - c, y: r.minY))
+        p.addArc(center: CGPoint(x: r.maxX - c, y: r.minY + c), radius: c,
+                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: false)
         p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - 8))
         for i in (0..<teeth).reversed() {
             let x0 = r.minX + CGFloat(i) * tw
