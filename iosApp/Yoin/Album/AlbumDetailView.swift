@@ -16,7 +16,6 @@ import UIKit
 struct AlbumDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
     var album: Album
     var padColumn = false
     /// Playlist mode (Android PlaylistDetailScreen): same hero / pull-up /
@@ -110,7 +109,7 @@ struct AlbumDetailView: View {
         let ink: Color = white ? .white : app.onSurface
         return VStack(spacing: 0) {
             HStack(spacing: 14) {
-                Button { dismiss() } label: {
+                Button { model.back() } label: {
                     YoinIcon("back", size: 22)
                         .foregroundStyle(ink)
                         .frame(width: 40, height: 40)

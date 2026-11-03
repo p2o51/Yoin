@@ -81,6 +81,14 @@ final class AppModel {
         }
     }
 
+    /// Back from a pushed page. Pops through the path, not `dismiss()`, so
+    /// the bar starts its detail → shell morph with the pop instead of when
+    /// the pop finishes.
+    func back() {
+        guard !path.isEmpty else { return }
+        path.removeLast()
+    }
+
     func open(_ album: Album) {
         if isPad {
             withAnimation(Yoin.spatial) { padSelection = album }

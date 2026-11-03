@@ -8,8 +8,9 @@ import YoinShared
 /// was an approximation (documented in iosApp/docs/shared-kmp.md).
 @MainActor
 final class SharedKotlinTests: XCTestCase {
-    /// The Balanced preset as GlassLab.swift built it before it moved to
-    /// YoinTokens.Glass: the Current defaults with the Balanced overrides.
+    /// The Balanced preset: the Current defaults with the Balanced overrides
+    /// (as GlassLab.swift built it before it moved to YoinTokens.Glass) plus
+    /// 51's 2026-11-03 decisions.
     func test_should_keep_the_balanced_glass_preset_when_read_from_shared_tokens() {
         var expected: [String: SurfaceStyle] = [:]
         var expectedExtras: [String: Double] = [:]
@@ -19,7 +20,12 @@ final class SharedKotlinTests: XCTestCase {
         }
         expected["homeCards"] = SurfaceStyle(variant: .material, role: .auto, tintOpacity: 0.45,
                                              interactive: false, cornerRadius: 16)
-        expected["ratingTrack"] = SurfaceStyle(variant: .none, role: .surfaceVariant, tintOpacity: 0.7, interactive: false)
+        // 51, 2026-11-03: rating track and NP pills are glass; the selected bar
+        // button's color goes into the glass.
+        expected["ratingTrack"] = SurfaceStyle(role: .surfaceVariant, tintOpacity: 0.3, interactive: false)
+        expected["npPills"] = SurfaceStyle(role: .primary, tintOpacity: 0.55)
+        expected["barSelected"] = SurfaceStyle(tintOpacity: 0.85)
+        expectedExtras["barSelectedStyle"] = 1
         expectedExtras["lyricsUnder"] = 0
         expected["transportSecondary"] = SurfaceStyle(tintOn: false, tintOpacity: 0, shadowOpacity: 0)
         expected["transportPrimary"] = SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, contrastShadow: 0.22)

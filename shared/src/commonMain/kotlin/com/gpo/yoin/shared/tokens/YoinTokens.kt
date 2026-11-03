@@ -349,20 +349,22 @@ object YoinTokens {
         /** The Balanced preset (the default since 2026-11-03), one entry per surface. */
         val balanced: List<Surface> = listOf(
             Surface("barUnselected", tintOn = false, tintOpacity = 0.0),
-            Surface("barSelected", tintOn = false, tintOpacity = 0.85),
+            // 51, 2026-11-03: the selected button's color goes into the glass.
+            Surface("barSelected", tintOpacity = 0.85),
             Surface("miniPlayer", tintOn = false, tintOpacity = 0.0),
             Surface("transportPrimary", tintOpacity = 0.55, shadowOpacity = 0.18, contrastShadow = 0.22),
             Surface("transportSecondary", tintOn = false, tintOpacity = 0.0),
             Surface("heart", tintOn = false, tintOpacity = 0.0),
-            Surface("ratingTrack", variant = "none", role = "surfaceVariant", tintOpacity = 0.7, interactive = false),
-            Surface("npPills", variant = "none", role = "primary", tintOpacity = 1.0, interactive = false),
+            // 51, 2026-11-03: rating track and the Queue / Devices / Write pills are glass.
+            Surface("ratingTrack", role = "surfaceVariant", tintOpacity = 0.3, interactive = false),
+            Surface("npPills", role = "primary", tintOpacity = 0.55),
             Surface("npBackground", role = "background", tintOpacity = 0.5, interactive = false, cornerRadius = 44.0),
             Surface("homeCards", variant = "material", tintOpacity = 0.45, interactive = false, cornerRadius = 16.0),
         )
 
         /** The Balanced preset's non-glass parameters (Glass Lab "extras"). */
         val balancedExtras: List<Extra> = listOf(
-            Extra("barSelectedStyle", 0.0),
+            Extra("barSelectedStyle", 1.0),
             Extra("barSelectionPill", 0.55),
             Extra("washOpacity", 0.25),
             Extra("washAmplitude", 4.0),

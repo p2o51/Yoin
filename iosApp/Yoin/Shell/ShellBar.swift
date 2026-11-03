@@ -10,7 +10,7 @@ import SwiftUI
 /// - Selected button, default (Apple Music iOS 26): the icon and label take
 ///   the accent color, on a subtle lighter selection pill inside the glass.
 ///   Glass Lab option: the accent tinted into the glass instead.
-/// - Accent: Home = primary, Library = tertiary. Nothing playing → Yoin's own
+/// - Accent: Home = primary, Library = secondary. Nothing playing → Yoin's own
 ///   scheme (seed 0xFF7B3FE4); playing → the cover's scheme.
 /// - Nothing playing: the pill folds away and Home / Library split the bar
 ///   with labels (Android idle bar).
@@ -57,7 +57,7 @@ struct ShellBar: View {
     // MARK: Nav buttons
 
     private func accent(_ s: ShellSection) -> Color {
-        s == .home ? scheme.primary : scheme.tertiary
+        s == .home ? scheme.primary : scheme.secondary
     }
 
     @ViewBuilder
@@ -69,7 +69,7 @@ struct ShellBar: View {
         case .library: selected ? "library_filled" : "library"
         }
         let ink: Color = !selected ? Yoin.ink
-            : tintedStyle ? (s == .home ? scheme.onPrimary : scheme.onTertiary)
+            : tintedStyle ? (s == .home ? scheme.onPrimary : scheme.onSecondary)
             : accent(s)
         let button = Button {
             model.select(s)
@@ -213,7 +213,8 @@ struct ShellBar: View {
             .glassEffect(.regular.tint(tint).interactive(),
                          in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
                                                     bottomTrailingRadius: inner, topTrailingRadius: inner))
-            .glassEffectID("home", in: glassNS)
+            .glassEffectID("split.play", in: glassNS)
+            .glassEffectTransition(.materialize)
 
             Menu {
                 Button("Shuffle play") {}
@@ -235,10 +236,12 @@ struct ShellBar: View {
             .glassEffect(.regular.tint(tint).interactive(),
                          in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
                                                     bottomTrailingRadius: 30, topTrailingRadius: 30))
-            .glassEffectID("split", in: glassNS)
+            .glassEffectID("split.more", in: glassNS)
+            .glassEffectTransition(.materialize)
             .accessibilityLabel("More play options")
         } }
-        .frame(width: Tokens.bar.SPLIT_WIDTH.cg)
+        .frame(width: Tokens.bar.SPLIT_WIDTH.cg, height: height)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

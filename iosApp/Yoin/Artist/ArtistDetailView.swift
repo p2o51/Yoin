@@ -11,7 +11,6 @@ struct ArtistDetailView: View {
     var artist: String
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
     @State private var following = true
     @State private var kindFilter: ReleaseKind?
     @State private var showAll = false
@@ -87,7 +86,7 @@ struct ArtistDetailView: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            Button { dismiss() } label: {
+            Button { model.back() } label: {
                 YoinIcon("back", size: 22)
                     .foregroundStyle(app.onSurface)
                     .frame(width: 40, height: 40)
