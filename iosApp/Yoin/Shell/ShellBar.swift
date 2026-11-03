@@ -196,7 +196,8 @@ struct ShellBar: View {
     private func playSplit(_ album: Album) -> some View {
         let s = CoverScheme(album: album, dark: colorScheme == .dark)
         let tint = s.primary.opacity(0.85)
-        return GlassEffectContainer(spacing: 0) { HStack(spacing: 2) {
+        let inner = Tokens.bar.SPLIT_INNER_CORNER.cg
+        return GlassEffectContainer(spacing: 0) { HStack(spacing: Tokens.bar.SPLIT_GAP.cg) {
             Button {} label: {
                 HStack(spacing: 8) {
                     YoinIcon("play_filled", size: 20)
@@ -211,7 +212,7 @@ struct ShellBar: View {
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(tint).interactive(),
                          in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
-                                                    bottomTrailingRadius: 4, topTrailingRadius: 4))
+                                                    bottomTrailingRadius: inner, topTrailingRadius: inner))
             .glassEffectID("home", in: glassNS)
 
             Menu {
@@ -232,12 +233,12 @@ struct ShellBar: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(tint).interactive(),
-                         in: UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 4,
+                         in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
                                                     bottomTrailingRadius: 30, topTrailingRadius: 30))
             .glassEffectID("split", in: glassNS)
             .accessibilityLabel("More play options")
         } }
-        .frame(width: 156)
+        .frame(width: Tokens.bar.SPLIT_WIDTH.cg)
     }
 }
 

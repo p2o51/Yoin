@@ -1,14 +1,15 @@
 import SwiftUI
 import UIKit
+import YoinShared
 import os
 
 /// The color roles Android derives from a cover, with Android's algorithm.
 ///
-/// Android: CoverSeedExtractor (AndroidX Palette, vibrant → dominant → muted)
-/// picks a seed; ExpressiveColorSchemeFactory builds an MCU `SchemeExpressive`
-/// (SPEC_2025, contrast 0, phone) from it. Both are ported in `Theme/MCU/`
-/// (`CoverSeed` below, `SchemeExpressive`), so a seed yields the same ARGB
-/// roles here as on Android (golden-tested against the Kotlin in YoinTests).
+/// Android: CoverSeedExtractor (Palette, vibrant → dominant → muted) picks a
+/// seed; ExpressiveColorSchemeFactory builds an MCU `SchemeExpressive`
+/// (SPEC_2025, contrast 0, phone) from it. Both run here from the shared
+/// Kotlin (YoinShared: the Palette port and MCU in :shared), so a seed yields
+/// the same ARGB roles as on Android (golden-tested in YoinTests).
 struct CoverScheme: Sendable {
     var primary: Color
     var onPrimary: Color
@@ -105,51 +106,9 @@ struct CoverScheme: Sendable {
     /// Every role ExpressiveColorSchemeFactory maps into the Compose ColorScheme, as
     /// unsigned ARGB (0xAARRGGBB), keyed by the Compose role name.
     static func argbRoles(seedArgb: Int, dark: Bool) -> [String: Int] {
-        let s = SchemeExpressive.make(
-            sourceColorHct: Hct.fromInt(seedArgb),
-            isDark: dark,
-            contrastLevel: 0.0,
-            specVersion: .SPEC_2025,
-            platform: .PHONE
-        )
-        return [
-            "primary": s.primary,
-            "onPrimary": s.onPrimary,
-            "primaryContainer": s.primaryContainer,
-            "onPrimaryContainer": s.onPrimaryContainer,
-            "inversePrimary": s.inversePrimary,
-            "secondary": s.secondary,
-            "onSecondary": s.onSecondary,
-            "secondaryContainer": s.secondaryContainer,
-            "onSecondaryContainer": s.onSecondaryContainer,
-            "tertiary": s.tertiary,
-            "onTertiary": s.onTertiary,
-            "tertiaryContainer": s.tertiaryContainer,
-            "onTertiaryContainer": s.onTertiaryContainer,
-            "background": s.background,
-            "onBackground": s.onBackground,
-            "surface": s.surface,
-            "onSurface": s.onSurface,
-            "surfaceVariant": s.surfaceVariant,
-            "onSurfaceVariant": s.onSurfaceVariant,
-            "surfaceTint": s.surfaceTint,
-            "inverseSurface": s.inverseSurface,
-            "inverseOnSurface": s.inverseOnSurface,
-            "error": s.error,
-            "onError": s.onError,
-            "errorContainer": s.errorContainer,
-            "onErrorContainer": s.onErrorContainer,
-            "outline": s.outline,
-            "outlineVariant": s.outlineVariant,
-            "scrim": s.scrim,
-            "surfaceBright": s.surfaceBright,
-            "surfaceDim": s.surfaceDim,
-            "surfaceContainer": s.surfaceContainer,
-            "surfaceContainerHigh": s.surfaceContainerHigh,
-            "surfaceContainerHighest": s.surfaceContainerHighest,
-            "surfaceContainerLow": s.surfaceContainerLow,
-            "surfaceContainerLowest": s.surfaceContainerLowest,
-        ]
+        let roles = ExpressiveRoles.shared.argbRoles(seedArgb: Int32(truncatingIfNeeded: seedArgb), isDark: dark,
+                                                     contrastLevel: 0.0)
+        return roles.mapValues { Int(UInt32(bitPattern: $0.int32Value)) }
     }
 
     private struct CacheKey: Hashable, Sendable { let argb: Int; let dark: Bool }
@@ -181,8 +140,12 @@ struct CoverScheme: Sendable {
     static func argb(of color: Color) -> Int {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
-        func byte(_ v: CGFloat) -> Int { jvmRoundToInt(Double(min(max(v, 0), 1)) * 255) }
-        return ColorUtils.argbFromRgb(byte(r), byte(g), byte(b))
+        // MCU ColorUtils.argbFromRgb of Kotlin's roundToInt (Java Math.round: halves round up).
+        func byte(_ v: CGFloat) -> Int {
+            let x = Double(min(max(v, 0), 1)) * 255, f = x.rounded(.down)
+            return Int(x - f >= 0.5 ? f + 1 : f)
+        }
+        return 0xFF00_0000 | (byte(r) << 16) | (byte(g) << 8) | byte(b)
     }
 }
 
@@ -217,11 +180,19 @@ enum CoverSeed {
     }
 
     /// The seed swatch of an ARGB pixel buffer (Android `Bitmap.getPixels` layout).
+    /// Android decodes at 200 px and lets Palette.Builder resize to its 112 × 112 area;
+    /// `scaleDownPixels` is that resize (pixel-exact against Android at 200 px).
     static func pick(pixels: [UInt32], width: Int, height: Int) -> Pick? {
-        let palette = Palette.generate(pixels: pixels, width: width, height: height, maximumColorCount: maxColors)
-        if let s = palette.vibrantSwatch { return Pick(argb: s.rgb, source: .vibrant) }
-        if let s = palette.dominantSwatch { return Pick(argb: s.rgb, source: .dominant) }
-        if let s = palette.mutedSwatch { return Pick(argb: s.rgb, source: .muted) }
+        let input = KotlinIntArray(size: Int32(pixels.count))
+        for (i, p) in pixels.enumerated() { input.set(index: Int32(i), value: Int32(bitPattern: p)) }
+        let palettes = Palette.companion
+        let scaled = palettes.scaleDownPixels(pixels: input, width: Int32(width), height: Int32(height))
+        let palette = palettes.generate(pixels: scaled, maximumColorCount: Int32(maxColors),
+                                        filters: [palettes.DEFAULT_FILTER])
+        func argb(_ s: Palette.Swatch) -> Int { Int(UInt32(bitPattern: s.rgb)) }
+        if let s = palette.vibrantSwatch { return Pick(argb: argb(s), source: .vibrant) }
+        if let s = palette.dominantSwatch { return Pick(argb: argb(s), source: .dominant) }
+        if let s = palette.mutedSwatch { return Pick(argb: argb(s), source: .muted) }
         return nil
     }
 

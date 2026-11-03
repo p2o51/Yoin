@@ -259,7 +259,7 @@ private struct HeroCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(14)
-            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
     }
@@ -297,7 +297,7 @@ private struct SmallCard: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
     }
@@ -326,7 +326,7 @@ private struct WideCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
     }
@@ -563,7 +563,7 @@ private struct RediscoverCard: View {
             }
             .padding(14)
             .frame(height: 132)
-            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
     }

@@ -9,7 +9,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Fonts | theme/Type.kt | Google Sans Flex (GSF) static cuts 400/500/600/700; letterSpacing 0, except labelMedium/labelSmall +0.1sp | Same static files, plus the variable file through `YoinFont` (CoreText `kCTFontVariationAttribute`) |
 | Rounded cut | theme/Type.kt:27-44 | Variable GSF, ROND 100, at Medium or SemiBold | `YoinFont.rounded(size, semibold:)` |
 | Score numerals | memories/emblem/GrooveType.kt | wght 690/640, ROND 50, wdth 76 ("10.0") or 92, opsz = size | `YoinFont.score` (cookie badge on Album/Library) |
-| Color scheme | theme/CoverSeedExtractor.kt, theme/ExpressiveColorSchemeFactory.kt | AndroidX Palette (200 px, 112×112 resize, 16 colors, default filter; vibrant → dominant → muted), then MCU SchemeExpressive (SPEC_2025, contrast 0) | Faithful Swift port in `Theme/MCU/` (Palette, ColorCutQuantizer, Target; Hct, Cam16, HctSolver, TonalPalette, DynamicColor, ColorSpec2025, SchemeExpressive). `CoverScheme(album:dark:)`. **Verified:** Palette is byte-identical to Android (Robolectric, same pixels, 12 covers); MCU golden test passes 1152/1152 roles (`YoinTests/McuGoldenTests` against the fixture written by `app/src/test/.../McuGoldenFixtureTest.kt`) |
+| Color scheme | theme/CoverSeedExtractor.kt, theme/ExpressiveColorSchemeFactory.kt | AndroidX Palette (200 px, 112×112 resize, 16 colors, default filter; vibrant → dominant → muted), then MCU SchemeExpressive (SPEC_2025, contrast 0) | The same Kotlin, from YoinShared (`:shared`: the Palette port and MCU; shared-kmp.md). `CoverScheme(album:dark:)`. **Verified:** the shared Palette is byte-identical to androidx.palette (`PaletteParityTest`, Robolectric: 12 mock covers + 15 generated images); MCU golden test passes 1152/1152 roles (`YoinTests/McuGoldenTests` against the fixture written by `app/src/test/.../McuGoldenFixtureTest.kt`) |
 | Card backdrop colors | component/ExpressiveBackdropPalette.kt:226-333 | base = S×0.82 ∈ [0.18, 0.78], L×0.72+0.12 ∈ [0.24, 0.62]; accent = S×1.08 ∈ [0.24, 0.92], L+0.14 ∈ [0.36, 0.82] | `BackdropColors`, same formulas (accent from the mock's second cover color) |
 
 ## Now Playing (phone portrait, `CompactPlayingContent`)
@@ -39,9 +39,9 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | 7 | Hero (stacked) | NowPlayingBudget.kt:522; NowPlayingScreen.kt:4772 | Slot 86. Artist titleMedium×0.9 (14.4), onSurfaceVariant; 2 gap; title displaySmall 36/44 w400, onSurface; scaleX 1.02/1.03 | Same |
 | 7' | Hero (inline) | NowPlayingScreen.kt:4700-4770 | Title, 12 gap, artist on the shared baseline | Same, in short mode |
 | 8 | Pills | BottomPills.kt:100-317 | Slot 68; pill 44 tall, padding h13.2, icon 15.8, 4 gap, labelMedium; primary/onPrimary; 2 apart; Devices is rounded 20, the others capsules; "Queue" / "Devices" / "Write" | Same |
-| — | Budget | NowPlayingBudget.kt:125-285 | Lower gaps squeeze first, then upper; then inline hero; then one-line lyric | `NowPlayingBudget` struct, same order |
+| — | Budget | NowPlayingBudget.kt (resolveStageColumnBudget, now in :shared) | Lower gaps squeeze first, then upper; then inline hero; then one-line lyric | The same Kotlin (YoinShared); `NowPlayingBudget` is a wrapper with Android's font-scale-1 content minimums |
 
-**Which mode shows when.** The iPhone 17 Pro column is 778 pt tall, so the budget resolves to the full layout: tabs, the lyric list and the stacked hero. The Android reference shots come from a phone about 700 dp tall, which resolves to the one-line lyric with the inline hero. `-screen np-short` forces that mode for a like-for-like comparison. The height iOS has left over in that mode goes between transport and hero.
+**Which mode shows when.** The iPhone 17 Pro column is 778 pt tall, so the budget resolves to the full layout: tabs, the lyric list and the stacked hero. Two clean lyric lines need a 125.6 pt window, so the lower gaps give 41.6 pt (80 % of their 52 pt slack): transport 128.8, hero 76.4, pills 55.2. The Android reference shots come from a phone about 700 dp tall, which resolves to the one-line lyric with the inline hero. `-screen np-short` resolves the budget at a 700 pt column for a like-for-like comparison; the height iOS has left over goes between transport and hero.
 
 ## Home (phone, feed density N = 2)
 
@@ -98,7 +98,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Count line | AlbumDetailScreen.kt:1245-1258 | "12 tracks  44 min" (number W500 tnum, unit 60 %), then last play labelMedium W500 | Same |
 | Flowing titles | AlbumDetailComponents.kt:425-506 | headlineMedium, single-space joined, even onSurface / odd onSurfaceVariant, ≤ 16-unit titles glued | Same |
 | Pull-up | DetailPullUpReshape.kt | travel 0.55 × height, release velocity ±1.6 travel/s else nearest; hero fades and lifts 40 px | Same |
-| Spectrum bar | AlbumSpectrum.kt | 28 strips, OKLab k-means (k 5, 10 rounds), tone lock L' = 0.30 + 0.16 L, white ≥ 7:1, per-strip lag 0.22 | Ported, including the per-strip flight from the cover slice to the bar slot |
+| Spectrum bar | AlbumSpectrum.kt | 28 strips, OKLab k-means (k 5, 10 rounds), tone lock L' = 0.30 + 0.16 L, white ≥ 7:1, per-strip lag 0.22 | The same Kotlin (YoinShared `computeAlbumSpectrum`), including the per-strip flight from the cover slice to the strip's slot (lag by slot, as on Android) |
 | Stamp | AlbumSpectrumBar.kt:125-127 | 48, end 16 from the edge, centred on the title row, corner 8 → 4 | Same |
 | Track row | AlbumDetailComponents.kt:514-718 | 56 tall, padding 8 × 10, 12 gaps; number labelMedium min 18; title titleMedium; duration labelLarge m:ss; heart 28 circle in 36 (off: 1.5 outline ring, on: accent fill) | Same (heart on = mock rating ≥ 9) |
 | Bottom bar | DetailBottomBar.kt; PlaySplitButton.kt | [Play split 156][8][pill]; cover primary / onPrimary; M3 SplitButton 2 dp gap, 4 dp inner corners; ▾ menu order Shuffle play, Play next, Add to queue, Add to playlist, Open in…, Go to artist, Share | Same, glass tinted with the cover primary, in its own 0-spacing glass container so the halves stay separate |
@@ -114,7 +114,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Contact sheet | AlbumScrapbookPage.kt:1173-1222 | Score-only runs in pairs (second down 12) or a single 0.52-lane ticket | Same |
 | Best track | AlbumScrapbook.kt:266 | Primary / onPrimary ticket, 22 sp score; the "Best on the record" text was removed (2026-10-05) | Same |
 | Receipt | AlbumScrapbookPage.kt:1827-1876, 2057 | surfaceContainer, 20 top corners, zig-zag bottom (≈ 14 teeth, 8 deep); monospace 12.5; dotted leaders | Same |
-| Tilt | AlbumScrapbook.kt:223, 471 | FNV-1a over "albumId/key"; sets Paper ±0.5/1/1.5, Ticket ±1.25/2, Sticker ±5/8/12, Cover ±3; opposite rules for notes and sticky | Same (drag parallax not ported) |
+| Tilt | AlbumScrapbook.kt:223, 471 | FNV-1a over "albumId/key"; sets Paper ±0.5/1/1.5, Ticket ±1.25/2, Sticker ±5/8/12, Cover ±3; opposite rules for notes and sticky | The same Kotlin (YoinShared `ScrapbookTilt`) (drag parallax not ported) |
 
 ## Playlist detail (Compact)
 
@@ -139,7 +139,7 @@ Same as Album page 1 except:
 | Sort row | LibrarySortRow.kt:46-107 | First grid row; label labelLarge + Sort 18; Recents / Recently added / Alphabetical / Creator | Same (a Menu) |
 | Grid | LibraryScreen.kt:1630-1727 | Fixed 3 columns, 16 sides, 12 / 16 gaps; artists circle, name + "N albums"; albums and playlists square, title titleSmall + subtitle bodySmall | Same; covers follow the iOS bare-cover rule |
 | Songs | SongListItem.kt:84-204 | Rows 16 × 10, 48 thumb (4 corners), titleSmall, "artist · album" bodySmall, duration labelLarge | Same |
-| Fast scroller | YoinFastScroller.kt; LibraryFastScroller.kt | All / Artists / Albums, only past 3 screens; awake while scrolling or held, hides 1.6 s later sliding 32 toward the edge; thumb 24 × 48 half-pill in a 32 × 64 box (secondaryContainer → primary held, chevrons); while held a tick column (surfaceContainerHigh, 28 corners, labelMedium, current SemiBold primary, ≥ 18 apart) and a bubble (primaryContainer, ≥ 56, titleLarge); sections per sort | Same; drag maps proportionally to the scroll offset (Android's row "knee" mapping and haptic ticks are not ported) |
+| Fast scroller | YoinFastScroller.kt; LibraryFastScroller.kt | All / Artists / Albums, only past 3 screens; awake while scrolling or held, hides 1.6 s later sliding 32 toward the edge; thumb 24 × 48 half-pill in a 32 × 64 box (secondaryContainer → primary held, chevrons); while held a tick column (surfaceContainerHigh, 28 corners, labelMedium, current SemiBold primary, ≥ 18 apart) and a bubble (primaryContainer, ≥ 56, titleLarge); sections per sort | Same; the mappings are the same Kotlin (YoinShared `FastScrollMath`: row knee mapping, ticks, labels, bubble). Haptic ticks are not ported |
 
 ## Artist detail (Compact)
 
@@ -165,7 +165,7 @@ Same as Album page 1 except:
 
 ## Gaps not closed
 
-- **Color scheme:** closed. Palette and MCU are ported and verified (see Shared).
+- **Color scheme:** closed. Palette and MCU are the shared Kotlin and verified (see Shared).
 - **Shapes:** MaterialShapes.Bun and Ghostish are hand-drawn approximations. Bun keeps the published waist and lobe points but not RoundedPolygon's corner smoothing.
 - **Behavior not ported:**
   - Lyrics don't scroll or sync (static mock).

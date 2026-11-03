@@ -1,11 +1,12 @@
 import SwiftUI
+import YoinShared
 
 /// Album page 2, the scrapbook (Android detail/AlbumScrapbookPage.kt,
 /// AlbumScrapbook.kt), phone width = one lane, every piece a full-width row
 /// 28 pt apart on dot paper. Order: opening cluster (cover + emblem, title,
 /// Last Play, review, album note) → per track in order: a cluster for tracks
 /// with notes or the best score, contact sheets of two for score-only runs →
-/// receipt. Tilts come from an FNV-1a hash of "albumId/key" (graphics only;
+/// receipt. Tilts come from an FNV-1a hash of "albumId/key" (shared Kotlin; graphics only;
 /// layout stays square). Mock content stands in for the user's records.
 struct AlbumScrapbookView: View {
     var album: Album
@@ -144,7 +145,7 @@ struct AlbumScrapbookView: View {
         album.tracks.filter { ($0.rating ?? 0) >= 9 }.max { ($0.rating ?? 0) < ($1.rating ?? 0) }
     }
 
-    private var mirrorSeed: Int { Int(fnv("\(album.id.rawId)") & 1) }
+    private var mirrorSeed: Int { ScrapbookTilt.shared.startsMirrored(seed: album.id.rawId) ? 1 : 0 }
 
     @ViewBuilder
     private func block(_ b: Block, mirrored: Bool) -> some View {
@@ -298,21 +299,16 @@ struct AlbumScrapbookView: View {
 
     // MARK: Tilt
 
+    /// The tilt sets and the FNV-1a hash are the shared Kotlin (ScrapbookTilt, YoinShared).
     private enum Tilt {
-        static let paper: [Double] = [-1.5, -1, -0.5, 0.5, 1, 1.5]
-        static let ticket: [Double] = [-2, -1.25, 1.25, 2]
-        static let sticker: [Double] = [-12, -8, -5, 5, 8, 12]
-        static let cover: [Double] = [-3, 3]
+        static var paper: KotlinFloatArray { ScrapbookTilt.shared.PAPER }
+        static var ticket: KotlinFloatArray { ScrapbookTilt.shared.TICKET }
+        static var sticker: KotlinFloatArray { ScrapbookTilt.shared.STICKER }
+        static var cover: KotlinFloatArray { ScrapbookTilt.shared.COVER }
     }
 
-    private func fnv(_ s: String) -> UInt32 {
-        var h: UInt32 = 0x811C_9DC5
-        for u in s.utf16 { h ^= UInt32(u); h = h &* 0x0100_0193 }
-        return h
-    }
-
-    private func tilt(_ key: String, _ set: [Double]) -> Double {
-        set[Int(fnv("\(album.id.rawId)/\(key)") % UInt32(set.count))]
+    private func tilt(_ key: String, _ set: KotlinFloatArray) -> Double {
+        Double(ScrapbookTilt.shared.tilt(seed: album.id.rawId, key: key, set: set))
     }
 
     private func sign(_ x: Double) -> Double { x < 0 ? -1 : 1 }

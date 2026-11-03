@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import YoinShared
 
 // MARK: - Model
 
@@ -60,6 +61,17 @@ struct SurfaceStyle: Codable, Equatable, Sendable {
     var shadowY: Double = 6
     /// Shadow under the icon/label on this surface, for contrast.
     var contrastShadow: Double = 0
+}
+
+extension SurfaceStyle {
+    /// A surface of the shared Balanced preset (YoinTokens.Glass).
+    init(_ t: YoinTokens.GlassSurface) {
+        self.init(variant: GlassVariant(rawValue: t.variant) ?? .regular, tintOn: t.tintOn,
+                  role: ToneRole(rawValue: t.role) ?? .auto, tintOpacity: t.tintOpacity,
+                  interactive: t.interactive, cornerRadius: t.cornerRadius?.doubleValue,
+                  shadowOpacity: t.shadowOpacity, shadowRadius: t.shadowRadius, shadowY: t.shadowY,
+                  contrastShadow: t.contrastShadow)
+    }
 }
 
 /// Glass Lab (debug): live, persisted glass parameters per surface. The
@@ -187,7 +199,11 @@ final class GlassLab {
         switch p {
         case .current:
             break
-        case .balanced, .appleHIG:
+        case .balanced:
+            // The shipped look: data in the shared YoinTokens.Glass (Kotlin).
+            for t in Tokens.glass.balanced { s[t.id] = SurfaceStyle(t) }
+            for x in Tokens.glass.balancedExtras { e[x.id] = x.value }
+        case .appleHIG:
             // Home cards: blurred cover + a standard material, not glass.
             s["homeCards"] = SurfaceStyle(variant: .material, role: .auto, tintOpacity: 0.45,
                                           interactive: false, cornerRadius: 16)
@@ -195,18 +211,11 @@ final class GlassLab {
             s["ratingTrack"] = SurfaceStyle(variant: .none, role: .surfaceVariant, tintOpacity: 0.7, interactive: false)
             // Lyrics fade out above the transport row.
             e["lyricsUnder"] = 0
-            if p == .balanced {
-                // One glass layer; only PAUSE tinted; untinted heart, colored glyph when liked.
-                s["transportSecondary"] = SurfaceStyle(tintOn: false, tintOpacity: 0, shadowOpacity: 0)
-                s["transportPrimary"] = SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, contrastShadow: 0.22)
-                s["heart"] = SurfaceStyle(tintOn: false, tintOpacity: 0)
-            } else {
-                // No glass in Now Playing: plain glyphs, PAUSE a solid primary pill (Android).
-                s["transportSecondary"] = SurfaceStyle(variant: .none, tintOn: false, tintOpacity: 0, interactive: false)
-                s["transportPrimary"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
-                s["heart"] = SurfaceStyle(variant: .none, tintOn: false, tintOpacity: 0, interactive: false)
-                s["npPills"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
-            }
+            // No glass in Now Playing: plain glyphs, PAUSE a solid primary pill (Android).
+            s["transportSecondary"] = SurfaceStyle(variant: .none, tintOn: false, tintOpacity: 0, interactive: false)
+            s["transportPrimary"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
+            s["heart"] = SurfaceStyle(variant: .none, tintOn: false, tintOpacity: 0, interactive: false)
+            s["npPills"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
         }
         styles = s
         extras = e

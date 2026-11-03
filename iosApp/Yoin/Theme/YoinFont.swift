@@ -1,6 +1,7 @@
 import CoreText
 import SwiftUI
 import UIKit
+import YoinShared
 
 /// Google Sans Flex through its variable axes, like Android's
 /// `GoogleSansFlexRounded` (Type.kt) and `GrooveType` (Memories emblem).
@@ -34,7 +35,8 @@ enum YoinFont {
             tag("wght"): NSNumber(value: Double(axes.weight)),
             tag("wdth"): NSNumber(value: Double(axes.width)),
             tag("ROND"): NSNumber(value: Double(axes.round)),
-            tag("opsz"): NSNumber(value: Double(min(144, max(6, axes.opticalSize ?? size)))),
+            tag("opsz"): NSNumber(value: Double(min(Tokens.type.OPTICAL_SIZE_MAX.cg,
+                                                    max(Tokens.type.OPTICAL_SIZE_MIN.cg, axes.opticalSize ?? size)))),
         ]
         let desc = CTFontDescriptorCreateCopyWithAttributes(
             base, [kCTFontVariationAttribute: variation] as CFDictionary)
@@ -46,16 +48,21 @@ enum YoinFont {
         Font(UIFontMetrics(forTextStyle: style).scaledFont(for: uiFont(size: size, axes)))
     }
 
-    /// Android `GoogleSansFlexRounded`: ROND 100 at Medium (500) or SemiBold (600).
+    /// Android `GoogleSansFlexRounded`: ROND 100 at Medium (500) or SemiBold (600) (YoinTokens.Typography).
     static func rounded(_ size: CGFloat, semibold: Bool = false, relativeTo style: UIFont.TextStyle = .body) -> Font {
-        font(size: size, Axes(weight: semibold ? 600 : 500, round: 100), relativeTo: style)
+        let t = semibold ? Tokens.type.roundedSemiBold : Tokens.type.roundedMedium
+        return font(size: size, Axes(weight: CGFloat(t.weight), width: t.width.cg, round: t.round.cg), relativeTo: style)
     }
 
     /// Android `GrooveType.score`: wght 690 (album rating) / 640 (average),
     /// ROND 50, wdth 76 for four characters ("10.0") else 92, opsz = size.
     static func score(_ text: String, size: CGFloat, albumRating: Bool = true) -> Font {
-        font(size: size, Axes(weight: albumRating ? 690 : 640, width: text.count >= 4 ? 76 : 92, round: 50),
-             relativeTo: .title1)
+        let t = Tokens.type
+        return font(size: size,
+                    Axes(weight: CGFloat(albumRating ? t.SCORE_WEIGHT_ALBUM : t.SCORE_WEIGHT_AVERAGE),
+                         width: (text.count >= 4 ? t.SCORE_WIDTH_FOUR_CHARACTERS : t.SCORE_WIDTH).cg,
+                         round: t.SCORE_ROUND.cg),
+                    relativeTo: .title1)
     }
 }
 

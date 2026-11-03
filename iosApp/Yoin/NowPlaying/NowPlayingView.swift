@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /// Now Playing, ported from Android's phone layout (`CompactPlayingContent` in
 /// NowPlayingScreen.kt, heights from NowPlayingBudget.kt, transport from
@@ -116,11 +117,12 @@ struct NowPlayingView: View {
             Spacer().frame(height: budget.coverGap)
             if !budget.oneLineLyric {
                 tabs
-                Spacer().frame(height: 4)
+                    .frame(height: budget.tabs, alignment: .top)
+                Spacer().frame(height: budget.tabGap)
             }
             // The lyrics run on under the glass transport; the current line
             // always sits in the clear band above it.
-            let clear = budget.oneLineLyric ? 44 : budget.lyricWindow
+            let clear = budget.lyricWindow
             ZStack(alignment: .top) {
                 lyrics(p, clear: clear, under: budget.transport,
                        anchor: budget.oneLineLyric ? 4 : clear * 0.22, fadeTop: !budget.oneLineLyric)
@@ -136,7 +138,7 @@ struct NowPlayingView: View {
             pills
                 .frame(height: budget.pills, alignment: .bottomLeading)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
@@ -174,20 +176,20 @@ struct NowPlayingView: View {
     // 2. Cover + rating column.
     private func coverRow(_ cover: CGFloat) -> some View {
         let p = model.playback
-        return HStack(alignment: .top, spacing: 12) {
+        return HStack(alignment: .top, spacing: Tokens.np.RATING_GAP.cg) {
             CoverArt(palette: p.album.palette, cornerRadius: 0, seed: p.album.seed)
                 .frame(width: cover, height: cover)
                 // ContinuousRoundedCornerShape(16dp), smoothing 0.6 ≈ Apple's continuous corners.
-                .clipShape(.rect(cornerRadius: 16, style: .continuous))
+                .clipShape(.rect(cornerRadius: Tokens.shape.NOW_PLAYING_COVER.cg, style: .continuous))
                 .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace)
             VStack(spacing: 0) {
                 RatingBar(value: $rating, scheme: scheme)
-                    .frame(width: 48, height: max(0, cover - 58))
-                Spacer().frame(height: 8)
+                    .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
+                Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
                 heart
-                Spacer().frame(height: 6)
+                Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
-            .frame(width: 56)
+            .frame(width: Tokens.np.PHONE_RATING_COLUMN.cg)
         }
     }
 
@@ -198,7 +200,7 @@ struct NowPlayingView: View {
                 .foregroundStyle(GlassLab.shared.style("heart").tintOn
                                  ? (favorite ? scheme.onTertiary : scheme.onTertiaryContainer)
                                  : (favorite ? scheme.tertiary : scheme.onSurfaceVariant))
-                .frame(width: 44, height: 44)
+                .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
@@ -221,7 +223,7 @@ struct NowPlayingView: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(height: 30, alignment: .top)
+        .frame(height: Tokens.np.TAB_ROW_NOMINAL.cg, alignment: .top)
     }
 
     // 5. Lyrics. Android: a list with the active line at 22 % of the window
@@ -416,53 +418,69 @@ struct NowPlayingView: View {
     }
 }
 
-/// Android NowPlayingBudget (phone): nominal → minimum slot heights, lower
-/// gaps squeezed first, then upper; inline hero, then the one-line lyric when
-/// two clean lyric lines still don't fit.
+/// Android NowPlayingBudget (phone), run from the shared Kotlin
+/// (`resolveStageColumnBudget`, YoinShared): nominal → minimum slot heights,
+/// lower gaps squeezed first, then upper; then the inline hero, then the
+/// one-line lyric. The content minimums are Android's at font scale 1, from
+/// YoinTokens.
 struct NowPlayingBudget {
-    var topBar: CGFloat = 56
+    var topBar: CGFloat
     var cover: CGFloat
-    var coverGap: CGFloat = 16
-    var transport: CGFloat = 148
-    var hero: CGFloat = 86
-    var pills: CGFloat = 68
-    var lyricWindow: CGFloat = 0
-    var inlineHero = false
-    var oneLineLyric = false
+    var coverGap: CGFloat
+    var tabs: CGFloat
+    var tabGap: CGFloat
+    var transport: CGFloat
+    var hero: CGFloat
+    var pills: CGFloat
+    /// The lyric window (list) or the one-line lyric's slot.
+    var lyricWindow: CGFloat
+    var inlineHero: Bool
+    var oneLineLyric: Bool
     /// Forced short layout on a taller screen: the height Android wouldn't have.
     var slack: CGFloat = 0
+
+    /// `-screen np-short`: the column of the ~700 dp Android phone the
+    /// reference shots come from.
+    static let referenceShortHeight: CGFloat = 700
+
+    /// Android NowPlayingMetrics at font scale 1 (M3 line heights + YoinTokens).
+    nonisolated(unsafe) static let metrics: StageColumnMetrics = {
+        let t = Tokens.type, n = Tokens.np
+        func f(_ v: Double) -> Float { Float(v) }
+        return StageColumnMetrics(
+            tabText: f(t.labelLarge.lineHeight),
+            transport: f(n.CONTROL_SIZE * 2 + n.CONTROL_ROW_GAP),
+            hero: f(t.titleMedium.lineHeight + n.HERO_LINE_GAP + t.displaySmall.lineHeight),
+            heroOneLine: f(t.displaySmall.lineHeight),
+            pills: f(n.PILL_HEIGHT),
+            oneLineContent: f(t.bodyLarge.lineHeight + n.LYRIC_LINE_PADS),
+            lyric: LyricWindowMetrics(activeLine: f(t.bodyLarge.lineHeight + n.LYRIC_LINE_PADS),
+                                      inactiveLine: f(t.bodyMedium.lineHeight + n.LYRIC_LINE_PADS))
+        )
+    }()
 
     /// `height` = the column's height: from below the status bar to
     /// max(home indicator, 16) above the bottom.
     init(width: CGFloat, height: CGFloat, forceShort: Bool) {
-        cover = min(width - 48 - 12 - 56, 312)
-        let tabs: CGFloat = 30 + 4
-        let twoLines: CGFloat = 12 * 2 + 2 * 32 + 2
-        if forceShort {
-            // What a ~700 dp tall Android phone resolves to (the reference shots):
-            // every gap at its minimum, inline hero, one-line lyric.
-            topBar = 48; coverGap = 8; transport = 124; hero = 56; pills = 52
-            inlineHero = true; oneLineLyric = true
-            cover = min(cover, height - (topBar + coverGap + 44 + transport + hero + pills))
-            slack = max(0, height - (topBar + cover + coverGap + 44 + transport + hero + pills))
-            return
-        }
-        var left: CGFloat { height - (topBar + cover + coverGap + tabs + transport + hero + pills) }
-        if left < twoLines {
-            // 1) lower gaps on one shared fraction, 2) then the upper ones.
-            let f = min(1, (twoLines - left) / ((148 - 124) + (86 - 74) + (68 - 52)))
-            transport -= 24 * f; hero -= 12 * f; pills -= 16 * f
-        }
-        if left < twoLines {
-            let g = min(1, (twoLines - left) / 16)
-            topBar -= 8 * g; coverGap -= 8 * g
-        }
-        if left < twoLines { inlineHero = true; hero = 56 }
-        if left < twoLines {
-            oneLineLyric = true
-            cover = max(0, cover - (44 - tabs - left))
-        }
-        lyricWindow = oneLineLyric ? 0 : left
+        let resolved = forceShort ? min(height, Self.referenceShortHeight) : height
+        let budget = NowPlayingBudgetKt.resolveStageColumnBudget(
+            width: Float(width), height: Float(resolved), metrics: Self.metrics, enlarged: nil, previous: nil)
+        let r = budget.rest
+        topBar = CGFloat(r.topBar)
+        cover = CGFloat(r.cover)
+        coverGap = CGFloat(r.coverGap)
+        tabs = CGFloat(r.tabs)
+        tabGap = CGFloat(r.tabGap)
+        transport = CGFloat(r.controls)
+        hero = CGFloat(r.hero)
+        pills = CGFloat(r.accessory)
+        inlineHero = budget.heroOneLine
+        oneLineLyric = r.lyricFrame == LyricFrame.oneline
+        // The one-line lyric is one tappable row; what the slot has beyond
+        // that is air, given to the slack (between transport and hero).
+        let slot = CGFloat(r.lyricSlot)
+        lyricWindow = oneLineLyric ? min(slot, Tokens.np.ONE_LINE_ROW_NOMINAL.cg) : slot
+        slack = max(0, height - CGFloat(r.total)) + (slot - lyricWindow)
     }
 }
 

@@ -1,7 +1,8 @@
 import XCTest
 @testable import Yoin
 
-/// The Swift MCU port (Theme/MCU) against the Kotlin it was ported from.
+/// MCU as the iOS app runs it (the shared Kotlin in YoinShared, through
+/// `CoverScheme.argbRoles`) against the Android JVM output.
 ///
 /// `Fixtures/mcu-golden.json` is written by the Android unit test
 /// `McuGoldenFixtureTest` (ExpressiveColorSchemeFactory: SchemeExpressive,

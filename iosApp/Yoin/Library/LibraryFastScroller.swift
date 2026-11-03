@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /// Port of Android component/YoinFastScroller.kt as Library uses it
 /// (LibraryFastScroller.kt), Compact:
@@ -12,6 +13,10 @@ import SwiftUI
 ///   labelMedium, current tick SemiBold primary, ≥ 18 pt apart) 4 pt
 ///   inside the thumb, and the bubble (primaryContainer, ≥ 56, titleLarge)
 ///   8 pt inside the column, centred on the thumb.
+/// - The mappings are the shared Kotlin (FastScrollMath, YoinShared): ticks
+///   one per run and per row at line(start) / lastLine, labels placed
+///   top-down ≥ 18 apart, the bubble naming the last item of the row under
+///   the thumb; the list ↔ thumb mapping is in LibraryView.
 struct LibraryFastScroller: View {
     struct Section { var label: String; var start: Int }
 
@@ -32,10 +37,7 @@ struct LibraryFastScroller: View {
             let extent = max(1, g.size.height - 64)
             let thumbY = fraction * extent
             let visible = worthShowing && (awake || held)
-            let lastRow = max(1, CGFloat((itemCount - 1) / max(columns, 1)))
-            let ticks = thinned(sections.map { s in
-                (s.label, CGFloat(s.start / max(columns, 1)) / lastRow * extent + 32)
-            })
+            let ticks = placedTicks(extent: extent)
             let current = currentSection
             ZStack(alignment: .topTrailing) {
                 if held && !sections.isEmpty {
@@ -98,23 +100,37 @@ struct LibraryFastScroller: View {
         return CGFloat(longest) * 7.5 + 16
     }
 
-    private var currentSection: Section? {
-        let index = Int(fraction * CGFloat(max(itemCount - 1, 0)))
-        return sections.last { $0.start <= index }
+    private var starts: KotlinIntArray {
+        let a = KotlinIntArray(size: Int32(sections.count))
+        for (i, s) in sections.enumerated() { a.set(index: Int32(i), value: Int32(s.start)) }
+        return a
     }
 
-    /// Top-down: first and last ticks stay; a crowded one moves down to
-    /// previous + 18, and is dropped if that would crowd the next or the last.
-    private func thinned(_ raw: [(String, CGFloat)]) -> [(String, CGFloat)] {
-        guard raw.count > 2 else { return raw }
-        var out = [raw[0]]
-        let last = raw[raw.count - 1]
-        for i in 1..<(raw.count - 1) {
-            let y = max(raw[i].1, out.last!.1 + 18)
-            if y < raw[i + 1].1 && y <= last.1 - 18 { out.append((raw[i].0, y)) }
+    /// The section the bubble names: the one holding the last item of the thumb's row.
+    private var currentSection: Section? {
+        guard !sections.isEmpty else { return nil }
+        let math = FastScrollMath.shared
+        let index = math.labelIndex(fraction: Float(fraction), itemCount: Int32(itemCount), itemsPerLine: Int32(columns))
+        let at = Int(math.sectionAt(starts: starts, index: index))
+        return at >= 0 ? sections[at] : nil
+    }
+
+    /// One tick per run and per row, centred where the bubble first names it
+    /// (32 down = the thumb's centre at the track top), labels ≥ 18 apart.
+    private func placedTicks(extent: CGFloat) -> [(String, CGFloat)] {
+        let math = FastScrollMath.shared
+        let picked = math.tickSections(starts: starts, tickLabels: sections.map(\.label), itemsPerLine: Int32(columns))
+        let tickStarts = KotlinIntArray(size: picked.size)
+        for i in 0..<Int(picked.size) {
+            tickStarts.set(index: Int32(i), value: Int32(sections[Int(picked.get(index: Int32(i)))].start))
         }
-        out.append(last)
-        return out
+        let centers = math.tickCenters(tickStarts: tickStarts, itemCount: Int32(itemCount), itemsPerLine: Int32(columns),
+                                       extent: Float(extent), offset: 32)
+        let places = math.placeTicks(centers: centers, minGap: 18)
+        return (0..<Int(picked.size)).compactMap { i in
+            let y = places.get(index: Int32(i))
+            return y.isNaN ? nil : (sections[Int(picked.get(index: Int32(i)))].label, CGFloat(y))
+        }
     }
 
     private func thumb(held: Bool) -> some View {

@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /// Library root, ported from Android ui/library/LibraryScreen.kt (Compact):
 /// search pill + avatar header (no title on Compact), filter chips with the
@@ -23,9 +24,38 @@ struct LibraryView: View {
     @State private var held = LaunchConfig.screen == "library-scroller"
     @State private var hideTask: Task<Void, Never>?
 
+    /// The grid in rows for the shared fast-scroller mapping (FastScrollMath,
+    /// YoinShared): Android's knee mapping, where the thumb tracks the top row
+    /// and the last stretch of the track covers the final screen.
     struct ScrollMetrics: Equatable {
         var offset: CGFloat = 0, content: CGFloat = 1, viewport: CGFloat = 1
-        var fraction: CGFloat { max(0, min(1, offset / max(1, content - viewport))) }
+
+        func rows(_ items: Int, columns: Int) -> Int32 {
+            FastScrollMath.shared.lineCount(itemCount: Int32(items), itemsPerLine: Int32(columns))
+        }
+
+        func rowHeight(_ items: Int, columns: Int) -> CGFloat { content / CGFloat(max(1, rows(items, columns: columns))) }
+
+        func rowsPerScreen(_ items: Int, columns: Int) -> Float { Float(viewport / rowHeight(items, columns: columns)) }
+
+        func fraction(_ items: Int, columns: Int) -> CGFloat {
+            let row = rowHeight(items, columns: columns)
+            return CGFloat(FastScrollMath.shared.handleFraction(
+                position: Float(offset / row), lines: rows(items, columns: columns),
+                linesPerScreen: rowsPerScreen(items, columns: columns)))
+        }
+
+        /// The scroll offset for thumb fraction `f`.
+        func offset(for f: CGFloat, _ items: Int, columns: Int) -> CGFloat {
+            CGFloat(FastScrollMath.shared.positionFor(
+                fraction: Float(f), lines: rows(items, columns: columns),
+                linesPerScreen: rowsPerScreen(items, columns: columns))) * rowHeight(items, columns: columns)
+        }
+
+        func worthShowing(_ items: Int, columns: Int) -> Bool {
+            FastScrollMath.shared.isWorthShowing(itemCount: Int32(items), itemsPerLine: Int32(columns),
+                                                 linesPerScreen: rowsPerScreen(items, columns: columns))
+        }
     }
 
     private var scheme: CoverScheme {
@@ -111,11 +141,12 @@ struct LibraryView: View {
             // Grid views only (All, Artists, Albums), past three screens.
             if filter == nil || filter == .artists || filter == .albums {
                 LibraryFastScroller(
-                    fraction: held && LaunchConfig.screen == "library-scroller" && metrics.offset == 0 ? 0.45 : metrics.fraction,
-                    worthShowing: metrics.content > metrics.viewport * 3,
+                    fraction: held && LaunchConfig.screen == "library-scroller" && metrics.offset == 0
+                        ? 0.45 : metrics.fraction(items.count, columns: 3),
+                    worthShowing: metrics.worthShowing(items.count, columns: 3),
                     awake: awake, sections: sections, itemCount: items.count, columns: 3, scheme: scheme,
                     onDrag: { f in
-                        position.scrollTo(y: f * max(0, metrics.content - metrics.viewport))
+                        position.scrollTo(y: metrics.offset(for: f, items.count, columns: 3))
                         wake()
                     },
                     held: $held)
@@ -127,7 +158,7 @@ struct LibraryView: View {
             if LaunchConfig.screen == "library-scroller" {
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
-                    position.scrollTo(y: 0.45 * max(0, metrics.content - metrics.viewport))
+                    position.scrollTo(y: metrics.offset(for: 0.45, items.count, columns: 3))
                 }
             }
         }

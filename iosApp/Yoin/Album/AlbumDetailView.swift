@@ -47,7 +47,7 @@ struct AlbumDetailView: View {
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            let side = min(0.74 * w, 300)
+            let side = min(Tokens.detail.ALBUM_COVER_WIDTH_FRACTION.cg * w, Tokens.detail.ALBUM_COVER_MAX.cg)
             let band = side + 56
             let e = smooth(p)
             let f = pageFrac
@@ -503,22 +503,23 @@ struct AlbumDetailView: View {
     // MARK: Spectrum bar
 
     /// AlbumSpectrumBar drawSpectrum: each of the 28 strips starts as a slice
-    /// of the cover and flies to its slot in the header bar
-    /// (q = smoothstep(0.06 + lag, 0.6 + lag, p), lag = 0.22 × i / 28); the
+    /// of the cover and flies to its slot in the header bar (the shared
+    /// spectrum's assignment: strips of one color land side by side)
+    /// (q = smoothstep(0.06 + lag, 0.6 + lag, p), lag = 0.22 × slot / 28); the
     /// cover slice fades out as the flat locked color fades in over
     /// smoothstep(0, 0.55, q).
     private func spectrum(w: CGFloat, side: CGFloat, top: CGFloat) -> some View {
-        let colors = AlbumSpectrum.colors(for: album)
+        let strips = AlbumSpectrum.strips(for: album)
         let n = AlbumSpectrum.strips
         let slice = side / CGFloat(n)
         let heroX = (w - side) / 2, heroY = headerContent + 28
         let barH = top + headerContent
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
-                let lag = 0.22 * CGFloat(i) / CGFloat(n)
+                let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
                 let q = smooth(p, 0.06 + lag, 0.6 + lag)
                 let flat = smooth(q, 0, 0.55)
-                let x = lerp(heroX + CGFloat(i) * slice, CGFloat(i) * w / CGFloat(n), q)
+                let x = lerp(heroX + CGFloat(i) * slice, CGFloat(strips[i].slot) * w / CGFloat(n), q)
                 let y = lerp(heroY, -top, q)
                 let sw = lerp(slice, w / CGFloat(n), q) + 1.5
                 let sh = lerp(side, barH, q)
@@ -532,7 +533,7 @@ struct AlbumDetailView: View {
                         .frame(width: sw, height: sh, alignment: .topLeading)
                         .opacity(1 - flat)
                     Rectangle()
-                        .fill(colors[min(i, colors.count - 1)])
+                        .fill(strips[i].color)
                         .frame(width: sw, height: sh)
                         .opacity(flat)
                 }
