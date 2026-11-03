@@ -65,15 +65,9 @@ struct YoinIcon: View {
     }
 }
 
-/// Launch arguments, e.g. `-screen np-v2 -glass yoin`.
+/// Launch arguments, e.g. `-screen np-short -glass yoin`.
 enum LaunchConfig {
     static var screen: String { UserDefaults.standard.string(forKey: "screen") ?? "home" }
-    /// `-screen np-v2` or `-npVariant v2`; `np-frost` is the old name for v2.
-    static var npVariant: String {
-        if screen == "np-frost" { return "v2" }
-        if screen.hasPrefix("np-v") { return String(screen.dropFirst(3)) }
-        return UserDefaults.standard.string(forKey: "npVariant") ?? "v3"
-    }
     static var glass: String {
         if screen.hasSuffix("-yoinglass") { return "yoin" }
         return UserDefaults.standard.string(forKey: "glass") ?? "system"

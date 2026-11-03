@@ -16,7 +16,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 
 | # | Element | Android source | Android value | iOS |
 |---|---|---|---|---|
-| — | Page background | NowPlayingAuroraBackground.kt:402 | Vertical gradient surfaceContainer → background | Same, as the base layer (variant v3, the default) |
+| — | Page background | NowPlayingAuroraBackground.kt:402 | Vertical gradient surfaceContainer → background | Frosted glass over neighbouring album colors (see iOS-only decisions) |
 | — | Horizontal padding | NowPlayingScreen.kt:1263 | 24 | 24 |
 | 1 | Top bar | NowPlayingScreen.kt:3840-3937; NowPlayingBudget.kt:512 | Height 56 (min 48); padding start +4 | Same |
 | 1a | Collapse ⌄ | NowPlayingScreen.kt:3847 | 48 touch target, 28 glyph, onSurfaceVariant, 4 gap | Same. **iOS: no sheet grabber; ⌄ kept** |
@@ -24,12 +24,12 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | 2a | Cover | NowPlayingBudget.kt:134; theme/ContinuousRoundedCornerShape.kt:152 | min(W − 48 − 12 − 56, 312), square, `ContinuousRoundedCornerShape(16)`, smoothing 0.6 | Same size rule; `RoundedRectangle(16, style: .continuous)` (Apple's continuous corner ≈ smoothing 0.6) |
 | 2b | Rating column | NowPlayingScreen.kt:1611-1657 | 56 wide, 12 gap; bar height cover − 58; 8 gap; heart 44; 6 gap | Same |
 | 2c | Rating bar | component/RatingSlider.kt:98-226 | 48 wide capsule; track surfaceVariant; fill primary from the bottom; number titleLarge (22) tabular at top + 8; onSurfaceVariant → onPrimary above 80% | Same |
-| 2d | Heart | NowPlayingScreen.kt:5122 | 44 circle, 24 glyph; tertiary/onTertiary when starred | Same |
+| 2d | Heart | NowPlayingScreen.kt:5122 | 44 circle, 24 glyph; tertiary/onTertiary when starred | Same size and roles, as tinted glass |
 | 3 | Cover gap | NowPlayingBudget.kt:514 | 16 (min 8) | Same |
 | 4 | Tabs | NowPlayingScreen.kt:4100-4151 | Lyrics / About / Note, labelLarge, 12 apart, height 30. Selected: Bold, scaleX 1.08. Others: α 0.5. Then a 4 gap | Same |
 | 5 | Lyric window | component/LyricsDisplay.kt:208-305 | Leftover height. Active line: bodyLarge Rounded SemiBold, primary, at 22% of the window. Others: bodyMedium, onSurfaceVariant, α 0.55/0.40/0.28, scale 0.94 | Same (static mock lyrics) |
 | 5' | One-line lyric | NowPlayingScreen.kt:4204 | Short screens only: 44 tall, bodyLarge Rounded SemiBold, primary | Same (`-screen np-short`) |
-| 6 | Transport slot | NowPlayingBudget.kt:520; PlaybackControls.kt:934 | 148 (min 124); rows 56 + 4 + 56 | Same. **iOS top glass layer sits behind this block, extended 10 past it** |
+| 6 | Transport slot | NowPlayingBudget.kt:520; PlaybackControls.kt:934 | 148 (min 124); rows 56 + 4 + 56 | Same; buttons are tinted glass over the lyrics |
 | 6b | Pause pill | PlaybackControls.kt:169-332 | 56 tall capsule, primary/onPrimary, padding h24, "PAUSE" titleLarge×0.9 = 19.8 Bold +0.5 tracking, scaleX 1.06 | Same |
 | 6c | Next | PlaybackControls.kt:334 | 56 circle, primary, 28 glyph, 8 after the pill | Same |
 | 6d | Repeat | PlaybackControls.kt:590-760 | 56 circle at the row end; tertiaryContainer in "repeat all" | Same (no long-press split yet) |
@@ -68,12 +68,10 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 ## iOS-only decisions
 
 - **Bottom bar:** stays Liquid Glass (Home · Now Playing pill · Library + Search circle), not Android's 68 dp surfaceContainerHigh bar.
-- **Now Playing presentation:** grows out of the bar's pill as a sheet inset 6 pt from the sides and 4 pt under the status bar. That inset is where the base layer and its edge show. The bottom corners use a 60 pt radius to follow the iPhone's screen corners.
-- **Two layers:** the base is the page and is selectable by variant. The top layer is a glass card behind the transport block, extended 10 pt past the controls so their Android positions stay unchanged.
-  - v1: regular glass over the shell content.
-  - v2: frosted glass with grain over the blown-up cover.
-  - v3 (default): Android's gradient.
-  - v4: glass over the previous and next albums' colors.
+- **Opening Now Playing:** the full page grows out of the bar's pill (matched geometry), with a 62 pt radius so it lands on the screen's own corners.
+- **Now Playing background:** frosted glass over the current cover's color, with the previous album's color at the top edge and the next album's at the bottom. Android uses a surfaceContainer → background gradient; the iPad panel keeps that gradient.
+- **Transport and heart:** Pause, Next, Prev, Repeat and the heart are Liquid Glass tinted with their Android color roles (primary / secondary / tertiaryContainer / tertiary) at 72%, interactive, at Android's sizes and positions.
+- **Lyrics under the buttons:** the lyric list continues below its Android window, under the transport, fading out by the progress row. The current line always stays in the clear band above the buttons. In the short layout the clear band is Android's 44 pt one-line row and the following lines run under the buttons.
 - **Dismissing Now Playing:** ⌄ and drag-down; there is no sheet grabber.
 
 ## Gaps not closed

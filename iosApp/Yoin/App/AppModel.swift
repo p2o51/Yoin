@@ -5,23 +5,6 @@ enum ShellSection: Hashable {
     case library
 }
 
-/// Two-layer Now Playing variants (base glass + compact top glass card).
-enum NPVariant: String, CaseIterable {
-    /// Base: regular glass, tinted with the page background, over the shell content.
-    case v1
-    /// Base: heavier frosted glass with grain over a blown-up cover.
-    case v2
-    /// Base: Android's own page (surfaceContainer → background gradient). Default.
-    case v3
-    /// Base: glass over the previous/next albums' colors; card casts a colored shadow.
-    case v4
-
-    var next: NPVariant {
-        let all = Self.allCases
-        return all[(all.firstIndex(of: self)! + 1) % all.count]
-    }
-}
-
 @MainActor
 @Observable
 final class AppModel {
@@ -37,7 +20,6 @@ final class AppModel {
     var npPanel = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
-    var npVariant: NPVariant = .v3
     /// Screenshot aid: resolve the NP budget as a short (~700 dp) Android phone.
     var npForceShort = false
     /// Screenshot aid: expand Now Playing slowly so a mid-morph frame can be captured.
@@ -50,12 +32,11 @@ final class AppModel {
         self.library = library
         self.playbackSource = playback
         self.playback = playback.current()
-        npVariant = NPVariant(rawValue: LaunchConfig.npVariant) ?? .v3
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
         case "album": path = [library.albums()[0]]
-        case "np", "np-frost", "np-v1", "np-v2", "np-v3", "np-v4": npExpanded = true
+        case "np": npExpanded = true
         case "np-short": npExpanded = true; npForceShort = true
         case "np-morph": slowMorph = true
         case "np-panel": npPanel = true

@@ -5,10 +5,10 @@ import SwiftUI
 /// PlaybackControls.kt, pills from BottomPills.kt). Every number is cited in
 /// iosApp/docs/fidelity-home-np.md.
 ///
-/// iOS adaptation: the page is a sheet that grows out of the bar's pill and
-/// stops just short of the screen edges (base layer), with a glass card behind
-/// the transport block (top layer). Variants of the base: `NPVariant`.
-/// Drag down or tap ⌄ to collapse. Debug: long-press ⌄ cycles the variants.
+/// iOS adaptations: the page grows out of the bar's pill; its background is
+/// frosted glass over the current, previous and next albums' colors; the
+/// transport buttons and the heart are tinted Liquid Glass, and the lyrics run
+/// on underneath them. Drag down or tap ⌄ to collapse.
 struct NowPlayingView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
@@ -24,10 +24,12 @@ struct NowPlayingView: View {
 
     private var palette: CoverPalette { model.playback.album.palette }
     private var scheme: CoverScheme { CoverScheme(seed: palette.a, dark: colorScheme == .dark) }
-    private var variant: NPVariant { model.npVariant }
-    /// Top corners 44, bottom corners follow the iPhone's own screen corners.
-    private let baseShape = UnevenRoundedRectangle(topLeadingRadius: 44, bottomLeadingRadius: 60,
-                                                   bottomTrailingRadius: 60, topTrailingRadius: 44, style: .continuous)
+    /// Full page; the radius matches the iPhone's screen corners so the morph
+    /// from the pill lands on the display's own shape.
+    private let baseShape = RoundedRectangle(cornerRadius: 62, style: .continuous)
+    /// Glass tint strength on the transport buttons: enough to keep the
+    /// white glyphs legible over the lyrics, low enough to see them through.
+    private let glassTint = 0.72
 
     var body: some View {
         GeometryReader { geo in
@@ -51,46 +53,24 @@ struct NowPlayingView: View {
         }
     }
 
-    // MARK: Base layer (iOS)
+    // MARK: Background (iOS)
 
     /// Android page background: vertical gradient surfaceContainer → background
-    /// (NowPlayingAuroraBackground.kt:402).
+    /// (NowPlayingAuroraBackground.kt:402). Used by the iPad panel.
     private var pageGradient: LinearGradient {
         LinearGradient(colors: [scheme.surfaceContainer, scheme.background], startPoint: .top, endPoint: .bottom)
     }
 
+    /// Frosted glass over the albums around this one: previous album's color
+    /// at the top edge, next album's at the bottom, this cover in the middle.
     private func base(_ geo: GeometryProxy) -> some View {
         ZStack {
-            switch variant {
-            case .v1:
-                baseShape.fill(.clear)
-                    // `.clear` glass ignores most of its tint and left the lyric and
-                    // title unreadable over Home, so v1 uses regular glass.
-                    .glassEffect(.regular.tint(scheme.background.opacity(0.6)), in: baseShape)
-            case .v2:
-                ambientCover.clipShape(baseShape)
-                baseShape.fill(.clear)
-                    .glassEffect(.regular.tint(scheme.background.opacity(0.55)), in: baseShape)
-                grain(0.3).clipShape(baseShape)
-            case .v3:
-                baseShape.fill(pageGradient)
-            case .v4:
-                neighbourAmbient.clipShape(baseShape)
-                baseShape.fill(.clear)
-                    .glassEffect(.regular.tint(scheme.background.opacity(0.5)), in: baseShape)
-            }
+            neighbourAmbient.clipShape(baseShape)
+            baseShape.fill(.clear)
+                .glassEffect(.regular.tint(scheme.background.opacity(0.5)), in: baseShape)
         }
         .matchedGeometryEffect(id: "np.surface", in: npNamespace)
-        .padding(.horizontal, 6)
-        .padding(.top, geo.safeAreaInsets.top - 4)
         .ignoresSafeArea()
-    }
-
-    private var ambientCover: some View {
-        CoverArt(palette: palette, cornerRadius: 0, seed: model.playback.album.seed)
-            .scaleEffect(1.8)
-            .blur(radius: 50)
-            .saturation(1.2)
     }
 
     private var neighbourAmbient: some View {
@@ -104,15 +84,6 @@ struct NowPlayingView: View {
                 Ellipse().fill(albums[1].palette.a).frame(height: 320).offset(y: 110).blur(radius: 50)
             }
         }
-    }
-
-    private func grain(_ opacity: Double) -> some View {
-        Rectangle()
-            .fill(.white)
-            .colorEffect(ShaderLibrary.yoinGrain(.float(0.6)))
-            .blendMode(.overlay)
-            .opacity(opacity)
-            .allowsHitTesting(false)
     }
 
     // MARK: Content (Android CompactPlayingContent)
@@ -129,16 +100,20 @@ struct NowPlayingView: View {
                 .frame(height: budget.topBar)
             coverRow(budget.cover)
             Spacer().frame(height: budget.coverGap)
-            if budget.oneLineLyric {
-                oneLineLyric(p)
-            } else {
+            if !budget.oneLineLyric {
                 tabs
                 Spacer().frame(height: 4)
-                lyricList(p)
-                    .frame(height: budget.lyricWindow)
             }
-            transport(p)
-                .frame(height: budget.transport, alignment: .top)
+            // The lyrics run on under the glass transport; the current line
+            // always sits in the clear band above it.
+            let clear = budget.oneLineLyric ? 44 : budget.lyricWindow
+            ZStack(alignment: .top) {
+                lyrics(p, clear: clear, under: budget.transport,
+                       anchor: budget.oneLineLyric ? 4 : clear * 0.22, fadeTop: !budget.oneLineLyric)
+                transport(p)
+                    .padding(.top, clear)
+            }
+            .frame(height: clear + budget.transport, alignment: .top)
             if budget.slack > 0 {
                 Spacer().frame(height: budget.slack)
             }
@@ -161,9 +136,6 @@ struct NowPlayingView: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .simultaneousGesture(LongPressGesture().onEnded { _ in
-                withAnimation(Yoin.effects) { model.npVariant = model.npVariant.next }
-            })
             .accessibilityLabel("Collapse Now Playing")
             VStack(alignment: .leading, spacing: 0) {
                 Text("PLAYING FROM ALBUM")
@@ -210,9 +182,11 @@ struct NowPlayingView: View {
             YoinIcon(favorite ? "favorite_filled" : "favorite", size: 24)
                 .foregroundStyle(favorite ? scheme.onTertiary : scheme.onTertiaryContainer)
                 .frame(width: 44, height: 44)
-                .background(favorite ? scheme.tertiary : scheme.tertiaryContainer, in: .circle)
+                .contentShape(.circle)
         }
-        .buttonStyle(PressScale())
+        .buttonStyle(.plain)
+        .glassEffect(.regular.tint((favorite ? scheme.tertiary : scheme.tertiaryContainer).opacity(glassTint))
+                        .interactive(), in: .circle)
         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
     }
 
@@ -233,47 +207,45 @@ struct NowPlayingView: View {
         .frame(height: 30, alignment: .top)
     }
 
-    // 5. Lyric list: active line at 22 % of the window, faded edges.
-    private func lyricList(_ p: PlaybackSnapshot) -> some View {
-        GeometryReader { g in
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(p.lyrics.enumerated()), id: \.offset) { i, line in
-                    let d = abs(i - p.activeLyric)
-                    let active = d == 0
-                    Text(line)
-                        .font(active ? YoinFont.rounded(16, semibold: true) : .gsf(14))
-                        .foregroundStyle(active ? scheme.primary : scheme.onSurfaceVariant)
-                        .opacity(active ? 1 : (d == 1 ? 0.55 : d == 2 ? 0.40 : 0.28))
-                        .scaleEffect(active ? 1 : 0.94, anchor: .leading)
-                        .padding(.vertical, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+    // 5. Lyrics. Android: a list with the active line at 22 % of the window
+    // (or one line on short screens). iOS: the list continues `under` points
+    // further down, behind the glass transport, fading out by its second row.
+    private func lyrics(_ p: PlaybackSnapshot, clear: CGFloat, under: CGFloat,
+                        anchor: CGFloat, fadeTop: Bool) -> some View {
+        let total = clear + under
+        return VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(p.lyrics.enumerated()), id: \.offset) { i, line in
+                let d = abs(i - p.activeLyric)
+                let active = d == 0
+                Text(line)
+                    .font(active ? YoinFont.rounded(16, semibold: true) : .gsf(14))
+                    .foregroundStyle(active ? scheme.primary : scheme.onSurfaceVariant)
+                    .opacity(active ? 1 : (d == 1 ? 0.55 : d == 2 ? 0.40 : 0.28))
+                    .scaleEffect(active ? 1 : 0.94, anchor: .leading)
+                    .lineLimit(1)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.vertical, 12)
-            // Lines are ≈ 24 + 8 + 2 tall; scroll so the active line's top sits at 22 %.
-            .offset(y: g.size.height * 0.22 - 12 - CGFloat(p.activeLyric) * 30)
         }
+        // Lines are ≈ 24 + 8 + 2 tall; scroll so the active line's top sits at `anchor`.
+        .offset(y: anchor - 4 - CGFloat(p.activeLyric) * 30)
+        .frame(height: total, alignment: .top)
         .clipped()
         .mask(
             LinearGradient(stops: [
-                .init(color: .clear, location: 0), .init(color: .black, location: 0.14),
-                .init(color: .black, location: 0.80), .init(color: .clear, location: 1),
+                .init(color: fadeTop ? .clear : .black, location: 0),
+                .init(color: .black, location: fadeTop ? min(0.12, 16 / total) : 0),
+                .init(color: .black, location: clear / total),
+                .init(color: .black.opacity(0.7), location: (clear + 56) / total),
+                .init(color: .clear, location: (clear + 100) / total),
             ], startPoint: .top, endPoint: .bottom)
         )
-    }
-
-    // 5'. One-line lyric (short screens).
-    private func oneLineLyric(_ p: PlaybackSnapshot) -> some View {
-        Text(p.lyricLine)
-            .font(YoinFont.rounded(16, semibold: true))
-            .foregroundStyle(scheme.primary)
-            .lineLimit(1)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
+        .allowsHitTesting(false)
     }
 
     // 6. Transport: [PAUSE][Next] … [Repeat] / [Prev] 1:14 ~~~ -2:41
     private func transport(_ p: PlaybackSnapshot) -> some View {
+        GlassEffectContainer(spacing: 2) {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Button {} label: {
@@ -284,9 +256,10 @@ struct NowPlayingView: View {
                         .foregroundStyle(scheme.onPrimary)
                         .padding(.horizontal, 24)
                         .frame(height: 56)
-                        .background(scheme.primary, in: .capsule)
+                        .contentShape(.capsule)
                 }
-                .buttonStyle(PressScale())
+                .buttonStyle(.plain)
+                .glassEffect(.regular.tint(scheme.primary.opacity(glassTint)).interactive(), in: .capsule)
                 .accessibilityLabel("Pause")
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next")
                 Spacer(minLength: 0)
@@ -314,14 +287,6 @@ struct NowPlayingView: View {
             .foregroundStyle(scheme.onSurfaceVariant)
             .frame(height: 56)
         }
-        .background {
-            // iOS top layer: glass behind the transport block, extended past
-            // the controls so their Android positions don't move.
-            RoundedRectangle(cornerRadius: 38, style: .continuous)
-                .fill(.clear)
-                .glassEffect(.regular.tint(scheme.primary.opacity(0.06)),
-                             in: .rect(cornerRadius: 38, style: .continuous))
-                .padding(-10)
         }
     }
 
@@ -330,9 +295,10 @@ struct NowPlayingView: View {
             YoinIcon(icon, size: 28)
                 .foregroundStyle(ink)
                 .frame(width: 56, height: 56)
-                .background(fill, in: .circle)
+                .contentShape(.circle)
         }
-        .buttonStyle(PressScale())
+        .buttonStyle(.plain)
+        .glassEffect(.regular.tint(fill.opacity(glassTint)).interactive(), in: .circle)
         .accessibilityLabel(label)
     }
 
