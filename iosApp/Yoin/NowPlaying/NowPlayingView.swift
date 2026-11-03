@@ -175,7 +175,10 @@ struct NowPlayingView: View {
             let clear = budget.lyricWindow
             ZStack(alignment: .top) {
                 lyrics(p, clear: clear, under: budget.transport,
-                       anchor: budget.oneLineLyric ? 4 : clear * 0.22, fadeTop: !budget.oneLineLyric)
+                       anchor: budget.oneLineLyric
+                           // OneLineLyricRow: the 32 pt line centered in its slot.
+                           ? (clear - Tokens.type.bodyLarge.lineHeight.cg - 8) / 2 + 4
+                           : clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: !budget.oneLineLyric)
                 transport(p)
                     .padding(.top, clear)
             }
@@ -185,7 +188,8 @@ struct NowPlayingView: View {
                 Spacer().frame(height: budget.slack)
             }
             hero(p, inline: budget.inlineHero)
-                .frame(height: budget.hero, alignment: budget.inlineHero ? .bottom : .top)
+                // StageHeightSlot: content at the top, air below.
+                .frame(height: budget.hero, alignment: .top)
             pills
                 .frame(height: budget.pills, alignment: .bottomLeading)
                 .npFade(open, contentFade)
@@ -200,8 +204,9 @@ struct NowPlayingView: View {
             // A glass circle (the transport's secondary glass), so it reads
             // as a control over the page; it rides along with the drag.
             Button { collapse() } label: {
-                YoinIcon("chevron_down", size: 26)
-                    .foregroundStyle(scheme.onSurface)
+                // Android StageTopBar: 28 dp ChevronDown in onSurfaceVariant.
+                YoinIcon("chevron_down", size: 28)
+                    .foregroundStyle(scheme.onSurfaceVariant)
                     .labContrast("transportSecondary")
                     .frame(width: 44, height: 44)
                     .contentShape(.circle)
@@ -212,13 +217,12 @@ struct NowPlayingView: View {
             .frame(width: 48, height: 48)
             .accessibilityLabel("Collapse Now Playing")
             VStack(alignment: .leading, spacing: 0) {
+                // PlayingFromLabel: labelSmall kind over labelMedium name.
                 Text("PLAYING FROM ALBUM")
-                    .font(.gsf(11, .medium))
-                    .tracking(0.1)
+                    .yoinRole(Tokens.type.labelSmall)
                     .foregroundStyle(scheme.onSurfaceVariant.opacity(0.55))
                 Text(p.album.title)
-                    .font(.gsf(12, .medium))
-                    .tracking(0.1)
+                    .yoinRole(Tokens.type.labelMedium)
                     .foregroundStyle(scheme.onSurface)
             }
             .lineLimit(1)
@@ -260,18 +264,28 @@ struct NowPlayingView: View {
     private var heart: some View {
         Button { withAnimation(Yoin.spatialFast) { favorite.toggle() } } label: {
             YoinIcon(favorite ? "favorite_filled" : "favorite", size: 24)
-                // Untinted heart (Balanced / HIG): "liked" is a colored glyph.
-                .foregroundStyle(GlassLab.shared.style("heart").tintOn
-                                 ? (favorite ? scheme.onTertiary : scheme.onTertiaryContainer)
-                                 : (favorite ? scheme.tertiary : scheme.onSurfaceVariant))
+                // Android FavoriteButton: liked = onTertiary heart on a
+                // tertiary circle, else onTertiaryContainer on
+                // tertiaryContainer. Liked, the glass carries the tertiary
+                // fill (like PAUSE carries primary) and the glyph stays
+                // legible on it in both modes; unliked, plain glass.
+                .foregroundStyle(favorite
+                                 ? (colorScheme == .dark ? Color.white : scheme.onTertiary)
+                                 : (heartTinted ? scheme.onTertiaryContainer : scheme.onSurfaceVariant))
+                .labContrast(favorite ? "transportPrimary" : "heart")
                 .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
                 .contentShape(.circle)
         }
         .buttonStyle(PressReport { touch("heart", $0) })
-        .labGlass("heart", scheme: scheme, brand: brand,
+        .labGlass(favorite ? "transportPrimary" : "heart", scheme: scheme, brand: brand,
                   auto: favorite ? scheme.tertiary : scheme.tertiaryContainer, in: Circle())
+        .animation(Yoin.effects, value: favorite)
         .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
     }
+
+    /// The lab's heart style is tinted (Current preset): unliked takes
+    /// tertiaryContainer's on-color, as on Android.
+    private var heartTinted: Bool { lab.style("heart").tintOn }
 
     // 4. Text tabs.
     private var tabs: some View {
@@ -279,8 +293,9 @@ struct NowPlayingView: View {
             ForEach(Array(["Lyrics", "About", "Note"].enumerated()), id: \.offset) { i, title in
                 let on = tab == i
                 Button { withAnimation(Yoin.spatialFast) { tab = i } } label: {
+                    // CompactTextTabs: labelLarge (Bold when selected).
                     Text(title)
-                        .font(.gsf(14, on ? .bold : .medium))
+                        .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : nil)
                         .foregroundStyle(scheme.onSurfaceVariant.opacity(on ? 1 : 0.5))
                         .scaleEffect(x: on ? 1.08 : 1, y: 1, anchor: .leading)
                 }
@@ -301,18 +316,24 @@ struct NowPlayingView: View {
             ForEach(Array(p.lyrics.enumerated()), id: \.offset) { i, line in
                 let d = abs(i - p.activeLyric)
                 let active = d == 0
+                // LyricLineItem: active bodyLarge (16/24) rounded SemiBold
+                // in primary, else bodyMedium (14/20) onSurfaceVariant;
+                // each line in its role's line box, 4 above and below.
                 Text(line)
                     .font(active ? YoinFont.rounded(16, semibold: true) : .gsf(14))
+                    .tracking(0)
+                    .lineLimit(1)
+                    .frame(height: active ? Tokens.type.bodyLarge.lineHeight.cg : Tokens.type.bodyMedium.lineHeight.cg)
                     .foregroundStyle(active ? scheme.primary : scheme.onSurfaceVariant)
                     .opacity(active ? 1 : (d == 1 ? 0.55 : d == 2 ? 0.40 : 0.28))
                     .scaleEffect(active ? 1 : 0.94, anchor: .leading)
-                    .lineLimit(1)
                     .padding(.vertical, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        // Lines are ≈ 24 + 8 + 2 tall; scroll so the active line's top sits at `anchor`.
-        .offset(y: anchor - 4 - CGFloat(p.activeLyric) * 30)
+        // Lines before the active one are 20 + 8 + 2 tall; scroll so the
+        // active line's box (with its 4 pt pad) sits at `anchor`.
+        .offset(y: anchor - 4 - CGFloat(p.activeLyric) * (Tokens.type.bodyMedium.lineHeight.cg + 8 + 2))
         .frame(height: total, alignment: .top)
         .clipped()
         .mask(
@@ -340,11 +361,15 @@ struct NowPlayingView: View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Button {} label: {
+                    // titleLarge × 0.9, Bold, 0.5 tracking; the playing
+                    // stretch (1.06) grows from the word's leading edge.
                     Text("PAUSE")
                         .font(.gsf(19.8, .bold))
                         .tracking(0.5)
-                        .scaleEffect(x: 1.06, y: 1)
-                        .foregroundStyle(scheme.onPrimary)
+                        .scaleEffect(x: 1.06, y: 1, anchor: .leading)
+                        // Same rule as the pills on the same primary glass:
+                        // dark onPrimary sank into it.
+                        .foregroundStyle(colorScheme == .dark ? Color.white : scheme.onPrimary)
                         .labContrast("transportPrimary")
                         .padding(.horizontal, 24)
                         .frame(height: 56)
@@ -374,30 +399,32 @@ struct NowPlayingView: View {
     /// 1:14 ~~~ -2:41. While any control is touched it morphs into glass:
     /// a capsule grows out of the bar's line to hold the times and the bar
     /// (iOS 26 Music's scrubber), and shrinks back a second after release.
-    /// The 10 pt inset is constant, so the bar never changes width under
-    /// the finger.
+    /// The capsule is drawn outside the row, so the bar never changes width
+    /// under the finger and rests at Android's width.
     private func progress(_ p: PlaybackSnapshot) -> some View {
         HStack(spacing: 0) {
+            // PlaybackTimeLabel: labelLarge tabular, min 44 / 52, 8 apart.
             Text(formatTime(p.positionSec))
-                .frame(minWidth: 40, alignment: .leading)
+                .frame(minWidth: 44, alignment: .leading)
                 .offset(y: 6)
-            Spacer().frame(width: 6)
+            Spacer().frame(width: 8)
             WavyProgressBar(progress: Double(p.positionSec) / Double(p.track.durationSec),
                             duration: TimeInterval(p.track.durationSec), isPlaying: p.isPlaying,
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
                             onScrubbing: { touch("progress", $0) }) { _ in }
                 .frame(height: 40, alignment: .bottom)
-            Spacer().frame(width: 6)
+            Spacer().frame(width: 8)
             Text("-" + formatTime(p.track.durationSec - p.positionSec))
-                .frame(minWidth: 48, alignment: .trailing)
+                .frame(minWidth: 52, alignment: .trailing)
                 .offset(y: 6)
         }
-        .padding(.horizontal, 10)
         // The row itself carries the glass (as glass content the times and
         // the bar draw over it; a background glass in the transport's
         // container would be lifted above them). The shape does the morph.
+        // The row sits where Android's does; the capsule reaches 4 pt past
+        // its leading edge (clear of Previous) and 10 pt past its end.
         .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: true,
-                 in: ScrubberGlassShape(grow: interacting ? 1 : 0))
+                 in: ScrubberGlassShape(grow: interacting ? 1 : 0, leading: 4, trailing: 10))
     }
 
     private func roundButton(_ icon: String, fill: Color, ink: Color, label: String) -> some View {
@@ -419,16 +446,25 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func hero(_ p: PlaybackSnapshot, inline: Bool) -> some View {
         if inline {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                heroTitle(p)
-                    .layoutPriority(1)
-                Text(p.album.artist)
-                    .font(.gsf(14.4, .medium))
-                    .foregroundStyle(scheme.onSurfaceVariant)
-                    .npFade(open, contentFade)
+            // One row: title, then the artist on its baseline 12 after it,
+            // the artist capped at 40 % of the row (HeroOneLineArtistShare).
+            GeometryReader { g in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    heroTitle(p)
+                        .layoutPriority(1)
+                    Text(p.album.artist)
+                        .font(.gsf(14.4, .medium))
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                        .scaleEffect(x: 1.02, y: 1, anchor: .leading)
+                        .frame(maxWidth: g.size.width * 0.4, alignment: .leading)
+                        // Measured first (capped); the title takes the rest.
+                        .layoutPriority(2)
+                        .npFade(open, contentFade)
+                    Spacer(minLength: 0)
+                }
+                .lineLimit(1)
             }
-            .lineLimit(1)
-            .padding(.bottom, 12)
+            .frame(height: Tokens.type.displaySmall.lineHeight.cg)
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.album.artist)
@@ -466,7 +502,6 @@ struct NowPlayingView: View {
                 pill("note", "Write", shape: AnyShape(Capsule()))
             }
         }
-        .padding(.bottom, 8)
     }
 
     private func pill(_ icon: String, _ title: String, shape: AnyShape) -> some View {
@@ -613,10 +648,13 @@ struct RatingBar: View {
                     .frame(height: max(48 - inset * 2, (h - inset * 2) * fraction))
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .padding(inset)
+                // titleLarge (22/28) tabular; the color crosses from
+                // onSurfaceVariant to onPrimary as the fill goes 80 → 100 %.
                 Text(value >= 10 ? "10" : String(format: "%.1f", value))
-                    .font(.gsf(22))
+                    .yoinRole(Tokens.type.titleLarge)
                     .monospacedDigit()
-                    .foregroundStyle(fraction > 0.8 ? scheme.onPrimary : scheme.onSurfaceVariant)
+                    .foregroundStyle(scheme.onSurfaceVariant.mix(with: scheme.onPrimary,
+                                                                 by: min(1, max(0, (fraction - 0.8) / 0.2))))
                     .frame(minWidth: 36)
                     .padding(.top, 8)
             }
@@ -644,6 +682,9 @@ struct RatingBar: View {
 /// (they sit 9 pt below the 56 pt row's middle).
 struct ScrubberGlassShape: Shape {
     var grow: CGFloat
+    /// How far the grown capsule reaches past the row's ends.
+    var leading: CGFloat = 0
+    var trailing: CGFloat = 0
 
     var animatableData: CGFloat {
         get { grow }
@@ -654,8 +695,9 @@ struct ScrubberGlassShape: Shape {
         let g = max(0, grow)
         let inset = (1 - min(g, 1)) * 50
         let h = 42 * g
-        let r = CGRect(x: rect.minX + inset, y: rect.midY + 9 - h / 2,
-                       width: max(0, rect.width - inset * 2), height: h)
+        let lead = leading * min(g, 1), trail = trailing * min(g, 1)
+        let r = CGRect(x: rect.minX - lead + inset, y: rect.midY + 9 - h / 2,
+                       width: max(0, rect.width + lead + trail - inset * 2), height: h)
         return Capsule().path(in: r)
     }
 }
