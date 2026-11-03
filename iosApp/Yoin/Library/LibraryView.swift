@@ -157,9 +157,10 @@ struct LibraryView: View {
                     held: $held)
                 // Android LibraryGridFastScroller: the grid box (under the 64
                 // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
-                // bottom = floatingBottomGroupContentPadding 108 over the inset.
+                // bottom = floatingBottomGroupContentPadding 108 over the inset,
+                // less the 62 the shell already reserves for the bar.
                 .padding(.top, 64 + 44 + 4 + 8)
-                .padding(.bottom, 108)
+                .padding(.bottom, 108 - 62)
             }
         }
         .onAppear {
