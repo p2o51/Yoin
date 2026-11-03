@@ -106,7 +106,7 @@ class MotionAuditActivity : ComponentActivity() {
                     listOf(
                         row(com.gpo.yoin.data.local.SongAboutEntry.CANON_CREATION_TIME, "2025"),
                         row(com.gpo.yoin.data.local.SongAboutEntry.CANON_CREATION_LOCATION, "Seoul"),
-                        row(com.gpo.yoin.data.local.SongAboutEntry.CANON_LYRICIST, "Bang Si Hyuk, Slow Rabbit"),
+                        row(com.gpo.yoin.data.local.SongAboutEntry.CANON_LYRICIST, "Annika Bennett, Bang Si Hyuk, Ellie, Tehya, Lawzy, Sasha Alex Sloan, Henry Allen"),
                         row(com.gpo.yoin.data.local.SongAboutEntry.CANON_COMPOSER, "Slow Rabbit, Martin"),
                         row(com.gpo.yoin.data.local.SongAboutEntry.CANON_PRODUCER, "Slow Rabbit"),
                     ),

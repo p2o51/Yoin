@@ -106,6 +106,10 @@ data class Song(
     val artistId: String? = null,
     val starred: String? = null,
     val userRating: Int? = null,
+    // OpenSubsonic extensions; absent on plain Subsonic servers.
+    val samplingRate: Int? = null,
+    val bitDepth: Int? = null,
+    val discNumber: Int? = null,
 )
 
 @Serializable
