@@ -3,9 +3,20 @@ import UIKit
 
 // MARK: - Model
 
-/// Glass variants SwiftUI exposes. `none` = no glass: a plain fill of the tint.
+/// Glass variants SwiftUI exposes. `none` = no glass: a plain fill of the
+/// tint. `material` = a standard material (`.regularMaterial`) with the tint
+/// over it, the HIG's choice for the content layer.
 enum GlassVariant: String, Codable, CaseIterable, Sendable {
-    case regular, clear, none
+    case regular, clear, material, none
+}
+
+/// Glass Lab presets (Apple's HIG: glass only for the floating controls
+/// layer, no glass in the content layer, avoid tinting several controls,
+/// avoid content resting under glass).
+enum GlassPreset: String, Codable, CaseIterable, Sendable {
+    case current = "Current"
+    case balanced = "Balanced"
+    case appleHIG = "Apple HIG"
 }
 
 /// Color roles a surface can be tinted with. `auto` = the role Android uses
@@ -78,11 +89,15 @@ final class GlassLab {
                 defaults: SurfaceStyle(tintOn: false, tintOpacity: 0),
                 extras: [("washOpacity", "Progress wash opacity", 0...1, 0.25),
                          ("washAmplitude", "Wash wave amplitude (pt)", 0...10, 4)]),
-        Surface(id: "transport", title: "Now Playing · play buttons",
+        Surface(id: "transportPrimary", title: "Now Playing · PAUSE",
                 defaults: SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, shadowRadius: 12, shadowY: 6,
                                        contrastShadow: 0.22),
                 extras: [("containerSpacing", "GlassEffectContainer spacing", 0...16, 3),
-                         ("lyricsUnder", "Lyrics strength under the buttons", 0...1, 0.7)]),
+                         ("lyricsUnder", "Lyrics under the buttons (0 = fade out above them)", 0...1, 0.7)]),
+        Surface(id: "transportSecondary", title: "Now Playing · Next / Prev / Repeat",
+                defaults: SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, shadowRadius: 12, shadowY: 6,
+                                       contrastShadow: 0.22),
+                extras: []),
         Surface(id: "heart", title: "Now Playing · heart",
                 defaults: SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, shadowRadius: 10, shadowY: 5),
                 extras: []),
@@ -107,6 +122,7 @@ final class GlassLab {
     var appearance = 0 { didSet { save() } }
     var styles: [String: SurfaceStyle] = [:] { didSet { save() } }
     var extras: [String: Double] = [:] { didSet { save() } }
+    var preset: GlassPreset = .current { didSet { save() } }
     var panelOpen = false
     var panelAtTop = false
     var panelCollapsed = false
@@ -118,10 +134,16 @@ final class GlassLab {
         if let data = UserDefaults.standard.data(forKey: Self.key),
            let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             appearance = saved.appearance
+            preset = saved.preset ?? .current
             styles.merge(saved.styles) { _, new in new }
             extras.merge(saved.extras) { _, new in new }
         }
         panelOpen = UserDefaults.standard.bool(forKey: "glassLab")
+        if let name = UserDefaults.standard.string(forKey: "preset") {
+            suppressSave = true
+            apply(name == "hig" ? .appleHIG : name == "balanced" ? .balanced : .current)
+            suppressSave = false
+        }
         if UserDefaults.standard.bool(forKey: "barTinted") {
             suppressSave = true
             extras["barSelectedStyle"] = 1
@@ -131,6 +153,7 @@ final class GlassLab {
 
     private struct Saved: Codable {
         var appearance: Int
+        var preset: GlassPreset?
         var styles: [String: SurfaceStyle]
         var extras: [String: Double]
     }
@@ -148,7 +171,42 @@ final class GlassLab {
 
     func reset() {
         resetValues()
+        preset = .current
         appearance = 0
+    }
+
+    /// Loads a preset's values; they stay editable afterwards.
+    func apply(_ p: GlassPreset) {
+        resetValues()
+        var s = styles
+        var e = extras
+        switch p {
+        case .current:
+            break
+        case .balanced, .appleHIG:
+            // Home cards: blurred cover + a standard material, not glass.
+            s["homeCards"] = SurfaceStyle(variant: .material, role: .auto, tintOpacity: 0.45,
+                                          interactive: false, cornerRadius: 16)
+            // Rating track: solid container color.
+            s["ratingTrack"] = SurfaceStyle(variant: .none, role: .surfaceVariant, tintOpacity: 0.7, interactive: false)
+            // Lyrics fade out above the transport row.
+            e["lyricsUnder"] = 0
+            if p == .balanced {
+                // One glass layer; only PAUSE tinted; untinted heart, colored glyph when liked.
+                s["transportSecondary"] = SurfaceStyle(tintOn: false, tintOpacity: 0, shadowOpacity: 0)
+                s["transportPrimary"] = SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, contrastShadow: 0.22)
+                s["heart"] = SurfaceStyle(tintOn: false, tintOpacity: 0)
+            } else {
+                // No glass in Now Playing: plain glyphs, PAUSE a solid primary pill (Android).
+                s["transportSecondary"] = SurfaceStyle(variant: .none, tintOn: false, tintOpacity: 0, interactive: false)
+                s["transportPrimary"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
+                s["heart"] = SurfaceStyle(variant: .none, tintOn: false, tintOpacity: 0, interactive: false)
+                s["npPills"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
+            }
+        }
+        styles = s
+        extras = e
+        preset = p
     }
 
     /// Launch-arg overrides (screenshots) are applied without saving.
@@ -156,7 +214,7 @@ final class GlassLab {
 
     private func save() {
         guard !suppressSave else { return }
-        guard let data = try? JSONEncoder().encode(Saved(appearance: appearance, styles: styles, extras: extras))
+        guard let data = try? JSONEncoder().encode(Saved(appearance: appearance, preset: preset, styles: styles, extras: extras))
         else { return }
         UserDefaults.standard.set(data, forKey: Self.key)
     }
@@ -176,7 +234,7 @@ final class GlassLab {
     func export() -> String {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let json = (try? enc.encode(Saved(appearance: appearance, styles: styles, extras: extras)))
+        let json = (try? enc.encode(Saved(appearance: appearance, preset: preset, styles: styles, extras: extras)))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             try? json.write(to: dir.appendingPathComponent("glass-lab.json"), atomically: true, encoding: .utf8)
@@ -207,6 +265,13 @@ extension View {
             switch st.variant {
             case .none:
                 self.background(shape.fill(tint.opacity(st.tintOn ? st.tintOpacity : 0)))
+            case .material:
+                self.background {
+                    ZStack {
+                        shape.fill(.regularMaterial)
+                        shape.fill(tint.opacity(st.tintOn ? st.tintOpacity : 0))
+                    }
+                }
             case .regular, .clear:
                 let base: Glass = st.variant == .clear ? .clear : .regular
                 let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity)) : base
@@ -230,7 +295,7 @@ struct GlassLabPanel: View {
     @Environment(AppModel.self) private var model
     @State private var drag: CGSize = .zero
     @State private var settled: CGSize = .zero
-    @State private var expandedSurface: String? = "transport"
+    @State private var expandedSurface: String? = "transportPrimary"
     private var lab: GlassLab { GlassLab.shared }
 
     var body: some View {
@@ -306,6 +371,10 @@ struct GlassLabPanel: View {
         @Bindable var lab = lab
         @Bindable var model = model
         return VStack(alignment: .leading, spacing: 10) {
+            Picker("Preset", selection: Binding(get: { lab.preset }, set: { lab.apply($0) })) {
+                ForEach(GlassPreset.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
             Picker("Appearance", selection: $lab.appearance) {
                 Text("System").tag(0); Text("Light").tag(1); Text("Dark").tag(2)
             }

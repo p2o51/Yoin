@@ -194,7 +194,10 @@ struct NowPlayingView: View {
     private var heart: some View {
         Button { withAnimation(Yoin.spatialFast) { favorite.toggle() } } label: {
             YoinIcon(favorite ? "favorite_filled" : "favorite", size: 24)
-                .foregroundStyle(favorite ? scheme.onTertiary : scheme.onTertiaryContainer)
+                // Untinted heart (Balanced / HIG): "liked" is a colored glyph.
+                .foregroundStyle(GlassLab.shared.style("heart").tintOn
+                                 ? (favorite ? scheme.onTertiary : scheme.onTertiaryContainer)
+                                 : (favorite ? scheme.tertiary : scheme.onSurfaceVariant))
                 .frame(width: 44, height: 44)
                 .contentShape(.circle)
         }
@@ -227,6 +230,7 @@ struct NowPlayingView: View {
     private func lyrics(_ p: PlaybackSnapshot, clear: CGFloat, under: CGFloat,
                         anchor: CGFloat, fadeTop: Bool) -> some View {
         let total = clear + under
+        let underStrength = GlassLab.shared.extra("lyricsUnder")
         return VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(p.lyrics.enumerated()), id: \.offset) { i, line in
                 let d = abs(i - p.activeLyric)
@@ -249,8 +253,11 @@ struct NowPlayingView: View {
             LinearGradient(stops: [
                 .init(color: fadeTop ? .clear : .black, location: 0),
                 .init(color: .black, location: fadeTop ? min(0.12, 16 / total) : 0),
-                .init(color: .black, location: clear / total),
-                .init(color: .black.opacity(GlassLab.shared.extra("lyricsUnder")), location: (clear + 56) / total),
+                // lyricsUnder 0.7 = lyrics run on under the buttons; 0 = they
+                // fade out above the transport row (Balanced / HIG presets).
+                .init(color: .black, location: max(0, clear - 24) / total),
+                .init(color: .black.opacity(min(1, underStrength / 0.7)), location: clear / total),
+                .init(color: .black.opacity(underStrength), location: (clear + 56) / total),
                 .init(color: .clear, location: (clear + 100) / total),
             ], startPoint: .top, endPoint: .bottom)
         )
@@ -272,13 +279,13 @@ struct NowPlayingView: View {
                         .tracking(0.5)
                         .scaleEffect(x: 1.06, y: 1)
                         .foregroundStyle(scheme.onPrimary)
-                        .labContrast("transport")
+                        .labContrast("transportPrimary")
                         .padding(.horizontal, 24)
                         .frame(height: 56)
                         .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
-                .labGlass("transport", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
+                .labGlass("transportPrimary", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
                 .accessibilityLabel("Pause")
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next")
                 Spacer(minLength: 0)
@@ -310,15 +317,17 @@ struct NowPlayingView: View {
     }
 
     private func roundButton(_ icon: String, fill: Color, ink: Color, label: String) -> some View {
-        Button {} label: {
+        // Untinted (Balanced / HIG presets): the glyph goes on-surface.
+        let tinted = GlassLab.shared.style("transportSecondary").tintOn
+        return Button {} label: {
             YoinIcon(icon, size: 28)
-                .foregroundStyle(ink)
-                .labContrast("transport")
+                .foregroundStyle(tinted ? ink : scheme.onSurface)
+                .labContrast("transportSecondary")
                 .frame(width: 56, height: 56)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .labGlass("transport", scheme: scheme, brand: brand, auto: fill, in: Circle())
+        .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: fill, in: Circle())
         .accessibilityLabel(label)
     }
 
