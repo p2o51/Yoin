@@ -270,7 +270,7 @@ fun toneForRoom(color: Int, dark: Boolean, bias: Float = 0f): Int {
     val hsl = FloatArray(3)
     argbToHsl(color, hsl)
     val s = min(1f, hsl[1] * 1.4f + 0.1f)
-    var l = ((if (dark) 0.13f + hsl[2] * 0.42f else 0.70f + hsl[2] * 0.24f) + bias).coerceIn(0f, 1f)
+    var l = ((if (dark) DarkRoomFloor + hsl[2] * DarkRoomSpan else 0.70f + hsl[2] * 0.24f) + bias).coerceIn(0f, 1f)
     // HSL lightness flatters yellows and greens: in the dark room, step them
     // down until the light text over them still reads.
     var out = hslToArgb(hsl[0], s, l)
@@ -335,7 +335,10 @@ private const val HueBuckets = 12
 private const val BaseWeight = 0.02f
 
 /** Light text keeps ~4.5:1 over the dark room's brightest point. */
-private const val DarkRoomMaxLuminance = 0.10f
+// Dark room: deeper than the lab's (owner 2026-11-03: "深色全屏播放页面有点亮").
+internal const val DarkRoomFloor = 0.10f
+internal const val DarkRoomSpan = 0.34f
+private const val DarkRoomMaxLuminance = 0.065f
 private const val TAU = (2.0 * Math.PI).toFloat()
 
 /** Room points as fractions of the field: corners, edge midpoints, a touch outside. */

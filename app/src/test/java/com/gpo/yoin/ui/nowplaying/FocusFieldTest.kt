@@ -47,7 +47,7 @@ class FocusFieldTest {
         assertTrue(hsl[2] in 0.70f..0.94f)
 
         argbToHsl(toneForRoom(argb(250, 250, 250), dark = true), hsl)
-        assertTrue(hsl[2] <= 0.13f + 0.42f + 0.001f)
+        assertTrue(hsl[2] <= DarkRoomFloor + DarkRoomSpan + 0.001f)
     }
 
     @Test
@@ -59,7 +59,7 @@ class FocusFieldTest {
         val limeLightness = hsl[2]
         argbToHsl(red, hsl)
         // Same hue kept, but the lime sits lower than HSL alone would put it.
-        assertTrue(limeLightness < 0.13f + 0.42f * 0.55f + 0.12f)
+        assertTrue(limeLightness < DarkRoomFloor + DarkRoomSpan * 0.55f + 0.12f)
         assertTrue(((lime shr 8) and 0xFF) < 170)
         assertTrue(hsl[2] > 0.25f)
     }

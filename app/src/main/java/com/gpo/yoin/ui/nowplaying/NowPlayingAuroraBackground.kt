@@ -746,7 +746,8 @@ private fun DrawScope.drawLineBand(colors: WashColors, y: Float, b: Float, dark:
     val w = size.width
     val env = sin(PI.toFloat() * b).pow(1.5f)
     val grow = 0.85f + 0.15f * (1f - (1f - b).pow(3))
-    val a = (if (dark) 0.34f else 0.26f) * env
+    // A touch denser than the lab's .34 / .26 (owner 2026-11-03: "可以稍微浓一点点").
+    val a = (if (dark) 0.42f else 0.34f) * env
     val radius = w * 0.36f * grow
     listOf(Triple(colors.k1, -0.18f, 1f), Triple(colors.k3, 0.22f, 0.8f)).forEach { (color, offset, m) ->
         val center = Offset(w * (0.5f + offset), y)
