@@ -17,6 +17,10 @@ struct SectionContent: View {
                                             removal: .move(edge: .trailing).combined(with: .opacity)))
             }
         }
+        // The bar's safeAreaBar doesn't reach the root pages' scroll views
+        // inside the stack, so the last row ended under it. Reserve the bar
+        // (60 + 2 bottom padding) here, as Android pads its root lists.
+        .safeAreaPadding(.bottom, 62)
         .background(Yoin.surface)
     }
 }
