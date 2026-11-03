@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.ColorUtils
-import androidx.palette.graphics.Palette
 import coil3.SingletonImageLoader
 import coil3.request.ErrorResult
 import coil3.request.ImageRequest
@@ -22,6 +21,7 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
+import com.gpo.yoin.shared.palette.Palette
 import com.gpo.yoin.ui.theme.CoverSeedExtractor
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -262,10 +262,7 @@ internal fun extractBackdropColors(bitmap: Bitmap): ExpressiveBackdropColors? {
     CoverSeedExtractor.seedSwatch(palette)?.let { seed ->
         return backdropColorsFrom(Color(seed.rgb), palette.accentCandidates())
     }
-    val unfiltered = Palette.from(bitmap)
-        .maximumColorCount(BackdropFallbackColorCount)
-        .clearFilters()
-        .generate()
+    val unfiltered = CoverSeedExtractor.palette(bitmap, BackdropFallbackColorCount, filters = emptyList())
     val swatch = unfiltered.vibrantSwatch
         ?: unfiltered.dominantSwatch
         ?: unfiltered.mutedSwatch

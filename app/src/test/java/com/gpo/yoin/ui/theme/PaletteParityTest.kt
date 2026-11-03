@@ -58,6 +58,20 @@ class PaletteParityTest {
         }
     }
 
+    @Test
+    fun should_match_androidx_palette_when_called_through_cover_seed_extractor() {
+        (names() + generatedImages()).forEach { (name, bitmap) ->
+            val expected = AndroidxPalette.from(bitmap).maximumColorCount(16).generate()
+            val actual = CoverSeedExtractor.palette(bitmap)
+            assertSame(name, expected, actual)
+            assertEquals(
+                "$name: seed",
+                (expected.vibrantSwatch ?: expected.dominantSwatch ?: expected.mutedSwatch)?.rgb,
+                CoverSeedExtractor.seedSwatch(actual)?.rgb,
+            )
+        }
+    }
+
     private fun names(): List<Pair<String, Bitmap>> = (1..12).map { "al$it" to mockCover("al$it") }
 
     private fun assertParity(name: String, bitmap: Bitmap) {

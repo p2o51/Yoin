@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.palette.graphics.Palette
+import com.gpo.yoin.shared.palette.Palette
 import com.gpo.yoin.ui.memories.copy.MemoryScores
 import com.gpo.yoin.ui.memories.emblem.GrooveAwardMode
 import com.gpo.yoin.ui.memories.emblem.GrooveAwardState

@@ -241,8 +241,7 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Palette & Shapes
-    implementation(libs.palette)
+    // Shapes. (Palette runs on the :shared port; androidx.palette stays for PaletteParityTest.)
     implementation(libs.graphics.shapes)
 
     // Home-screen widgets
@@ -262,6 +261,7 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
+    testImplementation(libs.palette)
     testImplementation(composeBom)
     testImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.compose.ui.test.junit4)
