@@ -1,10 +1,13 @@
 import SwiftUI
+import YoinShared
 
 /// Pushed pages on the phone's NavigationStack.
 enum Route: Hashable {
     case album(Album)
-    case artist(String)
+    case artist(ArtistRef)
     case playlist(String)
+    /// Server sign-in (from the account avatar).
+    case settings
 }
 
 enum ShellSection: Hashable {
@@ -40,7 +43,13 @@ final class AppModel {
     /// Search surface open (from the bar's search circle).
     var searchActive = false
     /// Nothing playing: the bar folds the pill away (Android idle bar).
-    var isIdle = false
+    /// Signed in, that is whenever the engine has no song (the mock song is
+    /// only for the signed-out screenshots).
+    var isIdle: Bool {
+        get { mockIdle || (store.isReal && player.currentTrack == nil) }
+        set { mockIdle = newValue }
+    }
+    private var mockIdle = false
     /// The mock snapshot the `-screen` screenshots render while the engine's
     /// queue is empty.
     var mockPlayback: PlaybackSnapshot
@@ -50,6 +59,9 @@ final class AppModel {
     /// The signed-in Subsonic server (shared Kotlin client); signed out =
     /// the mock library, as the screenshots use.
     let session = ServerSession()
+    /// What the screens read from that server (signed out: nothing; the
+    /// screens fall back to the mock library).
+    let store: LibraryStore
     /// Queue sheet on Now Playing.
     var queueSheetOpen = false
 
@@ -60,26 +72,36 @@ final class AppModel {
     var playback: PlaybackSnapshot {
         get {
             guard let t = player.currentTrack else { return mockPlayback }
-            return PlaybackSnapshot(album: Self.album(for: t, library: library), track: Self.track(for: t),
+            return PlaybackSnapshot(album: store.albumForPlaying(t) ?? Self.album(for: t, library: library),
+                                    track: Self.track(for: t),
                                     positionSec: 0, isPlaying: player.isPlaying,
                                     lyricLine: "", nextLyricLine: "")
         }
         set { mockPlayback = newValue }
     }
 
-    /// The engine's song as the UI's Album: real titles, colors borrowed from
-    /// a mock cover (stable per album) until real cover art lands.
+    /// The engine's song as the UI's Album: real titles and the song's own
+    /// cover (colors read off it); with no cover URL, colors borrowed from a
+    /// mock cover (stable per album).
     static func album(for t: PlayableTrack, library: any MusicLibrary) -> Album {
         let key = t.albumId ?? t.album
-        let mocks = library.albums()
-        let look = mocks[key.unicodeScalars.reduce(0) { $0 + Int($1.value) } % max(mocks.count, 1)]
+        let palette: CoverPalette
+        if let url = t.coverURL {
+            let ref = CoverRef(url: url)
+            let (a, b, c) = SubsonicMapping.placeholder(ref.key)
+            palette = CoverPalette(a: a, b: b, c: c, cover: ref)
+        } else {
+            let mocks = library.albums()
+            palette = mocks[key.unicodeScalars.reduce(0) { $0 + Int($1.value) } % max(mocks.count, 1)].palette
+        }
         return Album(id: MediaId(provider: t.provider, rawId: key), title: t.album, artist: t.artist,
-                     year: 0, palette: look.palette, tracks: [track(for: t)])
+                     year: 0, palette: palette, tracks: [track(for: t)])
     }
 
     static func track(for t: PlayableTrack) -> Track {
         Track(id: MediaId(provider: t.provider, rawId: t.id), number: 1, title: t.title,
-              durationSec: max(1, Int(t.durationSec.rounded())))
+              durationSec: max(1, Int(t.durationSec.rounded())),
+              rating: t.userRating.flatMap { $0 > 0 ? Double($0 * 2) : nil }, starred: t.starred ?? false)
     }
 
     init(library: any MusicLibrary = MockLibrary.shared, playback: any PlaybackSource = MockLibrary.shared) {
@@ -87,10 +109,12 @@ final class AppModel {
         self.playbackSource = playback
         self.mockPlayback = playback.current()
         self.playbackSystem = PlaybackSystem.live()
+        self.store = LibraryStore(session: session)
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
-        case "library-albums", "library-songs", "library-scroller": section = .library
+        case "library-albums", "library-songs", "library-scroller", "library-artists", "library-playlists",
+             "library-favorites": section = .library
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
         case "np", "np-touch": npExpanded = true
         case "np-queue": npExpanded = true; queueSheetOpen = true
@@ -100,7 +124,7 @@ final class AppModel {
         case "np-morph-close": slowMorph = true; npExpanded = true
         case "np-panel": npPanel = true
         case "landing": showLanding = true
-        case "artist", "artist-bottom": path = [.artist("Mina Asahi")]
+        case "artist", "artist-bottom": path = [.artist(ArtistRef("Mina Asahi"))]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
         case "search", "search-results", "search-catalog", "search-albums", "search-songs": searchActive = true
@@ -109,8 +133,54 @@ final class AppModel {
         default: break
         }
         padSelection = library.albums()[0]
-        DemoQueue.startIfRequested(player)
+        let store = store
+        player.onScrobble = { track, submission in store.scrobble(track, submission: submission) }
+        #if DEBUG
+        signInFromLaunchArguments()
+        #endif
     }
+
+    #if DEBUG
+    /// Debug builds: `-subsonicURL http://127.0.0.1:4979 -subsonicUser demo
+    /// -subsonicPass demo` signs in on launch (the screen's own path, minus
+    /// typing). `-subsonicSignOut YES` signs out. Never in release builds.
+    private func signInFromLaunchArguments() {
+        let d = UserDefaults.standard
+        if d.bool(forKey: "subsonicSignOut") { session.signOut() }
+        guard let url = d.string(forKey: "subsonicURL") else { return }
+        let user = d.string(forKey: "subsonicUser") ?? ""
+        let pass = d.string(forKey: "subsonicPass") ?? ""
+        let route = d.string(forKey: "serverRoute")
+        let play = d.string(forKey: "serverPlay")
+        Task {
+            guard await session.signIn(baseUrl: url, username: user, password: pass) else { return }
+            // Screenshots of server pages: `-serverRoute album:<id>` (artist:, playlist:),
+            // `-serverPlay album:<id>` starts that album (pair with -silentAudio YES).
+            try? await Task.sleep(for: .milliseconds(300))
+            if let play, play.hasPrefix("album:") {
+                let id = String(play.dropFirst(6))
+                await store.loadAlbum(id)
+                if let a = store.album(id) { self.play(a.tracks.map { PlaylistEntry(album: a, track: $0) }) }
+                if d.bool(forKey: "serverOpenNowPlaying") {
+                    try? await Task.sleep(for: .seconds(1))
+                    setNowPlaying(expanded: true)
+                }
+            }
+            guard let route else { return }
+            let colon = route.firstIndex(of: ":") ?? route.endIndex
+            let kind = route[..<colon], id = colon == route.endIndex ? "" : String(route[route.index(after: colon)...])
+            switch kind {
+            case "album":
+                await store.loadAlbum(id)
+                if let a = store.album(id) { path = [.album(a)] }
+            case "artist": path = [.artist(ArtistRef("", id: id))]
+            case "playlist": path = [.playlist(id)]
+            case "settings": path = [.settings]
+            default: break
+            }
+        }
+    }
+    #endif
 
     /// Accent for the whole app: the playing cover's color, Yoin violet when idle.
     var accent: Color { isIdle ? Yoin.violet : playback.album.palette.tint }
@@ -123,9 +193,9 @@ final class AppModel {
         if isPad { return padSelection }
         switch path.last {
         case .album(let a): return a
-        case .artist(let name): return MockLibrary.shared.releases(by: name).first
-        case .playlist(let id): return MockLibrary.shared.playlist(id).asAlbum
-        case nil: return nil
+        case .artist(let ref): return artistPage(ref).releases.first
+        case .playlist(let id): return playlistInfo(id).asAlbum
+        case .settings, nil: return nil
         }
     }
 
@@ -149,8 +219,79 @@ final class AppModel {
         path.append(.playlist(id))
     }
 
-    func openArtist(_ name: String) {
-        path.append(.artist(name))
+    func openArtist(_ name: String, id: String? = nil) {
+        path.append(.artist(ArtistRef(name, id: id)))
+    }
+
+    func openSettings() {
+        path.append(.settings)
+    }
+
+    // MARK: Pages' data (server when signed in, else the mock)
+
+    /// An album with the most the app knows: the server's detail when loaded.
+    func resolved(_ album: Album) -> Album {
+        guard album.id.provider != "mock" else { return album }
+        return store.album(album.id.rawId) ?? album
+    }
+
+    func artistPage(_ ref: ArtistRef) -> ArtistPage {
+        if store.isReal, let id = ref.id {
+            return store.artistPage(id)
+                ?? ArtistPage(id: MediaId(provider: MediaRef.companion.PROVIDER_SUBSONIC, rawId: id), name: ref.name,
+                              starred: false, palette: SubsonicMapping(client: store.client!).palette(coverId: nil),
+                              releases: [], mostPlayed: [])
+        }
+        return MockLibrary.shared.artistPage(ref.name)
+    }
+
+    func playlistInfo(_ id: String) -> PlaylistInfo {
+        guard store.isReal else { return MockLibrary.shared.playlist(id) }
+        if let loaded = store.playlist(id) { return loaded }
+        let row = store.playlistSummary(id)
+        let palette = row?.palette ?? SubsonicMapping(client: store.client!).palette(coverId: id)
+        return PlaylistInfo(id: MediaId(provider: MediaRef.companion.PROVIDER_SUBSONIC, rawId: id),
+                            title: row?.title ?? "", owner: "", isPublic: nil, description: nil,
+                            palette: palette, entries: [])
+    }
+
+    // MARK: Playing server songs
+
+    /// Replaces the queue with [entries] and plays [startAt]; shuffle on or off.
+    func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false) {
+        let tracks = entries.compactMap(store.playable)
+        guard !tracks.isEmpty else { return }
+        player.setShuffle(shuffle)
+        player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1))
+    }
+
+    /// Play next (stacked so the list keeps its order) or Add to queue.
+    func enqueue(_ entries: [PlaylistEntry], next: Bool) {
+        let tracks = entries.compactMap(store.playable)
+        guard !tracks.isEmpty else { return }
+        guard player.currentTrack != nil else { return play(entries) }
+        if next { tracks.reversed().forEach(player.playNext) } else { tracks.forEach(player.addToQueue) }
+    }
+
+    /// What the detail bar's Play acts on: the album page's tracks, the
+    /// playlist's entries, the artist's Most Played (else newest release).
+    func detailEntries() async -> [PlaylistEntry] {
+        switch path.last {
+        case .album(let a):
+            let full = await store.fullAlbum(resolved(a))
+            return full.tracks.map { PlaylistEntry(album: full, track: $0) }
+        case .playlist(let id):
+            await store.loadPlaylist(id)
+            return playlistInfo(id).entries
+        case .artist(let ref):
+            let page = artistPage(ref)
+            if !page.mostPlayed.isEmpty { return page.mostPlayed }
+            guard let first = page.releases.first else { return [] }
+            let full = await store.fullAlbum(first)
+            return full.tracks.map { PlaylistEntry(album: full, track: $0) }
+        case .settings, nil:
+            return []
+        }
     }
 
     /// Glass Lab cover picker: play this album's first track at the same progress.

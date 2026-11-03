@@ -45,11 +45,14 @@ struct PhoneShell: View {
                         case .album(let album):
                             AlbumDetailView(album: album)
                                 .navigationTransition(.zoom(sourceID: album.id, in: zoomNS))
-                        case .artist(let name):
-                            ArtistDetailView(artist: name)
+                        case .artist(let ref):
+                            ArtistDetailView(ref: ref)
                         case .playlist(let id):
-                            let info = MockLibrary.shared.playlist(id)
+                            let info = model.playlistInfo(id)
                             AlbumDetailView(album: info.asAlbum, playlist: info)
+                                .task(id: "\(model.store.generation)|\(id)") { await model.store.loadPlaylist(id) }
+                        case .settings:
+                            ServerSettingsView()
                         }
                     }
             }
