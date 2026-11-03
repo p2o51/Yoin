@@ -62,47 +62,6 @@ extension Album {
     var seed: Int { id.rawId.unicodeScalars.reduce(0) { $0 + Int($1.value) } % 7 }
 }
 
-/// MaterialShapes.Bun (Android's album backdrop): a squared stack of two
-/// lobes with a pinched waist. Drawn from MaterialShapes' Bun points
-/// (waist at x 0.796, lobe edge 0.992 at y 0.631, mirrored), corners eased by
-/// hand rather than RoundedPolygon smoothing.
-struct BunShape: Shape {
-    func path(in r: CGRect) -> Path {
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * r.width, y: r.minY + y * r.height) }
-        var path = Path()
-        path.move(to: p(0.5, 0))
-        path.addLine(to: p(0.78, 0))
-        path.addCurve(to: p(0.99, 0.30), control1: p(0.97, 0), control2: p(1.0, 0.12))
-        path.addCurve(to: p(0.796, 0.5), control1: p(0.985, 0.42), control2: p(0.86, 0.46))
-        path.addCurve(to: p(0.99, 0.70), control1: p(0.86, 0.54), control2: p(0.985, 0.58))
-        path.addCurve(to: p(0.78, 1), control1: p(1.0, 0.88), control2: p(0.97, 1))
-        path.addLine(to: p(0.22, 1))
-        path.addCurve(to: p(0.01, 0.70), control1: p(0.03, 1), control2: p(0, 0.88))
-        path.addCurve(to: p(0.204, 0.5), control1: p(0.015, 0.58), control2: p(0.14, 0.54))
-        path.addCurve(to: p(0.01, 0.30), control1: p(0.14, 0.46), control2: p(0.015, 0.42))
-        path.addCurve(to: p(0.22, 0), control1: p(0, 0.12), control2: p(0.03, 0))
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// MaterialShapes.Ghostish (playlist backdrop), approximated: round head,
-/// straight sides, a three-lobed hem.
-struct GhostishShape: Shape {
-    func path(in r: CGRect) -> Path {
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * r.width, y: r.minY + y * r.height) }
-        var path = Path()
-        path.move(to: p(0, 0.5))
-        path.addArc(center: p(0.5, 0.5), radius: r.width / 2, startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
-        path.addLine(to: p(1, 0.9))
-        path.addQuadCurve(to: p(0.667, 0.9), control: p(0.833, 1.1))
-        path.addQuadCurve(to: p(0.333, 0.9), control: p(0.5, 1.1))
-        path.addQuadCurve(to: p(0, 0.9), control: p(0.167, 1.1))
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// Android ExpressiveBackdropPalette: base and accent tones from the cover.
 struct BackdropColors {
     var base: Color
@@ -133,31 +92,30 @@ struct BackdropColors {
     }
 }
 
-/// Android entity backdrop: the cover sits at 0.72 of a shape filled with the
-/// backdrop base, bottom-end aligned (HomeWidgetGrid.kt:880-980).
+/// Home cover on iOS. Android puts covers on MaterialShapes backdrops (Bun,
+/// Ghostish); iOS music apps show the bare cover, so here it is a square with
+/// a continuous corner that scales with size (≈ 11 pt at 170, 6 pt at 56), a
+/// hairline inner stroke so light covers don't melt into the page, and a soft
+/// shadow tinted with the cover. Artists stay circles.
 struct EntityBackdrop: View {
     enum Entity { case album, song, playlist, artist }
     var entity: Entity
     var palette: CoverPalette
     var seed: Int
     var size: CGFloat
+    var stroke: Color = .black
+
+    static func corner(_ size: CGFloat) -> CGFloat { 3 + size * 0.045 }
 
     var body: some View {
-        let base = BackdropColors(palette).base
-        ZStack(alignment: .bottomTrailing) {
-            switch entity {
-            case .album: BunShape().fill(base)
-            case .song: Circle().fill(base)
-            case .playlist: GhostishShape().fill(base)
-            case .artist: Color.clear
+        let r = entity == .artist ? size / 2 : Self.corner(size)
+        CoverArt(palette: palette, cornerRadius: 0, seed: seed)
+            .frame(width: size, height: size)
+            .clipShape(.rect(cornerRadius: r, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: r, style: .continuous)
+                    .strokeBorder(stroke.opacity(0.08), lineWidth: 0.5)
             }
-            if entity == .artist {
-                CoverArt(palette: palette, cornerRadius: size, seed: seed)
-            } else {
-                CoverArt(palette: palette, cornerRadius: 4, seed: seed)
-                    .frame(width: size * 0.72, height: size * 0.72)
-            }
-        }
-        .frame(width: size, height: size)
+            .shadow(color: palette.a.opacity(0.22), radius: 8, y: 6)
     }
 }

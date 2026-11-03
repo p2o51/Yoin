@@ -25,8 +25,8 @@ struct HomeView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
         }
         .contentMargins(.bottom, 108, for: .scrollContent)
-        // `-screen home-bottom` opens scrolled to the end (screenshots).
-        .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
+        // `-screen home-bottom` / `home-tile-bottom` open scrolled to the end (screenshots).
+        .defaultScrollAnchor(LaunchConfig.screen.hasSuffix("-bottom") ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
@@ -197,7 +197,7 @@ extension EnvironmentValues {
 }
 
 /// Android card wash: container = lerp(surfaceContainerLow, backdrop base, 0.30).
-private func cardWash(_ scheme: CoverScheme, _ palette: CoverPalette) -> Color {
+func cardWash(_ scheme: CoverScheme, _ palette: CoverPalette) -> Color {
     scheme.surfaceContainerLow.mix(with: BackdropColors(palette).base, by: 0.30, in: .perceptual)
 }
 
@@ -246,7 +246,7 @@ private struct HeroCard: View {
         let muted = s.onSurfaceVariant
         Button { model.open(album) } label: {
             HStack(spacing: 14) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 96)
+                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
                     .zoomSource(album.id, zoomNS)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(timeAgo).font(.gsf(11, .medium)).foregroundStyle(muted)
@@ -279,7 +279,7 @@ private struct SmallCard: View {
         Button { model.open(album) } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .top, spacing: 10) {
-                    EntityBackdrop(entity: entity, palette: album.palette, seed: album.seed, size: 48)
+                    EntityBackdrop(entity: entity, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(typeLabel)
                         Text(timeAgo)
@@ -314,7 +314,7 @@ private struct WideCard: View {
         let s = scheme!
         Button { model.open(album) } label: {
             HStack(spacing: 12) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 80)
+                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
                     .zoomSource(album.id, zoomNS)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(timeAgo).font(.gsf(11, .medium)).foregroundStyle(s.onSurfaceVariant)
@@ -370,24 +370,15 @@ private struct JBICell: View {
     var body: some View {
         let s = scheme!
         Button { model.open(album) } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 100)
-                    .zoomSource(album.id, zoomNS)
-                    .overlay(alignment: .topTrailing) {
-                        if let mark { markView(mark, ink: BackdropColors(album.palette).base, bg: s.background) }
-                    }
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(album.title).font(.gsf(16, .semibold)).foregroundStyle(s.onSurface)
-                    Text(album.artist).font(.gsf(12)).foregroundStyle(s.onSurfaceVariant)
-                }
-                .lineLimit(1)
+            AlbumItem(album: album, size: 100) {
+                if let mark { markView(mark, ink: BackdropColors(album.palette).base, bg: s.background) }
             }
+            .zoomSource(album.id, zoomNS)
         }
         .buttonStyle(PressScale())
     }
 
-    /// Centered on the artwork's top-end corner (artwork = 0.72 of the box,
-    /// bottom-end aligned), lifted 8 dp.
+    /// Memory mark: 16 dp disc + 12 dp Cookie12Sided, on the cover's top-trailing corner.
     private func markView(_ m: MemoryMark, ink: Color, bg: Color) -> some View {
         ZStack {
             Circle().fill(bg).frame(width: 16, height: 16)
@@ -400,8 +391,56 @@ private struct JBICell: View {
                     .frame(width: 11, height: 11)
             }
         }
-        // design.md: center on the artwork's top edge, right edge flush with it.
-        .offset(x: 0, y: 28 - 8)
+        .padding(8)
+    }
+}
+
+/// One album on Home: cover plus title (GSF SemiBold, ROND 100) and artist.
+/// A (default): bare cover on the page. B (`-homeAlbum tile`): the text sits in
+/// a light tile of the cover color under the cover, same corner family.
+struct AlbumItem<Mark: View>: View {
+    @Environment(\.homeScheme) private var scheme
+    var album: Album
+    var size: CGFloat
+    var titleSize: CGFloat = 16
+    @ViewBuilder var mark: () -> Mark
+
+    var body: some View {
+        let s = scheme!
+        let tile = LaunchConfig.homeAlbumTile
+        VStack(alignment: .leading, spacing: tile ? 0 : 6) {
+            EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: size, stroke: s.primary)
+                .overlay(alignment: .topTrailing) { mark() }
+            VStack(alignment: .leading, spacing: 0) {
+                Text(album.title)
+                    .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
+                    .foregroundStyle(s.onSurface)
+                Text(album.artist)
+                    .font(.gsf(titleSize - 4))
+                    .foregroundStyle(s.onSurfaceVariant)
+            }
+            .lineLimit(1)
+            .padding(.horizontal, tile ? 8 : 0)
+            .padding(.top, tile ? 8 : 0)
+            .padding(.bottom, tile ? 9 : 0)
+            .frame(width: size, alignment: .leading)
+        }
+        .background {
+            if tile {
+                UnevenRoundedRectangle(topLeadingRadius: EntityBackdrop.corner(size),
+                                       bottomLeadingRadius: EntityBackdrop.corner(size),
+                                       bottomTrailingRadius: EntityBackdrop.corner(size),
+                                       topTrailingRadius: EntityBackdrop.corner(size), style: .continuous)
+                    .fill(cardWash(s, album.palette))
+            }
+        }
+        .frame(width: size, alignment: .leading)
+    }
+}
+
+extension AlbumItem where Mark == EmptyView {
+    init(album: Album, size: CGFloat, titleSize: CGFloat = 16) {
+        self.init(album: album, size: size, titleSize: titleSize) { EmptyView() }
     }
 }
 
@@ -418,11 +457,12 @@ private struct SignalCard: View {
         Button { model.open(album) } label: {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
-                    EntityBackdrop(entity: kind == .ratedAlbum ? .album : .song,
-                                   palette: album.palette, seed: album.seed, size: 100)
+                    EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 100,
+                                   stroke: s.primary)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(kind == .ratedAlbum ? album.title : album.tracks[0].title)
-                            .font(.gsf(16, .semibold)).foregroundStyle(s.onSurface)
+                            .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
+                            .foregroundStyle(s.onSurface)
                         Text(album.artist).font(.gsf(12)).foregroundStyle(s.onSurfaceVariant)
                     }
                     .lineLimit(1)
@@ -482,21 +522,11 @@ private struct TrackTile: View {
 
 private struct AlbumMini: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.homeScheme) private var scheme
     var album: Album
 
     var body: some View {
-        let s = scheme!
         Button { model.open(album) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 82)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(album.title).font(.gsf(12, .medium)).foregroundStyle(s.onSurface)
-                    Text(album.artist).font(.gsf(11, .medium)).foregroundStyle(s.onSurfaceVariant)
-                }
-                .lineLimit(1)
-            }
-            .frame(width: 82, alignment: .leading)
+            AlbumItem(album: album, size: 100, titleSize: 14)
         }
         .buttonStyle(PressScale())
     }
@@ -519,7 +549,7 @@ private struct RediscoverCard: View {
         let container = cardWash(s, album.palette)
         Button { model.open(album) } label: {
             HStack(spacing: 14) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104)
+                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
                     .overlay(alignment: .bottomTrailing) {
                         if let score {
                             Text(String(format: "%.1f", score))

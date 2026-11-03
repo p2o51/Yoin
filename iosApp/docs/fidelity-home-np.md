@@ -57,7 +57,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 | Small card | HomeEditorialContent.kt:2115-2192 | (C − 10)/3 × 118; padding 10; 48 backdrop + type/time labelSmall; title titleSmall SemiBold, 2 lines | Same |
 | Wide card | HomeEditorialContent.kt:2195-2262 | 118 tall; padding 12; 80 backdrop; gap 2 | Same |
 | Strip | HomeEditorialContent.kt:2265-2330 | Pill, padding 16×12; title bodyMedium SemiBold; 12 gap; subtitle at 60%; timeAgo at the end | Same (fill: low container mixed 10% with primary) |
-| Entity backdrop | HomeWidgetGrid.kt:880-980 | Album = MaterialShapes.Bun, Song = Circle, Playlist = Ghostish; artwork 0.72, bottom-end, Thumb 4 | `BunShape` drawn from MaterialShapes' Bun points; `GhostishShape` approximated |
+| Entity backdrop | HomeWidgetGrid.kt:880-980 | Album = MaterialShapes.Bun, Song = Circle, Playlist = Ghostish; artwork 0.72, bottom-end, Thumb 4 | **iOS change:** no backdrop shape. Bare square cover, continuous corner 3 + 0.045 × size (≈ 7.5 at 100, 11 at 170), 0.5 inner stroke in primary at 8%, cover-tinted shadow (22%, y 6, blur 16). Artists stay circles. Activities/Rediscover covers grow into the space the shape took (hero 104, small 52, wide 88, Rediscover 104) |
 | JBI grid | HomeWidgetGrid.kt:205, 473-512 | 3 columns, column gap 12, row gap 16. Signal cards alternate sides (wide-left, then compact-left) | Same packing |
 | JBI 1×1 | HomeWidgetGrid.kt:772-868 | Backdrop max 100; 5 gap; title titleMedium SemiBold 16/22; subtitle bodySmall 12 | Same |
 | 1×2 signal | HomeWidgetGrid.kt:608-755 | 100 cover block; 16 gap; score headlineSmall Bold tabular in ink; basis labelSmall at 85%; comment titleMedium SemiBold 17 (rated album) or bodyMedium (noted track), 3 lines | Same |
@@ -67,6 +67,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 
 ## iOS-only decisions
 
+- **Home album items:** Mobbin check (Apple Music, Spotify, YouTube Music, Deezer, SoundCloud): iOS music apps show bare square covers with 1–2 lines of text, never a shape behind them. A (default) is the bare cover with the title in GSF SemiBold ROND 100. B (`-homeAlbum tile`, `-screen home-tile`) puts the text in a light cover-tinted tile under the cover. The memory mark sits on the cover's top-trailing corner, inset 8. The Rediscover score stays a solid capsule.
 - **Bottom bar:** stays Liquid Glass (Home · Now Playing pill · Library + Search circle), not Android's 68 dp surfaceContainerHigh bar.
 - **Opening Now Playing:** the full page grows out of the bar's pill (matched geometry), with a 62 pt radius so it lands on the screen's own corners.
 - **Now Playing background:** frosted glass over the current cover's color, with the previous album's color at the top edge and the next album's at the bottom. Android uses a surfaceContainer → background gradient; the iPad panel keeps that gradient.
