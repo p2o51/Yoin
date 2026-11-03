@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -1560,21 +1559,36 @@ private fun AlbumTrackList(
         }
         // Index-qualified: a provider can list the same track twice on one
         // album (seen on Apple Music), and a repeated lazy key is fatal.
-        itemsIndexed(content.songs, key = { index, song -> "${song.id}#$index" }) { index, song ->
-            AlbumTrackRow(
-                index = index,
-                song = song,
-                hasNote = song.id in notedSongIds,
-                isNowPlaying = song.id == currentTrackId,
-                isPlaying = isPlaying,
-                accent = accent,
-                onClick = { onSongClick(song.id) },
-                // Long-press opens the song sheet; notes live on the Scrapbook page now.
-                onLongClick = { if (trackMenu != null) menuSongId = song.id },
-                onToggleStar = { onToggleStar(song.id) },
-                showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
-                modifier = Modifier.seamFade(),
-            )
+        val discs = content.songs.mapNotNullTo(mutableSetOf()) { it.discNumber }
+        content.songs.forEachIndexed { index, song ->
+            // A multi-disc album: each disc opens with its number.
+            val disc = song.discNumber
+            if (discs.size > 1 && disc != null && content.songs.getOrNull(index - 1)?.discNumber != disc) {
+                item(key = "disc-$disc#$index") {
+                    AlbumDiscHeading(
+                        disc = disc,
+                        modifier = Modifier
+                            .padding(start = 8.dp, top = if (index == 0) 0.dp else 16.dp, bottom = 6.dp)
+                            .seamFade(),
+                    )
+                }
+            }
+            item(key = "${song.id}#$index") {
+                AlbumTrackRow(
+                    index = index,
+                    song = song,
+                    hasNote = song.id in notedSongIds,
+                    isNowPlaying = song.id == currentTrackId,
+                    isPlaying = isPlaying,
+                    accent = accent,
+                    onClick = { onSongClick(song.id) },
+                    // Long-press opens the song sheet; notes live on the Scrapbook page now.
+                    onLongClick = { if (trackMenu != null) menuSongId = song.id },
+                    onToggleStar = { onToggleStar(song.id) },
+                    showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
+                    modifier = Modifier.seamFade(),
+                )
+            }
         }
         if (footer != null) {
             item(key = "album-liner-notes") {

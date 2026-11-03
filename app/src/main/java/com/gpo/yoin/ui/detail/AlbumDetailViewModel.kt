@@ -764,6 +764,7 @@ private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
     title = title.orEmpty(),
     artist = artist.orEmpty(),
     trackNumber = trackNumber,
+    discNumber = discNumber,
     duration = durationSec,
     isStarred = isStarred,
     isUnavailable = isUnplayableAppleImport,

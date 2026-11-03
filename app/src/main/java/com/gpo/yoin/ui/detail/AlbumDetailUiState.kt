@@ -95,6 +95,8 @@ data class AlbumSong(
     val trackNumber: Int?,
     val duration: Int?,
     val isStarred: Boolean,
+    /** 1-based disc of a multi-disc album; null when the service doesn't say. */
+    val discNumber: Int? = null,
     /**
      * 单曲主唱与专辑歌手不一致时的 feat. 名字（取单曲主唱）；一致或缺失为 null。
      * 注意 Spotify 多歌手在 mapper 处已被收敛成首位主唱，这里只是个粗略信号。

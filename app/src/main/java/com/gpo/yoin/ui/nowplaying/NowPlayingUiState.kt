@@ -96,6 +96,10 @@ sealed interface NowPlayingUiState {
         val libraryActionInFlight: Boolean = false,
         /** What a Subsonic server says about the song (format, quality, its own rating…), for the spine. */
         val spineFacts: SpineSourceFacts? = null,
+        /** The format tags of what is playing ("FLAC 24/96", "5.1"); empty where nothing is known. */
+        val formatTags: List<String> = emptyList(),
+        /** The file's codec tag while a transcode of it plays; null otherwise. */
+        val transcodedFrom: String? = null,
         /** The next song's timed lyrics, fetched ahead for the outro hand-over. */
         val upNextLyrics: UpNextLyrics? = null,
     ) : NowPlayingUiState

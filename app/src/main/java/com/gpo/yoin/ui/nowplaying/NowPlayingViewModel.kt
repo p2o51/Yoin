@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.transcodedFrom
+import com.gpo.yoin.ui.component.playingFormatTags
+import com.gpo.yoin.player.PlaybackService
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -473,7 +476,7 @@ class NowPlayingViewModel(
         )
     }
 
-    val uiState: StateFlow<NowPlayingUiState> = combine(
+    private val baseUiState = combine(
         playbackAndContext,
         lyricsUiState,
         ratingFlow,
@@ -568,7 +571,34 @@ class NowPlayingViewModel(
 
             else -> NowPlayingUiState.Idle
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NowPlayingUiState.Idle)
+    }
+
+    val uiState: StateFlow<NowPlayingUiState> = combine(
+        baseUiState,
+        playbackAndContext,
+        PlaybackService.playingFormat,
+        PlaybackService.usingDlna,
+    ) { base, (state, _), playing, dlna ->
+        val song = state.currentTrack
+        if (base !is NowPlayingUiState.Playing || song == null) return@combine base
+        // A speaker plays the queued url (the file): only the server's word.
+        val decoded = playing?.takeIf { !dlna && it.mediaId == song.id.toString() }?.decoded
+        val delivery = if (dlna || song.id.provider != MediaId.PROVIDER_SUBSONIC) {
+            null
+        } else {
+            PlaybackService.streamDeliveryFor(song.id.rawId)?.takeIf { it.transcoded }
+        }
+        base.copy(
+            formatTags = playingFormatTags(
+                source = song.audioFormat,
+                decoded = decoded,
+                transcodeFormat = delivery?.format,
+                transcodeKbps = delivery?.maxBitRateKbps,
+            ),
+            transcodedFrom = transcodedFrom(song.audioFormat, delivery?.maxBitRateKbps),
+        )
+    }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NowPlayingUiState.Idle)
 
     /**
      * 4Hz playhead position, deliberately kept OUT of [uiState] (see

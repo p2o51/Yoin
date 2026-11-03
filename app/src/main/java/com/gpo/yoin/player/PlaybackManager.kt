@@ -1011,7 +1011,11 @@ class PlaybackManager(
                 pendingTrack = null,
                 isPlaying = player.isPlaying,
                 position = player.currentPosition.coerceAtLeast(0L),
-                duration = player.duration.coerceAtLeast(0L),
+                // A stream the extractor can't size (a transcode without a
+                // length) has no duration of its own: the song's is the answer.
+                duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L }
+                    ?: resolved?.durationSec?.times(1_000L)
+                    ?: 0L,
                 bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
                 queue = queue,
                 currentIndex = currentIndex,
@@ -1340,6 +1344,9 @@ class PlaybackManager(
                 null // DRM streams never become URLs or enter ExoPlayer's cache.
             }
         }
+        if (handle is PlaybackHandle.DirectStream && track.id.provider == MediaId.PROVIDER_SUBSONIC) {
+            SubsonicSourceBitrates.record(track.id.rawId, track.audioFormat?.bitRateKbps)
+        }
         val artworkUri = track.coverArt
             ?.let { ref -> source.resolveCoverUrl(ref) }
             ?.let(Uri::parse)
@@ -1361,6 +1368,13 @@ class PlaybackManager(
             putString(EXTRA_GENRE, track.genre)
             putBoolean(EXTRA_STARRED, track.isStarred)
             track.userRating?.let { putInt(EXTRA_USER_RATING, it) }
+            track.discNumber?.let { putInt(EXTRA_DISC_NUMBER, it) }
+            track.audioFormat?.let { putBundle(EXTRA_AUDIO_FORMAT, it.toBundle()) }
+            // The service's own facts (credited artists, the Subsonic file's
+            // suffix and size), so the playing song keeps them.
+            if (track.extras.isNotEmpty()) {
+                putBundle(EXTRA_TRACK_EXTRAS, Bundle().apply { track.extras.forEach(::putString) })
+            }
             // The queue sheet's handles on this entry: a stable key through
             // moves, and whether the user added it (Spotify's "Next in queue").
             putString(EXTRA_QUEUE_ENTRY, java.util.UUID.randomUUID().toString())
@@ -1406,9 +1420,18 @@ class PlaybackManager(
             userRating = extras?.takeIf { it.containsKey(EXTRA_USER_RATING) }
                 ?.getInt(EXTRA_USER_RATING),
             isStarred = extras?.getBoolean(EXTRA_STARRED, false) == true,
-            extras = extras?.getString(EXTRA_CONTENT_TYPE)
-                ?.let { mapOf("subsonic.contentType" to it) }.orEmpty(),
+            extras = extras?.trackExtras().orEmpty(),
+            audioFormat = extras?.getBundle(EXTRA_AUDIO_FORMAT)?.toAudioFormat(),
+            discNumber = extras?.takeIf { it.containsKey(EXTRA_DISC_NUMBER) }?.getInt(EXTRA_DISC_NUMBER),
         )
+    }
+
+    private fun Bundle.trackExtras(): Map<String, String> {
+        val carried = getBundle(EXTRA_TRACK_EXTRAS)
+            ?.let { bundle -> bundle.keySet().mapNotNull { key -> bundle.getString(key)?.let { key to it } }.toMap() }
+        if (carried != null) return carried
+        // Items queued before the extras were carried.
+        return getString(EXTRA_CONTENT_TYPE)?.let { mapOf("subsonic.contentType" to it) }.orEmpty()
     }
 
     /**
@@ -1706,6 +1729,9 @@ class PlaybackManager(
         private const val EXTRA_GENRE = "genre"
         private const val EXTRA_STARRED = "starred"
         private const val EXTRA_USER_RATING = "user_rating"
+        private const val EXTRA_DISC_NUMBER = "disc_number"
+        private const val EXTRA_AUDIO_FORMAT = "audio_format"
+        private const val EXTRA_TRACK_EXTRAS = "track_extras"
         private const val EXTRA_QUEUE_ENTRY = "yoin_queue_entry"
         private const val EXTRA_USER_QUEUED = "yoin_user_queued"
     }

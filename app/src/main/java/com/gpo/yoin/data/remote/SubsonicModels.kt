@@ -23,6 +23,23 @@ data class SubsonicResponseBody(
     val playlists: PlaylistsResponse? = null,
     val playlist: Playlist? = null,
     val lyricsList: LyricsList? = null,
+    val type: String? = null,
+    val openSubsonic: Boolean? = null,
+    val openSubsonicExtensions: List<OpenSubsonicExtension> = emptyList(),
+)
+
+/** One entry of OpenSubsonic `getOpenSubsonicExtensions`: an extension and the versions the server speaks. */
+@Serializable
+data class OpenSubsonicExtension(
+    val name: String,
+    val versions: List<Int> = emptyList(),
+)
+
+/** OpenSubsonic `ArtistID3` as a song's `artists` / `albumArtists` entry. */
+@Serializable
+data class ArtistRef(
+    val id: String? = null,
+    val name: String,
 )
 
 @Serializable
@@ -109,7 +126,11 @@ data class Song(
     // OpenSubsonic extensions; absent on plain Subsonic servers.
     val samplingRate: Int? = null,
     val bitDepth: Int? = null,
+    val channelCount: Int? = null,
     val discNumber: Int? = null,
+    val artists: List<ArtistRef> = emptyList(),
+    val displayArtist: String? = null,
+    val displayAlbumArtist: String? = null,
 )
 
 @Serializable
