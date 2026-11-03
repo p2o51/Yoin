@@ -436,6 +436,8 @@ fun Modifier.nowPlayingAuroraBackground(
         fieldFrom = null
         roomFrom = null
     }
+    // The transport keys' tap dots run 0 → 1 (EdgeDotBand.kt).
+    val tapDotsProgress = remember { Animatable(1f) }
     val effectMoving by remember {
         derivedStateOf {
             wash.progress.isRunning || band.isRunning || burst.isRunning || fieldFade.isRunning ||
@@ -469,7 +471,6 @@ fun Modifier.nowPlayingAuroraBackground(
     )
     // The transport keys' tap dots.
     val tapDotsLayer = remember { DotLayers(1) }
-    val tapDotsProgress = remember { Animatable(1f) }
     var tapDotsShown by remember { mutableStateOf<TapDots?>(null) }
 
     // Pulses run in this scope, not the keyed effects: the next commit must
