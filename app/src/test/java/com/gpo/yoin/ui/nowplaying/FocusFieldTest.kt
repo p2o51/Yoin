@@ -109,6 +109,18 @@ class FocusFieldTest {
         assertEquals(220f, (out[7] and 0xFF).toFloat(), 25f)
     }
 
+    @Test
+    fun should_keepTheGeometryAndCrossTheColours_when_theCoverChangesInFocus() {
+        val from = listOf(FieldPoint(x = 10f, y = 20f, color = red, reach = 5f, weight = 1f))
+        val to = listOf(FieldPoint(x = 30f, y = 40f, color = blue, reach = 7f, weight = 2f))
+
+        assertEquals(to.map { it.copy(color = red) }, crossFieldColors(from, to, 0f))
+        assertEquals(to, crossFieldColors(from, to, 1f))
+        val half = crossFieldColors(from, to, 0.5f).single()
+        assertEquals(30f, half.x, 0f)
+        assertEquals(130f, ((half.color shr 16) and 0xFF).toFloat(), 1f)
+    }
+
     private fun dist(p: FieldPoint, x: Float, y: Float): Float {
         val dx = p.x - x
         val dy = p.y - y

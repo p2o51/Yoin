@@ -368,8 +368,31 @@ fun Modifier.nowPlayingAuroraBackground(
     val wash = remember { RestWash(washTarget) }
     val band = remember { Animatable(0f) }
     var bandY by remember { mutableStateOf(0f) }
+    // The focus field crosses over to a new cover's colours instead of
+    // cutting (a song change while focused): [fieldFrom] fades out over
+    // [fieldFade] while the geometry carries on.
+    var fieldShown by remember { mutableStateOf(coverField) }
+    var fieldFrom by remember { mutableStateOf<CoverField?>(null) }
+    val fieldFade = remember { Animatable(1f) }
+    val fieldFadeSpec = YoinMotion.slowEffectsSpec<Float>(role = YoinMotionRole.Expressive)
+    LaunchedEffect(coverField) {
+        if (coverField == fieldShown) return@LaunchedEffect
+        val outgoing = fieldShown
+        fieldShown = coverField
+        // Out of focus nothing shows the field: just take the new one.
+        if (outgoing == null || coverField == null || !focusShown) {
+            fieldFrom = null
+            return@LaunchedEffect
+        }
+        fieldFrom = outgoing
+        fieldFade.snapTo(0f)
+        fieldFade.animateTo(1f, fieldFadeSpec)
+        fieldFrom = null
+    }
     val effectMoving by remember {
-        derivedStateOf { wash.progress.isRunning || band.isRunning || burst.isRunning }
+        derivedStateOf {
+            wash.progress.isRunning || band.isRunning || burst.isRunning || fieldFade.isRunning
+        }
     }
 
     var originRoot by remember { mutableStateOf(Offset.Zero) }
@@ -523,13 +546,13 @@ fun Modifier.nowPlayingAuroraBackground(
             }
 
             // Focus: the whole room in the cover's colours.
-            val field = latestField
+            val field = fieldShown
             val f = latestFocus().coerceIn(0f, 1f)
             if (field != null && f > 0.001f) {
                 val cover = transportSignal?.focusCoverRoot?.translate(-originRoot)
                     ?: Rect(center = Offset(w * 0.5f, h * 0.33f), radius = w * 0.3f)
-                val points = focusFieldPoints(
-                    field = field,
+                fun pointsOf(source: CoverField) = focusFieldPoints(
+                    field = source,
                     dark = isDark,
                     width = w,
                     height = h,
@@ -539,6 +562,14 @@ fun Modifier.nowPlayingAuroraBackground(
                     spread = smoothstep(f),
                     timeMs = t,
                 )
+                val incoming = pointsOf(field)
+                val outgoing = fieldFrom
+                val fade = fieldFade.value
+                val points = if (outgoing != null && fade < 1f) {
+                    crossFieldColors(pointsOf(outgoing), incoming, fade)
+                } else {
+                    incoming
+                }
                 val image = focusCanvas.render(points, baseBottom.toArgb(), w, h)
                 drawImage(
                     image = image,

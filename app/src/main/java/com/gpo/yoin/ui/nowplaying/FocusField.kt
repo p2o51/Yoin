@@ -191,6 +191,17 @@ fun focusFieldPoints(
     return points
 }
 
+/**
+ * [to]'s points with each colour [t] of the way from [from]'s matching point:
+ * a song change in focus keeps the geometry and crosses the colours over.
+ * Both must come from [focusFieldPoints] with the same layout arguments.
+ */
+fun crossFieldColors(from: List<FieldPoint>, to: List<FieldPoint>, t: Float): List<FieldPoint> {
+    if (from.size != to.size) return to
+    val k = t.coerceIn(0f, 1f)
+    return to.mapIndexed { i, p -> p.copy(color = mix(from[i].color, p.color, k)) }
+}
+
 /** The wanderer's colour (the last point), for the dots around the room's edge. */
 fun List<FieldPoint>.wandererColor(): Int = last().color
 
