@@ -35,12 +35,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -67,17 +65,6 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
-import kotlin.math.PI
-import kotlin.math.sin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-
-// One full cycle of the playing-state wash — intentionally slow so the page
-// feels alive without competing with cover art or scrolling content.
-private const val ExpressivePageBackgroundDriftMillis = 75_000
-
-// The drift's step: one 0.5 s step moves the wobble by under a quarter of an 8-bit level.
-private const val ExpressivePageBackgroundDriftTickMillis = 500L
 
 /**
  * Pages that share a window with another column (the Wide shell's detail
@@ -91,65 +78,29 @@ internal val LocalSharedPageBackground = staticCompositionLocalOf { false }
 @Composable
 internal fun ExpressivePageBackground(
     accentColor: androidx.compose.ui.graphics.Color? = null,
-    isPlaying: Boolean = false,
-    playbackSignal: Float = 0f,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val shared = LocalSharedPageBackground.current
     @Suppress("NAME_SHADOWING")
     val accentColor = accentColor.takeUnless { shared }
-    @Suppress("NAME_SHADOWING")
-    val isPlaying = isPlaying && !shared
     val scheme = MaterialTheme.colorScheme
     // Animated because the upstream 380ms palette tween can't cover the
     // null→non-null accent gate (DetailPageColors): at the instant the palette
     // resolves the target steps, and this wash absorbs the residual snap.
-    val baseTopColor by animateColorAsState(
+    //
+    // Still while music plays (gradient lab, owner 2026-11-03): the old
+    // 75 s playing drift moved under one 8-bit level per step, so nobody saw
+    // it, but it redrew the page twice a second and kept the shell collecting
+    // the playback signal. Page backgrounds now only answer what the user does.
+    val topColor by animateColorAsState(
         targetValue = accentColor?.let { accent ->
             lerp(scheme.surfaceContainer, accent, 0.18f)
         } ?: scheme.surfaceContainer,
         animationSpec = YoinMotion.effectsSpring(),
         label = "pageBackgroundTop",
     )
-
-    // The drift moves the wash by well under one 8-bit level per second, so it
-    // steps every [ExpressivePageBackgroundDriftTickMillis] instead of every
-    // vsync (a per-frame Animatable recomposed this whole background at the
-    // panel's full rate for as long as music played). Each step waits for a
-    // frame, so it rests with the window's frame clock (stopped, or covered
-    // by another Yoin window), and a long rest never jumps the phase. Paused,
-    // the wobble is off (below) and the phase simply holds.
-    var drift by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(isPlaying) {
-        if (!isPlaying) return@LaunchedEffect
-        var last = withFrameMillis { it }
-        while (isActive) {
-            delay(ExpressivePageBackgroundDriftTickMillis)
-            val now = withFrameMillis { it }
-            val elapsed = (now - last).coerceAtMost(ExpressivePageBackgroundDriftTickMillis * 2)
-            last = now
-            drift = (drift + elapsed.toFloat() / ExpressivePageBackgroundDriftMillis) % 1f
-        }
-    }
-
-    val phase = drift
-    val playingWobble = if (isPlaying) {
-        val wave = sin(phase * 2f * PI.toFloat()) * 0.5f + 0.5f
-        wave * 0.08f + playbackSignal.coerceIn(0f, 1f) * 0.03f
-    } else {
-        0f
-    }
-    val topColor = if (accentColor != null && isPlaying) {
-        lerp(baseTopColor, accentColor, playingWobble)
-    } else {
-        baseTopColor
-    }
-    val midColor = if (isPlaying) {
-        lerp(scheme.background, scheme.surfaceContainerLow, playingWobble * 0.35f)
-    } else {
-        scheme.background
-    }
+    val midColor = scheme.background
 
     Box(
         modifier = modifier

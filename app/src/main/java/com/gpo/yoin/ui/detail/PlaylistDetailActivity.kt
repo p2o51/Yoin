@@ -96,7 +96,6 @@ class PlaylistDetailActivity : ComponentActivity() {
                 val backingUp by viewModel.backingUp.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
-                val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
 
                 // Rename/delete/remove outcomes surface as snackbars.
                 LaunchedEffect(viewModel) {
@@ -231,7 +230,6 @@ class PlaylistDetailActivity : ComponentActivity() {
                                 context.startActivity(Intent.createChooser(send, null))
                             },
                             isPlaying = isPlaying,
-                            playbackSignal = if (isPlaying) playbackSignal else 0f,
                             onOpenNowPlaying = { nowPlayingOpen = true },
                             nowPlayingOpen = nowPlayingOpen,
 

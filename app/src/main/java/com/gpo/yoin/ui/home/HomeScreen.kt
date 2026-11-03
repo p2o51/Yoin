@@ -84,7 +84,6 @@ private val HomeInitialEntranceOffset = 16.dp
 fun HomeScreen(
     viewModel: HomeViewModel,
     isPlaying: Boolean,
-    playbackSignal: Float,
     activeSongId: String? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
     // the Memories bubble keeps quiet and the edit wiggle stops.
@@ -127,7 +126,6 @@ fun HomeScreen(
             editController = editController,
             footerNewBadge = unseenNewSections.isNotEmpty(),
             isPlaying = isPlaying,
-            playbackSignal = playbackSignal,
             activeSongId = activeSongId,
             onNavigateToSettings = onNavigateToSettings,
             activeAccount = account.account,
@@ -169,7 +167,6 @@ fun HomeContent(
     // The feed's "Edit Home" footer is badged "New" (D5).
     footerNewBadge: Boolean = false,
     isPlaying: Boolean,
-    playbackSignal: Float,
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     // The account in use (null = none yet) and opening the account switcher.
@@ -500,7 +497,6 @@ private fun HomeContentLoadingPreview() {
         HomeContent(
             uiState = HomeUiState.Loading,
             isPlaying = false,
-            playbackSignal = 0f,
             activeSongId = null,
             onNavigateToSettings = {},
             onNavigateToMemories = {},
@@ -521,7 +517,6 @@ private fun HomeContentErrorPreview() {
         HomeContent(
             uiState = HomeUiState.Error("Failed to connect to server"),
             isPlaying = false,
-            playbackSignal = 0f,
             activeSongId = null,
             onNavigateToSettings = {},
             onNavigateToMemories = {},
@@ -627,7 +622,6 @@ private fun HomeContentPreview() {
                 ),
             ),
             isPlaying = true,
-            playbackSignal = 0.35f,
             activeSongId = "js1",
             onNavigateToSettings = {},
             onNavigateToMemories = {},

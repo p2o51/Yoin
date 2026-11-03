@@ -142,7 +142,6 @@ class HomeEditModeTest {
                     sections = persisted.sections,
                     editController = controller,
                     isPlaying = false,
-                    playbackSignal = 0f,
                     onNavigateToSettings = {},
                     onNavigateToMemories = { memoriesOpened++ },
                     memoriesRevealState = revealState,

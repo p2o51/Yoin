@@ -1,17 +1,9 @@
 package com.gpo.yoin.ui.memories
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -26,60 +18,36 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
-import kotlinx.coroutines.launch
 
 /**
- * Ambient moving-gradient wash for the Memories deck: three soft radial
- * blooms in the CURRENT memory's palette drift slowly across the page, each
- * on its own orbit speed (the parallax gives the field a layered, 3D-ish
- * depth), with the hue sliding between the base and accent tones so the
- * colour itself is visibly in motion. Swiping to another memory re-tints the
- * whole atmosphere through the palette's own effects-spring hand-off.
+ * Gradient wash for the Memories deck: three soft radial blooms in the
+ * CURRENT memory's palette, each on its own orbit (the parallax gives the
+ * field a layered, 3D-ish depth), with the hue sliding between the base and
+ * accent tones.
  *
- * Performance follows the Now Playing aurora's discipline: the drift/breath
- * loops run ONLY while [visible] (the deck is on screen), all animated values
- * are read inside [drawBehind] so motion invalidates the draw phase only, and
- * hiding the deck cancels the loops entirely.
+ * The blooms move with the finger, not the clock (gradient lab, owner
+ * 2026-11-03): their orbit is driven by [drift] — the deck's pager position —
+ * so swiping between memories turns the field and re-tints it, and a deck at
+ * rest draws nothing new. The old 22 s / 7 s loops ran every frame for as
+ * long as the deck was open. [drift] is read in [drawBehind] only.
  */
 @Composable
 internal fun Modifier.memoriesAuroraBackground(
     baseColor: Color,
     accentColor: Color,
     visible: Boolean,
-): Modifier = memoriesAuroraBackground(colors = { baseColor to accentColor }, visible = visible)
+): Modifier = memoriesAuroraBackground(colors = { baseColor to accentColor }, visible = visible, drift = { 0f })
 
 /**
- * The same wash with its two colours read in the draw phase: the deck lerps them with the pager's position
- * every frame of a swipe, and only the draw is invalidated (no recomposition per frame).
+ * The same wash with its two colours and its [drift] read in the draw phase: the deck lerps them with the
+ * pager's position every frame of a swipe, and only the draw is invalidated (no recomposition per frame).
  */
 @Composable
 internal fun Modifier.memoriesAuroraBackground(
     colors: () -> Pair<Color, Color>,
     visible: Boolean,
+    drift: () -> Float,
 ): Modifier {
-    val flowPhase = remember { Animatable(0f) }
-    val breathPhase = remember { Animatable(0f) }
-    LaunchedEffect(visible) {
-        if (!visible) return@LaunchedEffect
-        launch {
-            flowPhase.animateTo(
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 22000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart,
-                ),
-            )
-        }
-        launch {
-            breathPhase.animateTo(
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 7000, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            )
-        }
-    }
     val activeFraction by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         // Slow effects spring: a long, soft ambient envelope that still
@@ -99,8 +67,10 @@ internal fun Modifier.memoriesAuroraBackground(
         val maxDim = max(w, h)
         val blend = if (isDark) BlendMode.Screen else BlendMode.SrcOver
         val alphaCap = if (isDark) MEMORIES_AURORA_ALPHA_DARK else MEMORIES_AURORA_ALPHA_LIGHT
-        val flow = flowPhase.value
-        val breath = breathPhase.value
+        // One memory turns the orbit a little under a fifth; the breath follows at its own pace.
+        val position = drift()
+        val flow = position * DRIFT_PER_PAGE
+        val breath = 0.5f + 0.5f * sin(position * BREATH_PER_PAGE)
 
         val (baseColor, accentColor) = colors()
         val blooms = listOf(baseColor, accentColor, lerp(baseColor, accentColor, 0.5f))
@@ -141,4 +111,6 @@ internal fun Modifier.memoriesAuroraBackground(
 
 private const val MEMORIES_AURORA_ALPHA_DARK = 0.26f
 private const val MEMORIES_AURORA_ALPHA_LIGHT = 0.2f
+private const val DRIFT_PER_PAGE = 0.18f
+private const val BREATH_PER_PAGE = 1.9f
 private val TWO_PI = (2.0 * PI).toFloat()
