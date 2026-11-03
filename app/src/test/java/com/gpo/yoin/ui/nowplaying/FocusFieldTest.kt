@@ -90,9 +90,9 @@ class FocusFieldTest {
         renderFocusField(points, base = argb(0, 0, 0), width = 400f, height = 100f, gridWidth = 8, gridHeight = 2, out = out)
 
         // Cell (0, 0) is centred on (25, 25), near the red point.
-        assertEquals(220, (out[0] shr 16) and 0xFF, 25)
+        assertEquals(220f, ((out[0] shr 16) and 0xFF).toFloat(), 25f)
         // The last cell of the row is near the blue point.
-        assertEquals(220, out[7] and 0xFF, 25)
+        assertEquals(220f, (out[7] and 0xFF).toFloat(), 25f)
     }
 
     private fun dist(p: FieldPoint, x: Float, y: Float): Float {
