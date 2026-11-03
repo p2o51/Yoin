@@ -102,8 +102,9 @@ struct SearchView: View {
                         .frame(maxWidth: .infinity, minHeight: 40)
                         .background {
                             if scope == s {
+                                // Same selection pill as the bottom bar: grey on light glass.
                                 Capsule()
-                                    .fill(Color.white.opacity(colorScheme == .dark ? 0.16 : 0.7))
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
                                     .matchedGeometryEffect(id: "seg", in: segNS)
                             }
                         }

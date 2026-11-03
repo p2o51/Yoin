@@ -87,8 +87,10 @@ struct ShellBar: View {
             .background {
                 if selected && !tintedStyle {
                     // Apple-style selection highlight inside the glass.
+                    // Grey on light glass (white vanished on it), light on dark.
                     Capsule()
-                        .fill(Color.white.opacity((colorScheme == .dark ? 0.16 : 0.6) * lab.extra("barSelectionPill")))
+                        .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
+                            .opacity(lab.extra("barSelectionPill") / 0.55))
                         .padding(5)
                 }
             }
