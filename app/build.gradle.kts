@@ -164,20 +164,9 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-ktlint {
-    filter {
-        exclude("**/contrast/**")
-        exclude("**/dislike/**")
-        exclude("**/dynamiccolor/**")
-        exclude("**/hct/**")
-        exclude("**/palettes/**")
-        exclude("**/scheme/**")
-        exclude("**/temperature/**")
-        exclude("**/utils/**")
-    }
-}
-
 dependencies {
+    // Kotlin Multiplatform code shared with the iOS app: MCU, the Palette port, YoinTokens, pure algorithms.
+    implementation(project(":shared"))
     implementation(files("libs/musickitauth-release-1.1.2.aar"))
     // libs/ playback AAR with its 64-bit native libraries patched for 16 KB pages (build-logic MusicKitRelroPlugin)
     implementation(files(tasks.named<PatchMusicKitRelro>("patchMusicKitRelro").flatMap { it.patchedAar }))
