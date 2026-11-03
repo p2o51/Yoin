@@ -122,6 +122,7 @@ import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.nowplaying.LocalNowPlayingPanelBeside
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -519,6 +520,25 @@ private fun AlbumDetailContent(
             shortPortrait -> AlbumBarLayout.Short
             else -> AlbumBarLayout.Compact
         }
+        // Beside the Now Playing side panel that is playing THIS album, the
+        // panel already shows its cover: the phone-layout hero drops its own
+        // (cover + blocks fade, the slot closes, the meta and titles move up)
+        // so the two columns never show the same cover twice (owner
+        // 2026-11-03). Only the hero at rest yields — the pulled-up stamp, the
+        // scrapbook page and every other layout and state are unchanged.
+        val coverYielded = albumHeroYieldsCover(
+            layout = barLayout,
+            panelBeside = LocalNowPlayingPanelBeside.current,
+            playingThisAlbum = currentTrackId != null && content.songs.any { it.id == currentTrackId },
+        )
+        // Opened already yielded ("Go to album" from the panel): start there,
+        // so the cover never shows for a beat and fades.
+        val coverYield = remember(content.albumId) { Animatable(if (coverYielded) 1f else 0f) }
+        val coverYieldSpec = YoinMotion.defaultSpatialSpec<Float>()
+        LaunchedEffect(coverYield, coverYielded) {
+            coverYield.animateTo(if (coverYielded) 1f else 0f, coverYieldSpec)
+        }
+        val coverYieldNow: () -> Float = { coverYield.value.coerceIn(0f, 1f) }
         // Landscape handsets: the header and body clear the capsule band and a
         // cutout (detailChromeBand); the bar itself runs edge to edge under them.
         val startInsetPx = with(density) {
@@ -580,6 +600,12 @@ private fun AlbumDetailContent(
             (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
         }
         val pageShift: () -> Float = { pageFraction() * widthPx * if (rtl) -1f else 1f }
+        // How much of the yielded hero is hidden: all of it at rest, none once
+        // pulled up to the stamp (it fades back in over the last half of the
+        // flight, never as a half-faded copy over the meta).
+        val heroYieldHidden: () -> Float = {
+            coverYieldNow() * (1f - smoothStep(0.5f, 1f, progress()))
+        }
         // Phone and short hero: the cover flies to the scrapbook page's cover with
         // the pager instead of sliding off (owner 2026-10-29).
         val flies = hasScrapbook && (barLayout == AlbumBarLayout.Compact || barLayout == AlbumBarLayout.Short)
@@ -625,6 +651,7 @@ private fun AlbumDetailContent(
                 progress = progress,
                 coverNow = coverNow,
                 pageShift = pageShift,
+                modifier = Modifier.graphicsLayer { alpha = 1f - heroYieldHidden() },
             )
         }
 
@@ -642,7 +669,11 @@ private fun AlbumDetailContent(
                 // Hero → Thumb (YoinArtworkShapes), as arcs while they move.
                 restingCorner = 8.dp,
                 stampCorner = 4.dp,
-                modifier = Modifier.fillMaxSize(),
+                // The scrapbook page keeps its cover: the flight shows it again
+                // as the pager carries it over.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 1f - heroYieldHidden() * (1f - pageFraction()) },
                 reduced = reduced,
             ) {
                 ExpressiveMediaArtwork(
@@ -826,6 +857,7 @@ private fun AlbumDetailContent(
                                     stagedReveal = stagedReveal,
                                     accent = primaryBlock,
                                     revealState = reveal,
+                                    coverYield = coverYieldNow,
                                     expanded = expanded,
                                     onExpandedCommit = { expanded = it },
                                     notedSongIds = notedSongIds,
@@ -888,6 +920,19 @@ private fun AlbumDetailContent(
         )
     }
 }
+
+/**
+ * The hero gives its cover up to the Now Playing side panel beside it: the two
+ * columns would otherwise show the same cover twice (owner 2026-11-03). Only
+ * the portrait hero yields, and only while the panel is the one playing a song
+ * off THIS album — a panel playing anything else, a full-window player, a
+ * closed player and every other layout keep the hero as it is.
+ */
+internal fun albumHeroYieldsCover(
+    layout: AlbumBarLayout?,
+    panelBeside: Boolean,
+    playingThisAlbum: Boolean,
+): Boolean = layout == AlbumBarLayout.Compact && panelBeside && playingThisAlbum
 
 private val AlbumHeaderTopPadding = 4.dp
 
@@ -1087,6 +1132,9 @@ private fun AlbumOverviewPage(
     onToggleStar: (songId: String) -> Unit,
     trackMenu: TrackMenuHost?,
     onEditComment: () -> Unit,
+    // 0 = the hero has its cover, 1 = it yielded it to the Now Playing panel
+    // beside (see AlbumDetailContent): the cover's slot closes with it.
+    coverYield: () -> Float = { 0f },
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -1119,7 +1167,7 @@ private fun AlbumOverviewPage(
         // for them, and closes as they fly into the bar, so the list docks
         // straight under the header.
         val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
-        val slotHeight = lerp(heroCoverSide + 56.dp, 0.dp, expand.coerceIn(0f, 1f))
+        val slotHeight = lerp((heroCoverSide + 56.dp) * (1f - coverYield()), 0.dp, expand.coerceIn(0f, 1f))
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(

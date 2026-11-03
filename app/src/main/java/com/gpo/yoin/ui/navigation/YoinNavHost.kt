@@ -169,6 +169,7 @@ import com.gpo.yoin.ui.navigation.pane.rememberPaneSplitState
 import com.gpo.yoin.ui.navigation.pane.requestColumn
 import com.gpo.yoin.ui.navigation.pane.snapClosed
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.LocalNowPlayingPanelBeside
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingPanelMinContentWidth
 import com.gpo.yoin.ui.nowplaying.NowPlayingPresentation
@@ -1215,6 +1216,10 @@ private fun YoinShell(
         }
             },
             pane = {
+            // The column's page knows when the Now Playing side panel sits
+            // beside it (Panel, not Full): the album page then drops its hero
+            // cover for the one in the panel (LocalNowPlayingPanelBeside).
+            CompositionLocalProvider(LocalNowPlayingPanelBeside provides npPanel.panelOpen) {
                 // ── Detail column: gutter (the M3 drag handle) + page, laid
                 // out at the column's full width; DetailColumnsLayout slides
                 // and clips it at the region's end.
@@ -1280,6 +1285,7 @@ private fun YoinShell(
                     }
                     }
                 }
+            }
             },
         )
         // The column's last page closes it — on the column's gated child

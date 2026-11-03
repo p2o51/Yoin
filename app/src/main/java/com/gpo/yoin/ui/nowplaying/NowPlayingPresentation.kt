@@ -11,6 +11,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -354,6 +355,15 @@ fun Modifier.pageBesideNowPlayingPanel(
     }.besideNowPlayingPanel(panel)
 
 /**
+ * True while the Now Playing side panel (Panel — not Full, not closed) sits
+ * beside this content. The album page reads it to drop its hero cover when the
+ * panel is showing the same album's cover (no two identical covers side by
+ * side, owner 2026-11-03). Provided by [ProvideBesidePanelWindowInfo] (detail
+ * Activities) and around the shell's detail column.
+ */
+val LocalNowPlayingPanelBeside = compositionLocalOf { false }
+
+/**
  * Host content beside the open panel reads its OWN remaining width (window −
  * panel: Compact beside a tablet-portrait panel, 800 − 400; still Wide beside
  * a tablet-landscape one, 1280 − 420 = 860), not the window's. Chrome that
@@ -376,6 +386,7 @@ fun ProvideBesidePanelWindowInfo(panel: NowPlayingPanelInset, content: @Composab
         LocalYoinWindowInfo provides besideInfo,
         // The page's bar still belongs to the window (principle 2).
         LocalWindowChromeInfo provides (LocalWindowChromeInfo.current ?: windowInfo),
+        LocalNowPlayingPanelBeside provides panel.panelOpen,
         content = content,
     )
 }
