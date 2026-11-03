@@ -67,7 +67,7 @@ Every value below comes from the Android Compose source (1 dp = 1 pt). Paths are
 
 ## iOS-only decisions
 
-- **Home album items:** Mobbin check (Apple Music, Spotify, YouTube Music, Deezer, SoundCloud): iOS music apps show bare square covers with 1–2 lines of text, never a shape behind them. A (default) is the bare cover with the title in GSF SemiBold ROND 100. B (`-homeAlbum tile`, `-screen home-tile`) puts the text in a light cover-tinted tile under the cover. The memory mark sits on the cover's top-trailing corner, inset 8. The Rediscover score stays a solid capsule.
+- **Home album items:** Mobbin check (Apple Music, Spotify, YouTube Music, Deezer, SoundCloud): iOS music apps show bare square covers with 1–2 lines of text, never a shape behind them. Decided (2026-11-03): bare cover (option A) is the only style; a tinted-tile alternative was tried and dropped. Title in GSF SemiBold ROND 100. The memory mark sits on the cover's top-trailing corner, inset 8. The Rediscover score stays a solid capsule.
 - **Bottom bar:** stays Liquid Glass (Home · Now Playing pill · Library + Search circle), not Android's 68 dp surfaceContainerHigh bar.
 - **Opening Now Playing:** the full page grows out of the bar's pill (matched geometry), with a 62 pt radius so it lands on the screen's own corners.
 - **Now Playing background:** frosted glass over the current cover's color, with the previous album's color at the top edge and the next album's at the bottom. Android uses a surfaceContainer → background gradient; the iPad panel keeps that gradient.

@@ -25,8 +25,8 @@ struct HomeView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
         }
         .contentMargins(.bottom, 108, for: .scrollContent)
-        // `-screen home-bottom` / `home-tile-bottom` open scrolled to the end (screenshots).
-        .defaultScrollAnchor(LaunchConfig.screen.hasSuffix("-bottom") ? .bottom : .top)
+        // `-screen home-bottom` opens scrolled to the end (screenshots).
+        .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
@@ -395,9 +395,7 @@ private struct JBICell: View {
     }
 }
 
-/// One album on Home: cover plus title (GSF SemiBold, ROND 100) and artist.
-/// A (default): bare cover on the page. B (`-homeAlbum tile`): the text sits in
-/// a light tile of the cover color under the cover, same corner family.
+/// One album on Home: bare cover, then title (GSF SemiBold, ROND 100) and artist.
 struct AlbumItem<Mark: View>: View {
     @Environment(\.homeScheme) private var scheme
     var album: Album
@@ -407,8 +405,7 @@ struct AlbumItem<Mark: View>: View {
 
     var body: some View {
         let s = scheme!
-        let tile = LaunchConfig.homeAlbumTile
-        VStack(alignment: .leading, spacing: tile ? 0 : 6) {
+        VStack(alignment: .leading, spacing: 6) {
             EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: size, stroke: s.primary)
                 .overlay(alignment: .topTrailing) { mark() }
             VStack(alignment: .leading, spacing: 0) {
@@ -420,19 +417,6 @@ struct AlbumItem<Mark: View>: View {
                     .foregroundStyle(s.onSurfaceVariant)
             }
             .lineLimit(1)
-            .padding(.horizontal, tile ? 8 : 0)
-            .padding(.top, tile ? 8 : 0)
-            .padding(.bottom, tile ? 9 : 0)
-            .frame(width: size, alignment: .leading)
-        }
-        .background {
-            if tile {
-                UnevenRoundedRectangle(topLeadingRadius: EntityBackdrop.corner(size),
-                                       bottomLeadingRadius: EntityBackdrop.corner(size),
-                                       bottomTrailingRadius: EntityBackdrop.corner(size),
-                                       topTrailingRadius: EntityBackdrop.corner(size), style: .continuous)
-                    .fill(cardWash(s, album.palette))
-            }
         }
         .frame(width: size, alignment: .leading)
     }
