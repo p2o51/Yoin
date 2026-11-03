@@ -313,6 +313,22 @@ fun NowPlayingScreen(
     }
     val scheme = MaterialTheme.colorScheme
     val surfaceContainer = scheme.surfaceContainer
+    // Dark focus: the room in this screen's own dark scheme (owner
+    // 2026-11-03), with the same field motion and dots. From the cover's
+    // resolved scheme, so a song change crosses the room over on the field's
+    // own fade, not in the theme wash's few steps.
+    val roomScheme = LocalCoverDarkScheme.current ?: scheme
+    val darkRoom = remember(roomScheme) {
+        RoomPalette(
+            colors = intArrayOf(
+                roomScheme.primaryContainer.toArgb(),
+                roomScheme.secondaryContainer.toArgb(),
+                roomScheme.tertiaryContainer.toArgb(),
+                roomScheme.surfaceContainerHigh.toArgb(),
+            ),
+            accent = lerp(roomScheme.primaryContainer, roomScheme.primary, 0.25f).toArgb(),
+        )
+    }
     val background = scheme.background
 
     // Reactions for the Now Playing background (see nowPlayingAuroraBackground):
@@ -382,17 +398,7 @@ fun NowPlayingScreen(
                     coverField = LocalCoverField.current,
                     // Focus = the immersive stage (tap the cover); read in draw.
                     focusProgress = { stageProgress?.immersive ?: 0f },
-                    // Dark focus: the room in this screen's own dark scheme
-                    // (owner 2026-11-03), with the same field motion and dots.
-                    darkRoom = RoomPalette(
-                        colors = intArrayOf(
-                            scheme.primaryContainer.toArgb(),
-                            scheme.secondaryContainer.toArgb(),
-                            scheme.tertiaryContainer.toArgb(),
-                            scheme.surfaceContainerHigh.toArgb(),
-                        ),
-                        accent = lerp(scheme.primaryContainer, scheme.primary, 0.25f).toArgb(),
-                    ),
+                    darkRoom = darkRoom,
                 ),
         ) {
             when (uiState) {

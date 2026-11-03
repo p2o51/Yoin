@@ -8,6 +8,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -249,6 +250,13 @@ val LocalNowPlayingTransportSignal = staticCompositionLocalOf<NowPlayingTranspor
 val LocalCoverField = compositionLocalOf<CoverField?> { null }
 
 /**
+ * The playing cover's dark scheme as resolved, not as the theme wash shows it:
+ * the wash steps through a few in-between schemes, too coarse for a room-sized
+ * cross-over. Null with no cover palette.
+ */
+val LocalCoverDarkScheme = compositionLocalOf<ColorScheme?> { null }
+
+/**
  * Reports where this cover sits on screen, for the focus field to open out
  * from. Place it after the cover's own transforms (the bounds include them).
  */
@@ -374,25 +382,34 @@ fun Modifier.nowPlayingAuroraBackground(
     // The focus field crosses over to a new cover's colours instead of
     // cutting (a song change while focused): [fieldFrom] fades out over
     // [fieldFade] while the geometry carries on.
+    // Dark focus's room crosses over with it, from the scheme it was in.
+    val room = if (isDark) darkRoom else null
     var fieldShown by remember { mutableStateOf(coverField) }
     var fieldFrom by remember { mutableStateOf<CoverField?>(null) }
+    var roomShown by remember { mutableStateOf(room) }
+    var roomFrom by remember { mutableStateOf<RoomPalette?>(null) }
     val fieldFade = remember { Animatable(1f) }
     // Room-sized colour change: as long as the song-change flow, not the
     // ~0.35 s slow effects spring (on device that read as a quick blink).
     val fieldFadeSpec = tween<Float>(durationMillis = FIELD_CROSS_MS, easing = FastOutSlowInEasing)
-    LaunchedEffect(coverField) {
-        if (coverField == fieldShown) return@LaunchedEffect
+    LaunchedEffect(coverField, room) {
+        if (coverField == fieldShown && room == roomShown) return@LaunchedEffect
         val outgoing = fieldShown
+        val outgoingRoom = roomShown
         fieldShown = coverField
+        roomShown = room
         // Out of focus nothing shows the field: just take the new one.
         if (outgoing == null || coverField == null || !focusShown) {
             fieldFrom = null
+            roomFrom = null
             return@LaunchedEffect
         }
         fieldFrom = outgoing
+        roomFrom = outgoingRoom
         fieldFade.snapTo(0f)
         fieldFade.animateTo(1f, fieldFadeSpec)
         fieldFrom = null
+        roomFrom = null
     }
     val effectMoving by remember {
         derivedStateOf {
@@ -556,7 +573,7 @@ fun Modifier.nowPlayingAuroraBackground(
             if (field != null && f > 0.001f) {
                 val cover = transportSignal?.focusCoverRoot?.translate(-originRoot)
                     ?: Rect(center = Offset(w * 0.5f, h * 0.33f), radius = w * 0.3f)
-                fun pointsOf(source: CoverField) = focusFieldPoints(
+                fun pointsOf(source: CoverField, room: RoomPalette?) = focusFieldPoints(
                     field = source,
                     dark = isDark,
                     width = w,
@@ -566,13 +583,13 @@ fun Modifier.nowPlayingAuroraBackground(
                     coverSize = min(cover.width, cover.height).coerceAtLeast(w * 0.3f),
                     spread = smoothstep(f),
                     timeMs = t,
-                    room = if (isDark) darkRoom else null,
+                    room = room,
                 )
-                val incoming = pointsOf(field)
+                val incoming = pointsOf(field, roomShown)
                 val outgoing = fieldFrom
                 val fade = fieldFade.value
                 val points = if (outgoing != null && fade < 1f) {
-                    crossFieldColors(pointsOf(outgoing), incoming, fade)
+                    crossFieldColors(pointsOf(outgoing, roomFrom ?: roomShown), incoming, fade)
                 } else {
                     incoming
                 }
