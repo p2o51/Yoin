@@ -367,3 +367,21 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertEqual(announces, 2)
     }
 }
+
+@MainActor
+final class PlayModeCycleTests: XCTestCase {
+    func test_should_cycle_android_play_modes_when_round_button_tapped() {
+        let engine = PlayerEngine(output: FakeAudioOutput())
+        var seen: [String] = []
+        for _ in 0..<4 {
+            engine.cyclePlayMode()
+            seen.append("\(engine.shuffle ? "S" : "-")\(engine.repeatMode.rawValue)")
+        }
+        XCTAssertEqual(seen, ["Sall", "Sone", "-one", "-all"])
+        engine.setShuffle(true)
+        engine.setRepeat(.off)
+        engine.cyclePlayMode()
+        XCTAssertTrue(engine.shuffle)
+        XCTAssertEqual(engine.repeatMode, .all)
+    }
+}

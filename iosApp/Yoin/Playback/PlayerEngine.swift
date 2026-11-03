@@ -234,6 +234,19 @@ final class PlayerEngine {
         syncPreload()
     }
 
+    /// Now Playing's round play-mode button (Android `PlayMode.next()`), one
+    /// axis per tap: repeat all → shuffle → shuffle + repeat one → repeat one
+    /// → repeat all. From repeat off it goes back to repeat all, shuffle kept.
+    func cyclePlayMode() {
+        switch (shuffle, repeatMode) {
+        case (false, .all): setShuffle(true)
+        case (true, .all): setRepeat(.one)
+        case (true, .one): setShuffle(false)
+        case (false, .one): setRepeat(.all)
+        case (_, .off): setRepeat(.all)
+        }
+    }
+
     func setRepeat(_ mode: RepeatMode) {
         guard mode != repeatMode else { return }
         repeatMode = mode

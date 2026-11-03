@@ -117,9 +117,13 @@ private struct PadMiniPlayer: View {
                 }
                 .lineLimit(1)
                 Spacer(minLength: 8)
-                WavyProgressBar(progress: Double(p.positionSec) / Double(p.track.durationSec),
-                                duration: TimeInterval(p.track.durationSec), isPlaying: p.isPlaying,
-                                tint: p.album.palette.tint, trackTint: Yoin.inkVariant.opacity(0.3)) { _ in }
+                PlaybackPosition { position, duration in
+                    WavyProgressBar(progress: position / duration,
+                                    duration: duration, isPlaying: p.isPlaying,
+                                    tint: p.album.palette.tint, trackTint: Yoin.inkVariant.opacity(0.3)) { fraction in
+                        model.player.seek(to: fraction * duration)
+                    }
+                }
                     .frame(width: 120)
                 YoinIcon("pause_filled", size: 22)
                     .padding(.leading, 6)

@@ -41,18 +41,57 @@ final class AppModel {
     var searchActive = false
     /// Nothing playing: the bar folds the pill away (Android idle bar).
     var isIdle = false
-    var playback: PlaybackSnapshot
+    /// The mock snapshot the `-screen` screenshots render while the engine's
+    /// queue is empty.
+    var mockPlayback: PlaybackSnapshot
+    /// Native playback (AVQueuePlayer, lock screen, remote commands).
+    let playbackSystem: PlaybackSystem
+    var player: PlayerEngine { playbackSystem.engine }
+    /// Queue sheet on Now Playing.
+    var queueSheetOpen = false
+
+    /// What the shell and Now Playing show: the engine's song once it has
+    /// one, else the mock. Never carries the position while the engine
+    /// plays (read it through `PlaybackPosition`), so ticks don't churn
+    /// every reader. Writes go to the mock (Glass Lab, screenshot aids).
+    var playback: PlaybackSnapshot {
+        get {
+            guard let t = player.currentTrack else { return mockPlayback }
+            return PlaybackSnapshot(album: Self.album(for: t, library: library), track: Self.track(for: t),
+                                    positionSec: 0, isPlaying: player.isPlaying,
+                                    lyricLine: "", nextLyricLine: "")
+        }
+        set { mockPlayback = newValue }
+    }
+
+    /// The engine's song as the UI's Album: real titles, colors borrowed from
+    /// a mock cover (stable per album) until real cover art lands.
+    static func album(for t: PlayableTrack, library: any MusicLibrary) -> Album {
+        let key = t.albumId ?? t.album
+        let mocks = library.albums()
+        let look = mocks[key.unicodeScalars.reduce(0) { $0 + Int($1.value) } % max(mocks.count, 1)]
+        return Album(id: MediaId(provider: t.provider, rawId: key), title: t.album, artist: t.artist,
+                     year: 0, palette: look.palette, tracks: [track(for: t)])
+    }
+
+    static func track(for t: PlayableTrack) -> Track {
+        Track(id: MediaId(provider: t.provider, rawId: t.id), number: 1, title: t.title,
+              durationSec: max(1, Int(t.durationSec.rounded())))
+    }
 
     init(library: any MusicLibrary = MockLibrary.shared, playback: any PlaybackSource = MockLibrary.shared) {
         self.library = library
         self.playbackSource = playback
-        self.playback = playback.current()
+        self.mockPlayback = playback.current()
+        self.playbackSystem = PlaybackSystem.live()
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
         case "library-albums", "library-songs", "library-scroller": section = .library
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
         case "np", "np-touch": npExpanded = true
+        case "np-queue": npExpanded = true; queueSheetOpen = true
+        case "np-airplay": npExpanded = true
         case "np-short": npExpanded = true; npForceShort = true
         case "np-morph": slowMorph = true
         case "np-morph-close": slowMorph = true; npExpanded = true
@@ -60,13 +99,14 @@ final class AppModel {
         case "landing": showLanding = true
         case "artist", "artist-bottom": path = [.artist("Mina Asahi")]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
-        case "progress35": self.playback.positionSec = Int(Double(self.playback.track.durationSec) * 0.35)
+        case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
         case "search", "search-results", "search-catalog", "search-albums", "search-songs": searchActive = true
         case "idle": isIdle = true
         case "library-idle": isIdle = true; section = .library
         default: break
         }
         padSelection = library.albums()[0]
+        DemoQueue.startIfRequested(player)
     }
 
     /// Accent for the whole app: the playing cover's color, Yoin violet when idle.

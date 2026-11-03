@@ -176,10 +176,14 @@ struct ShellBar: View {
             .padding(.trailing, 12)
             .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
             .background {
-                PillWash(progress: progress, playing: p.isPlaying,
-                         color: scheme.primary.opacity(lab.extra("washOpacity")),
-                         amplitude: lab.extra("washAmplitude"))
-                    .clipShape(.capsule)
+                // The engine's position is read inside PlaybackPosition, so
+                // its ticks redraw the wash only, not the bar.
+                PlaybackPosition { position, duration in
+                    PillWash(progress: position / duration, playing: p.isPlaying,
+                             color: scheme.primary.opacity(lab.extra("washOpacity")),
+                             amplitude: lab.extra("washAmplitude"))
+                }
+                .clipShape(.capsule)
             }
             .contentShape(.capsule)
         }
@@ -193,7 +197,9 @@ struct ShellBar: View {
             }
         }
         .accessibilityLabel("Now playing, \(p.track.title) by \(p.album.artist)")
-        .accessibilityValue("\(Int(progress * 100)) percent played")
+        .accessibilityValue(model.player.currentTrack != nil
+                            ? (p.isPlaying ? "Playing" : "Paused")
+                            : "\(Int(progress * 100)) percent played")
     }
 
     // MARK: Album page form

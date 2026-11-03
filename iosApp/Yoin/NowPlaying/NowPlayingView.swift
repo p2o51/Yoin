@@ -36,6 +36,7 @@ struct NowPlayingView: View {
     @State private var ratingHeld = LaunchConfig.baseScreen == "np-touch"
     @State private var touching: Set<String> = []
     @State private var release: Task<Void, Never>?
+    @State private var airPlay = AirPlayRouteTrigger()
 
     private var palette: CoverPalette { model.playback.album.palette }
     private var scheme: CoverScheme { CoverScheme(album: model.playback.album, dark: colorScheme == .dark) }
@@ -68,6 +69,15 @@ struct NowPlayingView: View {
         }
         .offset(y: max(0, dragY))
         .gesture(dismissDrag, isEnabled: !panel)
+        .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
+            QueueSheet()
+        }
+        .task {
+            // Screenshot aid: `-screen np-airplay` taps Devices once the page is up.
+            guard LaunchConfig.baseScreen == "np-airplay", !panel else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            airPlay.present()
+        }
     }
 
     // MARK: Morph
@@ -360,10 +370,10 @@ struct NowPlayingView: View {
         GlassEffectContainer(spacing: lab.extra("containerSpacing")) {
         VStack(spacing: 4) {
             HStack(spacing: Tokens.np.TRANSPORT_GAP.cg) {
-                Button {} label: {
+                Button { model.player.togglePlayPause() } label: {
                     // titleLarge × 0.9, Bold, 0.5 tracking; the playing
                     // stretch (1.06) grows from the word's leading edge.
-                    Text("PAUSE")
+                    Text(p.isPlaying ? "PAUSE" : "PLAY")
                         .font(.gsf(19.8, .bold))
                         .tracking(0.5)
                         .scaleEffect(x: 1.06, y: 1, anchor: .leading)
@@ -377,14 +387,21 @@ struct NowPlayingView: View {
                 }
                 .buttonStyle(PressReport { touch("pause", $0) })
                 .labGlass("transportPrimary", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
-                .accessibilityLabel("Pause")
-                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next")
+                .accessibilityLabel(p.isPlaying ? "Pause" : "Play")
+                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next") {
+                    model.player.next()
+                }
                 Spacer(minLength: 0)
-                roundButton("repeat", fill: scheme.tertiaryContainer, ink: scheme.onTertiaryContainer, label: "Repeat")
+                roundButton(model.player.shuffle ? "shuffle" : "repeat", fill: scheme.tertiaryContainer,
+                            ink: scheme.onTertiaryContainer, label: "Play mode", badge: playModeBadge) {
+                    model.player.cyclePlayMode()
+                }
             }
             .frame(height: 56)
             HStack(spacing: 0) {
-                roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: "Previous")
+                roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: "Previous") {
+                    model.player.previous()
+                }
                 Spacer().frame(width: Tokens.np.TRANSPORT_GAP.cg)
                 progress(p)
             }
@@ -402,21 +419,27 @@ struct NowPlayingView: View {
     /// The capsule is drawn outside the row, so the bar never changes width
     /// under the finger and rests at Android's width.
     private func progress(_ p: PlaybackSnapshot) -> some View {
+        // The position is read inside PlaybackPosition, so the engine's ticks
+        // redraw this row only.
+        PlaybackPosition { position, duration in
         HStack(spacing: 0) {
             // PlaybackTimeLabel: labelLarge tabular, min 44 / 52, 8 apart.
-            Text(formatTime(p.positionSec))
+            Text(formatTime(Int(position)))
                 .frame(minWidth: Tokens.np.TIME_LABEL_MIN_START.cg, alignment: .leading)
                 .offset(y: 6)
             Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
-            WavyProgressBar(progress: Double(p.positionSec) / Double(p.track.durationSec),
-                            duration: TimeInterval(p.track.durationSec), isPlaying: p.isPlaying,
+            WavyProgressBar(progress: position / duration,
+                            duration: duration, isPlaying: p.isPlaying,
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
-                            onScrubbing: { touch("progress", $0) }) { _ in }
+                            onScrubbing: { touch("progress", $0) }) { fraction in
+                model.player.seek(to: fraction * duration)
+            }
                 .frame(height: 40, alignment: .bottom)
             Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
-            Text("-" + formatTime(p.track.durationSec - p.positionSec))
+            Text("-" + formatTime(max(0, Int(duration) - Int(position))))
                 .frame(minWidth: Tokens.np.TIME_LABEL_MIN_END.cg, alignment: .trailing)
                 .offset(y: 6)
+        }
         }
         // The row itself carries the glass (as glass content the times and
         // the bar draw over it; a background glass in the transport's
@@ -427,12 +450,29 @@ struct NowPlayingView: View {
                  in: ScrubberGlassShape(grow: interacting ? 1 : 0, leading: 4, trailing: 10))
     }
 
-    private func roundButton(_ icon: String, fill: Color, ink: Color, label: String) -> some View {
+    /// Repeat one wears a small 1; repeat off dims the glyph.
+    private var playModeBadge: String? {
+        switch model.player.repeatMode {
+        case .one: "1"
+        case .off: "off"
+        case .all: nil
+        }
+    }
+
+    private func roundButton(_ icon: String, fill: Color, ink: Color, label: String, badge: String? = nil,
+                             action: @escaping () -> Void) -> some View {
         // Untinted (Balanced / HIG presets): the glyph goes on-surface.
         let tinted = GlassLab.shared.style("transportSecondary").tintOn
-        return Button {} label: {
+        return Button(action: action) {
             YoinIcon(icon, size: 28)
                 .foregroundStyle(tinted ? ink : scheme.onSurface)
+                .opacity(badge == "off" ? 0.45 : 1)
+                .overlay(alignment: .bottomTrailing) {
+                    if badge == "1" {
+                        Text("1").font(.gsf(10, .bold)).foregroundStyle(tinted ? ink : scheme.onSurface)
+                            .offset(x: 4, y: 2)
+                    }
+                }
                 .labContrast("transportSecondary")
                 .frame(width: 56, height: 56)
                 .contentShape(.circle)
@@ -497,15 +537,20 @@ struct NowPlayingView: View {
     private var pills: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
-                pill("queue", "Queue", shape: AnyShape(Capsule()))
-                pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20)))
-                pill("note", "Write", shape: AnyShape(Capsule()))
+                pill("queue", "Queue", shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
+                pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20))) { airPlay.present() }
+                    // The system route picker, invisible, over the pill: a
+                    // finger lands on its own button (the forwarding in
+                    // `present()` is the fallback).
+                    .overlay { AirPlayRoutePicker(trigger: airPlay) }
+                pill("note", "Write", shape: AnyShape(Capsule())) {}
             }
         }
     }
 
-    private func pill(_ icon: String, _ title: String, shape: AnyShape) -> some View {
-        Button {} label: {
+    private func pill(_ icon: String, _ title: String, shape: AnyShape,
+                      action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             HStack(spacing: 4) {
                 YoinIcon(icon, size: 15.8)
                 Text(title).font(.gsf(12, .medium)).tracking(0.1)
