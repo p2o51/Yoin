@@ -51,6 +51,20 @@ class FocusFieldTest {
     }
 
     @Test
+    fun should_darkenBrightHues_when_toningForTheDarkRoom() {
+        val hsl = FloatArray(3)
+        val lime = toneForRoom(argb(180, 220, 60), dark = true, bias = 0.12f)
+        val red = toneForRoom(argb(200, 40, 40), dark = true)
+        argbToHsl(lime, hsl)
+        val limeLightness = hsl[2]
+        argbToHsl(red, hsl)
+        // Same hue kept, but the lime sits lower than HSL alone would put it.
+        assertTrue(limeLightness < 0.13f + 0.42f * 0.55f + 0.12f)
+        assertTrue(((lime shr 8) and 0xFF) < 170)
+        assertTrue(hsl[2] > 0.25f)
+    }
+
+    @Test
     fun should_openOutFromTheCover_when_focusSpreads() {
         val field = buildCoverField(splitCover(), 48, 48)!!
         fun points(spread: Float) = focusFieldPoints(

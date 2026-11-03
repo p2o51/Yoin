@@ -6,6 +6,7 @@ import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -258,8 +259,25 @@ fun toneForRoom(color: Int, dark: Boolean, bias: Float = 0f): Int {
     val hsl = FloatArray(3)
     argbToHsl(color, hsl)
     val s = min(1f, hsl[1] * 1.4f + 0.1f)
-    val l = ((if (dark) 0.13f + hsl[2] * 0.42f else 0.70f + hsl[2] * 0.24f) + bias).coerceIn(0f, 1f)
-    return hslToArgb(hsl[0], s, l)
+    var l = ((if (dark) 0.13f + hsl[2] * 0.42f else 0.70f + hsl[2] * 0.24f) + bias).coerceIn(0f, 1f)
+    // HSL lightness flatters yellows and greens: in the dark room, step them
+    // down until the light text over them still reads.
+    var out = hslToArgb(hsl[0], s, l)
+    while (dark && l > 0.05f && relativeLuminance(out) > DarkRoomMaxLuminance) {
+        l -= 0.02f
+        out = hslToArgb(hsl[0], s, l)
+    }
+    return out
+}
+
+private fun relativeLuminance(color: Int): Float {
+    fun channel(c: Int): Float {
+        val v = c / 255f
+        return if (v <= 0.04045f) v / 12.92f else ((v + 0.055f) / 1.055f).toDouble().pow(2.4).toFloat()
+    }
+    return 0.2126f * channel((color shr 16) and 0xFF) +
+        0.7152f * channel((color shr 8) and 0xFF) +
+        0.0722f * channel(color and 0xFF)
 }
 
 internal fun argbToHsl(color: Int, out: FloatArray) {
@@ -304,6 +322,9 @@ private fun argb(r: Int, g: Int, b: Int): Int =
 
 private const val HueBuckets = 12
 private const val BaseWeight = 0.02f
+
+/** Light text keeps ~4.5:1 over the dark room's brightest point. */
+private const val DarkRoomMaxLuminance = 0.10f
 private const val TAU = (2.0 * Math.PI).toFloat()
 
 /** Room points as fractions of the field: corners, edge midpoints, a touch outside. */
