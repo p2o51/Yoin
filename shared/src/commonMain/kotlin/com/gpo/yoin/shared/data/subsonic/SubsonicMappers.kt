@@ -46,6 +46,7 @@ internal fun SongDto.toSongInfo(): SongInfo = SongInfo(
     size = size,
     path = path,
     playCount = playCount,
+    played = played?.takeIf { it.isNotEmpty() },
 )
 
 internal fun AlbumDto.toAlbumInfo(): AlbumInfo = AlbumInfo(
@@ -66,6 +67,7 @@ internal fun AlbumDto.toAlbumInfo(): AlbumInfo = AlbumInfo(
     genre = genre,
     releaseType = subsonicReleaseType(releaseTypes),
     songs = song.map { it.toSongInfo() },
+    played = played?.takeIf { it.isNotEmpty() },
 )
 
 /** OpenSubsonic `releaseTypes` → lower-case type; the first recognised value wins (Android: `subsonicReleaseType`). */

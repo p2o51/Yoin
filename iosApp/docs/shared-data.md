@@ -15,7 +15,7 @@ The iOS app talks to Subsonic / OpenSubsonic servers through Kotlin in `:shared`
 | `lyrics/LrcParser.kt` | LRC text → `Lyrics` | `data/lyrics/LrcParser.kt` |
 | `subsonic/PlatformEngine.kt` + `iosMain` / `androidMain` actuals | Ktor engine: Darwin (NSURLSession) on iOS, OkHttp on Android / JVM tests | — |
 
-Semantics kept from Android's mappers: `starred` is "the server sent a non-empty timestamp" (the timestamp is kept as `starredAt`); album art falls back to the album id (`coverArt ?: id`), playlist art to the playlist id; `userRating` stays the raw 1–5 (null = unrated); dates stay the server's ISO-8601 strings (`created`, `changed`, `starredAt`); `releaseType` is the first recognised OpenSubsonic `releaseTypes` value, lower-cased; playlist `canWrite` = not `readonly` and (no owner, or owner == login), `ownedByMe` = owner equals the login ignoring case, null when no owner; structured lyrics use the first entry, synced only if it says so and has at least one `start`, lines sorted by time; `setRating` clamps to 0…5; `star` / `unstar` send only the id kind you pass (artists must go through `artistId`).
+Semantics kept from Android's mappers: `starred` is "the server sent a non-empty timestamp" (the timestamp is kept as `starredAt`); album art falls back to the album id (`coverArt ?: id`), playlist art to the playlist id; `userRating` stays the raw 1–5 (null = unrated); dates stay the server's ISO-8601 strings (`created`, `changed`, `starredAt`); `releaseType` is the first recognised OpenSubsonic `releaseTypes` value, lower-cased; playlist `canWrite` = not `readonly` and (no owner, or owner == login), `ownedByMe` = owner equals the login ignoring case, null when no owner; structured lyrics use the first entry, synced only if it says so and has at least one `start`, lines sorted by time; `setRating` clamps to 0…5; `star` / `unstar` send only the id kind you pass (artists must go through `artistId`); `createPlaylist` sends no comment (Subsonic has no such parameter) and sets a non-blank one with a follow-up `updatePlaylist`, like Android's `createPlaylist(name, description)`; `updatePlaylist` sends `songIndexToRemove` in descending order (Android's `removeTracksFromPlaylist` rule) and repeats `songIdToAdd` in the order given.
 
 Deliberate differences from Android:
 
@@ -23,7 +23,8 @@ Deliberate differences from Android:
 - **Plain `getLyrics` fallback.** `lyricsFor(songId:artist:title:)` tries `getLyricsBySongId` and, when it's empty or the server doesn't know it, `getLyrics(artist, title)`; that plain text is run through `LrcParser`, so LRC-in-plain-text comes back synced. Android only calls `getLyricsBySongId` (and gets the rest from NetEase / QQ / LRCLIB providers, which are not shared).
 - **Unsynced lyrics are lines, not one string.** `Lyrics(synced: false)` has one `LyricLine` per text line at `timeMs = 0`; `lyrics.text` joins them back.
 - **Errors are typed.** `SubsonicErrorKind` names every Subsonic error code plus `network`, `http`, `parse`.
-- Extra fields Android doesn't read yet: `SongInfo.disc` (`discNumber`), `SongInfo.playCount`, `AlbumInfo.playCount`, `AlbumInfo.userRating`, playlist `coverArt` / `changed` / `public`.
+- Extra fields Android doesn't read yet: `SongInfo.disc` (`discNumber`), `SongInfo.playCount`, `AlbumInfo.playCount`, `AlbumInfo.userRating`, playlist `coverArt` / `changed` / `public`, and OpenSubsonic / Navidrome `played` on songs and albums (`SongInfo.played`, `AlbumInfo.played`: the server's ISO-8601 string of the user's last play; null when absent or empty).
+- **Extra calls**: `getSong(id)` (Android has none), `createPlaylist` takes the initial `songIds` (repeated `songId`) and returns the new `PlaylistDetail` (null on servers older than API 1.14 that answer without one), `updatePlaylist` can also set `public`. Android's `getTopSongs` / `getSimilarSongs2` don't exist (Android never calls them; artist pages use local Most Played), so they aren't here either.
 
 ## Calling it from Swift
 
@@ -61,7 +62,26 @@ client.close()   // when the profile goes away
 Rules of the bridge (Kotlin/Native → Objective-C → Swift):
 
 - Every `suspend fun` is `async throws`. They're all `@Throws(SubsonicException::class, CancellationException::class)` and the client wraps network, HTTP and JSON failures, so nothing else escapes (an undeclared Kotlin exception would abort the app). Cancelling the Swift `Task` cancels the request.
-- The completion resumes on the main thread (Kotlin/Native's default), so don't block the main thread waiting for one.
+- **Concurrent calls are fine.** The client is immutable once built (token / salt fixed) and Ktor's `HttpClient` is thread-safe, so any number of calls can be in flight at once (`async let`, `TaskGroup`, separate `Task`s); they don't queue behind each other. Kotlin/Native's memory model shares objects across threads, and the framework is built with `objcExportSuspendFunctionLaunchThreadRestriction=none` (`shared/build.gradle.kts`), so calls may start off the main thread too. Swift resumes each `await` on the caller's own executor / actor as usual; don't block the main thread waiting for one.
+- **Sendable.** Kotlin/Native can't mark exported classes `Sendable`, so under Swift 6 strict concurrency the compiler refuses to pass the client or the models across actors / into `Task.detached` / task groups. They are immutable, so declare it once in the app (e.g. next to `ActiveSource.swift`):
+
+  ```swift
+  extension SubsonicClient: @retroactive @unchecked Sendable {}
+  extension SongInfo: @retroactive @unchecked Sendable {}
+  extension AlbumInfo: @retroactive @unchecked Sendable {}
+  extension ArtistInfo: @retroactive @unchecked Sendable {}
+  extension ArtistIndex: @retroactive @unchecked Sendable {}
+  extension PlaylistSummary: @retroactive @unchecked Sendable {}
+  extension PlaylistDetail: @retroactive @unchecked Sendable {}
+  extension SearchResult: @retroactive @unchecked Sendable {}
+  extension Starred: @retroactive @unchecked Sendable {}
+  extension Lyrics: @retroactive @unchecked Sendable {}
+  extension LyricLine: @retroactive @unchecked Sendable {}
+  extension ServerInfo: @retroactive @unchecked Sendable {}
+  extension MediaRef: @retroactive @unchecked Sendable {}
+  ```
+
+  With those, `async let` / `withThrowingTaskGroup` over one client type-checks under `-swift-version 6` (checked with `swiftc -typecheck` against the framework, 2026-11-04). `close()` is the one call that isn't safe to race: call it once, after the profile's in-flight work is cancelled.
 - No default arguments in Swift: pass every parameter, `nil` for optional ones.
 - Optional numbers are boxes: `KotlinInt?` (`.int32Value`), `KotlinLong?` (`.int64Value`); build them with `KotlinInt(int: 320)`, `KotlinLong(value: ms)`. `Int` is `Int32`, `Long` is `Int64`.
 - Enums are classes with lower-camel statics: `AlbumListType.alphabeticalByName`, `SubsonicErrorKind.wrongCredentials`; `switch` works with a `default`.
@@ -69,7 +89,7 @@ Rules of the bridge (Kotlin/Native → Objective-C → Swift):
 - Models are immutable classes; data-class `copy` is `doCopy(...)`.
 - Keep one client per server profile. The password constructor makes a fresh salt per client; the token and salt then stay fixed for its lifetime, so stream and cover URLs are stable (image caches don't refetch).
 
-### Swift-facing API (from `YoinShared.h`, ios-arm64-simulator, 2026-11-04)
+### Swift-facing API (from `YoinShared.h`, ios-arm64-simulator, 2026-11-04, after the playlist-write / getSong / played additions)
 
 ```swift
 class SubsonicClient {
@@ -90,6 +110,11 @@ class SubsonicClient {
     func search3(query: String, artistCount: Int32, albumCount: Int32, songCount: Int32) async throws -> SearchResult
     func getStarred2() async throws -> Starred
     func getRandomSongs(size: Int32) async throws -> [SongInfo]
+    func getSong(id: String) async throws -> SongInfo?
+    func createPlaylist(name: String, comment: String?, songIds: [String]) async throws -> PlaylistDetail?
+    func updatePlaylist(id: String, name: String?, comment: String?, isPublic: KotlinBoolean?,
+                        songIdsToAdd: [String], songIndexesToRemove: [KotlinInt]) async throws
+    func deletePlaylist(id: String) async throws
     func star(id: String?, albumId: String?, artistId: String?) async throws
     func unstar(id: String?, albumId: String?, artistId: String?) async throws
     func setRating(id: String, rating: Int32) async throws
@@ -116,9 +141,11 @@ class LrcParser { static shared; func parse(raw: String) -> Lyrics }
 class MediaRef { provider: String; rawId: String; key: String }      // "subsonic:al-1"
 class SongInfo { ref, id, title?, artist?, artistId?, album?, albumId?, track: KotlinInt?, disc: KotlinInt?,
                  durationSec: KotlinInt?, coverArtId?, year: KotlinInt?, genre?, starred: Bool, starredAt?,
-                 userRating: KotlinInt?, suffix?, contentType?, bitRate: KotlinInt?, size: KotlinLong?, path?, playCount: KotlinInt? }
+                 userRating: KotlinInt?, suffix?, contentType?, bitRate: KotlinInt?, size: KotlinLong?, path?, playCount: KotlinInt?, played: String? }
 class AlbumInfo { ref, id, name, artist?, artistId?, year?, songCount?, durationSec?, coverArtId: String, starred, starredAt?,
-                  userRating?, playCount?, created?, genre?, releaseType?, songs: [SongInfo] }
+                  userRating?, playCount?, created?, genre?, releaseType?, songs: [SongInfo], played: String? }
+// SongInfo / AlbumInfo have two inits: the full one ending in `played:`, and the
+// older one without it (played = nil), so existing Swift call sites still compile.
 class ArtistInfo { ref, id, name, albumCount?, coverArtId?, starred, starredAt?, albums: [AlbumInfo] }
 class ArtistIndex { name: String; artists: [ArtistInfo] }
 class PlaylistSummary { ref, id, name, owner?, isPublic: KotlinBoolean?, comment?, coverArtId: String, songCount?, durationSec?,
@@ -152,6 +179,7 @@ iosApp/scripts/with-lock.sh ./gradlew :shared:allTests   # JVM host + iOS simula
 ```
 
 - `SubsonicClientTest` (34): every endpoint through Ktor's `MockEngine` with JSON adapted from Android's `SubsonicModelsTest` / `SubsonicMappersTest` — auth query (`u t s v c f`, Subsonic's own `sesame` / `c19b2d` example, no `p`), field mapping and null handling, playlist ownership rules, star / unstar id kinds, rating clamp, scrobble params, every error code, HTTP / parse / network failures, lyrics (structured, offset, unsynced, fallback, auth not swallowed), URL builders.
+- `SubsonicClientWritesTest` (13): `createPlaylist` (repeated `songId`, comment follow-up, blank comment, old server without a body), `updatePlaylist` (only the given parts, `public`, adds in order, removals deduplicated and descending, not-authorised error), `deletePlaylist` (id, not-found), `getSong` (mapping incl. `played`, null / not-found), `played` on albums and songs (empty = null), and 40 overlapping calls from `Dispatchers.Default` through one client.
 - `Md5Test` (5): RFC 1321 vectors, block-boundary lengths, UTF-8, the Subsonic doc token.
 - `LrcParserTest` (11): Android's cases plus `[mm:ss:xx]`, offsets and `lineIndexAt`.
 - `SubsonicLiveSmokeTest` (androidHostTest and iosTest, 1 each): skipped unless `YOIN_SUBSONIC_SMOKE_URL` is set. Runs every call against a real server through the real engine (OkHttp / NSURLSession) and fetches a stream and a cover URL. With the promo demo server:
@@ -168,8 +196,7 @@ iosApp/scripts/with-lock.sh ./gradlew :shared:allTests   # JVM host + iOS simula
 
 - **Nothing in the iOS app calls the client yet.** Views read `Model/MockLibrary.swift`, and the playback engine's `Playback/DemoQueue.swift` builds its own `rest/…` URLs (written in parallel tonight). Next step: a Swift repository on `SubsonicClient` feeding the views, and `DemoQueue` / `PlayableTrack` built from `SongInfo` + `streamUrl` (+ `scrobble` from `PlayerEngine`).
 - **Android still uses Retrofit.** Moving `app/` onto this client (and deleting the Retrofit one) is a separate migration.
-- **Playlist writes**: `createPlaylist`, `updatePlaylist` (rename, add, remove), `deletePlaylist` are on Android but not here.
 - **Other providers**: Spotify (Web API + App Remote) and Apple Music (MusicKit) sources, and the `MusicSource` / `Capability` abstraction around them.
 - **Third-party lyrics**: NetEase, QQ, LRCLIB, Huawei providers, candidate matching, translations, the lyrics cache.
 - **Persistence and sync**: Room tables (ratings, play history, notes, memories, detail cache), cloud sync (`SyncEngine`, `SnapshotCodec`, Drive appDataFolder), profiles and encrypted credentials. iOS needs its own Keychain storage for the password or token / salt.
-- **Other Subsonic endpoints**: `getAlbumList2` by year / genre, `getTopSongs`, `getSimilarSongs2`, `getArtistInfo2`, `getUser`, `getOpenSubsonicExtensions`, API-key auth (OpenSubsonic `apiKey`), `download`, transcoding decisions (Android's network-aware quality, #121).
+- **Other Subsonic endpoints**: `getAlbumList2` by year / genre, `getTopSongs` / `getSimilarSongs2` (unused by Android too), `getArtistInfo2`, `getUser`, `getOpenSubsonicExtensions`, API-key auth (OpenSubsonic `apiKey`), `download`, transcoding decisions (Android's network-aware quality, #121).

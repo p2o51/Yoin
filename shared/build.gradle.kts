@@ -29,6 +29,9 @@ kotlin {
         target.binaries.framework {
             baseName = "YoinShared"
             isStatic = true
+            // Swift may start suspend calls (SubsonicClient) from any thread /
+            // Task, not only the main thread (iosApp/docs/shared-data.md).
+            binaryOption("objcExportSuspendFunctionLaunchThreadRestriction", "none")
             xcf.add(this)
         }
     }

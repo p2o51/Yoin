@@ -40,8 +40,15 @@
  *   optional ones).
  * - Optional numbers arrive as `KotlinInt?` / `KotlinLong?`; pass them with
  *   `KotlinInt(int: 320)` / `KotlinLong(value: ms)`.
- * - Calls can be made from any thread / Task; completion comes back on the
- *   main thread (Kotlin/Native's default for suspend → async bridging).
+ * - Concurrency: the client is immutable after construction (token / salt
+ *   fixed) and Ktor's HttpClient is thread-safe, so any number of calls may
+ *   run at once from any thread / Task (`async let`, TaskGroup) — they don't
+ *   serialise. The framework is built with
+ *   `objcExportSuspendFunctionLaunchThreadRestriction=none`, so calls can
+ *   start off the main thread. Kotlin classes don't carry Swift's
+ *   `Sendable`; under Swift 6 strict concurrency declare it once in Swift:
+ *   `extension SubsonicClient: @retroactive @unchecked Sendable {}` (and the
+ *   same for the immutable models if they cross actors).
  * - The client is cheap but owns an NSURLSession: keep one per server
  *   profile, `close()` it when the profile is removed.
  */
@@ -184,6 +191,11 @@ class SubsonicClient private constructor(
     suspend fun getRandomSongs(size: Int): List<SongInfo> =
         call("getRandomSongs", "size" to size.toString()).randomSongs?.song.orEmpty().map { it.toSongInfo() }
 
+    /** One song by id (`getSong`); null when the server answers ok without one. A missing id throws [SubsonicErrorKind.NOT_FOUND]. */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun getSong(id: String): SongInfo? =
+        call("getSong", "id" to id).song?.toSongInfo()
+
     // ----------------------------------------------------------- write actions
 
     /**
@@ -219,6 +231,65 @@ class SubsonicClient private constructor(
             timeMs?.let { add("time" to it.toString()) }
         }
         call("scrobble", *params.toTypedArray())
+    }
+
+    // -------------------------------------------------------- playlist writes
+
+    /**
+     * `createPlaylist` with [name] and, in order, [songIds] (repeated `songId`;
+     * may be empty). Subsonic's createPlaylist has no comment parameter, so a
+     * non-blank [comment] is set by a follow-up `updatePlaylist` (Android's
+     * `createPlaylist(name, description)`). Returns the new playlist as the
+     * server sent it (API 1.14+); null when an older server answers ok without
+     * one — the comment can't be set then. The returned detail predates the
+     * comment follow-up, so its `summary.comment` is null; refetch for it.
+     */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun createPlaylist(name: String, comment: String?, songIds: List<String>): PlaylistDetail? {
+        val params = buildList {
+            add("name" to name)
+            songIds.forEach { add("songId" to it) }
+        }
+        val created = call("createPlaylist", *params.toTypedArray()).playlist ?: return null
+        if (!comment.isNullOrBlank()) {
+            call("updatePlaylist", "playlistId" to created.id, "comment" to comment)
+        }
+        return created.toPlaylistDetail(username)
+    }
+
+    /**
+     * `updatePlaylist`, Subsonic's swiss-army edit. Every part is optional:
+     * [name] renames, [comment] re-describes, [isPublic] shares / unshares,
+     * [songIdsToAdd] appends (repeated `songIdToAdd`), [songIndexesToRemove]
+     * removes by zero-based position in the current list (repeated
+     * `songIndexToRemove`, sent in descending order like Android so earlier
+     * removals don't shift later ones). Subsonic is last-writer-wins: there's
+     * no snapshot token.
+     */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun updatePlaylist(
+        id: String,
+        name: String?,
+        comment: String?,
+        isPublic: Boolean?,
+        songIdsToAdd: List<String>,
+        songIndexesToRemove: List<Int>,
+    ) {
+        val params = buildList {
+            add("playlistId" to id)
+            name?.let { add("name" to it) }
+            comment?.let { add("comment" to it) }
+            isPublic?.let { add("public" to it.toString()) }
+            songIdsToAdd.forEach { add("songIdToAdd" to it) }
+            songIndexesToRemove.distinct().sortedDescending().forEach { add("songIndexToRemove" to it.toString()) }
+        }
+        call("updatePlaylist", *params.toTypedArray())
+    }
+
+    /** `deletePlaylist`. Only the owner (or an admin) may; others get [SubsonicErrorKind.NOT_AUTHORIZED]. */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun deletePlaylist(id: String) {
+        call("deletePlaylist", "id" to id)
     }
 
     // ----------------------------------------------------------------- lyrics

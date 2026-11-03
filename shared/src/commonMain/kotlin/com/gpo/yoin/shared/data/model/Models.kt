@@ -54,7 +54,20 @@ data class SongInfo(
     val size: Long?,
     val path: String?,
     val playCount: Int?,
-)
+    /** OpenSubsonic (Navidrome) `played`: ISO-8601 time of the user's last play, as the server sent it; null when absent. */
+    val played: String?,
+) {
+    /** The constructor from before [played] existed (Swift: the init without `played:`). */
+    constructor(
+        ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
+        albumId: String?, track: Int?, disc: Int?, durationSec: Int?, coverArtId: String?, year: Int?,
+        genre: String?, starred: Boolean, starredAt: String?, userRating: Int?, suffix: String?,
+        contentType: String?, bitRate: Int?, size: Long?, path: String?, playCount: Int?,
+    ) : this(
+        ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
+        genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, null,
+    )
+}
 
 @Serializable
 data class AlbumInfo(
@@ -79,7 +92,20 @@ data class AlbumInfo(
     val releaseType: String?,
     /** Filled by `getAlbum`; empty in album lists. */
     val songs: List<SongInfo>,
-)
+    /** OpenSubsonic (Navidrome) `played`: ISO-8601 time of the user's last play of the album; null when absent. */
+    val played: String?,
+) {
+    /** The constructor from before [played] existed (Swift: the init without `played:`). */
+    constructor(
+        ref: MediaRef, id: String, name: String, artist: String?, artistId: String?, year: Int?,
+        songCount: Int?, durationSec: Int?, coverArtId: String, starred: Boolean, starredAt: String?,
+        userRating: Int?, playCount: Int?, created: String?, genre: String?, releaseType: String?,
+        songs: List<SongInfo>,
+    ) : this(
+        ref, id, name, artist, artistId, year, songCount, durationSec, coverArtId, starred, starredAt,
+        userRating, playCount, created, genre, releaseType, songs, null,
+    )
+}
 
 @Serializable
 data class ArtistInfo(

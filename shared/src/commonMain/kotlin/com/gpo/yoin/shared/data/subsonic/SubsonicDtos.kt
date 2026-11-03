@@ -31,6 +31,7 @@ internal data class SubsonicBody(
     val searchResult3: SearchResultDto? = null,
     val starred2: StarredDto? = null,
     val randomSongs: SongListDto? = null,
+    val song: SongDto? = null,
     val playlists: PlaylistsDto? = null,
     val playlist: PlaylistDto? = null,
     val lyricsList: LyricsListDto? = null,
@@ -88,6 +89,8 @@ internal data class AlbumDto(
     val starred: String? = null,
     val userRating: Int? = null,
     val created: String? = null,
+    /** OpenSubsonic (Navidrome): when the user last played it, ISO-8601. */
+    val played: String? = null,
     val song: List<SongDto> = emptyList(),
     val releaseTypes: List<String> = emptyList(),
 )
@@ -120,6 +123,8 @@ internal data class SongDto(
     val starred: String? = null,
     val userRating: Int? = null,
     val playCount: Int? = null,
+    /** OpenSubsonic (Navidrome): when the user last played it, ISO-8601. */
+    val played: String? = null,
 )
 
 @Serializable
