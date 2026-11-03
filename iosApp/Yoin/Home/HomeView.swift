@@ -25,8 +25,8 @@ struct HomeView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
         }
         .contentMargins(.bottom, 108, for: .scrollContent)
-        // `-screen home-bottom` opens scrolled to the end (screenshots).
-        .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
+        // `-screen home-bottom` / `home-gummy-bottom` open scrolled to the end (screenshots).
+        .defaultScrollAnchor(LaunchConfig.screen.hasSuffix("-bottom") ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
@@ -95,7 +95,7 @@ struct HomeView: View {
                 WideCard(album: a[1], timeAgo: "1d ago")
             }
             .frame(height: 118)
-            StripCard(title: a[11].title, subtitle: a[11].artist, timeAgo: "3d ago")
+            StripCard(title: a[11].title, subtitle: a[11].artist, timeAgo: "3d ago", palette: a[11].palette)
         }
     }
 
@@ -259,7 +259,7 @@ private struct HeroCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(14)
-            .background(cardWash(s, album.palette), in: .rect(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(PressScale())
     }
@@ -297,7 +297,7 @@ private struct SmallCard: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(cardWash(s, album.palette), in: .rect(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(PressScale())
     }
@@ -326,7 +326,7 @@ private struct WideCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(cardWash(s, album.palette), in: .rect(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(PressScale())
     }
@@ -337,6 +337,7 @@ private struct StripCard: View {
     var title: String
     var subtitle: String
     var timeAgo: String
+    var palette: CoverPalette
 
     var body: some View {
         let s = scheme!
@@ -351,7 +352,7 @@ private struct StripCard: View {
         .lineLimit(1)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(s.surfaceContainerLow.mix(with: s.primary, by: 0.10, in: .perceptual), in: .capsule)
+        .homeGlassCard(palette, scheme: s, shape: Capsule())
     }
 }
 
@@ -562,8 +563,50 @@ private struct RediscoverCard: View {
             }
             .padding(14)
             .frame(height: 132)
-            .background(container, in: .rect(cornerRadius: 16, style: .continuous))
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(PressScale())
+    }
+}
+
+// MARK: - Glass cards
+
+extension View {
+    /// Home's cover-color cards as Liquid Glass. Glass needs something to
+    /// refract, so the card's own cover sits behind it, scaled up and heavily
+    /// blurred, clipped to the card; the glass on top is tinted with the
+    /// card wash so text keeps the solid card's contrast. `-homeCard gummy`
+    /// adds grain, a stronger tint, a bright top rim and a colored glow.
+    func homeGlassCard<S: InsettableShape>(_ palette: CoverPalette, scheme: CoverScheme, shape: S) -> some View {
+        let gummy = LaunchConfig.homeCardGummy
+        let wash = cardWash(scheme, palette)
+        return background {
+            ZStack {
+                CoverArt(palette: palette, cornerRadius: 0, seed: 1)
+                    .scaleEffect(1.6)
+                    .blur(radius: 26)
+                    .opacity(0.85)
+                    .clipShape(shape)
+                shape.fill(.clear)
+                    .glassEffect(.regular.tint(wash.opacity(gummy ? 0.72 : 0.6)), in: shape)
+                if gummy {
+                    Rectangle()
+                        .fill(.white)
+                        .colorEffect(ShaderLibrary.yoinGrain(.float(0.6)))
+                        .blendMode(.overlay)
+                        .opacity(0.32)
+                        .clipShape(shape)
+                    shape
+                        .strokeBorder(LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.05)],
+                                                     startPoint: .top, endPoint: .bottom), lineWidth: 1.2)
+                }
+            }
+            .background {
+                if gummy {
+                    shape.fill(palette.a.opacity(0.35)).blur(radius: 16).offset(y: 8)
+                }
+            }
+            .allowsHitTesting(false)
+        }
     }
 }
