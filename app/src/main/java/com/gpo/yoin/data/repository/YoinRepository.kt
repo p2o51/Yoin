@@ -307,6 +307,12 @@ class YoinRepository(
         fun clear() {
             lru.clear()
         }
+
+        /** [invalidate] every entry and every load still out, so none of them writes back what it read. */
+        fun invalidateAll() {
+            val keys = inFlight.keys.toSet() + synchronized(lru) { lru.keys.toSet() }
+            keys.forEach(::invalidate)
+        }
     }
 
     /**
@@ -1446,9 +1452,10 @@ class YoinRepository(
      */
     suspend fun forgetDetails(profileId: String) {
         if (profileId == activeProfileId.value) {
-            albumDetailCache.clear()
-            artistDetailCache.clear()
-            playlistDetailCache.clear()
+            // Loads already out read under the old setting: detached, they can't write it back.
+            albumDetailCache.invalidateAll()
+            artistDetailCache.invalidateAll()
+            playlistDetailCache.invalidateAll()
         }
         detailCacheStore?.removeProfile(profileId)
     }

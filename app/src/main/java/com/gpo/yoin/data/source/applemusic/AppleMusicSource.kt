@@ -710,8 +710,9 @@ class AppleMusicSource(
     /**
      * A storefront whose own language isn't English names songs in it: on Japan's, Kim Petras is キム・ペトラス.
      * Its catalog answers in English when asked with `l=en-US` (one of the languages it lists), which is what
-     * lyrics sources index for songs released in English. Catalog songs only; a storefront already in English,
-     * or one that can't answer in it, has nothing to add. Answers are kept per catalog id, misses too.
+     * lyrics sources index for songs released in English. Catalog songs only; a storefront already in English
+     * (unless the account's [AppleMusicNameRegion] shows another storefront's names), or one that can't answer
+     * in it, has nothing to add. Answers are kept per catalog id, misses too.
      */
     override suspend fun alternateNames(trackId: MediaId): TrackNames? {
         if (trackId.provider != MediaId.PROVIDER_APPLE_MUSIC) return null
@@ -720,7 +721,9 @@ class AppleMusicSource(
             if (catalogId in alternateNamesByCatalogId) return alternateNamesByCatalogId[catalogId]
         }
         val shop = storefrontDetails()
-        if (shop.defaultLanguage?.startsWith("en") == true || ENGLISH !in shop.languages) return null
+        if (ENGLISH !in shop.languages) return null
+        // An English storefront's names are English already, unless the account's name region replaced them.
+        if (shop.defaultLanguage?.startsWith("en") == true && nameRegion() == AppleMusicNameRegion.Off) return null
         val song = api.resourcePage(
             segments = listOf("v1", "catalog", shop.id, "songs", catalogId),
             personal = false,
