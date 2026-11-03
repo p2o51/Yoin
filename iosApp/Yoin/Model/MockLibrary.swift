@@ -101,6 +101,17 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
         let al = Self.allAlbums[0]
         return PlaybackSnapshot(album: al, track: al.tracks[2], positionSec: 74, isPlaying: true,
                                 lyricLine: "The echo stays after the song is gone",
-                                nextLyricLine: "and I keep the light on in the hall")
+                                nextLyricLine: "and I keep the light on in the hall",
+                                lyrics: [
+                                    "Paper moon above the station",
+                                    "Every train already left",
+                                    "The echo stays after the song is gone",
+                                    "and I keep the light on in the hall",
+                                    "in case the quiet wants to talk",
+                                    "Hold the last note a little longer",
+                                    "let it ring until the morning",
+                                    "余韻だけが 部屋に残る",
+                                ],
+                                activeLyric: 2)
     }
 }

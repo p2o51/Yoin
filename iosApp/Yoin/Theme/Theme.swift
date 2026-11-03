@@ -72,7 +72,7 @@ enum LaunchConfig {
     static var npVariant: String {
         if screen == "np-frost" { return "v2" }
         if screen.hasPrefix("np-v") { return String(screen.dropFirst(3)) }
-        return UserDefaults.standard.string(forKey: "npVariant") ?? "v1"
+        return UserDefaults.standard.string(forKey: "npVariant") ?? "v3"
     }
     static var glass: String {
         if screen.hasSuffix("-yoinglass") { return "yoin" }

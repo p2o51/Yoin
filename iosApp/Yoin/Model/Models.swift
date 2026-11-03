@@ -82,6 +82,8 @@ struct PlaybackSnapshot: Sendable {
     var isPlaying: Bool
     var lyricLine: String
     var nextLyricLine: String
+    var lyrics: [String] = []
+    var activeLyric: Int = 0
 }
 
 // MARK: - Source protocols (the KMP module will implement these)
