@@ -25,6 +25,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.TransformOrigin
+import com.gpo.yoin.shared.tokens.YoinTokens
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 
 enum class YoinMotionRole {
@@ -56,28 +57,28 @@ fun ProvideYoinMotionRole(
  * these helpers instead of creating raw animation specs inline.
  */
 object YoinMotion {
-    private const val PredictiveBackSpringSpeedMultiplier = 1.3f
+    private val PredictiveBackSpringSpeedMultiplier = YoinTokens.Motion.PREDICTIVE_BACK_SPEED_MULTIPLIER.toFloat()
     // Fast, near-critical spring that owns the Now Playing stage reshape
     // (expand/collapse). Snappy with no overshoot — no overshoot keeps the
     // cover handoff from re-crossing its visibility threshold, and the speed
     // makes the post-gesture release read as a continuation, not a slow snap.
-    private const val StageSettleDamping = 0.85f
-    private const val StageSettleStiffness = 700f
+    private val StageSettleDamping = YoinTokens.Motion.stageSettle.damping.toFloat()
+    private val StageSettleStiffness = YoinTokens.Motion.stageSettle.stiffness.toFloat()
     // Home edit mode's kick: a light, ringing spring (3.2Hz, each swing 0.37×
     // the last). Values are normalised so a kick of v = a·31.6/s peaks at a.
-    private const val HomeEditKickDamping = 0.3f
-    private const val HomeEditKickStiffness = 450f
-    private const val HomeEditKickThreshold = 0.01f
+    private val HomeEditKickDamping = YoinTokens.Motion.homeEditKick.damping.toFloat()
+    private val HomeEditKickStiffness = YoinTokens.Motion.homeEditKick.stiffness.toFloat()
+    private val HomeEditKickThreshold = YoinTokens.Motion.HOME_EDIT_KICK_THRESHOLD.toFloat()
     // Artwork needs time for its fine texture to emerge before it joins up.
     // Critical damping keeps the reveal moving forward without reopening holes.
-    private const val ArtworkDissolveStiffness = 45f
+    private val ArtworkDissolveStiffness = YoinTokens.Motion.artworkDissolve.stiffness.toFloat()
 
     // The seam halftone's flow trails the scroll and coasts to rest after the
     // content stops. Stiffness of the equivalent critically damped spring
     // (decay rate ω = √stiffness): it never swings back, ~0.5s to settle.
     // The scroll-speed follower behind the seams' stretch and disorder shares
     // this ω, so all three settle on the same beat.
-    const val SeamFlowSettleStiffness = 90f
+    val SeamFlowSettleStiffness = YoinTokens.Motion.SEAM_FLOW_SETTLE_STIFFNESS.toFloat()
 
     // 静整动乱 (dissolve-final §1.7): the halftone's disorder D only exists while
     // scrolling and settles back onto the lattice with the afterglow, so a page
@@ -291,14 +292,14 @@ object YoinMotion {
 
     fun mascotShakeSpring(): FiniteAnimationSpec<Float> = spring(MascotShakeDamping, MascotShakeStiffness)
 
-    private const val MascotLandDamping = 0.62f
-    private const val MascotLandStiffness = 340f
-    private const val MascotGestureDamping = 0.5f
-    private const val MascotGestureStiffness = 420f
-    private const val MascotHopDamping = 0.42f
-    private const val MascotHopStiffness = 520f
-    private const val MascotShakeDamping = 0.18f
-    private const val MascotShakeStiffness = 520f
+    private val MascotLandDamping = YoinTokens.Motion.mascotLand.damping.toFloat()
+    private val MascotLandStiffness = YoinTokens.Motion.mascotLand.stiffness.toFloat()
+    private val MascotGestureDamping = YoinTokens.Motion.mascotGesture.damping.toFloat()
+    private val MascotGestureStiffness = YoinTokens.Motion.mascotGesture.stiffness.toFloat()
+    private val MascotHopDamping = YoinTokens.Motion.mascotHop.damping.toFloat()
+    private val MascotHopStiffness = YoinTokens.Motion.mascotHop.stiffness.toFloat()
+    private val MascotShakeDamping = YoinTokens.Motion.mascotShake.damping.toFloat()
+    private val MascotShakeStiffness = YoinTokens.Motion.mascotShake.stiffness.toFloat()
 
     fun fadeIn(
         role: YoinMotionRole,

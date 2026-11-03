@@ -8,6 +8,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
+import com.gpo.yoin.shared.tokens.YoinTokens
 
 val GoogleSansFlex = FontFamily(
     Font(R.font.google_sans_flex_400, FontWeight.Normal),
@@ -25,21 +26,18 @@ val GoogleSansFlex = FontFamily(
  */
 @OptIn(ExperimentalTextApi::class)
 val GoogleSansFlexRounded = FontFamily(
-    Font(
-        R.font.google_sans_flex_variable,
-        weight = FontWeight.Medium,
-        variationSettings = FontVariation.Settings(
-            FontVariation.weight(FontWeight.Medium.weight),
-            FontVariation.Setting("ROND", 100f),
-        ),
-    ),
-    Font(
-        R.font.google_sans_flex_variable,
-        weight = FontWeight.SemiBold,
-        variationSettings = FontVariation.Settings(
-            FontVariation.weight(FontWeight.SemiBold.weight),
-            FontVariation.Setting("ROND", 100f),
-        ),
+    roundedFont(YoinTokens.Type.roundedMedium),
+    roundedFont(YoinTokens.Type.roundedSemiBold),
+)
+
+/** One rounded cut: the token's wght as both the font weight and the axis, plus its ROND. */
+@OptIn(ExperimentalTextApi::class)
+private fun roundedFont(axes: YoinTokens.Type.Axes) = Font(
+    R.font.google_sans_flex_variable,
+    weight = FontWeight(axes.weight),
+    variationSettings = FontVariation.Settings(
+        FontVariation.weight(axes.weight),
+        FontVariation.Setting("ROND", axes.round.toFloat()),
     ),
 )
 
@@ -75,62 +73,62 @@ private val defaultTypography = Typography()
 val YoinTypography = Typography(
     displayLarge = defaultTypography.displayLarge.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.displayLarge.letterSpacing.sp,
     ),
     displayMedium = defaultTypography.displayMedium.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.displayMedium.letterSpacing.sp,
     ),
     displaySmall = defaultTypography.displaySmall.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.displaySmall.letterSpacing.sp,
     ),
     headlineLarge = defaultTypography.headlineLarge.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.headlineLarge.letterSpacing.sp,
     ),
     headlineMedium = defaultTypography.headlineMedium.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.headlineMedium.letterSpacing.sp,
     ),
     headlineSmall = defaultTypography.headlineSmall.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.headlineSmall.letterSpacing.sp,
     ),
     titleLarge = defaultTypography.titleLarge.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.titleLarge.letterSpacing.sp,
     ),
     titleMedium = defaultTypography.titleMedium.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.titleMedium.letterSpacing.sp,
     ),
     titleSmall = defaultTypography.titleSmall.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.titleSmall.letterSpacing.sp,
     ),
     bodyLarge = defaultTypography.bodyLarge.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.bodyLarge.letterSpacing.sp,
     ),
     bodyMedium = defaultTypography.bodyMedium.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.bodyMedium.letterSpacing.sp,
     ),
     bodySmall = defaultTypography.bodySmall.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.bodySmall.letterSpacing.sp,
     ),
     labelLarge = defaultTypography.labelLarge.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.sp,
+        letterSpacing = YoinTokens.Type.labelLarge.letterSpacing.sp,
     ),
     labelMedium = defaultTypography.labelMedium.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.1.sp,
+        letterSpacing = YoinTokens.Type.labelMedium.letterSpacing.sp,
     ),
     labelSmall = defaultTypography.labelSmall.copy(
         fontFamily = GoogleSansFlex,
-        letterSpacing = 0.1.sp,
+        letterSpacing = YoinTokens.Type.labelSmall.letterSpacing.sp,
     ),
 )

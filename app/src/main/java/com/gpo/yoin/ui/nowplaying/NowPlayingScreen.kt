@@ -141,6 +141,7 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.PlayMode
+import com.gpo.yoin.shared.tokens.YoinTokens
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
@@ -1260,12 +1261,12 @@ private fun CompactPlayingContent(
             .lyricToolsTouchTracker(lyricToolsIdle)
             .padding(stageColumnInsets()),
     ) {
-        val horizontalPadding = 24.dp
+        val horizontalPadding = YoinTokens.NowPlaying.COLUMN_PADDING.dp
         // Enlarged phone: the column is centred at its own width; every width
         // below reads stageWidth. A phone keeps reading maxWidth, unchanged.
         val stageMaxWidth = enlarged?.let { minOf(maxWidth, it.columnWidth + horizontalPadding * 2) } ?: maxWidth
-        val ratingColumn = enlarged?.ratingColumn ?: 56.dp
-        val stageControlSize = enlarged?.controlSize ?: 56.dp
+        val ratingColumn = enlarged?.ratingColumn ?: YoinTokens.NowPlaying.PHONE_RATING_COLUMN.dp
+        val stageControlSize = enlarged?.controlSize ?: YoinTokens.NowPlaying.CONTROL_SIZE.dp
         // Height budget (adaptive-principles §6, NowPlayingBudget.kt): measured
         // content + compressible gaps. Short windows spend the air under the
         // cover first, then the upper gaps, then fold the lyrics to ONE
@@ -1339,7 +1340,7 @@ private fun CompactPlayingContent(
         val tabHeight = stage(restPose.tabs, focusPose.tabs, ExpandedTabRowHeight)
         val tabSpacerHeight = stage(restPose.tabGap, focusPose.tabGap, ExpandedTabGap)
         val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress, shortFocusProgress)
-        val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
+        val ratingGap = lerpDp(YoinTokens.NowPlaying.RATING_GAP.dp, 0.dp, ratingRetreatProgress)
         // A height-capped cover (Fold outer, 16:9) leaves a band between it and the
         // rating bar: the song's album, artist and title run up it, a record's
         // spine (owner 2026-10-30, option 2 over a thick bar).
@@ -1625,7 +1626,7 @@ private fun CompactPlayingContent(
                                         modifier = Modifier.weight(1f),
                                     )
 
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.height(YoinTokens.NowPlaying.RATING_TO_HEART_GAP.dp))
 
                                     if (state.serviceFeatures.supportsFavorites) {
                                         FavoriteButton(
@@ -1653,7 +1654,7 @@ private fun CompactPlayingContent(
                                     // Room for the heart's tap-bounce (scales to
                                     // 1.25×) so its overflow isn't cut by the
                                     // rating slot's clipToBounds at this edge.
-                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Spacer(modifier = Modifier.height(YoinTokens.NowPlaying.HEART_BOTTOM_GAP.dp))
                                 }
                             }
                         }
@@ -3353,9 +3354,9 @@ private fun LandscapePlayingContent(
         }
     }}
 
-private val LandscapeRatingRowHeight = 48.dp
-private val LandscapeRatingGap = 12.dp
-private val LandscapeColumnGap = 28.dp
+private val LandscapeRatingRowHeight = YoinTokens.NowPlaying.LANDSCAPE_RATING_ROW.dp
+private val LandscapeRatingGap = YoinTokens.NowPlaying.LANDSCAPE_RATING_GAP.dp
+private val LandscapeColumnGap = YoinTokens.NowPlaying.LANDSCAPE_COLUMN_GAP.dp
 private val LandscapeControlSize = 48.dp
 private val LandscapeTransportTopPad = 6.dp
 private val LandscapePillsHeight = 46.dp
@@ -4880,7 +4881,7 @@ private fun Modifier.tapWithoutConsumingDrag(
 private const val NowPlayingRouteNavigationDelayMs = 72L
 
 /** The one tappable lyric line that replaces tabs + lyric window on 16:9 screens. */
-internal val OneLineLyricRowHeight = 44.dp
+internal val OneLineLyricRowHeight = YoinTokens.NowPlaying.ONE_LINE_ROW_NOMINAL.dp
 
 /** The Expanded stage's fixed geometry (the budget's third endpoint). */
 private val ExpandedTopBarHeight = 56.dp
@@ -4905,11 +4906,11 @@ private val HeroOneLineGap = 12.dp
 private const val HeroOneLineArtistShare = 0.4f
 
 /** Enlarged phone: the tab row grows to hold the lyric tools at its end. */
-private val EnlargedTabRowHeight = 44.dp
+private val EnlargedTabRowHeight = YoinTokens.NowPlaying.ENLARGED_TOOL_TAB_ROW.dp
 private val EnlargedTabToolSize = 44.dp
 private val ShortTabToolSize = 40.dp
 
-private val WideColumnGap = 24.dp
+private val WideColumnGap = YoinTokens.NowPlaying.WIDE_COLUMN_GAP.dp
 private val WideFramePadding = 24.dp
 private val WideTopBarHeight = 48.dp
 private const val HiddenLayerVisibilityThreshold = 0.01f

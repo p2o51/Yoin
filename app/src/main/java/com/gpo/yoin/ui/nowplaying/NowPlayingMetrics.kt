@@ -8,6 +8,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.shared.tokens.YoinTokens
 
 /*
  * Content minimums for the height budgets (NowPlayingBudget.kt), read from
@@ -48,7 +49,11 @@ internal fun rememberDualPaneMetrics(
 ): DualPaneMetrics {
     val typography = MaterialTheme.typography
     val density = LocalDensity.current
-    val fit = rememberPlaybackControlsFit(maxWidth = DualPaneStackWidth, controlSize = 56.dp, hasExpandToggle = false)
+    val fit = rememberPlaybackControlsFit(
+        maxWidth = DualPaneStackWidth,
+        controlSize = YoinTokens.NowPlaying.CONTROL_SIZE.dp,
+        hasExpandToggle = false,
+    )
     return remember(fit, castVisible, navBottom, typography, density) {
         val artist = typography.titleMedium.lineDp(density) + WideTitleLineGap
         val titleLine = typography.headlineMedium.lineDp(density)
@@ -76,13 +81,14 @@ private fun lyricWindowMetrics(active: TextStyle, inactive: TextStyle, density: 
 )
 
 /** The pills are 44; the Cast button's 48dp touch target sets the row when it shows. */
-private fun pillRowHeight(castVisible: Boolean): Dp = if (castVisible) 48.dp else 44.dp
+private fun pillRowHeight(castVisible: Boolean): Dp =
+    if (castVisible) YoinTokens.NowPlaying.PILL_ROW_WITH_CAST.dp else YoinTokens.NowPlaying.PILL_HEIGHT.dp
 
 /** The column's side padding the transport and pills sit inside. */
-private val ColumnContentInset = 24.dp
-private val HeroLineGap = 2.dp
-private val WideTitleLineGap = 2.dp
+private val ColumnContentInset = YoinTokens.NowPlaying.COLUMN_PADDING.dp
+private val HeroLineGap = YoinTokens.NowPlaying.HERO_LINE_GAP.dp
+private val WideTitleLineGap = YoinTokens.NowPlaying.WIDE_TITLE_LINE_GAP.dp
 
 /** LyricsDisplay / OneLineLyricPreview lines carry 4dp above and below. */
-private val LyricLinePads = 8.dp
-private const val LineHeightFallback = 1.25f
+private val LyricLinePads = YoinTokens.NowPlaying.LYRIC_LINE_PADS.dp
+private val LineHeightFallback = YoinTokens.NowPlaying.LINE_HEIGHT_FALLBACK.toFloat()

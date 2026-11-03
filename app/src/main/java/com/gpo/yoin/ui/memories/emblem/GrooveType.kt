@@ -6,6 +6,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import com.gpo.yoin.R
+import com.gpo.yoin.shared.tokens.YoinTokens
 import kotlin.math.roundToInt
 
 /**
@@ -20,14 +21,21 @@ internal object GrooveType {
     private val cache = HashMap<Axes, FontFamily>()
 
     fun score(kind: GrooveKind, fourCharacters: Boolean, sizeDp: Double): Pair<FontFamily, FontWeight> =
-        family(Axes(if (kind == GrooveKind.Album) 690 else 640, if (fourCharacters) 76f else 92f, 50f, opsz(sizeDp)))
+        family(
+            Axes(
+                if (kind == GrooveKind.Album) YoinTokens.Type.SCORE_WEIGHT_ALBUM else YoinTokens.Type.SCORE_WEIGHT_AVERAGE,
+                (if (fourCharacters) YoinTokens.Type.SCORE_WIDTH_FOUR_CHARACTERS else YoinTokens.Type.SCORE_WIDTH).toFloat(),
+                YoinTokens.Type.SCORE_ROUND.toFloat(),
+                opsz(sizeDp),
+            ),
+        )
 
-    fun caption(sizeDp: Double): Pair<FontFamily, FontWeight> = family(Axes(600, 100f, 0f, opsz(sizeDp)))
+    fun caption(sizeDp: Double): Pair<FontFamily, FontWeight> = family(Axes(YoinTokens.Type.CAPTION_WEIGHT, 100f, 0f, opsz(sizeDp)))
 
     fun unratedWord(widthAxis: Float, sizeDp: Double): Pair<FontFamily, FontWeight> =
-        family(Axes(600, widthAxis, 0f, opsz(sizeDp)))
+        family(Axes(YoinTokens.Type.CAPTION_WEIGHT, widthAxis, 0f, opsz(sizeDp)))
 
-    private fun opsz(sizeDp: Double): Int = sizeDp.roundToInt().coerceIn(6, 144)
+    private fun opsz(sizeDp: Double): Int = sizeDp.roundToInt().coerceIn(YoinTokens.Type.OPTICAL_SIZE_MIN.toInt(), YoinTokens.Type.OPTICAL_SIZE_MAX.toInt())
 
     @OptIn(ExperimentalTextApi::class)
     private fun family(axes: Axes): Pair<FontFamily, FontWeight> {

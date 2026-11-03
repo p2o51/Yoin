@@ -30,6 +30,7 @@ import androidx.window.WindowSdkExtensions
 import androidx.window.core.layout.WindowSizeClass
 import androidx.window.embedding.ActivityEmbeddingController
 import androidx.window.embedding.SplitController
+import com.gpo.yoin.shared.tokens.YoinTokens
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
@@ -593,30 +594,30 @@ fun rememberShellChromeInsets(windowInfo: YoinWindowInfo): PaddingValues {
 }
 
 /** Outer height of the portrait bar's pill surface (row 68 = 48 button + 10 × 2). */
-val FloatingBarHeight = 68.dp
+val FloatingBarHeight = YoinTokens.Bar.HEIGHT.dp
 
 /**
  * The centred bar (Medium / Wide, and the merged pose) is a step lower: 60 =
  * 44 button + 8 × 2. Tablets have the height to spare, but the full-size pill
  * read as a slab there (owner, 2026-10-02); the portrait bar is unchanged.
  */
-val CenteredBarHeight = 60.dp
+val CenteredBarHeight = YoinTokens.Bar.CENTERED_HEIGHT.dp
 
 /** The centred bar's button height (its row minus 8dp above and below). */
-val CenteredBarButtonHeight = 44.dp
+val CenteredBarButtonHeight = YoinTokens.Bar.CENTERED_BUTTON_HEIGHT.dp
 
 /** The portrait bar's vertical margin (top and bottom). */
-val PortraitBarVerticalMargin = 12.dp
+val PortraitBarVerticalMargin = YoinTokens.Bar.PORTRAIT_VERTICAL_MARGIN.dp
 
 /** CenteredBar: gap from the window bottom (above the nav bar). */
-val CenteredBarBottomMargin = 24.dp
-val CenteredBarBottomMarginWide = 28.dp
+val CenteredBarBottomMargin = YoinTokens.Bar.CENTERED_BOTTOM_MARGIN.dp
+val CenteredBarBottomMarginWide = YoinTokens.Bar.CENTERED_BOTTOM_MARGIN_WIDE.dp
 
 /** CenteredBar: horizontal margin inside a narrow pane (bar = pane − 40, max 600). */
-val CenteredBarHorizontalMargin = 20.dp
+val CenteredBarHorizontalMargin = YoinTokens.Bar.CENTERED_HORIZONTAL_MARGIN.dp
 
 /** CenteredBar: width cap. */
-val CenteredBarMaxWidth = 600.dp
+val CenteredBarMaxWidth = YoinTokens.Bar.CENTERED_MAX_WIDTH.dp
 
 /**
  * The merged pose's cap (Wide shell with its detail column open): the one bar
