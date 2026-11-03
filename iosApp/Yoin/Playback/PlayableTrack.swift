@@ -12,6 +12,10 @@ struct PlayableTrack: Identifiable, Hashable, Sendable {
     var durationSec: Double
     var streamURL: URL
     var coverURL: URL?
+    /// The provider's favorite flag when the track was resolved (nil = unknown).
+    var starred: Bool? = nil
+    /// The provider's own 1–5 rating (nil = unrated or unknown).
+    var userRating: Int? = nil
 }
 
 /// A queue slot. The same track can sit in the queue twice, so lists and

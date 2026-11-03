@@ -37,6 +37,17 @@ struct NowPlayingView: View {
     @State private var touching: Set<String> = []
     @State private var release: Task<Void, Never>?
     @State private var airPlay = AirPlayRouteTrigger()
+    /// The note composer (the Write pill) and its draft: words, and the
+    /// song moment they are filed at.
+    @State private var composing = false
+    @State private var draft = ""
+    @State private var draftAnchorMs: Int64?
+    @State private var notesSaved = 0
+    @FocusState private var composerFocused: Bool
+
+    /// The engine's song; nil = the mock snapshot (screenshots) as before.
+    private var engineTrack: PlayableTrack? { model.player.currentTrack }
+    private var data: NowPlayingData { .shared }
 
     private var palette: CoverPalette { model.playback.album.palette }
     private var scheme: CoverScheme { CoverScheme(album: model.playback.album, dark: colorScheme == .dark) }
@@ -66,11 +77,41 @@ struct NowPlayingView: View {
                     .frame(maxWidth: model.isPad ? 520 : .infinity)
                     .frame(width: geo.size.width, height: geo.size.height)
             }
+            // The page keeps its budget under the keyboard; only the
+            // composer rides up with it.
+            .ignoresSafeArea(.keyboard)
+            if composing {
+                composerLayer
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        // The page never moves for the keyboard (its children still see the
+        // keyboard inset, so the composer sits on top of it).
+        .ignoresSafeArea(.keyboard)
         .offset(y: max(0, dragY))
         .gesture(dismissDrag, isEnabled: !panel)
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet()
+        }
+        .task(id: engineTrack.map(NowPlayingData.key)) {
+            guard let t = engineTrack else { return }
+            await data.prepare(t, client: model.session.client)
+        }
+        #if DEBUG
+        .task { await NowPlayingDebugQueue.startIfRequested(model) }
+        .task {
+            guard !panel, NowPlayingDebugQueue.tab != nil || NowPlayingDebugQueue.compose != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            if let t = NowPlayingDebugQueue.tab { withAnimation(Yoin.spatial) { tab = t } }
+            if let words = NowPlayingDebugQueue.compose {
+                startWriting()
+                draft = words
+            }
+        }
+        #endif
+        .onChange(of: composerFocused) { _, focused in
+            // Keyboard down over an empty draft: back to the pills.
+            if !focused && draft.isEmpty { withAnimation(Yoin.spatial) { composing = false } }
         }
         .task {
             // Screenshot aid: `-screen np-airplay` taps Devices once the page is up.
@@ -184,7 +225,7 @@ struct NowPlayingView: View {
             // always sits in the clear band above it.
             let clear = budget.lyricWindow
             ZStack(alignment: .top) {
-                lyrics(p, clear: clear, under: budget.transport,
+                lyricArea(p, clear: clear, under: budget.transport,
                        anchor: budget.oneLineLyric
                            // OneLineLyricRow: the 32 pt line centered in its slot.
                            ? (clear - Tokens.type.bodyLarge.lineHeight.cg - 8) / 2 + 4
@@ -257,9 +298,10 @@ struct NowPlayingView: View {
                 .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace, isSource: open)
                 .npFade(open, presenceFade)
             VStack(spacing: 0) {
-                RatingBar(value: $rating, scheme: scheme, held: ratingHeld) { down in
+                RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld) { down in
                     withAnimation(Yoin.spatialFast) { ratingHeld = down }
                     touch("rating", down)
+                    if !down, let t = engineTrack { data.commitRating(t, client: model.session.client) }
                 }
                 .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
@@ -271,8 +313,31 @@ struct NowPlayingView: View {
         }
     }
 
+    /// The engine's song: its rating (local, else the server's stars × 2);
+    /// the mock: the screenshot value.
+    private var ratingBinding: Binding<Double> {
+        guard let t = engineTrack else { return $rating }
+        return Binding(get: { data.rating(t) }, set: { data.dragRating($0, t) })
+    }
+
+    private var isFavorite: Bool {
+        guard let t = engineTrack else { return favorite }
+        return data.isFavorite(t)
+    }
+
+    private func toggleFavorite() {
+        withAnimation(Yoin.spatialFast) {
+            if let t = engineTrack {
+                data.toggleFavorite(t, client: model.session.client)
+            } else {
+                favorite.toggle()
+            }
+        }
+    }
+
     private var heart: some View {
-        Button { withAnimation(Yoin.spatialFast) { favorite.toggle() } } label: {
+        let favorite = isFavorite
+        return Button { toggleFavorite() } label: {
             YoinIcon(favorite ? "favorite_filled" : "favorite", size: 24)
                 // Android FavoriteButton: liked = onTertiary heart on a
                 // tertiary circle, else onTertiaryContainer on
@@ -315,35 +380,103 @@ struct NowPlayingView: View {
         .frame(height: Tokens.np.TAB_ROW_NOMINAL.cg, alignment: .top)
     }
 
-    // 5. Lyrics. Android: a list with the active line at 22 % of the window
-    // (or one line on short screens). iOS: the list continues `under` points
-    // further down, behind the glass transport, fading out by its second row.
-    private func lyrics(_ p: PlaybackSnapshot, clear: CGFloat, under: CGFloat,
-                        anchor: CGFloat, fadeTop: Bool) -> some View {
-        let total = clear + under
-        let underStrength = GlassLab.shared.extra("lyricsUnder")
-        return VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(p.lyrics.enumerated()), id: \.offset) { i, line in
-                let d = abs(i - p.activeLyric)
-                let active = d == 0
-                // LyricLineItem: active bodyLarge (16/24) rounded SemiBold
-                // in primary, else bodyMedium (14/20) onSurfaceVariant;
-                // each line in its role's line box, 4 above and below.
-                Text(line)
-                    .font(active ? YoinFont.rounded(16, semibold: true) : .gsf(14))
-                    .tracking(0)
-                    .lineLimit(1)
-                    .frame(height: active ? Tokens.type.bodyLarge.lineHeight.cg : Tokens.type.bodyMedium.lineHeight.cg)
-                    .foregroundStyle(active ? scheme.primary : scheme.onSurfaceVariant)
-                    .opacity(active ? 1 : (d == 1 ? 0.55 : d == 2 ? 0.40 : 0.28))
-                    .scaleEffect(active ? 1 : 0.94, anchor: .leading)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    // 5. Lyrics / Note window. Android: a list with the active line at 22 %
+    // of the window (or one line on short screens). iOS: the list continues
+    // `under` points further down, behind the glass transport, fading out by
+    // its second row.
+    private func lyricArea(_ p: PlaybackSnapshot, clear: CGFloat, under: CGFloat,
+                           anchor: CGFloat, fadeTop: Bool) -> some View {
+        ZStack(alignment: .topLeading) {
+            if tab == 2 {
+                noteWindow(clear: clear)
+                    .transition(.opacity)
+            } else {
+                lyrics(p, clear: clear, under: under, anchor: anchor, fadeTop: fadeTop)
+                    .transition(.opacity)
             }
         }
-        // Lines before the active one are 20 + 8 + 2 tall; scroll so the
-        // active line's box (with its 4 pt pad) sits at `anchor`.
-        .offset(y: anchor - 4 - CGFloat(p.activeLyric) * (Tokens.type.bodyMedium.lineHeight.cg + 8 + 2))
+        .animation(Yoin.effects, value: tab == 2)
+    }
+
+    @ViewBuilder
+    private func lyrics(_ p: PlaybackSnapshot, clear: CGFloat, under: CGFloat,
+                        anchor: CGFloat, fadeTop: Bool) -> some View {
+        if let t = engineTrack {
+            switch data.lyricsState(t) {
+            case .loading:
+                Color.clear.frame(height: clear)
+            case .none:
+                // Android LyricsDisplay: the empty label at the window's start.
+                windowLabel("No lyrics available", clear: clear)
+            case .lines(let loaded) where loaded.synced:
+                // Only this subtree reads the position; the line index is
+                // derived per tick and the lines re-render when it moves.
+                lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
+                    PlaybackPosition { position, _ in
+                        LyricLinesView(lines: loaded.lines, active: loaded.activeIndex(positionSec: position),
+                                       anchor: anchor, primary: scheme.primary,
+                                       onSurfaceVariant: scheme.onSurfaceVariant)
+                            .equatable()
+                    }
+                }
+            case .lines(let loaded):
+                lyricWindow(clear: clear, under: under, fadeTop: fadeTop, interactive: true) {
+                    UnsyncedLyricsView(lines: loaded.lines, onSurfaceVariant: scheme.onSurfaceVariant)
+                }
+            }
+        } else {
+            lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
+                LyricLinesView(lines: p.lyrics, active: p.activeLyric, anchor: anchor,
+                               primary: scheme.primary, onSurfaceVariant: scheme.onSurfaceVariant)
+            }
+        }
+    }
+
+    /// A plain label at the window's start (bodyMedium, onSurfaceVariant).
+    private func windowLabel(_ text: String, clear: CGFloat) -> some View {
+        Text(text)
+            .yoinRole(Tokens.type.bodyMedium)
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .frame(height: clear, alignment: .center)
+    }
+
+    /// Android NoteCompactPane: the song's notes as lyric-like lines; empty,
+    /// the label opens the composer.
+    @ViewBuilder
+    private func noteWindow(clear: CGFloat) -> some View {
+        let key = currentNoteKey
+        let notes = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId)
+        if notes.isEmpty {
+            Button { startWriting() } label: {
+                windowLabel("Write", clear: clear).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+        } else {
+            PlaybackPosition { position, _ in
+                NoteLinesView(notes: notes,
+                              activeId: NotesStore.currentAnchoredNoteId(notes, positionMs: Int64(position * 1000)),
+                              primary: scheme.primary, onSurfaceVariant: scheme.onSurfaceVariant)
+                    .equatable()
+            }
+            .frame(height: clear)
+            .mask(
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: min(0.2, 16 / max(clear, 1))),
+                    .init(color: .black, location: max(0, 1 - 24 / max(clear, 1))),
+                    .init(color: .clear, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            )
+            .allowsHitTesting(false)
+        }
+    }
+
+    private func lyricWindow<C: View>(clear: CGFloat, under: CGFloat, fadeTop: Bool, interactive: Bool = false,
+                                      @ViewBuilder _ lines: () -> C) -> some View {
+        let total = clear + under
+        let underStrength = GlassLab.shared.extra("lyricsUnder")
+        return lines()
         .frame(height: total, alignment: .top)
         .clipped()
         .mask(
@@ -358,7 +491,7 @@ struct NowPlayingView: View {
                 .init(color: .clear, location: (clear + 100) / total),
             ], startPoint: .top, endPoint: .bottom)
         )
-        .allowsHitTesting(false)
+        .allowsHitTesting(interactive)
     }
 
     // 6. Transport: [PAUSE][Next] … [Repeat] / [Prev] 1:14 ~~~ -2:41
@@ -543,7 +676,7 @@ struct NowPlayingView: View {
                     // finger lands on its own button (the forwarding in
                     // `present()` is the fallback).
                     .overlay { AirPlayRoutePicker(trigger: airPlay) }
-                pill("note", "Write", shape: AnyShape(Capsule())) {}
+                pill("note", "Write", shape: AnyShape(Capsule())) { startWriting() }
             }
         }
     }
@@ -566,6 +699,66 @@ struct NowPlayingView: View {
             .labGlass("npPills", scheme: scheme, brand: brand, auto: scheme.primary, in: shape)
         }
         .buttonStyle(PressScale())
+    }
+
+    // MARK: Notes
+
+    /// Notes are keyed by the song on screen: the engine's, else the mock's.
+    private var currentNoteKey: MediaId {
+        if let t = engineTrack { return MediaId(provider: t.provider, rawId: t.id) }
+        return model.mockPlayback.track.id
+    }
+
+    private var playheadMs: Int64 {
+        let sec = engineTrack != nil ? model.player.progress.positionSec : Double(model.mockPlayback.positionSec)
+        return Int64((sec * 1000).rounded())
+    }
+
+    /// The Write pill (Android `noteBar.requestWriting()` + the Note page):
+    /// the Note window comes up and the composer takes the keyboard, filed
+    /// at the moment writing began.
+    private func startWriting() {
+        if draft.isEmpty { draftAnchorMs = playheadMs }
+        withAnimation(Yoin.spatial) {
+            tab = 2
+            composing = true
+        }
+        composerFocused = true
+    }
+
+    private func saveNote() {
+        let key = currentNoteKey
+        let p = model.playback
+        guard NotesStore.shared.add(provider: key.provider, trackId: key.rawId, content: draft,
+                                    positionMs: draftAnchorMs, title: p.track.title, artist: p.album.artist) != nil
+        else { return }
+        notesSaved += 1
+        draft = ""
+        // The keyboard stays up for the next line, filed at the next moment.
+        draftAnchorMs = playheadMs
+    }
+
+    /// The composer over the page's foot, above the keyboard. A tap above it
+    /// puts the keyboard away.
+    private var composerLayer: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .contentShape(.rect)
+                .onTapGesture { composerFocused = false; if draft.isEmpty { withAnimation(Yoin.spatial) { composing = false } } }
+            NoteComposer(scheme: scheme, text: $draft, anchorMs: draftAnchorMs, focus: $composerFocused,
+                         onRealign: { withAnimation(Yoin.spatialFast) { draftAnchorMs = playheadMs } },
+                         onSave: saveNote)
+                .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg - 8)
+                .padding(.bottom, 8)
+                .background(alignment: .bottom) {
+                    // Lifts the card off the transport behind it.
+                    LinearGradient(colors: [scheme.background.opacity(0), scheme.background.opacity(0.85)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .padding(.top, -48)
+                        .ignoresSafeArea()
+                }
+        }
+        .sensoryFeedback(.success, trigger: notesSaved)
     }
 
     // MARK: Gesture
