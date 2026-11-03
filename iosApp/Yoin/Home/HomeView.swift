@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /// Home, ported from Android's phone layout (HomeEditorialContent.kt,
 /// HomeWidgetGrid.kt, RediscoverSection.kt, HomeGreetingTitle.kt) at feed
@@ -98,7 +99,7 @@ struct HomeView: View {
                 WideCard(album: a[1], timeAgo: "1d ago")
             }
             .frame(height: 118)
-            StripCard(title: a[11].title, subtitle: a[11].artist, timeAgo: "3d ago", palette: a[11].palette)
+            StripCard(album: a[11], timeAgo: "3d ago")
         }
     }
 
@@ -106,17 +107,21 @@ struct HomeView: View {
 
     private var jumpBackIn: some View {
         let a = model.library.jumpBackIn()
+        // Compose Row weights (HomeWidgetGrid.kt phone path): each row splits
+        // what its own 12 dp gaps leave, so a 1×2 row (one gap) gets
+        // (C − 12) × 2/3 + (C − 12)/3 and a three-cover row (C − 24)/3 each.
         let col = (contentWidth - 24) / 3
+        let pairUnit = (contentWidth - 12) / 3
         return VStack(alignment: .leading, spacing: 16) {
             HomeSectionTitle("Jump Back In")
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 12) {
-                    SignalCard(album: a[0], kind: .ratedAlbum).frame(width: col * 2 + 12, alignment: .leading)
-                    JBICell(album: a[1], mark: .solid).frame(width: col, alignment: .leading)
+                    SignalCard(album: a[0], kind: .ratedAlbum).frame(width: pairUnit * 2, alignment: .leading)
+                    JBICell(album: a[1], mark: .solid).frame(width: pairUnit, alignment: .leading)
                 }
                 HStack(alignment: .top, spacing: 12) {
-                    JBICell(album: a[2], mark: nil).frame(width: col, alignment: .leading)
-                    SignalCard(album: a[5], kind: .notedTrack).frame(width: col * 2 + 12, alignment: .leading)
+                    JBICell(album: a[2], mark: nil).frame(width: pairUnit, alignment: .leading)
+                    SignalCard(album: a[5], kind: .notedTrack).frame(width: pairUnit * 2, alignment: .leading)
                 }
                 ForEach(0..<2, id: \.self) { row in
                     HStack(alignment: .top, spacing: 12) {
@@ -204,6 +209,53 @@ func cardWash(_ scheme: CoverScheme, _ palette: CoverPalette) -> Color {
     scheme.surfaceContainerLow.mix(with: BackdropColors(palette).base, by: 0.30, in: .perceptual)
 }
 
+/// Android's cover-tone accent (ActivityCardColors.ink, the JBI score rule):
+/// the palette base reads on a light surface but sinks into a dark one, so
+/// dark mode takes the brighter accent.
+func cardInk(_ palette: CoverPalette, dark: Bool) -> Color {
+    let b = BackdropColors(palette)
+    return dark ? b.accent : b.base
+}
+
+// MARK: - Type (Compose line boxes)
+
+/// GSF's natural line on iOS: (hhea ascent 1932 + descent 572) / 2000 em.
+private let gsfNaturalLine: CGFloat = 1.252
+
+extension Font.Weight {
+    /// A YoinTokens.Typography weight (400/500/600/700) as a GSF static cut.
+    init(gsf w: Int32) {
+        switch w {
+        case ..<450: self = .regular
+        case ..<550: self = .medium
+        case ..<650: self = .semibold
+        default: self = .bold
+        }
+    }
+}
+
+extension View {
+    /// Compose sets every line `lineHeight` tall; iOS sets GSF at 1.252 × size.
+    /// Pads each line out to Android's line box (leading split above/below,
+    /// like Compose's proportional line-height span).
+    func homeLine(_ size: CGFloat, _ lineHeight: CGFloat) -> some View {
+        let extra = max(0, lineHeight - size * gsfNaturalLine)
+        return lineSpacing(extra).padding(.vertical, extra / 2)
+    }
+
+    /// An Android M3 role (YoinTokens.Typography) in GSF: size, weight, line
+    /// height and tracking (0, +0.1 on labelMedium / labelSmall), with the
+    /// `.copy(...)` overrides Home makes.
+    func homeType(_ style: YoinTokens.TypographyStyle, _ weight: Font.Weight? = nil,
+                  size: CGFloat? = nil, lineHeight: CGFloat? = nil, digits: Bool = false) -> some View {
+        let sz = size ?? style.size.cg
+        let f = Font.gsf(sz, weight ?? Font.Weight(gsf: style.weight))
+        return font(digits ? f.monospacedDigit() : f)
+            .tracking(style.letterSpacing.cg)
+            .homeLine(sz, lineHeight ?? style.lineHeight.cg)
+    }
+}
+
 /// Section title: titleLarge SemiBold at 18 sp (line height 28).
 struct HomeSectionTitle: View {
     @Environment(\.homeScheme) private var scheme
@@ -211,22 +263,29 @@ struct HomeSectionTitle: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
-            .font(.gsf(18, .semibold))
+            .homeType(Tokens.type.titleLarge, .semibold, size: 18)
             .foregroundStyle(scheme?.onSurface ?? Yoin.ink)
-            .frame(height: 28, alignment: .leading)
+            .lineLimit(1)
     }
 }
 
-/// Android MetaLine: groups 12 dp apart, number Medium + 4 dp + unit at 60 %.
+/// Android MetaLine (component/MetaLine.kt): groups 12 dp apart, never joined
+/// by a glyph. A Stat is its number in Medium (tabular) + 4 dp + its unit in
+/// Normal at 60 %; a Plain group takes the line's own style.
 private struct MetaLine: View {
     var groups: [(String, String?)]
+    var style: YoinTokens.TypographyStyle = Tokens.type.labelSmall
     var color: Color
     var body: some View {
         HStack(spacing: 12) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
-                HStack(spacing: 4) {
-                    Text(g.0).font(.gsf(11, .medium)).monospacedDigit()
-                    if let unit = g.1 { Text(unit).font(.gsf(11, .medium)).opacity(0.6) }
+                if let unit = g.1 {
+                    HStack(spacing: 4) {
+                        Text(g.0).homeType(style, .medium, digits: true)
+                        Text(unit).homeType(style, .regular).opacity(0.6)
+                    }
+                } else {
+                    Text(g.0).homeType(style)
                 }
             }
         }
@@ -252,9 +311,9 @@ private struct HeroCard: View {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
                     .zoomSource(album.id, zoomNS)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(timeAgo).font(.gsf(11, .medium)).foregroundStyle(muted)
-                    Text(album.title).font(.gsf(22, .semibold)).foregroundStyle(s.onSurface)
-                    Text(album.artist).font(.gsf(12)).foregroundStyle(muted)
+                    Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(muted)
+                    Text(album.title).homeType(Tokens.type.titleLarge, .semibold).foregroundStyle(s.onSurface)
+                    Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(muted)
                     MetaLine(groups: [("\(album.year)", nil), ("\(album.tracks.count)", "songs"), ("48", "min")],
                              color: muted)
                 }
@@ -281,20 +340,19 @@ private struct SmallCard: View {
         let s = scheme!
         Button { model.open(album) } label: {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
                     EntityBackdrop(entity: entity, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(typeLabel)
-                        Text(timeAgo)
+                        Text(typeLabel).homeType(Tokens.type.labelSmall)
+                        Text(timeAgo).homeType(Tokens.type.labelSmall)
                     }
-                    .font(.gsf(11, .medium))
                     .foregroundStyle(s.onSurfaceVariant)
                     .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                // titleSmall SemiBold, leading tightened to 17 so two lines read as one block.
                 Text(title)
-                    .font(.gsf(14, .semibold))
-                    .lineSpacing(0)
+                    .homeType(Tokens.type.titleSmall, .semibold, lineHeight: 17)
                     .foregroundStyle(s.onSurface)
                     .lineLimit(2)
             }
@@ -320,9 +378,9 @@ private struct WideCard: View {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
                     .zoomSource(album.id, zoomNS)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(timeAgo).font(.gsf(11, .medium)).foregroundStyle(s.onSurfaceVariant)
-                    Text(album.title).font(.gsf(16, .semibold)).foregroundStyle(s.onSurface)
-                    Text(album.artist).font(.gsf(12)).foregroundStyle(s.onSurfaceVariant)
+                    Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
+                    Text(album.title).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(s.onSurface)
+                    Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
                 }
                 .lineLimit(1)
                 Spacer(minLength: 0)
@@ -336,26 +394,28 @@ private struct WideCard: View {
 }
 
 private struct StripCard: View {
+    @Environment(AppModel.self) private var model
     @Environment(\.homeScheme) private var scheme
-    var title: String
-    var subtitle: String
+    var album: Album
     var timeAgo: String
-    var palette: CoverPalette
 
     var body: some View {
         let s = scheme!
-        HStack(spacing: 10) {
-            HStack(spacing: 12) {
-                Text(title).font(.gsf(14, .semibold)).foregroundStyle(s.onSurface)
-                Text(subtitle).font(.gsf(14)).foregroundStyle(s.onSurface.opacity(0.6))
+        Button { model.open(album) } label: {
+            HStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    Text(album.title).homeType(Tokens.type.bodyMedium, .semibold).foregroundStyle(s.onSurface)
+                    Text(album.artist).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurface.opacity(0.6))
+                }
+                Spacer(minLength: 0)
+                Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
             }
-            Spacer(minLength: 0)
-            Text(timeAgo).font(.gsf(11, .medium)).foregroundStyle(s.onSurfaceVariant)
+            .lineLimit(1)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .homeGlassCard(album.palette, scheme: s, shape: Capsule())
         }
-        .lineLimit(1)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .homeGlassCard(palette, scheme: s, shape: Capsule())
+        .buttonStyle(PressScale())
     }
 }
 
@@ -370,12 +430,14 @@ private struct JBICell: View {
     @Environment(\.zoomNamespace) private var zoomNS
     var album: Album
     var mark: MemoryMark?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let s = scheme!
         Button { model.open(album) } label: {
             AlbumItem(album: album, size: 100) {
-                if let mark { markView(mark, ink: BackdropColors(album.palette).base, bg: s.background) }
+                // albumMemoryMarkInk: palette base, accent in dark mode.
+                if let mark { markView(mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
             }
             .zoomSource(album.id, zoomNS)
         }
@@ -399,25 +461,32 @@ private struct JBICell: View {
     }
 }
 
-/// One album on Home: bare cover, then title (GSF SemiBold, ROND 100) and artist.
+/// One album on Home: bare cover, then title (GSF SemiBold, ROND 100: iOS
+/// decision) and artist, flush as one text cluster. Defaults are the JBI 1×1
+/// (HomeWidgetGrid.kt WidgetCoverBlock / WidgetCoverCaption): 5 gap, title
+/// 16/22, subtitle bodySmall 12/16.
 struct AlbumItem<Mark: View>: View {
     @Environment(\.homeScheme) private var scheme
     var album: Album
     var size: CGFloat
     var titleSize: CGFloat = 16
+    var titleLineHeight: CGFloat = 22
+    var artistStyle: YoinTokens.TypographyStyle = Tokens.type.bodySmall
+    var gap: CGFloat = 5
     @ViewBuilder var mark: () -> Mark
 
     var body: some View {
         let s = scheme!
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: gap) {
             EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: size, stroke: s.primary)
                 .overlay(alignment: .topTrailing) { mark() }
             VStack(alignment: .leading, spacing: 0) {
                 Text(album.title)
                     .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
+                    .homeLine(titleSize, titleLineHeight)
                     .foregroundStyle(s.onSurface)
                 Text(album.artist)
-                    .font(.gsf(titleSize - 4))
+                    .homeType(artistStyle)
                     .foregroundStyle(s.onSurfaceVariant)
             }
             .lineLimit(1)
@@ -427,8 +496,10 @@ struct AlbumItem<Mark: View>: View {
 }
 
 extension AlbumItem where Mark == EmptyView {
-    init(album: Album, size: CGFloat, titleSize: CGFloat = 16) {
-        self.init(album: album, size: size, titleSize: titleSize) { EmptyView() }
+    init(album: Album, size: CGFloat, titleSize: CGFloat = 16, titleLineHeight: CGFloat = 22,
+         artistStyle: YoinTokens.TypographyStyle = Tokens.type.bodySmall, gap: CGFloat = 5) {
+        self.init(album: album, size: size, titleSize: titleSize, titleLineHeight: titleLineHeight,
+                  artistStyle: artistStyle, gap: gap) { EmptyView() }
     }
 }
 
@@ -439,9 +510,11 @@ private struct SignalCard: View {
     var album: Album
     var kind: Kind
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         let s = scheme!
-        let ink = BackdropColors(album.palette).base
+        let ink = cardInk(album.palette, dark: colorScheme == .dark)
         Button { model.open(album) } label: {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -450,32 +523,32 @@ private struct SignalCard: View {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(kind == .ratedAlbum ? album.title : album.tracks[0].title)
                             .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
+                            .homeLine(16, 22)
                             .foregroundStyle(s.onSurface)
-                        Text(album.artist).font(.gsf(12)).foregroundStyle(s.onSurfaceVariant)
+                        Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
                     }
                     .lineLimit(1)
                     .frame(width: 100, alignment: .leading)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .lastTextBaseline, spacing: 6) {
+                    // Row(verticalAlignment = Bottom): the basis sits 3 dp off the score's line-box bottom.
+                    HStack(alignment: .bottom, spacing: 6) {
                         Text(kind == .ratedAlbum ? String(format: "%.1f", album.rating ?? 0) : "8.0")
-                            .font(.gsf(24, .bold))
-                            .monospacedDigit()
+                            .homeType(Tokens.type.headlineSmall, .bold, digits: true)
                         Text(kind == .ratedAlbum ? "Oct 28" : "Nov 1")
-                            .font(.gsf(11, .medium))
-                            .monospacedDigit()
+                            .homeType(Tokens.type.labelSmall, digits: true)
                             .opacity(0.85)
                             .padding(.bottom, 3)
                     }
                     .foregroundStyle(ink)
                     if kind == .ratedAlbum {
                         Text("A field that stays bright after dark")
-                            .font(.gsf(17, .semibold))
+                            .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 24)
                             .foregroundStyle(s.onSurface)
                             .lineLimit(3)
                     } else {
                         Text("The bridge at 2:10 sounds like summer ending")
-                            .font(.gsf(14))
+                            .homeType(Tokens.type.bodyMedium)
                             .foregroundStyle(s.onSurface)
                             .lineLimit(3)
                     }
@@ -500,8 +573,9 @@ private struct TrackTile: View {
             CoverArt(palette: album.palette, cornerRadius: 4, seed: album.seed)
                 .frame(width: 52, height: 52)
             VStack(alignment: .leading, spacing: 0) {
-                Text(track.title).font(.gsf(13, .medium)).foregroundStyle(s.onSurface)
-                Text(album.artist).font(.gsf(11, .medium)).foregroundStyle(s.onSurfaceVariant)
+                // bodyMedium at 13 sp Medium (line height stays 20).
+                Text(track.title).homeType(Tokens.type.bodyMedium, .medium, size: 13).foregroundStyle(s.onSurface)
+                Text(album.artist).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
             }
             .lineLimit(1)
         }
@@ -514,7 +588,9 @@ private struct AlbumMini: View {
 
     var body: some View {
         Button { model.open(album) } label: {
-            AlbumItem(album: album, size: 100, titleSize: 14)
+            // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
+            AlbumItem(album: album, size: 82, titleSize: 12, titleLineHeight: 16,
+                      artistStyle: Tokens.type.labelSmall, gap: 6)
         }
         .buttonStyle(PressScale())
     }
@@ -531,9 +607,11 @@ private struct RediscoverCard: View {
     var score: Double?
     var footnote: (String, String)
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         let s = scheme!
-        let ink = BackdropColors(album.palette).base
+        let ink = cardInk(album.palette, dark: colorScheme == .dark)
         let container = cardWash(s, album.palette)
         Button { model.open(album) } label: {
             HStack(spacing: 14) {
@@ -541,8 +619,7 @@ private struct RediscoverCard: View {
                     .overlay(alignment: .bottomTrailing) {
                         if let score {
                             Text(String(format: "%.1f", score))
-                                .font(.gsf(14, .bold))
-                                .monospacedDigit()
+                                .homeType(Tokens.type.labelLarge, .bold, digits: true)
                                 .foregroundStyle(container)
                                 .padding(.horizontal, 8)
                                 .frame(height: 24)
@@ -551,13 +628,13 @@ private struct RediscoverCard: View {
                         }
                     }
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(reason).font(.gsf(12, .medium)).foregroundStyle(ink)
-                    Text(away).font(.gsf(12, .medium)).foregroundStyle(ink)
+                    Text(reason).homeType(Tokens.type.labelMedium).foregroundStyle(ink)
+                    Text(away).homeType(Tokens.type.labelMedium).foregroundStyle(ink)
                     Text(album.title)
-                        .font(.gsf(20, .semibold))
+                        .homeType(Tokens.type.titleLarge, .semibold, size: 20, lineHeight: 26)
                         .foregroundStyle(s.onSurface)
                         .padding(.top, 2)
-                    Text(album.artist).font(.gsf(14)).foregroundStyle(s.onSurfaceVariant)
+                    Text(album.artist).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurfaceVariant)
                     MetaLine(groups: [(footnote.0, nil), (footnote.1, "plays")], color: s.onSurfaceVariant)
                         .padding(.top, 4)
                 }
