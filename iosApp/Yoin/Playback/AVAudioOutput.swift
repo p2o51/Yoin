@@ -20,6 +20,8 @@ final class AVAudioOutput: AudioOutput {
     init() {
         player.actionAtItemEnd = .advance
         player.automaticallyWaitsToMinimizeStalling = true
+        // `-silentAudio YES`: play muted (silent QA runs; the clock still advances).
+        player.isMuted = UserDefaults.standard.bool(forKey: "silentAudio")
         // ≤ 4 Hz: the progress UI and the scrobble clock are all that read it.
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(value: 1, timescale: 4), queue: .main
