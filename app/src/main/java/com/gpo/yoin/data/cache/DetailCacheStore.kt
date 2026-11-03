@@ -127,6 +127,12 @@ class DetailCacheStore(
     suspend fun removePlaylist(profileId: String, id: String) =
         deleteTracked(profileId, KIND_PLAYLIST, id)
 
+    /** Every entry of [profileId]: what it holds was read under settings it no longer has. */
+    suspend fun removeProfile(profileId: String) {
+        runCatching { dao.deleteProfile(profileId) }
+        sizeLock.withLock { totalBytesEstimate = null }
+    }
+
     /** Hygiene pass (call once on startup): age out anything past [maxAgeMs]. */
     suspend fun purgeExpired() {
         runCatching { dao.deleteOlderThan(clock() - maxAgeMs) }

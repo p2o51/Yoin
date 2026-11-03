@@ -195,6 +195,16 @@
     <string name="settings_apple_endpoint_label">开发者令牌服务</string>
     <string name="settings_apple_working">正在处理…</string>
     <string name="settings_apple_reconnect">重新连接 Apple Music</string>
+    <string name="settings_apple_names_title">歌曲名</string>
+    <string name="settings_apple_names_off">按 Apple Music 显示</string>
+    <string name="settings_apple_names_off_summary">用你所在地区商店的名字</string>
+    <string name="settings_apple_names_original">按歌曲原地区</string>
+    <string name="settings_apple_names_original_summary">日语歌显示日文原名，韩语歌显示韩文原名</string>
+    <string name="settings_apple_names_cn">按中国大陆</string>
+    <string name="settings_apple_names_cn_summary">用 Apple Music 中国大陆商店的名字</string>
+    <string name="settings_apple_names_jp">按日本</string>
+    <string name="settings_apple_names_jp_summary">用 Apple Music 日本商店的名字</string>
+    <string name="settings_apple_names_foot">适用于这个账号里的歌曲和专辑。那个商店没有的歌，会保留现在的名字。</string>
     <string name="settings_apple_connect">连接 Apple Music</string>
     <string name="settings_apple_status_connected_profiles">已连接</string>
     <string name="settings_apple_status_need_service">将你的 Apple Music 账号连接至 Yoin。</string>

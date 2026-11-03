@@ -218,6 +218,16 @@
     <string name="settings_apple_endpoint_placeholder" translatable="false">https://…/token</string>
     <string name="settings_apple_working">Working…</string>
     <string name="settings_apple_reconnect">Reconnect Apple Music</string>
+    <string name="settings_apple_names_title">Song names</string>
+    <string name="settings_apple_names_off">As Apple Music shows them</string>
+    <string name="settings_apple_names_off_summary">Names from your own storefront</string>
+    <string name="settings_apple_names_original">In their original language</string>
+    <string name="settings_apple_names_original_summary">A Japanese song keeps its Japanese name, a Korean one its Korean name</string>
+    <string name="settings_apple_names_cn">As China mainland names them</string>
+    <string name="settings_apple_names_cn_summary">Names from Apple Music\'s China mainland storefront</string>
+    <string name="settings_apple_names_jp">As Japan names them</string>
+    <string name="settings_apple_names_jp_summary">Names from Apple Music\'s Japan storefront</string>
+    <string name="settings_apple_names_foot">Songs and albums from this account. A song the other storefront doesn\'t carry keeps the name it has.</string>
     <string name="settings_apple_connect">Connect Apple Music</string>
     <string name="settings_apple_status_connected_profiles">Connected</string>
     <string name="settings_apple_status_need_service">Connect your Apple Music account to Yoin.</string>
