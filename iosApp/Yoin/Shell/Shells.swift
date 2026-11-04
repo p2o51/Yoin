@@ -171,9 +171,11 @@ struct WorldRecede: ViewModifier {
             case .shell: underNP ? min(max(model.np.progress, 0), 1) : rise
             case .nowPlaying: model.npExpanded ? rise : 0
             }
+            // Unanimated only for the recede itself: a whole-layer
+            // `.transaction { $0.animation = nil }` also cut every animation
+            // inside the shell (the bar's slide, the search morph).
             content
-                .labRecede(depth, sheet: !underNP)
-                .transaction { $0.animation = nil }
+                .animation(nil) { $0.labRecede(depth, sheet: !underNP) }
         } else {
             content
         }
