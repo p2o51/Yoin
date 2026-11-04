@@ -67,6 +67,9 @@ struct PhoneShell: View {
                     .offset(y: model.searchActive ? 140 : 0)
                     .opacity(model.searchActive ? 0 : 1)
             }
+            // World: the shell steps back (scale, dim, blur) as Now Playing
+            // unfolds over it or a sheet comes up, off the same progress.
+            .modifier(WorldRecede(layer: .shell))
 
             if model.searchActive {
                 SearchView(npNamespace: npNS)
@@ -78,11 +81,13 @@ struct PhoneShell: View {
                 // Mounted and unmounted without a transition: the morph's
                 // progress carries the whole in and out.
                 NowPlayingMorph(npNamespace: npNS)
+                    .modifier(WorldRecede(layer: .nowPlaying))
                     .zIndex(1)
                     .transition(.identity)
             }
         }
-        .background(Yoin.surface)
+        // World: the shell steps back into black (the room in front of it).
+        .background(GlassLab.shared.extra("recedeScale") > 0 ? Color.black : Yoin.surface)
         .overlay(alignment: .top) {
             // Soft top edge under the status bar. The system scroll-edge
             // effect only runs under a real bar, and the root pages hide the
@@ -116,6 +121,38 @@ struct PhoneShell: View {
         #if DEBUG
         .task { await NowPlayingMorphDebug.run(model) }
         #endif
+    }
+}
+
+/// World depth cue (Glass Lab recedeScale / recedeDim / recedeBlur): the
+/// layer behind whatever sits on top steps back. The shell recedes with Now
+/// Playing's morph progress (one controller: ⌄, drag and back all move it)
+/// and under a sheet; Now Playing recedes under a sheet opened over it.
+/// Reads the progress here, so a frame of the morph re-renders this modifier
+/// only, not the shell.
+struct WorldRecede: ViewModifier {
+    enum Layer { case shell, nowPlaying }
+    @Environment(AppModel.self) private var model
+    var layer: Layer
+
+    func body(content: Content) -> some View {
+        let lab = GlassLab.shared
+        if lab.extra("recedeScale") > 0 || lab.extra("recedeDim") > 0 || lab.extra("recedeBlur") > 0 {
+            let actions = PlaylistActions.shared
+            let sheet = actions.menu != nil || actions.adding != nil || model.queueSheetOpen
+            let underNP = layer == .shell && model.np.mounted
+            let depth: CGFloat = switch layer {
+            case .shell: underNP ? min(max(model.np.progress, 0), 1) : (sheet ? 1 : 0)
+            case .nowPlaying: sheet && model.npExpanded ? 1 : 0
+            }
+            content
+                .labRecede(depth, sheet: !underNP)
+                // The morph's frames drive the shell's depth directly; a
+                // sheet's comes in on the sheet's spring.
+                .animation(model.np.mounted && layer == .shell ? nil : Yoin.spatial, value: sheet)
+        } else {
+            content
+        }
     }
 }
 

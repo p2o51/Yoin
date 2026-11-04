@@ -200,6 +200,17 @@ struct ShellBar: View {
         .simultaneousGesture(longPress(.pill, openPlayingSongMenu))
         .accessibilityAction(named: "Song options", openPlayingSongMenu)
         .labGlass("miniPlayer", scheme: scheme, brand: brand, auto: scheme.primaryContainer, in: Capsule())
+        .background {
+            // World (R5): the folded room's ambient already breathes in the pill.
+            if lab.extra("pillAmbient") > 0, !model.isIdle {
+                // Sized by the pill (the ambient's own blobs are page-sized).
+                Color.clear
+                    .overlay { NowPlayingAmbient(scheme: scheme) }
+                    .clipShape(.capsule)
+                    .opacity(lab.extra("pillAmbient"))
+                    .allowsHitTesting(false)
+            }
+        }
         .glassEffectID("np", in: glassNS)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
             if !model.isPad { model.np.pillFrame = r }

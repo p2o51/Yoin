@@ -113,7 +113,17 @@ final class AppModel {
     init(library: any MusicLibrary = MockLibrary.shared, playback: any PlaybackSource = MockLibrary.shared) {
         self.library = library
         self.playbackSource = playback
-        self.mockPlayback = playback.current()
+        var mock = playback.current()
+        #if DEBUG
+        // Screenshots: `-mockAlbum 1…12` plays another mock cover.
+        let mockAlbum = UserDefaults.standard.integer(forKey: "mockAlbum")
+        if mockAlbum > 0, mockAlbum <= MockLibrary.allAlbums.count {
+            let al = MockLibrary.allAlbums[mockAlbum - 1]
+            mock.album = al
+            mock.track = al.tracks[min(2, al.tracks.count - 1)]
+        }
+        #endif
+        self.mockPlayback = mock
         self.playbackSystem = PlaybackSystem.live()
         let sources = SourceSelection(subsonicSignedIn: session.isSignedIn)
         self.sources = sources
@@ -147,6 +157,13 @@ final class AppModel {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(900))
                 withAnimation(Yoin.spatial) { self?.searchActive = true }
+            }
+        case "song-menu":
+            // Home with a song's sheet up (the depth cue under a sheet).
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(1200))
+                guard let p = self?.mockPlayback else { return }
+                PlaylistActions.shared.openMenu(PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
             }
         case "idle": isIdle = true
         case "library-idle": isIdle = true; section = .library

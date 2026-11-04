@@ -46,6 +46,8 @@ struct NowPlayingView: View {
     @State private var interacting = LaunchConfig.baseScreen == "np-touch"
     @State private var ratingHeld = LaunchConfig.baseScreen == "np-touch"
     @State private var touching: Set<String> = []
+    /// The progress bar is (or was last) the control touched.
+    @State private var scrubbing = false
     @State private var release: Task<Void, Never>?
     @State private var airPlay = AirPlayRouteTrigger()
     /// The note composer (the Write pill) and its draft: words, and the
@@ -310,6 +312,7 @@ struct NowPlayingView: View {
     private func touch(_ source: String, _ down: Bool) {
         release?.cancel()
         if down {
+            scrubbing = source == "progress"
             touching.insert(source)
             if !interacting { withAnimation(Yoin.spatial) { interacting = true } }
         } else {
@@ -509,6 +512,8 @@ struct NowPlayingView: View {
                 // ContinuousRoundedCornerShape(16dp), smoothing 0.6 ≈ Apple's continuous corners.
                 // Folded, it takes the pill cover's 42 pt frame and 6 pt corners.
                 .clipShape(.rect(cornerRadius: open ? Tokens.shape.NOW_PLAYING_COVER.cg : 6, style: .continuous))
+                // World: the cover is a physical object (contact shadow).
+                .labCoverShadow()
                 .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace, isSource: open)
                 .npFade(open, presenceFade)
                 .npMorphAnchor(.cover)
@@ -565,6 +570,9 @@ struct NowPlayingView: View {
 
     private var heart: some View {
         let favorite = isFavorite
+        // The liked heart borrows PAUSE's accent surface, or (World) keeps
+        // its own in-flow tonal surface.
+        let surface = favorite && lab.extra("heartLikedAccent") > 0.5 ? "transportPrimary" : "heart"
         return Button { toggleFavorite() } label: {
             YoinIcon(heartIcon(favorite), size: 24)
                 // Android FavoriteButton: liked = onTertiary heart on a
@@ -573,15 +581,15 @@ struct NowPlayingView: View {
                 // fill (like PAUSE carries primary) and the glyph stays
                 // legible on it in both modes; unliked, plain glass.
                 .foregroundStyle(favorite
-                                 ? (colorScheme == .dark && !lab.denseAccent("transportPrimary", dark: true)
+                                 ? (colorScheme == .dark && !lab.denseAccent(surface, dark: true)
                                     ? Color.white : scheme.onTertiary)
                                  : (heartTinted ? scheme.onTertiaryContainer : scheme.onSurfaceVariant))
-                .labContrast(favorite ? "transportPrimary" : "heart")
+                .labContrast(surface)
                 .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
                 .contentShape(.circle)
         }
         .buttonStyle(PressReport { touch("heart", $0) })
-        .labGlass(favorite ? "transportPrimary" : "heart", scheme: scheme, brand: brand,
+        .labGlass(surface, scheme: scheme, brand: brand,
                   auto: favorite ? scheme.tertiary : scheme.tertiaryContainer, in: Circle())
         .animation(Yoin.effects, value: favorite)
         .accessibilityLabel(heartLabel(favorite))
@@ -634,13 +642,18 @@ struct NowPlayingView: View {
                             .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
                             // Dark: white on both (the pills' rule; the container
                             // on-colors sink into the tinted glass).
-                            .foregroundStyle(colorScheme == .dark ? Color.white
+                            // World: one accent per layer, the others neutral glass.
+                            .foregroundStyle(!on && lab.oneAccentPerLayer ? scheme.onSurface
+                                             : colorScheme == .dark ? Color.white
                                              : on ? scheme.onPrimary : scheme.onPrimaryContainer)
                             .labContrast(on ? "transportPrimary" : "npPills")
                             .frame(maxWidth: .infinity)
                             .frame(height: NowPlayingExpanded.tabRow)
                             // The unselected thinner, so the selection reads in light too.
-                            .npPillGlass(tint: on ? scheme.primary : scheme.primaryContainer,
+                            .npPillGlass("npFloating",
+                                         tint: on ? scheme.primary
+                                             : lab.oneAccentPerLayer ? scheme.surfaceContainerHighest
+                                             : scheme.primaryContainer,
                                          strength: on ? 1 : 0.6, in: Capsule())
                             .contentShape(.capsule)
                             .animation(Yoin.effects, value: on)
@@ -1246,7 +1259,13 @@ struct NowPlayingView: View {
         // The row sits where Android's does; the capsule reaches 4 pt past
         // its leading edge (clear of Previous) and 10 pt past its end.
         .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: true,
-                 in: ScrubberGlassShape(grow: interacting ? 1 : 0, leading: 4, trailing: 10))
+                 in: ScrubberGlassShape(grow: scrubberLifted ? 1 : 0, leading: 4, trailing: 10))
+    }
+
+    /// The scrubber's glass: any control touched (iOS 26 Music), or (World,
+    /// R1) only the progress bar itself while it is scrubbed.
+    private var scrubberLifted: Bool {
+        lab.extra("liftInFlow") > 0.5 ? interacting && scrubbing : interacting
     }
 
     /// Repeat one wears a small 1; repeat off dims the glyph.
@@ -1361,10 +1380,13 @@ struct NowPlayingView: View {
             // light; white in dark, where dark onPrimary (and, on glass,
             // onPrimaryContainer too) sank into it.
             // Gemini preset: a neutral floor, so on-surface ink.
+            // World: a solid primaryContainer pill, its own on-color.
             .foregroundStyle(lab.neutralTint("npPills") ? scheme.onSurface
+                             : lab.style("npPills").role == .primaryContainer ? scheme.onPrimaryContainer
                              : colorScheme == .dark ? Color.white : scheme.onPrimary)
-            // Same contrast shadow as PAUSE on the same primary glass.
-            .labContrast("transportPrimary")
+            // Same contrast shadow as PAUSE on the same primary glass; a
+            // tonal pill (World) needs none.
+            .labContrast(lab.style("npPills").variant == .none ? "npPills" : "transportPrimary")
             .padding(.horizontal, 13.2)
             .frame(minWidth: 58, minHeight: 44)
             .labGlass("npPills", scheme: scheme, brand: brand, auto: scheme.primary, in: shape)
@@ -1538,7 +1560,8 @@ struct RatingBar: View {
                 Capsule().fill(.clear)
                     .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: held, in: Capsule())
                 Capsule()
-                    .fill(scheme.primary.opacity(GlassLab.shared.extra("ratingFill")))
+                    // Held, the fill goes full strength (World rests it lower).
+                    .fill(scheme.primary.opacity(held ? 1 : GlassLab.shared.extra("ratingFill")))
                     .frame(height: max(48 - inset * 2, (h - inset * 2) * fraction))
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .padding(inset)
@@ -1619,9 +1642,9 @@ extension View {
     /// (tabs, Ask Gemini, About's buttons). `strength` thins the tint (Ask
     /// Gemini loading). Non-glass presets get the solid fill they had.
     @ViewBuilder
-    func npPillGlass<S: Shape>(tint: Color, strength: Double = 1, shadow: Bool = true,
+    func npPillGlass<S: Shape>(_ id: String = "npPills", tint: Color, strength: Double = 1, shadow: Bool = true,
                                in shape: S) -> some View {
-        let st = GlassLab.shared.style("npPills")
+        let st = GlassLab.shared.style(id)
         Group {
             switch st.variant {
             case .regular, .clear:
@@ -1632,7 +1655,8 @@ extension View {
                 background(shape.fill(tint.opacity(strength)))
             }
         }
-        .shadow(color: tint.opacity(shadow ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
+        .shadow(color: GlassLab.shared.shadowColor(tint).opacity(shadow ? st.shadowOpacity : 0),
+                radius: st.shadowRadius, y: st.shadowY)
     }
 
     /// A Glass Lab surface that turns into interactive glass while `held`,
@@ -1642,6 +1666,10 @@ extension View {
     @ViewBuilder
     func npGlass<S: Shape>(_ id: String, scheme: CoverScheme, auto: Color, held: Bool, in shape: S) -> some View {
         let st = GlassLab.shared.style(id)
+        if GlassLab.shared.extra("liftInFlow") > 0.5 {
+            // World: tonal at rest, lifted into glass while held.
+            labLift(id, lifted: held, scheme: scheme, auto: auto, in: shape)
+        } else {
         switch st.variant {
         case .regular, .clear:
             let tint = st.role.color(in: scheme, brand: .brand(dark: false), auto: auto)
@@ -1650,6 +1678,7 @@ extension View {
             glassEffect(held || st.interactive ? tinted.interactive() : tinted, in: shape)
         case .none, .material:
             labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
+        }
         }
     }
 }

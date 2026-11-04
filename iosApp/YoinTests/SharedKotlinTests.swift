@@ -32,9 +32,18 @@ final class SharedKotlinTests: XCTestCase {
         expectedExtras["darkTintMultiplier"] = 1
         expectedExtras["sheetPresenterDim"] = 0
         expectedExtras["searchChromeTint"] = 0
+        // World preset extras: neutral (no effect) in Balanced.
+        for (id, v) in [("heartLikedAccent", 1.0), ("liftInFlow", 0), ("liftRestOpacity", 0.6), ("neutralShadow", 0),
+                        ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
+                        ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
+                        ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0)] {
+            expectedExtras[id] = v
+        }
         expected["transportSecondary"] = SurfaceStyle(tintOn: false, tintOpacity: 0, shadowOpacity: 0)
         expected["transportPrimary"] = SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, contrastShadow: 0.22)
         expected["heart"] = SurfaceStyle(tintOn: false, tintOpacity: 0)
+        // The NP floating chrome wears the pills' glass outside World.
+        expected["npFloating"] = expected["npPills"]
 
         let lab = GlassLab.shared
         let saved = (lab.preset, lab.styles, lab.extras)
@@ -44,6 +53,40 @@ final class SharedKotlinTests: XCTestCase {
         lab.styles = saved.1
         lab.extras = saved.2
         lab.preset = saved.0
+    }
+
+    /// World (2026-11-04) is the default: Gemini's colours outside Now
+    /// Playing, the cover colour inside it at least Balanced's strength.
+    func test_should_default_to_world_with_gemini_shell_and_strong_np_colour_when_applied() {
+        let lab = GlassLab.shared
+        let saved = (lab.preset, lab.styles, lab.extras)
+        defer { lab.styles = saved.1; lab.extras = saved.2; lab.preset = saved.0 }
+        lab.apply(.gemini)
+        let gemini = (lab.styles, lab.extras)
+        lab.apply(.balanced)
+        let balanced = (lab.styles, lab.extras)
+        lab.reset()
+        XCTAssertEqual(lab.preset, .world)
+        // Outside NP: Gemini's colours.
+        for id in ["barUnselected", "barSelected", "homeCards"] {
+            XCTAssertEqual(lab.style(id).role, gemini.0[id]?.role, id)
+            XCTAssertEqual(lab.style(id).tintOpacity, gemini.0[id]?.tintOpacity ?? -1, id)
+        }
+        XCTAssertEqual(lab.extra("coverBlur"), gemini.1["coverBlur"])
+        // Inside NP: the cover colour at least Balanced's.
+        for id in ["ambientStrength", "neighbourStrength"] {
+            XCTAssertGreaterThanOrEqual(lab.extra(id), balanced.1[id] ?? 0, id)
+        }
+        XCTAssertGreaterThanOrEqual(lab.style("transportPrimary").tintOpacity,
+                                    balanced.0["transportPrimary"]?.tintOpacity ?? 0)
+        XCTAssertEqual(lab.style("transportPrimary").role, .auto)
+        // R1: the in-flow fixtures are tonal, the chrome over the lyrics glass.
+        XCTAssertEqual(lab.style("npPills").variant, .none)
+        XCTAssertEqual(lab.style("heart").variant, .none)
+        XCTAssertEqual(lab.style("transportSecondary").variant, .regular)
+        XCTAssertEqual(lab.style("npFloating").variant, .regular)
+        // R5: the mini player is the NP room folded.
+        XCTAssertEqual(lab.style("miniPlayer").role, lab.style("npBackground").role)
     }
 
     /// The scrapbook's FNV-1a as AlbumScrapbookView.swift computed it.

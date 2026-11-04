@@ -52,7 +52,9 @@ struct LyricKeyRow: View {
         let lab = GlassLab.shared
         let shape = RoundedRectangle(cornerRadius: size * 0.31, style: .continuous)
         // The pills' ink: onPrimary in light, white in dark (neutral preset: onSurface).
-        let ink = lab.neutralTint("npPills") ? scheme.onSurface
+        // World: the keys float over the lyrics (NP's floating chrome), neutral
+        // glass with on-surface ink; only an emphasized key takes the accent.
+        let ink = lab.neutralTint("npPills") || (lab.oneAccentPerLayer && !key.emphasized) ? scheme.onSurface
             : colorScheme == .dark ? Color.white : scheme.onPrimary
         let live = key.enabled || key.busy
         return Button {
@@ -80,7 +82,10 @@ private struct LyricKeyGlass<S: Shape>: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        if emphasized {
+        if GlassLab.shared.oneAccentPerLayer {
+            content.npPillGlass("npFloating", tint: emphasized ? scheme.primary : scheme.surfaceContainerHighest,
+                                strength: emphasized ? 1.2 : 0.6, in: shape)
+        } else if emphasized {
             // Android: primary (the others primaryContainer) — here a denser primary tint.
             content.npPillGlass(tint: scheme.primary, strength: 1.5, in: shape)
         } else {
