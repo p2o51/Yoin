@@ -27,13 +27,17 @@ struct SearchView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     var npNamespace: Namespace.ID
+    /// iPad: Search is a tab of its own (PadShell), and ✕ leaves it for the
+    /// tab it came from. Nil on the phone, where ✕ folds Search away.
+    var onClose: (() -> Void)? = nil
     @FocusState private var focused: Bool
     @State private var query = LaunchConfig.searchQuery
     @State private var scope: Scope = LaunchConfig.screen == "search-catalog" ? .catalog : .library
     @State private var filter: Filter = LaunchConfig.searchFilter
     /// The results column's width (inside the 16 margins), for the 3-column cells.
     @State private var width: CGFloat = 370
-    @State private var height: CGFloat = 800
+    @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.verticalSizeClass) private var vSize
     @State private var scrollPosition = ScrollPosition()
     /// Android LibrarySearchScrollMemory: one position per (scope, filter)
     /// for the current query, so All → Songs → All lands where All was left.
@@ -73,7 +77,6 @@ struct SearchView: View {
                 .padding(.top, 8)
                 .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             offset = y
@@ -435,7 +438,9 @@ struct SearchView: View {
 
     /// Library's grid (LibraryGrid): 3 columns on a phone, more on a wider
     /// pane at Library's cell size. [width] is inside the 16 margins.
-    private var columns: Int { LibraryGrid.columns(width: width + 32, height: height) }
+    private var columns: Int {
+        LibraryGrid.columns(width: width + 32, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
+    }
     private var cell: CGFloat { LibraryGrid.cell(width: width + 32, columns: columns) }
 
     /// Android ArtistListItem: 16 × 10 padding, 48 circle, 12, titleSmall,
@@ -610,6 +615,7 @@ struct SearchView: View {
 
     private func close() {
         focused = false
+        if let onClose { return onClose() }
         // The field folds back into the circle as Search fades out.
         withAnimation(Yoin.spatial) {
             grown = false

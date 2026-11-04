@@ -8,6 +8,8 @@ struct PadShell: View {
     @Environment(AppModel.self) private var model
     @Namespace private var npNS
     @State private var tab: PadTab = .home
+    /// The tab Search was opened from, for its ✕.
+    @State private var lastTab: PadTab = .home
 
     enum PadTab: Hashable { case home, library, search }
 
@@ -21,12 +23,18 @@ struct PadShell: View {
                 PadColumns(npNamespace: npNS, active: tab == .library)
             }
             Tab("Search", image: "yoin.search", value: PadTab.search, role: .search) {
-                PadColumns(npNamespace: npNS, active: tab == .search)
+                // Search's own surface in the shell column (Android Wide:
+                // results on the left, what they open in the detail column).
+                PadColumns(npNamespace: npNS, active: tab == .search, onCloseSearch: closeSearch)
             }
         }
         .tabViewStyle(.sidebarAdaptable)
         .tabViewBottomAccessory {
             PadMiniPlayer()
+        }
+        // Library's search pill (and any other entry) lands on the Search tab.
+        .onChange(of: model.searchActive) { _, active in
+            if active && tab != .search { tab = .search }
         }
         // World depth, as on the phone: the shell steps back under Full Now
         // Playing and under a sheet (the NP panel is part of its plane);
@@ -41,13 +49,27 @@ struct PadShell: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
         .onAppear {
-            tab = model.section == .library ? .library : .home
+            tab = model.searchActive ? .search : model.section == .library ? .library : .home
             // `-screen settings`: the sign-in page in the album column.
             if LaunchConfig.baseScreen == "settings", !model.path.contains(.settings) { model.openSettings() }
         }
         .onChange(of: tab) { _, t in
-            model.select(t == .home ? .home : .library)
+            if t == .search {
+                // The field is up at once (no bar circle to grow out of here).
+                model.searchOrigin = .library
+                if !model.searchActive { model.searchActive = true }
+            } else {
+                lastTab = t
+                if model.searchActive { model.searchActive = false }
+                model.select(t == .home ? .home : .library)
+            }
         }
+    }
+
+    /// Search's ✕ on iPad: back to the tab it was opened from.
+    private func closeSearch() {
+        model.searchActive = false
+        tab = lastTab
     }
 }
 
@@ -63,6 +85,8 @@ private struct PadColumns: View {
     /// Only the selected tab's stack drives `model.path`: TabView keeps the
     /// other tabs alive, and two stacks bound to one path would both push.
     var active: Bool
+    /// The Search tab: Search's surface in place of the section, its ✕ here.
+    var onCloseSearch: (() -> Void)? = nil
 
     var body: some View {
         // Yoin's own panel column instead of `.inspector`: on iPadOS 26.5 the
@@ -95,7 +119,7 @@ private struct PadColumns: View {
                 HStack(spacing: 0) {
                     // Outside a NavigationStack the floating top tab bar adds
                     // no safe area, so clear it by hand.
-                    SectionContent()
+                    shellContent
                         .safeAreaPadding(.top, 52)
                         .frame(width: shell)
                     Capsule()
@@ -110,6 +134,11 @@ private struct PadColumns: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                             .navigationDestination(for: Route.self, destination: destination)
                     }
+                    // The column's own Play split (the phone's detail bar
+                    // lives in its ShellBar, which iPad doesn't have).
+                    .overlay(alignment: .bottomLeading) {
+                        if active { PadDetailPlay(root: album) }
+                    }
                     .clipShape(.rect(cornerRadius: 28))
                     .padding(.vertical, 8)
                     .padding(.trailing, 8)
@@ -117,9 +146,13 @@ private struct PadColumns: View {
                 .background(Yoin.surface)
             } else {
                 NavigationStack(path: path) {
-                    SectionContent()
+                    shellContent
                         .toolbar(.hidden, for: .navigationBar)
                         .navigationDestination(for: Route.self, destination: destination)
+                }
+                // A pushed detail page gets the Play split; the shell doesn't.
+                .overlay(alignment: .bottomLeading) {
+                    if active && !model.path.isEmpty { PadDetailPlay(root: nil) }
                 }
                 .onChange(of: model.padSelection) { _, album in
                     // No album column: an album picked in the shell pushes.
@@ -137,6 +170,15 @@ private struct PadColumns: View {
     }
 
     @State private var wide = false
+
+    @ViewBuilder
+    private var shellContent: some View {
+        if let onCloseSearch {
+            SearchView(npNamespace: npNamespace, onClose: onCloseSearch)
+        } else {
+            SectionContent()
+        }
+    }
 
     private var path: Binding<[Route]> {
         active ? Binding(get: { model.path }, set: { model.path = $0 }) : .constant([])
@@ -160,36 +202,140 @@ private struct PadColumns: View {
     }
 }
 
+/// The detail column's Play split, after the phone's detail bar (ShellBar
+/// `playSplit`, Android detail pose): [Play][▾] in the page's cover primary,
+/// M3 SplitButton corners. Acts on the page on top of the column: a pushed
+/// route, else the album picked into the column ([root]).
+private struct PadDetailPlay: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
+    var root: Album?
+
+    private var album: Album? {
+        switch model.path.last {
+        case .album(let a): return a
+        case .artist(let ref): return model.artistPage(ref).releases.first
+        case .playlist(let id): return model.playlistInfo(id).asAlbum
+        case .settings: return nil
+        case nil: return root
+        }
+    }
+
+    private func entries() async -> [PlaylistEntry] {
+        guard model.path.isEmpty, let root else { return await model.detailEntries() }
+        let full = await model.store.fullAlbum(model.resolved(root))
+        return full.tracks.map { PlaylistEntry(album: full, track: $0) }
+    }
+
+    var body: some View {
+        if let album {
+            let s = CoverScheme(album: album, dark: colorScheme == .dark)
+            let tint = s.primary.opacity(0.85)
+            let inner = Tokens.bar.SPLIT_INNER_CORNER.cg
+            GlassEffectContainer(spacing: 0) {
+                HStack(spacing: Tokens.bar.SPLIT_GAP.cg) {
+                    Button { Task { model.play(await entries()) } } label: {
+                        HStack(spacing: 8) {
+                            YoinIcon("play_filled", size: 20)
+                            Text("Play").font(.gsf(16, .medium))
+                        }
+                        .foregroundStyle(s.onPrimary)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.tint(tint).interactive(),
+                                 in: UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 28,
+                                                            bottomTrailingRadius: inner, topTrailingRadius: inner))
+                    Menu {
+                        Button("Shuffle play") { Task { model.play(await entries(), shuffle: true) } }
+                        Button("Play next") { Task { model.enqueue(await entries(), next: true) } }
+                        Button("Add to queue") { Task { model.enqueue(await entries(), next: false) } }
+                        if PlaylistActions.shared.canAddToPlaylist(model.store) {
+                            Button("Add to playlist") { Task { PlaylistActions.shared.requestAdd(await entries()) } }
+                        }
+                        if model.path.isEmpty || model.path.last == .album(album) {
+                            Divider()
+                            Button("Go to artist") { model.openArtist(album.artist, id: album.artistId) }
+                        }
+                    } label: {
+                        YoinIcon("chevron_down", size: 22)
+                            .foregroundStyle(s.onPrimary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 56)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.tint(tint).interactive(),
+                                 in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
+                                                            bottomTrailingRadius: 28, topTrailingRadius: 28))
+                    .accessibilityLabel("More play options")
+                }
+            }
+            .frame(width: Tokens.bar.SPLIT_WIDTH.cg, height: 56)
+            .padding(16)
+            .transition(.opacity.animation(Yoin.effects))
+        }
+    }
+}
+
+/// The tab view's bottom accessory, after Android's NowPlayingPill: nothing
+/// playing = the quiet "Nothing playing" form; playing / paused = cover,
+/// title over artist, the wave progress and the real transport state. The
+/// accessory opens Now Playing; the play / pause glyph is its own button.
 private struct PadMiniPlayer: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         let p = model.playback
-        Button { model.openNowPlayingOnPad() } label: {
-            HStack(spacing: 10) {
-                CoverArt(palette: p.album.palette, cornerRadius: 5, seed: p.album.seed)
-                    .frame(width: 32, height: 32)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(p.track.title).font(.gsf(14, .semibold))
-                    Text(p.album.artist).font(.gsf(12)).foregroundStyle(Yoin.inkVariant)
-                }
-                .lineLimit(1)
-                Spacer(minLength: 8)
-                PlaybackPosition { position, duration in
-                    WavyProgressBar(progress: position / duration,
-                                    duration: duration, isPlaying: p.isPlaying,
-                                    tint: p.album.palette.tint, trackTint: Yoin.inkVariant.opacity(0.3)) { fraction in
-                        model.player.seek(to: fraction * duration)
+        HStack(spacing: 10) {
+            Button { model.openNowPlayingOnPad() } label: {
+                HStack(spacing: 10) {
+                    if model.isIdle {
+                        Text("Nothing playing").font(.gsf(14, .medium)).foregroundStyle(Yoin.inkVariant)
+                            .transition(.opacity.animation(Yoin.effects))
+                        Spacer(minLength: 0)
+                    } else {
+                        CoverArt(palette: p.album.palette, cornerRadius: 5, seed: p.album.seed)
+                            .frame(width: 32, height: 32)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(p.track.title).font(.gsf(14, .semibold))
+                            Text(p.album.artist).font(.gsf(12)).foregroundStyle(Yoin.inkVariant)
+                        }
+                        .lineLimit(1)
+                        Spacer(minLength: 8)
+                        PlaybackPosition { position, duration in
+                            WavyProgressBar(progress: position / duration,
+                                            duration: duration, isPlaying: p.isPlaying,
+                                            tint: p.album.palette.tint, trackTint: Yoin.inkVariant.opacity(0.3)) { fraction in
+                                model.player.seek(to: fraction * duration)
+                            }
+                        }
+                        .frame(width: 120)
                     }
                 }
-                    .frame(width: 120)
-                YoinIcon("pause_filled", size: 22)
-                    .padding(.leading, 6)
+                .contentShape(.rect)
             }
-            .foregroundStyle(Yoin.ink)
-            .padding(.horizontal, 12)
-            .contentShape(.rect)
+            .buttonStyle(.plain)
+            .disabled(model.isIdle)
+            if !model.isIdle {
+                Button {
+                    if model.player.currentTrack != nil { model.player.togglePlayPause() }
+                    else { model.playback.isPlaying.toggle() }
+                } label: {
+                    YoinIcon(p.isPlaying ? "pause_filled" : "play_filled", size: 22)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 44, height: 44)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(p.isPlaying ? "Pause" : "Play")
+            }
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(Yoin.ink)
+        .padding(.horizontal, 12)
+        .animation(Yoin.spatial, value: model.isIdle)
     }
 }

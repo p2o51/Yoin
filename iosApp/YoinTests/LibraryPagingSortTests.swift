@@ -107,8 +107,10 @@ final class LibraryPagingSortTests: XCTestCase {
     }
 
     func test_should_add_columns_when_the_pane_is_wider_than_a_phone() {
-        XCTAssertEqual(LibraryGrid.columns(width: 402, height: 874), 3)
-        XCTAssertEqual(LibraryGrid.columns(width: 800, height: 1200), 7)
-        XCTAssertEqual(LibraryGrid.columns(width: 874, height: 402), 7)
+        XCTAssertEqual(LibraryGrid.columns(width: 402, regularWidth: false, compactHeight: false), 3)
+        XCTAssertEqual(LibraryGrid.columns(width: 800, regularWidth: true, compactHeight: false), 7)
+        // An iPad shell column (600) is still a wide window's pane: 5, not 3.
+        XCTAssertEqual(LibraryGrid.columns(width: 600, regularWidth: true, compactHeight: false), 5)
+        XCTAssertEqual(LibraryGrid.columns(width: 874, regularWidth: false, compactHeight: true), 7)
     }
 }

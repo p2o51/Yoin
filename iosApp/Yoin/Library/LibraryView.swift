@@ -19,8 +19,9 @@ struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.zoomNamespace) private var zoomNS
+    @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.verticalSizeClass) private var vSize
     @State private var width: CGFloat = 370
-    @State private var height: CGFloat = 800
     @State private var position = ScrollPosition()
     @State private var metrics = ScrollMetrics()
     @State private var awake = LaunchConfig.screen == "library-scroller"
@@ -78,7 +79,9 @@ struct LibraryView: View {
     /// Android libraryGridCells: Fixed(3) on a phone's width; past it the
     /// cells stay phone-sized and the count follows the width (min 96, a
     /// landscape phone's short window 100).
-    private var columns: Int { LibraryGrid.columns(width: width, height: height) }
+    private var columns: Int {
+        LibraryGrid.columns(width: width, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
+    }
     private var cell: CGFloat { LibraryGrid.cell(width: width, columns: columns) }
 
     /// Android librarySortOptions: only orders the data can back. No source
@@ -154,7 +157,6 @@ struct LibraryView: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
         .task(id: LoadKey(generation: model.store.generation, filter: filter)) {
@@ -817,16 +819,16 @@ private extension String {
 
 /// Library's grid geometry, shared with Search (Android libraryGridCells).
 enum LibraryGrid {
-    /// Fixed 3 at a phone's width (< 600); past it the count follows the
-    /// width at a 96 minimum cell (a short landscape window: 100), 12 gaps,
-    /// inside the 16 margins.
-    static func columns(width: CGFloat, height: CGFloat) -> Int {
+    /// Fixed 3 in a phone's window (Compact); in a wider window (regular
+    /// width, or ≥ 600) the count follows the pane's [width] at a 96 minimum
+    /// cell, and in a short landscape window (compact height) at 100; 12
+    /// gaps, inside the 16 margins. Android decides by the window, counts by
+    /// the pane.
+    static func columns(width: CGFloat, regularWidth: Bool, compactHeight: Bool) -> Int {
         let gutter = Tokens.library.GRID_GUTTER_H.cg
         let available = width - 32
-        if height < 480 && width > height {
-            return max(3, Int((available + gutter) / (100 + gutter)))
-        }
-        guard width >= 600 else { return 3 }
+        if compactHeight { return max(3, Int((available + gutter) / (100 + gutter))) }
+        guard regularWidth || width >= 600 else { return 3 }
         return max(3, Int((available + gutter) / (96 + gutter)))
     }
 
