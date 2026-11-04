@@ -632,6 +632,7 @@ private struct SignalCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .contentShape(.rect)
         }
         .buttonStyle(PressScale())
     }
@@ -762,6 +763,10 @@ extension View {
             }
             .allowsHitTesting(false)
         }
+        // The backdrop doesn't hit-test, so without this only the card's
+        // text and art take a tap and its padding and gaps let it fall
+        // through: the whole card is the target, like Android's Surface(onClick).
+        .contentShape(shape)
     }
 
 }
