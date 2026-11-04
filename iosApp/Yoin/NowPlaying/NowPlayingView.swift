@@ -106,6 +106,14 @@ struct NowPlayingView: View {
             }
         // iPad Full only; on the phone the morph owns the drag.
         .gesture(dismissDrag, isEnabled: !panel && npMorph == nil)
+        // Gemini preset: dim the page under the Queue sheet so its controls
+        // don't bleed through the sheet glass (0 in the other presets).
+        .overlay {
+            Color.black.opacity(model.queueSheetOpen ? lab.extra("sheetPresenterDim") : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .animation(Yoin.effects, value: model.queueSheetOpen)
+        }
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet()
         }
@@ -530,7 +538,8 @@ struct NowPlayingView: View {
                 // fill (like PAUSE carries primary) and the glyph stays
                 // legible on it in both modes; unliked, plain glass.
                 .foregroundStyle(favorite
-                                 ? (colorScheme == .dark ? Color.white : scheme.onTertiary)
+                                 ? (colorScheme == .dark && !lab.denseAccent("transportPrimary", dark: true)
+                                    ? Color.white : scheme.onTertiary)
                                  : (heartTinted ? scheme.onTertiaryContainer : scheme.onSurfaceVariant))
                 .labContrast(favorite ? "transportPrimary" : "heart")
                 .frame(width: Tokens.np.HEART_SIZE.cg, height: Tokens.np.HEART_SIZE.cg)
@@ -556,7 +565,7 @@ struct NowPlayingView: View {
 
     /// The lab's heart style is tinted (Current preset): unliked takes
     /// tertiaryContainer's on-color, as on Android.
-    private var heartTinted: Bool { lab.style("heart").tintOn }
+    private var heartTinted: Bool { lab.style("heart").tintOn && !lab.neutralTint("heart") }
 
     // 4. Text tabs.
     private var tabs: some View {
@@ -966,8 +975,10 @@ struct NowPlayingView: View {
                         .tracking(0.5)
                         .scaleEffect(x: 1.06, y: 1, anchor: .leading)
                         // Same rule as the pills on the same primary glass:
-                        // dark onPrimary sank into it.
-                        .foregroundStyle(colorScheme == .dark ? Color.white : scheme.onPrimary)
+                        // dark onPrimary sank into thin glass (Balanced);
+                        // dense glass (Gemini) carries it.
+                        .foregroundStyle(colorScheme == .dark && !lab.denseAccent("transportPrimary", dark: true)
+                                         ? Color.white : scheme.onPrimary)
                         .labContrast("transportPrimary")
                         .padding(.horizontal, 24)
                         .frame(height: 56)
@@ -1059,8 +1070,10 @@ struct NowPlayingView: View {
 
     private func roundButton(_ icon: String, fill: Color, ink: Color, label: String, badge: String? = nil,
                              action: @escaping () -> Void) -> some View {
-        // Untinted (Balanced / HIG presets): the glyph goes on-surface.
+        // Untinted (Balanced / HIG presets) or a neutral floor (Gemini):
+        // the glyph goes on-surface.
         let tinted = GlassLab.shared.style("transportSecondary").tintOn
+            && !GlassLab.shared.neutralTint("transportSecondary")
         return Button(action: action) {
             YoinIcon(icon, size: 28)
                 .foregroundStyle(tinted ? ink : scheme.onSurface)
@@ -1157,7 +1170,9 @@ struct NowPlayingView: View {
             // The primary glass reads mid-tone in both modes: onPrimary in
             // light; white in dark, where dark onPrimary (and, on glass,
             // onPrimaryContainer too) sank into it.
-            .foregroundStyle(colorScheme == .dark ? Color.white : scheme.onPrimary)
+            // Gemini preset: a neutral floor, so on-surface ink.
+            .foregroundStyle(lab.neutralTint("npPills") ? scheme.onSurface
+                             : colorScheme == .dark ? Color.white : scheme.onPrimary)
             // Same contrast shadow as PAUSE on the same primary glass.
             .labContrast("transportPrimary")
             .padding(.horizontal, 13.2)

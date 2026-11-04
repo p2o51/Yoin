@@ -28,6 +28,10 @@ final class SharedKotlinTests: XCTestCase {
         expected["barSelected"] = SurfaceStyle(tintOpacity: 0.85)
         expectedExtras["barSelectedStyle"] = 1
         expectedExtras["lyricsUnder"] = 0
+        // Gemini preset extras: neutral (no effect) in Balanced.
+        expectedExtras["darkTintMultiplier"] = 1
+        expectedExtras["sheetPresenterDim"] = 0
+        expectedExtras["searchChromeTint"] = 0
         expected["transportSecondary"] = SurfaceStyle(tintOn: false, tintOpacity: 0, shadowOpacity: 0)
         expected["transportPrimary"] = SurfaceStyle(tintOpacity: 0.55, shadowOpacity: 0.18, contrastShadow: 0.22)
         expected["heart"] = SurfaceStyle(tintOn: false, tintOpacity: 0)
