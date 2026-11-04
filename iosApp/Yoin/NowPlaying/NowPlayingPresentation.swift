@@ -297,7 +297,8 @@ struct NowPlayingMorph: View {
             NowPlayingAmbient(scheme: scheme)
                 .frame(width: rect.width, height: rect.height)
                 .clipShape(shape)
-                .opacity(smooth(0.04, 0.55, q))
+                // World: the folded pill already carries it (pillAmbient).
+                .opacity(max(lab.extra("pillAmbient"), smooth(0.04, 0.55, q)))
             Color.clear
                 .morphGlass(q: q, scheme: scheme, brand: brand, in: shape)
         }
@@ -530,17 +531,26 @@ struct NowPlayingAmbient: View {
         let dark = colorScheme == .dark
         let previous = CoverScheme(album: albums[11], dark: dark)
         let next = CoverScheme(album: albums[1], dark: dark)
+        // World: dark mode has its own strengths (0 = as in light).
+        let strength = dark && lab.extra("darkAmbientStrength") > 0
+            ? lab.extra("darkAmbientStrength") : lab.extra("ambientStrength")
+        let neighbours = dark && lab.extra("darkNeighbourStrength") > 0
+            ? lab.extra("darkNeighbourStrength") : lab.extra("neighbourStrength")
+        let aura = Circle().fill(scheme.primary.opacity(strength))
+            .frame(width: 360).blur(radius: lab.extra("ambientBlur"))
+        let onTop = lab.extra("auraOnTop") > 0.5
         ZStack {
             scheme.background
-            Circle().fill(scheme.primary.opacity(lab.extra("ambientStrength")))
-                .frame(width: 360).blur(radius: lab.extra("ambientBlur"))
+            if !onTop { aura }
             VStack {
-                Ellipse().fill(previous.primaryContainer.opacity(lab.extra("neighbourStrength")))
+                Ellipse().fill(previous.primaryContainer.opacity(neighbours))
                     .frame(height: 300).offset(y: -90).blur(radius: 50)
                 Spacer()
-                Ellipse().fill(next.primaryContainer.opacity(lab.extra("neighbourStrength")))
+                Ellipse().fill(next.primaryContainer.opacity(neighbours))
                     .frame(height: 320).offset(y: 110).blur(radius: 50)
             }
+            // World: the room's own cover leads; neighbours only frame it.
+            if onTop { aura }
         }
     }
 }

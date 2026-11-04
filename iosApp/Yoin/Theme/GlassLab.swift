@@ -22,6 +22,12 @@ enum GlassPreset: String, Codable, CaseIterable, Sendable {
     /// one chromatic accent per plane, neutral surface-tinted floors on the
     /// other floating controls, calmer stages under them.
     case gemini = "Gemini"
+    /// Yoin's own layered world (2026-11-04, iosApp/docs/glass-layers.md):
+    /// glass only where content moves underneath, one accent per layer,
+    /// depth = blur, one light source, NP is the mini player unfolded. The
+    /// default: Gemini's colours outside Now Playing, Balanced-or-stronger
+    /// cover colour inside it.
+    case world = "World"
 }
 
 /// Color roles a surface can be tinted with. `auto` = the role Android uses
@@ -123,6 +129,9 @@ final class GlassLab {
         Surface(id: "npPills", title: "Now Playing · Queue / Devices / Write",
                 defaults: SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false),
                 extras: []),
+        Surface(id: "npFloating", title: "Now Playing · floating chrome (expanded tabs, Ask Gemini)",
+                defaults: SurfaceStyle(variant: .regular, role: .primary, tintOpacity: 0.55),
+                extras: []),
         Surface(id: "npBackground", title: "Now Playing · background (v4)",
                 defaults: SurfaceStyle(role: .background, tintOpacity: 0.5, interactive: false, cornerRadius: 44),
                 extras: [("ambientStrength", "This album's color", 0...1, 0.55),
@@ -138,7 +147,7 @@ final class GlassLab {
     var appearance = 0 { didSet { save() } }
     var styles: [String: SurfaceStyle] = [:] { didSet { save() } }
     var extras: [String: Double] = [:] { didSet { save() } }
-    var preset: GlassPreset = .balanced { didSet { save() } }
+    var preset: GlassPreset = .world { didSet { save() } }
     /// Motion: false = the current iOS springs (default until 51 decides),
     /// true = Android's springs from the shared YoinTokens.Motion.
     var sharedMotion = UserDefaults.standard.bool(forKey: "glassLab.sharedMotion") {
@@ -152,23 +161,25 @@ final class GlassLab {
     /// values (Current) don't carry over.
     /// v3: 51's 11-03 night decisions (tinted bar selection, glass rating
     /// track and NP pills) change Balanced again; saved v2 values would hide them.
-    private static let key = "glassLab.v3"
+    /// v4: World became the default (2026-11-04).
+    private static let key = "glassLab.v4"
 
     private init() {
         suppressSave = true
-        apply(.balanced)
+        apply(.world)
         suppressSave = false
         if let data = UserDefaults.standard.data(forKey: Self.key),
            let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             appearance = saved.appearance
-            preset = saved.preset ?? .balanced
+            preset = saved.preset ?? .world
             styles.merge(saved.styles) { _, new in new }
             extras.merge(saved.extras) { _, new in new }
         }
         panelOpen = UserDefaults.standard.bool(forKey: "glassLab")
         if let name = UserDefaults.standard.string(forKey: "preset") {
             suppressSave = true
-            apply(name == "hig" ? .appleHIG : name == "balanced" ? .balanced : name == "gemini" ? .gemini : .current)
+            apply(name == "hig" ? .appleHIG : name == "balanced" ? .balanced : name == "gemini" ? .gemini
+                  : name == "world" ? .world : .current)
             suppressSave = false
         }
         if UserDefaults.standard.bool(forKey: "barTinted") {
@@ -206,8 +217,24 @@ final class GlassLab {
     /// sheetPresenterDim dims Now Playing under the Queue sheet,
     /// searchChromeTint tints the Library / Search search field and ✕
     /// with surfaceContainerHighest so they group with the chip row.
+    /// World preset extras (neutral in every other preset):
+    /// heartLikedAccent 1 = the liked heart borrows PAUSE's surface (0: it
+    /// keeps its own "heart" surface); liftInFlow 1 = in-flow NP controls
+    /// (rating track, ⌄ at rest) are a tonal fill at liftRestOpacity and are
+    /// lifted to glass only while touched / while content moves under them;
+    /// neutralShadow 1 = every Glass Lab shadow is black, straight down (one
+    /// light source); recedeScale / recedeDim / recedeBlur = how far the
+    /// layer behind steps back at progress 1 (NP open, a sheet up);
+    /// sheetRecede* = the same under a sheet; pillAmbient = Now Playing's
+    /// ambient inside the folded pill; coverContactShadow = the covers'
+    /// contact-shadow opacity; darkAmbientStrength / darkNeighbourStrength
+    /// (0 = as in light) and auraOnTop: Now Playing's ambient in dark mode.
     static let pageExtras: [(String, Double)] = [
         ("detailTopBar", 0), ("darkTintMultiplier", 1), ("sheetPresenterDim", 0), ("searchChromeTint", 0),
+        ("heartLikedAccent", 1), ("liftInFlow", 0), ("liftRestOpacity", 0.6), ("neutralShadow", 0),
+        ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
+        ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
+        ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
     ]
 
     private func resetValues() {
@@ -222,9 +249,9 @@ final class GlassLab {
         extras = e
     }
 
-    /// Back to the shipped defaults: the Balanced preset.
+    /// Back to the shipped defaults: the World preset.
     func reset() {
-        apply(.balanced)
+        apply(.world)
         appearance = 0
     }
 
@@ -285,10 +312,86 @@ final class GlassLab {
             e["darkTintMultiplier"] = 1.15
             e["sheetPresenterDim"] = 0.14
             e["searchChromeTint"] = 0.38
+        case .world:
+            applyWorld(&s, &e)
         }
+        // The NP floating chrome wore the pills' glass before World split them.
+        if p != .world { s["npFloating"] = s["npPills"] }
         styles = s
         extras = e
         preset = p
+    }
+
+    /// The World preset (iosApp/docs/glass-layers.md). Outside Now Playing:
+    /// Gemini's colours. Inside: the cover colour at Balanced strength or
+    /// more, glass only on the controls the lyrics / pages move under.
+    private func applyWorld(_ s: inout [String: SurfaceStyle], _ e: inout [String: Double]) {
+        apply(.gemini)
+        s = styles
+        e = extras
+        // R4 one light source: every shadow neutral, straight down; only the
+        // top floating layer casts one.
+        let lift = { (o: Double) in (opacity: o, radius: 10.0, y: 5.0) }
+        // L2 shell: Gemini's neutral floors; the selected tab is the one accent.
+        s["barUnselected"] = SurfaceStyle(role: .surfaceContainerHighest, tintOpacity: 0.52,
+                                          shadowOpacity: lift(0.14).opacity, shadowRadius: 10, shadowY: 5)
+        s["barSelected"] = SurfaceStyle(tintOpacity: 0.85, shadowOpacity: 0.18, shadowRadius: 12, shadowY: 6)
+        // R5: the mini player is Now Playing folded: the NP room's material,
+        // colour and (pillAmbient) its ambient, already breathing in the pill.
+        s["miniPlayer"] = SurfaceStyle(role: .background, tintOpacity: 0.48,
+                                       shadowOpacity: 0.14, shadowRadius: 10, shadowY: 5)
+        e["pillAmbient"] = 0.38
+        e["washOpacity"] = 0.28
+        // L3 room: frosted, cover-tinted; the cover colour back past Balanced
+        // (51: Gemini's NP green was too faint).
+        s["npBackground"] = SurfaceStyle(role: .background, tintOpacity: 0.46, interactive: false, cornerRadius: 44)
+        e["ambientStrength"] = 0.68
+        e["ambientBlur"] = 95
+        e["neighbourStrength"] = 1.0
+        // L3 chrome pinned over the lyrics: glass. PAUSE is the room's one
+        // accent; Next / Prev / play mode / ⌄ a neutral floor.
+        s["transportPrimary"] = SurfaceStyle(tintOpacity: 0.70, shadowOpacity: 0.20, shadowRadius: 12, shadowY: 6,
+                                             contrastShadow: 0.12)
+        s["transportSecondary"] = SurfaceStyle(role: .surfaceContainerHighest, tintOpacity: 0.28,
+                                               shadowOpacity: 0.14, shadowRadius: 10, shadowY: 5)
+        // Lyrics run under the PAUSE row only, then dissolve before the progress row.
+        e["lyricsUnder"] = 0.55
+        // L3 stage fixtures (static flow): tonal. The heart keeps Android's
+        // tertiary / tertiaryContainer, so the cover's second colour shows;
+        // the rating is a recessed slot that lifts to glass while held.
+        s["heart"] = SurfaceStyle(variant: .none, role: .auto, tintOpacity: 1, interactive: false)
+        e["heartLikedAccent"] = 0
+        s["ratingTrack"] = SurfaceStyle(role: .surfaceVariant, tintOpacity: 0.28, interactive: false,
+                                        shadowOpacity: 0.18, shadowRadius: 12, shadowY: 6)
+        e["liftInFlow"] = 1
+        e["liftRestOpacity"] = 0.45
+        e["ratingFill"] = 0.78
+        // Dark: this cover's aura leads, drawn over the neighbours' bleed.
+        e["darkAmbientStrength"] = 0.88
+        e["darkNeighbourStrength"] = 0.42
+        e["auraOnTop"] = 1
+        // Fixtures stay well under the floating accent (Gemini round 2: the
+        // pills read as four PAUSEs at 0.6).
+        s["npPills"] = SurfaceStyle(variant: .none, role: .primaryContainer, tintOpacity: 0.45, interactive: false)
+        // Expanded: tabs, lyric keys and the Ask Gemini bar float over the
+        // scrolling page — glass; the selected tab the accent, the rest neutral.
+        s["npFloating"] = SurfaceStyle(role: .primary, tintOpacity: 0.78,
+                                       shadowOpacity: 0.14, shadowRadius: 10, shadowY: 5)
+        e["neutralShadow"] = 1
+        e["darkTintMultiplier"] = 1.12
+        e["searchChromeTint"] = 0.48
+        e["sheetPresenterDim"] = 0
+        // R3 depth: behind Now Playing (1:1 with its progress) and behind a sheet.
+        e["recedeScale"] = 0.06
+        e["recedeDim"] = 0.22
+        e["recedeBlur"] = 10
+        e["sheetRecedeScale"] = 0.04
+        e["sheetRecedeDim"] = 0.14
+        e["sheetRecedeBlur"] = 3.5
+        // R6: covers are objects with a contact shadow.
+        e["coverContactShadow"] = 0.22
+        // R1: the pinned chips have the list scrolling under them (question 1 for 51).
+        e["libraryFilterStyle"] = 0
     }
 
     /// Launch-arg overrides (screenshots) are applied without saving.
@@ -327,6 +430,10 @@ final class GlassLab {
         default: return false
         }
     }
+
+    /// World: one accent per layer (the selected / primary item); the
+    /// layer's other floating controls take a neutral tint.
+    var oneAccentPerLayer: Bool { preset == .world }
 
     var colorScheme: ColorScheme? {
         switch appearance {
@@ -410,7 +517,65 @@ private struct LabGlass<S: Shape>: ViewModifier {
                 content.glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
             }
         }
-        .shadow(color: tint.opacity(st.shadowOpacity), radius: st.shadowRadius, y: st.shadowY)
+        .shadow(color: lab.shadowColor(tint).opacity(st.shadowOpacity), radius: st.shadowRadius, y: st.shadowY)
+    }
+}
+
+extension GlassLab {
+    /// One light source (World): every shadow is neutral, else the tint's.
+    func shadowColor(_ tint: Color) -> Color { extra("neutralShadow") > 0.5 ? .black : tint }
+}
+
+extension View {
+    /// An in-flow control (World `liftInFlow`): a tonal fill of the surface's
+    /// tint at rest, lifted into that surface's glass while `lifted` (touched,
+    /// or content moving under it). One `glassEffect` throughout, so the lift
+    /// doesn't rebuild the view. Other presets: the plain Glass Lab surface.
+    @ViewBuilder
+    func labLift<S: Shape>(_ id: String, lifted: Bool, scheme: CoverScheme, auto: Color, in shape: S) -> some View {
+        let lab = GlassLab.shared
+        let st = lab.style(id)
+        if lab.extra("liftInFlow") > 0.5, st.variant == .regular || st.variant == .clear {
+            let tint = st.role.color(in: scheme, brand: .brand(dark: false), auto: auto)
+            let base: Glass = st.variant == .clear ? .clear : .regular
+            let glass = (st.tintOn ? base.tint(tint.opacity(st.tintOpacity)) : base).interactive()
+            self
+                .background {
+                    shape.fill(tint.opacity(lab.extra("liftRestOpacity")))
+                        .opacity(lifted ? 0 : 1)
+                }
+                .glassEffect(lifted ? glass : .identity, in: shape)
+                .shadow(color: .black.opacity(lifted ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
+                .animation(Yoin.effects, value: lifted)
+        } else {
+            labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
+        }
+    }
+
+    /// The layer behind steps back (World depth cue): scale, dim and blur by
+    /// `depth` (0…1), all off the same progress as what sits on top.
+    func labRecede(_ depth: CGFloat, sheet: Bool = false) -> some View {
+        let lab = GlassLab.shared
+        let d = min(max(depth, 0), 1)
+        let k = sheet ? "sheetRecede" : "recede"
+        // Blur inside the corner mask, so the plane's silhouette stays crisp.
+        return self
+            .blur(radius: lab.extra(k + "Blur") * d)
+            .overlay {
+                Color.black.opacity(lab.extra(k + "Dim") * d)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+            // The world behind keeps the display's corners as it steps back.
+            .mask {
+                RoundedRectangle(cornerRadius: d > 0.001 ? 44 : 0, style: .continuous).ignoresSafeArea()
+            }
+            .scaleEffect(1 - lab.extra(k + "Scale") * d)
+    }
+
+    /// A cover as a physical object: a soft contact shadow straight down.
+    func labCoverShadow() -> some View {
+        shadow(color: .black.opacity(GlassLab.shared.extra("coverContactShadow")), radius: 10, y: 6)
     }
 }
 
@@ -528,7 +693,21 @@ struct GlassLabPanel: View {
                 }
                 .pickerStyle(.segmented)
             }
-            if lab.preset == .gemini {
+            if lab.preset == .world {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("World extras").font(.gsf(13)).foregroundStyle(.secondary)
+                    labSlider("Behind: scale back", "recedeScale", 0...0.15)
+                    labSlider("Behind: dim", "recedeDim", 0...0.6)
+                    labSlider("Behind: blur", "recedeBlur", 0...20)
+                    labSlider("Under a sheet: scale back", "sheetRecedeScale", 0...0.15)
+                    labSlider("Under a sheet: dim", "sheetRecedeDim", 0...0.6)
+                    labSlider("Under a sheet: blur", "sheetRecedeBlur", 0...20)
+                    labSlider("Ambient in the folded pill", "pillAmbient", 0...1)
+                    labSlider("In-flow rest fill", "liftRestOpacity", 0...1)
+                    labSlider("Cover contact shadow", "coverContactShadow", 0...0.6)
+                }
+            }
+            if lab.preset == .gemini || lab.preset == .world {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Gemini extras").font(.gsf(13)).foregroundStyle(.secondary)
                     labSlider("Dark-mode tint ×", "darkTintMultiplier", 1...1.5)

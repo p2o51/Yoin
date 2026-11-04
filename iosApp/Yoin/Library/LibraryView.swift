@@ -550,7 +550,8 @@ struct SegmentChipRow<ID: Hashable>: View {
             if style == .glassTrack {
                 scroller
                     .padding(.horizontal, 4)
-                    .glassEffect(.regular, in: .capsule)
+                    // Same glass as the search field above it (one pinned header).
+                    .labSearchGlass(scheme: scheme, in: .capsule)
                     .padding(.leading, showsClear ? gap : 16)
                     .padding(.trailing, 16)
             } else {
@@ -571,7 +572,7 @@ struct SegmentChipRow<ID: Hashable>: View {
                 .contentShape(.circle)
         }
         .buttonStyle(PressScale())
-        .modifier(GlassIf(on: style == .glassTrack))
+        .modifier(GlassIf(on: style == .glassTrack, scheme: scheme))
         .accessibilityLabel("Clear filter")
     }
 
@@ -731,8 +732,9 @@ struct SegmentChipRow<ID: Hashable>: View {
 /// Interactive circle glass for the glass-track ✕ only.
 private struct GlassIf: ViewModifier {
     var on: Bool
+    var scheme: CoverScheme
     func body(content: Content) -> some View {
-        if on { content.glassEffect(.regular.interactive(), in: .circle) } else { content }
+        if on { content.labSearchGlass(scheme: scheme, in: .circle) } else { content }
     }
 }
 

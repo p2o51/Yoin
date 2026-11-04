@@ -434,6 +434,8 @@ struct AlbumDetailView: View {
                 .frame(width: flown.width, height: flown.height)
                 // Hero 8 → Cover 4 (Android restingCorner / stampCorner).
                 .clipShape(.rect(cornerRadius: lerp(Tokens.shape.HERO.cg, Tokens.shape.COVER.cg, e), style: .continuous))
+                // World: the cover is a physical object (contact shadow).
+                .labCoverShadow()
         }
         .buttonStyle(.plain)
         .allowsHitTesting(e > 0.5 && f < 0.5)

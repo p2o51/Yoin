@@ -389,7 +389,7 @@ struct AskGeminiBar: View {
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
         // Glass (51, 2026-11-04): it floats over the page as it scrolls.
         // Loading thins the tint 45 % (Android lightens the fill toward the page).
-        .npPillGlass(tint: scheme.primaryContainer, strength: loading ? 0.55 : 1,
+        .npPillGlass("npFloating", tint: scheme.primaryContainer, strength: loading ? 0.55 : 1,
                      in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
         .onTapGesture {
@@ -462,7 +462,7 @@ struct AskGeminiField: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .topLeading)
-        .npPillGlass(tint: scheme.primaryContainer,
+        .npPillGlass("npFloating", tint: scheme.primaryContainer,
                      in: RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous))
     }
 
