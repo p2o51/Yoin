@@ -62,7 +62,7 @@ class HomeAccountReconnectTest {
             retryFixes
         }
         coEvery { manager.switchTo(any()) } coAnswers {
-            state.value = ProfileManager.SwitchState.Switching(firstArg(), ProfileManager.SwitchState.Stage.Priming)
+            state.value = ProfileManager.SwitchState.Switching(firstArg(), ProfileManager.SwitchState.Stage.Connecting)
             switchEnds.await()
         }
     }
