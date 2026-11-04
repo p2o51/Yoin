@@ -115,3 +115,27 @@ Verdicts: `docs/codex-verdicts/G1.md`. Clips / strips: `/private/tmp/claude-501/
 | Library / cache | reset during loads; 5k+ albums; disk full while streaming | Old source repopulated; albums capped; audio stalled | unit tests | fixed 4e34a5982 (C01, A12, C06) |
 | Playback errors | offline mid-queue | Skipped through whole queue silently | unit test | fixed 4e34a5982 (A39, engine + toast; NP Retry UI open) |
 | About | change Gemini language | English answers shown / synced under new language | unit test | fixed 5a1561c57 (C17, C19) |
+
+## 2026-11-05 Codex G2 fix agent (Library / Search / iPad), iPhone 17 + iPad Pro 13 sims (iOS 26.5), light + dark, demo Subsonic :4998
+
+Stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/g2/` (sheet1 Library, sheet2 Search + dark, sheet3 failure banner, s_pad2 / s_pad3 iPad). Verdicts: `docs/codex-verdicts/G2.md`.
+
+| Screen | Step | What's wrong | Evidence | Status / fix commit |
+|---|---|---|---|---|
+| Search (Apple Music) | type a query | Library placeholder but catalog search; no scope pair / Playlists | code | fixed 9fb056051 (A01) |
+| Search | search A, then B fails | A's rows shown under B, no Retry | code | fixed 9fb056051 (A02) |
+| Library Songs | `-screen library-songs` + server | random 50 under "Random mix" | sheet1 | fixed 9fb056051 (A03): newest albums' songs, paged, loading / Retry foot |
+| Library Favorites | `-screen library-favorites` + server | starred artists / albums dropped | sheet1 | fixed 9fb056051 (A09) |
+| Library sort / rail | Recents / Recently added | provider order, invented Today / This week buckets, year labels | code, tests | fixed 9fb056051 (A10) |
+| Library | Home → Library | view, sort, scroll reset | code | fixed 9fb056051 (A11) |
+| Library empty / partial | an empty view; one list failed in All | sort row over blank; failure hidden | code | fixed 9fb056051 (A13) |
+| Library Playlists | `-screen library-playlists` | album grid, no owner, no New playlist | sheet1, sheet2 | fixed 9fb056051 (A14; By You inline-chip form open) |
+| Library / Search grids | iPad shell column | 3 oversized columns | s_pad1 → s_pad2 | fixed 9fb056051 / 7edf34379 (A23) |
+| Library rows | data arrives, heart removed | rows cut in | code | fixed 9fb056051 (B10) |
+| iPad Search | Search tab | showed Home / Library | s_pad3 | fixed 7edf34379 (A07) |
+| iPad album column | album selected | no Play / Shuffle | s_pad2 | fixed 7edf34379 (A08) |
+| iPad accessory | idle, paused | showed a track, always Pause | s_pad2 | fixed 7edf34379 (A24) |
+| Song rows | compilation track; noted song | album artist, no note marker | code | fixed 10c3f6e58 (A17 Library half) |
+| Playback failure | `stream` 503 (:4999 copy) | silent, nothing to retry | sheet3 | fixed a6408944d (A39 UI): banner + Retry over the bar |
+| Home | — | Memories surface / Edit Home | — | open: REAL-FEATURE-GAP (A20) |
+| First run | no account | straight into mock shell | — | open: REAL-FEATURE-GAP (A40) |
