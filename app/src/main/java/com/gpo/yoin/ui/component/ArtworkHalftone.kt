@@ -88,13 +88,16 @@ internal class ArtworkHalftone {
                 if (solidEdge.isFinite()) {
                     // Merge the completed region into row strips: only the moving
                     // band needs individual circles, rather than thousands of overlaps.
+                    // Strips are drawn one by one now, each antialiased: overlap
+                    // neighbours by a pixel so their edges don't leave hairline
+                    // seams (the mask is opaque, so overlaps can't darken).
                     val edge = solidEdge.coerceIn(0f, size.width)
                     strips.add(
                         Rect(
                             if (fromRight) edge else 0f,
-                            y - cellHeight * .5f,
+                            y - cellHeight * .5f - STRIP_OVERLAP_PX,
                             if (fromRight) size.width else edge,
-                            y + cellHeight * .5f
+                            y + cellHeight * .5f + STRIP_OVERLAP_PX
                         )
                     )
                     mask.add(Offset(solidEdge, y), fullRadius)
@@ -169,6 +172,7 @@ internal class ArtworkHalftone {
 
     companion object {
         private const val TAU = (PI * 2).toFloat()
+        private const val STRIP_OVERLAP_PX = 1f
 
         // Keep the old cover fully opaque underneath; softly developing the
         // incoming print avoids a hard new-image/old-image boundary.
