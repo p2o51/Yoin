@@ -215,7 +215,7 @@ private fun ReadyContent(
     }
 }
 
-private fun labelFor(entryKey: String, resources: Resources): String = when (entryKey) {
+internal fun labelFor(entryKey: String, resources: Resources): String = when (entryKey) {
     SongAboutEntry.CANON_CREATION_TIME -> resources.getString(R.string.np_about_creation_time)
     SongAboutEntry.CANON_CREATION_LOCATION -> resources.getString(R.string.np_about_creation_location)
     SongAboutEntry.CANON_LYRICIST -> resources.getString(R.string.np_about_lyricist)

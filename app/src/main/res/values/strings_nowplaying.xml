@@ -75,6 +75,16 @@
     <string name="np_about_lyricist">Lyricist</string>
     <string name="np_about_composer">Composer</string>
     <string name="np_about_producer">Producer</string>
+    <!-- Spine (the band beside a height-capped cover): the Subsonic server's own facts. -->
+    <string name="np_spine_quality">Quality</string>
+    <string name="np_spine_server_rating">Server rating</string>
+    <string name="np_spine_genre">Genre</string>
+    <string name="np_spine_year">Year</string>
+    <string name="np_spine_track">Track</string>
+    <string name="np_spine_disc_track">Disc %1$d, track %2$d</string>
+    <string name="np_spine_kbps">%1$d kbps</string>
+    <string name="np_spine_khz">%1$s kHz</string>
+    <string name="np_spine_bit">%1$d-bit</string>
     <string name="np_about_review">About</string>
     <string name="np_about_cd_entry_menu">Options for this entry</string>
     <string name="np_about_manage">Manage in Scrapbook</string>

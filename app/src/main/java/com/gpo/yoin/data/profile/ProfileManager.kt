@@ -57,6 +57,9 @@ class ProfileManager(
     private val spotifyHttpClientProvider: () -> OkHttpClient = { OkHttpClient() },
     private val subsonicBaseHttpClientProvider: () -> OkHttpClient = { OkHttpClient() },
     private val spotifyRateLimitGate: com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate? = null,
+    // An Apple Music account's name region (Settings › the account), by profile id; read by the source live.
+    private val appleMusicNameRegion: (profileId: String) -> com.gpo.yoin.data.source.applemusic.AppleMusicNameRegion =
+        { com.gpo.yoin.data.source.applemusic.AppleMusicNameRegion.Default },
     private val onSwitchPrepare: suspend () -> Unit = {},
     private val onSwitchCommit: suspend () -> Unit = {},
     // Per-profile cleanup outside this manager (the Home layout row). Runs
@@ -574,7 +577,10 @@ class ProfileManager(
 
     private fun buildSource(profile: Profile, credentials: ProfileCredentials): MusicSource {
         return when (credentials) {
-            is ProfileCredentials.AppleMusic -> com.gpo.yoin.data.source.applemusic.AppleMusicSource(credentials)
+            is ProfileCredentials.AppleMusic -> com.gpo.yoin.data.source.applemusic.AppleMusicSource(
+                credentials = credentials,
+                nameRegion = { appleMusicNameRegion(profile.id) },
+            )
             is ProfileCredentials.Subsonic -> SubsonicMusicSource(
                 credentials = ServerCredentials(
                     serverUrl = credentials.serverUrl,

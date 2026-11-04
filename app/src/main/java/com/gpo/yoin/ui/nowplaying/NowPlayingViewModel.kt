@@ -550,6 +550,7 @@ class NowPlayingViewModel(
                 artistId = song.artistId?.toString(),
                 activityContext = activityContext,
                 serviceFeatures = ServiceFeatureCatalog.forProvider(song.id.provider),
+                spineFacts = song.spineSourceFacts(),
             )
 
             // Backend is still handshaking for the track the user tapped —

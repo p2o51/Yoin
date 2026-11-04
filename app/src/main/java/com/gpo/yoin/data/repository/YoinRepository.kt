@@ -307,6 +307,12 @@ class YoinRepository(
         fun clear() {
             lru.clear()
         }
+
+        /** [invalidate] every entry and every load still out, so none of them writes back what it read. */
+        fun invalidateAll() {
+            val keys = inFlight.keys.toSet() + synchronized(lru) { lru.keys.toSet() }
+            keys.forEach(::invalidate)
+        }
     }
 
     /**
@@ -1448,6 +1454,21 @@ class YoinRepository(
                 putAlias(mem, key, profileId, value, alias, canWrite = ::aliasStillCurrent)
             }
         }
+    }
+
+    /**
+     * Forget every album, artist and playlist page kept for [profileId] (memory and disk), so each reads
+     * afresh: after a setting that changes what the service answers, such as an Apple Music account's
+     * name region.
+     */
+    suspend fun forgetDetails(profileId: String) {
+        if (profileId == activeProfileId.value) {
+            // Loads already out read under the old setting: detached, they can't write it back.
+            albumDetailCache.invalidateAll()
+            artistDetailCache.invalidateAll()
+            playlistDetailCache.invalidateAll()
+        }
+        detailCacheStore?.removeProfile(profileId)
     }
 
     /** Drop the cached album detail (mem + disk) so its next read re-derives. */

@@ -120,15 +120,22 @@ class AppleMusicApiClient(
      * Catalog songs for each of [isrcs] (`GET /v1/catalog/{storefront}/songs?filter[isrc]=…`), at most
      * [ISRC_BATCH] codes per request. One ISRC can name several songs (an album's and a compilation's), all
      * kept, keyed by the song's own `isrc`. Codes the storefront doesn't know are absent from the map.
+     * [language]: one of the storefront's languages to name the songs in (`l`); null, its default.
      */
-    suspend fun catalogSongsByIsrc(storefront: String, isrcs: List<String>): Map<String, List<AppleMusicSong>> {
+    suspend fun catalogSongsByIsrc(
+        storefront: String,
+        isrcs: List<String>,
+        language: String? = null,
+    ): Map<String, List<AppleMusicSong>> {
         require(storefront.matches(Regex("[a-z]{2}")))
         val codes = isrcs.map { it.trim().uppercase() }.filter { it.matches(ISRC_PATTERN) }.distinct()
         val found = linkedMapOf<String, MutableList<AppleMusicSong>>()
         for (batch in codes.chunked(ISRC_BATCH)) {
             val response = get(
                 url("v1", "catalog", storefront, "songs").newBuilder()
-                    .addQueryParameter("filter[isrc]", batch.joinToString(",")).build(),
+                    .addQueryParameter("filter[isrc]", batch.joinToString(","))
+                    .apply { language?.let { addQueryParameter("l", it) } }
+                    .build(),
                 personal = false
             )
             for (song in songs(response)) {
