@@ -31,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -151,13 +153,14 @@ internal fun TrackMenuSheet(
     // Download this song alone. A song kept as part of a downloaded album or
     // playlist has no row: that page's own Download says it, and removes it.
     val songCollection = remember(track) { songOfflineCollection(track) }
+    val offlineLibrary by host.container.offlineDownloads.library.collectAsState()
     val offline = rememberOfflineToggle(
         container = host.container,
         collection = songCollection,
         tracks = { listOfNotNull(track) },
         onMessage = host.onMessage,
     )?.takeUnless { toggle ->
-        toggle.status == OfflineStatus.None && host.container.offlineDownloads.library.value.isDownloaded(songId)
+        toggle.status == OfflineStatus.None && offlineLibrary.isDownloaded(songId)
     }
     val queueRows = listOfNotNull(
         menu.onPlayNext?.let { TrackMenuRow(stringResource(R.string.detail_menu_play_next), YoinSymbols.SkipNext, it) },
