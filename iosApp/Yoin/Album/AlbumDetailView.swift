@@ -154,7 +154,8 @@ struct AlbumDetailView: View {
                 // Page 1: the scrapbook, scrolling under the header (albums only).
                 if playlist == nil {
                     Group {
-                    AlbumScrapbookView(album: album, settled: page >= 1 && pageBase == nil && !pageMoving,
+                    AlbumScrapbookView(album: album, plays: plays,
+                                       settled: page >= 1 && pageBase == nil && !pageMoving,
                                        topInset: headerContent, pageOffset: 1 - f, pageWidth: w,
                                        coverInFlight: coverFlies && f < 0.999) { rect, tilt in
                         scrapCover = rect
@@ -213,7 +214,19 @@ struct AlbumDetailView: View {
         .task(id: "\(model.store.generation)|\(routeAlbum.id.rawId)") {
             guard !isMock, playlist == nil else { return }
             await model.store.loadAlbum(routeAlbum.id.rawId)
+            // The activity log's visit (Android recordAlbumVisit).
+            model.store.recordAlbumVisit(model.store.album(routeAlbum.id.rawId) ?? routeAlbum)
         }
+    }
+
+    /// The album's plays in Yoin (Data/History); nil for the mock and playlists.
+    private var plays: LibraryStore.AlbumHistory? {
+        isMock || playlist != nil ? nil : model.store.albumHistory(routeAlbum)
+    }
+
+    /// Last Play's day and time: the mock's hand-set one, else the newest play here.
+    private var lastPlay: (day: String, time: String)? {
+        isMock ? ("Yesterday", "16:04") : plays?.lastPlay
     }
 
     /// Server page whose tracks didn't load: a retry under the header.
@@ -451,10 +464,10 @@ struct AlbumDetailView: View {
             Spacer().frame(height: 28)
             HStack(spacing: 12) {
                 countLabel
-                // AlbumHeroLastPlay: labelMedium Medium tabular, onSurface.
-                // (Mock only: iOS keeps no play history yet.)
-                if isMock {
-                    Text("Yesterday 16:04")
+                // AlbumHeroLastPlay: labelMedium Medium tabular, onSurface;
+                // only once the album has played here.
+                if let lastPlay {
+                    Text("\(lastPlay.day) \(lastPlay.time)")
                         .monospacedDigit()
                         .yoinRole(Tokens.type.labelMedium, weight: .medium)
                         .foregroundStyle(app.onSurface)
@@ -762,13 +775,15 @@ struct AlbumDetailView: View {
         let kind: ScoreEmblem.Kind = album.rating != nil ? .album : .average
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
-                if isMock {
+                if isMock || plays != nil {
                     VStack(alignment: .leading, spacing: 0) {
                         sectionLabel("Last Play").padding(.bottom, 4)
-                        Text("Yesterday").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                        Text("16:04").monospacedDigit()
-                            .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
-                            .padding(.top, 4)
+                        Text(lastPlay?.day ?? "Never").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                        if let time = lastPlay?.time {
+                            Text(time).monospacedDigit()
+                                .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                                .padding(.top, 4)
+                        }
                     }
                 }
                 Spacer()

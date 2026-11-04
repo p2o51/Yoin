@@ -14,7 +14,14 @@ import YoinShared
 /// page scrolls under the album header with the system's soft scroll edge.
 struct AlbumScrapbookView: View {
     var album: Album
+    /// The album's plays in Yoin (Data/History); nil = the mock's hand-set ones.
+    var plays: LibraryStore.AlbumHistory? = nil
     var settled: Bool
+
+    /// Last Play: the mock's hand-set one, else the newest play here (nil = never).
+    private var lastPlay: (day: String, time: String)? {
+        plays == nil ? (day: "Yesterday", time: "16:04") : plays?.lastPlay
+    }
     /// The album header's height: the page scrolls under it.
     var topInset: CGFloat = 0
     /// The pager as the pieces read it: 0 settled here, 1 a page away.
@@ -69,8 +76,11 @@ struct AlbumScrapbookView: View {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { i, b in
                     block(b, mirrored: (i + mirrorSeed).isMultiple(of: 2))
                 }
-                receipt
-                    .frame(maxWidth: .infinity)
+                // Android: the receipt only once the album has played here.
+                if plays.map({ $0.playCount > 0 }) ?? true {
+                    receipt
+                        .frame(maxWidth: .infinity)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
@@ -150,16 +160,18 @@ struct AlbumScrapbookView: View {
                         .foregroundStyle(s.onSurface)
                     // AlbumScrapLastPlay: AlbumSectionLabel (labelLarge
                     // underlined), 4, then titleMedium tabular.
-                    Text("Last Play")
-                        .underline()
-                        .yoinRole(Tokens.type.labelLarge)
-                        .foregroundStyle(s.onSurface)
-                        .padding(.top, 16).padding(.bottom, 4)
-                    Text("Yesterday 16:04")
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .yoinRole(Tokens.type.titleMedium)
-                        .foregroundStyle(s.onSurface)
+                    if let lastPlay {
+                        Text("Last Play")
+                            .underline()
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(s.onSurface)
+                            .padding(.top, 16).padding(.bottom, 4)
+                        Text("\(lastPlay.day) \(lastPlay.time)")
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .yoinRole(Tokens.type.titleMedium)
+                            .foregroundStyle(s.onSurface)
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -356,10 +368,18 @@ struct AlbumScrapbookView: View {
     // MARK: Receipt
 
     private var receipt: some View {
-        let rows: [(String, String)] = [
-            ("Plays in Yoin", "42"), ("Days since first play", "18"), ("Last played", "Yesterday"),
-            ("Rated", "\(album.ratedCount) / \(album.tracks.count)"), ("Notes", "4"),
-        ]
+        var rows: [(String, String)] = [("Plays in Yoin", "42"), ("Days since first play", "18"),
+                                        ("Last played", "Yesterday")]
+        if let plays {
+            // AlbumScrapbook receiptLines: plays here, then the first / last play when known.
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            rows = [("Plays in Yoin", "\(plays.playCount)")]
+            if let first = plays.firstPlayedAt {
+                rows.append(("Days since first play", "\(HomeHistory.calendarDays(from: first, to: now))"))
+            }
+            if let last = plays.lastPlayedAt { rows.append(("Last played", HomeHistory.relativeDay(last, now: now))) }
+        }
+        rows += [("Rated", "\(album.ratedCount) / \(album.tracks.count)"), ("Notes", "4")]
         return VStack(alignment: .leading, spacing: 0) {
             Text("\(album.title) — \(album.artist)".uppercased())
                 .font(.system(size: 11.5, weight: .medium, design: .monospaced))
