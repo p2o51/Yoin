@@ -2,12 +2,11 @@ package com.gpo.yoin.ui.component
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.ceil
@@ -19,9 +18,18 @@ import kotlin.math.sin
  * All geometry follows the artwork's effect spring, including a frozen interrupted frame.
  */
 internal class ArtworkHalftone {
-    private val mask = Path()
-    private val ink = Path()
-    private val bloom = Path()
+    // Dots as circles, not as one many-oval Path used as a clip: Skia rasterises
+    // a clip that complex on the CPU every frame and uploads it as a mask, and
+    // the tablet's GPU sat waiting on that for the whole ~250 ms reveal (Vulkan
+    // flush >10 ms a frame, gone with the dissolve off). Circles and rects draw
+    // analytically on the GPU; layers with DstIn / DstOut do what the clips did.
+    private val mask = DotList()
+    private val ink = DotList()
+    private val bloom = DotList()
+    private val strips = ArrayList<Rect>()
+    private val layerPaint = Paint()
+    private val maskInPaint = Paint().apply { blendMode = BlendMode.DstIn }
+    private val maskOutPaint = Paint().apply { blendMode = BlendMode.DstOut }
 
     fun draw(scope: DrawScope, progress: Float, direction: Int, primary: Color, tertiary: Color, content: () -> Unit) =
         with(scope) {
@@ -33,9 +41,10 @@ internal class ArtworkHalftone {
             val fullRadius = hypot(cellWidth, cellHeight) * .53f
             val front = progress * 1.65f - .325f
             val fromRight = direction >= 0
-            mask.rewind()
-            ink.rewind()
-            bloom.rewind()
+            mask.clear()
+            ink.clear()
+            bloom.clear()
+            strips.clear()
 
             // Overscan keeps half-dots and the mask continuous at the artwork's edges.
             for (row in -1..rows) {
@@ -70,17 +79,17 @@ internal class ArtworkHalftone {
                     )
                     val growth = ((local - .12f) / .88f).coerceIn(0f, 1f)
                     val radius = fullRadius * (.2f * local + .8f * smoothstep(growth))
-                    mask.dot(center, radius)
+                    mask.add(center, radius)
                     // A very thin colored fringe and a low-opacity outer bloom,
                     // both spatially confined to the moving front. No white wash.
-                    ink.dot(center, radius + cellWidth * .06f * envelope)
-                    bloom.dot(center, radius + cellWidth * .32f * envelope)
+                    ink.add(center, radius + cellWidth * .06f * envelope)
+                    bloom.add(center, radius + cellWidth * .32f * envelope)
                 }
                 if (solidEdge.isFinite()) {
                     // Merge the completed region into row strips: only the moving
                     // band needs individual circles, rather than thousands of overlaps.
                     val edge = solidEdge.coerceIn(0f, size.width)
-                    mask.addRect(
+                    strips.add(
                         Rect(
                             if (fromRight) edge else 0f,
                             y - cellHeight * .5f,
@@ -88,7 +97,7 @@ internal class ArtworkHalftone {
                             y + cellHeight * .5f
                         )
                     )
-                    mask.dot(Offset(solidEdge, y), fullRadius)
+                    mask.add(Offset(solidEdge, y), fullRadius)
                 }
             }
             val tint = Brush.linearGradient(
@@ -98,15 +107,64 @@ internal class ArtworkHalftone {
             )
             // The incoming image is translucent while it develops. Keep tint
             // outside its mask, otherwise joined dots leave a second color edge.
-            clipPath(mask, clipOp = ClipOp.Difference) {
-                drawPath(bloom, tint, alpha = .045f)
-                drawPath(ink, tint, alpha = .14f)
-            }
-            clipPath(mask) { content() }
+            tintedOutsideMask(bloom, tint, alpha = .045f)
+            tintedOutsideMask(ink, tint, alpha = .14f)
+            // The incoming image, kept only inside the mask (the old clipPath).
+            val bounds = Rect(Offset.Zero, size)
+            val canvas = drawContext.canvas
+            canvas.saveLayer(bounds, layerPaint.apply { alpha = 1f })
+            content()
+            canvas.saveLayer(bounds, maskInPaint)
+            drawMask()
+            canvas.restore()
+            canvas.restore()
         }
 
-    private fun Path.dot(center: Offset, radius: Float) {
-        addOval(Rect(center.x - radius, center.y - radius, center.x + radius, center.y + radius))
+    /** [dots] as one union, filled with [tint] at [alpha], minus the mask. */
+    private fun DrawScope.tintedOutsideMask(dots: DotList, tint: Brush, alpha: Float) {
+        if (dots.isEmpty()) return
+        val bounds = Rect(Offset.Zero, size)
+        val canvas = drawContext.canvas
+        // Opaque union first, then tint and alpha once: overlaps don't darken.
+        canvas.saveLayer(bounds, layerPaint.apply { this.alpha = alpha })
+        dots.draw(this)
+        drawRect(tint, blendMode = BlendMode.SrcIn)
+        canvas.saveLayer(bounds, maskOutPaint)
+        drawMask()
+        canvas.restore()
+        canvas.restore()
+    }
+
+    private fun DrawScope.drawMask() {
+        strips.forEach { drawRect(Color.Black, topLeft = it.topLeft, size = it.size) }
+        mask.draw(this)
+    }
+
+    /** Circle centres and radii in flat arrays, reused frame to frame. */
+    private class DotList {
+        private var data = FloatArray(3 * 256)
+        private var count = 0
+
+        fun clear() {
+            count = 0
+        }
+
+        fun isEmpty() = count == 0
+
+        fun add(center: Offset, radius: Float) {
+            if (radius <= 0f) return
+            if ((count + 1) * 3 > data.size) data = data.copyOf(data.size * 2)
+            data[count * 3] = center.x
+            data[count * 3 + 1] = center.y
+            data[count * 3 + 2] = radius
+            count++
+        }
+
+        fun draw(scope: DrawScope) {
+            for (i in 0 until count) {
+                scope.drawCircle(Color.Black, radius = data[i * 3 + 2], center = Offset(data[i * 3], data[i * 3 + 1]))
+            }
+        }
     }
 
     companion object {
