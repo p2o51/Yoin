@@ -490,6 +490,12 @@ final class LibraryStore {
     /// The playlist's library row, for a page whose detail is still loading.
     func playlistSummary(_ id: String) -> LibraryItem? { playlists.first { $0.id.rawId == id } }
 
+    /// Playlist writes (Data/PlaylistActions.swift) edit the Library rows and
+    /// the cached pages in place, ahead of the server.
+    func patchPlaylists(_ edit: (inout [LibraryItem], inout [String: PlaylistInfo]) -> Void) {
+        edit(&playlists, &playlistDetails)
+    }
+
     // MARK: Search
 
     func runSearch(_ query: String) async {

@@ -192,11 +192,12 @@ struct ShellBar: View {
                 Button("Shuffle play") { playDetail(shuffle: true) }
                 Button("Play next") { enqueueDetail(next: true) }
                 Button("Add to queue") { enqueueDetail(next: false) }
-                // Not on a Subsonic server yet (no playlist writes, no catalog link, no share links).
-                if !model.store.isReal {
-                    Button("Add to playlist") {}
-                    Button("Open in Apple Music") {}
+                // Android: needs playlist writes (Subsonic; not Apple Music).
+                if PlaylistActions.shared.canAddToPlaylist(model.store) {
+                    Button("Add to playlist") { addDetailToPlaylist() }
                 }
+                // Not on a Subsonic server yet (no catalog link, no share links).
+                if !model.store.isReal { Button("Open in Apple Music") {} }
                 Divider()
                 if case .album = model.path.last {
                     Button("Go to artist") { model.openArtist(album.artist, id: album.artistId) }
@@ -229,6 +230,10 @@ struct ShellBar: View {
 
     private func enqueueDetail(next: Bool) {
         Task { model.enqueue(await model.detailEntries(), next: next) }
+    }
+
+    private func addDetailToPlaylist() {
+        Task { PlaylistActions.shared.requestAdd(await model.detailEntries()) }
     }
 }
 

@@ -393,6 +393,8 @@ struct NowPlayingView: View {
                 .modifier(CoverStageEffect(dock: dock, tappable: tappable,
                                            label: stage == .focus ? "Show lyrics and rating" : "Focus artwork",
                                            onTap: onTap))
+                // Android NowPlayingCoverMenu: long-press = the song's sheet (+ Keep screen on).
+                .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
             VStack(spacing: 0) {
                 RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld) { down in
                     withAnimation(Yoin.spatialFast) { ratingHeld = down }

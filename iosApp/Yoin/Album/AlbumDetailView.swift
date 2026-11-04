@@ -316,12 +316,18 @@ struct AlbumDetailView: View {
                 .padding(.trailing, (Tokens.detail.ALBUM_STAMP.cg + Tokens.detail.ALBUM_BAR_TITLE_GAP.cg
                                      + (playlist != nil ? Tokens.detail.PLAYLIST_MENU_GAP.cg : 0)) * smooth(p))
                 Spacer(minLength: 0)
-                if playlist != nil {
-                    // ⋮: Cloud backup, Rename, Delete (playlist pages only).
+                if let playlist, model.store.isReal ? PlaylistActions.shared.canEdit(playlist, store: model.store) : true {
+                    // ⋮: Cloud backup (mock only: no Drive backup on iOS yet), then Rename and
+                    // Delete when the user can write it (Android canWrite; followed playlists
+                    // and Apple Music show no ⋮).
                     Menu {
-                        Button("Cloud backup") {}
-                        Button("Rename") {}
-                        Button("Delete", role: .destructive) {}
+                        if !model.store.isReal { Button("Cloud backup") {} }
+                        Button { PlaylistActions.shared.renaming = playlist } label: {
+                            Label { Text("Rename") } icon: { Image("yoin.edit") }
+                        }
+                        Button(role: .destructive) { PlaylistActions.shared.deleting = playlist } label: {
+                            Label { Text("Delete") } icon: { Image("yoin.delete") }
+                        }
                     } label: {
                         YoinIcon("more_vertical", size: 22)
                             .foregroundStyle(ink)
@@ -596,6 +602,7 @@ struct AlbumDetailView: View {
                     ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
                         playlistRow(e)
                             .onTapGesture { model.play(playlist.entries, startAt: i) }
+                            .trackMenu(for: e, context: .playlist(playlist.id.rawId, index: i))
                     }
                     playlistMeta(playlist)
                         .padding(.horizontal, 8)
@@ -604,6 +611,9 @@ struct AlbumDetailView: View {
                 } else {
                 ForEach(album.tracks) { t in
                     trackRow(t).onTapGesture { playAlbum(from: t) }
+                        .trackMenu(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
+                            settlePage(to: 1, velocity: 0)
+                        }))
                 }
                 linerNotes
                     .padding(.horizontal, 8)

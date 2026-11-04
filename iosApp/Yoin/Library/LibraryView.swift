@@ -391,6 +391,7 @@ struct LibraryView: View {
                 LibrarySongRow(album: e.album, track: e.track, current: model.playback.track.id == e.track.id,
                                scheme: scheme)
                     .onTapGesture { model.play(entries, startAt: i) }
+                    .trackMenu(for: e)
             }
         }
     }

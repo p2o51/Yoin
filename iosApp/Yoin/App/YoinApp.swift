@@ -28,6 +28,8 @@ struct RootView: View {
                 PhoneShell()
             }
         }
+        // Song sheet, Add to playlist, playlist dialogs, confirmations (Library/TrackMenuSheet.swift).
+        .playlistActionsHost()
         .environment(model)
         .environment(\.glassFlavor, model.glassFlavor)
         .tint(model.accent)
