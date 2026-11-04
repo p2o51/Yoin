@@ -550,6 +550,8 @@ fun Modifier.nowPlayingAuroraBackground(
                 holdFade.isRunning || waitFade.isRunning || holdFade.value > 0f || waitFade.value > 0f
         }
     }
+    val holdFadeSpec = YoinMotion.defaultEffectsSpec<Float>()
+    val waitFadeSpec = YoinMotion.slowEffectsSpec<Float>()
     LaunchedEffect(transportSignal) {
         val signal = transportSignal ?: return@LaunchedEffect
         launch {
@@ -564,11 +566,11 @@ fun Modifier.nowPlayingAuroraBackground(
         }
         launch {
             snapshotFlow { signal.glowHold != null }.collect { held ->
-                launch { holdFade.animateTo(if (held) 1f else 0f, YoinMotion.defaultEffectsSpec()) }
+                launch { holdFade.animateTo(if (held) 1f else 0f, holdFadeSpec) }
             }
         }
         snapshotFlow { signal.lyricsWaiting }.collect { waiting ->
-            launch { waitFade.animateTo(if (waiting) 1f else 0f, YoinMotion.slowEffectsSpec()) }
+            launch { waitFade.animateTo(if (waiting) 1f else 0f, waitFadeSpec) }
         }
     }
     LaunchedEffect(glowLive) {
