@@ -145,6 +145,8 @@ fun resolveStageColumnBudget(
     metrics: StageColumnMetrics,
     enlarged: NowPlayingEnlargedSpec? = null,
     previous: LyricFrame? = null,
+    /** A compact-width window (handset, Fold outer); false in a panel on a wide window. */
+    handset: Boolean = true,
 ): StageColumnBudget {
     val ratingColumn = enlarged?.ratingColumn ?: PhoneRatingColumn
     val stageMaxWidth = enlarged?.let { minOf(width, it.columnWidth + ColumnPadding * 2) } ?: width
@@ -284,7 +286,7 @@ fun resolveStageColumnBudget(
     // A short window (its resting lyrics fold to one line) focuses into the
     // compact transport: PREVIOUS moves up and the progress takes its own row.
     // Handset widths only: the inner screen and tablets keep both transport rows.
-    val compactFocus = enlarged == null &&
+    val compactFocus = enlarged == null && handset &&
         rest.lyricFrame == LyricFrame.OneLine &&
         metrics.compactTransport != null
     val focusControls = if (compactFocus) {
@@ -366,7 +368,9 @@ fun resolveStageColumnBudget(
         rest = rest,
         focus = focus,
         heroOneLine = heroCompact,
-        focusStageWidth = focus?.let { maxOf(it.cover, FocusMinColumn) + ColumnPadding * 2 } ?: stageWidth,
+        // Always the cover's own width: the transport fits itself to it
+        // (PlaybackControls steps down to 48dp below the designed width).
+        focusStageWidth = focus?.let { it.cover + ColumnPadding * 2 } ?: stageWidth,
         compactFocus = compactFocus && focus != null,
     )
 }

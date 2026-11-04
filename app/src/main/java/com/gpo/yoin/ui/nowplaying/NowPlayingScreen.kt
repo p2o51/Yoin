@@ -1306,8 +1306,11 @@ private fun CompactPlayingContent(
         val castVisible = state.serviceFeatures.supportsYoinCast && castState !is CastState.NotAvailable
         val lastLyricFrame = remember { arrayOfNulls<LyricFrame>(1) }
         val firstMetrics = rememberStageColumnMetrics(stageMaxWidth, stageControlSize, castVisible)
-        val firstBudget = remember(maxWidth, maxHeight, firstMetrics, enlarged) {
-            resolveStageColumnBudget(maxWidth, maxHeight, firstMetrics, enlarged, lastLyricFrame[0])
+        // The short focus transport is a handset's: a panel on the Fold inner
+        // screen or a tablet keeps both rows (owner 2026-11-04).
+        val handsetWindow = !LocalYoinWindowInfo.current.isWidthAtLeastMedium
+        val firstBudget = remember(maxWidth, maxHeight, firstMetrics, enlarged, handsetWindow) {
+            resolveStageColumnBudget(maxWidth, maxHeight, firstMetrics, enlarged, lastLyricFrame[0], handsetWindow)
         }
         // A height-bound enlarged cover pulls the stage in with it, which can
         // move the time labels under the wave: measure again at that width.
@@ -1315,8 +1318,8 @@ private fun CompactPlayingContent(
         val budget = if (metrics == firstMetrics) {
             firstBudget
         } else {
-            remember(maxWidth, maxHeight, metrics, enlarged) {
-                resolveStageColumnBudget(maxWidth, maxHeight, metrics, enlarged, lastLyricFrame[0])
+            remember(maxWidth, maxHeight, metrics, enlarged, handsetWindow) {
+                resolveStageColumnBudget(maxWidth, maxHeight, metrics, enlarged, lastLyricFrame[0], handsetWindow)
             }
         }
         SideEffect { lastLyricFrame[0] = budget.rest.lyricFrame }

@@ -197,7 +197,7 @@ class NowPlayingBudgetTest {
                     budget.focus?.let { focus ->
                         assertTrue("focus overflow at ${w}x$h", focus.total <= h.dp + 0.5.dp)
                         assertTrue("focus too small at ${w}x$h", focus.cover >= rest.cover * 0.7f - 0.5.dp)
-                        assertTrue("focus column too narrow at ${w}x$h", budget.focusStageWidth >= 272.dp + 48.dp)
+                        assertDp(focus.cover + 48.dp, budget.focusStageWidth)
                         assertTrue("focus column too wide at ${w}x$h", budget.focusStageWidth <= w.dp + 0.5.dp)
                     }
                 }
@@ -276,6 +276,8 @@ class NowPlayingBudgetTest {
             val budget = resolveStageColumnBudget(w.dp, h.dp, column(), enlarged = nowPlayingEnlargedSpec(w.dp))
             assertTrue("compact focus at ${w}x$h", !budget.compactFocus)
         }
+        // A panel on the Fold inner screen: handset-sized, but not a handset window.
+        assertTrue(!resolveStageColumnBudget(475.dp, 690.dp, column(), handset = false).compactFocus)
     }
 
     @Test
