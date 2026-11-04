@@ -14,10 +14,14 @@ struct PadShell: View {
     var body: some View {
         @Bindable var model = model
         TabView(selection: $tab) {
-            Tab("Home", image: "yoin.home", value: PadTab.home) { PadColumns(npNamespace: npNS) }
-            Tab("Library", image: "yoin.library", value: PadTab.library) { PadColumns(npNamespace: npNS) }
+            Tab("Home", image: "yoin.home", value: PadTab.home) {
+                PadColumns(npNamespace: npNS, active: tab == .home)
+            }
+            Tab("Library", image: "yoin.library", value: PadTab.library) {
+                PadColumns(npNamespace: npNS, active: tab == .library)
+            }
             Tab("Search", image: "yoin.search", value: PadTab.search, role: .search) {
-                PadColumns(npNamespace: npNS)
+                PadColumns(npNamespace: npNS, active: tab == .search)
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -31,7 +35,11 @@ struct PadShell: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
-        .onAppear { tab = model.section == .library ? .library : .home }
+        .onAppear {
+            tab = model.section == .library ? .library : .home
+            // `-screen settings`: the sign-in page in the album column.
+            if LaunchConfig.baseScreen == "settings", !model.path.contains(.settings) { model.openSettings() }
+        }
         .onChange(of: tab) { _, t in
             model.select(t == .home ? .home : .library)
         }
@@ -39,9 +47,17 @@ struct PadShell: View {
 }
 
 /// Shell column | handle | album column. Below 840 pt the album is pushed.
+///
+/// Routes (`model.path`: artist, playlist, settings, and albums opened from
+/// a pushed page) push inside the album column's own NavigationStack — the
+/// same destinations as PhoneShell — so the shell column stays put. Below
+/// 840 pt there is one stack and everything pushes over the shell.
 private struct PadColumns: View {
     @Environment(AppModel.self) private var model
     var npNamespace: Namespace.ID
+    /// Only the selected tab's stack drives `model.path`: TabView keeps the
+    /// other tabs alive, and two stacks bound to one path would both push.
+    var active: Bool
 
     var body: some View {
         // Yoin's own panel column instead of `.inspector`: on iPadOS 26.5 the
@@ -82,10 +98,11 @@ private struct PadColumns: View {
                         .frame(width: 12)
                         .frame(maxHeight: .infinity)
                         .background(Yoin.surface)
-                    NavigationStack {
+                    NavigationStack(path: path) {
                         AlbumDetailView(album: album, padColumn: true)
                             .id(album.id)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                            .navigationDestination(for: Route.self, destination: destination)
                     }
                     .clipShape(.rect(cornerRadius: 28))
                     .padding(.vertical, 8)
@@ -93,11 +110,46 @@ private struct PadColumns: View {
                 }
                 .background(Yoin.surface)
             } else {
-                NavigationStack {
+                NavigationStack(path: path) {
                     SectionContent()
                         .toolbar(.hidden, for: .navigationBar)
+                        .navigationDestination(for: Route.self, destination: destination)
+                }
+                .onChange(of: model.padSelection) { _, album in
+                    // No album column: an album picked in the shell pushes.
+                    guard active, let album, model.path.last != .album(album) else { return }
+                    model.path.append(.album(album))
                 }
             }
+        }
+        .onGeometryChange(for: Bool.self) { $0.size.width >= 840 } action: { wide = $0 }
+        .onChange(of: model.padSelection) { _, _ in
+            // A new album in the column replaces whatever was pushed on it.
+            guard active, wide else { return }
+            model.path.removeAll()
+        }
+    }
+
+    @State private var wide = false
+
+    private var path: Binding<[Route]> {
+        active ? Binding(get: { model.path }, set: { model.path = $0 }) : .constant([])
+    }
+
+    /// PhoneShell's destinations, in the column.
+    @ViewBuilder
+    private func destination(_ route: Route) -> some View {
+        switch route {
+        case .album(let album):
+            AlbumDetailView(album: album)
+        case .artist(let ref):
+            ArtistDetailView(ref: ref)
+        case .playlist(let id):
+            let info = model.playlistInfo(id)
+            AlbumDetailView(album: info.asAlbum, playlist: info)
+                .task(id: "\(model.store.generation)|\(id)") { await model.store.loadPlaylist(id) }
+        case .settings:
+            ServerSettingsView()
         }
     }
 }
