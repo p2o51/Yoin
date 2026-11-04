@@ -178,6 +178,12 @@ final class GlassLab {
             extras["detailTopBar"] = mode
             suppressSave = false
         }
+        // Screenshots: `-libraryFilterStyle 0|1|2` (LibraryFilterRow.Style).
+        if let mode = UserDefaults.standard.string(forKey: "libraryFilterStyle").flatMap(Double.init) {
+            suppressSave = true
+            extras["libraryFilterStyle"] = mode
+            suppressSave = false
+        }
     }
 
     private struct Saved: Codable {
@@ -421,6 +427,15 @@ struct GlassLabPanel: View {
                     get: { Int(lab.extra("detailTopBar").rounded()) },
                     set: { lab.extras["detailTopBar"] = Double($0) })) {
                     Text("Spectrum").tag(0); Text("Glass").tag(1); Text("Blur").tag(2)
+                }
+                .pickerStyle(.segmented)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Library · filter chips").font(.gsf(13)).foregroundStyle(.secondary)
+                Picker("Library filter", selection: Binding(
+                    get: { Int((lab.extras["libraryFilterStyle"] ?? 1).rounded()) },
+                    set: { v in withAnimation(Yoin.spatial) { lab.extras["libraryFilterStyle"] = Double(v) } })) {
+                    Text("Android").tag(1); Text("Sliding").tag(2); Text("Glass track").tag(0)
                 }
                 .pickerStyle(.segmented)
             }
