@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.audioFormatTags
+import com.gpo.yoin.ui.component.AudioFormatTagRow
 import android.content.Intent
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -307,11 +309,7 @@ internal fun TrackMenuSheet(
             }
             else -> null
         },
-        host.onGoToArtist?.let { go ->
-            track?.artistId?.let { id ->
-                TrackMenuRow(stringResource(R.string.track_menu_go_to_artist), YoinSymbols.Artist) { go(id.toString()) }
-            }
-        },
+        *goToArtistRows(track, host.onGoToArtist).toTypedArray(),
         menu.onOpenIn?.let { open -> menu.openInLabel?.let { TrackMenuRow(it, YoinSymbols.Launch, open) } },
     )
 
@@ -431,6 +429,11 @@ private fun TrackMenuHeader(track: Track?, coverUrl: String?) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            // The file's own format (Subsonic); what is playing shows on Now Playing.
+            AudioFormatTagRow(
+                tags = audioFormatTags(track?.audioFormat),
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }
@@ -504,6 +507,25 @@ private fun TrackMenuQuickRow(actions: List<TrackMenuQuickAction>, onClick: (Tra
             )
         }
     }
+}
+
+/**
+ * "Go to artist", or one "Go to <name>" per credited artist with a page of
+ * their own when the service names several (OpenSubsonic `artists`).
+ */
+@Composable
+private fun goToArtistRows(track: Track?, go: ((String) -> Unit)?): List<TrackMenuRow?> {
+    if (go == null || track == null) return emptyList()
+    val credits = track.artistCredits.filter { it.id != null }
+    if (credits.size > 1) {
+        return credits.map { credit ->
+            TrackMenuRow(stringResource(R.string.track_menu_go_to_named_artist, credit.name), YoinSymbols.Artist) {
+                go(credit.id.toString())
+            }
+        }
+    }
+    val id = track.artistId ?: return emptyList()
+    return listOf(TrackMenuRow(stringResource(R.string.track_menu_go_to_artist), YoinSymbols.Artist) { go(id.toString()) })
 }
 
 /** A group of rows, segmented like Settings: outer corners round, inner corners tight. */

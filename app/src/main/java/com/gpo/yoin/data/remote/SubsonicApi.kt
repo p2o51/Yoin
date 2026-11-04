@@ -9,6 +9,9 @@ interface SubsonicApi {
     @GET("rest/ping.view")
     suspend fun ping(): SubsonicResponse
 
+    @GET("rest/getOpenSubsonicExtensions.view")
+    suspend fun getOpenSubsonicExtensions(): SubsonicResponse
+
     @GET("rest/getAlbumList2.view")
     suspend fun getAlbumList2(
         @Query("type") type: String,
@@ -132,9 +135,6 @@ interface SubsonicApi {
         @Query("time") time: List<Long>? = null,
         @Query("submission") submission: Boolean,
     ): SubsonicResponse
-
-    @GET("rest/getOpenSubsonicExtensions.view")
-    suspend fun getOpenSubsonicExtensions(): SubsonicResponse
 
     /** OpenSubsonic `playbackReport` extension. */
     @GET("rest/reportPlayback.view")

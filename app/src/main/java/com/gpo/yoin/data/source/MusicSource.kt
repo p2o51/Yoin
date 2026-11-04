@@ -101,6 +101,13 @@ enum class Capability {
     LYRICS,
 
     /**
+     * The player streams the service's files itself and the server can
+     * transcode them to a lower bit rate (Subsonic `stream` with `maxBitRate`),
+     * so Settings offers Streaming quality for Wi‑Fi and mobile data.
+     */
+    STREAM_QUALITY,
+
+    /**
      * The app reports plays to the service ([MusicPlayback.submitPlays] and
      * friends): Subsonic's scrobble. Spotify and Apple Music count plays
      * themselves, so they don't declare it.

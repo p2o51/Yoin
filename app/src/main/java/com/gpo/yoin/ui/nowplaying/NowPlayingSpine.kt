@@ -39,11 +39,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.source.subsonic.EXTRA_BIT_DEPTH
-import com.gpo.yoin.data.source.subsonic.EXTRA_BIT_RATE
-import com.gpo.yoin.data.source.subsonic.EXTRA_DISC_NUMBER
-import com.gpo.yoin.data.source.subsonic.EXTRA_SAMPLING_RATE
-import com.gpo.yoin.data.source.subsonic.EXTRA_SUFFIX
+import com.gpo.yoin.ui.component.codecLabel
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
@@ -86,15 +82,15 @@ data class SpineSourceFacts(
 internal fun Track.spineSourceFacts(): SpineSourceFacts? {
     if (id.provider != MediaId.PROVIDER_SUBSONIC) return null
     return SpineSourceFacts(
-        format = extras[EXTRA_SUFFIX]?.uppercase()?.takeIf { it.isNotBlank() },
-        bitRateKbps = extras[EXTRA_BIT_RATE]?.toIntOrNull()?.takeIf { it > 0 },
-        samplingRateHz = extras[EXTRA_SAMPLING_RATE]?.toIntOrNull()?.takeIf { it > 0 },
-        bitDepth = extras[EXTRA_BIT_DEPTH]?.toIntOrNull()?.takeIf { it > 0 },
+        format = audioFormat?.codec?.let(::codecLabel),
+        bitRateKbps = audioFormat?.bitRateKbps,
+        samplingRateHz = audioFormat?.sampleRateHz,
+        bitDepth = audioFormat?.bitDepth,
         serverRating = userRating?.takeIf { it in 1..5 },
         genre = genre?.takeIf { it.isNotBlank() },
         year = year?.takeIf { it > 0 },
         trackNumber = trackNumber?.takeIf { it > 0 },
-        discNumber = extras[EXTRA_DISC_NUMBER]?.toIntOrNull()?.takeIf { it > 0 },
+        discNumber = discNumber,
     )
 }
 

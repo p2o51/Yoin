@@ -20,6 +20,7 @@ import androidx.navigation3.runtime.NavKey
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.YoinSymbols
@@ -328,7 +329,10 @@ internal fun PlaylistPaneEntry(
     playback: PanePlaybackFacts,
     registry: PaneBarRegistry,
     onBack: () -> Unit,
+    onOpenAlbum: (albumId: String) -> Unit,
+    onOpenArtist: (artistId: String) -> Unit,
     onMessage: (String) -> Unit,
+    onAddToPlaylist: (List<MediaId>) -> Unit,
 ) {
     val context = LocalContext.current
     val viewModel: PlaylistDetailViewModel = viewModel(
@@ -422,8 +426,43 @@ internal fun PlaylistPaneEntry(
         onShare = share,
         isPlaying = playback.isPlaying,
         notedSongIds = notedSongIds,
+        trackMenu = rememberPlaylistTrackMenu(
+            app = app,
+            songs = viewModel::getPlaylistSongs,
+            onMessage = { currentOnMessage(it) },
+            onAddToPlaylist = onAddToPlaylist,
+            onOpenAlbum = onOpenAlbum,
+            onOpenArtist = onOpenArtist,
+        ),
         modifier = Modifier.fillMaxSize(),
     )
+}
+
+/** A playlist row's long-press sheet: songs from many albums, so it goes to each song's album and artist. */
+@Composable
+private fun rememberPlaylistTrackMenu(
+    app: YoinApplication,
+    songs: () -> List<Track>,
+    onMessage: (String) -> Unit,
+    onAddToPlaylist: (List<MediaId>) -> Unit,
+    onOpenAlbum: (String) -> Unit,
+    onOpenArtist: (String) -> Unit,
+): TrackMenuHost {
+    val currentOnMessage by rememberUpdatedState(onMessage)
+    val currentOnAddToPlaylist by rememberUpdatedState(onAddToPlaylist)
+    val currentOnOpenAlbum by rememberUpdatedState(onOpenAlbum)
+    val currentOnOpenArtist by rememberUpdatedState(onOpenArtist)
+    val currentSongs by rememberUpdatedState(songs)
+    return remember(app.container) {
+        TrackMenuHost(
+            container = app.container,
+            trackFor = { id -> currentSongs().firstOrNull { it.id.toString() == id } },
+            onMessage = { currentOnMessage(it) },
+            onAddToPlaylist = { ids -> currentOnAddToPlaylist(ids) },
+            onGoToAlbum = { id -> currentOnOpenAlbum(id) },
+            onGoToArtist = { id -> currentOnOpenArtist(id) },
+        )
+    }
 }
 
 /**

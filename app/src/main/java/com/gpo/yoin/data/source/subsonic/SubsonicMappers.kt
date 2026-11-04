@@ -2,6 +2,7 @@ package com.gpo.yoin.data.source.subsonic
 
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
@@ -12,6 +13,7 @@ import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.discTrackOrder
 import com.gpo.yoin.data.remote.Album as SubsonicAlbum
 import com.gpo.yoin.data.remote.Artist as SubsonicArtist
 import com.gpo.yoin.data.remote.ArtistDetail as SubsonicArtistDetail
@@ -30,13 +32,17 @@ internal fun SubsonicSong.toTrack(): Track {
     contentType?.let { extras[EXTRA_CONTENT_TYPE] = it }
     suffix?.let { extras[EXTRA_SUFFIX] = it }
     path?.let { extras[EXTRA_PATH] = it }
-    samplingRate?.let { extras[EXTRA_SAMPLING_RATE] = it.toString() }
-    bitDepth?.let { extras[EXTRA_BIT_DEPTH] = it.toString() }
-    discNumber?.let { extras[EXTRA_DISC_NUMBER] = it.toString() }
+    // OpenSubsonic names each artist; carried only when there is more than
+    // the one in `artist`, as Spotify's are.
+    val credited = artists.filter { it.name.isNotBlank() }
+    if (credited.size > 1) {
+        extras[Track.EXTRA_ARTISTS] = Track.joinArtists(credited.map { it.name.trim() })
+        extras[Track.EXTRA_ARTIST_IDS] = Track.joinArtists(credited.map { it.id.orEmpty() })
+    }
     return Track(
         id = MediaId.subsonic(id),
         title = title,
-        artist = artist,
+        artist = displayArtist?.takeIf(String::isNotBlank) ?: artist,
         artistId = artistId?.let(MediaId::subsonic),
         album = album,
         albumId = albumId?.let(MediaId::subsonic),
@@ -52,7 +58,24 @@ internal fun SubsonicSong.toTrack(): Track {
         // carry it as addedAt so it feeds the home "Recently Added" shelf, the
         // same field Spotify populates from a saved track's added_at.
         addedAt = starred,
+        audioFormat = subsonicAudioFormat(),
+        discNumber = discNumber?.takeIf { it > 0 },
     )
+}
+
+/** What the server says about the file's encoding; null when it says nothing usable. */
+internal fun SubsonicSong.subsonicAudioFormat(): AudioFormat? {
+    val depth = bitDepth?.takeIf { it > 0 }
+    val codec = AudioFormat.codecForSuffix(suffix, depth)
+        ?: AudioFormat.codecForMime(contentType)
+    val format = AudioFormat(
+        codec = codec,
+        bitRateKbps = bitRate?.takeIf { it > 0 },
+        bitDepth = depth,
+        sampleRateHz = samplingRate?.takeIf { it > 0 },
+        channels = channelCount?.takeIf { it > 0 },
+    )
+    return format.takeIf { codec != null || format.bitRateKbps != null }
 }
 
 internal fun SubsonicAlbum.toAlbum(): Album = Album(
@@ -66,7 +89,8 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     year = year,
     genre = genre,
     isStarred = !starred.isNullOrEmpty(),
-    tracks = song.map { it.toTrack() },
+    // Multi-disc albums by (disc, track): design.md Library Songs reads them in this order too.
+    tracks = discTrackOrder(song.map { it.toTrack() }),
     // `starred` is the per-user "when I starred this" timestamp (ISO-8601);
     // carry it as addedAt so starred albums feed the home "Recently Added"
     // albums shelf, mirroring the track mapper above.
@@ -169,6 +193,3 @@ internal const val EXTRA_SIZE = "subsonic.size"
 internal const val EXTRA_CONTENT_TYPE = "subsonic.contentType"
 internal const val EXTRA_SUFFIX = "subsonic.suffix"
 internal const val EXTRA_PATH = "subsonic.path"
-internal const val EXTRA_SAMPLING_RATE = "subsonic.samplingRate"
-internal const val EXTRA_BIT_DEPTH = "subsonic.bitDepth"
-internal const val EXTRA_DISC_NUMBER = "subsonic.discNumber"

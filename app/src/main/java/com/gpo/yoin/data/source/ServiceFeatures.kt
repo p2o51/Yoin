@@ -82,6 +82,7 @@ object ServiceFeatureCatalog {
             Capability.PLAYLISTS_WRITE,
             Capability.PLAYLIST_IMPORT,
             Capability.LYRICS,
+            Capability.STREAM_QUALITY,
             Capability.PLAY_REPORTING,
         ),
     )

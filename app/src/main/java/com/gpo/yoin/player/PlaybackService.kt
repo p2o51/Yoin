@@ -3,12 +3,17 @@ package com.gpo.yoin.player
 import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
+import android.media.AudioManager
+import android.net.ConnectivityManager
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -16,12 +21,14 @@ import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.remote.SubsonicCacheKey
+import com.gpo.yoin.data.remote.SubsonicStreamUrls
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,8 +84,25 @@ class PlaybackService : MediaSessionService() {
         val simpleCache = SimpleCache(cacheDir, evictor, StandaloneDatabaseProvider(this))
         cache = simpleCache
 
-        val upstreamFactory = OkHttpDataSource.Factory(OkHttpClient())
+        val httpClient = OkHttpClient()
+        val upstreamFactory = OkHttpDataSource.Factory(httpClient)
         val cacheDataSourceFactory = mediaCacheDataSourceFactory(simpleCache, upstreamFactory)
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val audioManager = getSystemService(AudioManager::class.java)
+        val traits = SubsonicServerTraitsCache(httpClient)
+        val resolver = SubsonicStreamResolver(
+            settings = { StreamQualityPreference.current(this) },
+            isUnmetered = { connectivity?.activeNetworkUnmetered() ?: false },
+            outputKind = { audioManager?.currentOutputKind() ?: AudioOutputKind.Speaker },
+            traitsFor = traits::traitsFor,
+            sourceKbpsFor = SubsonicSourceBitrates::of,
+        )
+        streamResolver = resolver
+        // Resolved above the cache, so a transcode is stored under its own key
+        // (SubsonicCacheKey keeps maxBitRate and format).
+        val dataSourceFactory = ResolvingDataSource.Factory(cacheDataSourceFactory, resolver)
+        // A transcoded mp3 is constant bit rate with no seek table of its own.
+        val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -86,7 +110,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractors))
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
@@ -94,6 +118,7 @@ class PlaybackService : MediaSessionService() {
         // Default play mode is repeat all (see PlayMode). PlaybackManager also
         // applies the user's current mode whenever Yoin starts a queue.
         player.repeatMode = Player.REPEAT_MODE_ALL
+        player.addListener(StreamFormatListener(player, resolver))
 
         setMediaNotificationProvider(yoinNotificationProvider())
         val container = (application as YoinApplication).container
@@ -141,11 +166,43 @@ class PlaybackService : MediaSessionService() {
         }
         localPlayer?.release()
         localPlayer = null
+        streamResolver = null
+        _playingFormat.value = null
         mediaSession = null
         _usingDlna.value = false
         cache?.release()
         cache = null
         super.onDestroy()
+    }
+
+    /**
+     * Keeps the stream choices of the playing song and the next one (the
+     * player preloads it), and reports what the player decodes.
+     */
+    @OptIn(UnstableApi::class)
+    private class StreamFormatListener(
+        private val player: ExoPlayer,
+        private val resolver: SubsonicStreamResolver,
+    ) : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val keep = listOfNotNull(
+                mediaItem,
+                player.nextMediaItemIndex.takeIf { it != C.INDEX_UNSET }?.let(player::getMediaItemAt),
+            ).mapNotNull { it.localConfiguration?.uri?.toString()?.let(SubsonicStreamUrls::songIdOf) }
+            resolver.retainOnly(keep.toSet())
+            _playingFormat.value = null
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            val group = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+            val format = group?.let { (0 until it.length).firstOrNull(it::isTrackSelected)?.let(it::getTrackFormat) }
+            val mediaId = player.currentMediaItem?.mediaId
+            _playingFormat.value = if (format != null && mediaId != null) {
+                PlayingFormat(mediaId = mediaId, decoded = format.toAudioFormat())
+            } else {
+                null
+            }
+        }
     }
 
     companion object {
@@ -163,6 +220,17 @@ class PlaybackService : MediaSessionService() {
 
         /** Audio session ID from ExoPlayer, observed by [AudioVisualizerManager]. */
         val audioSessionId: StateFlow<Int> = _audioSessionId.asStateFlow()
+
+        @Volatile
+        private var streamResolver: SubsonicStreamResolver? = null
+
+        /** The stream the local player opened for a Subsonic song, by its raw id; null before it opens. */
+        internal fun streamDeliveryFor(songRawId: String): StreamDelivery? = streamResolver?.deliveryFor(songRawId)
+
+        private val _playingFormat = MutableStateFlow<PlayingFormat?>(null)
+
+        /** What the local player is decoding now, as its tracks say; null when it has no audio track yet. */
+        val playingFormat: StateFlow<PlayingFormat?> = _playingFormat.asStateFlow()
 
         private val _usingDlna = MutableStateFlow(false)
         /** The service has applied the route change before a handoff sends new commands. */
