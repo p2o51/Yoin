@@ -475,6 +475,15 @@ fun SettingsContent(
                                                 onOpenPage = { onOpenFeature(SettingsFeature.PlaylistBackups) },
                                             )
                                         }
+                                        if (Capability.OFFLINE_DOWNLOAD in activeFeatures.capabilities) {
+                                            item(key = SettingsFeature.Downloads, paintsOwnSegment = listDetail) {
+                                                DownloadsItem(
+                                                    listDetail = listDetail,
+                                                    selected = openFeature == SettingsFeature.Downloads,
+                                                    onOpenPage = { onOpenFeature(SettingsFeature.Downloads) },
+                                                )
+                                            }
+                                        }
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
@@ -1503,7 +1512,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, StreamQuality, Tips, PlaylistBackups, Licenses }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, StreamQuality, Downloads, Tips, PlaylistBackups, Licenses }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1539,6 +1548,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
         SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)
+        SettingsFeature.Downloads -> stringResource(R.string.settings_downloads_title)
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
         SettingsFeature.Licenses -> stringResource(R.string.settings_about_licenses)
@@ -1596,6 +1606,8 @@ internal fun SettingsFeatureScreen(
                         ScrollEdgePageContent()
                     } else if (feature == SettingsFeature.StreamQuality) {
                         StreamQualityPageContent()
+                    } else if (feature == SettingsFeature.Downloads) {
+                        DownloadsPageContent()
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
                     } else if (feature == SettingsFeature.Licenses) {
@@ -1627,7 +1639,8 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.StreamQuality, SettingsFeature.Tips,
+                                    SettingsFeature.ScrollEdge, SettingsFeature.StreamQuality, SettingsFeature.Downloads,
+                                    SettingsFeature.Tips,
                                     SettingsFeature.PlaylistBackups, SettingsFeature.Licenses,
                                     -> Unit
                                 }
@@ -1680,6 +1693,23 @@ private fun StreamQualityItem(
         FeaturePageRow(icon = YoinSymbols.Equalizer, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.Equalizer, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Storage › Downloads: the download quality and what is kept on this device. */
+@Composable
+private fun DownloadsItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val downloads = (LocalContext.current.applicationContext as com.gpo.yoin.YoinApplication).container.offlineDownloads
+    val title = stringResource(R.string.settings_downloads_title)
+    val summary = downloadsSummary(downloads)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Download, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Download, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 
@@ -1968,7 +1998,7 @@ private fun DeleteProfileDialog(
     )
 }
 
-private fun formatBytes(bytes: Long, resources: android.content.res.Resources): String = when {
+internal fun formatBytes(bytes: Long, resources: android.content.res.Resources): String = when {
     bytes <= 0L -> resources.getString(R.string.settings_cache_empty)
     bytes < 1_024L -> resources.getString(R.string.settings_cache_bytes, bytes)
     bytes < 1_048_576L -> resources.getString(R.string.settings_cache_kb, bytes / 1_024.0)

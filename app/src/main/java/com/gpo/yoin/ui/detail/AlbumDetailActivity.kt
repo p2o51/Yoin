@@ -195,6 +195,12 @@ class AlbumDetailActivity : ComponentActivity() {
                     inLibrary = (uiState as? AlbumDetailUiState.Content)?.librarySaved,
                     onToggleLibrary = viewModel::toggleLibrarySaved,
                     queueAvailable = (uiState as? AlbumDetailUiState.Content)?.hasQueueableSongs() == true,
+                    offline = rememberOfflineToggle(
+                        container = app.container,
+                        collection = albumOfflineCollection(uiState as? AlbumDetailUiState.Content),
+                        tracks = { viewModel.getAlbumSongs() },
+                        onMessage = nowPlayingViewModel::postMessage,
+                    ),
                 )
 
                 // A song row's long-press menu; the page is the album, so no Go to album.

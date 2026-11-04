@@ -46,6 +46,13 @@ interface DetailCacheDao {
     )
     suspend fun sizesOldestFirst(): List<DetailCacheSize>
 
+    /** The rows cached before [cutoff], so a purge can spare the ones still held (downloaded albums). */
+    @Query(
+        "SELECT profileId, kind, entityId, LENGTH(json) AS bytes " +
+            "FROM detail_cache WHERE cachedAt < :cutoff",
+    )
+    suspend fun cachedBefore(cutoff: Long): List<DetailCacheSize>
+
     @Query("DELETE FROM detail_cache WHERE cachedAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
 

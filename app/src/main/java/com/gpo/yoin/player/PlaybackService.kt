@@ -10,14 +10,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -38,7 +35,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import java.io.File
 
 /**
  * Reads a song from [cache] before [upstream], and stores what [upstream]
@@ -69,7 +65,6 @@ internal fun mediaCacheKey(spec: DataSpec): String {
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
-    private var cache: SimpleCache? = null
     private var quickActions: SessionQuickActions? = null
     private var localPlayer: ExoPlayer? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -78,11 +73,11 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
-        val cacheDir = File(cacheDir, CACHE_DIR_NAME)
-        if (!cacheDir.exists()) cacheDir.mkdirs()
-        val evictor = LeastRecentlyUsedCacheEvictor(MAX_CACHE_SIZE_BYTES)
-        val simpleCache = SimpleCache(cacheDir, evictor, StandaloneDatabaseProvider(this))
-        cache = simpleCache
+        // The stream cache and the downloads are the process's, not the
+        // service's: Settings reads and clears them, and the downloader fills one.
+        val container = (application as YoinApplication).container
+        val offlineDownloads = container.offlineDownloads
+        val simpleCache = offlineDownloads.streamCache
 
         val httpClient = OkHttpClient()
         val upstreamFactory = OkHttpDataSource.Factory(httpClient)
@@ -100,7 +95,21 @@ class PlaybackService : MediaSessionService() {
         streamResolver = resolver
         // Resolved above the cache, so a transcode is stored under its own key
         // (SubsonicCacheKey keeps maxBitRate and format).
-        val dataSourceFactory = ResolvingDataSource.Factory(cacheDataSourceFactory, resolver)
+        val streamingFactory = ResolvingDataSource.Factory(cacheDataSourceFactory, resolver)
+        // A downloaded song plays from the downloads, offline and at the quality
+        // it was kept at; anything else streams as above.
+        val dataSourceFactory = OfflineFirstDataSource.Factory(
+            downloads = offlineDownloads.downloadCache,
+            fallback = streamingFactory,
+            isComplete = offlineDownloads::isComplete,
+            onOfflineOpen = { songRawId, key ->
+                val quality = offlineDownloads.qualityOf(key)
+                resolver.pin(
+                    songRawId,
+                    StreamDelivery(maxBitRateKbps = quality?.maxBitRateKbps, format = quality?.format),
+                )
+            },
+        )
         // A transcoded mp3 is constant bit rate with no seek table of its own.
         val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
@@ -121,7 +130,6 @@ class PlaybackService : MediaSessionService() {
         player.addListener(StreamFormatListener(player, resolver))
 
         setMediaNotificationProvider(yoinNotificationProvider())
-        val container = (application as YoinApplication).container
         val actions = SessionQuickActions(this, { container.playbackManager }, { container.repository })
         quickActions = actions
         mediaSession = MediaSession.Builder(this, player)
@@ -170,8 +178,6 @@ class PlaybackService : MediaSessionService() {
         _playingFormat.value = null
         mediaSession = null
         _usingDlna.value = false
-        cache?.release()
-        cache = null
         super.onDestroy()
     }
 
@@ -212,9 +218,6 @@ class PlaybackService : MediaSessionService() {
             DefaultMediaNotificationProvider.Builder(this).build().apply {
                 setSmallIcon(R.drawable.ic_stat_yoin)
             }
-
-        private const val CACHE_DIR_NAME = "media_cache"
-        private const val MAX_CACHE_SIZE_BYTES = 500L * 1024 * 1024 // 500 MB
 
         private val _audioSessionId = MutableStateFlow(0)
 

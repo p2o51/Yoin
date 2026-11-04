@@ -37,7 +37,8 @@ class Cached<out V>(val cachedAt: Long, private val load: suspend () -> V?) {
  * JSON size exceeds [maxBytes], down to [trimTargetBytes] — the lyrics cache's
  * hysteresis: trimming only back to the cap would leave the next write over it
  * again, paying the table scans on nearly every write once the cache is full.
- * Entries older than [maxAgeMs] are never served and get purged. Profile-scoped
+ * Entries older than [maxAgeMs] are never served and get purged, save those
+ * [keeps] holds (downloaded albums and playlists). Profile-scoped
  * via the key, so it survives account switches without leaking one account's
  * data into another.
  */
@@ -55,6 +56,10 @@ class DetailCacheStore(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     // Where the JSON encodes and decodes run, off the caller's thread.
     private val codecDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    // Rows that never age out or get trimmed while this says so: an album or
+    // playlist downloaded for offline play, whose page must still open with no
+    // network long after its last visit. Kinds are [KIND_ALBUM] / [KIND_PLAYLIST].
+    private val keeps: suspend (profileId: String, kind: String, entityId: String) -> Boolean = { _, _, _ -> false },
 ) {
     init {
         require(trimTargetBytes in 0..maxBytes) { "trimTargetBytes must be within 0..maxBytes" }
@@ -135,7 +140,11 @@ class DetailCacheStore(
 
     /** Hygiene pass (call once on startup): age out anything past [maxAgeMs]. */
     suspend fun purgeExpired() {
-        runCatching { dao.deleteOlderThan(clock() - maxAgeMs) }
+        runCatching {
+            dao.cachedBefore(clock() - maxAgeMs).forEach { row ->
+                if (!keeps(row.profileId, row.kind, row.entityId)) dao.delete(row.profileId, row.kind, row.entityId)
+            }
+        }
         // Bulk delete of unknown size: drop the running total; the next write
         // re-seeds it with one SUM.
         sizeLock.withLock { totalBytesEstimate = null }
@@ -148,7 +157,7 @@ class DetailCacheStore(
         decode: (String) -> V,
     ): Cached<V>? {
         val entry = dao.get(profileId, kind, id) ?: return null
-        if (clock() - entry.cachedAt > maxAgeMs) {
+        if (clock() - entry.cachedAt > maxAgeMs && !keeps(profileId, kind, id)) {
             deleteTracked(profileId, kind, id)
             return null
         }
@@ -269,6 +278,7 @@ class DetailCacheStore(
                 if (total <= trimTargetBytes) break
                 if (row.profileId == keepProfileId && row.kind == keepKind && row.entityId == keepId) continue
                 if (Triple(row.profileId, row.kind, row.entityId) in touchesPending) continue
+                if (keeps(row.profileId, row.kind, row.entityId)) continue
                 dao.delete(row.profileId, row.kind, row.entityId)
                 total -= row.bytes
                 rows++
@@ -283,9 +293,9 @@ class DetailCacheStore(
     private fun String.codePointLength(): Long = codePointCount(0, length).toLong()
 
     companion object {
-        private const val KIND_ALBUM = "ALBUM"
+        const val KIND_ALBUM = "ALBUM"
         private const val KIND_ARTIST = "ARTIST"
-        private const val KIND_PLAYLIST = "PLAYLIST"
+        const val KIND_PLAYLIST = "PLAYLIST"
 
         /** ~24 MB on-disk cap (JSON char count proxy). */
         const val DEFAULT_MAX_BYTES = 24L * 1024 * 1024

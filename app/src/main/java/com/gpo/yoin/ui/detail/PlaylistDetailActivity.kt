@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
@@ -237,6 +238,18 @@ class PlaylistDetailActivity : ComponentActivity() {
                             onDelete = viewModel::delete,
                             onBackUp = viewModel::backUp.takeIf { viewModel.canBackUp },
                             backingUp = backingUp,
+                            offline = rememberOfflineToggle(
+                                container = app.container,
+                                collection = playlistOfflineCollection(
+                                    uiState as? PlaylistDetailUiState.Content,
+                                    viewModel.getPlaylistCoverArtKey()
+                                        ?: viewModel.getPlaylistSongs().firstNotNullOfOrNull {
+                                            CoverRef.toStorageKey(it.coverArt)
+                                        },
+                                ),
+                                tracks = { viewModel.getPlaylistSongs() },
+                                onMessage = nowPlayingViewModel::postMessage,
+                            ),
                             onShare = {
                                 val text = (uiState as? PlaylistDetailUiState.Content)
                                     ?.playlistName

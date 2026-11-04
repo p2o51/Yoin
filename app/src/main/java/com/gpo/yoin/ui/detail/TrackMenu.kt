@@ -67,6 +67,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.offline.OfflineStatus
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.WebLinkKind
@@ -196,6 +197,19 @@ internal fun TrackMenuSheet(
             runCatching { context.startActivity(Intent.createChooser(send, null)) }
         }
     }
+    // Download this song alone. A song kept as part of a downloaded album or
+    // playlist has no row: that page's own Download says it, and removes it.
+    val songCollection = remember(track) { songOfflineCollection(track) }
+    val offlineLibrary by host.container.offlineDownloads.library.collectAsState()
+    val offline = rememberOfflineToggle(
+        container = host.container,
+        collection = songCollection,
+        tracks = { listOfNotNull(track) },
+        onMessage = host.onMessage,
+    )?.takeUnless { toggle ->
+        toggle.status == OfflineStatus.None && offlineLibrary.isDownloaded(songId)
+    }
+
     // Favorite: the heart as Yoin resolves it (a write in flight, what the
     // service answered, Spotify's library mirror, then the flag the song was
     // read with), as Now Playing reads it. A tap shows its state at once
@@ -286,6 +300,7 @@ internal fun TrackMenuSheet(
         playlistAction?.takeIf { !nowPlaying && quickActions.isNotEmpty() }?.let {
             TrackMenuRow(addToPlaylistLabel, YoinSymbols.Playlist, it.onClick)
         },
+        offline?.let { TrackMenuRow(it.label, it.icon, it.onClick) },
     )
     val goRows = listOfNotNull(
         host.onGoToAlbum?.let { go ->

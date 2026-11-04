@@ -39,9 +39,10 @@ class SettingsViewModel(
     private val database = container.database
     private val profileManager: ProfileManager = container.profileManager
 
+    // The stream cache songs fill as they play (500 MB, the least recently
+    // played go first); read again each time Settings opens.
     private val cacheSizeFlow: StateFlow<Long> =
-        database.cacheMetadataDao().getTotalCacheSize()
-            .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+        container.offlineDownloads.streamCacheBytes.also { container.offlineDownloads.refreshStreamCacheBytes() }
 
     private val geminiConfigFlow: StateFlow<GeminiConfig> =
         database.geminiConfigDao().getConfig()
@@ -310,10 +311,9 @@ class SettingsViewModel(
         }
     }
 
+    /** Empties the stream cache. Downloads stay: Settings › Downloads removes them. */
     fun clearCache() {
-        viewModelScope.launch {
-            database.cacheMetadataDao().deleteOldest(0)
-        }
+        container.offlineDownloads.clearStreamCache()
     }
 
     // ── Internal helpers ─────────────────────────────────────────────

@@ -51,7 +51,7 @@ class SpotoolfyShareReceiverActivity : ComponentActivity() {
                 ReceiveResult.TooLarge -> toast(R.string.landing_spotoolfy_failed_too_large)
                 ReceiveResult.Unreadable -> toast(R.string.landing_spotoolfy_failed_unreadable)
             }
-            runCatching { startActivity(MainActivity.bringForwardIntent(this@SpotoolfyShareReceiverActivity)) }
+            MainActivity.bringForward(this@SpotoolfyShareReceiverActivity)
             finish()
         }
     }

@@ -52,6 +52,8 @@ class DetailMenu internal constructor(
      */
     val inLibrary: Boolean? = null,
     val onToggleLibrary: (() -> Unit)? = null,
+    /** Download / Remove download ([rememberOfflineToggle]); null leaves the row out. */
+    val offline: OfflineToggle? = null,
 )
 
 /** [menu]'s rows, in the Play menu's own look. */
@@ -81,6 +83,9 @@ internal fun ColumnScope.DetailMenuRows(menu: DetailMenu, dismissMenu: () -> Uni
         val label = if (saved) R.string.detail_menu_remove_from_library else R.string.detail_menu_save_to_library
         val icon = if (saved) YoinSymbols.LibraryAdded else YoinSymbols.LibraryAdd
         PlayMenuItem(stringResource(label), icon, dismissMenu) { menu.onToggleLibrary?.invoke() }
+    }
+    menu.offline?.let { offline ->
+        PlayMenuItem(offline.label, offline.icon, dismissMenu, offline.onClick)
     }
     val openIn = menu.onOpenIn
     if (menu.openInLabel != null && openIn != null) {
@@ -153,6 +158,7 @@ internal fun rememberDetailMenu(
     inLibrary: Boolean? = null,
     onToggleLibrary: () -> Unit = {},
     queueAvailable: Boolean = true,
+    offline: OfflineToggle? = null,
 ): DetailMenu {
     val context = LocalContext.current
     val resources = context.resources
@@ -163,7 +169,7 @@ internal fun rememberDetailMenu(
     val latestOnToggleLibrary by rememberUpdatedState(onToggleLibrary)
     val canAddToPlaylist = onAddToPlaylist != null &&
         Capability.PLAYLISTS_WRITE in container.repository.currentCapabilities()
-    return remember(container, link, provider, canAddToPlaylist, inLibrary, queueAvailable) {
+    return remember(container, link, provider, canAddToPlaylist, inLibrary, queueAvailable, offline) {
         fun queue(next: Boolean) {
             val source = container.profileManager.activeSource.value ?: return
             // The player reads and queues, not this composition: a rotation, or the
@@ -192,6 +198,7 @@ internal fun rememberDetailMenu(
             },
             inLibrary = inLibrary,
             onToggleLibrary = inLibrary?.let { { latestOnToggleLibrary() } },
+            offline = offline,
         )
     }
 }

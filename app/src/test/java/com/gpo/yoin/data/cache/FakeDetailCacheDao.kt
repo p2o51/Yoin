@@ -60,6 +60,11 @@ internal class FakeDetailCacheDao : DetailCacheDao {
             .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
     }
 
+    override suspend fun cachedBefore(cutoff: Long): List<DetailCacheSize> = synchronized(rows) {
+        rows.values.filter { it.cachedAt < cutoff }
+            .map { DetailCacheSize(it.profileId, it.kind, it.entityId, it.json.codePointLength()) }
+    }
+
     override suspend fun deleteOlderThan(cutoff: Long) {
         synchronized(rows) { rows.values.removeAll { it.cachedAt < cutoff } }
     }

@@ -104,6 +104,11 @@ internal class SubsonicStreamResolver(
         pinned.keys.retainAll(keepSongIds)
     }
 
+    /** [songRawId] plays from [delivery] without passing through here: a downloaded song, read from the downloads. */
+    fun pin(songRawId: String, delivery: StreamDelivery) {
+        pinned[songRawId] = delivery
+    }
+
     override fun resolveDataSpec(dataSpec: DataSpec): DataSpec {
         val url = dataSpec.uri.toString()
         val songId = SubsonicStreamUrls.songIdOf(url) ?: return dataSpec

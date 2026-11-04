@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 设置 › 下载 -->
+    <string name="settings_downloads_title">下载</string>
+    <string name="settings_downloads_summary_empty">%1$s · 还没有下载</string>
+    <string name="settings_downloads_summary">%1$s · 本机已存 %2$s</string>
+    <string name="settings_downloads_quality">下载音质</string>
+    <string name="settings_downloads_quality_original_detail">服务器上的原文件</string>
+    <string name="settings_downloads_quality_note">只影响之后下载的歌，已下载的保持原来的音质。</string>
+    <string name="settings_downloads_mobile_data">用移动数据下载</string>
+    <string name="settings_downloads_mobile_data_detail">关闭时，下载会等到连上 Wi‑Fi</string>
+    <string name="settings_downloads_storage">存储</string>
+    <string name="settings_downloads_used">已下载</string>
+    <string name="settings_downloads_remove_all">删除全部下载</string>
+    <string name="settings_downloads_remove_all_detail">本机所有账号的下载</string>
+    <string name="settings_downloads_list">已下载</string>
+    <string name="settings_downloads_list_empty">在专辑或歌单的 ⋮ 菜单里点「下载」，或者长按一首歌下载。下载的内容存在本机，没网也能播放。</string>
+    <string name="settings_downloads_entry_songs">%1$d 首 · %2$s</string>
+    <string name="settings_downloads_entry_progress">正在下载 %1$d / %2$d</string>
+    <string name="settings_downloads_entry_failed">有些歌没下载成功</string>
+    <string name="settings_downloads_entry_remove">移除下载</string>
+
+    <string name="settings_downloads_remove_all_body">会删掉本机所有账号下载的歌。之后可以重新下载。</string>
+    <string name="settings_downloads_remove_all_confirm">删除</string>
+    <string name="settings_downloads_cancel">取消</string>
+
+    <!-- 详情页和歌曲菜单 -->
+    <string name="offline_download">下载</string>
+    <string name="offline_downloading">正在下载 %1$d / %2$d</string>
+    <string name="offline_remove_download">移除下载</string>
+    <string name="offline_retry">重新下载</string>
+    <string name="offline_queued">开始下载 %1$d 首歌</string>
+    <string name="offline_queued_waiting_wifi">%1$d 首歌会在连上 Wi‑Fi 后下载</string>
+    <string name="offline_removed">已移除下载</string>
+
+    <!-- 下载通知 -->
+    <string name="offline_notification_channel">下载</string>
+    <string name="offline_notification_channel_description">离线收听的歌曲下载进度</string>
+    <string name="offline_notification_downloading">正在下载，供离线收听</string>
+</resources>

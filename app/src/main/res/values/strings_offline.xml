@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings › Downloads -->
+    <string name="settings_downloads_title">Downloads</string>
+    <string name="settings_downloads_summary_empty">%1$s · nothing downloaded yet</string>
+    <string name="settings_downloads_summary">%1$s · %2$s on this device</string>
+    <string name="settings_downloads_quality">Download quality</string>
+    <string name="settings_downloads_quality_original_detail">The file as it is on your server</string>
+    <string name="settings_downloads_quality_note">Applies to what you download next. Songs already downloaded keep their quality.</string>
+    <string name="settings_downloads_mobile_data">Download using mobile data</string>
+    <string name="settings_downloads_mobile_data_detail">Off: downloads wait for Wi‑Fi</string>
+    <string name="settings_downloads_storage">Storage</string>
+    <string name="settings_downloads_used">Downloads</string>
+    <string name="settings_downloads_remove_all">Remove all downloads</string>
+    <string name="settings_downloads_remove_all_detail">Every account\'s downloads on this device</string>
+    <string name="settings_downloads_list">Downloaded</string>
+    <string name="settings_downloads_list_empty">Download an album or a playlist from its ⋮ menu, or a song by long-pressing it. It stays on this device and plays without a connection.</string>
+    <string name="settings_downloads_entry_songs">%1$d songs · %2$s</string>
+    <string name="settings_downloads_entry_progress">Downloading %1$d of %2$d</string>
+    <string name="settings_downloads_entry_failed">Some songs couldn\'t download</string>
+    <string name="settings_downloads_entry_remove">Remove download</string>
+
+    <string name="settings_downloads_remove_all_body">The songs downloaded for every account on this device will be deleted. You can download them again.</string>
+    <string name="settings_downloads_remove_all_confirm">Remove</string>
+    <string name="settings_downloads_cancel">Cancel</string>
+
+    <!-- Detail pages and the song sheet -->
+    <string name="offline_download">Download</string>
+    <string name="offline_downloading">Downloading %1$d / %2$d</string>
+    <string name="offline_remove_download">Remove download</string>
+    <string name="offline_retry">Retry download</string>
+    <string name="offline_queued">Downloading %1$d songs</string>
+    <string name="offline_queued_waiting_wifi">%1$d songs will download on Wi‑Fi</string>
+    <string name="offline_removed">Download removed</string>
+
+    <!-- The download notification -->
+    <string name="offline_notification_channel">Downloads</string>
+    <string name="offline_notification_channel_description">Progress of songs downloading for offline listening</string>
+    <string name="offline_notification_downloading">Downloading for offline listening</string>
+</resources>
