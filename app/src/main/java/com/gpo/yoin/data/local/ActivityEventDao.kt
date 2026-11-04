@@ -65,7 +65,9 @@ interface ActivityEventDao {
      * The albums and playlists the user's other accounts play most (Home's
      * "From your other profiles"): plays since [since] per entity, counted
      * per track started, most first. Accounts that no longer exist are left
-     * out. [OtherProfilePlayAggregate.entityId] is the column as stored.
+     * out. No row cap here: one account's long tail must not crowd another
+     * out before each account is capped on its own (buildOtherProfileItems).
+     * [OtherProfilePlayAggregate.entityId] is the column as stored.
      */
     @Query(
         "SELECT profileId, provider, entityType, entityId, title, subtitle, coverArtId, " +
@@ -76,12 +78,11 @@ interface ActivityEventDao {
             "AND entityType IN ('ALBUM', 'PLAYLIST') " +
             "AND timestamp >= :since " +
             "GROUP BY profileId, provider, entityType, entityId " +
-            "ORDER BY playCount DESC, lastAt DESC LIMIT :limit"
+            "ORDER BY playCount DESC, lastAt DESC"
     )
     fun observeOtherProfilesMostPlayed(
         activeProfileId: String,
-        since: Long,
-        limit: Int
+        since: Long
     ): Flow<List<OtherProfilePlayAggregate>>
 
     @Insert

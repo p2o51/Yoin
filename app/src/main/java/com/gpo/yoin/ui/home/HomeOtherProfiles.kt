@@ -141,7 +141,6 @@ internal fun buildOtherProfileItems(
 internal const val OtherProfilesPerProfile = 6
 internal const val OtherProfilesTotal = 12
 private const val OtherProfilesWindowMs = 90L * 24 * 60 * 60 * 1_000
-private const val OtherProfilesRowLimit = 200
 private const val OtherProfilesCoverSize = 320
 
 /** The shelf's items, its one-off notice, and playing an item once its account is in use. */
@@ -165,7 +164,6 @@ class OtherProfilesViewModel internal constructor(
                     activityEvents.observeOtherProfilesMostPlayed(
                         activeProfileId = activeId,
                         since = clock() - OtherProfilesWindowMs,
-                        limit = OtherProfilesRowLimit,
                     ),
                     profileCards,
                 ) { rows, cards ->
