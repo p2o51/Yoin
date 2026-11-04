@@ -111,7 +111,8 @@ private fun SpatialAudioGroup(
                     trailing = { Switch(checked = on, onCheckedChange = null) },
                 )
             }
-            if (on && state.supported) {
+            // Kept while Yoin's switch is off too: the switch never adds or removes a row.
+            if (state.supported) {
                 item {
                     SettingsItem(
                         icon = YoinSymbols.Settings,
