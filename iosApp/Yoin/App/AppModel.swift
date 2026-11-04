@@ -329,10 +329,30 @@ final class AppModel {
 
     // MARK: Playing server songs
 
+    /// Where the queue plays from (Android ActivityContext): the detail page
+    /// it was started on; nil from Home / Library / Search lists.
+    enum PlayingFrom: Equatable {
+        case album(String), playlist(String), artist(String)
+
+        var title: String {
+            switch self {
+            case .album(let t), .playlist(let t), .artist(let t): t
+            }
+        }
+    }
+
+    private(set) var playingFrom: PlayingFrom?
+
     /// Replaces the queue with [entries] and plays [startAt]; shuffle on or off.
     func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false) {
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
+        playingFrom = switch path.last ?? padSelection.map({ .album($0) }) {
+        case .album(let a): .album(a.title)
+        case .playlist(let id): .playlist(playlistInfo(id).title)
+        case .artist(let ref): .artist(ref.name)
+        default: nil
+        }
         player.setShuffle(shuffle)
         player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1))
     }
