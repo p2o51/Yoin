@@ -132,6 +132,7 @@ final class AppModel {
         case "np-morph-close": slowMorph = true; npExpanded = true
         case "np-panel": npPanel = true
         case "landing": showLanding = true
+        case "settings": path = [.settings]
         case "artist", "artist-bottom": path = [.artist(ArtistRef("Mina Asahi"))]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
