@@ -670,7 +670,13 @@ private fun AlbumDetailContent(
                 progress = progress,
                 coverNow = coverNow,
                 pageShift = pageShift,
-                modifier = Modifier.graphicsLayer { alpha = 1f - heroYieldHidden() },
+                // The blocks sit behind the cover on their own layer: cubed, so
+                // they fade out ahead of it (and in after it) and never show
+                // through the half-faded cover as loose shapes.
+                modifier = Modifier.graphicsLayer {
+                    val shown = 1f - heroYieldHidden()
+                    alpha = shown * shown * shown
+                },
             )
         }
 
