@@ -11,6 +11,7 @@ import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntryDao
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.LyricsTranslationCache
 import com.gpo.yoin.data.local.LyricsTranslationCacheDao
@@ -482,6 +483,163 @@ class YoinRepositoryTest {
     }
 
     @Test
+    fun regenerateAboutEntry_asks_the_question_again_and_keeps_its_place() = runTest {
+        coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
+        val row = askRow(
+            question = "What does the chorus mean?",
+            answer = "It's about betrayal.",
+            createdAt = 1_000L,
+            updatedAt = 2_000L,
+        ).copy(titleText = "Chorus meaning")
+        coEvery { songAboutEntryDao.get(any(), any(), any(), SongAboutEntry.KIND_ASK, any()) } returns row
+        coEvery {
+            geminiService.askAboutSong("key", "Fake Love", "Drake", "CLB", "What does the chorus mean?", "English")
+        } returns GeminiService.AskAnswer(title = "Who lied", answer = "A friend who faked it.")
+        val captured = slot<SongAboutEntry>()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+
+        currentTime = 9_000L
+        val result = repository.regenerateAboutEntry(row.ref())
+
+        assertEquals(YoinRepository.AboutRegenerateResult.Success("Chorus meaning", "It's about betrayal."), result)
+        assertEquals("Who lied", captured.captured.titleText)
+        assertEquals("A friend who faked it.", captured.captured.answerText)
+        assertEquals(1_000L, captured.captured.createdAt)
+        assertEquals(9_000L, captured.captured.updatedAt)
+    }
+
+    @Test
+    fun regenerateAboutEntry_writes_only_the_one_canonical_field() = runTest {
+        coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
+        val row = SongAboutEntry(
+            titleKey = "fake love",
+            artistKey = "drake",
+            albumKey = "clb",
+            titleDisplay = "Fake Love",
+            artistDisplay = "Drake",
+            albumDisplay = "CLB",
+            kind = SongAboutEntry.KIND_CANONICAL,
+            entryKey = SongAboutEntry.CANON_PRODUCER,
+            promptText = null,
+            titleText = null,
+            answerText = "Noah Shebib",
+            createdAt = 1_000L,
+            updatedAt = 1_000L,
+        )
+        coEvery { songAboutEntryDao.get(any(), any(), any(), SongAboutEntry.KIND_CANONICAL, any()) } returns row
+        coEvery { geminiService.generateCanonicalAbout("key", "Fake Love", "Drake", "CLB", "English") } returns listOf(
+            GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_LYRICIST, "Aubrey Graham"),
+            GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_PRODUCER, "Vinylz, Frank Dukes"),
+        )
+        val captured = mutableListOf<SongAboutEntry>()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+
+        val result = repository.regenerateAboutEntry(row.ref())
+
+        assertEquals(YoinRepository.AboutRegenerateResult.Success(null, "Noah Shebib"), result)
+        assertEquals(1, captured.size)
+        assertEquals(SongAboutEntry.CANON_PRODUCER, captured.single().entryKey)
+        assertEquals("Vinylz, Frank Dukes", captured.single().answerText)
+    }
+
+    @Test
+    fun regenerateAboutEntry_leaves_the_row_when_gemini_has_nothing() = runTest {
+        coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
+        val row = askRow(question = "Who sampled it?", answer = "Nobody yet.", createdAt = 1_000L, updatedAt = 1_000L)
+        coEvery { songAboutEntryDao.get(any(), any(), any(), any(), any()) } returns row
+        coEvery { geminiService.askAboutSong(any(), any(), any(), any(), any(), any()) } returns
+            GeminiService.AskAnswer(title = "", answer = "  ")
+
+        val result = repository.regenerateAboutEntry(row.ref())
+
+        assertEquals(YoinRepository.AboutRegenerateResult.NothingNew, result)
+        coVerify(exactly = 0) { songAboutEntryDao.upsert(any()) }
+    }
+
+    @Test
+    fun writeOwnAboutEntry_files_the_listeners_entry_under_the_song() = runTest {
+        val captured = slot<SongAboutEntry>()
+        coEvery { songAboutEntryDao.getOwn(any(), any(), any()) } returns emptyList()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+
+        currentTime = 5_000L
+        repository.writeOwnAboutEntry("Fake Love", "Drake", "CLB", heading = " The video ", text = " Shot in Miami. ")
+
+        with(captured.captured) {
+            assertEquals(SongAboutEntry.KIND_OWN, kind)
+            assertEquals("fake love", titleKey)
+            assertEquals("the video", entryKey)
+            assertEquals("The video", titleText)
+            assertEquals("Shot in Miami.", answerText)
+            assertNull(promptText)
+            assertEquals(5_000L, createdAt)
+        }
+    }
+
+    @Test
+    fun writeOwnAboutEntry_leaves_a_renamed_entry_when_its_old_heading_is_written_again() = runTest {
+        // "The video" was renamed to "Shot list" in the scrapbook; its key stays "the video".
+        val renamed = ownRow(key = "the video", heading = "Shot list", answer = "Miami, 2018.", createdAt = 1_000L)
+        coEvery { songAboutEntryDao.getOwn("fake love", "drake", "clb") } returns listOf(renamed)
+        val captured = mutableListOf<SongAboutEntry>()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+
+        currentTime = 5_000L
+        repository.writeOwnAboutEntry("Fake Love", "Drake", "CLB", heading = "The video", text = "Shot in one take.")
+        currentTime = 6_000L
+        repository.writeOwnAboutEntry("Fake Love", "Drake", "CLB", heading = "shot list", text = "Miami, then LA.")
+
+        val (fresh, edited) = captured
+        assertEquals("the video #2", fresh.entryKey)
+        assertEquals("The video", fresh.titleText)
+        assertEquals(5_000L, fresh.createdAt)
+        assertEquals("the video", edited.entryKey)
+        assertEquals("shot list", edited.titleText)
+        assertEquals("Miami, then LA.", edited.answerText)
+        assertEquals(1_000L, edited.createdAt)
+    }
+
+    @Test
+    fun writeOwnAboutEntry_reuses_the_key_of_a_removed_entry() = runTest {
+        val removed = ownRow(key = "the video", heading = "The video", answer = "", createdAt = 1_000L)
+        coEvery { songAboutEntryDao.getOwn(any(), any(), any()) } returns listOf(removed)
+        val captured = slot<SongAboutEntry>()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+
+        currentTime = 5_000L
+        repository.writeOwnAboutEntry("Fake Love", "Drake", "CLB", heading = "The video", text = "Shot in Miami.")
+
+        assertEquals("the video", captured.captured.entryKey)
+        assertEquals("Shot in Miami.", captured.captured.answerText)
+        assertEquals(5_000L, captured.captured.createdAt)
+    }
+
+    @Test
+    fun editNoteById_blank_deletes_the_note_and_restoreNote_brings_it_back() = runTest {
+        val note = SongNote(
+            id = "n1",
+            profileId = "spotify-profile",
+            trackId = "t1",
+            content = "the drums drop out",
+            createdAt = 1_000L,
+            updatedAt = 1_000L,
+            title = "Fake Love",
+            artist = "Drake",
+            positionMs = 23_000L,
+        )
+        coEvery { songNoteDao.getById("n1") } returns note
+        val restored = slot<SongNote>()
+        coEvery { songNoteDao.insert(capture(restored)) } returns Unit
+
+        val before = repository.editNoteById("n1", "   ")
+        currentTime = 7_000L
+        repository.restoreNote(requireNotNull(before))
+
+        coVerify { songNoteDao.deleteById("n1") }
+        assertEquals(note.copy(updatedAt = 7_000L), restored.captured)
+    }
+
+    @Test
     fun generateAskTitle_returns_short_heading_for_loading_state() = runTest {
         coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
         coEvery {
@@ -699,6 +857,22 @@ class YoinRepositoryTest {
         updatedAt = 1L,
     )
 
+    private fun ownRow(key: String, heading: String, answer: String, createdAt: Long) = SongAboutEntry(
+        titleKey = "fake love",
+        artistKey = "drake",
+        albumKey = "clb",
+        titleDisplay = "Fake Love",
+        artistDisplay = "Drake",
+        albumDisplay = "CLB",
+        kind = SongAboutEntry.KIND_OWN,
+        entryKey = key,
+        promptText = null,
+        titleText = heading,
+        answerText = answer,
+        createdAt = createdAt,
+        updatedAt = createdAt,
+    )
+
     private fun askRow(
         question: String,
         answer: String,
@@ -789,3 +963,11 @@ class YoinRepositoryTest {
         }
     }
 }
+
+private fun SongAboutEntry.ref() = AlbumScrapbookAboutRef(
+    titleKey = titleKey,
+    artistKey = artistKey,
+    albumKey = albumKey,
+    kind = kind,
+    entryKey = entryKey,
+)

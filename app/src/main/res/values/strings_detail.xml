@@ -197,8 +197,6 @@
     <string name="detail_scrap_fact_producer">Producer</string>
     <string name="detail_scrap_fact_about">About</string>
     <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
-    <string name="detail_scrap_score">Score</string>
-    <string name="detail_scrap_clear_score">Clear score</string>
     <string name="detail_scrap_cd_manage_track">Score and edit</string>
     <string name="detail_scrap_cd_edit">Edit</string>
     <string name="detail_scrap_edit_title_hint">Title</string>
@@ -208,6 +206,38 @@
     <string name="detail_scrap_save">Save</string>
     <string name="detail_scrap_deleted">Deleted</string>
     <string name="detail_scrap_undo">Undo</string>
+    <string name="detail_scrap_tab_about">About</string>
+    <string name="detail_scrap_tab_notes">Note · %1$d</string>
+    <string name="detail_scrap_tab_notes_none">Note</string>
+    <string name="detail_scrap_cd_score">Score %1$s</string>
+    <string name="detail_scrap_cd_score_open">Score bar open</string>
+    <string name="detail_scrap_cd_score_closed">Tap to change the score</string>
+    <string name="detail_scrap_not_rated">Not rated</string>
+    <string name="detail_scrap_clear">Clear</string>
+    <string name="detail_scrap_asked">Asked: %1$s</string>
+    <string name="detail_scrap_by_you">Written by you</string>
+    <string name="detail_scrap_by_gemini">Gemini</string>
+    <string name="detail_scrap_regenerate">Regenerate</string>
+    <string name="detail_scrap_done">Done</string>
+    <string name="detail_scrap_regenerated">Regenerated</string>
+    <string name="detail_scrap_deleted_named">Deleted “%1$s”</string>
+    <string name="detail_scrap_new_title_hint">A title, like: what is this song about</string>
+    <string name="detail_scrap_new_text_hint">Write what you know…</string>
+    <string name="detail_scrap_ask_gemini">Ask Gemini</string>
+    <string name="detail_scrap_write">Write</string>
+    <string name="detail_scrap_gemini_failed">Gemini couldn\'t answer. Try again.</string>
+    <string name="detail_scrap_gemini_nothing">Gemini had nothing new</string>
+    <string name="detail_scrap_expand_lyrics">All lyrics</string>
+    <string name="detail_scrap_collapse_lyrics">Notes only</string>
+    <string name="detail_scrap_notes_empty">No notes yet.</string>
+    <string name="detail_scrap_lyrics_loading">Loading lyrics…</string>
+    <string name="detail_scrap_new_note">New note</string>
+    <string name="detail_scrap_edit_note">Edit</string>
+    <string name="detail_scrap_play_from">Play from %1$s</string>
+    <string name="detail_scrap_playing_from">Playing from %1$s</string>
+    <string name="detail_scrap_note_hint">A note at %1$s…</string>
+    <string name="detail_scrap_note_hint_plain">A note…</string>
+    <string name="detail_scrap_note_deleted">Note deleted</string>
 
     <!--
       Monospace receipt. English only. AlbumScrapbookTest asserts the model

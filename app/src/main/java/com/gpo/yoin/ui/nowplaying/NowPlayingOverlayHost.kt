@@ -26,9 +26,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
@@ -51,14 +49,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
+import com.gpo.yoin.data.album.aboutRef
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.symbols.YoinSymbols
@@ -66,6 +66,9 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
+import com.gpo.yoin.ui.component.YoinSnackbarHost
+import com.gpo.yoin.ui.component.showYoinSnackbar
+import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
 import com.gpo.yoin.ui.detail.TrackMenuHost
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
@@ -75,12 +78,12 @@ import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.roundToInt
 
 /**
  * The complete Now Playing overlay — scrim, slide-up visibility, drag-to-
@@ -137,6 +140,29 @@ fun NowPlayingOverlayHost(
             onAddToPlaylist = viewModel::requestAddTracksToPlaylist,
             onGoToAlbum = { id -> currentOnAlbumClick(id) },
             onGoToArtist = { id -> currentOnArtistClick(id) },
+        )
+    }
+    // A long-pressed About row's sheet (LocalAboutEntryActions): the row in
+    // its album's scrapbook, opened at its editor, or Gemini's answer again.
+    val aboutActions = remember(container, viewModel) {
+        val currentTrack = { container.playbackManager.playbackState.value.currentTrack }
+        AboutEntryActions(
+            regenerating = viewModel.aboutRegenerating,
+            canManage = { currentTrack()?.albumId != null },
+            onManage = { entry ->
+                // Only the playing song's own row: one picked just before the song moved on stays put.
+                currentTrack()?.takeIf { track ->
+                    entry.titleKey == SongAboutEntry.normalize(track.title.orEmpty()) &&
+                        entry.artistKey == SongAboutEntry.normalize(track.artist.orEmpty()) &&
+                        entry.albumKey == SongAboutEntry.normalize(track.album.orEmpty())
+                }?.let { track ->
+                    track.albumId?.let { albumId ->
+                        ScrapbookFocusRequest.request(track.id.toString(), edit = entry.aboutRef())
+                        currentOnAlbumClick(albumId.toString())
+                    }
+                }
+            },
+            onRegenerate = viewModel::regenerateAbout,
         )
     }
 
@@ -565,7 +591,10 @@ fun NowPlayingOverlayHost(
                 // before this composition catches up; a late release still owns
                 // the displayed song, never whichever song is current by then.
                 val ratingSongId = (nowPlayingUiState as? NowPlayingUiState.Playing)?.songId
-                CompositionLocalProvider(LocalNowPlayingCoverMenu provides coverMenuHost) {
+                CompositionLocalProvider(
+                    LocalNowPlayingCoverMenu provides coverMenuHost,
+                    LocalAboutEntryActions provides aboutActions,
+                ) {
                     NowPlayingScreen(
                         // Playing.isPlaying is overridden with the EAGER projection:
                         // uiState's combine can serve a stale cached snapshot after a
@@ -783,6 +812,22 @@ fun BoxScope.NowPlayingAccessories(
         }
     }
 
+    val regeneratedText by rememberUpdatedState(stringResource(R.string.np_about_regenerated))
+    val undoText by rememberUpdatedState(stringResource(R.string.np_about_undo))
+    LaunchedEffect(viewModel) {
+        viewModel.aboutRegenerated.collect { done ->
+            val result = snackbarHostState.showYoinSnackbar(
+                message = regeneratedText,
+                actionLabel = undoText,
+                icon = YoinSymbols.Sparkle,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoAboutRegenerate(done)
+            }
+        }
+    }
+
     LaunchedEffect(viewModel, context) {
         viewModel.lyricsTranslationSwitchOffers.collect { offer ->
             val result = snackbarHostState.showSnackbar(
@@ -813,15 +858,13 @@ fun BoxScope.NowPlayingAccessories(
         )
     }
 
-    SnackbarHost(
+    YoinSnackbarHost(
         hostState = snackbarHostState,
         modifier = Modifier
             .align(Alignment.BottomCenter)
             // Clear of the window's bar (its reserve), never over it.
             .padding(bottom = LocalShellChromeInsets.current.calculateBottomPadding(), start = 12.dp, end = 12.dp),
-    ) { data ->
-        Snackbar(snackbarData = data)
-    }
+    )
 }
 
 @Composable

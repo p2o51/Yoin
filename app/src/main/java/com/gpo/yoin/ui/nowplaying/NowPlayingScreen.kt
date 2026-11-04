@@ -2076,6 +2076,7 @@ private fun CompactPlayingContent(
                                                 onFocus = onAskBarFocused,
                                                 onCollapseRequest = onAskBarCollapseRequested,
                                                 onDismissError = onDismissAskError,
+                                                asked = aboutUiState.askedQuestions(),
                                             )
                                             NowPlayingDetailPage.Note -> NoteWriteBar(
                                                 state = noteBar,
@@ -2823,6 +2824,7 @@ private fun WidePlayingContent(
                                             onFocus = onAskBarFocused,
                                             onCollapseRequest = onAskBarCollapseRequested,
                                             onDismissError = onDismissAskError,
+                                            asked = aboutUiState.askedQuestions(),
                                         )
                                         NowPlayingDetailPage.Note -> NoteWriteBar(
                                             state = noteBar,
@@ -3383,6 +3385,7 @@ private fun LandscapePlayingContent(
                             onFocus = onAskBarFocused,
                             onCollapseRequest = onAskBarCollapseRequested,
                             onDismissError = onDismissAskError,
+                            asked = aboutUiState.askedQuestions(),
                         )
                     } else if (expanded && detailPage == NowPlayingDetailPage.Note) {
                         // One line with 记下 at its end: the keyboard takes

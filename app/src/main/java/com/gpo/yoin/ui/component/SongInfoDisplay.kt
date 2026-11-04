@@ -188,8 +188,8 @@ private fun ReadyContent(
                     }
                 }
 
-            // Preview teaser: just the most recent ask (DAO order = updatedAt desc).
-            val latestAsk = entries.firstOrNull { it.kind == SongAboutEntry.KIND_ASK }
+            // Preview teaser: just the newest question or own entry (observeAbout: newest first).
+            val latestAsk = entries.firstOrNull { it.kind != SongAboutEntry.KIND_CANONICAL }
             if (latestAsk != null) {
                 Spacer(modifier = Modifier.height(12.dp))
                 val heading = latestAsk.titleText?.takeIf { it.isNotBlank() }

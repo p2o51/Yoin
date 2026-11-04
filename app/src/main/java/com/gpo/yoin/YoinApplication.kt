@@ -85,6 +85,15 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
     }
 
     /**
+     * Never called on a device; Robolectric calls it after each test. The container's work stops
+     * here, before Robolectric resets the test's database ([AppContainer.stopForTermination]).
+     */
+    override fun onTerminate() {
+        if (::container.isInitialized) container.stopForTermination()
+        super.onTerminate()
+    }
+
+    /**
      * Failed artwork retries when the network recovers: a cover that failed
      * offline (Coil then asks only-if-cached and gets a 504) would otherwise
      * wait for the app to come back to the foreground. [ArtworkNetworkRecovery]
