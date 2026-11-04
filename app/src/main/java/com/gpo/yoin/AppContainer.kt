@@ -1,6 +1,8 @@
 package com.gpo.yoin
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -46,6 +48,9 @@ import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.SpotifyConnectFailure
+import com.gpo.yoin.player.scrobble.FilePendingScrobbleStore
+import com.gpo.yoin.player.scrobble.ScrobbleReporter
+import com.gpo.yoin.player.scrobble.SourceScrobbleTarget
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.library.LibraryOpenStore
@@ -480,14 +485,33 @@ class AppContainer(private val context: Context) {
             castManager = castManager,
             dlnaManager = dlnaManager,
             spotifyClientIdProvider = { spotifyClientIdFlow.value },
+            scrobbleReporter = scrobbleReporter,
         )
+    }
+
+    /**
+     * Reports Subsonic plays to the server (scrobble), queueing those it can't send
+     * yet in noBackupFilesDir: the queue is this device's, never restored elsewhere.
+     */
+    val scrobbleReporter: ScrobbleReporter by lazy {
+        ScrobbleReporter(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            store = FilePendingScrobbleStore(File(context.noBackupFilesDir, "scrobble-queue.json")),
+            target = { SourceScrobbleTarget.of(profileManager.activeSource.value) },
+            monotonicMs = SystemClock::elapsedRealtime,
+            wallMs = System::currentTimeMillis,
+            log = { message, error -> Log.i("YoinScrobble", message, error) },
+        ).also { reporter ->
+            // Each account that becomes active (and the first at launch) sends what it missed.
+            applicationScope.launch { profileManager.activeSource.collect { reporter.flush() } }
+        }
     }
 
     val audioVisualizerManager: AudioVisualizerManager by lazy {
         AudioVisualizerManager()
     }
 
-    // The Compose UI frame clock keeps one color wash alive across window handoffs.
+    // One palette for the app session; every window shows the same scheme instance.
     val playbackThemeState: PlaybackThemeState by lazy {
         PlaybackThemeState(
             CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main),

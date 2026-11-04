@@ -82,6 +82,7 @@ object ServiceFeatureCatalog {
             Capability.PLAYLISTS_WRITE,
             Capability.PLAYLIST_IMPORT,
             Capability.LYRICS,
+            Capability.PLAY_REPORTING,
         ),
     )
     val spotify = ServiceFeatures(

@@ -106,6 +106,8 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 retryArtworkIf(recovery.onAvailable(network))
+                // Plays heard offline go out as soon as there's a network again.
+                if (containerOverrideForTests == null) container.scrobbleReporter.flush()
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
