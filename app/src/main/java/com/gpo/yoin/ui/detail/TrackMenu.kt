@@ -35,8 +35,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
@@ -71,6 +73,8 @@ import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.settingsSegmentShape
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 
@@ -188,21 +192,30 @@ internal fun TrackMenuSheet(
             runCatching { context.startActivity(Intent.createChooser(send, null)) }
         }
     }
-    // Favorite: the heart as Yoin knows it now (a write in flight wins over
-    // the flag the song was read with), flipped here at once and put back if
+    // Favorite: the heart as Yoin resolves it (a write in flight, what the
+    // service answered, Spotify's library mirror, then the flag the song was
+    // read with), as Now Playing reads it. A tap shows its state at once
+    // ([pendingFavorite]) until the resolved state catches up, and drops it if
     // the service refuses. The write outlives the sheet.
     val canFavorite = track != null && track.id.rawId.isNotBlank() &&
         Capability.FAVORITES in repository.currentCapabilities()
-    var favorite by remember(track) {
-        mutableStateOf(track?.let { repository.favoriteOverrides.value[it.id] ?: it.isStarred } ?: false)
+    val resolvedFavorite by remember(track) {
+        track?.let { song -> repository.observeFavoriteState(song).map { it.isStarred } } ?: flowOf(false)
+    }.collectAsState(
+        initial = track?.let { repository.favoriteOverrides.value[it.id] ?: it.isStarred } ?: false,
+    )
+    var pendingFavorite by remember(track) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(resolvedFavorite) {
+        if (pendingFavorite == resolvedFavorite) pendingFavorite = null
     }
+    val favorite = pendingFavorite ?: resolvedFavorite
     val toggleFavorite: (() -> Unit)? = if (canFavorite && track != null) {
         {
             val next = !favorite
-            favorite = next
+            pendingFavorite = next
             scope.launch(NonCancellable) {
                 repository.setFavorite(track, next).onFailure {
-                    favorite = !next
+                    pendingFavorite = null
                     host.onMessage(
                         context.getString(
                             if (next) R.string.np_msg_couldnt_save_favorite else R.string.np_msg_couldnt_remove_favorite,
