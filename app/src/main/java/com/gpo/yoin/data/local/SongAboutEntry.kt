@@ -13,6 +13,11 @@ import androidx.room.Index
  * Canonical rows use [entryKey] = one of the CANON_* constants and leave
  * [promptText] null. Ask rows use the normalized question as [entryKey] and
  * keep the original question (pre-normalize) in [promptText] for display.
+ * Own rows are the listener's own entries, written on the album page's
+ * scrapbook (owner 2026-10-29: "输入" beside "问 Gemini"): [titleText] is their
+ * title, [answerText] their text, [entryKey] the normalized title, and
+ * [promptText] null. Gemini never writes them, and a Gemini language switch
+ * keeps them ([SongAboutEntryDao.deleteGenerated]).
  */
 @Entity(
     tableName = "song_about_entries",
@@ -48,6 +53,7 @@ data class SongAboutEntry(
     companion object {
         const val KIND_CANONICAL = "canonical"
         const val KIND_ASK = "ask"
+        const val KIND_OWN = "own"
 
         const val CANON_CREATION_TIME = "creation_time"
         const val CANON_CREATION_LOCATION = "creation_location"

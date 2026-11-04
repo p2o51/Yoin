@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -74,7 +75,34 @@ class AlbumScrapbookTicketMetaTest {
         assertLines(2)
     }
 
-    private fun show(width: Dp) {
+    /**
+     * The page narrowing and widening under Now Playing while the line recomposes (its ink follows the
+     * theme): once froze the app re-measuring the ticket's line (2026-10-29 and 2026-11-04 ANRs).
+     */
+    @Test
+    fun should_settleEachTime_when_theRowNarrowsAndWidensWhileTheLineRecomposes() {
+        val width = mutableStateOf(240.dp)
+        val ink = mutableStateOf(Color.Black)
+        show(width = { width.value }, color = { ink.value })
+        assertOneLine()
+
+        width.value = 60.dp
+        rule.waitForIdle()
+        ink.value = Color.DarkGray
+        rule.waitForIdle()
+        assertLines(2)
+
+        width.value = 240.dp
+        rule.waitForIdle()
+        ink.value = Color.Black
+        rule.waitForIdle()
+        assertOneLine()
+        assertTrue(placed("play"))
+    }
+
+    private fun show(width: Dp) = show(width = { width }, color = { Color.Black })
+
+    private fun show(width: () -> Dp, color: () -> Color) {
         rule.setContent {
             YoinTheme {
                 ScrapTicketMetaLine(
@@ -84,8 +112,8 @@ class AlbumScrapbookTicketMetaTest {
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                     ),
-                    color = Color.Black,
-                    modifier = Modifier.width(width).testTag(TAG),
+                    color = color(),
+                    modifier = Modifier.width(width()).testTag(TAG),
                 )
             }
         }

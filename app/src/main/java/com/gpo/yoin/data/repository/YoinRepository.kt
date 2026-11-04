@@ -384,6 +384,17 @@ class YoinRepository(
         data class Error(val message: String) : AskTitleResult
     }
 
+    /** How "Regenerate with Gemini" on one About row went ([regenerateAboutEntry]). */
+    sealed interface AboutRegenerateResult {
+        /** Gemini wrote the row again; [beforeTitle] / [beforeAnswer] are what it said before (for Undo). */
+        data class Success(val beforeTitle: String?, val beforeAnswer: String) : AboutRegenerateResult
+
+        /** Gemini came back with nothing for this row: it was left as it was. */
+        data object NothingNew : AboutRegenerateResult
+        data object ApiKeyMissing : AboutRegenerateResult
+        data class Error(val message: String) : AboutRegenerateResult
+    }
+
     sealed interface LyricsTranslationResult {
         data class Success(
             val translations: Map<Int, String>,
@@ -2026,6 +2037,24 @@ class YoinRepository(
         songNoteDao.deleteById(id)
     }
 
+    /**
+     * New text for one note, by id (the album page's scrapbook); blank deletes it. Returns the note as it
+     * was, so a delete can be undone with [restoreNote]; null when there is no such note.
+     */
+    suspend fun editNoteById(id: String, content: String): SongNote? {
+        val note = songNoteDao.getById(id) ?: return null
+        updateNote(note, content)
+        return note
+    }
+
+    /**
+     * Puts a deleted note back (Undo), same id and moment. Stamped now, so it outlives the delete that
+     * cloud sync may already have sent.
+     */
+    suspend fun restoreNote(note: SongNote) {
+        songNoteDao.insert(note.copy(updatedAt = maxOf(clock(), note.updatedAt + 1)))
+    }
+
     // ── Album notes ────────────────────────────────────────────────────
 
     fun observeAlbumNotes(albumId: MediaId): Flow<List<AlbumNote>> =
@@ -2920,8 +2949,13 @@ class YoinRepository(
         artistKey = SongAboutEntry.normalize(artist),
         albumKey = SongAboutEntry.normalize(album),
     ).map { rows ->
-        // A blank answer is a question removed on the album page's scrapbook ([editAboutEntry]).
-        rows.filterNot { it.kind == SongAboutEntry.KIND_ASK && it.answerText.isBlank() }
+        // A blank answer is a row removed on the album page's scrapbook ([editAboutEntry]). Questions and
+        // the listener's own entries keep the order they were first written in, so an edit or a
+        // regenerate leaves the row where it was.
+        val (canonical, rest) = rows
+            .filterNot { it.kind != SongAboutEntry.KIND_CANONICAL && it.answerText.isBlank() }
+            .partition { it.kind == SongAboutEntry.KIND_CANONICAL }
+        canonical + rest.sortedWith(compareByDescending<SongAboutEntry> { it.createdAt }.thenByDescending { it.updatedAt })
     }
 
     /**
@@ -2935,15 +2969,105 @@ class YoinRepository(
         val text = answer.trim()
         songAboutEntryDao.upsert(
             row.copy(
-                titleText = if (row.kind == SongAboutEntry.KIND_ASK && text.isNotEmpty()) {
-                    title?.trim()?.takeIf(String::isNotEmpty)
-                } else {
-                    row.titleText
+                titleText = when {
+                    row.kind == SongAboutEntry.KIND_CANONICAL || text.isEmpty() -> row.titleText
+                    // The listener's own entry always keeps a heading.
+                    row.kind == SongAboutEntry.KIND_OWN -> title?.trim()?.takeIf(String::isNotEmpty) ?: row.titleText
+                    else -> title?.trim()?.takeIf(String::isNotEmpty)
                 },
                 answerText = text,
                 updatedAt = clock(),
             ),
         )
+    }
+
+    /**
+     * The listener's own About entry for a song (the scrapbook's "Write", beside "Ask Gemini"): a
+     * [heading] and their [text], filed under the song like Gemini's rows so Now Playing's About shows
+     * it too. Writing the same heading again replaces the text. Blank input writes nothing.
+     *
+     * An entry's key is fixed when it is first written, while its heading can be renamed later
+     * ([editAboutEntry]), so a heading is matched against the live entries' headings, not their keys:
+     * a renamed entry is never overwritten by a new entry under its old heading.
+     */
+    suspend fun writeOwnAboutEntry(title: String, artist: String, album: String, heading: String, text: String) {
+        val head = heading.trim()
+        val body = text.trim()
+        if (head.isEmpty() || body.isEmpty()) return
+        val titleKey = SongAboutEntry.normalize(title)
+        val artistKey = SongAboutEntry.normalize(artist)
+        val albumKey = SongAboutEntry.normalize(album)
+        val headKey = SongAboutEntry.normalize(head)
+        val now = clock()
+        val own = songAboutEntryDao.getOwn(titleKey, artistKey, albumKey)
+        val live = own.filter { it.answerText.isNotBlank() }
+        val existing = live.firstOrNull { SongAboutEntry.normalize(it.titleText.orEmpty()) == headKey }
+        // A removed entry's key is free again; a live entry's key stays its own even after a rename.
+        val entryKey = existing?.entryKey
+            ?: generateSequence(1) { it + 1 }
+                .map { n -> if (n == 1) headKey else "$headKey #$n" }
+                .first { key -> live.none { it.entryKey == key } }
+        songAboutEntryDao.upsert(
+            SongAboutEntry(
+                titleKey = titleKey,
+                artistKey = artistKey,
+                albumKey = albumKey,
+                titleDisplay = title,
+                artistDisplay = artist,
+                albumDisplay = album,
+                kind = SongAboutEntry.KIND_OWN,
+                entryKey = entryKey,
+                promptText = null,
+                titleText = head,
+                answerText = body,
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now,
+            ),
+        )
+    }
+
+    /**
+     * "Regenerate with Gemini" on one About row (owner 2026-10-29: what Gemini said can go out of
+     * date). A question is asked again in its own words; a canonical field is fetched again with the
+     * rest of the song's About, and only that field is written. The row keeps its place (createdAt);
+     * the listener's own entries are never regenerated.
+     */
+    suspend fun regenerateAboutEntry(ref: AlbumScrapbookAboutRef): AboutRegenerateResult {
+        val row = songAboutEntryDao.get(ref.titleKey, ref.artistKey, ref.albumKey, ref.kind, ref.entryKey)
+            ?: return AboutRegenerateResult.NothingNew
+        if (row.kind == SongAboutEntry.KIND_OWN) return AboutRegenerateResult.NothingNew
+        val config = geminiConfigDao.getConfig().first()
+        val apiKey = config?.apiKey
+        if (apiKey.isNullOrBlank()) return AboutRegenerateResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
+        return runCatching {
+            val (title, answer) = if (row.kind == SongAboutEntry.KIND_ASK) {
+                val reply = geminiService.askAboutSong(
+                    apiKey = apiKey,
+                    title = row.titleDisplay,
+                    artist = row.artistDisplay,
+                    album = row.albumDisplay,
+                    question = row.promptText?.takeIf(String::isNotBlank) ?: row.entryKey,
+                    targetLanguage = targetLanguage,
+                )
+                reply.title to reply.answer
+            } else {
+                val values = geminiService.generateCanonicalAbout(
+                    apiKey = apiKey,
+                    title = row.titleDisplay,
+                    artist = row.artistDisplay,
+                    album = row.albumDisplay,
+                    targetLanguage = targetLanguage,
+                )
+                row.titleText to values.firstOrNull { it.entryKey == row.entryKey }?.answer.orEmpty()
+            }
+            if (answer.isBlank()) return@runCatching AboutRegenerateResult.NothingNew
+            songAboutEntryDao.upsert(row.copy(titleText = title, answerText = answer.trim(), updatedAt = clock()))
+            AboutRegenerateResult.Success(beforeTitle = row.titleText, beforeAnswer = row.answerText)
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
+            AboutRegenerateResult.Error(error.message ?: "Failed to ask Gemini")
+        }
     }
 
     /**

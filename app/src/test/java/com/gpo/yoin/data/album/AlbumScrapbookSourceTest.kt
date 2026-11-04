@@ -275,6 +275,22 @@ class AlbumScrapbookSourceTest {
     }
 
     @Test
+    fun should_listOwnEntriesWithTheQuestions_when_theListenerWroteOne() {
+        val tracks = listOf(AlbumScrapbookTrackKey(id("t1"), "Euphoria", "BTS"))
+        val rows = listOf(
+            about("euphoria", "bts", "album", SongAboutEntry.KIND_ASK, "q1", answer = "a1", updatedAt = 1L),
+            about("euphoria", "bts", "album", SongAboutEntry.KIND_OWN, "the video", answer = "Shot at night.", updatedAt = 2L)
+                .copy(titleText = "The video"),
+        )
+
+        val asks = matchAboutToTracks(rows, tracks)[id("t1")]?.asks.orEmpty()
+
+        assertEquals(listOf("The video", "q1"), asks.map { it.question })
+        assertEquals(listOf(true, false), asks.map { it.own })
+        assertEquals(null, asks.first().title)
+    }
+
+    @Test
     fun should_orderNotesAlongTheSong_when_sortingTimeline() {
         val notes = listOf(
             AlbumScrapbookNote("c", "c", null, createdAt = 1L),

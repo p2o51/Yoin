@@ -66,6 +66,7 @@ import com.gpo.yoin.ui.theme.PlaybackThemeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -74,7 +75,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.File
 import okhttp3.Cache
@@ -86,6 +90,19 @@ class AppContainer(private val context: Context) {
 
     private val applicationScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Stops the app-wide work and waits, briefly, for what is already running. Only
+     * [YoinApplication.onTerminate] calls it, and only an emulated process ever gets that call
+     * (Robolectric, after each test): a query still running here when the test ends would reach
+     * the database Robolectric resets between tests, and its exception would fail whichever
+     * coroutine test came next.
+     */
+    internal fun stopForTermination() {
+        runBlocking {
+            withTimeoutOrNull(TERMINATION_WAIT_MS) { applicationScope.coroutineContext.job.cancelAndJoin() }
+        }
+    }
 
     private val _profileStartupDone = MutableStateFlow(false)
 
@@ -696,6 +713,9 @@ class AppContainer(private val context: Context) {
 
     companion object {
         const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L
+
+        /** The longest [stopForTermination] waits: work held up behind the main thread gives up here. */
+        private const val TERMINATION_WAIT_MS = 2_000L
 
         // v24 → v25: memory_copy_cache 的 PK 加 profileId。两个 Subsonic
         // profile（不同服务器）共享 provider="subsonic"，raw album id 又在

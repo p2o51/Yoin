@@ -164,7 +164,8 @@ data class ScrapAboutSheet(
 
 /**
  * What the listener changes from page 2's track sheet (owner 2026-10-29: manage the AI text and the scores
- * in the scrapbook). Written straight to Room; the page re-reads its data, so nothing here is optimistic.
+ * in the scrapbook; 2026-11-02: and the notes, and new entries). Written straight to Room; the page re-reads
+ * its data, so nothing here is optimistic.
  */
 sealed interface ScrapEdit {
     /** A track's score, 0–10; 0 clears it (a stored 0 is "not rated"). */
@@ -175,6 +176,24 @@ sealed interface ScrapEdit {
      * row from the page (and from Now Playing's About).
      */
     data class About(val ref: AlbumScrapbookAboutRef, val title: String?, val answer: String) : ScrapEdit
+
+    /** Ask Gemini about a track from its sheet; the answer joins the track's About like one asked in NP. */
+    data class Ask(val songId: String, val question: String) : ScrapEdit
+
+    /** The listener's own About entry: a heading and their text (no Gemini). */
+    data class Write(val songId: String, val heading: String, val text: String) : ScrapEdit
+
+    /** Ask Gemini for one row again (owner 2026-10-29: what it said can go out of date). */
+    data class Regenerate(val ref: AlbumScrapbookAboutRef) : ScrapEdit
+
+    /** New text for a note; blank deletes it ([RestoreNote] brings it back). */
+    data class NoteText(val noteId: String, val text: String) : ScrapEdit
+
+    /** A note written from the sheet, at [positionMs] in the song (a lyric line's moment), or none. */
+    data class NewNote(val songId: String, val positionMs: Long?, val text: String) : ScrapEdit
+
+    /** Undo of a deleted note: the same note, back at its moment. */
+    data class RestoreNote(val noteId: String) : ScrapEdit
 }
 
 /** The page's fixed rules (D3 §5). */
@@ -400,7 +419,9 @@ private fun receiptLines(
     // the album's one album note counts with the track notes (D3's receipt)
     val albumNotes = if (data.albumNote?.content.isNullOrBlank()) 0 else 1
     add("Notes" to (trackNotes + albumNotes).toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
-    val askCount = data.about.entries.filter { it.key.toString() in songIds }.sumOf { it.value.asks.size }
+    val askCount = data.about.entries
+        .filter { it.key.toString() in songIds }
+        .sumOf { (_, about) -> about.asks.count { !it.own } }
     add("Asked" to askCount.toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
 }
 

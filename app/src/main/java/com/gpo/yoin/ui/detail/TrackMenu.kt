@@ -552,7 +552,7 @@ internal fun TrackMenuGroup(count: Int, row: @Composable (index: Int, shape: Sha
 }
 
 @Composable
-private fun TrackMenuRowItem(label: String, icon: ImageVector, shape: Shape, onClick: () -> Unit) {
+internal fun TrackMenuRowItem(label: String, icon: ImageVector, shape: Shape, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = shape,

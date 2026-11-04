@@ -121,6 +121,9 @@ interface SongNoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(note: SongNote)
 
+    @Query("SELECT * FROM song_notes WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): SongNote?
+
     /**
      * Imported notes. Note ids are global: an id already present (the same note, under another account) stays where
      * it is, as cloud sync leaves it, and its row id comes back as -1.

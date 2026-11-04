@@ -9,6 +9,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
+import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
+import com.gpo.yoin.data.album.aboutRef
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
@@ -159,6 +162,13 @@ class NowPlayingViewModel(
     private val _askState = MutableStateFlow<AskBarState>(AskBarState.Idle)
     val askState: StateFlow<AskBarState> = _askState.asStateFlow()
     private var askRequestId = 0L
+
+    // About rows Gemini is writing again from a long-press (their dots), and
+    // what each said before once it is done (the snackbar's Undo).
+    private val _aboutRegenerating = MutableStateFlow<Set<AlbumScrapbookAboutRef>>(emptySet())
+    val aboutRegenerating: StateFlow<Set<AlbumScrapbookAboutRef>> = _aboutRegenerating.asStateFlow()
+    private val _aboutRegenerated = MutableSharedFlow<AboutRegenerated>(extraBufferCapacity = 4)
+    val aboutRegenerated: SharedFlow<AboutRegenerated> = _aboutRegenerated.asSharedFlow()
 
     // `aboutFetchError` / `aboutLoading` are UI-only overlays on top of the
     // observed Room flow. Room observer always has the ground truth list;
@@ -1520,6 +1530,43 @@ class NowPlayingViewModel(
         }
     }
 
+    /**
+     * Ask Gemini for [entry] again (a long-press on an About row, owner 2026-11-02:
+     * some answers go out of date). The row keeps its text until the new one
+     * lands; [aboutRegenerated] then carries the old text for Undo. The
+     * listener's own entries are theirs, never regenerated.
+     */
+    fun regenerateAbout(entry: SongAboutEntry) {
+        if (entry.kind == SongAboutEntry.KIND_OWN) return
+        val ref = entry.aboutRef()
+        if (ref in _aboutRegenerating.value) return
+        _aboutRegenerating.update { it + ref }
+        viewModelScope.launch {
+            try {
+                when (val result = repository.regenerateAboutEntry(ref)) {
+                    is YoinRepository.AboutRegenerateResult.Success -> _aboutRegenerated.tryEmit(
+                        AboutRegenerated(ref, result.beforeTitle, result.beforeAnswer),
+                    )
+                    YoinRepository.AboutRegenerateResult.NothingNew ->
+                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_about_regenerate_nothing))
+                    YoinRepository.AboutRegenerateResult.ApiKeyMissing ->
+                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_ask_api_key_missing))
+                    is YoinRepository.AboutRegenerateResult.Error ->
+                        _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_about_regenerate_failed))
+                }
+            } finally {
+                _aboutRegenerating.update { it - ref }
+            }
+        }
+    }
+
+    /** The snackbar's Undo after [regenerateAbout]: the row says what it said before. */
+    fun undoAboutRegenerate(done: AboutRegenerated) {
+        viewModelScope.launch {
+            repository.editAboutEntry(done.ref, done.beforeTitle, done.beforeAnswer)
+        }
+    }
+
     private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?, durationSec: Int?) {
         // 调用方（collectLatest 入口）已经把 _lyrics 清空 + loading=true。这里只在
         // 实际完成 / 失败时把 loading 关掉。若被 collectLatest 取消，让
@@ -1773,3 +1820,10 @@ private fun lyricsTranslatedFrom(providerName: String): UiText = when (providerN
     "lrclib" -> UiText.Res(R.string.np_msg_lyrics_translated_lrclib)
     else -> UiText.Res(R.string.np_msg_lyrics_translated_from, listOf(providerName))
 }
+
+/** An About row Gemini wrote again; [beforeTitle] / [beforeAnswer] put it back (Undo). */
+data class AboutRegenerated(
+    val ref: AlbumScrapbookAboutRef,
+    val beforeTitle: String?,
+    val beforeAnswer: String,
+)

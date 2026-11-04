@@ -1,9 +1,5 @@
 package com.gpo.yoin.ui.navigation
 
-import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
-import com.gpo.yoin.widget.TakeWidgetDetailRequest
-import com.gpo.yoin.widget.WidgetDetailRequest
-import com.gpo.yoin.widget.WidgetEntity
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -36,9 +32,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
@@ -102,9 +96,10 @@ import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressivePageBackground
-import com.gpo.yoin.ui.component.rememberNeutralPageWash
 import com.gpo.yoin.ui.component.LocalSharedPageBackground
 import com.gpo.yoin.ui.component.YoinChromeGroup
+import com.gpo.yoin.ui.component.YoinSnackbarHost
+import com.gpo.yoin.ui.component.rememberNeutralPageWash
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.DetailLaunchMode
@@ -126,6 +121,7 @@ import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.ShellChromeForm
+import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import com.gpo.yoin.ui.experience.hasChromeHandoff
 import com.gpo.yoin.ui.experience.hasDetailPane
 import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
@@ -193,7 +189,9 @@ import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
-import kotlin.math.roundToInt
+import com.gpo.yoin.widget.TakeWidgetDetailRequest
+import com.gpo.yoin.widget.WidgetDetailRequest
+import com.gpo.yoin.widget.WidgetEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -204,6 +202,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -1584,16 +1583,14 @@ private fun YoinShell(
                 .besideNowPlayingPanel(npPanel),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            SnackbarHost(
+            YoinSnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier.padding(
                     bottom = shellChromeInsets.calculateBottomPadding(),
                     start = 12.dp,
                     end = 12.dp,
                 ),
-            ) { data ->
-                Snackbar(snackbarData = data)
-            }
+            )
         }
     }
 }

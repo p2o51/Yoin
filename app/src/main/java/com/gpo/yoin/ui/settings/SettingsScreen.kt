@@ -47,8 +47,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -99,7 +97,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.MainActivity
-import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
 import com.gpo.yoin.R
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
@@ -110,22 +107,24 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
-import com.gpo.yoin.ui.component.nameRes
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.currentSeamTopStyle
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.nameRes
 import com.gpo.yoin.ui.detail.DetailBackButton
 import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.settings.backup.PlaylistBackupsPageContent
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
 import com.gpo.yoin.ui.settings.service.SetupService
-import com.gpo.yoin.ui.settings.backup.PlaylistBackupsPageContent
 import com.gpo.yoin.ui.settings.sync.CloudSyncActivity
 import com.gpo.yoin.ui.settings.sync.CloudSyncSettingsRow
+import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -339,7 +338,7 @@ fun SettingsContent(
                             ),
                         )
                     },
-                    snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
+                    snackbarHost = { YoinSnackbarHost(snackbarHostState) },
                 ) { innerPadding ->
                     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val scrollState = rememberScrollState()
@@ -1582,7 +1581,7 @@ internal fun SettingsFeatureScreen(
                         ),
                     )
                 },
-                snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
+                snackbarHost = { YoinSnackbarHost(snackbarHostState) },
             ) { innerPadding ->
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 Column(

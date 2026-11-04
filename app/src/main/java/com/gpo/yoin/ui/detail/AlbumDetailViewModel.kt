@@ -12,6 +12,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookQuery
 import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.album.AlbumScrapbookTrackKey
 import com.gpo.yoin.data.local.AlbumRating
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryTitleSource
 import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.Album
@@ -33,8 +34,10 @@ import com.gpo.yoin.ui.component.diagnosticReport
 import com.gpo.yoin.ui.component.toUserMessageText
 import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -52,6 +55,7 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -170,6 +174,21 @@ class AlbumDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumScrapbookUiState.Loading)
 
     private var seekJob: Job? = null
+
+    /** Page 2's timed lyrics per song, read once per visit (the Note tab of a track sheet). Main thread. */
+    private val scrapLyricsCache = HashMap<String, ScrapLyrics>()
+    private val scrapGemini = MutableStateFlow(ScrapGemini())
+    private val scrapEvents = MutableSharedFlow<ScrapEvent>(extraBufferCapacity = 4)
+
+    /** Notes deleted from page 2, as they were, for Undo ([ScrapEdit.RestoreNote]). Main thread. */
+    private val deletedScrapNotes = HashMap<String, Deferred<SongNote?>>()
+
+    /** What page 2's track sheet reads besides the book: lyrics, Gemini's work and what came of it. */
+    val scrapFeeds = ScrapSheetFeeds(
+        lyrics = ::scrapLyrics,
+        gemini = scrapGemini.asStateFlow(),
+        events = scrapEvents.asSharedFlow(),
+    )
 
     init {
         loadAlbum()
@@ -658,21 +677,138 @@ class AlbumDetailViewModel(
         viewModelScope.launch { runCatching { store.setTitle(id, title) } }
     }
 
-    /** Page 2's track sheet: a track's score, or the listener's own version of an Ask / About text. */
+    /**
+     * Page 2's track sheet: a track's score, the listener's version of an About row, a new entry (asked or
+     * written), a regenerate, and the track's notes.
+     */
     fun editScrapbook(edit: ScrapEdit) {
         when (edit) {
             is ScrapEdit.Score -> {
                 val id = MediaId.parseOrNull(edit.songId) ?: return
                 repository.setRating(id, edit.score)
             }
-            is ScrapEdit.About -> viewModelScope.launch {
-                runCatching { repository.editAboutEntry(edit.ref, edit.title, edit.answer) }
-                    .onFailure { error ->
-                        if (error is CancellationException) throw error
-                        Log.w(TAG, "Couldn't save the scrapbook edit", error)
-                    }
+            is ScrapEdit.About -> launchScrapWrite { repository.editAboutEntry(edit.ref, edit.title, edit.answer) }
+            is ScrapEdit.Ask -> askFromScrapbook(edit)
+            is ScrapEdit.Write -> {
+                val keys = scrapAboutKeys(edit.songId) ?: return
+                launchScrapWrite {
+                    repository.writeOwnAboutEntry(keys.title, keys.artist, keys.album, edit.heading, edit.text)
+                }
+            }
+            is ScrapEdit.Regenerate -> regenerateFromScrapbook(edit)
+            is ScrapEdit.NoteText -> {
+                val was = viewModelScope.async { scrapWrite { repository.editNoteById(edit.noteId, edit.text) } }
+                if (edit.text.isBlank()) deletedScrapNotes[edit.noteId] = was
+            }
+            is ScrapEdit.NewNote -> {
+                val track = albumSongs.firstOrNull { it.id.toString() == edit.songId } ?: return
+                launchScrapWrite { repository.addNote(track, edit.text, edit.positionMs) }
+            }
+            is ScrapEdit.RestoreNote -> {
+                val deleted = deletedScrapNotes.remove(edit.noteId) ?: return
+                viewModelScope.launch {
+                    val note = deleted.await() ?: return@launch
+                    scrapWrite { repository.restoreNote(note) }
+                }
             }
         }
+    }
+
+    private fun launchScrapWrite(block: suspend () -> Unit) {
+        viewModelScope.launch { scrapWrite(block) }
+    }
+
+    /** Runs one page-2 write; a failure is logged (the page re-reads Room, so nothing to roll back). */
+    private suspend fun <T> scrapWrite(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Couldn't save the scrapbook edit", e)
+        null
+    }
+
+    /**
+     * The keys an About row of [songId] is filed under, as page 2 reads them: the track's title and artist,
+     * and this album's name (so an entry written here shows here).
+     */
+    private fun scrapAboutKeys(songId: String): ScrapAboutKeys? {
+        val track = albumSongs.firstOrNull { it.id.toString() == songId } ?: return null
+        val album = loadedAlbum?.name?.takeIf(String::isNotBlank) ?: track.album.orEmpty()
+        return ScrapAboutKeys(title = track.title.orEmpty(), artist = track.artist.orEmpty(), album = album)
+    }
+
+    private fun askFromScrapbook(edit: ScrapEdit.Ask) {
+        val question = edit.question.trim()
+        if (question.isEmpty()) return
+        val keys = scrapAboutKeys(edit.songId) ?: return
+        val asking = ScrapAsking(edit.songId, question)
+        scrapGemini.update { it.copy(asking = it.asking + asking) }
+        viewModelScope.launch {
+            try {
+                when (val result = repository.askAboutSong(keys.title, keys.artist, keys.album, question)) {
+                    is YoinRepository.AskAboutResult.Success -> Unit
+                    YoinRepository.AskAboutResult.ApiKeyMissing ->
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)))
+                    is YoinRepository.AskAboutResult.Error -> {
+                        Log.w(TAG, "Ask from the scrapbook failed: ${result.message}")
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed)))
+                    }
+                }
+            } finally {
+                scrapGemini.update { it.copy(asking = it.asking - asking) }
+            }
+        }
+    }
+
+    private fun regenerateFromScrapbook(edit: ScrapEdit.Regenerate) {
+        val ref = edit.ref
+        if (ref in scrapGemini.value.regenerating) return
+        scrapGemini.update { it.copy(regenerating = it.regenerating + ref) }
+        viewModelScope.launch {
+            try {
+                val event = when (val result = repository.regenerateAboutEntry(ref)) {
+                    is YoinRepository.AboutRegenerateResult.Success ->
+                        ScrapEvent.Regenerated(ScrapEdit.About(ref, result.beforeTitle, result.beforeAnswer))
+                    YoinRepository.AboutRegenerateResult.NothingNew ->
+                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_nothing))
+                    YoinRepository.AboutRegenerateResult.ApiKeyMissing ->
+                        ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing))
+                    is YoinRepository.AboutRegenerateResult.Error -> {
+                        Log.w(TAG, "Regenerate from the scrapbook failed: ${result.message}")
+                        ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed))
+                    }
+                }
+                scrapEvents.tryEmit(event)
+            } finally {
+                scrapGemini.update { it.copy(regenerating = it.regenerating - ref) }
+            }
+        }
+    }
+
+    /** [songId]'s timed lyrics for the Note tab: Loading, then the lines (none for untimed or missing lyrics). */
+    private fun scrapLyrics(songId: String): Flow<ScrapLyrics> = flow {
+        scrapLyricsCache[songId]?.let { cached ->
+            emit(cached)
+            return@flow
+        }
+        emit(ScrapLyrics.Loading)
+        val track = albumSongs.firstOrNull { it.id.toString() == songId }
+        if (track == null) {
+            emit(ScrapLyrics.None)
+            return@flow
+        }
+        val read = try {
+            ScrapLyrics.from(
+                repository.getLyrics(track.id, track.title, track.artist, track.durationSec?.times(1_000L)),
+            ).also { scrapLyricsCache[songId] = it }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't read lyrics for the scrapbook", e)
+            ScrapLyrics.None
+        }
+        emit(read)
     }
 
     /** Drops the user's name: the AI title shows again. */
@@ -809,3 +945,5 @@ internal fun ResolvedMemoryTitle.toScrapTitle(): ScrapTitle? =
             draftSeed = draftSeed,
         )
     }
+
+private data class ScrapAboutKeys(val title: String, val artist: String, val album: String)

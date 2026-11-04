@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
@@ -53,6 +52,7 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinPageWidths
+import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.detail.AlbumNeoDbSync
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
@@ -355,7 +355,7 @@ fun MemoriesScreen(
                     }
                 }
             }
-            SnackbarHost(
+            YoinSnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .fillMaxWidth()

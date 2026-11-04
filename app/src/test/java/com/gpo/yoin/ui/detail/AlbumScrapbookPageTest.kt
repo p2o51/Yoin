@@ -2,9 +2,12 @@ package com.gpo.yoin.ui.detail
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -25,6 +28,9 @@ import com.gpo.yoin.data.album.AlbumScrapbookNote
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -83,7 +89,10 @@ class AlbumScrapbookPageTest {
             .performScrollTo()
             .performSemanticsAction(SemanticsActions.OnLongClick)
         rule.waitForIdle()
-        rule.onNodeWithText("Clear score").performClick()
+        // the score is a pill beside the title; it opens the bar
+        rule.onNodeWithContentDescription("Score 8.5").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Clear").performClick()
 
         assertEquals(listOf<ScrapEdit>(ScrapEdit.Score("subsonic:t1", 0f)), edits)
     }
@@ -98,7 +107,7 @@ class AlbumScrapbookPageTest {
         rule.waitForIdle()
         rule.onNode(hasSetTextAction() and hasText("First sentence.", substring = true))
             .performTextReplacement("Just the drummer.")
-        rule.onNodeWithText("Save").performClick()
+        rule.onNodeWithText("Done").performClick()
 
         assertEquals(listOf<ScrapEdit>(ScrapEdit.About(askRef, "The band", "Just the drummer.")), edits)
     }
@@ -126,7 +135,7 @@ class AlbumScrapbookPageTest {
         rule.waitForIdle()
         rule.onNodeWithText("Delete").performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("Deleted").assertIsDisplayed()
+        rule.onNodeWithText("Deleted “The band”").assertIsDisplayed()
         rule.onNodeWithText("Undo").performClick()
         rule.waitForIdle()
 
@@ -137,6 +146,119 @@ class AlbumScrapbookPageTest {
             ),
             edits,
         )
+    }
+
+    @Test
+    fun should_openTheEditor_when_anAnswerIsLongPressed() {
+        show()
+
+        openSong3()
+        rule.onNode(hasText("Third sentence.", substring = true) and hasLongClick())
+            .performSemanticsAction(SemanticsActions.OnLongClick)
+        rule.waitForIdle()
+
+        rule.onNode(hasSetTextAction() and hasText("First sentence.", substring = true)).assertIsDisplayed()
+        rule.onNodeWithText("Regenerate").assertIsDisplayed()
+    }
+
+    @Test
+    fun should_askGemini_when_regenerateTappedInTheEditor() {
+        show()
+
+        openSong3()
+        rule.onNodeWithContentDescription("Edit").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Regenerate").performClick()
+
+        assertEquals(listOf<ScrapEdit>(ScrapEdit.Regenerate(askRef)), edits)
+    }
+
+    @Test
+    fun should_askGeminiAboutTheTrack_when_aNewTitleIsAsked() {
+        show()
+
+        openSong3()
+        rule.onNode(emptyField()).performScrollTo().performTextReplacement("Who sampled it?")
+        rule.onNodeWithText("Ask Gemini").performScrollTo().performClick()
+
+        assertEquals(listOf<ScrapEdit>(ScrapEdit.Ask("subsonic:t3", "Who sampled it?")), edits)
+    }
+
+    @Test
+    fun should_saveTheListenersOwnEntry_when_written() {
+        show()
+
+        openSong3()
+        rule.onNode(emptyField()).performScrollTo().performTextReplacement("Where I heard it")
+        rule.onNodeWithText("Write").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNode(emptyField()).performScrollTo().performTextReplacement("A friend's car, summer 2019.")
+        rule.onNodeWithText("Save").performScrollTo().performClick()
+
+        assertEquals(
+            listOf<ScrapEdit>(ScrapEdit.Write("subsonic:t3", "Where I heard it", "A friend's car, summer 2019.")),
+            edits,
+        )
+    }
+
+    @Test
+    fun should_showThreeLyricLinesEachSide_when_theNoteTabOpens() {
+        show(feeds = lyricsFeeds())
+
+        openNotesOfSong2()
+
+        // the note was taken on line 6 (1:00): lines 3–9 around it, the rest left out
+        rule.onNodeWithText("the drums come in").assertIsDisplayed()
+        rule.onNodeWithText("Line 3").assertExists()
+        rule.onNodeWithText("Line 9").assertExists()
+        rule.onAllNodesWithText("Line 2").assertCountEquals(0)
+        rule.onAllNodesWithText("Line 10").assertCountEquals(0)
+    }
+
+    @Test
+    fun should_playFromTheNote_when_noteTappedInTheNoteTab() {
+        show(feeds = lyricsFeeds())
+
+        openNotesOfSong2()
+        rule.onNodeWithText("the drums come in").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Play from 1:01").performClick()
+
+        assertEquals(listOf("subsonic:t2" to 61_000L), moments)
+    }
+
+    @Test
+    fun should_writeANoteAtTheLine_when_aLyricLineIsTapped() {
+        show(feeds = lyricsFeeds())
+
+        openNotesOfSong2()
+        rule.onNodeWithText("Line 8").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("New note").performClick()
+        rule.waitForIdle()
+        rule.onNode(emptyField()).performTextReplacement("the hook")
+        rule.onNodeWithText("Done").performClick()
+
+        assertEquals(listOf<ScrapEdit>(ScrapEdit.NewNote("subsonic:t2", 80_000L, "the hook")), edits)
+    }
+
+    @Test
+    fun should_deleteTheNoteWithUndo_when_itIsEmptied() {
+        show(feeds = lyricsFeeds())
+
+        openNotesOfSong2()
+        rule.onNodeWithText("the drums come in").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Edit").performClick()
+        rule.waitForIdle()
+        rule.onNode(hasSetTextAction() and hasText("the drums come in")).performTextReplacement("")
+        rule.onNodeWithText("Done").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Note deleted").assertIsDisplayed()
+        rule.onNodeWithText("Undo").performClick()
+        rule.waitForIdle()
+
+        assertEquals(listOf(ScrapEdit.NoteText("n1", ""), ScrapEdit.RestoreNote("n1")), edits)
     }
 
     @Test
@@ -166,7 +288,61 @@ class AlbumScrapbookPageTest {
         rule.onAllNodes(hasContentDescription("Track 4, Song 4")).assertCountEquals(0)
     }
 
-    private fun show(albumNote: AlbumScrapbookAlbumNote? = null) {
+    @Test
+    fun should_leaveOutAQuickQuestion_when_theListenerWroteAnEntryUnderIt() {
+        show(
+            extraAsks = listOf(
+                AlbumScrapbookAsk(
+                    question = "What does this song sample?",
+                    title = null,
+                    answer = "A drum break from 1971.",
+                    own = true,
+                ),
+            ),
+        )
+
+        openSong3()
+        rule.onNode(emptyField()).performScrollTo().performClick()
+        rule.waitForIdle()
+
+        val chip = hasAnyAncestor(hasContentDescription("Quick questions"))
+        rule.onNode(chip and hasText("Who sampled this song?")).assertExists()
+        rule.onAllNodes(chip and hasText("What does this song sample?")).assertCountEquals(0)
+    }
+
+    private fun openSong3() {
+        rule.onNode(hasContentDescription("Asked about Song 3", substring = true)).performScrollTo().performClick()
+        rule.waitForIdle()
+    }
+
+    private fun openNotesOfSong2() {
+        rule.onNode(hasContentDescription("Track 2, Song 2", substring = true))
+            .performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnLongClick)
+        rule.waitForIdle()
+        rule.onNodeWithText("Note · 1").performClick()
+        rule.waitForIdle()
+    }
+
+    private fun hasLongClick() = SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick)
+
+    /** A text field with nothing typed in it yet. */
+    private fun emptyField() = hasSetTextAction() and SemanticsMatcher("an empty field") { node ->
+        node.config.getOrNull(SemanticsProperties.EditableText)?.text?.isEmpty() == true
+    }
+
+    /** Twelve timed lines, "Line 0" at 0:00 to "Line 11" at 1:50, ten seconds apart. */
+    private fun lyricsFeeds() = ScrapSheetFeeds(
+        lyrics = { flowOf(ScrapLyrics((0..11).map { ScrapLyricLine(it * 10_000L, "Line $it") })) },
+        gemini = MutableStateFlow(ScrapGemini()),
+        events = emptyFlow(),
+    )
+
+    private fun show(
+        albumNote: AlbumScrapbookAlbumNote? = null,
+        feeds: ScrapSheetFeeds = ScrapSheetFeeds.None,
+        extraAsks: List<AlbumScrapbookAsk> = emptyList(),
+    ) {
         val content = AlbumDetailUiState.Content(
             albumId = "subsonic:al-1",
             albumName = "Album",
@@ -193,7 +369,7 @@ class AlbumScrapbookPageTest {
                             answer = "First sentence. Second sentence. Third sentence.",
                             ref = askRef,
                         ),
-                    ),
+                    ) + extraAsks,
                 ),
             ),
             albumNote = albumNote,
@@ -210,6 +386,7 @@ class AlbumScrapbookPageTest {
                     onNoteMomentClick = { songId, at -> moments += songId to at },
                     onEditReview = { reviewEdits++ },
                     onEdit = { edits += it },
+                    feeds = feeds,
                 )
             }
         }

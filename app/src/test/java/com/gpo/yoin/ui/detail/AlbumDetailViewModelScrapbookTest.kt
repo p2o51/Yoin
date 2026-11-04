@@ -1,21 +1,30 @@
 package com.gpo.yoin.ui.detail
 
 import app.cash.turbine.test
+import com.gpo.yoin.R
+import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.album.AlbumScrapbookNote
 import com.gpo.yoin.data.album.AlbumScrapbookPlays
 import com.gpo.yoin.data.album.AlbumScrapbookQuery
 import com.gpo.yoin.data.album.AlbumScrapbookSource
+import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.LibraryMembership
+import com.gpo.yoin.data.model.LyricLine
+import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
+import com.gpo.yoin.ui.common.UiText
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -272,6 +281,120 @@ class AlbumDetailViewModelScrapbookTest {
         advanceUntilIdle()
 
         assertTrue(player.seeks.isEmpty())
+    }
+
+    @Test
+    fun should_askUnderThisAlbum_andShowItAsking_when_askedFromTheSheet() = runTest {
+        val answer = CompletableDeferred<YoinRepository.AskAboutResult>()
+        coEvery { repository.askAboutSong(any(), any(), any(), any()) } coAnswers { answer.await() }
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.Ask("subsonic:t2", "  Who sampled it? "))
+        runCurrent()
+        assertEquals(listOf(ScrapAsking("subsonic:t2", "Who sampled it?")), viewModel.scrapFeeds.gemini.value.asking)
+
+        answer.complete(YoinRepository.AskAboutResult.Success("An answer."))
+        advanceUntilIdle()
+        assertTrue(viewModel.scrapFeeds.gemini.value.asking.isEmpty())
+        coVerify { repository.askAboutSong("Song 2", "Artist", "Album", "Who sampled it?") }
+    }
+
+    @Test
+    fun should_offerTheOldTextBack_when_aRegenerateLands() = runTest {
+        val ref = AlbumScrapbookAboutRef("song 2", "artist", "album", SongAboutEntry.KIND_ASK, "who plays?")
+        coEvery { repository.regenerateAboutEntry(ref) } returns
+            YoinRepository.AboutRegenerateResult.Success(beforeTitle = "Old title", beforeAnswer = "Old answer.")
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.scrapFeeds.events.test {
+            viewModel.editScrapbook(ScrapEdit.Regenerate(ref))
+            assertEquals(ScrapEvent.Regenerated(ScrapEdit.About(ref, "Old title", "Old answer.")), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertTrue(viewModel.scrapFeeds.gemini.value.regenerating.isEmpty())
+    }
+
+    @Test
+    fun should_sayWhy_when_regenerateHasNoKey() = runTest {
+        val ref = AlbumScrapbookAboutRef("song 2", "artist", "album", SongAboutEntry.KIND_CANONICAL, "producer")
+        coEvery { repository.regenerateAboutEntry(ref) } returns YoinRepository.AboutRegenerateResult.ApiKeyMissing
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.scrapFeeds.events.test {
+            viewModel.editScrapbook(ScrapEdit.Regenerate(ref))
+            assertEquals(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun should_writeTheListenersEntryUnderThisAlbum_when_written() = runTest {
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.Write("subsonic:t3", "Where I heard it", "A friend's car."))
+        advanceUntilIdle()
+
+        coVerify { repository.writeOwnAboutEntry("Song 3", "Artist", "Album", "Where I heard it", "A friend's car.") }
+    }
+
+    @Test
+    fun should_putTheNoteBack_when_aDeleteIsUndone() = runTest {
+        val note = SongNote(
+            id = "n1",
+            profileId = "p",
+            trackId = "t2",
+            provider = MediaId.PROVIDER_SUBSONIC,
+            content = "the drums come in",
+            createdAt = 1L,
+            updatedAt = 2L,
+            title = "Song 2",
+            artist = "Artist",
+            positionMs = 61_000L,
+        )
+        coEvery { repository.editNoteById("n1", "") } returns note
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.NoteText("n1", ""))
+        viewModel.editScrapbook(ScrapEdit.RestoreNote("n1"))
+        advanceUntilIdle()
+
+        coVerify { repository.restoreNote(note) }
+    }
+
+    @Test
+    fun should_writeTheNoteAtTheLine_when_aNewNoteIsSaved() = runTest {
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.editScrapbook(ScrapEdit.NewNote("subsonic:t2", 80_000L, "the hook"))
+        advanceUntilIdle()
+
+        coVerify { repository.addNote(track(2), "the hook", 80_000L) }
+    }
+
+    @Test
+    fun should_readTimedLyricsOnce_when_theNoteTabAsks() = runTest {
+        coEvery { repository.getLyrics(id(2), "Song 2", "Artist", 200_000L) } returns
+            Lyrics.Synced(listOf(LyricLine(0L, "first"), LyricLine(10_000L, "")))
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.scrapFeeds.lyrics("subsonic:t2").test {
+            assertEquals(ScrapLyrics.Loading, awaitItem())
+            assertEquals(listOf(ScrapLyricLine(0L, "first")), awaitItem().lines)
+            awaitComplete()
+        }
+        // read again from memory: no Loading, no second fetch
+        viewModel.scrapFeeds.lyrics("subsonic:t2").test {
+            assertEquals(listOf(ScrapLyricLine(0L, "first")), awaitItem().lines)
+            awaitComplete()
+        }
+        coVerify(exactly = 1) { repository.getLyrics(any(), any(), any(), any()) }
     }
 
     private fun viewModel(

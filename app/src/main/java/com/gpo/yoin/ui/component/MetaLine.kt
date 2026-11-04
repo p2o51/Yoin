@@ -14,6 +14,7 @@ import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
@@ -72,10 +73,13 @@ fun MetaLine(
         },
     ) { measurables, constraints ->
         val gapPx = gap.roundToPx()
-        val loose = constraints.copy(minWidth = 0, minHeight = 0)
-        val widths = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
-        val count = metaLineVisibleCount(widths, gapPx, constraints.maxWidth)
-        val placeables = measurables.take(count).map { it.measure(loose) }
+        // Every group is measured at its natural width, then the ones that fit are placed. Not intrinsics:
+        // asking for a group's intrinsic width and then not measuring it (a dropped group) left the
+        // ticket's line re-measuring without end when the page's width changed under Now Playing (ANR).
+        val natural = Constraints(maxHeight = constraints.maxHeight)
+        val measured = measurables.map { it.measure(natural) }
+        val count = metaLineVisibleCount(measured.map(Placeable::width), gapPx, constraints.maxWidth)
+        val placeables = measured.take(count)
         val width = placeables.fold(0) { acc, placeable ->
             if (acc == 0) placeable.width else acc + gapPx + placeable.width
         }

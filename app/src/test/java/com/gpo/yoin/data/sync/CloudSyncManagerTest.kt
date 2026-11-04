@@ -421,6 +421,35 @@ class CloudSyncManagerTest {
     }
 
     @Test
+    fun should_syncTheListenersOwnEntries_whateverEachDevicesLanguage() = runBlocking {
+        val phone = device("Pixel 9")
+        val fold = device("Fold")
+        phone.db.geminiConfigDao().upsert(GeminiConfig(apiKey = "k", targetLanguage = "Japanese"))
+        fold.db.geminiConfigDao().upsert(GeminiConfig(apiKey = "", targetLanguage = "German"))
+        phone.db.syncDomainDao().upsertSongAbout(
+            com.gpo.yoin.data.local.SongAboutEntry(
+                titleKey = "song", artistKey = "artist", albumKey = "album",
+                titleDisplay = "Song", artistDisplay = "Artist", albumDisplay = "Album",
+                kind = "own", entryKey = "first listen", promptText = null, titleText = "First listen",
+                answerText = "On the night bus.", createdAt = 1L, updatedAt = 2L,
+            ),
+        )
+        phone.turnOn()
+        fold.turnOn()
+        assertEquals(
+            "On the night bus.",
+            fold.db.syncDomainDao().songAbout("song", "artist", "album", "own", "first listen")?.answerText,
+        )
+
+        // A language switch keeps the listener's entries, and they stay one record in Drive.
+        phone.db.geminiConfigDao().upsert(GeminiConfig(apiKey = "k", targetLanguage = "English"))
+        phone.db.songAboutEntryDao().deleteGenerated()
+        phone.sync()
+        fold.sync()
+        assertEquals(listOf("first listen"), fold.db.syncDomainDao().allSongAbout().filter { it.kind == "own" }.map { it.entryKey })
+    }
+
+    @Test
     fun should_syncUserAlbumTitle_andRestoreEverywhere_when_cleared() = runBlocking {
         val phone = device("Pixel 9")
         val fold = device("Fold")

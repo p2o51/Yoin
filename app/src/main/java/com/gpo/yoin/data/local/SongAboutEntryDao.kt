@@ -51,6 +51,20 @@ interface SongAboutEntryDao {
         questionKey: String,
     ): SongAboutEntry?
 
+    /** The listener's own entries for one song, removed (blank) ones included. */
+    @Query(
+        """
+        SELECT * FROM song_about_entries
+        WHERE titleKey = :titleKey AND artistKey = :artistKey AND albumKey = :albumKey
+          AND kind = 'own'
+        """,
+    )
+    suspend fun getOwn(
+        titleKey: String,
+        artistKey: String,
+        albumKey: String,
+    ): List<SongAboutEntry>
+
     @Query(
         """
         SELECT COUNT(*) FROM song_about_entries
@@ -117,6 +131,10 @@ interface SongAboutEntryDao {
 
     @Query("DELETE FROM song_about_entries")
     suspend fun deleteAll()
+
+    /** Everything Gemini wrote (a language switch makes it stale); the listener's own entries stay. */
+    @Query("DELETE FROM song_about_entries WHERE kind != 'own'")
+    suspend fun deleteGenerated()
 }
 
 data class AskRowCount(

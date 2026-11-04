@@ -257,7 +257,7 @@ class SettingsViewModel(
             val existing = current ?: GeminiConfig(apiKey = "")
             if (GeminiConfig.normalizeTargetLanguage(existing.targetLanguage) == normalized) return@launch
             database.geminiConfigDao().upsert(existing.copy(targetLanguage = normalized))
-            database.songAboutEntryDao().deleteAll()
+            database.songAboutEntryDao().deleteGenerated()
         }
     }
 
