@@ -86,7 +86,7 @@ struct NowPlayingView: View {
         }
         .task(id: engineTrack.map(NowPlayingData.key)) {
             guard let t = engineTrack else { return }
-            await data.prepare(t, client: model.session.client)
+            await data.prepare(t, client: model.session.client, apple: model.store.apple)
         }
         #if DEBUG
         .task { await NowPlayingDebugQueue.startIfRequested(model) }
@@ -363,7 +363,7 @@ struct NowPlayingView: View {
     private func toggleFavorite() {
         withAnimation(Yoin.spatialFast) {
             if let t = engineTrack {
-                data.toggleFavorite(t, client: model.session.client)
+                data.toggleFavorite(t, client: model.session.client, apple: model.store.apple)
             } else {
                 favorite.toggle()
             }
@@ -373,7 +373,7 @@ struct NowPlayingView: View {
     private var heart: some View {
         let favorite = isFavorite
         return Button { toggleFavorite() } label: {
-            YoinIcon(favorite ? "favorite_filled" : "favorite", size: 24)
+            YoinIcon(heartIcon(favorite), size: 24)
                 // Android FavoriteButton: liked = onTertiary heart on a
                 // tertiary circle, else onTertiaryContainer on
                 // tertiaryContainer. Liked, the glass carries the tertiary
@@ -390,7 +390,18 @@ struct NowPlayingView: View {
         .labGlass(favorite ? "transportPrimary" : "heart", scheme: scheme, brand: brand,
                   auto: favorite ? scheme.tertiary : scheme.tertiaryContainer, in: Circle())
         .animation(Yoin.effects, value: favorite)
-        .accessibilityLabel(favorite ? "Remove from favorites" : "Add to favorites")
+        .accessibilityLabel(heartLabel(favorite))
+    }
+
+    /// Apple Music's button is add to library (Android TrackLibraryButton): + / ✓.
+    private var heartIsLibrary: Bool { engineTrack?.provider == AppleMusicMapping.provider }
+
+    private func heartIcon(_ on: Bool) -> String {
+        heartIsLibrary ? (on ? "check" : "add") : (on ? "favorite_filled" : "favorite")
+    }
+
+    private func heartLabel(_ on: Bool) -> String {
+        heartIsLibrary ? (on ? "In library" : "Add to library") : (on ? "Remove from favorites" : "Add to favorites")
     }
 
     /// The lab's heart style is tinted (Current preset): unliked takes

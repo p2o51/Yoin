@@ -62,10 +62,20 @@ final class NowPlayingData {
     // MARK: Loading
 
     /// Fetches what this song needs and hasn't got yet.
-    func prepare(_ t: PlayableTrack, client: SubsonicClient?) async {
+    func prepare(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil) async {
         let k = Self.key(t)
         if let s = t.starred, serverStarred[k] == nil { serverStarred[k] = s }
         if let r = t.userRating, serverRating[k] == nil { serverRating[k] = r }
+        if t.provider == AppleMusicMapping.provider {
+            // No lyrics through MusicKit; the "heart" is library membership
+            // (Android's add-to-library button), the rating stays local.
+            if lyrics[k] == nil { lyrics[k] = LyricsState.none }
+            if let apple, serverStarred[k] == nil, !infoRequested.contains(k) {
+                infoRequested.insert(k)
+                if let added = await apple.isInLibrary(t.id) { serverStarred[k] = added } else { infoRequested.remove(k) }
+            }
+            return
+        }
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else {
             if lyrics[k] == nil { lyrics[k] = LyricsState.none }
             return
@@ -117,10 +127,24 @@ final class NowPlayingData {
     }
 
     /// Optimistic: the heart flips at once and flips back if the server says no.
-    func toggleFavorite(_ t: PlayableTrack, client: SubsonicClient?) {
+    func toggleFavorite(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil) {
         let k = Self.key(t)
         let was = isFavorite(t)
         let target = !was
+        if t.provider == AppleMusicMapping.provider {
+            // Add to library only: Apple has no remove, so an added song stays added.
+            guard !was, let apple else { return }
+            favorites[k] = true
+            Task {
+                do {
+                    try await apple.addToLibrary(t.id)
+                    serverStarred[k] = true
+                } catch {
+                    if favorites[k] == true { favorites[k] = false }
+                }
+            }
+            return
+        }
         favorites[k] = target
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
         Task {

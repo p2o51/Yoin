@@ -20,6 +20,8 @@ struct ServerSettingsView: View {
     private enum Field: Hashable { case address, username, password }
 
     private var session: ServerSession { model.session }
+    private var apple: AppleMusicSource { model.appleMusic }
+    private var active: ActiveSource { model.sources.active }
     private var app: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
@@ -61,17 +63,24 @@ struct ServerSettingsView: View {
                         .transition(.opacity)
                 }
                 if edited { signInButton.transition(.opacity.combined(with: .scale(scale: 0.96))) }
+                appleMusicGroup
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 40)
             .animation(Yoin.spatial, value: edited)
             .animation(Yoin.effects, value: session.state)
+            .animation(Yoin.spatial, value: active)
+            .animation(Yoin.effects, value: apple.authorization)
+            .animation(Yoin.effects, value: apple.subscription)
         }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaBar(edge: .top) { topBar }
         .background(page.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .onAppear(perform: fillFromAccount)
+        .onAppear {
+            fillFromAccount()
+            apple.refreshAuthorization()
+        }
     }
 
     // MARK: Pieces
@@ -102,6 +111,9 @@ struct ServerSettingsView: View {
                 if !name.isEmpty { rows.append(AnyView(infoRow("Server", name))) }
             }
             if let a = session.account { rows.append(AnyView(infoRow("Signed in as", a.username))) }
+            if session.isSignedIn, active != .subsonic {
+                rows.append(AnyView(actionRow("Use Subsonic", ink: app.primary) { use(.subsonic) }))
+            }
             rows.append(AnyView(signOutRow))
             return rows
         }
@@ -197,10 +209,91 @@ struct ServerSettingsView: View {
         .padding(.vertical, 14)
     }
 
+    // MARK: Apple Music
+
+    private var appleMusicGroup: some View {
+        group("Apple Music") {
+            var rows: [AnyView] = [AnyView(infoRow("Status", appleStatusText, ink: appleStatusInk))]
+            if apple.isAuthorized, let sub = apple.subscription {
+                rows.append(AnyView(infoRow("Subscription", Self.subscriptionText(sub),
+                                            ink: sub.canPlayCatalogContent ? app.primary : app.onSurfaceVariant)))
+            }
+            if active == .appleMusic {
+                rows.append(AnyView(infoRow("Source", "In use", ink: app.primary)))
+                rows.append(AnyView(actionRow("Disconnect", ink: app.error) {
+                    use(session.isSignedIn ? .subsonic : .mock)
+                }))
+            } else {
+                switch apple.authorization {
+                case .authorized:
+                    rows.append(AnyView(actionRow("Use Apple Music", ink: app.primary) { use(.appleMusic) }))
+                case .notDetermined:
+                    rows.append(AnyView(actionRow("Connect", ink: app.primary) {
+                        Task {
+                            await apple.requestAuthorization()
+                            if apple.isAuthorized { use(.appleMusic) }
+                        }
+                    }))
+                case .denied, .restricted:
+                    rows.append(AnyView(actionRow("Open Settings", ink: app.primary) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }))
+                }
+            }
+            return rows
+        }
+    }
+
+    private var appleStatusText: String {
+        switch apple.authorization {
+        case .authorized: "Authorized"
+        case .denied: "Denied"
+        case .restricted: "Restricted"
+        case .notDetermined: "Not connected"
+        }
+    }
+
+    private var appleStatusInk: Color {
+        switch apple.authorization {
+        case .authorized: app.primary
+        case .denied, .restricted: app.error
+        case .notDetermined: app.onSurfaceVariant
+        }
+    }
+
+    static func subscriptionText(_ s: AppleMusicSource.Subscription) -> String {
+        if s.canPlayCatalogContent { return "Active" }
+        return s.canBecomeSubscriber ? "Not subscribed" : "Unavailable"
+    }
+
+    /// Another source: the queue belongs to the old one, so playback stops.
+    private func use(_ source: ActiveSource) {
+        withAnimation(Yoin.spatial) {
+            if source != active { model.player.stop() }
+            model.sources.use(source)
+        }
+    }
+
+    private func actionRow(_ title: String, ink: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .yoinRole(Tokens.type.bodyLarge)
+                .foregroundStyle(ink)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var signOutRow: some View {
         Button {
             withAnimation(Yoin.spatial) {
-                model.player.stop()
+                if active == .subsonic {
+                    model.player.stop()
+                    model.sources.use(.mock)
+                }
                 session.signOut()
                 password = ""
             }
@@ -246,7 +339,10 @@ struct ServerSettingsView: View {
         Task {
             let ok = await session.signIn(baseUrl: address, username: username, password: password)
             working = false
-            if ok { fillFromAccount() }
+            if ok {
+                fillFromAccount()
+                use(.subsonic)
+            }
         }
     }
 }
