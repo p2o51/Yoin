@@ -17,6 +17,8 @@ struct RootView: View {
         Group {
             if LaunchConfig.baseScreen == "type" {
                 TypeSpecimenView()
+            } else if LaunchConfig.baseScreen.hasPrefix("emblem-award") {
+                EmblemAwardLab()
             } else if hsc == .regular {
                 PadShell()
             } else {
