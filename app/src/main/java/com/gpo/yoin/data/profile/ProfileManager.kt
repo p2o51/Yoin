@@ -256,10 +256,10 @@ class ProfileManager(
 
     /**
      * Switch the active profile: its [MusicSource] built and its server
-     * asked once ([SwitchState.Stage.Connecting]: a ping), then the
-     * provider-owned warm-up ([SwitchState.Stage.Priming]: [MusicSource.prime])
-     * before resolving. Subscribers of [switchingState] see the full
-     * progression so UI can show a loading overlay that blocks on real work.
+     * asked once ([SwitchState.Stage.Connecting]: a ping), then committed;
+     * the provider-owned warm-up ([MusicSource.prime]) runs after, in the
+     * background. Subscribers of [switchingState] see the progression so UI
+     * can show a loading overlay that blocks only on real work.
      * The source is built off the main thread — the target's credentials are
      * a file and a Keystore decrypt, its client a Retrofit stack — so a
      * switch begun from a tap never holds that tap's frames.
@@ -282,18 +282,20 @@ class ProfileManager(
             withTimeoutOrNull(PING_TIMEOUT_MS) { newSource.library().ping() }
                 ?: throw IllegalStateException("Server did not respond within ${PING_TIMEOUT_MS / 1000}s")
 
-            // The server answered: what's left is the warm-up. Provider-specific;
-            // a cold cache is not a fatal switch error.
-            _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Priming)
-            runCatching {
-                withTimeoutOrNull(PRIME_TIMEOUT_MS) { newSource.prime() }
-            }
-
             previousSource?.dispose()
             _activeSource.value = newSource
             setActive(id)
             onSwitchCommit()
             _switchingState.value = SwitchState.Idle
+            // The server answered: the account is live and playable now. The
+            // provider's warm-up runs behind it rather than in front of it —
+            // Spotify's paged three lists for ~8 s while the switch stood
+            // waiting, though every page reads its cache first and joins a
+            // list read already out. A cold cache is not a switch error.
+            val warming = newSource
+            scope.launch(Dispatchers.IO) {
+                runCatching { withTimeoutOrNull(PRIME_TIMEOUT_MS) { warming.prime() } }
+            }
         } catch (t: Throwable) {
             if (newSource != null && newSource !== previousSource) {
                 newSource.dispose()
@@ -647,10 +649,7 @@ class ProfileManager(
             Preparing,
 
             /** The target's source is built and its server asked (a ping). */
-            Connecting,
-
-            /** The server answered: the provider's own warm-up ([MusicSource.prime]). */
-            Priming
+            Connecting
         }
     }
 

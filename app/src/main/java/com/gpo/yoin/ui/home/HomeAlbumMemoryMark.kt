@@ -47,7 +47,8 @@ import com.gpo.yoin.ui.theme.YoinMotion
 // outline round the cover. Solid = your album rating, a line = your track
 // average, dashed = notes only. Jump Back In's plain album covers, Recently
 // Added's and Recently Played's album cards wear it; songs, playlists and the
-// 1×2 signal cards (which carry their score already) never do. The data is
+// 1×2 signal cards (which carry their score already) never do, and neither
+// does a Spotify cover (its guidelines forbid overlays on artwork). The data is
 // the memory signals' own candidate build (MemorySignals.pool) keyed by raw
 // album id — no query of its own — so an album outside that build stays bare.
 
@@ -124,13 +125,21 @@ private val MemoryScoreKind.markStrength: Int
 internal fun HomeWidgetCard.albumMemoryMark(marks: Map<String, HomeAlbumMemoryMark>): HomeAlbumMemoryMark? {
     if (marks.isEmpty() || expanded || entityType != MemoryEntityType.ALBUM) return null
     val albumId = (target as? HomeWidgetTarget.AlbumDetail)?.albumId ?: return null
-    val rawId = MediaId.parseOrNull(albumId)?.rawId ?: return null
-    return marks[rawId]
+    val id = MediaId.parseOrNull(albumId) ?: return null
+    if (!id.provider.allowsCoverMarks()) return null
+    return marks[id.rawId]
 }
 
 /** The mark a shelf's album card (Recently Added, Recently Played) wears. */
 internal fun Album.albumMemoryMark(marks: Map<String, HomeAlbumMemoryMark>): HomeAlbumMemoryMark? =
-    if (marks.isEmpty()) null else marks[id.rawId]
+    if (marks.isEmpty() || !id.provider.allowsCoverMarks()) null else marks[id.rawId]
+
+/**
+ * Whether a cover from [provider] may wear a mark at all. Spotify's design
+ * guidelines forbid laying images or text over its artwork ("Don't overlay
+ * images or text on top of the artwork"), so its covers stay bare.
+ */
+internal fun String.allowsCoverMarks(): Boolean = this != MediaId.PROVIDER_SPOTIFY
 
 // The Memories pill's cover sticker, same sizes: a 12dp cookie on a 16dp
 // page-coloured disc that parts it from the cover and the backdrop.

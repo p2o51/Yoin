@@ -322,7 +322,6 @@ fun NowPlayingScreen(
             primary = roomScheme.primary.toArgb(),
             secondary = roomScheme.secondary.toArgb(),
             tertiary = roomScheme.tertiary.toArgb(),
-            surface = roomScheme.surfaceContainerHigh.toArgb(),
         )
     }
     val background = scheme.background

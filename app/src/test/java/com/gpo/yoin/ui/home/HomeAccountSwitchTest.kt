@@ -49,7 +49,7 @@ class HomeAccountSwitchTest {
     @Test
     fun should_leaveAnotherSwitchAlone_when_switchFromHomeIsTurnedAway() = runTest {
         // A switch already in flight (begun in Settings) turns this one away.
-        val other = ProfileManager.SwitchState.Switching("c", ProfileManager.SwitchState.Stage.Priming)
+        val other = ProfileManager.SwitchState.Switching("c", ProfileManager.SwitchState.Stage.Connecting)
         state.value = other
         coEvery { profiles.switchTo("b") } answers { }
 
@@ -71,7 +71,7 @@ class HomeAccountSwitchTest {
     fun should_waitOutTheSameSwitch_when_itWasBegunElsewhere() = runTest {
         // Settings is already switching to "b": Home's pick of "b" is turned
         // away, but it is the same switch — its landing is Home's too.
-        state.value = ProfileManager.SwitchState.Switching("b", ProfileManager.SwitchState.Stage.Priming)
+        state.value = ProfileManager.SwitchState.Switching("b", ProfileManager.SwitchState.Stage.Connecting)
         coEvery { profiles.switchTo("b") } answers { }
 
         val outcome = async { profiles.switchFromHome("b") }
