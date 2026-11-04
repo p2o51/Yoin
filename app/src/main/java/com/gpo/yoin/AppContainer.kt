@@ -21,6 +21,7 @@ import com.gpo.yoin.data.profile.AndroidKeyStoreCredentialsCipher
 import com.gpo.yoin.data.profile.EncryptedProfileCredentialsCodec
 import com.gpo.yoin.data.profile.FileBackedProfileCredentialsStore
 import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
+import com.gpo.yoin.data.profile.AppleMusicNameRegionStore
 import com.gpo.yoin.data.profile.ProfileAvatarStore
 import com.gpo.yoin.data.profile.ProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileCredentialsStore
@@ -374,6 +375,7 @@ class AppContainer(private val context: Context) {
 
     /** Account pictures from their services (Spotify profile photos), by profile id. */
     val profileAvatarStore: ProfileAvatarStore by lazy { ProfileAvatarStore(context) }
+    val appleMusicNameRegionStore: AppleMusicNameRegionStore by lazy { AppleMusicNameRegionStore(context) }
 
     val profileManager: ProfileManager by lazy {
         ProfileManager(
@@ -386,6 +388,7 @@ class AppContainer(private val context: Context) {
             spotifyHttpClientProvider = { spotifyHttpClient },
             spotifyRateLimitGate = spotifyRateLimitGate,
             subsonicBaseHttpClientProvider = { subsonicBaseHttpClient },
+            appleMusicNameRegion = { profileId -> appleMusicNameRegionStore.get(profileId) },
             onSwitchPrepare = {
                 // Tear down the current playback session — its stream URLs
                 // are scoped to the outgoing profile.
@@ -403,6 +406,7 @@ class AppContainer(private val context: Context) {
                 homeSnapshotStore.delete(profileId)
                 libraryOpenStore.clear(profileId)
                 librarySortStore.clear(profileId)
+                appleMusicNameRegionStore.remove(profileId)
             },
         ).also { manager ->
             applicationScope.launch {

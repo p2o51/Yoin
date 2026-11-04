@@ -64,6 +64,10 @@ internal class FakeDetailCacheDao : DetailCacheDao {
         synchronized(rows) { rows.values.removeAll { it.cachedAt < cutoff } }
     }
 
+    override suspend fun deleteProfile(profileId: String) {
+        synchronized(rows) { rows.values.removeAll { it.profileId == profileId } }
+    }
+
     private fun key(profileId: String, kind: String, entityId: String) = Triple(profileId, kind, entityId)
 
     private fun String.codePointLength(): Long = codePointCount(0, length).toLong()

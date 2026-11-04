@@ -67,6 +67,15 @@
     <string name="np_about_lyricist">作词</string>
     <string name="np_about_composer">作曲</string>
     <string name="np_about_producer">制作人</string>
+    <string name="np_spine_quality">音质</string>
+    <string name="np_spine_server_rating">服务器评分</string>
+    <string name="np_spine_genre">流派</string>
+    <string name="np_spine_year">年份</string>
+    <string name="np_spine_track">曲目</string>
+    <string name="np_spine_disc_track">第 %1$d 碟 第 %2$d 首</string>
+    <string name="np_spine_kbps">%1$d kbps</string>
+    <string name="np_spine_khz">%1$s kHz</string>
+    <string name="np_spine_bit">%1$d-bit</string>
     <string name="np_about_review">关于</string>
 
     <string name="np_ask_placeholder">问 Gemini</string>

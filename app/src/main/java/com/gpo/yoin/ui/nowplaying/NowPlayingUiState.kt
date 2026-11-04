@@ -94,6 +94,8 @@ sealed interface NowPlayingUiState {
         val serviceFeatures: ServiceFeatures = ServiceFeatureCatalog.subsonic,
         val libraryMembership: LibraryMembership = LibraryMembership.Unknown,
         val libraryActionInFlight: Boolean = false,
+        /** What a Subsonic server says about the song (format, quality, its own rating…), for the spine. */
+        val spineFacts: SpineSourceFacts? = null,
         /** The next song's timed lyrics, fetched ahead for the outro hand-over. */
         val upNextLyrics: UpNextLyrics? = null,
     ) : NowPlayingUiState
