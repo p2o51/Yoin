@@ -165,6 +165,7 @@ struct NowPlayingAboutView: View {
     var expanded: Bool
     var scheme: CoverScheme
     var bottomPadding: CGFloat = 56
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -246,19 +247,22 @@ struct NowPlayingAboutView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// M3 TextButton: primary label, 12 in, 40 tall; the text lines up with
-    /// the page edge as Android's does under its 12 dp content padding.
+    /// M3 TextButton (labelLarge, 12 in, 40 tall) on the NP pills' primary
+    /// glass (51, 2026-11-04: every Ask Gemini control is glass). With a
+    /// visible capsule, the capsule (not the text) lines up with the page edge.
     private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .yoinRole(Tokens.type.labelLarge)
-                .foregroundStyle(scheme.primary)
+                .foregroundStyle(colorScheme == .dark ? Color.white : scheme.onPrimary)
+                .labContrast("transportPrimary")
                 .padding(.horizontal, 12)
                 .frame(minHeight: 40)
+                .npPillGlass(tint: scheme.primary, in: Capsule())
                 .contentShape(.capsule)
         }
         .buttonStyle(PressScale())
-        .padding(.leading, -12)
+        .padding(.top, 4)
     }
 
     // MARK: Rows
@@ -356,6 +360,7 @@ struct AskGeminiBar: View {
     var scheme: CoverScheme
     var onFocus: () -> Void
     var onDismissError: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     static let height: CGFloat = 56
     static let corner: CGFloat = 28
@@ -370,21 +375,22 @@ struct AskGeminiBar: View {
                     .controlSize(.regular)
                     .tint(scheme.primary)
                     .frame(width: 28, height: 28)
-                label(title.isEmpty ? "Ask Gemini" : title, color: scheme.onPrimaryContainer)
+                label(title.isEmpty ? "Ask Gemini" : title, color: onGlass)
             case .error(let message):
                 AskGeminiBar.dot(scheme)
                 label(message, color: scheme.error)
             case .idle, .focused:
                 AskGeminiBar.dot(scheme)
-                label("Ask Gemini", color: scheme.onPrimaryContainer)
+                label("Ask Gemini", color: onGlass)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
-        .background(loading ? scheme.primaryContainer.mix(with: scheme.background, by: 0.45, in: .device)
-                        : scheme.primaryContainer,
-                    in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+        // Glass (51, 2026-11-04): it floats over the page as it scrolls.
+        // Loading thins the tint 45 % (Android lightens the fill toward the page).
+        .npPillGlass(tint: scheme.primaryContainer, strength: loading ? 0.55 : 1,
+                     in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
         .onTapGesture {
             switch state {
@@ -397,6 +403,10 @@ struct AskGeminiBar: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(loading ? [] : .isButton)
     }
+
+    /// On the glass: onPrimaryContainer in light, white in dark (the NP
+    /// pills' rule; dark onPrimaryContainer sinks into the tinted glass).
+    private var onGlass: Color { colorScheme == .dark ? .white : scheme.onPrimaryContainer }
 
     private func label(_ text: String, color: Color) -> some View {
         Text(text)
@@ -421,19 +431,23 @@ struct AskGeminiField: View {
     @Binding var text: String
     var focus: FocusState<Bool>.Binding
     var onSubmit: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     static let height: CGFloat = 252
+
+    /// As on the bar: white in dark.
+    private var onGlass: Color { colorScheme == .dark ? .white : scheme.onPrimaryContainer }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             AskGeminiBar.dot(scheme)
             TextField(text: $text, prompt: Text("Ask Gemini")
-                .foregroundStyle(scheme.onPrimaryContainer.opacity(0.6)), axis: .vertical) {
+                .foregroundStyle(onGlass.opacity(0.6)), axis: .vertical) {
                 Text("Ask Gemini")
             }
             .yoinRole(Tokens.type.titleMedium)
-            .foregroundStyle(scheme.onPrimaryContainer)
-            .tint(scheme.onPrimaryContainer)
+            .foregroundStyle(onGlass)
+            .tint(onGlass)
             .submitLabel(.send)
             .focused(focus)
             .onChange(of: text) { _, now in
@@ -448,8 +462,8 @@ struct AskGeminiField: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .topLeading)
-        .background(scheme.primaryContainer,
-                    in: RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous))
+        .npPillGlass(tint: scheme.primaryContainer,
+                     in: RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous))
     }
 
     private func submit() {

@@ -364,7 +364,9 @@ struct NowPlayingView: View {
             Spacer().frame(height: coverGap)
             tabsSlot(expanded: expanded)
                 .frame(height: tabsH, alignment: .top)
-                .clipped()
+                // Expanded, the clip stands off so the glass tabs' own edge
+                // light and shadow aren't cut to a hard line.
+                .clipShape(Rectangle().inset(by: expanded ? -64 : 0))
                 .npFade(open, contentFade)
             Spacer().frame(height: tabGap)
             // The lyrics run on under the glass transport; the current line
@@ -574,23 +576,34 @@ struct NowPlayingView: View {
         .frame(height: Tokens.np.TAB_ROW_NOMINAL.cg, alignment: .top)
     }
 
-    /// Android StageTabs, expanded: the three pages as a button group.
+    /// Android StageTabs, expanded: the three pages as a button group. They
+    /// float over the page as it scrolls, so they're the NP pills' glass:
+    /// the selected one primary-tinted (label as on the pills), the others
+    /// primaryContainer-tinted.
     private var expandedTabs: some View {
-        HStack(spacing: 8) {
-            ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
-                let on = tab == page.rawValue
-                Button { withAnimation(Yoin.spatial) { tab = page.rawValue } } label: {
-                    Text(page.title)
-                        .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
-                        .foregroundStyle(on ? scheme.onPrimary : scheme.onPrimaryContainer)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: NowPlayingExpanded.tabRow)
-                        .background(on ? scheme.primary : scheme.primaryContainer, in: Capsule())
-                        .contentShape(.capsule)
-                        .animation(Yoin.effects, value: on)
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
+                    let on = tab == page.rawValue
+                    Button { withAnimation(Yoin.spatial) { tab = page.rawValue } } label: {
+                        Text(page.title)
+                            .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
+                            // Dark: white on both (the pills' rule; the container
+                            // on-colors sink into the tinted glass).
+                            .foregroundStyle(colorScheme == .dark ? Color.white
+                                             : on ? scheme.onPrimary : scheme.onPrimaryContainer)
+                            .labContrast(on ? "transportPrimary" : "npPills")
+                            .frame(maxWidth: .infinity)
+                            .frame(height: NowPlayingExpanded.tabRow)
+                            // The unselected thinner, so the selection reads in light too.
+                            .npPillGlass(tint: on ? scheme.primary : scheme.primaryContainer,
+                                         strength: on ? 1 : 0.6, in: Capsule())
+                            .contentShape(.capsule)
+                            .animation(Yoin.effects, value: on)
+                    }
+                    .buttonStyle(PressScale())
+                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
-                .buttonStyle(PressScale())
-                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
     }
@@ -1394,6 +1407,27 @@ extension View {
     /// spring to the geometry.
     func npFade(_ visible: Bool, _ animation: Animation) -> some View {
         self.animation(animation) { $0.opacity(visible ? 1 : 0) }
+    }
+
+    /// The NP pills' glass (Glass Lab "npPills": variant, tint opacity,
+    /// shadow) in another tint, for the expanded page's floating controls
+    /// (tabs, Ask Gemini, About's buttons). `strength` thins the tint (Ask
+    /// Gemini loading). Non-glass presets get the solid fill they had.
+    @ViewBuilder
+    func npPillGlass<S: Shape>(tint: Color, strength: Double = 1, shadow: Bool = true,
+                               in shape: S) -> some View {
+        let st = GlassLab.shared.style("npPills")
+        Group {
+            switch st.variant {
+            case .regular, .clear:
+                let base: Glass = st.variant == .clear ? .clear : .regular
+                let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity * strength)) : base
+                glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
+            case .none, .material:
+                background(shape.fill(tint.opacity(strength)))
+            }
+        }
+        .shadow(color: tint.opacity(shadow ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
     }
 
     /// A Glass Lab surface that turns into interactive glass while `held`,
