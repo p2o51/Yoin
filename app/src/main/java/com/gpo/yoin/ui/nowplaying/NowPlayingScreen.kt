@@ -1365,10 +1365,11 @@ private fun CompactPlayingContent(
         // screen, 16:9), its focus takes the same arrangement: the lyric frame
         // already folds to one line there, so that is the short-window test
         // (owner 2026-11-02, device screenshot). The budget sizes that focus
-        // (compact transport, three lyric lines; owner 2026-11-04).
+        // (compact transport, two or three lyric lines; owner 2026-11-04).
         var shortFocus by remember { mutableStateOf(false) }
         val shortFocusHaptics = rememberYoinHaptics()
-        val shortArrangement = shortFocus || (lyricOneLine && stageMode == NowPlayingStageMode.Immersive)
+        // Handset widths only: the inner screen and tablets keep both rows.
+        val shortArrangement = shortFocus || (budget.compactFocus && stageMode == NowPlayingStageMode.Immersive)
         val shortFocusProgress by animateFloatAsState(
             targetValue = if (shortArrangement) 1f else 0f,
             animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),

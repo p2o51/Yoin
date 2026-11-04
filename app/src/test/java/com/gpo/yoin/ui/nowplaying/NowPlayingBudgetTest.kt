@@ -16,6 +16,7 @@ class NowPlayingBudgetTest {
     private val focusLyric = LyricWindowMetrics(
         activeLine = 32.dp * FocusLyricScale,
         inactiveLine = 28.dp * FocusLyricScale,
+        anchorFraction = FocusLyricsAnchorFraction,
     )
     private fun column(transport: Dp = 116.dp, pills: Dp = 44.dp) = StageColumnMetrics(
         tabText = 20.dp,
@@ -244,8 +245,45 @@ class NowPlayingBudgetTest {
         val focus = nn(budget.focus)
         assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
         assertTrue(focus.cover >= budget.rest.cover * 0.9f)
-        assertTrue(budget.focusStageWidth >= 272.dp + 48.dp)
+        // The column lines up with the cover's edges.
+        assertDp(focus.cover + 48.dp, budget.focusStageWidth)
         assertDp(592.dp, focus.total)
+    }
+
+    @Test
+    fun should_holdCoverAtTheFloorAndAlignTheColumn_when_shortFoldOuter() {
+        // A shorter outer screen (status and nav bars eat more): two lines at
+        // equal margins would shrink the cover under the transport's width,
+        // so the cover holds 272dp, the column stays aligned to it and only
+        // the top margin gives a little — never the 12dp, grown-cover pose.
+        for (h in listOf(620, 640, 660)) {
+            val budget = resolveStageColumnBudget(475.dp, h.dp, column())
+            val focus = nn(budget.focus)
+            assertDp(272.dp, focus.cover)
+            assertDp(focus.cover + 48.dp, budget.focusStageWidth)
+            assertTrue(focus.topBar > 48.dp)
+            assertTrue(focus.topBar <= (475.dp - focus.cover) / 2f)
+            assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
+            assertDp(h.dp, focus.total)
+        }
+    }
+
+    @Test
+    fun should_keepBothTransportRows_when_enlargedFocuses() {
+        // The short transport is a handset's; the inner screen keeps two rows.
+        assertTrue(resolveStageColumnBudget(475.dp, 690.dp, column()).compactFocus)
+        for ((w, h) in listOf(690 to 640, 690 to 790, 800 to 1212)) {
+            val budget = resolveStageColumnBudget(w.dp, h.dp, column(), enlarged = nowPlayingEnlargedSpec(w.dp))
+            assertTrue("compact focus at ${w}x$h", !budget.compactFocus)
+        }
+    }
+
+    @Test
+    fun should_pinTheCurrentLineToTheTop_when_focused() {
+        // No line above the current one: two clean focus lines cost less
+        // than the resting window's anchor would.
+        val anchored = LyricWindowMetrics(focusLyric.activeLine, focusLyric.inactiveLine)
+        assertTrue(focusLyric.cleanLines(2) < anchored.cleanLines(2) - 20.dp)
     }
 
     @Test

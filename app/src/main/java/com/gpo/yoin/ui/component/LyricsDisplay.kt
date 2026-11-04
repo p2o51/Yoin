@@ -319,10 +319,14 @@ private fun LyricsDisplayContent(
         var firstAnchor = true
         // filter { it > 0 }: during an expand the height is ~0 for a frame, and a 0
         // offset would slip the anchoring by a line.
-        snapshotFlow { listState.layoutInfo.viewportSize.height }
-            .filter { it > 0 }
-            .collect { viewportPx ->
-                val offsetPx = if (handOverTarget) 0 else -(viewportPx * 0.22f).toInt()
+        // Focus pins the current line to the top (the budget's
+        // FocusLyricsAnchorFraction = 0): only the current line and what
+        // follows show, no half-cut line above it (owner 2026-11-04).
+        snapshotFlow { listState.layoutInfo.viewportSize.height to focus().coerceIn(0f, 1f) }
+            .filter { it.first > 0 }
+            .collect { (viewportPx, focusNow) ->
+                val anchor = 0.22f * (1f - focusNow)
+                val offsetPx = if (handOverTarget) 0 else -(viewportPx * anchor).toInt()
                 when {
                     // Very first centre of the song: instant, no animation.
                     !hasCentered -> {
