@@ -2421,8 +2421,9 @@ class HomeViewModel(
         null
     }
 
+    // Null is unrated ("N/A"); a 0.0 track average is a score.
     private fun formatMemoryScore(rating: Float?): String =
-        if (rating != null && rating > 0f) {
+        if (rating != null) {
             String.format(Locale.US, "%.1f", rating)
         } else {
             "N/A"

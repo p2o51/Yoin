@@ -120,7 +120,7 @@ internal object WidgetData {
             albumName = albumName,
             artistName = artistName,
             coverUrl = coverArtUrl,
-            score = albumRating?.takeIf { it > 0f } ?: averageSongRating?.takeIf { it > 0f },
+            score = albumRating?.takeIf { it > 0f } ?: averageSongRating,
             lastHeardAt = lastPlayedFromHistoryAt,
             generatedTitle = title,
         )

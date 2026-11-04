@@ -685,7 +685,8 @@ class AlbumDetailViewModel(
         when (edit) {
             is ScrapEdit.Score -> {
                 val id = MediaId.parseOrNull(edit.songId) ?: return
-                repository.setRating(id, edit.score)
+                val score = edit.score
+                if (score == null) repository.clearRating(id) else repository.setRating(id, score)
             }
             is ScrapEdit.About -> launchScrapWrite { repository.editAboutEntry(edit.ref, edit.title, edit.answer) }
             is ScrapEdit.Ask -> askFromScrapbook(edit)

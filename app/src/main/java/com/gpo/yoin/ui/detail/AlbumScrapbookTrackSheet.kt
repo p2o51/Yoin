@@ -56,7 +56,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -200,7 +199,7 @@ internal fun ScrapTrackSheet(
                     // A removed row folds away instead of the sheet snapping shorter.
                     .animateContentSize(YoinMotion.defaultSpatialSpec()),
             ) {
-                ScoreHeader(track = track, colors = colors, onEdit = onEdit)
+                ScoreHeader(track = track, colors = colors, onEdit = onEdit, onNotice = onNotice)
                 YoinTabGroup(
                     labels = listOf(
                         stringResource(R.string.detail_scrap_tab_about),
@@ -262,16 +261,30 @@ internal fun ScrapTrackSheet(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ScoreHeader(track: ScrapTrack, colors: ScrapbookColors, onEdit: (ScrapEdit) -> Unit) {
-    // The bar's own value; saved when the finger lifts, like the album's rate sheet.
-    var live by remember(track.songId) { mutableFloatStateOf(track.score ?: 0f) }
-    var saved by remember(track.songId) { mutableFloatStateOf(track.score ?: 0f) }
+private fun ScoreHeader(
+    track: ScrapTrack,
+    colors: ScrapbookColors,
+    onEdit: (ScrapEdit) -> Unit,
+    onNotice: (ScrapNotice) -> Unit,
+) {
+    // The bar's own value (null: not rated); saved when the finger lifts, like the album's rate sheet.
+    var live by remember(track.songId) { mutableStateOf(track.score) }
+    var saved by remember(track.songId) { mutableStateOf(track.score) }
+    var held by remember(track.songId) { mutableStateOf(false) }
     var open by remember(track.songId) { mutableStateOf(false) }
-    fun commit(score: Float) {
+    // A score written from elsewhere (the clear's Undo, Now Playing) is what the bar shows, unless a finger is on it.
+    LaunchedEffect(track.songId, track.score) {
+        if (!held && track.score != saved) {
+            live = track.score
+            saved = track.score
+        }
+    }
+    fun commit(score: Float?) {
         if (score == saved) return
         saved = score
         onEdit(ScrapEdit.Score(track.songId, score))
     }
+    val clearedLabel = stringResource(R.string.detail_scrap_score_cleared)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -293,7 +306,7 @@ private fun ScoreHeader(track: ScrapTrack, colors: ScrapbookColors, onEdit: (Scr
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(12.dp))
-        val scoreText = if (live > 0f) scrapScoreText(live) else null
+        val scoreText = live?.let(::scrapScoreText)
         val description = scoreText?.let { stringResource(R.string.detail_scrap_cd_score, it) }
             ?: stringResource(R.string.detail_scrap_not_rated)
         val state = stringResource(
@@ -340,25 +353,33 @@ private fun ScoreHeader(track: ScrapTrack, colors: ScrapbookColors, onEdit: (Scr
                 orientation = Orientation.Horizontal,
                 // The sheet scrolls and drags away: a swipe across the bar is the sheet's, not a score.
                 claimOnDown = false,
-                onInteractionChange = { active -> if (!active) commit(live) },
+                onInteractionChange = { active ->
+                    held = active
+                    if (!active) commit(live)
+                },
                 gestureKey = track.songId,
                 modifier = Modifier.weight(1f),
             )
+            // The only clear in the app (owner 2026-11-04): back to "not rated", never 0.0. Undo puts the score back.
             ClearScoreButton(
-                visible = live > 0f,
+                visible = live != null,
                 onClick = {
-                    live = 0f
-                    commit(0f)
+                    val was = saved
+                    live = null
+                    commit(null)
+                    if (was != null) {
+                        onNotice(ScrapNotice(clearedLabel, YoinSymbols.Delete, ScrapEdit.Score(track.songId, was)))
+                    }
                 },
             )
         }
     }
 }
 
-/** "Clear" beside the slider; its width is held when it fades out, so clearing a score doesn't shift the bar. */
+/** "Clear rating" beside the slider; its width is held when it fades out, so clearing a score doesn't shift the bar. */
 @Composable
 private fun ClearScoreButton(visible: Boolean, onClick: () -> Unit) {
-    Box(modifier = Modifier.widthIn(min = 72.dp), contentAlignment = Alignment.CenterEnd) {
+    Box(modifier = Modifier.widthIn(min = 112.dp), contentAlignment = Alignment.CenterEnd) {
         AnimatedVisibility(
             visible = visible,
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),

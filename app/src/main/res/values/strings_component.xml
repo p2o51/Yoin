@@ -108,6 +108,8 @@
 
     <string name="cmp_rating_state">Rated %1$s out of 10</string>
 
+    <string name="cmp_rating_state_unrated">Not rated</string>
+
     <string name="cmp_bar_label_home">Home</string>
     <string name="cmp_bar_cd_home">Home</string>
     <string name="cmp_bar_label_library">Library</string>

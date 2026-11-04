@@ -178,7 +178,7 @@ class RoomAlbumScrapbookSource(
         val byProvider = query.tracks.map { it.id }.distinct().groupBy(MediaId::provider)
         val ratings = byProvider.flatCombine { provider, ids ->
             ratingDao.observeRatings(ids, provider, profileId).map { rows ->
-                rows.filter { it.rating > 0f }.map { MediaId(it.provider, it.songId) to it.rating }
+                rows.mapNotNull { row -> row.rating?.let { MediaId(row.provider, row.songId) to it } }
             }
         }
         val notes = byProvider.flatCombine { provider, ids ->

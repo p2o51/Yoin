@@ -168,8 +168,8 @@ data class ScrapAboutSheet(
  * its data, so nothing here is optimistic.
  */
 sealed interface ScrapEdit {
-    /** A track's score, 0–10; 0 clears it (a stored 0 is "not rated"). */
-    data class Score(val songId: String, val score: Float) : ScrapEdit
+    /** A track's score, 0–10 (0.0 is a score); null clears it back to "not rated" (the sheet's Clear rating). */
+    data class Score(val songId: String, val score: Float?) : ScrapEdit
 
     /**
      * New text for one Ask / About row: [title] only applies to a question. A blank [answer] removes the

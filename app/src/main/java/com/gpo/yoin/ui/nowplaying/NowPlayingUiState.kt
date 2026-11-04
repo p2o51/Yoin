@@ -63,7 +63,8 @@ sealed interface NowPlayingUiState {
         val isPlaying: Boolean,
         val durationMs: Long,
         val songId: String,
-        val rating: Float,
+        /** The track's score, 0.0–10.0; null when it was never rated (the bar is empty, no number). */
+        val rating: Float?,
         val isStarred: Boolean,
         /**
          * Spotify's answers that came in late and flipped [isStarred]: each

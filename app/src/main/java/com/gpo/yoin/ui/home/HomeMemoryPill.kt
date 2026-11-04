@@ -161,13 +161,13 @@ internal fun pickLatestMemory(candidates: List<AlbumMemoryCandidate>): AlbumMemo
 /** The Memories seal's rule: your album rating, else your track average, else none. */
 internal fun memoryScoreKindOf(candidate: AlbumMemoryCandidate): MemoryScoreKind = when {
     candidate.albumRating != null -> MemoryScoreKind.ALBUM_RATING
-    (candidate.averageSongRating ?: 0f) > 0f -> MemoryScoreKind.AVERAGE_TRACK_RATING
+    candidate.averageSongRating != null -> MemoryScoreKind.AVERAGE_TRACK_RATING
     else -> MemoryScoreKind.NONE
 }
 
-/** The seal's own "%.1f" — a 10 reads "10.0" there too. */
+/** The seal's own "%.1f" — a 10 reads "10.0" there too, a 0.0 "0.0"; null (unrated) shows none. */
 private fun formatPillScore(rating: Float?): String? =
-    rating?.takeIf { it > 0f }?.let { String.format(Locale.US, "%.1f", it) }
+    rating?.let { String.format(Locale.US, "%.1f", it) }
 
 internal fun buildHomeMemoryPill(
     candidates: List<AlbumMemoryCandidate>,
