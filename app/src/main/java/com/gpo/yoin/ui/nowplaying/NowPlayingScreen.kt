@@ -52,7 +52,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
@@ -1342,15 +1341,24 @@ private fun CompactPlayingContent(
         // rating bar and title fold away, PREVIOUS glides up into the top transport
         // row and the progress bar takes its own row; the freed height goes to the
         // cover, centred. The current lyric line stays, as in every focus.
+        // On a short window where the regular focus IS offered (the Fold 8 outer
+        // screen is tall enough), its focus takes the same arrangement: the lyric
+        // frame already folds to one line there, so that is the short-window test
+        // (owner 2026-11-02, device screenshot).
         var shortFocus by remember { mutableStateOf(false) }
+        val shortArrangement = shortFocus || (lyricOneLine && stageMode == NowPlayingStageMode.Immersive)
         val shortFocusProgress by animateFloatAsState(
-            targetValue = if (shortFocus) 1f else 0f,
+            targetValue = if (shortArrangement) 1f else 0f,
             animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
             label = "npShortFocus",
         )
         val shortFocusControls = shortFocusControlsHeight(stageControlSize)
         val shortFocusFreed = (restPose.hero + restPose.controls - shortFocusControls).coerceAtLeast(0.dp)
-        val shortFocusCover = minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2)
+        // Never smaller than the regular focus's own cover where that is offered.
+        val shortFocusCover = maxOf(
+            minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2),
+            if (focusOffered) focusPose.cover else 0.dp,
+        )
         val shortFocusAvailable = !focusOffered && shortFocusCover - restPose.cover >= ShortFocusMinGrowth
         LaunchedEffect(shortFocusAvailable, stageMode) {
             if (!shortFocusAvailable || stageMode != NowPlayingStageMode.Compact) shortFocus = false
@@ -1368,8 +1376,9 @@ private fun CompactPlayingContent(
         val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress, shortFocusProgress)
         val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
         // A height-capped cover (Fold outer, 16:9) leaves a band between it and the
-        // rating bar: the song's album, artist and title run up it, a record's
-        // spine (owner 2026-10-30, option 2 over a thick bar).
+        // rating bar: the spine (书脊, NowPlayingSpine) reads the song there, one
+        // fact at a time — the cached About credits and, on Subsonic, the
+        // server's facts (owner 2026-10-30 / 2026-11-03).
         val spineBand = stageWidth - horizontalPadding * 2 - 12.dp - ratingColumn - restPose.cover
         val showSpine = spineBand >= SpineMinWidth
         val ratingSlotWidth = lerpDp(ratingColumn, 0.dp, ratingRetreatProgress)
@@ -1575,8 +1584,26 @@ private fun CompactPlayingContent(
                                 ),
                             ) {
                                 if (showSpine) {
-                                    NowPlayingSpineMarquee(
-                                        text = "${state.albumName}   ${state.artist}   ${state.songTitle}",
+                                    val spineLabels = rememberSpineLabels()
+                                    val aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty()
+                                    val spineItems = remember(
+                                        aboutEntries,
+                                        state.spineFacts,
+                                        state.songId,
+                                        spineLabels,
+                                    ) {
+                                        spineItems(
+                                            entries = aboutEntries,
+                                            facts = state.spineFacts,
+                                            albumName = state.albumName,
+                                            artist = state.artist,
+                                            title = state.songTitle,
+                                            labels = spineLabels,
+                                        )
+                                    }
+                                    NowPlayingSpine(
+                                        items = spineItems,
+                                        songKey = state.songId,
                                         length = restPose.cover,
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
@@ -4394,7 +4421,7 @@ private data class OneLineLyricFrame(
  * the active line does in the multi-line view, while the old line settles
  * back and fades. Movement rides the spatial spring, alpha the effects spring.
  */
-private fun oneLineLyricLanding(): ContentTransform {
+internal fun oneLineLyricLanding(): ContentTransform {
     val leftEdge = TransformOrigin(0f, 0.5f)
     val enter = YoinMotion.scaleIn(
         role = YoinMotionRole.Expressive,
@@ -5222,37 +5249,13 @@ private fun PlayingFromLabel(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 /** Short focus is offered only where folding the rest away grows the cover by at least this. */
 private val ShortFocusMinGrowth = 24.dp
 
 /** The spine shows only in a band at least this wide. */
 private val SpineMinWidth = 24.dp
 
-/**
- * The band between a height-capped cover and the rating bar: the song's info
- * running up it, a record's spine. Laid out [length] (the cover's side) long,
- * turned a quarter round, and marqueed with the title's fade and pause.
- */
-@Composable
-private fun NowPlayingSpineMarquee(text: String, length: Dp, modifier: Modifier = Modifier) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier
-                .requiredWidth(length)
-                .graphicsLayer { rotationZ = -90f }
-                .clipToBounds()
-                .horizontalFadeMask(edgeWidth = 28.dp)
-                .basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000),
-        )
-    }
-}
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun FavoriteButton(
     isStarred: Boolean,

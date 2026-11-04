@@ -1146,6 +1146,23 @@ class AppleMusicSourceTest {
         assertEquals(1, server.requestCount)
     }
 
+    @Test fun should_readEnglishNames_when_anEnglishStorefrontShowsAnotherRegionsNames() = runTest {
+        val regional = AppleMusicSource(
+            ProfileCredentials.AppleMusic("https://token.test", "user"),
+            api = AppleMusicApiClient({ "developer" }, { "user" }, baseUrl = server.url("/")),
+            nameRegion = { AppleMusicNameRegion.Japan },
+        )
+        reply("""{"data":[{"id":"us","attributes":{"defaultLanguageTag":"en-US","supportedLanguageTags":["en-US","es-MX"]}}]}""")
+        reply("""{"data":[{"id":"6805970194","type":"songs","attributes":{"name":"Pop Sound","artistName":"Kim Petras"}}]}""")
+
+        // Shown as Japan names it (キム・ペトラス), the song is still found by its English names.
+        val names = regional.alternateNames(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "6805970194"))
+
+        assertEquals(TrackNames("Pop Sound", "Kim Petras"), names)
+        assertEquals("/v1/me/storefront", server.takeRequest().path)
+        assertEquals("/v1/catalog/us/songs/6805970194?l=en-US", server.takeRequest().path)
+    }
+
     @Test fun should_haveNoAlternateNames_when_songIsOnlyInTheLibrary() = runTest {
         assertNull(source.alternateNames(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "library:i.abc")))
         assertEquals(0, server.requestCount)

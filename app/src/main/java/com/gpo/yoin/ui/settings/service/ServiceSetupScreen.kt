@@ -94,6 +94,7 @@ import com.gpo.yoin.ui.settings.SettingsGroup
 import com.gpo.yoin.ui.settings.SettingsGroupLabel
 import com.gpo.yoin.ui.settings.SettingsItem
 import com.gpo.yoin.ui.settings.SettingsPageBackground
+import com.gpo.yoin.ui.settings.applemusic.AppleMusicNameRegionGroup
 import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationSection
 import com.gpo.yoin.ui.settings.monogramOf
 import com.gpo.yoin.ui.settings.provider
@@ -143,6 +144,7 @@ fun ServiceSetupScreen(
         onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
         onConnectSpotify = viewModel::connectSpotify,
         appleMusicContent = { AppleMusicValidationSection(profileId = viewModel.profileId, onSaved = { onDone(it) }) },
+        appleMusicAccountContent = { AppleMusicNameRegionGroup(profileId = viewModel.profileId) },
         modifier = modifier,
     )
 }
@@ -160,6 +162,8 @@ fun ServiceSetupContent(
     onSaveSpotifyClientId: (String) -> Unit = {},
     onConnectSpotify: () -> Unit = {},
     appleMusicContent: @Composable () -> Unit = {},
+    // The Apple Music account's own settings, under its connection: only for an account that exists.
+    appleMusicAccountContent: @Composable () -> Unit = {},
 ) {
     val intro = state.service.intro
     val identity = state.service.provider.serviceIdentity
@@ -235,10 +239,13 @@ fun ServiceSetupContent(
                             onSaveClientId = onSaveSpotifyClientId,
                             onConnect = onConnectSpotify,
                         )
-                        SetupService.AppleMusic -> SettingsGroup(
-                            title = stringResource(R.string.settings_setup_section_account),
-                        ) {
-                            item { appleMusicContent() }
+                        SetupService.AppleMusic -> {
+                            SettingsGroup(
+                                title = stringResource(R.string.settings_setup_section_account),
+                            ) {
+                                item { appleMusicContent() }
+                            }
+                            if (state.isManaging) appleMusicAccountContent()
                         }
                     }
                 }

@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /** Real player/Activity choreography with a silent, in-memory fixture; no account required. */
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -87,6 +88,31 @@ class MotionAuditActivity : ComponentActivity() {
             currentTrack = track, queue = listOf(track), currentIndex = 0,
             duration = 240_000, position = 80_000, connectionPhase = ConnectionPhase.Ready,
         )
+        // `--ez aboutDemo true`: cached About credits for the track, so the
+        // short-window spine shows them without a Gemini key.
+        if (intent.getBooleanExtra("aboutDemo", false)) {
+            kotlinx.coroutines.MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+                val now = System.currentTimeMillis()
+                fun row(key: String, answer: String) = com.gpo.yoin.data.local.SongAboutEntry(
+                    titleKey = com.gpo.yoin.data.local.SongAboutEntry.normalize(track.title.orEmpty()),
+                    artistKey = com.gpo.yoin.data.local.SongAboutEntry.normalize(track.artist.orEmpty()),
+                    albumKey = com.gpo.yoin.data.local.SongAboutEntry.normalize(track.album.orEmpty()),
+                    titleDisplay = track.title.orEmpty(), artistDisplay = track.artist.orEmpty(),
+                    albumDisplay = track.album.orEmpty(), kind = com.gpo.yoin.data.local.SongAboutEntry.KIND_CANONICAL,
+                    entryKey = key, promptText = null, titleText = null, answerText = answer,
+                    createdAt = now, updatedAt = now,
+                )
+                container.database.songAboutEntryDao().upsertAll(
+                    listOf(
+                        row(com.gpo.yoin.data.local.SongAboutEntry.CANON_CREATION_TIME, "2025"),
+                        row(com.gpo.yoin.data.local.SongAboutEntry.CANON_CREATION_LOCATION, "Seoul"),
+                        row(com.gpo.yoin.data.local.SongAboutEntry.CANON_LYRICIST, "Annika Bennett, Bang Si Hyuk, Ellie, Tehya, Lawzy, Sasha Alex Sloan, Henry Allen"),
+                        row(com.gpo.yoin.data.local.SongAboutEntry.CANON_COMPOSER, "Slow Rabbit, Martin"),
+                        row(com.gpo.yoin.data.local.SongAboutEntry.CANON_PRODUCER, "Slow Rabbit"),
+                    ),
+                )
+            }
+        }
         setContent {
             YoinActivityRoot {
                 SharedTransitionLayout {
