@@ -108,3 +108,10 @@ Verdicts: `docs/codex-verdicts/G1.md`. Clips / strips: `/private/tmp/claude-501/
 | Mini player | auto-advance with NP closed | Old song replaced in one frame | a32-pill.mp4 | fixed e5e4abe41 (A32) |
 | NP transport | long-press play mode | No split, repeat off unreachable | a31-split.mp4 | fixed f90e5ffa3 (A31) |
 | NP | skip while writing a note / editing lyrics / holding the rating | Note, lyrics or rating went to the new song | code | fixed 3b7c806c3 (C12–C14) |
+| Player log | play a Subsonic album | Signed stream URLs (u/t/s) logged public; timeout errors quoted them | sim log | fixed 4e34a5982 / 5a1561c57 (C07) |
+| Cloud sync | first pull with an unreadable peer file; failed disk write; interrupted delete | Gate opened anyway; apply acknowledged; resume deleted without marker | shared tests | fixed 5a1561c57 (C15, C16, C20) |
+| Accounts | sign in to server B after A | A's notes / ratings / memories showed and synced under B | unit test | fixed 5a1561c57 (C03); ratings one document (C18) |
+| Server switch | save another server while playing; sign out mid sign-in | Old queue kept playing; late ping re-signed in | code | fixed 4e34a5982 / 5a1561c57 (C04, C02) |
+| Library / cache | reset during loads; 5k+ albums; disk full while streaming | Old source repopulated; albums capped; audio stalled | unit tests | fixed 4e34a5982 (C01, A12, C06) |
+| Playback errors | offline mid-queue | Skipped through whole queue silently | unit test | fixed 4e34a5982 (A39, engine + toast; NP Retry UI open) |
+| About | change Gemini language | English answers shown / synced under new language | unit test | fixed 5a1561c57 (C17, C19) |
