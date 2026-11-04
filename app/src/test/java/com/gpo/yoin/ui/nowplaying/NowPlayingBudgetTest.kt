@@ -281,6 +281,21 @@ class NowPlayingBudgetTest {
     }
 
     @Test
+    fun should_makeRoomForTheTimeLabels_when_focusNarrowsTheColumn() {
+        // Fold inner panel: the rest column keeps the time labels inline;
+        // focus narrows it under 360dp, so they drop under the wave and the
+        // transport slot grows by their row instead of covering the title.
+        val metrics = column().copy(labelLine = 20.dp)
+        val inline = resolveStageColumnBudget(475.dp, 720.dp, column(), handset = false)
+        val budget = resolveStageColumnBudget(475.dp, 720.dp, metrics, handset = false)
+        val focus = nn(budget.focus)
+        assertTrue(focus.cover < 360.dp)
+        assertTrue(focus.controls >= 116.dp + 20.dp)
+        assertTrue(focus.controls >= nn(inline.focus).controls + 20.dp - 0.5.dp)
+        assertDp(720.dp, focus.total)
+    }
+
+    @Test
     fun should_pinTheCurrentLineToTheTop_when_focused() {
         // No line above the current one: two clean focus lines cost less
         // than the resting window's anchor would.

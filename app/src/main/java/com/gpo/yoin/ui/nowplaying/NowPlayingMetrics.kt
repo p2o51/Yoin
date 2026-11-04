@@ -37,6 +37,8 @@ internal fun rememberStageColumnMetrics(
             oneLineContent = typography.bodyLarge.lineDp(density) + LyricLinePads,
             lyric = lyricWindowMetrics(typography.bodyLarge, typography.bodyMedium, density),
             compactTransport = shortFocusControlsHeight(fit.controlSize),
+            labelLine = typography.labelLarge.lineDp(density),
+            labelsInlineMin = PlaybackLabelsInlineMinWidth,
         )
     }
 }

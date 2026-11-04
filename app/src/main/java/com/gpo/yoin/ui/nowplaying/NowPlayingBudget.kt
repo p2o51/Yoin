@@ -94,6 +94,9 @@ data class StageColumnMetrics(
      * progress bar on its own row. Null = the window keeps both rows.
      */
     val compactTransport: Dp? = null,
+    /** The time-label row the transport gains when its column narrows below [labelsInlineMin]. */
+    val labelLine: Dp = 0.dp,
+    val labelsInlineMin: Dp = 360.dp,
 )
 
 /** Resting / focus geometry of the single column. Every slot is exact: they sum to the height. */
@@ -289,79 +292,90 @@ fun resolveStageColumnBudget(
     val compactFocus = enlarged == null && handset &&
         rest.lyricFrame == LyricFrame.OneLine &&
         metrics.compactTransport != null
-    val focusControls = if (compactFocus) {
-        val compact = metrics.compactTransport!!
-        NpGap(compact, compact)
-    } else {
-        controls
-    }
-    val focusLower = listOf(focusControls, hero, focusBottom)
-    val focusUpper = listOf(coverGap)
-    val focusNominal = nominalSum(focusLower) + nominalSum(focusUpper)
-    val focusFixedMin = focusNominal - slackOf(focusLower) - slackOf(focusUpper)
-    // Focus prints the lyrics a size up ([FocusLyricScale]), so the current
-    // line sits in proportion with the title and the transport, and pins the
-    // current line to the top of the window: no half-cut line peeks out
-    // under the cover, the lines shown are the current one and what follows.
-    val focusLyric = LyricWindowMetrics(
-        activeLine = metrics.lyric.activeLine * FocusLyricScale,
-        inactiveLine = metrics.lyric.inactiveLine * FocusLyricScale,
-        anchorFraction = FocusLyricsAnchorFraction,
-    )
-    fun focusMargin(cover: Dp): Dp = (width - cover) / 2f
-    // A cover at [equalFloor] still earns focus when focus unfolds the
-    // resting one-line lyrics into the list.
-    fun worthIt(cover: Dp, floorPose: Boolean = false): Boolean =
-        coverFocusOffered(rest.cover, cover) ||
-            (compactFocus && cover >= rest.cover * CompactFocusCoverKeep) ||
-            (floorPose && rest.lyricFrame == LyricFrame.OneLine)
-
-    fun focusPose(cover: Dp, listMin: Dp): StageColumnPose {
-        val top = minOf(focusMargin(cover), height - cover - focusFixedMin - listMin)
-            .coerceAtLeast(FocusTopMin)
-        val squeeze = squeezeGaps(
-            (top + cover + focusNominal + listMin - height).coerceAtLeast(0.dp),
-            focusLower,
-            focusUpper,
+    // [labelRow]: the time labels drop under the wave when focus narrows
+    // the column below [StageColumnMetrics.labelsInlineMin].
+    fun solveFocus(labelRow: Dp): StageColumnPose? {
+        val focusControls = if (compactFocus) {
+            val compact = metrics.compactTransport!!
+            NpGap(compact, compact)
+        } else if (labelRow > 0.dp) {
+            NpGap(controls.nominal + labelRow, controls.min + labelRow)
+        } else {
+            controls
+        }
+        val focusLower = listOf(focusControls, hero, focusBottom)
+        val focusUpper = listOf(coverGap)
+        val focusNominal = nominalSum(focusLower) + nominalSum(focusUpper)
+        val focusFixedMin = focusNominal - slackOf(focusLower) - slackOf(focusUpper)
+        // Focus prints the lyrics a size up ([FocusLyricScale]), so the current
+        // line sits in proportion with the title and the transport, and pins the
+        // current line to the top of the window: no half-cut line peeks out
+        // under the cover, the lines shown are the current one and what follows.
+        val focusLyric = LyricWindowMetrics(
+            activeLine = metrics.lyric.activeLine * FocusLyricScale,
+            inactiveLine = metrics.lyric.inactiveLine * FocusLyricScale,
+            anchorFraction = FocusLyricsAnchorFraction,
         )
-        val cg = coverGap.at(squeeze.upper)
-        val ctl = focusControls.at(squeeze.lower)
-        val hr = hero.at(squeeze.lower)
-        val bottom = focusBottom.at(squeeze.lower)
-        val lyric = (height - top - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
-        return StageColumnPose(
-            topBar = top, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
-            lyricSlot = lyric, lyricFrame = LyricFrame.List,
-            controls = ctl, hero = hr, accessory = bottom,
-            lower = squeeze.lower, upper = squeeze.upper,
-        )
-    }
+        fun focusMargin(cover: Dp): Dp = (width - cover) / 2f
+        // A cover at [equalFloor] still earns focus when focus unfolds the
+        // resting one-line lyrics into the list.
+        fun worthIt(cover: Dp, floorPose: Boolean = false): Boolean =
+            coverFocusOffered(rest.cover, cover) ||
+                (compactFocus && cover >= rest.cover * CompactFocusCoverKeep) ||
+                (floorPose && rest.lyricFrame == LyricFrame.OneLine)
 
-    // Owner 2026-11-04: equal margins first; three lyric lines where they
-    // fit, else two (「位置不够就显示两行」). The column narrows to the cover, so
-    // the cover must also keep [EqualMarginCoverKeep] of its resting size and
-    // the transport's narrowest designed width. Where even two lines can't
-    // keep equal margins at that floor, the cover stays at the floor (the
-    // side margins and the column still line up) and only the top margin
-    // gives way; a bigger cover with a 12dp top is the last resort.
-    val equalFloor = maxOf(rest.cover * EqualMarginCoverKeep, FocusMinColumn)
-    fun equalCover(lines: Int): Dp =
-        minOf(focusCoverCap, (height - focusFixedMin - focusLyric.cleanLines(lines)) * 2f - width)
-            .coerceAtLeast(0.dp)
-    val freeMin = focusLyric.cleanLines(FocusMinCleanLines)
-    val freeCover = minOf(focusCoverCap, (height - focusFixedMin - freeMin - FocusTopMin).coerceAtLeast(0.dp))
-    val focus = when {
-        rest.cover <= 0.dp -> null
-        equalCover(FocusCleanLines) >= equalFloor ->
-            focusPose(equalCover(FocusCleanLines), focusLyric.cleanLines(FocusCleanLines))
-        equalCover(FocusMinCleanLines) >= equalFloor ->
-            focusPose(equalCover(FocusMinCleanLines), freeMin)
-        equalFloor <= focusCoverCap &&
-            height - equalFloor - focusFixedMin - freeMin >= FocusTopMin &&
-            worthIt(equalFloor, floorPose = true) ->
-            focusPose(equalFloor, freeMin)
-        worthIt(freeCover) -> focusPose(freeCover, freeMin)
-        else -> null
+        fun focusPose(cover: Dp, listMin: Dp): StageColumnPose {
+            val top = minOf(focusMargin(cover), height - cover - focusFixedMin - listMin)
+                .coerceAtLeast(FocusTopMin)
+            val squeeze = squeezeGaps(
+                (top + cover + focusNominal + listMin - height).coerceAtLeast(0.dp),
+                focusLower,
+                focusUpper,
+            )
+            val cg = coverGap.at(squeeze.upper)
+            val ctl = focusControls.at(squeeze.lower)
+            val hr = hero.at(squeeze.lower)
+            val bottom = focusBottom.at(squeeze.lower)
+            val lyric = (height - top - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
+            return StageColumnPose(
+                topBar = top, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
+                lyricSlot = lyric, lyricFrame = LyricFrame.List,
+                controls = ctl, hero = hr, accessory = bottom,
+                lower = squeeze.lower, upper = squeeze.upper,
+            )
+        }
+
+        // Owner 2026-11-04: equal margins first; three lyric lines where they
+        // fit, else two (「位置不够就显示两行」). The column narrows to the cover, so
+        // the cover must also keep [EqualMarginCoverKeep] of its resting size and
+        // the transport's narrowest designed width. Where even two lines can't
+        // keep equal margins at that floor, the cover stays at the floor (the
+        // side margins and the column still line up) and only the top margin
+        // gives way; a bigger cover with a 12dp top is the last resort.
+        val equalFloor = maxOf(rest.cover * EqualMarginCoverKeep, FocusMinColumn)
+        fun equalCover(lines: Int): Dp =
+            minOf(focusCoverCap, (height - focusFixedMin - focusLyric.cleanLines(lines)) * 2f - width)
+                .coerceAtLeast(0.dp)
+        val freeMin = focusLyric.cleanLines(FocusMinCleanLines)
+        val freeCover = minOf(focusCoverCap, (height - focusFixedMin - freeMin - FocusTopMin).coerceAtLeast(0.dp))
+        return when {
+            rest.cover <= 0.dp -> null
+            equalCover(FocusCleanLines) >= equalFloor ->
+                focusPose(equalCover(FocusCleanLines), focusLyric.cleanLines(FocusCleanLines))
+            equalCover(FocusMinCleanLines) >= equalFloor ->
+                focusPose(equalCover(FocusMinCleanLines), freeMin)
+            equalFloor <= focusCoverCap &&
+                height - equalFloor - focusFixedMin - freeMin >= FocusTopMin &&
+                worthIt(equalFloor, floorPose = true) ->
+                focusPose(equalFloor, freeMin)
+            worthIt(freeCover) -> focusPose(freeCover, freeMin)
+            else -> null
+        }
+    }
+    var focus = solveFocus(0.dp)
+    val restLabelsInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
+    if (focus != null && !compactFocus && restLabelsInline && focus.cover < metrics.labelsInlineMin) {
+        focus = solveFocus(metrics.labelLine)
     }
     return StageColumnBudget(
         stageWidth = stageWidth,
