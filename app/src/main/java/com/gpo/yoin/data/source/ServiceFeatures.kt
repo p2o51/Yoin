@@ -84,6 +84,7 @@ object ServiceFeatureCatalog {
             Capability.LYRICS,
             Capability.STREAM_QUALITY,
             Capability.OFFLINE_DOWNLOAD,
+            Capability.PLAY_REPORTING,
         ),
     )
     val spotify = ServiceFeatures(

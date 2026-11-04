@@ -932,7 +932,7 @@ class HomeSnapshotViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf("a-artist"), activityIds(viewModel))
 
-        switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Priming)
+        switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Connecting)
         runCurrent()
         assertEquals(HomeUiState.Loading, viewModel.uiState.value)
 

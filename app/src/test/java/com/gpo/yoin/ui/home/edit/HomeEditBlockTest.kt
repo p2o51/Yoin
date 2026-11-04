@@ -204,6 +204,7 @@ class HomeEditBlockTest {
                 HomeSection.Rediscover,
                 HomeSection.RecentlyPlayed,
                 HomeSection.YourPlaylists,
+                HomeSection.OtherProfiles,
             ),
             deps.controller.draft!!.enabledSections,
         )

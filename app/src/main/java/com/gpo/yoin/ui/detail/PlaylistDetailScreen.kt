@@ -168,7 +168,6 @@ fun PlaylistDetailScreen(
     // Download / Remove download in the ⋮ menu; null leaves it out (Spotify, Apple Music).
     offline: OfflineToggle? = null,
     isPlaying: Boolean = false,
-    playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
 
@@ -321,8 +320,6 @@ fun PlaylistDetailScreen(
                 DetailEnterPageMountEffect(enterIntro)
                 ExpressivePageBackground(
                     accentColor = accentColor,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
                     modifier = Modifier
                         .fillMaxSize()
                         .detailBackCollapseTransform(backCollapse)

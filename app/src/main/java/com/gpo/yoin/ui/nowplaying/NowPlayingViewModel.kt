@@ -1337,17 +1337,33 @@ class NowPlayingViewModel(
 
     fun clearUserQueue() = playbackManager.clearUserQueue()
 
+    // Lyrics opened from focus step back to focus, not to the resting player
+    // (owner 2026-11-03: expanded → focus → normal).
+    private var expandedFromFocus = false
+
     fun setStageMode(mode: NowPlayingStageMode) {
+        val current = _stageMode.value
+        if (mode == NowPlayingStageMode.Expanded && current != NowPlayingStageMode.Expanded) {
+            expandedFromFocus = current == NowPlayingStageMode.Immersive
+        }
         _stageMode.value = mode
     }
 
     fun stepBackStage(): Boolean {
         return when (_stageMode.value) {
             NowPlayingStageMode.Expanded -> {
+                _stageMode.value = if (expandedFromFocus) {
+                    NowPlayingStageMode.Immersive
+                } else {
+                    NowPlayingStageMode.Compact
+                }
+                expandedFromFocus = false
+                true
+            }
+            NowPlayingStageMode.Immersive -> {
                 _stageMode.value = NowPlayingStageMode.Compact
                 true
             }
-            NowPlayingStageMode.Immersive,
             NowPlayingStageMode.Compact -> false
         }
     }

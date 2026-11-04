@@ -50,7 +50,7 @@ class AccountSwitcherViewModelTest {
         every { manager.switchingState } returns state
         every { manager.acknowledgeSwitchError() } answers { state.value = ProfileManager.SwitchState.Idle }
         coEvery { manager.switchTo(any()) } coAnswers {
-            state.value = ProfileManager.SwitchState.Switching(firstArg(), ProfileManager.SwitchState.Stage.Priming)
+            state.value = ProfileManager.SwitchState.Switching(firstArg(), ProfileManager.SwitchState.Stage.Connecting)
             outcome.await().invoke()
         }
     }
@@ -117,7 +117,7 @@ class AccountSwitcherViewModelTest {
     fun should_dropTheTargetAndSayItCouldNotSwitch_when_theSwitchIsTurnedAway() = runTest {
         // A switch already under way (begun in Settings) turns this one away:
         // switchingState never moves for it.
-        val other = ProfileManager.SwitchState.Switching("c", ProfileManager.SwitchState.Stage.Priming)
+        val other = ProfileManager.SwitchState.Switching("c", ProfileManager.SwitchState.Stage.Connecting)
         state.value = other
         coEvery { profiles.switchTo("b") } coAnswers { }
         val vm = viewModel()

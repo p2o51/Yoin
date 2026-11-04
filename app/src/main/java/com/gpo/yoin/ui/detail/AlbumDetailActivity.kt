@@ -92,7 +92,6 @@ class AlbumDetailActivity : ComponentActivity() {
                 val scrapbook by viewModel.scrapbook.collectAsState()
                 val neoDb by viewModel.neoDb.collectAsState()
                 val isPlaying by rememberDetailIsPlaying(app.container)
-                val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
                 // Narrow id-only projection for the track list's now-playing
                 // indicator, deduped so per-tick position/buffer updates never
                 // reach it (same invariant as the DetailMiniPlayer projections).
@@ -293,7 +292,6 @@ class AlbumDetailActivity : ComponentActivity() {
                         }
                     },
                     isPlaying = isPlaying,
-                    playbackSignal = if (isPlaying) playbackSignal else 0f,
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     nowPlayingOpen = nowPlayingOpen,
 

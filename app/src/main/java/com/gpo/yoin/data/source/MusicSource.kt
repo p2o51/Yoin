@@ -30,6 +30,14 @@ interface MusicSource {
 
     val capabilities: Set<Capability>
 
+    /**
+     * The profile this source was built for (set by ProfileManager); null for
+     * probes and tests. Work tied to an account, such as queued play reports,
+     * keys on it rather than on the active profile id, which can disagree with
+     * the active source for a beat during a switch.
+     */
+    val profileId: String? get() = null
+
     fun library(): MusicLibrary
     fun metadata(): MusicMetadata
     fun writeActions(): MusicWriteActions
@@ -105,6 +113,13 @@ enum class Capability {
      * and Settings offers Downloads. Spotify and Apple Music don't allow it.
      */
     OFFLINE_DOWNLOAD,
+
+    /**
+     * The app reports plays to the service ([MusicPlayback.submitPlays] and
+     * friends): Subsonic's scrobble. Spotify and Apple Music count plays
+     * themselves, so they don't declare it.
+     */
+    PLAY_REPORTING,
 }
 
 interface MusicLibrary {
@@ -330,7 +345,40 @@ interface MusicWriteActions {
 
 interface MusicPlayback {
     suspend fun handleFor(track: Track): PlaybackHandle
+
+    // ── Play reporting ([Capability.PLAY_REPORTING]) ──────────────────
+    // Providers without it keep these defaults: a failure, never a silent success.
+
+    /** Tell the service [trackId] started playing ("now playing"); it is not counted as a play. */
+    suspend fun reportNowPlaying(trackId: MediaId): Result<Unit> = playReportingUnsupported()
+
+    /**
+     * Count [plays], oldest first, each dated when it was heard. Fails with
+     * [PlayReportRejectedException] when the service refuses them for good
+     * (sending again won't help); any other failure is worth retrying.
+     */
+    suspend fun submitPlays(plays: List<PlayReport>): Result<Unit> = playReportingUnsupported()
+
+    /** Whether [reportPlaybackState] reaches the service (OpenSubsonic `playbackReport`). */
+    suspend fun supportsPlaybackStateReport(): Boolean = false
+
+    /**
+     * Live player state for the service's now-playing view: [state] is one of
+     * starting / playing / paused / stopped. Never counts a play; plays go
+     * through [submitPlays] only.
+     */
+    suspend fun reportPlaybackState(trackId: MediaId, state: String, positionMs: Long): Result<Unit> =
+        playReportingUnsupported()
 }
+
+private fun playReportingUnsupported(): Result<Unit> =
+    Result.failure(UnsupportedOperationException("This service doesn't take play reports"))
+
+/** One play for [MusicPlayback.submitPlays]: [timeMs] is when it was heard (epoch ms). */
+data class PlayReport(val trackId: MediaId, val timeMs: Long)
+
+/** The service refused plays for good (a song it no longer has). */
+class PlayReportRejectedException(message: String?, cause: Throwable? = null) : Exception(message, cause)
 
 /** A song's title and artist under one set of names; see [MusicMetadata.alternateNames]. */
 data class TrackNames(val title: String, val artist: String)
