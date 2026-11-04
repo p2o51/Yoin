@@ -80,7 +80,7 @@ private fun ComponentActivity.requestPeakRefreshRate() {
  * current playback cover, the cover-color extraction, and the motion-profile
  * locals — so a detail Activity looks and animates exactly like the shell.
  *
- * Detail Activities read the same resolved palette and in-flight color wash
+ * Detail Activities read the same resolved palette (the same scheme instance)
  * from their first frame. Opening a window never resets playback colors.
  */
 @Composable

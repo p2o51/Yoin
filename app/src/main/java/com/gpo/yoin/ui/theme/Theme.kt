@@ -39,8 +39,8 @@ val LocalYoinColors = staticCompositionLocalOf { YoinDarkColorScheme }
  *
  * @param colorSchemeOverride Hard override for previews / tests.
  * @param coverBitmap When non-null, album art resolves to a single seed color and
- *   the entire [MaterialTheme.colorScheme] animates to an expressive `SPEC_2025`
- *   scheme. When `null` (playback stopped), colors animate back to the default
+ *   the entire [MaterialTheme.colorScheme] switches to an expressive `SPEC_2025`
+ *   scheme. When `null` (playback stopped), colors return to the default
  *   scheme: the wallpaper's hue, also built as an Expressive scheme.
  */
 @Composable
@@ -55,7 +55,7 @@ fun YoinTheme(
     val context = LocalContext.current
     // Remembered so recompositions reuse ONE instance: dynamic*ColorScheme()
     // allocates a fresh (identity-unequal) scheme per call, and downstream
-    // consumers key on the instance — see animateColorScheme's wash dedup.
+    // consumers key on the instance — see stableColorScheme's dedup.
     // The wallpaper's hue as an Expressive scheme (DefaultColorScheme.kt).
     val defaultScheme = colorSchemeOverride ?: remember(context, darkTheme) { defaultColorScheme(context, darkTheme) }
 
@@ -81,12 +81,10 @@ fun YoinTheme(
         ?: extractedScheme ?: defaultScheme
     val motionScheme = motionSchemeOverride ?: MotionScheme.expressive()
 
-    // Animate every token via the current effects motion bucket — zero hard color cuts.
-    val colorScheme = animateColorScheme(
+    // A new palette lands in one cut — see stableColorScheme.
+    val colorScheme = stableColorScheme(
         targetColorScheme = targetScheme,
-        darkTheme = darkTheme,
-        motionScheme = motionScheme,
-        sharedTransition = playbackThemeState?.transition,
+        shared = playbackThemeState?.sharedScheme,
     )
 
     CompositionLocalProvider(LocalYoinColors provides colorScheme) {
