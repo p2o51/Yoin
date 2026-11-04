@@ -59,7 +59,6 @@ import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 internal class PanePlaybackFacts(
     val isPlaying: Boolean,
     val currentTrackId: String?,
-    val playbackSignal: Float,
 )
 
 /** Where an entry's Play split lands: the shell bar reads the TOP entry's. */
@@ -233,7 +232,6 @@ internal fun AlbumPaneEntry(
         menu = menu,
         onOpenArtist = artistId?.let { id -> { onOpenArtist(id) } },
         isPlaying = playback.isPlaying,
-        playbackSignal = playback.playbackSignal,
         modifier = Modifier.fillMaxSize(),
     )
 }
@@ -319,7 +317,6 @@ internal fun ArtistPaneEntry(
         onMostPlayedClick = { index -> playMostPlayed(index) },
         onShare = share,
         isPlaying = playback.isPlaying,
-        playbackSignal = playback.playbackSignal,
         modifier = Modifier.fillMaxSize(),
     )
 }
@@ -424,7 +421,6 @@ internal fun PlaylistPaneEntry(
         backingUp = backingUp,
         onShare = share,
         isPlaying = playback.isPlaying,
-        playbackSignal = playback.playbackSignal,
         notedSongIds = notedSongIds,
         modifier = Modifier.fillMaxSize(),
     )

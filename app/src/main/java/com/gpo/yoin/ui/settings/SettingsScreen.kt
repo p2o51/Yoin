@@ -1899,7 +1899,6 @@ private fun stageLabel(stage: ProfileManager.SwitchState.Stage, activeName: Stri
             } else {
                 stringResource(R.string.settings_switch_connecting, name)
             }
-        ProfileManager.SwitchState.Stage.Priming -> stringResource(R.string.settings_switch_priming)
     }
 }
 

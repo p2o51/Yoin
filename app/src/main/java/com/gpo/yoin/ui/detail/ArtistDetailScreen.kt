@@ -126,7 +126,6 @@ fun ArtistDetailScreen(
     onMostPlayedClick: (index: Int) -> Unit = {},
     onShare: () -> Unit = {},
     isPlaying: Boolean = false,
-    playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
 
@@ -212,8 +211,6 @@ fun ArtistDetailScreen(
                 DetailEnterPageMountEffect(enterIntro)
                 ExpressivePageBackground(
                     accentColor = pageAccent,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
                     modifier = Modifier
                         .fillMaxSize()
                         .detailBackCollapseTransform(backCollapse)

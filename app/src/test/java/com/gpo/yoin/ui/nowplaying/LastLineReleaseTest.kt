@@ -61,12 +61,12 @@ class LastLineReleaseTest {
     @Test
     fun should_changeTheDrawnWidthInSmallSteps_when_aFullRowLineWidens() {
         val usage = 0.98f
-        val widths = frames(HeldLineMotion(), 0.5f, 1f).map { lastLineStretchScale(it, usage) * usage }
+        val widths = frames(HeldLineMotion(), 0.5f, 1f).map { lastLineStretchScale(it) * usage }
 
         // Every frame a small change — no step jumps from a relayout.
         assertTrue(widths.size > 10)
         assertTrue(widths.zipWithNext().all { (a, b) -> kotlin.math.abs(b - a) < 0.01f })
-        // A line that fills its row still widens, into the gutter, by at most the gutter room.
-        assertEquals(1f + LastLineStretchGutterRoom, lastLineStretchScale(1f, usage), 1e-6f)
+        // A line that fills its row widens the full amount, past its row's end.
+        assertEquals(1f + LastLineStretchMax, lastLineStretchScale(1f), 1e-6f)
     }
 }

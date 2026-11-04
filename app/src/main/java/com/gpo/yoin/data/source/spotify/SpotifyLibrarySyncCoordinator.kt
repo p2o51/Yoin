@@ -17,6 +17,10 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,6 +50,16 @@ class SpotifyLibrarySyncCoordinator(
     private val dao: SpotifyLibraryCacheDao
         get() = database.spotifyLibraryCacheDao()
 
+    private val _syncedRevisions = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /**
+     * Per profile, how many syncs have rewritten the mirror. A stale mirror
+     * is read at once while its sync runs behind it ([refreshLibrary]), so
+     * what reads it (Library, Home) watches this to take the fresh lists in
+     * place when that sync lands.
+     */
+    val syncedRevisions: StateFlow<Map<String, Long>> = _syncedRevisions.asStateFlow()
+
     init {
         scope.launch(Dispatchers.IO) {
             runCatching {
@@ -65,13 +79,7 @@ class SpotifyLibrarySyncCoordinator(
         return meta.cachedAt > 0 && clock() - meta.cachedAt <= maxAgeMs
     }
 
-    suspend fun hasAnyCachedData(profileId: String): Boolean {
-        val minCachedAt = 0L
-        return dao.getFreshTracks(profileId, minCachedAt).isNotEmpty() ||
-            dao.getFreshAlbums(profileId, minCachedAt).isNotEmpty() ||
-            dao.getFreshArtists(profileId, minCachedAt).isNotEmpty() ||
-            dao.getFreshPlaylists(profileId, minCachedAt).isNotEmpty()
-    }
+    suspend fun hasAnyCachedData(profileId: String): Boolean = dao.hasAnyRows(profileId)
 
     suspend fun markStale(profileId: String) {
         val existing = dao.getSyncMeta(profileId)
@@ -105,7 +113,7 @@ class SpotifyLibrarySyncCoordinator(
             return Result.success(Unit)
         }
 
-        return mutex.withLock {
+        val sync = mutex.withLock {
             val existing = inFlight[profileId]
             if (existing != null && existing.isActive) {
                 existing
@@ -114,7 +122,10 @@ class SpotifyLibrarySyncCoordinator(
                     runCatching {
                         syncFromRemote(profileId, source, force)
                     }.fold(
-                        onSuccess = { Result.success(Unit) },
+                        onSuccess = {
+                            _syncedRevisions.update { it + (profileId to ((it[profileId] ?: 0L) + 1L)) }
+                            Result.success(Unit)
+                        },
                         onFailure = { error ->
                             handleSyncFailure(profileId, error)
                         },
@@ -123,7 +134,13 @@ class SpotifyLibrarySyncCoordinator(
                 inFlight[profileId] = job
                 job
             }
-        }.await()
+        }
+        // Stale-while-revalidate: a mirror that holds anything is read as it
+        // is while the sync runs on behind it ([syncedRevisions] says when it
+        // lands), so no page waits on Spotify's paging to show what it showed
+        // last time. Only a pull to refresh (force) or an empty mirror waits.
+        if (!force && hasAnyCachedData(profileId)) return Result.success(Unit)
+        return sync.await()
     }
 
     suspend fun readArtists(profileId: String): List<Artist> {
