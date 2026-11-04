@@ -139,3 +139,11 @@ Stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98
 | Playback failure | `stream` 503 (:4999 copy) | silent, nothing to retry | sheet3 | fixed a6408944d (A39 UI): banner + Retry over the bar |
 | Home | — | Memories surface / Edit Home | — | open: REAL-FEATURE-GAP (A20) |
 | First run | no account | straight into mock shell | — | open: REAL-FEATURE-GAP (A40) |
+
+## 2026-11-05 O01 stream quality (iPhone 17 Pro sim, iOS 26.5, demo Subsonic :4991, `-silentAudio YES`)
+
+| Screen | Step (launch args) | What was wrong | Evidence | Status |
+|---|---|---|---|---|
+| Settings › Server › Playback | `-serverRoute settings` | one Automatic / fixed choice; Automatic = wired Original, else 128 kbps (iOS-only rule) | scratchpad/sq-settings.png (Wi‑Fi Original, Mobile data Auto) | fixed 857be362b (O01): Android's two choices and rule via shared `StreamQualityPolicy` |
+| Playback | `-serverPlay album:al-field` (+ `-streamQualityWifi auto`) | — | player log: `unmetered=true route=Speaker → original` (plain stream); with Wi‑Fi Auto `→ 192`, `maxBitRate=192&format=mp3&estimateContentLength=true` | verified |
+
