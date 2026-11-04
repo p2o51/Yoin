@@ -24,6 +24,46 @@ struct ShellBar: View {
 
     private let height: CGFloat = 60
     private var lab: GlassLab { GlassLab.shared }
+    /// A long-press just fired on the pill / Library: the release that ends
+    /// it must not also tap. A Button usually drops that release itself, so
+    /// the guard only lives for a moment and never eats a later, real tap.
+    @State private var longPressed: (which: ShellLongPress, at: Date)?
+    @State private var longPresses = 0
+
+    private enum ShellLongPress { case pill, library }
+
+    /// Android YoinButtonGroup: Library long-press, the pill's long-press.
+    private func longPress(_ which: ShellLongPress, _ action: @escaping () -> Void) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+            longPressed = (which, .now)
+            longPresses += 1
+            action()
+        }
+    }
+
+    /// The tap, unless it is the release of a long-press.
+    private func tap(_ which: ShellLongPress, _ action: () -> Void) {
+        if let last = longPressed {
+            longPressed = nil
+            if last.which == which, Date.now.timeIntervalSince(last.at) < 1.5 { return }
+        }
+        action()
+    }
+
+    /// Android onLibraryLongClick: straight to Library's search, empty, the
+    /// keyboard up (Search focuses its field as it opens).
+    private func openLibrarySearch() {
+        model.select(.library)
+        withAnimation(Yoin.spatial) { model.searchActive = true }
+    }
+
+    /// Android onNowPlayingLongClick (owner 2026-11-03, as Apple Music's mini
+    /// player): the playing song's sheet — the one a row's long-press opens,
+    /// in Now Playing context (Favorite / Add to playlist / Share on top).
+    private func openPlayingSongMenu() {
+        let p = model.playback
+        PlaylistActions.shared.openMenu(PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
+    }
 
     private var brand: CoverScheme { .brand(dark: colorScheme == .dark) }
     private var scheme: CoverScheme {
@@ -52,6 +92,7 @@ struct ShellBar: View {
         .animation(Yoin.spatial, value: model.section)
         .animation(Yoin.spatial, value: model.isIdle)
         .frame(height: height)
+        .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
     }
 
     // MARK: Nav buttons
@@ -72,7 +113,7 @@ struct ShellBar: View {
             : tintedStyle ? (s == .home ? scheme.onPrimary : scheme.onSecondary)
             : accent(s)
         let button = Button {
-            model.select(s)
+            tap(.library) { model.select(s) }
         } label: {
             HStack(spacing: 8) {
                 YoinIcon(icon, size: 24)
@@ -97,6 +138,10 @@ struct ShellBar: View {
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library ? .all : .subviews)
+        .accessibilityActions {
+            if s == .library { Button("Search library", action: openLibrarySearch) }
+        }
         if selected && tintedStyle {
             // Tinted-glass style: force the tint on, in the accent role.
             button
@@ -139,12 +184,16 @@ struct ShellBar: View {
         let p = model.playback
         let progress = Double(p.positionSec) / Double(p.track.durationSec)
         return Button {
-            if model.isPad { model.openNowPlayingOnPad() } else { model.setNowPlaying(expanded: true) }
+            tap(.pill) {
+                if model.isPad { model.openNowPlayingOnPad() } else { model.setNowPlaying(expanded: true) }
+            }
         } label: {
             PillContent(np: model.isPad ? nil : model.np)
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(longPress(.pill, openPlayingSongMenu))
+        .accessibilityAction(named: "Song options", openPlayingSongMenu)
         .labGlass("miniPlayer", scheme: scheme, brand: brand, auto: scheme.primaryContainer, in: Capsule())
         .glassEffectID("np", in: glassNS)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in

@@ -160,7 +160,9 @@ final class NowPlayingData {
 
     func isFavorite(_ t: PlayableTrack) -> Bool {
         let k = Self.key(t)
-        return favorites[k] ?? serverStarred[k] ?? false
+        // Then the flag the song was resolved with (the song sheet favorites
+        // songs Now Playing hasn't prepared).
+        return favorites[k] ?? serverStarred[k] ?? t.starred ?? false
     }
 
     /// Optimistic: the heart flips at once and flips back if the server says no.
