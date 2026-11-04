@@ -71,6 +71,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -82,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -851,6 +853,19 @@ private fun EditorButton(label: String, icon: ImageVector, container: Color, con
     }
 }
 
+private val NewEntryPadding = 14.dp
+
+/** Lays the content [amount] wider on both sides than its parent's padding allows, keeping its own place. */
+private fun Modifier.bleedHorizontally(amount: Dp): Modifier = layout { measurable, constraints ->
+    if (!constraints.hasBoundedWidth) {
+        val placeable = measurable.measure(constraints)
+        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+    val wide = constraints.maxWidth + (amount * 2).roundToPx()
+    val placeable = measurable.measure(constraints.copy(minWidth = 0, maxWidth = wide))
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-amount.roundToPx(), 0) }
+}
+
 /**
  * A new entry: its title first, then Ask Gemini, or Write to type it yourself (the button becomes Save). While
  * the empty title has the keyboard, the quick questions not asked yet sit under it; one fills the title.
@@ -887,7 +902,7 @@ private fun NewEntry(
             .bringIntoViewRequester(card)
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(14.dp),
+            .padding(NewEntryPadding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         EditField(
@@ -902,6 +917,8 @@ private fun NewEntry(
         )
         AnimatedVisibility(
             visible = titleFocused && !hasTitle && prompts.isNotEmpty(),
+            // The pills scroll out to the card's own edges (fading there), not to its padding.
+            modifier = Modifier.bleedHorizontally(NewEntryPadding),
             enter = YoinMotion.expandVertically(YoinMotionRole.Expressive) + YoinMotion.fadeIn(YoinMotionRole.Standard),
             exit = YoinMotion.shrinkVertically(YoinMotionRole.Standard) + YoinMotion.fadeOut(YoinMotionRole.Standard),
         ) {
@@ -913,6 +930,8 @@ private fun NewEntry(
                     title.setTextAndPlaceCursorAtEnd(prompt)
                     titleFocus.requestFocus()
                 },
+                contentPadding = PaddingValues(horizontal = NewEntryPadding),
+                fadeEdges = true,
             )
         }
         AnimatedVisibility(

@@ -53,7 +53,11 @@ internal fun remainingQuickPrompts(prompts: List<String>, asked: Collection<Stri
     return prompts.filter { SongAboutEntry.normalize(it) !in done }
 }
 
-/** The quick questions as a row of pills that scrolls sideways; a tap hands the question to [onPick]. */
+/**
+ * The quick questions as a row of pills that scrolls sideways; a tap hands the question to [onPick]. With
+ * [fadeEdges] (a row that ends inside a card rather than at the screen edge) each end fades while more pills
+ * lie beyond it, so no pill is cut off hard.
+ */
 @Composable
 internal fun QuickPrompts(
     prompts: List<String>,
@@ -62,13 +66,16 @@ internal fun QuickPrompts(
     onPick: (String) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    fadeEdges: Boolean = false,
 ) {
     val label = stringResource(R.string.cmp_quick_prompts_label)
+    val scroll = rememberScrollState()
     Row(
         modifier = modifier
             .fillMaxWidth()
             .semantics { contentDescription = label }
-            .horizontalScroll(rememberScrollState())
+            .then(if (fadeEdges) Modifier.horizontalEdgeFadeOnScroll(scroll) else Modifier)
+            .horizontalScroll(scroll)
             .padding(contentPadding),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
