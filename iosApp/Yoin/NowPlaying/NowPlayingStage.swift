@@ -179,7 +179,7 @@ struct NowPlayingFocusField: View {
                 .frame(width: size * 1.3, height: size * 1.3)
                 .offset(x: -size * 0.08, y: size * 0.1)
                 .blur(radius: 70)
-            Circle().fill(scheme.tertiaryContainer)
+            Circle().fill(scheme.tertiaryContainer.opacity(0.6))
                 .frame(width: size * 0.8, height: size * 0.8)
                 .offset(x: size * 0.42, y: size * 0.55)
                 .blur(radius: 60)
@@ -227,6 +227,8 @@ enum NowPlayingStageLaunch {
         if let i = Int(name) { return NowPlayingDetailPage(rawValue: i) }
         return NowPlayingDetailPage.allCases.first { $0.title.lowercased() == name.lowercased() }
     }
+
+    static var focusDemo: Bool { UserDefaults.standard.bool(forKey: "npFocusDemo") }
 
     static var stage: NowPlayingStage? {
         if UserDefaults.standard.bool(forKey: "npFocus") { return .focus }

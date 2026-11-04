@@ -52,10 +52,12 @@ struct QueueSheet: View {
         .presentationContentInteraction(.scrolls)
     }
 
-    /// The album the current song plays from (iOS has no playlist context yet).
+    /// The album the queue plays from, when it is one album (iOS has no
+    /// playlist context yet: a mixed queue reads "Queue" / "Next up").
     private var sourceTitle: String? {
         guard let t = engine.currentTrack else { return model.playback.album.title }
-        return t.album.isEmpty ? nil : t.album
+        let albums = Set(engine.queue.map { $0.track.albumId ?? $0.track.album })
+        return albums.count == 1 && !t.album.isEmpty ? t.album : nil
     }
 
     /// Android QueueHeader: labelMedium "Playing from" over the source in titleLarge.

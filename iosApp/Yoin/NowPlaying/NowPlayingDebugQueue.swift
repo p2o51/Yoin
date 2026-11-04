@@ -65,7 +65,8 @@ enum NowPlayingDebugQueue {
                              album: s.album ?? "", albumId: s.albumId,
                              durationSec: Double(s.durationSec?.int32Value ?? 0), streamURL: stream,
                              coverURL: s.coverArtId.flatMap { URL(string: client.coverArtUrl(id: $0, size: KotlinInt(int: 600))) },
-                             starred: s.starred, userRating: s.userRating.map { Int($0.int32Value) })
+                             starred: s.starred, userRating: s.userRating.map { Int($0.int32Value) },
+                             sourceKbps: s.bitRate.map { Int($0.int32Value) })
     }
 }
 #endif

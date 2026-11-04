@@ -78,6 +78,57 @@ final class NotesStoreTests: XCTestCase {
         XCTAssertEqual(NotesStore.formatPosition(-10), "0:00")
         XCTAssertEqual(NotesStore.formatPosition(3_600_000), "60:00")
     }
+
+    func test_should_restoreDeletedNote_when_undone() {
+        let url = dir.appendingPathComponent("notes.json")
+        let store = NotesStore(fileURL: url)
+        let n = store.add(provider: "subsonic", trackId: "s1", content: "x", positionMs: 4_000, title: "T", artist: "A")!
+        let removed = store.delete(id: n.id)
+        XCTAssertEqual(removed, n)
+        XCTAssertNil(store.delete(id: n.id))
+        store.restore(n)
+        store.restore(n)
+        XCTAssertEqual(NotesStore(fileURL: url).notes, [n])
+    }
+
+    func test_should_rewriteWordsAndKeepMoment_when_updated() {
+        let url = dir.appendingPathComponent("notes.json")
+        var clock = Date(timeIntervalSince1970: 100)
+        let store = NotesStore(fileURL: url, now: { clock })
+        let n = store.add(provider: "subsonic", trackId: "s1", content: "old", positionMs: 4_000, title: "T", artist: "A")!
+        clock = Date(timeIntervalSince1970: 300)
+        XCTAssertNil(store.update(id: n.id, content: "   "))
+        let updated = store.update(id: n.id, content: " new words ")
+        XCTAssertEqual(updated?.content, "new words")
+        XCTAssertEqual(updated?.positionMs, 4_000)
+        XCTAssertEqual(updated?.createdAt, 100_000)
+        XCTAssertEqual(updated?.updatedAt, 300_000)
+        XCTAssertEqual(NotesStore(fileURL: url).notes.first?.content, "new words")
+    }
+
+    func test_should_moveMoment_when_realigned() {
+        let url = dir.appendingPathComponent("notes.json")
+        let store = NotesStore(fileURL: url)
+        let n = store.add(provider: "subsonic", trackId: "s1", content: "x", positionMs: nil, title: "T", artist: "A")!
+        XCTAssertEqual(store.realign(id: n.id, positionMs: 61_500)?.positionMs, 61_500)
+        XCTAssertEqual(store.realign(id: n.id, positionMs: -10)?.positionMs, 0)
+        XCTAssertNil(store.realign(id: "missing", positionMs: 1))
+        XCTAssertEqual(NotesStore(fileURL: url).notes.first?.positionMs, 0)
+    }
+
+    func test_should_orderOldestFirst_when_sortedByCreated() {
+        let notes = [note("b", at: 10_000, created: 2), note("a", at: 90_000, created: 1), note("c", at: nil, created: 3)]
+        XCTAssertEqual(NotesStore.sorted(notes, .created).map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(NotesStore.sorted(notes, .timeline).map(\.id), ["b", "a", "c"])
+    }
+
+    func test_should_readRelativeDates_when_formatted() {
+        let now: Int64 = 10_000_000_000
+        XCTAssertEqual(NotesStore.formatDate(now - 20_000, nowMs: now), "Just now")
+        XCTAssertEqual(NotesStore.formatDate(now - 60_000, nowMs: now), "1 minute ago")
+        XCTAssertEqual(NotesStore.formatDate(now - 5 * 3_600_000, nowMs: now), "5 hours ago")
+        XCTAssertEqual(NotesStore.formatDate(now - 2 * 86_400_000, nowMs: now), "2 days ago")
+    }
 }
 
 @MainActor
@@ -135,56 +186,5 @@ final class RatingScaleTests: XCTestCase {
         XCTAssertEqual(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "s1"), 8.2)
         data.toggleFavorite(track, client: nil)
         XCTAssertFalse(data.isFavorite(track))
-    }
-
-    func test_should_restoreDeletedNote_when_undone() {
-        let url = dir.appendingPathComponent("notes.json")
-        let store = NotesStore(fileURL: url)
-        let n = store.add(provider: "subsonic", trackId: "s1", content: "x", positionMs: 4_000, title: "T", artist: "A")!
-        let removed = store.delete(id: n.id)
-        XCTAssertEqual(removed, n)
-        XCTAssertNil(store.delete(id: n.id))
-        store.restore(n)
-        store.restore(n)
-        XCTAssertEqual(NotesStore(fileURL: url).notes, [n])
-    }
-
-    func test_should_rewriteWordsAndKeepMoment_when_updated() {
-        let url = dir.appendingPathComponent("notes.json")
-        var clock = Date(timeIntervalSince1970: 100)
-        let store = NotesStore(fileURL: url, now: { clock })
-        let n = store.add(provider: "subsonic", trackId: "s1", content: "old", positionMs: 4_000, title: "T", artist: "A")!
-        clock = Date(timeIntervalSince1970: 300)
-        XCTAssertNil(store.update(id: n.id, content: "   "))
-        let updated = store.update(id: n.id, content: " new words ")
-        XCTAssertEqual(updated?.content, "new words")
-        XCTAssertEqual(updated?.positionMs, 4_000)
-        XCTAssertEqual(updated?.createdAt, 100_000)
-        XCTAssertEqual(updated?.updatedAt, 300_000)
-        XCTAssertEqual(NotesStore(fileURL: url).notes.first?.content, "new words")
-    }
-
-    func test_should_moveMoment_when_realigned() {
-        let url = dir.appendingPathComponent("notes.json")
-        let store = NotesStore(fileURL: url)
-        let n = store.add(provider: "subsonic", trackId: "s1", content: "x", positionMs: nil, title: "T", artist: "A")!
-        XCTAssertEqual(store.realign(id: n.id, positionMs: 61_500)?.positionMs, 61_500)
-        XCTAssertEqual(store.realign(id: n.id, positionMs: -10)?.positionMs, 0)
-        XCTAssertNil(store.realign(id: "missing", positionMs: 1))
-        XCTAssertEqual(NotesStore(fileURL: url).notes.first?.positionMs, 0)
-    }
-
-    func test_should_orderOldestFirst_when_sortedByCreated() {
-        let notes = [note("b", at: 10_000, created: 2), note("a", at: 90_000, created: 1), note("c", at: nil, created: 3)]
-        XCTAssertEqual(NotesStore.sorted(notes, .created).map(\.id), ["a", "b", "c"])
-        XCTAssertEqual(NotesStore.sorted(notes, .timeline).map(\.id), ["b", "a", "c"])
-    }
-
-    func test_should_readRelativeDates_when_formatted() {
-        let now: Int64 = 10_000_000_000
-        XCTAssertEqual(NotesStore.formatDate(now - 20_000, nowMs: now), "Just now")
-        XCTAssertEqual(NotesStore.formatDate(now - 60_000, nowMs: now), "1 minute ago")
-        XCTAssertEqual(NotesStore.formatDate(now - 5 * 3_600_000, nowMs: now), "5 hours ago")
-        XCTAssertEqual(NotesStore.formatDate(now - 2 * 86_400_000, nowMs: now), "2 days ago")
     }
 }

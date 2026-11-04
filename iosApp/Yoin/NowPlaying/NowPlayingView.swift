@@ -102,10 +102,17 @@ struct NowPlayingView: View {
         .task { await NowPlayingDebugQueue.startIfRequested(model) }
         .task {
             guard !panel, NowPlayingStageLaunch.page != nil || NowPlayingStageLaunch.stage != nil
-                    || NowPlayingDebugQueue.compose != nil else { return }
+                    || NowPlayingStageLaunch.focusDemo || NowPlayingDebugQueue.compose != nil else { return }
             try? await Task.sleep(for: .seconds(4))
             if let page = NowPlayingStageLaunch.page { withAnimation(Yoin.spatial) { tab = page.rawValue } }
             if let s = NowPlayingStageLaunch.stage { withAnimation(Yoin.spatial) { stage = s } }
+            // `-npFocusDemo YES`: the cover tap, in and out, for recordings.
+            if NowPlayingStageLaunch.focusDemo {
+                for _ in 0..<4 {
+                    coverTapped(focusOffered: true)
+                    try? await Task.sleep(for: .seconds(2.5))
+                }
+            }
             if let words = NowPlayingDebugQueue.compose {
                 startWriting()
                 draft = words
