@@ -48,17 +48,31 @@ struct AlbumDetailView: View {
 
     @State private var p: CGFloat = ["album-list", "playlist-list"].contains(LaunchConfig.screen) ? 1
         : LaunchConfig.screen == "album-mid" ? 0.42 : 0
+    /// Pull-up drag: `p` when the drag was claimed.
     @State private var dragBase: CGFloat?
-    /// Pager: 0 = overview, 1 = scrapbook.
+    /// Pager progress, 0 = overview, 1 = scrapbook: the finger moves it 1:1,
+    /// a spring takes it on release; everything on both pages reads it.
     @State private var page: CGFloat = LaunchConfig.screen.hasPrefix("album-scrapbook") ? 1 : 0
-    @State private var pageDrag: CGFloat = 0
+    /// Pager drag: `page` when the drag was claimed (nil = not dragging).
+    @State private var pageBase: CGFloat?
     @State private var pageWidth: CGFloat = 402
-    /// Ends a pager drag the system cancelled (e.g. the edge swipe took over).
-    @GestureState private var pagerLive = false
+    @State private var pageSpring = AlbumSpring()
+    @State private var pullSpring = AlbumSpring()
+    /// The pager's spring is running (the scrapbook isn't settled yet).
+    @State private var pageMoving = false
+    /// The pulled-up list sits at its top (a pull-down there collapses it).
+    @State private var listAtTop = true
+    /// This page's claim on the edge swipe (AlbumPopGate).
+    @State private var gateID = UUID()
     private var pageFrac: CGFloat {
-        if let f = Self.forcedPageFrac, page == 0, pageDrag == 0 { return f }
-        return min(1, max(0, page - pageDrag / max(pageWidth, 1)))
+        if let f = Self.forcedPageFrac, page == 0, pageBase == nil { return f }
+        return min(1, max(0, page))
     }
+    private static let pageHold: (from: CGFloat, to: CGFloat)? = {
+        let parts = (UserDefaults.standard.string(forKey: "pageHold") ?? "").split(separator: ",")
+            .compactMap { Double($0) }
+        return parts.count == 2 ? (CGFloat(parts[0]), CGFloat(parts[1])) : nil
+    }()
     /// Screenshots: `-pageFrac 0.5` holds the pager mid-swipe.
     private static let forcedPageFrac = UserDefaults.standard.string(forKey: "pageFrac")
         .flatMap(Double.init).map { CGFloat($0) }
@@ -128,9 +142,14 @@ struct AlbumDetailView: View {
                     }
                 }
                 .offset(x: -f * w)
+                // Android z-order: the flying cover under the scrapbook page (its
+                // emblem and dots on top), the stamp over it; the header on top.
+                cover(w: w, side: side, band: band)
+                    .zIndex(coverFlies ? 0.5 : 1.5)
                 // Page 1: the scrapbook, scrolling under the header (albums only).
                 if playlist == nil {
-                    AlbumScrapbookView(album: album, settled: page == 1 && pageDrag == 0,
+                    Group {
+                    AlbumScrapbookView(album: album, settled: page >= 1 && pageBase == nil && !pageMoving,
                                        topInset: headerContent, pageOffset: 1 - f, pageWidth: w,
                                        coverInFlight: coverFlies && f < 0.999) { rect, tilt in
                         scrapCover = rect
@@ -146,21 +165,35 @@ struct AlbumDetailView: View {
                     ProgressiveEdgeBlur(tint: topTint)
                         .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
                         .offset(x: (1 - f) * w, y: -geo.safeAreaInsets.top)
+                    }
+                    .zIndex(1)
                 }
-                header(white: false, w: w)
-                    .opacity(1 - white * (1 - f))
-                header(white: true, w: w)
-                    .opacity(white * (1 - f))
-                cover(w: w, side: side, band: band)
+                Group {
+                    header(white: false, w: w)
+                        .opacity(1 - white * (1 - f))
+                    header(white: true, w: w)
+                        .opacity(white * (1 - f))
+                }
+                .zIndex(3)
             }
             .contentShape(.rect)
-            .simultaneousGesture(pullUp(travel: geo.size.height * 0.55))
-            .simultaneousGesture(pager(width: w), isEnabled: playlist == nil)
-            .onChange(of: pagerLive) { _, live in
-                guard !live, pageDrag != 0 else { return }
-                withAnimation(Yoin.spatial) { page = pageFrac > 0.5 ? 1 : 0; pageDrag = 0 }
+            .gesture(axisPan(width: w, travel: geo.size.height * 0.55))
+            .onAppear {
+                pageWidth = w
+                // Screenshots: `-pageHold "1,0.75"` = a drag from page 2 held at 0.75
+                // (the same state a real drag leaves: pageBase set, page moved 1:1).
+                if let hold = Self.pageHold {
+                    pageBase = hold.from
+                    page = hold.to
+                }
+                AlbumPopGate.set(page > 0, by: gateID)
             }
-            .onAppear { pageWidth = w }
+            .onDisappear {
+                pageSpring.stop()
+                pullSpring.stop()
+                AlbumPopGate.release(by: gateID)
+            }
+            .onChange(of: page > 0) { _, off in AlbumPopGate.set(off, by: gateID) }
             .onChange(of: w) { _, now in pageWidth = now }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -285,7 +318,7 @@ struct AlbumDetailView: View {
                     let active = 1 - min(1, abs(pageFrac - CGFloat(i)))
                     let on: Color = white ? .white : s.secondary
                     let off: Color = white ? .white.opacity(0.4) : app.onSurfaceVariant.opacity(0.3)
-                    Button { withAnimation(Yoin.spatial) { page = CGFloat(i) } } label: {
+                    Button { settlePage(to: CGFloat(i), velocity: 0) } label: {
                         Circle()
                             .fill(off.mix(with: on, by: active, in: .perceptual))
                             .frame(width: 8, height: 8)
@@ -348,7 +381,7 @@ struct AlbumDetailView: View {
             r.offsetBy(dx: -f * w, dy: 0)
         }
         return Button {
-            if e > 0.5 { withAnimation(Yoin.spatial) { p = 0 } }
+            if e > 0.5 { settlePull(to: 0, velocity: 0) }
         } label: {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                 .frame(width: flown.width, height: flown.height)
@@ -359,8 +392,9 @@ struct AlbumDetailView: View {
         .allowsHitTesting(e > 0.5 && f < 0.5)
         .accessibilityLabel("Show cover")
         .rotationEffect(.degrees(scrapCoverTilt * Double(toPage)))
-        // Landed: the scrapbook's own cover (tilted, under its emblem) takes over.
-        .opacity(toPage >= 0.999 ? 0 : 1)
+        // Landed: the scrapbook's own cover (tilted, under its emblem) takes
+        // over, on the same threshold it waits on, so exactly one is showing.
+        .opacity(coverFlies && f >= 0.999 ? 0 : 1)
         .offset(x: flown.minX, y: flown.minY)
     }
 
@@ -562,6 +596,9 @@ struct AlbumDetailView: View {
         .scrollEdgeEffectStyle(.soft, for: .top)
         .scrollEdgeEffectHidden(topBar != 2, for: .top)
         .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent) }
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
+            listAtTop = top
+        }
         .scrollDisabled(p < 1)
         .frame(width: w)
     }
@@ -780,56 +817,77 @@ struct AlbumDetailView: View {
         .allowsHitTesting(false)
     }
 
-    // MARK: Pager
+    // MARK: Pager and pull-up (one axis-locked pan)
 
-    /// Drags starting this close to the left edge belong to the system back swipe.
-    private static let backEdge: CGFloat = 24
-
-    private func pager(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 14)
-            .updating($pagerLive) { _, live, _ in live = true }
-            .onChanged { v in
-                // Once engaged the page follows the finger 1:1; it engages on a
-                // horizontal drag that doesn't start at the back edge and isn't
-                // a pull-up. Page 0 dragged right is the system back swipe's job.
-                let engaged = pageDrag != 0
-                    || (abs(v.translation.width) > abs(v.translation.height) * 1.2
-                        && v.startLocation.x > Self.backEdge && dragBase == nil
-                        && !(page == 0 && v.translation.width > 0))
-                guard engaged else { return }
-                pageDrag = min(page * width, max((page - 1) * width, v.translation.width))
-            }
-            .onEnded { v in
-                guard pageDrag != 0 else { return }
-                let projected = page - v.predictedEndTranslation.width / width
-                withAnimation(Yoin.spatial) {
-                    page = projected > 0.5 ? 1 : 0
-                    pageDrag = 0
+    /// The page's one drag (AlbumAxisPan): its axis is decided from the first
+    /// movement, and only that axis moves for the whole drag.
+    /// - Horizontal: the pager (albums only), following the finger 1:1; not a
+    ///   right swipe on page 0 (that is the edge swipe's, which always wins
+    ///   there; off page 0 the edge swipe is the pager's, see AlbumPopGate).
+    /// - Vertical, on page 0: the pull-up (DetailPullUpReshape); pulled up, only
+    ///   a pull-down from the list's top. Anything else is the scroll views'.
+    private func axisPan(width: CGFloat, travel: CGFloat) -> AlbumAxisPan {
+        AlbumAxisPan(
+            claims: { axis, d in
+                switch axis {
+                case .horizontal:
+                    guard playlist == nil else { return false }
+                    return !(page <= 0.001 && d.x > 0)
+                case .vertical:
+                    guard page <= 0.001 else { return false }
+                    return p < 0.999 || (d.y > 0 && listAtTop)
                 }
-            }
+            },
+            changed: { axis, t in
+                switch axis {
+                case .horizontal:
+                    if pageBase == nil {
+                        pageSpring.stop()
+                        pageMoving = false
+                        pageBase = page
+                    }
+                    page = min(1, max(0, (pageBase ?? 0) - t.x / max(width, 1)))
+                case .vertical:
+                    if dragBase == nil {
+                        pullSpring.stop()
+                        dragBase = p
+                    }
+                    p = min(1, max(0, (dragBase ?? 0) - t.y / travel))
+                }
+            },
+            ended: { axis, v, cancelled in
+                switch axis {
+                case .horizontal:
+                    guard pageBase != nil else { return }
+                    pageBase = nil
+                    // Pages per second; a fling (Compose pager: > 400 dp/s) turns
+                    // the page its way, a slow release snaps to the nearer one.
+                    let velocity = cancelled ? 0 : -v.x / max(width, 1)
+                    let target: CGFloat = abs(v.x) > 400 && !cancelled ? (v.x < 0 ? 1 : 0) : (page > 0.5 ? 1 : 0)
+                    settlePage(to: target, velocity: velocity)
+                case .vertical:
+                    guard dragBase != nil else { return }
+                    dragBase = nil
+                    let velocity = cancelled ? 0 : -v.y / travel
+                    let expand = velocity >= 1.6 ? true : velocity <= -1.6 ? false : p > 0.5
+                    settlePull(to: expand ? 1 : 0, velocity: velocity)
+                }
+            })
     }
 
-    // MARK: Pull-up gesture (DetailPullUpReshape)
+    /// The pager's release (and the page dots): Yoin's spatial spring from
+    /// here, the drag's velocity carried in, on the same progress the drag moved.
+    private func settlePage(to target: CGFloat, velocity: CGFloat) {
+        pageMoving = true
+        pageSpring.run(from: page, to: target, velocity: velocity, apply: { v in
+            page = min(1, max(0, v))
+        }, completion: { pageMoving = false })
+    }
 
-    private func pullUp(travel: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 14)
-            .onChanged { v in
-                guard page == 0, pageDrag == 0, abs(v.translation.height) > abs(v.translation.width) else { return }
-                if dragBase == nil {
-                    // Collapsed: the hero takes the drag. Expanded: only a pull-down.
-                    if p >= 1 && v.translation.height < 0 { return }
-                    dragBase = p
-                }
-                p = min(1, max(0, (dragBase ?? 0) - v.translation.height / travel))
-            }
-            .onEnded { v in
-                guard let base = dragBase else { return }
-                _ = base
-                dragBase = nil
-                let velocity = -(v.predictedEndTranslation.height - v.translation.height) / travel / 0.25
-                let expand = velocity >= 1.6 ? true : velocity <= -1.6 ? false : p > 0.5
-                withAnimation(Yoin.spatial) { p = expand ? 1 : 0 }
-            }
+    private func settlePull(to target: CGFloat, velocity: CGFloat) {
+        pullSpring.run(from: p, to: target, velocity: velocity) { v in
+            p = min(1, max(0, v))
+        }
     }
 
     // MARK: Math
@@ -850,7 +908,9 @@ struct AlbumDetailView: View {
 /// Edge-swipe back keeps working on pushed pages that hide the navigation
 /// bar, and always wins: the page's own drags (the album pager, SwiftUI drag
 /// gestures, scroll views) wait for it to fail, which it does at once for any
-/// touch that doesn't start at the edge.
+/// touch that doesn't start at the edge. Except off the album's first page
+/// (AlbumPopGate): there it never begins, so a right swipe from the edge
+/// turns the album back to page 1 instead of popping it.
 extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     override open func viewDidLoad() {
         super.viewDidLoad()
@@ -858,12 +918,12 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     }
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        viewControllers.count > 1
+        viewControllers.count > 1 && !(gestureRecognizer === interactivePopGestureRecognizer && AlbumPopGate.blocksPop)
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                   shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
         gestureRecognizer === interactivePopGestureRecognizer && viewControllers.count > 1
-            && other.view?.isDescendant(of: view) == true
+            && !AlbumPopGate.blocksPop && other.view?.isDescendant(of: view) == true
     }
 }

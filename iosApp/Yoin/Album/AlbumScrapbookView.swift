@@ -35,7 +35,11 @@ struct AlbumScrapbookView: View {
         Rectangle().fill(.white.opacity(0.01)).frame(height: height).allowsHitTesting(false)
     }
     @Environment(\.colorScheme) private var colorScheme
+    /// The stamp (Android CoverWithEmblem, D3 §8): once per album page, the
+    /// emblem's award plays when the pager comes to rest here; until then it
+    /// waits uncut. No haptics on the album page (D3 §11.12).
     @State private var stamped = false
+    @State private var award: ScoreEmblemAward?
 
     private var s: CoverScheme { CoverScheme(album: album, dark: colorScheme == .dark) }
 
@@ -80,11 +84,28 @@ struct AlbumScrapbookView: View {
         .scrollEdgeEffectStyle(.soft, for: .top)
         .safeAreaBar(edge: .top) { Self.edgeBar(height: topInset) }
         .defaultScrollAnchor(LaunchConfig.screen == "album-scrapbook-bottom" ? .bottom : .top)
-        .onChange(of: settled, initial: true) { _, now in
-            if now && !stamped {
-                withAnimation(.spring(duration: 1.3, bounce: 0.35)) { stamped = true }
-            }
+        .onChange(of: awardKey, initial: true) { _, _ in
+            // Built from the emblem's own inputs; rebuilt (at rest once stamped) when they change.
+            let a = ScoreEmblemAward(score: emblemScore, kind: emblemKind, rated: emblemRated,
+                                     size: Tokens.detail.SCRAPBOOK_BADGE.cg, haptics: false)
+            if !stamped { a.setPending(true) }
+            award = a
+            stampIfSettled()
         }
+        .onChange(of: settled) { _, _ in stampIfSettled() }
+    }
+
+    // MARK: Stamp
+
+    private var emblemKind: ScoreEmblem.Kind { album.rating != nil ? .album : .average }
+    private var emblemScore: Double { album.rating ?? album.averageRating ?? 0 }
+    private var emblemRated: [Bool] { album.tracks.map { $0.rating != nil } }
+    private var awardKey: String { "\(emblemScore)|\(emblemKind)|\(emblemRated)" }
+
+    private func stampIfSettled() {
+        guard settled, !stamped, let award else { return }
+        award.play()
+        stamped = true
     }
 
     // MARK: Opening cluster
@@ -97,21 +118,25 @@ struct AlbumScrapbookView: View {
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
-                    CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
+                    // Where the hero's cover lands: the slot's resting rect,
+                    // measured outside the piece's own drift and tilt (Android
+                    // restRect), so the target holds still while the pager moves.
+                    Color.clear
                         .frame(width: cover, height: cover)
-                        .clipShape(.rect(cornerRadius: Tokens.shape.HERO.cg, style: .continuous))
-                        // Where the hero's cover lands; hidden until it has.
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
                             onCoverPlaced($0, tilt("cover", Tilt.cover))
                         }
-                        .opacity(coverInFlight ? 0 : 1)
-                        .modifier(layer(tilt("cover", Tilt.cover), depth: 0.25))
+                        .overlay {
+                            CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
+                                .frame(width: cover, height: cover)
+                                .clipShape(.rect(cornerRadius: Tokens.shape.HERO.cg, style: .continuous))
+                                // Hidden until the hero's cover has landed: one cover on screen, never two.
+                                .opacity(coverInFlight ? 0 : 1)
+                                .modifier(layer(tilt("cover", Tilt.cover), depth: 0.25))
+                        }
                         .frame(width: cover, height: cover + Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_Y.cg * badge, alignment: .top)
-                    ScoreEmblem(score: album.rating ?? album.averageRating ?? 0, kind: kind,
-                                rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: badge)
-                        // The award "stamp" once page 2 settles: lands from a swell.
-                        .scaleEffect(stamped ? 1 : 1.35)
-                        .opacity(stamped ? 1 : 0.0)
+                    ScoreEmblem(score: emblemScore, kind: kind, rated: emblemRated,
+                                palette: album.palette, size: badge, award: award)
                         .offset(x: overhangX * badge)
                         .modifier(layer(0, depth: 0.6))
                 }
