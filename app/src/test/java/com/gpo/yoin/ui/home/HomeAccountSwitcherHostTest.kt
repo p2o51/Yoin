@@ -76,7 +76,7 @@ class HomeAccountSwitcherHostTest {
         every { manager.switchingState } returns state
         every { manager.acknowledgeSwitchError() } answers { state.value = ProfileManager.SwitchState.Idle }
         coEvery { manager.switchTo(any()) } coAnswers {
-            state.value = ProfileManager.SwitchState.Switching(firstArg(), ProfileManager.SwitchState.Stage.Priming)
+            state.value = ProfileManager.SwitchState.Switching(firstArg(), ProfileManager.SwitchState.Stage.Connecting)
             outcome.await().invoke()
         }
     }

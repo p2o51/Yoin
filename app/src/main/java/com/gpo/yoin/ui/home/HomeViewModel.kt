@@ -390,7 +390,7 @@ class HomeViewModel(
 
     /**
      * Q14b: switching accounts takes Home to Loading at once — the outgoing
-     * account's feed doesn't sit there for the ping and warm-up (up to 16 s)
+     * account's feed doesn't sit there for the ping (up to 8 s)
      * as if nothing happened — and the incoming account's first feed ends
      * it ([show]). Display only: loads stay on [observeScope]'s one trigger,
      * so the hand-over hold there is untouched. A failed switch restores the
