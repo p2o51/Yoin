@@ -7,7 +7,9 @@ import YoinShared
 /// Last Play, review, album note) → per track in order: a cluster for tracks
 /// with notes or the best score, contact sheets of two for score-only runs →
 /// receipt. Tilts come from an FNV-1a hash of "albumId/key" (shared Kotlin; graphics only;
-/// layout stays square). Mock content stands in for the user's records.
+/// layout stays square). A server album shows the listener's own records
+/// (AlbumMemoryStore, NotesStore, LocalRatings — filled here or by cloud sync
+/// from Android); the mock library keeps its hand-set stand-ins.
 ///
 /// While the pager drags, each piece trails by its depth × 12 % of the page
 /// and leans 3° further, settling to its own angle (Android scrapLayer). The
@@ -56,18 +58,65 @@ struct AlbumScrapbookView: View {
         return base.fontDescriptor.withDesign(.serif).map { UIFont(descriptor: $0, size: 22) } ?? base
     }()
 
-    // MARK: Mock records
+    // MARK: Records
 
     private struct Note { var time: String; var text: String }
-    private let memoryTitle = "Paper moons and late buses"
-    private let review = "Warm even on the cold tracks. The middle stretch from 余韻 to Kites in July is the reason I keep coming back; it sounds like the walk home after the last train."
-    private let albumNote = "Bought on a rainy Tuesday in Shimokitazawa."
-    private var notes: [Int: [Note]] {
-        [3: [Note(time: "1:14", text: "The echo stays after the song is gone"),
-             Note(time: "2:40", text: "That piano drop, every single time")],
-         9: [Note(time: "0:52", text: "Sounds like a harbor at 6 a.m.")]]
+
+    /// The mock library: hand-set records (screenshots); a server album: the listener's own.
+    private var isMock: Bool { album.id.provider == "mock" }
+    private var provider: String { album.id.provider }
+    private var memories: AlbumMemoryStore { .shared }
+
+    /// Android scrapTitle: the listener's title, else the AI's; nil = none yet.
+    private var memoryTitle: String? {
+        isMock ? "Paper moons and late buses" : memories.memoryTitle(provider: provider, albumId: album.id.rawId)
     }
-    private let starred: Set<Int> = [2, 3]
+    private var review: String? {
+        if isMock {
+            return "Warm even on the cold tracks. The middle stretch from 余韻 to Kites in July is the reason I keep coming back; it sounds like the walk home after the last train."
+        }
+        let text = memories.album(provider: provider, albumId: album.id.rawId)?.review?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text?.isEmpty == false ? text : nil
+    }
+    /// When the review was written (Android reviewAt: "Today", "Oct 5"…).
+    private var reviewAt: String? {
+        if isMock { return "Yesterday" }
+        guard let at = memories.album(provider: provider, albumId: album.id.rawId)?.reviewUpdatedAt else { return nil }
+        return HomeHistory.relativeDay(at, now: Int64(Date().timeIntervalSince1970 * 1000))
+    }
+    /// The album note (Android album_notes): not synced and not written on iOS yet.
+    private var albumNote: String? { isMock ? "Bought on a rainy Tuesday in Shimokitazawa." : nil }
+
+    private func notes(_ t: Track) -> [Note]? {
+        if isMock {
+            switch t.number {
+            case 3: return [Note(time: "1:14", text: "The echo stays after the song is gone"),
+                            Note(time: "2:40", text: "That piano drop, every single time")]
+            case 9: return [Note(time: "0:52", text: "Sounds like a harbor at 6 a.m.")]
+            default: return nil
+            }
+        }
+        let list = NotesStore.shared.notes(provider: provider, trackId: t.id.rawId)
+        return list.isEmpty ? nil : list.map { Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content) }
+    }
+    private func starred(_ t: Track) -> Bool { isMock ? [2, 3].contains(t.number) : t.starred }
+    /// The track's score: this device's (or a synced) rating first, then the server's.
+    private func score(_ t: Track) -> Double? {
+        if isMock { return t.rating }
+        return LocalRatings.shared.rating(provider: provider, songId: t.id.rawId).flatMap { $0 > 0 ? $0 : nil } ?? t.rating
+    }
+    private func playCount(_ t: Track) -> Int { isMock ? t.number * 3 + 5 : (t.playCount ?? 0) }
+    /// The album's own score: the synced album rating (Android album_ratings), else the server's.
+    private var albumScore: Double? {
+        if isMock { return album.rating }
+        if let r = memories.album(provider: provider, albumId: album.id.rawId)?.rating, r > 0 { return r }
+        return album.rating
+    }
+    private var averageScore: Double? {
+        let scores = album.tracks.compactMap(score)
+        return scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count)
+    }
 
     var body: some View {
         ScrollView {
@@ -107,9 +156,9 @@ struct AlbumScrapbookView: View {
 
     // MARK: Stamp
 
-    private var emblemKind: ScoreEmblem.Kind { ScoreEmblem.Kind(rating: album.rating, average: album.averageRating) }
-    private var emblemScore: Double { album.rating ?? album.averageRating ?? 0 }
-    private var emblemRated: [Bool] { album.tracks.map { $0.rating != nil } }
+    private var emblemKind: ScoreEmblem.Kind { ScoreEmblem.Kind(rating: albumScore, average: averageScore) }
+    private var emblemScore: Double { albumScore ?? averageScore ?? 0 }
+    private var emblemRated: [Bool] { album.tracks.map { score($0) != nil } }
     private var awardKey: String { "\(emblemScore)|\(emblemKind)|\(emblemRated)" }
 
     private func stampIfSettled() {
@@ -156,10 +205,12 @@ struct AlbumScrapbookView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // OpeningTitle: the serif (a title someone or the AI wrote),
                     // 22 SemiBold, line 1.25 em (27.5).
+                    if let memoryTitle {
                     Text(memoryTitle)
                         .font(Font(Self.titleFont))
                         .lineSpacing(max(0, 22 * 1.25 - Self.titleFont.lineHeight))
                         .foregroundStyle(s.onSurface)
+                    }
                     // AlbumScrapLastPlay: AlbumSectionLabel (labelLarge
                     // underlined), 4, then titleMedium tabular.
                     if let lastPlay {
@@ -178,20 +229,25 @@ struct AlbumScrapbookView: View {
                 .padding(.top, 4)
             }
             // Title present → the review goes below, full width.
+            if let review {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
                 Text(review)
                     .font(.gsf(15)).lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.55))
                     .foregroundStyle(s.onPrimaryContainer)
-                Text("Yesterday")
-                    .yoinRole(Tokens.type.labelMedium)
-                    .foregroundStyle(s.onPrimaryContainer.opacity(0.6))
+                if let reviewAt {
+                    Text(reviewAt)
+                        .yoinRole(Tokens.type.labelMedium)
+                        .foregroundStyle(s.onPrimaryContainer.opacity(0.6))
+                }
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
+            }
             // Album note sticky: own row on the end side, tucks 6 over the review.
+            if let albumNote {
             Text(albumNote)
                 // userTextStyle at 14.5: line 1.5 em.
                 .font(.gsf(14.5)).lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
@@ -204,6 +260,7 @@ struct AlbumScrapbookView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, -Tokens.detail.SCRAPBOOK_STICKY_TUCK.cg)
                 .accessibilityLabel("Album note: \(albumNote)")
+            }
         }
     }
 
@@ -222,9 +279,9 @@ struct AlbumScrapbookView: View {
             run.removeAll()
         }
         for t in album.tracks {
-            if notes[t.number] != nil || t.id == bestTrack?.id {
+            if notes(t) != nil || t.id == bestTrack?.id {
                 flush(); out.append(.cluster(t))
-            } else if t.rating != nil {
+            } else if score(t) != nil {
                 run.append(t)
             }
         }
@@ -233,7 +290,7 @@ struct AlbumScrapbookView: View {
     }
 
     private var bestTrack: Track? {
-        album.tracks.filter { ($0.rating ?? 0) >= 9 }.max { ($0.rating ?? 0) < ($1.rating ?? 0) }
+        album.tracks.filter { (score($0) ?? 0) >= 9 }.max { (score($0) ?? 0) < (score($1) ?? 0) }
     }
 
     private var mirrorSeed: Int { ScrapbookTilt.shared.startsMirrored(seed: album.id.rawId) ? 1 : 0 }
@@ -245,7 +302,7 @@ struct AlbumScrapbookView: View {
             VStack(alignment: mirrored ? .trailing : .leading, spacing: -Tokens.detail.SCRAPBOOK_PIECE_OVERLAP.cg) {
                 ticket(t, width: min(280, max(200, 0.66 * 368)), mini: false)
                     .zIndex(0)
-                if let ns = notes[t.number] {
+                if let ns = notes(t) {
                     notesClipping(t, ns)
                         .frame(maxWidth: .infinity, alignment: mirrored ? .leading : .trailing)
                         .zIndex(1)
@@ -272,7 +329,7 @@ struct AlbumScrapbookView: View {
         let best = t.id == bestTrack?.id
         let fill = best ? s.primary : s.surfaceContainerHigh
         let ink = best ? s.onPrimary : s.onSurface
-        let score = t.rating.map { String(format: "%.1f", $0) } ?? ""
+        let scoreText = score(t).map { String(format: "%.1f", $0) } ?? ""
         return HStack(spacing: 0) {
             Text(String(format: "%02d", t.number))
                 .font(.gsf(mini ? 16 : 18, .medium)).monospacedDigit()
@@ -288,10 +345,10 @@ struct AlbumScrapbookView: View {
                 // tracking 0: numbers Medium tabular, the unit Regular at 60 %.
                 let duration = Text(formatTime(t.durationSec)).font(.gsf(12, .medium))
                 let plays = HStack(spacing: 4) {
-                    Text("\(t.number * 3 + 5)").font(.gsf(12, .medium))
+                    Text("\(playCount(t))").font(.gsf(12, .medium))
                     Text("plays").font(.gsf(12)).opacity(0.6)
                 }
-                let miniScore = Text(score).font(.gsf(15, .semibold)).foregroundStyle(best ? ink : s.primary)
+                let miniScore = Text(scoreText).font(.gsf(15, .semibold)).foregroundStyle(best ? ink : s.primary)
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 12) {
                         duration; plays
@@ -315,7 +372,7 @@ struct AlbumScrapbookView: View {
             .padding(.leading, 13).padding(.vertical, 10).padding(.trailing, mini ? 12 : 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             if !mini {
-                Text(score)
+                Text(scoreText)
                     .font(.gsf(best ? 22 : 16, .semibold)).monospacedDigit()
                     .foregroundStyle(best ? ink : s.primary)
                     .padding(.trailing, 14)
@@ -333,7 +390,7 @@ struct AlbumScrapbookView: View {
                 .mask(Rectangle().padding(.vertical, 8))
         }
         .overlay(alignment: .topLeading) {
-            if starred.contains(t.number) {
+            if starred(t) {
                 YoinIcon("favorite_filled", size: 26)
                     .foregroundStyle(s.primary)
                     // Rides on the ticket's layer: only a little extra lag of its own.
@@ -381,7 +438,19 @@ struct AlbumScrapbookView: View {
             }
             if let last = plays.lastPlayedAt { rows.append(("Last played", HomeHistory.relativeDay(last, now: now))) }
         }
-        rows += [("Rated", "\(album.ratedCount) / \(album.tracks.count)"), ("Notes", "4")]
+        if isMock {
+            rows += [("Rated", "\(album.ratedCount) / \(album.tracks.count)"), ("Notes", "4")]
+        } else {
+            // Android receiptLines: rated tracks on this page, track notes (+ the album note), questions asked.
+            let noteCount = album.tracks.reduce(0) { $0 + (notes($1)?.count ?? 0) } + (albumNote == nil ? 0 : 1)
+            let asked = album.tracks.reduce(0) { n, t in
+                n + SongAboutStore.shared.entries(SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist,
+                                                                     album: album.title))
+                    .filter { $0.kind == SongAboutStore.Kind.ask }.count
+            }
+            rows += [("Rated", "\(album.tracks.filter { score($0) != nil }.count) / \(album.tracks.count)"),
+                     ("Notes", "\(noteCount)"), ("Asked", "\(asked)")]
+        }
         return VStack(alignment: .leading, spacing: 0) {
             Text("\(album.title) — \(album.artist)".uppercased())
                 .font(.system(size: 11.5, weight: .medium, design: .monospaced))

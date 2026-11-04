@@ -4,6 +4,11 @@ options:
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
+packages:
+  # Google Sign-In for Cloud sync (scope drive.appdata only). Client ID: Config/GoogleSignIn.xcconfig.
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 9.2.0
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -26,6 +31,11 @@ targets:
     dependencies:
       - framework: ../shared/build/XCFrameworks/current/YoinShared.xcframework
         embed: false
+      - package: GoogleSignIn
+        product: GoogleSignIn
+    configFiles:
+      Debug: Config/GoogleSignIn.xcconfig
+      Release: Config/GoogleSignIn.xcconfig
     preBuildScripts:
       # The scheme's build pre-action (below) runs Gradle before Xcode plans
       # the build; this phase only fails the build when the framework is
@@ -77,6 +87,12 @@ targets:
         NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
         # MusicKit's authorization prompt (Apple Music library, catalog and playback).
         NSAppleMusicUsageDescription: Yoin plays and shows your Apple Music library.
+        # Cloud sync's Google sign-in (Config/GoogleSignIn.xcconfig).
+        GIDClientID: $(YOIN_GOOGLE_IOS_CLIENT_ID)
+        CFBundleURLTypes:
+          - CFBundleURLName: google-sign-in
+            CFBundleURLSchemes:
+              - $(YOIN_GOOGLE_IOS_REVERSED_CLIENT_ID)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin

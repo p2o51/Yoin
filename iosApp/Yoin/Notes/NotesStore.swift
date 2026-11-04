@@ -101,9 +101,34 @@ final class NotesStore {
         return notes[i]
     }
 
+    // MARK: Cloud sync (Data/Sync)
+
+    /// A note added, edited, moved or deleted by the user: Data/Sync debounces an upload.
+    @ObservationIgnored static var onLocalChange: (@MainActor () -> Void)?
+
+    func note(id: String) -> SongNote? { notes.first { $0.id == id } }
+
+    /// Writes a note that came from another device as it is (its own times and moment).
+    func syncPut(_ note: SongNote) {
+        if let i = notes.firstIndex(where: { $0.id == note.id }) { notes[i] = note } else { notes.append(note) }
+        persistOnly()
+    }
+
+    /// Removes a note another device deleted.
+    func syncRemove(id: String) {
+        guard let i = notes.firstIndex(where: { $0.id == id }) else { return }
+        notes.remove(at: i)
+        persistOnly()
+    }
+
     private var nowMs: Int64 { Int64((now().timeIntervalSince1970 * 1000).rounded()) }
 
     private func persist() {
+        persistOnly()
+        Self.onLocalChange?()
+    }
+
+    private func persistOnly() {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)

@@ -56,12 +56,15 @@ data class AlbumTitleRow(
     val updatedAt: Long,
 )
 
-/** `memory_copy_cache`: the Gemini mood line ([copy]) and the AI album title ([title]) of one Memory. */
+/**
+ * `memory_copy_cache`: the Gemini mood line ([copyText], Android's `copy` column; renamed because `copy`
+ * clashes with NSObject's in Swift) and the AI album title ([title]) of one Memory.
+ */
 data class MemoryCopyRow(
     val provider: String,
     val entityType: String,
     val entityId: String,
-    val copy: String,
+    val copyText: String,
     val promptHash: String,
     val generatedAt: Long,
     val title: String?,

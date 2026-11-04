@@ -22,8 +22,12 @@ struct StorageSettingsSection: View {
                 .foregroundStyle(app.primary)
                 .padding(.horizontal, 8)
                 .accessibilityAddTraits(.isHeader)
-            cacheRow
-                .background(row, in: RoundedRectangle(cornerRadius: 20, style: .circular))
+            VStack(spacing: 2) {
+                cacheRow
+                    .background(row, in: CloudSyncView.segment(0, 2))
+                // Android keeps Cloud sync in this group (Settings › Storage).
+                CloudSyncEntryRow(app: app, row: row, shape: CloudSyncView.segment(1, 2))
+            }
         }
         .animation(Yoin.effects, value: bytes)
         .task { await refresh() }

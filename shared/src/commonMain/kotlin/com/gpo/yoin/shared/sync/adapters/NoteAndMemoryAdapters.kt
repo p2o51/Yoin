@@ -171,9 +171,9 @@ class MemoryCopySyncAdapter(private val domain: SyncDomain) : SyncAdapter {
     override suspend fun readAll(localProfileId: String?): List<DomainRow> {
         val profileId = requireNotNull(localProfileId) { "memory_copy is per-account" }
         return domain.memoryCopies(profileId)
-            .filter { it.copy.isNotBlank() }
+            .filter { it.copyText.isNotBlank() }
             .map {
-                DomainRow(key = memoryKey(it), projection = projection(it.copy, it.promptHash, it.generatedAt), rowTs = it.generatedAt)
+                DomainRow(key = memoryKey(it), projection = projection(it.copyText, it.promptHash, it.generatedAt), rowTs = it.generatedAt)
             }
     }
 
@@ -194,8 +194,8 @@ class MemoryCopySyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val profileId = requireNotNull(localProfileId) { "memory_copy is per-account" }
         val parts = memoryKeyParts(key) ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null)
         val existing = domain.memoryCopy(profileId, parts.provider, parts.entityType, parts.entityId)
-        val currentHash = existing?.takeIf { it.copy.isNotBlank() }
-            ?.let { projection(it.copy, it.promptHash, it.generatedAt) }.hashOrNull()
+        val currentHash = existing?.takeIf { it.copyText.isNotBlank() }
+            ?.let { projection(it.copyText, it.promptHash, it.generatedAt) }.hashOrNull()
         val incoming = project(payload) ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
         val copy = incoming.requiredString(COPY)!!
@@ -203,7 +203,7 @@ class MemoryCopySyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val generatedAt = incoming.requiredLong(GENERATED_AT)!!
         // Field-level: the title half of the row belongs to memory_title.
         val base = existing ?: MemoryCopyRow(parts.provider, parts.entityType, parts.entityId, "", "", 0L, null, null)
-        domain.putMemoryCopy(profileId, base.copy(copy = copy, promptHash = promptHash, generatedAt = generatedAt))
+        domain.putMemoryCopy(profileId, base.copy(copyText = copy, promptHash = promptHash, generatedAt = generatedAt))
         return ApplyOutcome.Applied(projection(copy, promptHash, generatedAt).hashOrNull())
     }
 

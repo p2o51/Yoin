@@ -42,6 +42,15 @@ struct RootView: View {
         // Flex too, not SF.
         .font(.gsf(17))
         .onChange(of: hsc, initial: true) { _, new in model.isPad = new == .regular }
+        // Cloud sync (Data/Sync): Google's sign-in redirect, and the start (no network unless sync is on).
+        .onOpenURL { _ = CloudSync.handle(url: $0) }
+        .task {
+            let session = model.session, apple = model.appleMusic
+            CloudSync.shared.start {
+                SyncDomainBridge.Accounts(subsonic: session.account.map { ($0.baseUrl, $0.username) },
+                                          appleMusic: apple.isAuthorized, storefront: nil)
+            }
+        }
         .preferredColorScheme(GlassLab.shared.colorScheme)
         .overlay {
             if GlassLab.shared.panelOpen {

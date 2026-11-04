@@ -1,0 +1,10 @@
+// Google Sign-In for Cloud sync (iosApp/docs/cloud-sync-ios.md).
+//
+// The iOS OAuth client of Google Cloud project yoin-510700 (747031130557), the
+// same project as Android's clients, so both apps see one appDataFolder.
+// Bundle com.gpo.yoin, team M75T74PTC4. An iOS client ID is public, not a
+// secret; it lives only here. Info.plist reads both values (GIDClientID and
+// the URL scheme). Set them back to YOIN_GOOGLE_NOT_CONFIGURED and the Cloud
+// sync page shows "Not configured" with sign-in disabled.
+YOIN_GOOGLE_IOS_CLIENT_ID = 747031130557-i0s8qtqf65u29nabsbsnfls42a10mncr.apps.googleusercontent.com
+YOIN_GOOGLE_IOS_REVERSED_CLIENT_ID = com.googleusercontent.apps.747031130557-i0s8qtqf65u29nabsbsnfls42a10mncr
