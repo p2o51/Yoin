@@ -242,9 +242,10 @@ class AccountSwitcherViewModel internal constructor(
 
     /**
      * Switch to [profileId]. False when nothing starts: it is the account in
-     * use, or a switch begun here is still under way.
+     * use, or a switch begun here is still under way. [onLanded] runs once
+     * the account is in use (Home's other-profiles shelf plays then).
      */
-    fun switchTo(profileId: String): Boolean {
+    fun switchTo(profileId: String, onLanded: (() -> Unit)? = null): Boolean {
         if (pending.value != null || retrying.value || profiles.activeProfileId.value == profileId) return false
         // Set before anything suspends: the tap's own frame shows the target.
         pending.value = profileId
@@ -254,9 +255,12 @@ class AccountSwitcherViewModel internal constructor(
                     HomeSwitchOutcome.Failed, HomeSwitchOutcome.TurnedAway -> failures.trySend(Unit)
                     // Landed: the cards follow a beat later (they're combined
                     // off the main thread); hold until they have it in use.
-                    HomeSwitchOutcome.Landed -> cards.first { list ->
-                        list.firstOrNull { it.isActive }?.id == profileId ||
-                            profiles.activeProfileId.value != profileId
+                    HomeSwitchOutcome.Landed -> {
+                        onLanded?.invoke()
+                        cards.first { list ->
+                            list.firstOrNull { it.isActive }?.id == profileId ||
+                                profiles.activeProfileId.value != profileId
+                        }
                     }
                 }
             } finally {

@@ -61,9 +61,44 @@ interface ActivityEventDao {
     )
     fun observeEntityLastSeen(profileId: String, provider: String): Flow<List<ActivityEntityLastSeen>>
 
+    /**
+     * The albums and playlists the user's other accounts play most (Home's
+     * "From your other profiles"): plays since [since] per entity, counted
+     * per track started, most first. Accounts that no longer exist are left
+     * out. [OtherProfilePlayAggregate.entityId] is the column as stored.
+     */
+    @Query(
+        "SELECT profileId, provider, entityType, entityId, title, subtitle, coverArtId, " +
+            "COUNT(*) AS playCount, MAX(timestamp) AS lastAt FROM activity_events " +
+            "WHERE profileId != :activeProfileId " +
+            "AND profileId IN (SELECT id FROM profiles) " +
+            "AND actionType = 'PLAYED' " +
+            "AND entityType IN ('ALBUM', 'PLAYLIST') " +
+            "AND timestamp >= :since " +
+            "GROUP BY profileId, provider, entityType, entityId " +
+            "ORDER BY playCount DESC, lastAt DESC LIMIT :limit"
+    )
+    fun observeOtherProfilesMostPlayed(
+        activeProfileId: String,
+        since: Long,
+        limit: Int
+    ): Flow<List<OtherProfilePlayAggregate>>
+
     @Insert
     suspend fun insert(entry: ActivityEvent)
 }
+
+data class OtherProfilePlayAggregate(
+    val profileId: String,
+    val provider: String,
+    val entityType: String,
+    val entityId: String,
+    val title: String,
+    val subtitle: String,
+    val coverArtId: String?,
+    val playCount: Int,
+    val lastAt: Long
+)
 
 data class ActivityEntityLastSeen(
     val entityType: String,
