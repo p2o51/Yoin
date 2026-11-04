@@ -212,6 +212,11 @@ final class NowPlayingData {
         draftRating[Self.key(t)] = value
     }
 
+    /// A held rating whose song was replaced: dropped, never committed.
+    func discardDraftRating(_ t: PlayableTrack) {
+        draftRating[Self.key(t)] = nil
+    }
+
     /// Release: stored locally whatever happens (Android rule), then sent as
     /// 0–5 stars.
     func commitRating(_ t: PlayableTrack, client: SubsonicClient?) {
@@ -229,4 +234,16 @@ final class NowPlayingData {
             }
         }
     }
+}
+
+/// The song a note is written FOR (Android NoteTarget), captured with its
+/// moment when writing begins; title and artist travel with it so a draft
+/// can still be filed and named after the player has moved on.
+struct NoteTarget: Equatable {
+    var provider: String
+    var rawId: String
+    var title: String
+    var artist: String
+
+    func sameSong(_ other: NoteTarget) -> Bool { provider == other.provider && rawId == other.rawId }
 }

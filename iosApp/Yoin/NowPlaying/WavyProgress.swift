@@ -200,6 +200,10 @@ public struct WavyProgressBar: View {
     /// bubble reads "Note" (in the tint, with `noteInk`) while it sits on one.
     public var noteAnchors: [Double]
     public var noteInk: Color
+    /// The bar is on screen. Off (Now Playing's expanded stage, where the
+    /// transport row is 0 tall and transparent; Android stageControlsLive),
+    /// the wave's frame clock and the glide stop; they resume as it returns.
+    public var live: Bool
 
     @State private var shown: Double
     @State private var amplitude: CGFloat
@@ -226,9 +230,11 @@ public struct WavyProgressBar: View {
         flattensWhileScrubbing: Bool = true,
         noteAnchors: [Double] = [],
         noteInk: Color = .white,
+        live: Bool = true,
         onScrubbing: @escaping (Bool) -> Void = { _ in },
         onSeek: @escaping (Double) -> Void
     ) {
+        self.live = live
         self.noteAnchors = noteAnchors.map { min(max($0, 0), 1) }.sorted()
         self.noteInk = noteInk
         self.progress = progress
@@ -252,7 +258,7 @@ public struct WavyProgressBar: View {
         isPlaying && !(flattensWhileScrubbing && scrub != nil)
     }
 
-    private var waveMoves: Bool { isPlaying && !reduceMotion }
+    private var waveMoves: Bool { isPlaying && !reduceMotion && live }
 
     public var body: some View {
         GeometryReader { geo in
@@ -298,7 +304,7 @@ public struct WavyProgressBar: View {
         }
         .onChange(of: progress) { _, new in
             guard scrub == nil else { return }
-            if !isPlaying || abs(new - shown) > WavyMotion.snapThreshold {
+            if !isPlaying || !live || abs(new - shown) > WavyMotion.snapThreshold {
                 var t = Transaction()
                 t.disablesAnimations = true
                 withTransaction(t) { shown = new }

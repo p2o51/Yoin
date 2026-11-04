@@ -55,8 +55,11 @@ final class NowPlayingPresentation {
     var dismissDistance: CGFloat { max(pillFrame.minY, 300) }
 
     /// Spring to the page (true) or into the pill (false), from wherever the
-    /// morph is, carrying `velocity` (progress per second).
-    func show(_ open: Bool, velocity: CGFloat = 0) {
+    /// morph is, carrying `velocity` (progress per second). Without one (⌄,
+    /// a tap on the folding morph, system back) a running spring hands its
+    /// own velocity on: a reversal mid-flight keeps position AND speed, it
+    /// never restarts from rest.
+    func show(_ open: Bool, velocity: CGFloat? = nil) {
         let to: CGFloat = open ? 1 : 0
         if open && !mounted {
             progress = 0
@@ -64,10 +67,11 @@ final class NowPlayingPresentation {
         }
         guard mounted else { return }
         if !dragging, target == to, spring.isRunning || progress == to { return }
+        let v = velocity ?? (spring.isRunning ? spring.currentVelocity : 0)
         target = to
         dragging = false
         inFlight = true
-        spring.run(from: progress, to: to, velocity: velocity, spring: springFor(open)) { [weak self] v in
+        spring.run(from: progress, to: to, velocity: v, spring: springFor(open)) { [weak self] v in
             self?.progress = v
         } completion: { [weak self] in
             guard let self else { return }
@@ -167,6 +171,8 @@ final class NowPlayingSpring: NSObject {
     private var completion: () -> Void = {}
 
     var isRunning: Bool { link != nil }
+    /// The value's velocity at the last frame drawn (per second).
+    private(set) var currentVelocity: CGFloat = 0
 
     func run(from: CGFloat, to: CGFloat, velocity: CGFloat, spring: Spring,
              apply: @escaping (CGFloat) -> Void, completion: @escaping () -> Void) {
@@ -177,6 +183,7 @@ final class NowPlayingSpring: NSObject {
         self.spring = spring
         self.apply = apply
         self.completion = completion
+        currentVelocity = velocity
         guard abs(delta) > 0.0005 || abs(velocity) > 0.01 else {
             apply(to)
             completion()
@@ -203,10 +210,12 @@ final class NowPlayingSpring: NSObject {
         let t = link.targetTimestamp - start
         if t >= duration {
             stop()
+            currentVelocity = 0
             apply(from + delta)
             completion()
             return
         }
+        currentVelocity = spring.velocity(target: delta, initialVelocity: velocity, time: t)
         apply(from + spring.value(target: delta, initialVelocity: velocity, time: t))
     }
 }
@@ -598,9 +607,24 @@ struct NowPlayingAmbient: View {
             // World: the room's own cover leads; neighbours only frame it.
             if onTop { aura }
         }
-        // A new song (or a reordered queue) re-colours the edges on the
-        // effects spring, never a snap.
+        // A new song, a reordered / shuffled queue or another repeat mode
+        // re-colours the edges on the effects spring, never a snap: keyed on
+        // the neighbours themselves, not the queue's length (a shuffle keeps
+        // the current item and the count but changes who stands beside it).
         .animation(Yoin.effects, value: model.player.currentItem?.id)
-        .animation(Yoin.effects, value: model.player.queue.count)
+        .animation(Yoin.effects, value: neighbourKey)
+    }
+
+    /// Who stands at each edge: the neighbouring queue items' identities and
+    /// the repeat mode that decides whether the ends wrap.
+    private var neighbourKey: String {
+        let engine = model.player
+        let edges = NowPlayingNeighbours.edges(count: engine.queue.count, current: engine.currentIndex,
+                                               repeatAll: engine.repeatMode == .all)
+        func id(_ edge: NowPlayingNeighbours.Edge) -> String {
+            guard case .item(let i) = edge, engine.queue.indices.contains(i) else { return "own" }
+            return engine.queue[i].id.uuidString
+        }
+        return id(edges.top) + "|" + id(edges.bottom)
     }
 }

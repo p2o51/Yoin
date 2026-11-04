@@ -29,6 +29,8 @@ final class LyricsActions {
         var providerError: String?
         var errorMessage: String?
         var applyingId: String?
+        /// The song the search was opened for: a pick applies to it.
+        var target: PlayableTrack?
     }
 
     var search = Search()
@@ -112,7 +114,7 @@ final class LyricsActions {
         let query = [t.title, t.artist].map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.joined(separator: " ")
         guard !query.isEmpty else { return toast("Need title or artist to search lyrics") }
-        search = Search(isOpen: true, query: query)
+        search = Search(isOpen: true, query: query, target: t)
         runSearch(query)
     }
 

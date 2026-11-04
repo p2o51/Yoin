@@ -45,6 +45,8 @@ struct NowPlayingView: View {
     /// `-screen np-touch` starts with it (and a held rating) on.
     @State private var interacting = LaunchConfig.baseScreen == "np-touch"
     @State private var ratingHeld = LaunchConfig.baseScreen == "np-touch"
+    /// The song a held rating gesture belongs to (set on touch-down).
+    @State private var ratingTarget: PlayableTrack?
     @State private var touching: Set<String> = []
     /// The progress bar is (or was last) the control touched.
     @State private var scrubbing = false
@@ -59,7 +61,12 @@ struct NowPlayingView: View {
     /// holds its words and moment; Save writes them back, Cancel leaves it.
     /// A new note's unsaved draft waits in `parkedDraft` meanwhile.
     @State private var editingNoteId: String?
-    @State private var parkedDraft: (words: String, anchorMs: Int64?)?
+    @State private var parkedDraft: (words: String, anchorMs: Int64?, target: NoteTarget?)?
+    /// The song the draft is written FOR (Android NoteDraft.target): bound
+    /// with its moment when writing begins, held across a skip until saved,
+    /// cleared or re-aligned to now. Save files it there, not on whatever
+    /// plays by then.
+    @State private var draftTarget: NoteTarget?
     @State private var notesSaved = 0
     @FocusState private var composerFocused: Bool
     /// The Ask Gemini bar's question (Android `AskGeminiBar` draft) and its field.
@@ -78,7 +85,13 @@ struct NowPlayingView: View {
     @State private var lyricsSelected: Set<Int> = []
     @State private var lyricsLimitNudge = 0
     @State private var lyricsEditing = false
+    @State private var lyricsEditTarget: PlayableTrack?
     @State private var lyricsShare: LyricsShareSnapshot?
+    /// The transport row is on screen (Android stageControlsLive): off once
+    /// the expanded stage has settled over it, on as soon as it collapses.
+    @State private var transportLive = true
+    /// Which way the lyric stream moves on a song change (forward in the queue = up).
+    @State private var lyricsDirection = LyricsDirection()
 
     /// The engine's song; nil = the mock snapshot (screenshots) as before.
     private var engineTrack: PlayableTrack? { model.player.currentTrack }
@@ -104,6 +117,17 @@ struct NowPlayingView: View {
     // contrast shadow 22 %, container spacing 3.
 
     var body: some View {
+        withSheets
+            .onChange(of: engineTrack.map(NowPlayingData.key)) {
+                // Android: another song, the Ask bar starts over.
+                about.resetAsk()
+                ratingTargetReplaced()
+            }
+            .onChange(of: draft) { old, new in draftChanged(from: old, to: new) }
+    }
+
+    /// The page, its keyboard tracking, its sheets and their song resets.
+    private var withSheets: some View {
         // The page doesn't move for the keyboard; the composer sits on it
         // (see `page`).
         page
@@ -130,27 +154,39 @@ struct NowPlayingView: View {
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet().reportsSheetRise()
         }
+        // Every sheet NP presents reports its rise, so the page recedes under
+        // it (World depth) as it does under the Queue.
         // The lyric tools' sheets (Android LyricsSearchSheet / LyricsApplyDialog / LyricsShareSheet).
         .sheet(isPresented: Binding(get: { LyricsActions.shared.search.isOpen },
                                     set: { if !$0 { LyricsActions.shared.dismissSearch() } })) {
             LyricsSearchSheet(scheme: scheme, onSelect: { match in
-                if let t = engineTrack { LyricsActions.shared.applySearchResult(match, for: t) }
+                // The song the search was opened for, never the live one.
+                if let t = LyricsActions.shared.search.target { LyricsActions.shared.applySearchResult(match, for: t) }
             }, onClose: { LyricsActions.shared.dismissSearch() })
+            .reportsSheetRise()
             .presentationDetents([.large])
         }
         .sheet(isPresented: $lyricsEditing) {
-            LyricsEditSheet(scheme: scheme, initialText: editableLyrics, onApply: { text in
+            LyricsEditSheet(scheme: scheme, initialText: lyricsEditTarget.map(editableLyrics) ?? "", onApply: { text in
                 lyricsEditing = false
-                if let t = engineTrack { LyricsActions.shared.applyEdited(text, for: t) }
+                // The song the editor was opened on, never the live one.
+                if let t = lyricsEditTarget { LyricsActions.shared.applyEdited(text, for: t) }
             }, onCancel: { lyricsEditing = false })
+            .reportsSheetRise()
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $lyricsShare) { snap in
             LyricsShareSheet(snapshot: snap, scheme: scheme) { lyricsShare = nil }
+                .reportsSheetRise()
                 .presentationDetents([.large])
         }
-        // Select mode belongs to one song's lyrics on the expanded page.
-        .onChange(of: engineTrack.map(NowPlayingData.key)) { _, _ in leaveLyricsSelect(follow: true) }
+        // Select mode, the lyric search and the editor belong to one song's
+        // lyrics (Android resets them on a song change).
+        .onChange(of: engineTrack.map(NowPlayingData.key)) { _, _ in
+            leaveLyricsSelect(follow: true)
+            if LyricsActions.shared.search.isOpen { LyricsActions.shared.dismissSearch() }
+            lyricsEditing = false
+        }
         .onChange(of: stage) { _, s in if s != .expanded { leaveLyricsSelect(follow: true) } }
         .onChange(of: tab) { _, t in if t != NowPlayingDetailPage.lyrics.rawValue { leaveLyricsSelect(follow: false) } }
         .task(id: engineTrack.map(NowPlayingData.key)) {
@@ -170,7 +206,7 @@ struct NowPlayingView: View {
                     || NowPlayingDebugQueue.compose != nil || NowPlayingDebugQueue.editNote else { return }
             try? await Task.sleep(for: .seconds(4))
             if let page = NowPlayingStageLaunch.page { withAnimation(Yoin.spatial) { tab = page.rawValue } }
-            if let s = NowPlayingStageLaunch.stage { withAnimation(Yoin.spatial) { stage = s } }
+            if let s = NowPlayingStageLaunch.stage { withAnimation(Yoin.stageSettle) { stage = s } }
             // `-npFocusDemo YES`: the cover tap, in and out, for recordings.
             if NowPlayingStageLaunch.focusDemo {
                 for _ in 0..<4 {
@@ -193,7 +229,7 @@ struct NowPlayingView: View {
                                           artist: model.playback.album.artist)
                 }
                 if let first = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).first {
-                    withAnimation(Yoin.spatial) { tab = NowPlayingDetailPage.note.rawValue; stage = .expanded }
+                    withAnimation(Yoin.stageSettle) { tab = NowPlayingDetailPage.note.rawValue; stage = .expanded }
                     try? await Task.sleep(for: .seconds(1))
                     startEditing(first)
                     if let words = NowPlayingDebugQueue.editWords { draft = words }
@@ -214,9 +250,12 @@ struct NowPlayingView: View {
             // Android: short focus belongs to the resting player.
             if s != .compact { shortFocus = false }
         }
-        .onChange(of: engineTrack.map(NowPlayingData.key)) {
-            // Android: another song, the Ask bar starts over.
-            about.resetAsk()
+        .task(id: stage == .expanded) {
+            // Collapse starts: the wave runs again at once. Expanded: it
+            // stops once the reshape has settled (the row has faded away).
+            guard stage == .expanded else { transportLive = true; return }
+            try? await Task.sleep(for: .seconds(0.6 / max(LaunchConfig.animationSpeed, 0.05)))
+            if !Task.isCancelled, stage == .expanded { transportLive = false }
         }
         .onChange(of: about.askState) { _, s in
             // Android: back to idle (answered, or put away) empties the draft.
@@ -421,8 +460,8 @@ struct NowPlayingView: View {
                 lyricArea(p, page: page, stage: stage, preview: pose.preview, clear: clear, under: transportH,
                           anchor: oneLine
                               // OneLineLyricRow: the 32 pt line centered in its slot.
-                              ? (clear - Tokens.type.bodyLarge.lineHeight.cg - 8) / 2 + 4
-                              : clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: !oneLine)
+                              ? Self.oneLineAnchor(clear)
+                              : clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: !oneLine, oneLine: oneLine)
                 // The small About window takes its own taps (its Settings /
                 // Retry buttons first, Android SongInfoDisplay in a tap-to-open box).
                 if !expanded && !unsyncedLyricsShown(page, stage: stage) && !(page == .about && stage == .compact) {
@@ -523,11 +562,18 @@ struct NowPlayingView: View {
                 // Android NowPlayingCoverMenu: long-press = the song's sheet (+ Keep screen on).
                 .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
             VStack(spacing: 0) {
-                RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld) { down in
+                RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
+                          gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock") { down in
                     // One spring lifts and settles the bar (scale, glass, shadow).
                     withAnimation(Yoin.spatial) { ratingHeld = down }
                     touch("rating", down)
-                    if !down, let t = engineTrack { data.commitRating(t, client: model.session.client) }
+                    if down {
+                        ratingTarget = engineTrack
+                    } else if let t = ratingTarget {
+                        // Committed to the song the finger went down on.
+                        data.commitRating(t, client: model.session.client)
+                        ratingTarget = nil
+                    }
                 }
                 .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
@@ -563,7 +609,18 @@ struct NowPlayingView: View {
     /// the mock: the screenshot value.
     private var ratingBinding: Binding<Double?> {
         guard let t = engineTrack else { return $rating }
-        return Binding(get: { data.rating(t) }, set: { data.dragRating($0, t) })
+        return Binding(get: { data.rating(t) }, set: { data.dragRating($0, ratingTarget ?? t) })
+    }
+
+    /// The song changed under a held rating (auto-advance): Android cancels
+    /// the replaced item's gesture without a commit. The draft is dropped, the
+    /// bar settles, and RatingBar ignores the rest of that touch.
+    private func ratingTargetReplaced() {
+        guard let t = ratingTarget else { return }
+        data.discardDraftRating(t)
+        ratingTarget = nil
+        withAnimation(Yoin.spatial) { ratingHeld = false }
+        touch("rating", false)
     }
 
     private var isFavorite: Bool {
@@ -742,7 +799,16 @@ struct NowPlayingView: View {
     }
 
     /// The editor opens on the song's lyrics as LRC (empty when there are none).
-    private var editableLyrics: String { loadedLyrics.map { LyricsRules.editableText($0.lyrics) } ?? "" }
+    private func editableLyrics(_ t: PlayableTrack) -> String {
+        guard case .lines(let l) = data.lyricsState(t) else { return "" }
+        return LyricsRules.editableText(l.lyrics)
+    }
+
+    /// The editor opens on this song (and only ever applies to it).
+    private func openLyricsEditor(_ t: PlayableTrack) {
+        lyricsEditTarget = t
+        lyricsEditing = true
+    }
 
     /// The four tools, or — in select mode — the selection keys, in the same
     /// slot and footprint, cross-faded on the effects spring.
@@ -765,7 +831,7 @@ struct NowPlayingView: View {
                              enabled: !lyricsSelected.isEmpty) { shareSelectedLyrics(t) },
                     LyricKey(icon: "edit", label: "Edit lyrics") {
                         withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
-                        lyricsEditing = true
+                        openLyricsEditor(t)
                     },
                 ], scheme: scheme)
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
@@ -786,7 +852,7 @@ struct NowPlayingView: View {
                                 lyricsSelecting = true
                             }
                         } else {
-                            lyricsEditing = true
+                            openLyricsEditor(t)
                         }
                     },
                     LyricKey(icon: "recenter", label: "Return to current line",
@@ -883,7 +949,7 @@ struct NowPlayingView: View {
     /// Cover tap (Android CompactPlayingContent): focus ⇄ rest where focus
     /// exists; the docked cover goes back to focus (or rest).
     private func coverTapped(focusOffered: Bool, shortOffered: Bool = false) {
-        withAnimation(Yoin.spatial) {
+        withAnimation(Yoin.stageSettle) {
             if stage == .compact, !focusOffered {
                 // Android short focus: tap in, tap again to leave.
                 if shortOffered || shortFocus { shortFocus.toggle() }
@@ -910,7 +976,7 @@ struct NowPlayingView: View {
             startWriting()
             return
         }
-        withAnimation(Yoin.spatial) {
+        withAnimation(Yoin.stageSettle) {
             tab = page.rawValue
             stage = .expanded
         }
@@ -949,12 +1015,12 @@ struct NowPlayingView: View {
     private func stageBack() {
         if asking {
             askFieldFocused = false
-            withAnimation(Yoin.spatial) { about.askCollapse() }
+            withAnimation(Yoin.stageSettle) { about.askCollapse() }
         }
         guard stage != .compact else { return collapse() }
         if editingNoteId != nil { endEditing() }
         composerFocused = false
-        withAnimation(Yoin.spatial) {
+        withAnimation(Yoin.stageSettle) {
             if draft.isEmpty { composing = false }
             stage = .compact
         }
@@ -982,19 +1048,26 @@ struct NowPlayingView: View {
     // Expanded: the whole page.
     private func lyricArea(_ p: PlaybackSnapshot, page: NowPlayingDetailPage, stage: NowPlayingStage,
                            preview: Bool, clear: CGFloat, under: CGFloat,
-                           anchor: CGFloat, fadeTop: Bool) -> some View {
-        ZStack(alignment: .topLeading) {
+                           anchor: CGFloat, fadeTop: Bool, oneLine: Bool) -> some View {
+        // Focus's one-line preview of synced lyrics is the compact list
+        // itself, the active line alone, moved to the preview's anchor: one
+        // lyric object travels (a separate preview tree cross-fading with
+        // the list drew the line twice at two anchors).
+        let solo = stage == .focus && preview && soloLyricsAvailable
+        return ZStack(alignment: .topLeading) {
             switch stage {
             case .expanded:
                 expandedPage(p, page: page, height: clear)
                     .id(page)
                     .transition(.opacity)
-            case .focus where preview:
+            case .focus where preview && !solo:
                 lyricPreview(p)
                     .frame(height: clear)
                     .transition(.opacity)
             default:
-                compactPage(p, page: page, clear: clear, under: under, anchor: anchor, fadeTop: fadeTop)
+                compactPage(p, page: page, clear: clear, under: under,
+                            anchor: solo ? Self.oneLineAnchor(clear) : anchor,
+                            fadeTop: solo ? false : fadeTop, wraps: !oneLine && !solo, solo: solo)
                     .id(page)
                     .transition(.opacity)
             }
@@ -1002,12 +1075,27 @@ struct NowPlayingView: View {
         .animation(Yoin.effects, value: page)
     }
 
+    /// OneLineLyricRow: the 32 pt line (bodyLarge + its pads) centered in
+    /// its slot; the anchor is the line's top.
+    private static func oneLineAnchor(_ clear: CGFloat) -> CGFloat {
+        (clear - Tokens.type.bodyLarge.lineHeight.cg - 8) / 2 + 4
+    }
+
+    /// Synced lines to show in focus (or the mock's list).
+    private var soloLyricsAvailable: Bool {
+        guard let t = engineTrack else { return true }
+        guard case .lines(let loaded) = data.lyricsState(t) else { return false }
+        return loaded.synced
+    }
+
     @ViewBuilder
     private func compactPage(_ p: PlaybackSnapshot, page: NowPlayingDetailPage, clear: CGFloat, under: CGFloat,
-                             anchor: CGFloat, fadeTop: Bool) -> some View {
+                             anchor: CGFloat, fadeTop: Bool, wraps: Bool, solo: Bool) -> some View {
         switch page {
         case .lyrics:
-            lyrics(p, clear: clear, under: under, anchor: anchor, fadeTop: fadeTop)
+            lyricsHandoff(height: clear) {
+                lyrics(p, clear: clear, under: under, anchor: anchor, fadeTop: fadeTop, wraps: wraps, solo: solo)
+            }
         case .about:
             // Android SongInfoDisplay: the facts, read-only, fading out at the foot.
             NowPlayingAboutView(state: aboutState(p), expanded: false, scheme: scheme)
@@ -1024,13 +1112,16 @@ struct NowPlayingView: View {
     private func expandedPage(_ p: PlaybackSnapshot, page: NowPlayingDetailPage, height: CGFloat) -> some View {
         switch page {
         case .lyrics:
-            if let t = engineTrack, case .lines(let loaded) = data.lyricsState(t) {
-                expandedLyrics(t, loaded)
-                    // New lyrics (a search / edit applied) open as a new list.
-                    .id(ObjectIdentifier(loaded.lyrics))
-                    .frame(height: height, alignment: .top)
-            } else {
-                lyrics(p, clear: height, under: 0, anchor: height * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: true)
+            lyricsHandoff(height: height) {
+                if let t = engineTrack, case .lines(let loaded) = data.lyricsState(t) {
+                    expandedLyrics(t, loaded)
+                        // New lyrics (a search / edit applied) open as a new list.
+                        .id(ObjectIdentifier(loaded.lyrics))
+                        .frame(height: height, alignment: .top)
+                } else {
+                    lyrics(p, clear: height, under: 0, anchor: height * Tokens.np.LYRICS_ANCHOR_FRACTION.cg,
+                           fadeTop: true)
+                }
             }
         case .about:
             NowPlayingAboutView(state: aboutState(p), expanded: true, scheme: scheme, bottomPadding: 48)
@@ -1087,11 +1178,16 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private func lyrics(_ p: PlaybackSnapshot, clear: CGFloat, under: CGFloat,
-                        anchor: CGFloat, fadeTop: Bool) -> some View {
+                        anchor: CGFloat, fadeTop: Bool, wraps: Bool = true, solo: Bool = false) -> some View {
         if let t = engineTrack {
             switch data.lyricsState(t) {
             case .loading:
-                Color.clear.frame(height: clear)
+                // Android LyricsDisplay: the loading indicator at the window's start.
+                ProgressView()
+                    .tint(scheme.primary)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    .frame(height: clear, alignment: .center)
+                    .accessibilityLabel("Loading lyrics")
             case .none:
                 // Android LyricsDisplay: the empty label at the window's start.
                 windowLabel("No lyrics available", clear: clear)
@@ -1102,7 +1198,7 @@ struct NowPlayingView: View {
                     PlaybackPosition { position, _ in
                         LyricLinesView(lines: loaded.lines, active: loaded.activeIndex(positionSec: position),
                                        anchor: anchor, primary: scheme.primary,
-                                       onSurfaceVariant: scheme.onSurfaceVariant)
+                                       onSurfaceVariant: scheme.onSurfaceVariant, wraps: wraps, solo: solo)
                             .equatable()
                     }
                 }
@@ -1115,9 +1211,36 @@ struct NowPlayingView: View {
         } else {
             lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
                 LyricLinesView(lines: p.lyrics, active: p.activeLyric, anchor: anchor,
-                               primary: scheme.primary, onSurfaceVariant: scheme.onSurfaceVariant)
+                               primary: scheme.primary, onSurfaceVariant: scheme.onSurfaceVariant,
+                               wraps: wraps, solo: solo)
             }
         }
+    }
+
+    /// Android LyricsTrackTransition + the lyricsLoaded swap: a new song's
+    /// lyrics rise in from below while the finished song's drift up and
+    /// dissolve (reversed stepping back in the queue); loading → lines rise
+    /// a short way into place while the indicator fades. Each side is its
+    /// own subtree, so the leaving song keeps showing its own lines.
+    private func lyricsHandoff<C: View>(height: CGFloat, @ViewBuilder _ content: () -> C) -> some View {
+        let key = engineTrack.map(NowPlayingData.key) ?? "mock"
+        let ready: Bool = {
+            guard let t = engineTrack, case .loading = data.lyricsState(t) else { return true }
+            return false
+        }()
+        lyricsDirection.update(key: key, index: model.player.currentIndex)
+        return ZStack(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                content()
+                    .id(ready)
+                    .transition(.asymmetric(insertion: .offset(y: height / 12).combined(with: .opacity),
+                                            removal: .opacity))
+            }
+            .animation(Yoin.spatial, value: ready)
+            .id(key)
+            .transition(LyricsTrackSlide(direction: lyricsDirection, distance: height / 4))
+        }
+        .animation(Yoin.spatial, value: key)
     }
 
     /// A plain label at the window's start (bodyMedium, onSurfaceVariant).
@@ -1293,6 +1416,7 @@ struct NowPlayingView: View {
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
                             noteAnchors: noteAnchors(duration: duration),
                             noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
+                            live: transportLive,
                             onScrubbing: { touch("progress", $0) }) { fraction in
                 model.player.seek(to: fraction * duration)
             }
@@ -1313,6 +1437,10 @@ struct NowPlayingView: View {
             Color.clear
                 .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: true,
                          in: ScrubberGlassShape(grow: scrubberLifted ? 1 : 0, leading: 4, trailing: 10))
+                // Keyed on the lift itself: it can turn on without
+                // `interacting` changing (scrub during another control's
+                // one-second hold), and must still grow / fold on the spring.
+                .animation(Yoin.spatial, value: scrubberLifted)
                 .allowsHitTesting(false)
         }
     }
@@ -1519,8 +1647,11 @@ struct NowPlayingView: View {
     /// the Note window comes up and the composer takes the keyboard, filed
     /// at the moment writing began.
     private func startWriting() {
-        if draft.isEmpty { draftAnchorMs = playheadMs }
-        withAnimation(Yoin.spatial) {
+        if draft.isEmpty {
+            draftAnchorMs = playheadMs
+            draftTarget = currentNoteTarget
+        }
+        withAnimation(Yoin.stageSettle) {
             tab = NowPlayingDetailPage.note.rawValue
             stage = .expanded
             composing = true
@@ -1531,8 +1662,8 @@ struct NowPlayingView: View {
     /// The Note page's long-press Edit: the composer opens on the note's own
     /// words and moment (an unsaved new draft is parked meanwhile).
     private func startEditing(_ note: SongNote) {
-        if editingNoteId == nil, !draft.isEmpty { parkedDraft = (draft, draftAnchorMs) }
-        withAnimation(Yoin.spatial) {
+        if editingNoteId == nil, !draft.isEmpty { parkedDraft = (draft, draftAnchorMs, draftTarget) }
+        withAnimation(Yoin.stageSettle) {
             editingNoteId = note.id
             draft = note.content
             draftAnchorMs = note.positionMs
@@ -1563,9 +1694,11 @@ struct NowPlayingView: View {
             if let parked = parkedDraft {
                 draft = parked.words
                 draftAnchorMs = parked.anchorMs
+                draftTarget = parked.target
             } else {
                 draft = ""
                 draftAnchorMs = nil
+                draftTarget = nil
             }
             parkedDraft = nil
             composing = false
@@ -1574,15 +1707,34 @@ struct NowPlayingView: View {
 
     private func saveNote() {
         if let id = editingNoteId { return saveEdit(id) }
-        let key = currentNoteKey
-        let p = model.playback
-        guard NotesStore.shared.add(provider: key.provider, trackId: key.rawId, content: draft,
-                                    positionMs: draftAnchorMs, title: p.track.title, artist: p.album.artist) != nil
+        let target = draftTarget ?? currentNoteTarget
+        guard NotesStore.shared.add(provider: target.provider, trackId: target.rawId, content: draft,
+                                    positionMs: draftAnchorMs, title: target.title, artist: target.artist) != nil
         else { return }
         notesSaved += 1
         draft = ""
-        // The keyboard stays up for the next line, filed at the next moment.
+        // The keyboard stays up for the next line, filed at the next moment
+        // of what plays now.
         draftAnchorMs = playheadMs
+        draftTarget = currentNoteTarget
+    }
+
+    /// The song on screen as a note target.
+    private var currentNoteTarget: NoteTarget {
+        let key = currentNoteKey
+        let p = model.playback
+        return NoteTarget(provider: key.provider, rawId: key.rawId, title: p.track.title, artist: p.album.artist)
+    }
+
+    /// Android NoteDraft.edit: an unbound draft, or an emptied one still bound
+    /// to a song that has ended, binds to what plays with its first word.
+    private func draftChanged(from old: String, to new: String) {
+        guard editingNoteId == nil, old.isEmpty, !new.isEmpty else { return }
+        let current = currentNoteTarget
+        if draftTarget == nil || draftTarget?.sameSong(current) == false {
+            draftTarget = current
+            draftAnchorMs = playheadMs
+        }
     }
 
     /// The composer over the page's foot, above the keyboard. A tap above it
@@ -1596,7 +1748,11 @@ struct NowPlayingView: View {
                     if draft.isEmpty && editingNoteId == nil { withAnimation(Yoin.spatial) { composing = false } }
                 }
             NoteComposer(scheme: scheme, text: $draft, anchorMs: draftAnchorMs, focus: $composerFocused,
-                         onRealign: { withAnimation(Yoin.spatialFast) { draftAnchorMs = playheadMs } },
+                         onRealign: {
+                             // "This moment": to now, and to the song playing now (words kept).
+                             withAnimation(Yoin.spatialFast) { draftAnchorMs = playheadMs }
+                             if editingNoteId == nil { draftTarget = currentNoteTarget }
+                         },
                          onSave: saveNote,
                          onCancel: editingNoteId == nil ? nil : { endEditing() })
                 .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg - 8)
@@ -1660,11 +1816,16 @@ struct RatingBar: View {
     @Binding var value: Double?
     var scheme: CoverScheme
     var held = false
+    /// The song the bar rates. A touch belongs to the song it went down on:
+    /// if this changes mid-touch, the rest of the touch is ignored (no value,
+    /// no release; the owner cancels).
+    var gestureKey: String = ""
     @Environment(\.colorScheme) private var colorScheme
     /// Finger down / up.
     var onHold: (Bool) -> Void = { _ in }
 
     @State private var down = false
+    @State private var downKey: String?
 
     /// The bar's number: none while unrated, "10" at the top, else one decimal.
     static func label(_ value: Double?) -> String? {
@@ -1727,14 +1888,18 @@ struct RatingBar: View {
                     .onChanged { v in
                         if !down {
                             down = true
+                            downKey = gestureKey
                             onHold(true)
                         }
+                        guard downKey == gestureKey else { return }
                         let raw = Double((1 - v.location.y / h) * 10)
                         value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
                     }
                     .onEnded { _ in
+                        let own = downKey == gestureKey
                         down = false
-                        onHold(false)
+                        downKey = nil
+                        if own { onHold(false) }
                     }
             )
             .animation(Yoin.spatialFast, value: value)

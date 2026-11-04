@@ -24,6 +24,21 @@ enum NowPlayingDetailPage: Int, CaseIterable {
     }
 }
 
+extension Yoin {
+    /// Android YoinMotion.stageSettleSpring (YoinTokens stageSettle: damping
+    /// 0.85, stiffness 700): the ONE spring every stage reshape rides —
+    /// compact ⇄ focus ⇄ expanded, the cover's dock, the rating's retreat,
+    /// the slots and their fades all move in that one transaction, so they
+    /// read as one progress. Fast and near-critical: no overshoot for the
+    /// cover flight to fight.
+    @MainActor static var stageSettle: Animation {
+        let s = Tokens.motion.stageSettle
+        let k = s.stiffness
+        return Animation.interpolatingSpring(mass: 1, stiffness: k, damping: s.damping * 2 * k.squareRoot())
+            .speed(LaunchConfig.animationSpeed)
+    }
+}
+
 /// Android NowPlayingScreen.kt's Expanded slot heights.
 enum NowPlayingExpanded {
     static let topBar: CGFloat = 56
