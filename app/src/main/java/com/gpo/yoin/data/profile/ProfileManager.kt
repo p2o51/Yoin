@@ -596,6 +596,7 @@ class ProfileManager(
                         baseHttpClient = subsonicBaseHttpClientProvider(),
                     )
                 },
+                profileId = profile.id,
             )
             is ProfileCredentials.Spotify -> com.gpo.yoin.data.source.spotify.SpotifyMusicSource(
                 initialCredentials = credentials,
