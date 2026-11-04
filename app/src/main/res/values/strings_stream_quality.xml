@@ -13,4 +13,16 @@
     <string name="np_format_transcoded_description">Audio format %1$s, transcoded from %2$s</string>
     <string name="track_menu_go_to_named_artist">Go to %1$s</string>
     <string name="detail_disc_heading">Disc %1$d</string>
+    <string name="np_format_spatial">Spatial</string>
+    <string name="settings_spatial_audio_title">Spatial audio</string>
+    <string name="settings_spatial_audio_switch">Spatialize 5.1 and 7.1 songs</string>
+    <string name="settings_spatial_audio_off">Off. Multichannel songs play folded down to stereo.</string>
+    <string name="settings_spatial_audio_unsupported">This device can\'t spatialize. Multichannel songs play folded down to stereo.</string>
+    <string name="settings_spatial_audio_system_off">Spatial audio is off in system settings, so multichannel songs play folded down to stereo.</string>
+    <string name="settings_spatial_audio_output">Ready. The current output can\'t be spatialized; it starts on headphones that support spatial audio.</string>
+    <string name="settings_spatial_audio_ready">On. Multichannel songs are spatialized on this output.</string>
+    <string name="settings_spatial_audio_ready_head">On. Multichannel songs are spatialized on this output, with head tracking available.</string>
+    <string name="settings_spatial_audio_system_settings">System sound settings</string>
+    <string name="settings_spatial_audio_system_settings_detail">Spatial audio and head tracking are switched on there, per headset</string>
+    <string name="settings_spatial_audio_note">Only for songs that are 5.1 or 7.1 files, played as the original. Stereo songs aren\'t changed.</string>
 </resources>

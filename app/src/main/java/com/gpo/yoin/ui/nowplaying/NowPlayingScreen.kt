@@ -143,6 +143,7 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.PlayMode
+import com.gpo.yoin.player.SpatialPlayback
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
@@ -5702,8 +5703,9 @@ private fun BottomPillsPreview() {
 
 /**
  * What is playing, as format tags after the artist ("FLAC 24/96", "Opus 192",
- * "5.1"); nothing when nothing is known (Spotify, Apple Music). They fade in
- * and out on the effects spring as the decoder reports.
+ * "5.1"), then "Spatial" while the system spatializes it; nothing when nothing
+ * is known (Spotify, Apple Music). They fade in and out on the effects spring
+ * as the decoder reports.
  */
 @Composable
 private fun NowPlayingFormatTags(state: NowPlayingUiState.Playing) {
@@ -5715,6 +5717,11 @@ private fun NowPlayingFormatTags(state: NowPlayingUiState.Playing) {
         AudioFormatTagRow(
             tags = state.formatTags,
             transcodedFrom = state.transcodedFrom,
+            accentTag = if (state.spatialPlayback == SpatialPlayback.Spatialized) {
+                stringResource(R.string.np_format_spatial)
+            } else {
+                null
+            },
             modifier = Modifier.padding(start = 8.dp),
         )
     }

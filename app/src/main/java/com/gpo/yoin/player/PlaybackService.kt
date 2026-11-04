@@ -2,7 +2,6 @@ package com.gpo.yoin.player
 
 import android.content.Intent
 import androidx.annotation.OptIn
-import androidx.media3.common.AudioAttributes
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import androidx.media3.common.C
@@ -113,14 +112,14 @@ class PlaybackService : MediaSessionService() {
         // A transcoded mp3 is constant bit rate with no seek table of its own.
         val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .build()
+        // Multichannel songs are left to the system Spatializer (behaviour AUTO)
+        // unless the listener turned spatial audio off (SpatialAudio.kt).
+        val spatialAudio = container.spatialAudio
+        var spatialMode = spatialAudio.state.value.mode
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractors))
-            .setAudioAttributes(audioAttributes, true)
+            .setAudioAttributes(musicAudioAttributes(spatialMode), true)
             .setHandleAudioBecomingNoisy(true)
             .build()
         localPlayer = player
@@ -138,6 +137,14 @@ class PlaybackService : MediaSessionService() {
             .build()
             .also(actions::attach)
         _audioSessionId.value = player.audioSessionId
+        serviceScope.launch {
+            spatialAudio.state.collect { state ->
+                if (state.mode == spatialMode) return@collect
+                spatialMode = state.mode
+                // Takes effect at once: the player reopens its audio output.
+                player.setAudioAttributes(musicAudioAttributes(spatialMode), true)
+            }
+        }
         serviceScope.launch {
             container.dlnaManager.connectedDevice.collect { device ->
                 // The local player stays paused throughout a remote session. Losing

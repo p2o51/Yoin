@@ -2,6 +2,8 @@ package com.gpo.yoin.ui.nowplaying
 
 import com.gpo.yoin.ui.component.transcodedFrom
 import com.gpo.yoin.ui.component.playingFormatTags
+import com.gpo.yoin.player.SpatialAudioState
+import com.gpo.yoin.player.spatialPlaybackOf
 import com.gpo.yoin.player.PlaybackService
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -95,6 +97,7 @@ class NowPlayingViewModel(
     private val onPlaylistMutated: () -> Unit = {},
     private val lyricHintStore: LyricHintStore = LyricHintStore.InMemory(),
     private val dlnaManager: DlnaManager? = null,
+    private val spatialAudio: StateFlow<SpatialAudioState> = MutableStateFlow(SpatialAudioState()),
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
@@ -588,7 +591,8 @@ class NowPlayingViewModel(
         playbackAndContext,
         PlaybackService.playingFormat,
         PlaybackService.usingDlna,
-    ) { base, (state, _), playing, dlna ->
+        spatialAudio,
+    ) { base, (state, _), playing, dlna, spatial ->
         val song = state.currentTrack
         if (base !is NowPlayingUiState.Playing || song == null) return@combine base
         // A speaker plays the queued url (the file): only the server's word.
@@ -606,6 +610,8 @@ class NowPlayingViewModel(
                 transcodeKbps = delivery?.maxBitRateKbps,
             ),
             transcodedFrom = transcodedFrom(song.audioFormat, delivery?.maxBitRateKbps),
+            // Only what the local player decodes: a speaker spatializes (or not) on its own.
+            spatialPlayback = spatialPlaybackOf(decoded?.channels, spatial),
         )
     }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NowPlayingUiState.Idle)
@@ -1622,6 +1628,7 @@ class NowPlayingViewModel(
                 onPlaylistMutated = container::notifyPlaylistMutation,
                 lyricHintStore = container.lyricHintStore,
                 dlnaManager = container.dlnaManager,
+                spatialAudio = container.spatialAudio.state,
             ) as T
     }
 }
