@@ -11,6 +11,8 @@ import com.gpo.yoin.shared.sync.identity.SyncProfile
 
 /** An in-memory [SyncDomain] (what the Swift stores implement on iOS). */
 class FakeSyncDomain(var language: String = "English") : SyncDomain {
+    /** true: every write fails to persist (and changes nothing), as a full or unwritable disk would. */
+    var failWrites = false
     val profileList = mutableListOf<SyncProfile>()
     val trackRatings = LinkedHashMap<Triple<String, String, String>, TrackRatingRow>()
     val albumRatings = LinkedHashMap<Triple<String, String, String>, AlbumRatingRow>()
@@ -26,12 +28,16 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun trackRating(profileId: String, provider: String, songId: String) =
         trackRatings[Triple(profileId, provider, songId)]
 
-    override fun putTrackRating(profileId: String, row: TrackRatingRow) {
+    override fun putTrackRating(profileId: String, row: TrackRatingRow): Boolean {
+        if (failWrites) return false
         trackRatings[Triple(profileId, row.provider, row.songId)] = row
+        return true
     }
 
-    override fun deleteTrackRating(profileId: String, provider: String, songId: String) {
+    override fun deleteTrackRating(profileId: String, provider: String, songId: String): Boolean {
+        if (failWrites) return false
         trackRatings.remove(Triple(profileId, provider, songId))
+        return true
     }
 
     override fun albumRatings(profileId: String) = albumRatings.filterKeys { it.first == profileId }.values.toList()
@@ -39,24 +45,32 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun albumRating(profileId: String, provider: String, albumId: String) =
         albumRatings[Triple(profileId, provider, albumId)]
 
-    override fun putAlbumRating(profileId: String, row: AlbumRatingRow) {
+    override fun putAlbumRating(profileId: String, row: AlbumRatingRow): Boolean {
+        if (failWrites) return false
         albumRatings[Triple(profileId, row.provider, row.albumId)] = row
+        return true
     }
 
-    override fun deleteAlbumRating(profileId: String, provider: String, albumId: String) {
+    override fun deleteAlbumRating(profileId: String, provider: String, albumId: String): Boolean {
+        if (failWrites) return false
         albumRatings.remove(Triple(profileId, provider, albumId))
+        return true
     }
 
     override fun notes(profileId: String) = notes.values.filter { it.profileId == profileId }
 
     override fun note(id: String) = notes[id]
 
-    override fun putNote(row: SongNoteRow) {
+    override fun putNote(row: SongNoteRow): Boolean {
+        if (failWrites) return false
         notes[row.id] = row
+        return true
     }
 
-    override fun deleteNote(id: String, profileId: String) {
+    override fun deleteNote(id: String, profileId: String): Boolean {
+        if (failWrites) return false
         if (notes[id]?.profileId == profileId) notes.remove(id)
+        return true
     }
 
     override fun albumTitles(profileId: String) = albumTitles.filterKeys { it.first == profileId }.values.toList()
@@ -64,12 +78,16 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun albumTitle(profileId: String, provider: String, albumId: String) =
         albumTitles[Triple(profileId, provider, albumId)]
 
-    override fun putAlbumTitle(profileId: String, row: AlbumTitleRow) {
+    override fun putAlbumTitle(profileId: String, row: AlbumTitleRow): Boolean {
+        if (failWrites) return false
         albumTitles[Triple(profileId, row.provider, row.albumId)] = row
+        return true
     }
 
-    override fun deleteAlbumTitle(profileId: String, provider: String, albumId: String) {
+    override fun deleteAlbumTitle(profileId: String, provider: String, albumId: String): Boolean {
+        if (failWrites) return false
         albumTitles.remove(Triple(profileId, provider, albumId))
+        return true
     }
 
     override fun memoryCopies(profileId: String) = memories.filterKeys { it[0] == profileId }.values.toList()
@@ -77,8 +95,10 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun memoryCopy(profileId: String, provider: String, entityType: String, entityId: String) =
         memories[listOf(profileId, provider, entityType, entityId)]
 
-    override fun putMemoryCopy(profileId: String, row: MemoryCopyRow) {
+    override fun putMemoryCopy(profileId: String, row: MemoryCopyRow): Boolean {
+        if (failWrites) return false
         memories[listOf(profileId, row.provider, row.entityType, row.entityId)] = row
+        return true
     }
 
     override fun aboutLanguage() = language
@@ -88,7 +108,9 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun songAbout(titleKey: String, artistKey: String, albumKey: String, kind: String, entryKey: String) =
         abouts[listOf(titleKey, artistKey, albumKey, kind, entryKey)]
 
-    override fun putSongAbout(row: SongAboutRow) {
+    override fun putSongAbout(row: SongAboutRow): Boolean {
+        if (failWrites) return false
         abouts[listOf(row.titleKey, row.artistKey, row.albumKey, row.kind, row.entryKey)] = row
+        return true
     }
 }

@@ -21,7 +21,8 @@ interface SyncTokenSource {
 interface SyncPersistence {
     fun load(): String?
 
-    fun save(text: String)
+    /** true once [text] is durably on disk; false keeps the store dirty so the next operation writes again. */
+    fun save(text: String): Boolean
 }
 
 /** The main thread on iOS (the Swift stores are main-actor); the caller's context elsewhere. */
@@ -99,8 +100,8 @@ class CloudSyncKit(
     fun flush() {
         if (!store.isDirty) return
         try {
-            persistence.save(store.snapshotJson())
-            store.markClean()
+            // Clean only once the document is on disk: a failed write must not drop the bookkeeping.
+            if (persistence.save(store.snapshotJson())) store.markClean()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

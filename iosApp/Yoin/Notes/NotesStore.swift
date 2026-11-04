@@ -2,8 +2,8 @@ import Foundation
 import Observation
 
 /// One note on a song, anchored to the moment it was written. Android
-/// `data/local/SongNote` (Room `song_notes`, `positionMs` since v27), minus
-/// the profile id: iOS has one server for now.
+/// `data/local/SongNote` (Room `song_notes`, `positionMs` since v27); the
+/// profile is `scope`, the account it was written under (`AccountScope`).
 struct SongNote: Codable, Identifiable, Hashable, Sendable {
     var id: String
     var provider: String
@@ -16,6 +16,9 @@ struct SongNote: Codable, Identifiable, Hashable, Sendable {
     var artist: String
     /// Playhead (ms into the track) when the note was written; nil = no moment.
     var positionMs: Int64?
+    /// The account the note belongs to (`AccountScope.scope(for:)`); nil for one-account providers and
+    /// notes saved before scopes existed.
+    var scope: String? = nil
 }
 
 /// The notes written on this device, kept as one JSON file in Application
@@ -26,18 +29,29 @@ struct SongNote: Codable, Identifiable, Hashable, Sendable {
 final class NotesStore {
     static let shared = NotesStore(fileURL: NotesStore.defaultURL)
 
-    private(set) var notes: [SongNote] = []
+    /// Every note on disk, every account's.
+    private var stored: [SongNote] = []
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let scopes: AccountScope
 
-    init(fileURL: URL, now: @escaping () -> Date = Date.init) {
+    /// The notes of the signed-in account (another server's notes on a song with the same id stay hidden).
+    var notes: [SongNote] { stored.filter(visible) }
+
+    init(fileURL: URL, now: @escaping () -> Date = Date.init, scopes: AccountScope = .shared) {
         self.fileURL = fileURL
         self.now = now
+        self.scopes = scopes
         if let data = try? Data(contentsOf: fileURL),
            let saved = try? JSONDecoder().decode([SongNote].self, from: data) {
-            notes = saved
+            stored = saved
         }
     }
+
+    private func visible(_ n: SongNote) -> Bool { scopes.isVisible(provider: n.provider, scope: n.scope) }
+
+    /// Index in `stored` of the visible note [id].
+    private func index(_ id: String) -> Int? { stored.firstIndex { $0.id == id && visible($0) } }
 
     static var defaultURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -58,8 +72,8 @@ final class NotesStore {
         let ms = nowMs
         let note = SongNote(id: UUID().uuidString, provider: provider, trackId: trackId, content: words,
                             createdAt: ms, updatedAt: ms, title: title, artist: artist,
-                            positionMs: positionMs.map { max(0, $0) })
-        notes.append(note)
+                            positionMs: positionMs.map { max(0, $0) }, scope: scopes.scope(for: provider))
+        stored.append(note)
         persist()
         return note
     }
@@ -67,16 +81,16 @@ final class NotesStore {
     /// Removes a note and hands it back (for Undo); nil when it isn't there.
     @discardableResult
     func delete(id: String) -> SongNote? {
-        guard let i = notes.firstIndex(where: { $0.id == id }) else { return nil }
-        let removed = notes.remove(at: i)
+        guard let i = index(id) else { return nil }
+        let removed = stored.remove(at: i)
         persist()
         return removed
     }
 
     /// Puts a deleted note back as it was (Android's 撤销 after a delete).
     func restore(_ note: SongNote) {
-        guard !notes.contains(where: { $0.id == note.id }) else { return }
-        notes.append(note)
+        guard !stored.contains(where: { $0.id == note.id && $0.scope == note.scope }) else { return }
+        stored.append(note)
         persist()
     }
 
@@ -84,21 +98,21 @@ final class NotesStore {
     @discardableResult
     func update(id: String, content: String) -> SongNote? {
         let words = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, let i = notes.firstIndex(where: { $0.id == id }) else { return nil }
-        notes[i].content = words
-        notes[i].updatedAt = nowMs
+        guard !words.isEmpty, let i = index(id) else { return nil }
+        stored[i].content = words
+        stored[i].updatedAt = nowMs
         persist()
-        return notes[i]
+        return stored[i]
     }
 
     /// Android "Align to now": the note moves to [positionMs] of its song.
     @discardableResult
     func realign(id: String, positionMs: Int64) -> SongNote? {
-        guard let i = notes.firstIndex(where: { $0.id == id }) else { return nil }
-        notes[i].positionMs = max(0, positionMs)
-        notes[i].updatedAt = nowMs
+        guard let i = index(id) else { return nil }
+        stored[i].positionMs = max(0, positionMs)
+        stored[i].updatedAt = nowMs
         persist()
-        return notes[i]
+        return stored[i]
     }
 
     // MARK: Cloud sync (Data/Sync)
@@ -106,19 +120,45 @@ final class NotesStore {
     /// A note added, edited, moved or deleted by the user: Data/Sync debounces an upload.
     @ObservationIgnored static var onLocalChange: (@MainActor () -> Void)?
 
-    func note(id: String) -> SongNote? { notes.first { $0.id == id } }
+    func note(id: String) -> SongNote? { index(id).map { stored[$0] } }
 
-    /// Writes a note that came from another device as it is (its own times and moment).
-    func syncPut(_ note: SongNote) {
-        if let i = notes.firstIndex(where: { $0.id == note.id }) { notes[i] = note } else { notes.append(note) }
+    /// Writes a note that came from another device as it is (its own times and moment). False (and
+    /// nothing changed) when it couldn't reach the disk: sync retries it rather than count it applied.
+    @discardableResult
+    func syncPut(_ note: SongNote) -> Bool {
+        var note = note
+        note.scope = scopes.scope(for: note.provider)
+        var next = stored
+        if let i = index(note.id) { next[i] = note } else { next.append(note) }
+        return commit(next)
+    }
+
+    /// Removes a note another device deleted (false: not on disk, nothing changed).
+    @discardableResult
+    func syncRemove(id: String) -> Bool {
+        guard let i = index(id) else { return true }
+        var next = stored
+        next.remove(at: i)
+        return commit(next)
+    }
+
+    /// Notes saved before notes carried an account belong to the first Subsonic account seen after the
+    /// update (AccountScope.adoptLegacyIfNeeded, once per install).
+    func adoptLegacy(provider: String, scope: String) {
+        guard stored.contains(where: { $0.provider == provider && $0.scope == nil }) else { return }
+        stored = stored.map { n in
+            var n = n
+            if n.provider == provider && n.scope == nil { n.scope = scope }
+            return n
+        }
         persistOnly()
     }
 
-    /// Removes a note another device deleted.
-    func syncRemove(id: String) {
-        guard let i = notes.firstIndex(where: { $0.id == id }) else { return }
-        notes.remove(at: i)
-        persistOnly()
+    /// [next] on disk first, then in memory.
+    private func commit(_ next: [SongNote]) -> Bool {
+        guard write(next) else { return false }
+        stored = next
+        return true
     }
 
     private var nowMs: Int64 { Int64((now().timeIntervalSince1970 * 1000).rounded()) }
@@ -129,12 +169,18 @@ final class NotesStore {
     }
 
     private func persistOnly() {
+        // A failed write keeps the user's notes in memory for this run.
+        _ = write(stored)
+    }
+
+    private func write(_ notes: [SongNote]) -> Bool {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             try JSONEncoder().encode(notes).write(to: fileURL, options: .atomic)
+            return true
         } catch {
-            // A failed write keeps the notes in memory for this run.
+            return false
         }
     }
 

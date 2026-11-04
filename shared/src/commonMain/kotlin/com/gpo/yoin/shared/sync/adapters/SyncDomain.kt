@@ -12,6 +12,12 @@ import com.gpo.yoin.shared.sync.identity.SyncProfile
  * Calls are synchronous and come from the sync coordinator's dispatcher (the
  * main thread on iOS). Each write is its own unit (iOS stores are
  * single-threaded, so "re-read, compare, write" in one call is atomic).
+ *
+ * Every write returns whether it reached durable storage. A store that could
+ * not persist must leave its in-memory state as it was and return false: the
+ * adapter then fails that record ([SyncDomainWriteException]), so the engine
+ * keeps it unapplied and retries it, instead of recording an apply that
+ * disappears on relaunch.
  */
 
 /** `local_ratings`: Yoin's 0..10 track rating; null = not rated (a cleared row, kept so the clear syncs). */
@@ -96,40 +102,40 @@ interface SyncDomain {
 
     fun trackRating(profileId: String, provider: String, songId: String): TrackRatingRow?
 
-    fun putTrackRating(profileId: String, row: TrackRatingRow)
+    fun putTrackRating(profileId: String, row: TrackRatingRow): Boolean
 
-    fun deleteTrackRating(profileId: String, provider: String, songId: String)
+    fun deleteTrackRating(profileId: String, provider: String, songId: String): Boolean
 
     fun albumRatings(profileId: String): List<AlbumRatingRow>
 
     fun albumRating(profileId: String, provider: String, albumId: String): AlbumRatingRow?
 
-    fun putAlbumRating(profileId: String, row: AlbumRatingRow)
+    fun putAlbumRating(profileId: String, row: AlbumRatingRow): Boolean
 
-    fun deleteAlbumRating(profileId: String, provider: String, albumId: String)
+    fun deleteAlbumRating(profileId: String, provider: String, albumId: String): Boolean
 
     fun notes(profileId: String): List<SongNoteRow>
 
     /** By id across every profile (ids are global; see SongNoteSyncAdapter). */
     fun note(id: String): SongNoteRow?
 
-    fun putNote(row: SongNoteRow)
+    fun putNote(row: SongNoteRow): Boolean
 
-    fun deleteNote(id: String, profileId: String)
+    fun deleteNote(id: String, profileId: String): Boolean
 
     fun albumTitles(profileId: String): List<AlbumTitleRow>
 
     fun albumTitle(profileId: String, provider: String, albumId: String): AlbumTitleRow?
 
-    fun putAlbumTitle(profileId: String, row: AlbumTitleRow)
+    fun putAlbumTitle(profileId: String, row: AlbumTitleRow): Boolean
 
-    fun deleteAlbumTitle(profileId: String, provider: String, albumId: String)
+    fun deleteAlbumTitle(profileId: String, provider: String, albumId: String): Boolean
 
     fun memoryCopies(profileId: String): List<MemoryCopyRow>
 
     fun memoryCopy(profileId: String, provider: String, entityType: String, entityId: String): MemoryCopyRow?
 
-    fun putMemoryCopy(profileId: String, row: MemoryCopyRow)
+    fun putMemoryCopy(profileId: String, row: MemoryCopyRow): Boolean
 
     /** The language About / Ask rows are written in (Android `GeminiConfig.normalizeTargetLanguage`). */
     fun aboutLanguage(): String
@@ -138,5 +144,13 @@ interface SyncDomain {
 
     fun songAbout(titleKey: String, artistKey: String, albumKey: String, kind: String, entryKey: String): SongAboutRow?
 
-    fun putSongAbout(row: SongAboutRow)
+    fun putSongAbout(row: SongAboutRow): Boolean
+}
+
+/** A [SyncDomain] write that did not reach storage; the record stays unapplied and is retried. */
+class SyncDomainWriteException(what: String) : Exception("Couldn't save $what on this device")
+
+/** Throws [SyncDomainWriteException] unless the write was durable. */
+internal fun Boolean.orFailWrite(what: String) {
+    if (!this) throw SyncDomainWriteException(what)
 }

@@ -250,35 +250,7 @@ class CloudSyncCore(
                 val markerId = pending?.second ?: transport.generateIds(1).first()
                 putMeta(SyncMetaKeys.PENDING_RESET, "$epoch|$markerId")
                 persist()
-                try {
-                    transport.create(
-                        fileId = markerId,
-                        name = SyncFileProps.resetFileName(epoch, deviceId()),
-                        appProperties = mapOf(
-                            SyncFileProps.KIND to SyncFileProps.KIND_RESET,
-                            SyncFileProps.EPOCH to epoch.toString(),
-                            SyncFileProps.DEVICE_ID to deviceId(),
-                        ),
-                        mimeType = "application/json",
-                        bytes = SnapshotCodec.encodeReset(
-                            ResetMarker(epoch = epoch, at = clock(), deviceId = deviceId(), deviceName = deviceName()),
-                        ),
-                    )
-                } catch (_: SyncTransportException.AlreadyExists) {
-                    // A retry of an interrupted delete: the marker is already there.
-                }
-                // Local side first: from here on this device is off and in the new epoch.
-                engine().clearReplica()
-                resetPublishBookkeeping()
-                dao.deleteMeta(SyncMetaKeys.PARTICIPATED)
-                dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
-                dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
-                dao.deleteMeta(SyncMetaKeys.REPLICA_PERMISSION_ID)
-                putMeta(SyncMetaKeys.EPOCH, epoch.toString())
-                putMeta(SyncMetaKeys.ENABLED, "false")
-                persist()
-                deleteYoinFilesExcept(files, markerId)
-                dao.deleteMeta(SyncMetaKeys.PENDING_RESET)
+                finishReset(epoch, markerId, files)
             }
             // No token revoke: other devices need the grant to read the marker and turn themselves off.
             Unit
@@ -465,17 +437,25 @@ class CloudSyncCore(
 
         // Merge peers that changed since we last merged them.
         updateRequiredFrom = null
+        // Peer files this cycle could not account for (gone mid-download, unreadable, unmergeable). The
+        // read-only first pull only opens two-way sync once every surviving peer file mapped.
+        val unaccounted = ArrayList<String>()
         val listedIds = files.map { it.id }.toSet()
         for (file in peerFiles) {
             val seen = dao.remoteFile(file.id)
             if (seen != null && seen.version == file.version) continue
-            val bytes = transport.download(file.id) ?: continue
+            val bytes = transport.download(file.id)
+            if (bytes == null) {
+                unaccounted += file.name
+                continue
+            }
             val envelope = try {
                 SnapshotCodec.decode(bytes)
             } catch (error: SyncSchemaTooNewException) {
                 updateRequiredFrom = error.deviceName ?: error.deviceId ?: file.appProperties[SyncFileProps.DEVICE_ID]
                 continue
             } catch (error: MalformedSyncFileException) {
+                unaccounted += file.name
                 continue
             }
             // Written before the newest "delete cloud data": ignore, and remember the version.
@@ -501,27 +481,34 @@ class CloudSyncCore(
             } catch (error: SyncSchemaTooNewException) {
                 updateRequiredFrom = error.deviceName ?: envelope.deviceName
             } catch (error: MalformedSyncFileException) {
-                // skip
+                unaccounted += file.name
             }
         }
         // Forget files that are gone (removed devices, deleted duplicates).
         dao.remoteFiles().filter { it.fileId !in listedIds && !it.own }.forEach { dao.deleteRemoteFile(it.fileId) }
 
         val bindings = refreshBindings()
-        engine.capture(bindings.active)
+        val captured = engine.capture(bindings.active)
         val applied = engine.apply(bindings.active)
         summarize(applied)
         persist()
 
         if (!twoWay) {
             // Read-only first pull: map only. Back the whole folder up; two-way from the next cycle
-            // only when the pull mapped cleanly and the backup is on disk.
-            val mapped = applied.failures.isEmpty() && updateRequiredFrom == null
+            // only when the pull mapped cleanly (every peer file merged, every local table read, every
+            // record applied) and the backup is on disk. Anything unaccounted for keeps it read-only and
+            // is tried again next cycle (a peer file stays unmerged until it reads).
+            val mapped = applied.failures.isEmpty() && captured.failures.isEmpty() && unaccounted.isEmpty() &&
+                updateRequiredFrom == null
             val backup = backupAll(files)
             if (mapped && backup != null) putMeta(META_TWO_WAY, "true")
             putMeta(SyncMetaKeys.LAST_SYNC_AT, clock().toString())
             updateRequiredFrom?.let { return CODE_UPDATE_PREFIX + it }
-            return if (backup == null) ERROR_PREFIX + "Couldn't back up your Drive data on this device." else null
+            if (backup == null) return ERROR_PREFIX + "Couldn't back up your Drive data on this device."
+            if (unaccounted.isNotEmpty()) {
+                return ERROR_PREFIX + "Couldn't read ${unaccounted.size} sync file(s) in Drive yet; this device stays read-only."
+            }
+            return null
         }
 
         // Publish what changed.
@@ -629,18 +616,64 @@ class CloudSyncCore(
         putMeta(SyncMetaKeys.LAST_SUMMARY, summaryText(restored))
     }
 
-    /** Finishes a "delete cloud data" that was interrupted after its marker was written. */
+    /**
+     * Finishes a "delete cloud data" that was interrupted anywhere after PENDING_RESET was saved: before its
+     * marker was created, before this device went off in the new epoch, or part-way through deleting files.
+     * The same steps as the first attempt, each one idempotent; nothing is deleted until the marker exists.
+     */
     private suspend fun resumePendingReset() {
         runCatching {
             mutex.withLock {
-                val (_, markerId) = dao.meta(SyncMetaKeys.PENDING_RESET)?.let(::parsePendingReset) ?: return@withLock
+                val (epoch, markerId) = dao.meta(SyncMetaKeys.PENDING_RESET)?.let(::parsePendingReset)
+                    ?: return@withLock
                 val about = transport.about()
                 if (about.permissionId != dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)) return@withLock
-                deleteYoinFilesExcept(transport.list(), markerId)
-                dao.deleteMeta(SyncMetaKeys.PENDING_RESET)
+                finishReset(epoch, markerId, transport.list())
             }
         }
         refreshState()
+    }
+
+    /**
+     * The reset state machine after PENDING_RESET = "[epoch]|[markerId]" is on disk: (1) make sure the marker
+     * exists in Drive (create it, or find it already there), (2) turn this device off in the new epoch with
+     * an empty replica, (3) delete every other Yoin file, (4) clear PENDING_RESET. Safe to run again from
+     * any step; files are only deleted once peers can see the marker that explains why.
+     */
+    private suspend fun finishReset(epoch: Long, markerId: String, files: List<RemoteFile>) {
+        if (files.none { it.id == markerId }) {
+            try {
+                transport.create(
+                    fileId = markerId,
+                    name = SyncFileProps.resetFileName(epoch, deviceId()),
+                    appProperties = mapOf(
+                        SyncFileProps.KIND to SyncFileProps.KIND_RESET,
+                        SyncFileProps.EPOCH to epoch.toString(),
+                        SyncFileProps.DEVICE_ID to deviceId(),
+                    ),
+                    mimeType = "application/json",
+                    bytes = SnapshotCodec.encodeReset(
+                        ResetMarker(epoch = epoch, at = clock(), deviceId = deviceId(), deviceName = deviceName()),
+                    ),
+                )
+            } catch (_: SyncTransportException.AlreadyExists) {
+                // Created by the interrupted attempt after the list was taken.
+            }
+        }
+        // Local side before any deletion: from here on this device is off and in the new epoch.
+        if (dao.meta(SyncMetaKeys.EPOCH)?.toLongOrNull() != epoch || isEnabled()) {
+            engine().clearReplica()
+            resetPublishBookkeeping()
+            dao.deleteMeta(SyncMetaKeys.PARTICIPATED)
+            dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
+            dao.deleteMeta(SyncMetaKeys.LAST_ERROR)
+            dao.deleteMeta(SyncMetaKeys.REPLICA_PERMISSION_ID)
+            putMeta(SyncMetaKeys.EPOCH, epoch.toString())
+            putMeta(SyncMetaKeys.ENABLED, "false")
+            persist()
+        }
+        deleteYoinFilesExcept(files, markerId)
+        dao.deleteMeta(SyncMetaKeys.PENDING_RESET)
     }
 
     private suspend fun deleteYoinFilesExcept(files: List<RemoteFile>, keepId: String) {

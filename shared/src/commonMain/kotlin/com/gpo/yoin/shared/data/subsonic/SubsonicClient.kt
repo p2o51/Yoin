@@ -143,6 +143,20 @@ class SubsonicClient private constructor(
         )
     }
 
+    /**
+     * OpenSubsonic `getOpenSubsonicExtensions`: the extension names the server lists (e.g. `transcodeOffset`,
+     * which lets `stream` take `timeOffset`). Empty for a plain Subsonic server or any failure to answer:
+     * an unknown server is treated as having none (Android `SubsonicServerTraits.Plain`).
+     */
+    @Throws(CancellationException::class)
+    suspend fun getOpenSubsonicExtensions(): List<String> = try {
+        call("getOpenSubsonicExtensions").openSubsonicExtensions.orEmpty().map { it.name }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        emptyList()
+    }
+
     @Throws(SubsonicException::class, CancellationException::class)
     suspend fun getAlbumList2(type: AlbumListType, size: Int, offset: Int): List<AlbumInfo> =
         call("getAlbumList2", "type" to type.apiValue, "size" to size.toString(), "offset" to offset.toString())
@@ -390,10 +404,11 @@ class SubsonicClient private constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
+            // Ktor's timeout messages quote the request URL, which carries u/t/s: never pass them on.
             throw SubsonicException(
                 SubsonicErrorKind.NETWORK,
                 SubsonicErrorKind.NETWORK.code,
-                e.message ?: "Network error",
+                redactCredentials(e.message ?: "Network error"),
                 cause = e,
             )
         }
@@ -403,7 +418,13 @@ class SubsonicClient private constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            throw SubsonicException(SubsonicErrorKind.NETWORK, SubsonicErrorKind.NETWORK.code, e.message ?: "Network error", status, e)
+            throw SubsonicException(
+                SubsonicErrorKind.NETWORK,
+                SubsonicErrorKind.NETWORK.code,
+                redactCredentials(e.message ?: "Network error"),
+                status,
+                e,
+            )
         }
         val body = try {
             json.decodeFromString(SubsonicEnvelope.serializer(), text).response
@@ -411,7 +432,13 @@ class SubsonicClient private constructor(
             if (!response.status.isSuccess()) {
                 throw SubsonicException(SubsonicErrorKind.HTTP, SubsonicErrorKind.HTTP.code, "HTTP $status", status)
             }
-            throw SubsonicException(SubsonicErrorKind.PARSE, SubsonicErrorKind.PARSE.code, "Not a Subsonic response: ${e.message}", status, e)
+            throw SubsonicException(
+                SubsonicErrorKind.PARSE,
+                SubsonicErrorKind.PARSE.code,
+                redactCredentials("Not a Subsonic response: ${e.message}"),
+                status,
+                e,
+            )
         }
         if (body.status != "ok") {
             val error = body.error
@@ -435,5 +462,13 @@ class SubsonicClient private constructor(
             isLenient = true
             coerceInputValues = true
         }
+
+        private val credentialParams = Regex("""([?&](?:u|t|s|p|apiKey)=)[^&#\s\],)]*""")
+
+        /**
+         * [text] with the value of every credential query parameter (`u`, `t`, `s`, `p`, `apiKey`) blanked:
+         * the token and salt together sign in as the user. Error messages and logs go through this.
+         */
+        fun redactCredentials(text: String): String = credentialParams.replace(text) { it.groupValues[1] + "REDACTED" }
     }
 }

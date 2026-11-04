@@ -21,6 +21,10 @@ class CloudSyncCoreTest {
 
         val files = LinkedHashMap<String, File>()
         var writes = 0
+        /** Every create throws (a network drop / process death right before the marker is written). */
+        var failCreates = false
+        /** Files whose download returns bytes that are not a sync file. */
+        val corrupt = mutableSetOf<String>()
         private var nextId = 0
         private var nextVersion = 1L
 
@@ -29,7 +33,8 @@ class CloudSyncCoreTest {
                 RemoteFile(it.id, it.name, it.version, null, it.bytes.size.toLong(), it.props)
             }
 
-            override suspend fun download(fileId: String) = files[fileId]?.bytes
+            override suspend fun download(fileId: String) =
+                if (fileId in corrupt) "not a sync file".encodeToByteArray() else files[fileId]?.bytes
 
             override suspend fun create(
                 fileId: String,
@@ -39,6 +44,7 @@ class CloudSyncCoreTest {
                 bytes: ByteArray,
             ): RemoteFile {
                 if (fileId in files) throw SyncTransportException.AlreadyExists(fileId)
+                if (failCreates) throw SyncTransportException.Network("create failed")
                 writes++
                 files[fileId] = File(fileId, name, appProperties, bytes, nextVersion++)
                 return list().first { it.id == fileId }
@@ -77,9 +83,13 @@ class CloudSyncCoreTest {
     private var now = 1_800_000_000_000L
     private val profile = SyncProfile("p", "subsonic", "Demo", 1L, subsonicServerUrl = "http://127.0.0.1:4977", subsonicUsername = "demo")
 
-    private fun device(name: String, readOnly: Boolean, backups: SyncBackupSink? = null): Pair<CloudSyncCore, FakeSyncDomain> {
-        val domain = FakeSyncDomain().apply { profileList += profile }
-        val store = InMemorySyncStore()
+    private fun device(
+        name: String,
+        readOnly: Boolean,
+        backups: SyncBackupSink? = null,
+        store: InMemorySyncStore = InMemorySyncStore(),
+        domain: FakeSyncDomain = FakeSyncDomain().apply { profileList += profile },
+    ): Pair<CloudSyncCore, FakeSyncDomain> {
         val core = CloudSyncCore(
             store = store,
             adapters = { SharedSyncAdapters.create(domain, it) },
@@ -167,5 +177,84 @@ class CloudSyncCoreTest {
         assertIs<CloudSyncPhase.ResetElsewhere>(phase)
         assertEquals("iPhone", phase.deviceName)
         assertNotNull(androidDomain.note("n1"), "local data stays")
+    }
+
+    @Test
+    fun should_createMarkerBeforeDeletingAnything_when_interruptedResetResumes() = runTest {
+        val (android, androidDomain) = device("Pixel Tablet", readOnly = false)
+        androidDomain.putNote(note("n1", "hello"))
+        android.enable("token")
+        val store = InMemorySyncStore()
+        val (ios, iosDomain) = device("iPhone", readOnly = false, backups = Backups(), store = store)
+        now += 1_000
+        ios.enable("token")
+        val before = drive.files.keys.toSet()
+
+        // The marker can't be created: PENDING_RESET is saved, nothing in Drive is touched.
+        drive.failCreates = true
+        now += 1_000
+        assertNotNull(ios.deleteCloudData())
+        assertEquals(before, drive.files.keys.toSet())
+        assertNotNull(store.meta(SyncMetaKeys.PENDING_RESET))
+
+        // Relaunch: the resume creates the marker first, turns this device off, then deletes the rest.
+        drive.failCreates = false
+        val (relaunched, _) = device("iPhone", readOnly = false, backups = Backups(), store = store, domain = iosDomain)
+        relaunched.initialize()
+        assertEquals(listOf(SyncFileProps.KIND_RESET), drive.files.values.map { it.props[SyncFileProps.KIND] })
+        assertNull(store.meta(SyncMetaKeys.PENDING_RESET))
+        assertEquals(CloudSyncPhase.Off, relaunched.currentState().phase)
+        val epoch = store.meta(SyncMetaKeys.EPOCH)
+        assertEquals(drive.files.values.single().props[SyncFileProps.EPOCH], epoch)
+
+        // Peers see why their files went.
+        now += 61_000
+        android.syncNow()
+        assertIs<CloudSyncPhase.ResetElsewhere>(android.currentState().phase)
+    }
+
+    @Test
+    fun should_stayReadOnly_when_aPeerFileCannotBeRead() = runTest {
+        val (android, androidDomain) = device("Pixel Tablet", readOnly = false)
+        androidDomain.putNote(note("n1", "from Android"))
+        android.enable("token")
+        drive.corrupt += drive.files.keys
+        val writes = drive.writes
+
+        val (ios, _) = device("iPhone", readOnly = true, backups = Backups())
+        now += 1_000
+        ios.enable("token")
+        assertTrue(ios.currentState().readOnly, "an unread peer file keeps the first pull read-only")
+        now += 61_000
+        ios.syncNow()
+        assertTrue(ios.currentState().readOnly)
+        assertEquals(writes, drive.writes, "nothing written to Drive while read-only")
+
+        // Once it reads, the gate opens.
+        drive.corrupt.clear()
+        now += 61_000
+        ios.syncNow()
+        assertTrue(!ios.currentState().readOnly)
+    }
+
+    @Test
+    fun should_keepRecordUnapplied_when_aDomainWriteFails() = runTest {
+        val (android, androidDomain) = device("Pixel Tablet", readOnly = false)
+        androidDomain.putNote(note("n1", "from Android"))
+        android.enable("token")
+
+        val (ios, iosDomain) = device("iPhone", readOnly = true, backups = Backups())
+        iosDomain.failWrites = true
+        now += 1_000
+        ios.enable("token")
+        assertNull(iosDomain.note("n1"))
+        assertTrue(ios.currentState().readOnly, "a failed apply keeps the first pull read-only")
+
+        // The disk recovers: the next cycle applies it.
+        iosDomain.failWrites = false
+        now += 61_000
+        ios.syncNow()
+        assertEquals("from Android", iosDomain.note("n1")?.content)
+        assertTrue(!ios.currentState().readOnly)
     }
 }

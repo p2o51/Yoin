@@ -81,7 +81,7 @@ class TrackRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         if (wire == null || !matchesKey) return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
         val rating = ratingFrom(wire, payload)
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.putTrackRating(profileId, TrackRatingRow(provider, songId, rating?.asDomainRating(), versionTs))
+        domain.putTrackRating(profileId, TrackRatingRow(provider, songId, rating?.asDomainRating(), versionTs)).orFailWrite("putTrackRating")
         return ApplyOutcome.Applied(
             domain.trackRating(profileId, provider, songId)
                 ?.let { projection(it.songId, it.provider, it.rating?.asRating()) }
@@ -95,7 +95,7 @@ class TrackRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val current = domain.trackRating(profileId, provider, songId) ?: return ApplyOutcome.Applied(null)
         val currentHash = projection(current.songId, current.provider, current.rating?.asRating()).hashOrNull()
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.deleteTrackRating(profileId, provider, songId)
+        domain.deleteTrackRating(profileId, provider, songId).orFailWrite("deleteTrackRating")
         return ApplyOutcome.Applied(null)
     }
 
@@ -168,7 +168,7 @@ class AlbumRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val updated = existing?.copy(rating = rating.asDomainRating(), updatedAt = maxOf(existing.updatedAt, versionTs))
             // Even for rating 0: see Android's AlbumRatingSyncAdapter file header.
             ?: AlbumRatingRow(provider, albumId, rating.asDomainRating(), review = null, reviewUpdatedAt = null, updatedAt = versionTs)
-        domain.putAlbumRating(profileId, updated)
+        domain.putAlbumRating(profileId, updated).orFailWrite("putAlbumRating")
         return ApplyOutcome.Applied(domain.albumRating(profileId, provider, albumId)?.let(::projection).hashOrNull())
     }
 
@@ -179,9 +179,9 @@ class AlbumRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val currentHash = projection(current).hashOrNull()
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
         if (current.review.isNullOrBlank()) {
-            domain.deleteAlbumRating(profileId, provider, albumId)
+            domain.deleteAlbumRating(profileId, provider, albumId).orFailWrite("deleteAlbumRating")
         } else {
-            domain.putAlbumRating(profileId, current.copy(rating = 0.0))
+            domain.putAlbumRating(profileId, current.copy(rating = 0.0)).orFailWrite("putAlbumRating")
         }
         return ApplyOutcome.Applied(domain.albumRating(profileId, provider, albumId)?.let(::projection).hashOrNull())
     }
@@ -254,7 +254,7 @@ class AlbumReviewSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
             reviewUpdatedAt = reviewUpdatedAt,
             updatedAt = maxOf(existing.updatedAt, versionTs),
         ) ?: AlbumRatingRow(provider, albumId, 0.0, review.value, reviewUpdatedAt, versionTs)
-        domain.putAlbumRating(profileId, updated)
+        domain.putAlbumRating(profileId, updated).orFailWrite("putAlbumRating")
         return ApplyOutcome.Applied(domain.albumRating(profileId, provider, albumId)?.let(::projection).hashOrNull())
     }
 
@@ -265,9 +265,9 @@ class AlbumReviewSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val currentHash = projection(current).hashOrNull()
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
         if (current.rating.asRating() == 0f) {
-            domain.deleteAlbumRating(profileId, provider, albumId)
+            domain.deleteAlbumRating(profileId, provider, albumId).orFailWrite("deleteAlbumRating")
         } else {
-            domain.putAlbumRating(profileId, current.copy(review = null, reviewUpdatedAt = null))
+            domain.putAlbumRating(profileId, current.copy(review = null, reviewUpdatedAt = null)).orFailWrite("putAlbumRating")
         }
         return ApplyOutcome.Applied(domain.albumRating(profileId, provider, albumId)?.let(::projection).hashOrNull())
     }

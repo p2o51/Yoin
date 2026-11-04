@@ -169,17 +169,59 @@ final class SongAboutTests: XCTestCase {
         func ask(_ q: String, _ at: Int64) -> SongAboutStore.Entry {
             .init(titleKey: k.title, artistKey: k.artist, albumKey: k.album, titleDisplay: "Starlight",
                   artistDisplay: "Muse", albumDisplay: "BH&R", kind: "ask", entryKey: q, promptText: q,
-                  titleText: "T \(q)", answerText: "A", createdAt: at, updatedAt: at, language: nil)
+                  titleText: "T \(q)", answerText: "A", createdAt: at, updatedAt: at, language: "English")
         }
         store.upsert([ask("old", 1), ask("new", 2)])
 
         let reloaded = SongAboutStore(fileURL: url)
+        reloaded.language = { "English" }
         XCTAssertTrue(reloaded.hasCanonical(k))
         XCTAssertEqual(reloaded.entries(k).map(\.entryKey),
                        ["creation_time", "creation_location", "lyricist", "composer", "producer", "review", "new", "old"])
         XCTAssertEqual(reloaded.entries(k).first?.answerText, "2006")
         XCTAssertEqual(reloaded.entries(k)[1].answerText, "", "missing fields stored blank, as Android")
         XCTAssertEqual(reloaded.entries(k).first?.language, "English")
+    }
+
+    /// Codex C17: the cache is per language; rows of unknown language (from before) are not shown.
+    func test_should_showOnlyThisLanguagesRows_when_languageChanges() {
+        let store = SongAboutStore(fileURL: dir.appendingPathComponent("lang.json"))
+        var language = "English"
+        store.language = { language }
+        store.saveCanonical(title: "Starlight", artist: "Muse", album: "BH&R",
+                            values: [.init(key: "review", answer: "In English")], language: "English")
+        store.saveAsk(title: "Starlight", artist: "Muse", album: "BH&R", question: "Who?",
+                      reply: .init(title: "T", answer: "Asked in English"), language: "English")
+        let k = SongAboutStore.key(title: "Starlight", artist: "Muse", album: "BH&R")
+        let old = SongAboutStore.Entry(titleKey: k.title, artistKey: k.artist, albumKey: k.album, titleDisplay: "",
+                                       artistDisplay: "", albumDisplay: "", kind: "ask", entryKey: "legacy",
+                                       promptText: "legacy", titleText: nil, answerText: "unknown language",
+                                       createdAt: 1, updatedAt: 1, language: nil)
+        store.upsert([old])
+        XCTAssertTrue(store.hasCanonical(k))
+        XCTAssertFalse(store.entries(k).contains { $0.entryKey == "legacy" })
+        XCTAssertEqual(store.entries(k).first { $0.kind == "ask" }?.language, "English")
+
+        language = "Japanese"
+        XCTAssertFalse(store.hasCanonical(k), "Japanese asks Gemini again")
+        XCTAssertTrue(store.entries(k).isEmpty, "no English answers under Japanese")
+    }
+
+    func test_should_signalSync_when_geminiAnswers_butNotForSyncedRows() {
+        var signals = 0
+        SongAboutStore.onLocalChange = { signals += 1 }
+        defer { SongAboutStore.onLocalChange = nil }
+        let store = SongAboutStore(fileURL: dir.appendingPathComponent("sig.json"))
+        store.saveCanonical(title: "A", artist: "B", album: "C", values: [], language: "English")
+        store.saveAsk(title: "A", artist: "B", album: "C", question: "Q", reply: .init(title: "T", answer: "X"),
+                      language: "English")
+        XCTAssertEqual(signals, 2)
+        let k = SongAboutStore.key(title: "A", artist: "B", album: "C")
+        XCTAssertTrue(store.syncUpsert(.init(titleKey: k.title, artistKey: k.artist, albumKey: k.album, titleDisplay: "A",
+                                             artistDisplay: "B", albumDisplay: "C", kind: "ask", entryKey: "r",
+                                             promptText: "r", titleText: nil, answerText: "remote", createdAt: 1,
+                                             updatedAt: 1, language: "English")))
+        XCTAssertEqual(signals, 2, "a row from sync is not a local change")
     }
 
     private func loader(store: SongAboutStore, key: String?) -> SongAboutLoader {

@@ -14,11 +14,16 @@ extension SyncProfile: @retroactive @unchecked Sendable {}
 /// `com.gpo.yoin.shared.sync.adapters.SyncDomain`): the shared adapters read
 /// and write exactly the fields Android's adapters do, through here.
 ///
-/// iOS has one account per provider (ServerSession's Subsonic server, Apple
-/// Music), so a local profile id names a provider: notes / ratings / album
-/// records of that provider belong to it. A different Subsonic server under
+/// iOS has one account per provider at a time (ServerSession's Subsonic
+/// server, Apple Music), so a local profile id names a provider. The stores
+/// keep each Subsonic row under the server + user it was written for
+/// (`AccountScope`) and show only the signed-in account's, so what this bridge
+/// reads and writes is that account's alone. A different Subsonic server under
 /// the same id changes the fingerprint, which pauses its binding (Android's
-/// "Account changed": keep as before, or start fresh).
+/// "Account changed": keep as before, or start fresh) while the old server's
+/// rows stay on disk, out of sight, under their own scope.
+///
+/// Writes return true only once the store has them on disk (Codex C15).
 ///
 /// The Kotlin coordinator calls in on the main dispatcher only.
 final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
@@ -119,14 +124,16 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         }
     }
 
-    func putTrackRating(profileId: String, row: TrackRatingRow) {
+    // Writes: true only once on disk (the stores change nothing otherwise), so sync retries a failure.
+
+    func putTrackRating(profileId: String, row: TrackRatingRow) -> Bool {
         main {
             LocalRatings.shared.syncPut(row.rating?.doubleValue, provider: row.provider, songId: row.songId,
                                         updatedAt: row.updatedAt)
         }
     }
 
-    func deleteTrackRating(profileId: String, provider: String, songId: String) {
+    func deleteTrackRating(profileId: String, provider: String, songId: String) -> Bool {
         main { LocalRatings.shared.syncRemove(provider: provider, songId: songId) }
     }
 
@@ -151,7 +158,7 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         }
     }
 
-    func putAlbumRating(profileId: String, row: AlbumRatingRow) {
+    func putAlbumRating(profileId: String, row: AlbumRatingRow) -> Bool {
         main {
             AlbumMemoryStore.shared.putAlbum(.init(provider: row.provider, albumId: row.albumId, rating: row.rating,
                                                    review: row.review, reviewUpdatedAt: row.reviewUpdatedAt?.int64Value,
@@ -159,7 +166,7 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         }
     }
 
-    func deleteAlbumRating(profileId: String, provider: String, albumId: String) {
+    func deleteAlbumRating(profileId: String, provider: String, albumId: String) -> Bool {
         main { AlbumMemoryStore.shared.removeAlbum(provider: provider, albumId: albumId) }
     }
 
@@ -180,7 +187,7 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         main { NotesStore.shared.note(id: id).flatMap(Self.row) }
     }
 
-    func putNote(row: SongNoteRow) {
+    func putNote(row: SongNoteRow) -> Bool {
         main {
             NotesStore.shared.syncPut(SongNote(id: row.id, provider: row.provider, trackId: row.trackId,
                                                content: row.content, createdAt: row.createdAt, updatedAt: row.updatedAt,
@@ -189,10 +196,10 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         }
     }
 
-    func deleteNote(id: String, profileId: String) {
+    func deleteNote(id: String, profileId: String) -> Bool {
         main {
-            guard let n = NotesStore.shared.note(id: id), Self.profileId(of: n.provider) == profileId else { return }
-            NotesStore.shared.syncRemove(id: id)
+            guard let n = NotesStore.shared.note(id: id), Self.profileId(of: n.provider) == profileId else { return true }
+            return NotesStore.shared.syncRemove(id: id)
         }
     }
 
@@ -209,19 +216,19 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     func albumTitle(profileId: String, provider: String, albumId: String) -> AlbumTitleRow? {
         main {
             guard Self.provider(of: profileId) == provider,
-                  let t = AlbumMemoryStore.shared.titles[AlbumMemoryStore.key(provider, albumId)] else { return nil }
+                  let t = AlbumMemoryStore.shared.title(provider: provider, albumId: albumId) else { return nil }
             return AlbumTitleRow(provider: t.provider, albumId: t.albumId, title: t.title, updatedAt: t.updatedAt)
         }
     }
 
-    func putAlbumTitle(profileId: String, row: AlbumTitleRow) {
+    func putAlbumTitle(profileId: String, row: AlbumTitleRow) -> Bool {
         main {
             AlbumMemoryStore.shared.putTitle(.init(provider: row.provider, albumId: row.albumId, title: row.title,
                                                    updatedAt: row.updatedAt))
         }
     }
 
-    func deleteAlbumTitle(profileId: String, provider: String, albumId: String) {
+    func deleteAlbumTitle(profileId: String, provider: String, albumId: String) -> Bool {
         main { AlbumMemoryStore.shared.removeTitle(provider: provider, albumId: albumId) }
     }
 
@@ -247,7 +254,7 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         }
     }
 
-    func putMemoryCopy(profileId: String, row: MemoryCopyRow) {
+    func putMemoryCopy(profileId: String, row: MemoryCopyRow) -> Bool {
         main {
             AlbumMemoryStore.shared.putMemory(.init(provider: row.provider, entityType: row.entityType,
                                                     entityId: row.entityId, copy: row.copyText, promptHash: row.promptHash,
@@ -270,9 +277,10 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
                      createdAt: e.createdAt, updatedAt: e.updatedAt)
     }
 
-    /// Rows this device wrote in another language (iOS canonical rows record it) don't describe this language.
+    /// Only rows known to be in this language (every row records it now; unstamped rows from before
+    /// stay out of sync rather than be published under a language they may not be in, Codex C17).
     private static func current(_ e: SongAboutStore.Entry, _ language: String) -> Bool {
-        e.language == nil || e.language == language
+        e.language == language
     }
 
     func songAbouts() -> [SongAboutRow] {
@@ -284,21 +292,26 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func songAbout(titleKey: String, artistKey: String, albumKey: String, kind: String, entryKey: String) -> SongAboutRow? {
         main {
-            SongAboutStore.shared.all.first {
+            let language = GeminiSettings.normalizeLanguage(GeminiSettings.shared.targetLanguage)
+            return SongAboutStore.shared.all.first {
                 $0.titleKey == titleKey && $0.artistKey == artistKey && $0.albumKey == albumKey &&
-                    $0.kind == kind && $0.entryKey == entryKey
+                    $0.kind == kind && $0.entryKey == entryKey && Self.current($0, language)
             }.map(Self.row)
         }
     }
 
-    func putSongAbout(row: SongAboutRow) {
+    /// The shared adapter applies a record only when its language is this device's (`aboutLanguage`), so
+    /// the row is stamped with it.
+    func putSongAbout(row: SongAboutRow) -> Bool {
         main {
-            SongAboutStore.shared.upsert([.init(titleKey: row.titleKey, artistKey: row.artistKey, albumKey: row.albumKey,
-                                                titleDisplay: row.titleDisplay, artistDisplay: row.artistDisplay,
-                                                albumDisplay: row.albumDisplay, kind: row.kind, entryKey: row.entryKey,
-                                                promptText: row.promptText, titleText: row.titleText,
-                                                answerText: row.answerText, createdAt: row.createdAt,
-                                                updatedAt: row.updatedAt, language: nil)])
+            let language = GeminiSettings.normalizeLanguage(GeminiSettings.shared.targetLanguage)
+            return SongAboutStore.shared.syncUpsert(.init(titleKey: row.titleKey, artistKey: row.artistKey,
+                                                          albumKey: row.albumKey, titleDisplay: row.titleDisplay,
+                                                          artistDisplay: row.artistDisplay, albumDisplay: row.albumDisplay,
+                                                          kind: row.kind, entryKey: row.entryKey,
+                                                          promptText: row.promptText, titleText: row.titleText,
+                                                          answerText: row.answerText, createdAt: row.createdAt,
+                                                          updatedAt: row.updatedAt, language: language))
         }
     }
 }

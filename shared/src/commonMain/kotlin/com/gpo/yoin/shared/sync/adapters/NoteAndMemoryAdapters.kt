@@ -53,7 +53,7 @@ class SongNoteSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val row = parse(payload, id = key, profileId = profileId)
             ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.putNote(row)
+        domain.putNote(row).orFailWrite("putNote")
         return ApplyOutcome.Applied(domain.note(key)?.let(::projection).hashOrNull())
     }
 
@@ -62,7 +62,7 @@ class SongNoteSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val current = domain.note(key)?.takeIf { it.profileId == profileId } ?: return ApplyOutcome.Applied(null)
         val currentHash = projection(current).hashOrNull()
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.deleteNote(key, profileId)
+        domain.deleteNote(key, profileId).orFailWrite("deleteNote")
         return ApplyOutcome.Applied(null)
     }
 
@@ -131,7 +131,7 @@ class AlbumTitleSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val title = project(payload)?.requiredString(TITLE)
             ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.putAlbumTitle(profileId, AlbumTitleRow(provider, albumId, title, updatedAt = versionTs))
+        domain.putAlbumTitle(profileId, AlbumTitleRow(provider, albumId, title, updatedAt = versionTs)).orFailWrite("putAlbumTitle")
         return ApplyOutcome.Applied(projection(title).hashOrNull())
     }
 
@@ -141,7 +141,7 @@ class AlbumTitleSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val current = domain.albumTitle(profileId, provider, albumId) ?: return ApplyOutcome.Applied(null)
         val currentHash = projection(current.title).hashOrNull()
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.deleteAlbumTitle(profileId, provider, albumId)
+        domain.deleteAlbumTitle(profileId, provider, albumId).orFailWrite("deleteAlbumTitle")
         return ApplyOutcome.Applied(null)
     }
 
@@ -203,7 +203,7 @@ class MemoryCopySyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val generatedAt = incoming.requiredLong(GENERATED_AT)!!
         // Field-level: the title half of the row belongs to memory_title.
         val base = existing ?: MemoryCopyRow(parts.provider, parts.entityType, parts.entityId, "", "", 0L, null, null)
-        domain.putMemoryCopy(profileId, base.copy(copyText = copy, promptHash = promptHash, generatedAt = generatedAt))
+        domain.putMemoryCopy(profileId, base.copy(copyText = copy, promptHash = promptHash, generatedAt = generatedAt)).orFailWrite("putMemoryCopy")
         return ApplyOutcome.Applied(projection(copy, promptHash, generatedAt).hashOrNull())
     }
 
@@ -261,7 +261,7 @@ class MemoryTitleSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val title = incoming.requiredString(TITLE)!!
         val titlePromptHash = (incoming.optionalString(TITLE_PROMPT_HASH) as? Field.Ok)?.value
         val base = existing ?: MemoryCopyRow(parts.provider, parts.entityType, parts.entityId, "", "", 0L, null, null)
-        domain.putMemoryCopy(profileId, base.copy(title = title, titlePromptHash = titlePromptHash))
+        domain.putMemoryCopy(profileId, base.copy(title = title, titlePromptHash = titlePromptHash)).orFailWrite("putMemoryCopy")
         return ApplyOutcome.Applied(projection(title, titlePromptHash).hashOrNull())
     }
 
@@ -319,7 +319,7 @@ class SongAboutSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val existing = domain.songAbout(entry.titleKey, entry.artistKey, entry.albumKey, entry.kind, entry.entryKey)
         val currentHash = existing?.let { projection(local, it) }.hashOrNull()
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.putSongAbout(entry)
+        domain.putSongAbout(entry).orFailWrite("putSongAbout")
         return ApplyOutcome.Applied(projection(local, entry).hashOrNull())
     }
 

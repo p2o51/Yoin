@@ -146,4 +146,109 @@ final class CloudSyncStoresTests: XCTestCase {
             XCTAssertEqual(Int(envelope.records.count), file["recordCount"] as? Int)
         }
     }
+
+    // MARK: Codex G3
+
+    /// A directory where the store's file should be: every write fails.
+    private func unwritable(_ name: String) throws -> URL {
+        let url = dir.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// C15: a sync write that can't reach the disk changes nothing and says so (sync retries it).
+    func test_should_changeNothing_when_aSyncWriteCannotPersist() throws {
+        let notes = NotesStore(fileURL: try unwritable("notes.json"))
+        XCTAssertFalse(notes.syncPut(SongNote(id: "n1", provider: "subsonic", trackId: "t", content: "x",
+                                              createdAt: 1, updatedAt: 1, title: "T", artist: "A", positionMs: nil)))
+        XCTAssertNil(notes.note(id: "n1"))
+
+        let memories = AlbumMemoryStore(fileURL: try unwritable("album-memories.json"))
+        XCTAssertFalse(memories.putTitle(.init(provider: "subsonic", albumId: "al", title: "Mine", updatedAt: 1)))
+        XCTAssertNil(memories.userTitle(provider: "subsonic", albumId: "al"))
+
+        // ratings-v2.json sits beside the file named: make that the directory.
+        let ratingsDir = dir.appendingPathComponent("r", isDirectory: true)
+        try FileManager.default.createDirectory(at: ratingsDir.appendingPathComponent("ratings-v2.json"),
+                                                withIntermediateDirectories: true)
+        let ratings = LocalRatings(fileURL: ratingsDir.appendingPathComponent("ratings.json"))
+        XCTAssertFalse(ratings.syncPut(7, provider: "subsonic", songId: "s1", updatedAt: 3))
+        XCTAssertNil(ratings.rating(provider: "subsonic", songId: "s1"))
+        // A user edit still shows for this run.
+        ratings.set(5, provider: "subsonic", songId: "s2")
+        XCTAssertEqual(ratings.rating(provider: "subsonic", songId: "s2"), 5)
+    }
+
+    /// C18: value, zero mark and time are one document; the three legacy files migrate together.
+    func test_should_keepValueZeroAndTimeTogether_when_migratingLegacyFiles() throws {
+        let url = dir.appendingPathComponent("ratings.json")
+        try JSONEncoder().encode(["subsonic:a": 0.0, "subsonic:b": 0.0, "subsonic:c": 6.5]).write(to: url)
+        try JSONEncoder().encode(["subsonic:a": Int64(10), "subsonic:b": 20, "subsonic:c": 30])
+            .write(to: dir.appendingPathComponent("ratings-times.json"))
+        try JSONEncoder().encode(Set(["subsonic:a"])).write(to: dir.appendingPathComponent("ratings-zero.json"))
+        let migrated = LocalRatings(fileURL: url)
+        XCTAssertEqual(migrated.rating(provider: "subsonic", songId: "a"), 0)
+        XCTAssertNil(migrated.rating(provider: "subsonic", songId: "b"))
+        XCTAssertTrue(migrated.hasRow(key: "subsonic:b"))
+        XCTAssertEqual(migrated.updatedAt["subsonic:c"], 30)
+        // The document alone carries everything: the legacy files no longer matter.
+        for name in ["ratings.json", "ratings-times.json", "ratings-zero.json"] {
+            try FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+        }
+        let reloaded = LocalRatings(fileURL: url)
+        XCTAssertEqual(reloaded.rating(provider: "subsonic", songId: "a"), 0)
+        XCTAssertNil(reloaded.rating(provider: "subsonic", songId: "b"))
+        XCTAssertEqual(reloaded.updatedAt["subsonic:a"], 10)
+        reloaded.clear(provider: "subsonic", songId: "a")
+        let doc = try JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent("ratings-v2.json")))
+            as? [String: Any]
+        XCTAssertEqual(doc?["version"] as? Int, 2)
+        XCTAssertNil(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "a"))
+    }
+
+    /// C03: another server's notes, ratings and album memories never show under this one.
+    func test_should_keepAccountsApart_when_serverIsReplaced() {
+        let scopes = AccountScope()
+        scopes.adoptsLegacyRows = false
+        scopes.subsonic = "https://a|me"
+        let notes = NotesStore(fileURL: dir.appendingPathComponent("notes.json"), scopes: scopes)
+        let ratings = LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"), scopes: scopes)
+        let memories = AlbumMemoryStore(fileURL: dir.appendingPathComponent("album-memories.json"), scopes: scopes)
+        notes.add(provider: "subsonic", trackId: "t1", content: "on A", positionMs: nil, title: "T", artist: "X")
+        ratings.set(9, provider: "subsonic", songId: "t1")
+        memories.putTitle(.init(provider: "subsonic", albumId: "al", title: "A's", updatedAt: 1))
+        notes.add(provider: "applemusic", trackId: "m1", content: "apple", positionMs: nil, title: "T", artist: "X")
+
+        scopes.subsonic = "https://b|me"
+        XCTAssertTrue(notes.notes(provider: "subsonic", trackId: "t1").isEmpty)
+        XCTAssertNil(ratings.rating(provider: "subsonic", songId: "t1"))
+        XCTAssertTrue(ratings.ratings.isEmpty)
+        XCTAssertNil(memories.userTitle(provider: "subsonic", albumId: "al"))
+        XCTAssertEqual(notes.notes.map(\.content), ["apple"], "one-account providers aren't scoped")
+        ratings.set(2, provider: "subsonic", songId: "t1")
+
+        scopes.subsonic = "https://a|me"
+        XCTAssertEqual(notes.notes(provider: "subsonic", trackId: "t1").map(\.content), ["on A"])
+        XCTAssertEqual(ratings.rating(provider: "subsonic", songId: "t1"), 9)
+        XCTAssertEqual(memories.userTitle(provider: "subsonic", albumId: "al"), "A's")
+        // And on disk.
+        XCTAssertEqual(LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"), scopes: scopes)
+            .rating(provider: "subsonic", songId: "t1"), 9)
+    }
+
+    /// C03 migration: rows from before scopes belong to the first account seen, once.
+    func test_should_adoptLegacyRows_into_theFirstAccount() throws {
+        let url = dir.appendingPathComponent("notes.json")
+        let legacy = SongNote(id: "n0", provider: "subsonic", trackId: "t1", content: "old", createdAt: 1, updatedAt: 1,
+                              title: "T", artist: "X", positionMs: nil)
+        try JSONEncoder().encode([legacy]).write(to: url)
+        let scopes = AccountScope()
+        scopes.adoptsLegacyRows = false
+        let notes = NotesStore(fileURL: url, scopes: scopes)
+        notes.adoptLegacy(provider: "subsonic", scope: "https://a|me")
+        scopes.subsonic = "https://a|me"
+        XCTAssertEqual(notes.notes.map(\.id), ["n0"])
+        scopes.subsonic = "https://b|me"
+        XCTAssertTrue(notes.notes.isEmpty)
+    }
 }

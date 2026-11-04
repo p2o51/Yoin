@@ -36,6 +36,13 @@ internal data class SubsonicBody(
     val playlist: PlaylistDto? = null,
     val lyricsList: LyricsListDto? = null,
     val lyrics: PlainLyricsDto? = null,
+    val openSubsonicExtensions: List<OpenSubsonicExtensionDto>? = null,
+)
+
+@Serializable
+internal data class OpenSubsonicExtensionDto(
+    val name: String,
+    val versions: List<Int>? = null,
 )
 
 @Serializable

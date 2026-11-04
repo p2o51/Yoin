@@ -43,12 +43,17 @@ final class GeminiSettings {
         targetLanguage = Self.normalizeLanguage(defaults.string(forKey: Self.languageDefaultsKey))
     }
 
-    /// Android `saveGeminiApiKey`: trimmed; blank is never saved.
-    func saveKey(_ key: String) {
+    /// Android `saveGeminiApiKey`: trimmed; blank is never saved. The key shows as saved only once the
+    /// Keychain has it (an unsigned simulator build has no Keychain: kept for this run, as before); a
+    /// failed save keeps the previous key, in the Keychain and here, and returns false.
+    @discardableResult
+    func saveKey(_ key: String) -> Bool {
         let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !k.isEmpty, k != apiKey else { return }
-        keychain.save(k)
+        guard !k.isEmpty, k != apiKey else { return true }
+        let status = keychain.save(k)
+        guard status == errSecSuccess || status == errSecMissingEntitlement else { return false }
         apiKey = k
+        return true
     }
 
     func saveLanguage(_ language: String) {
@@ -78,14 +83,11 @@ struct GeminiKeychain: Sendable {
         return String(data: data, encoding: .utf8)
     }
 
-    /// The Keychain's status (unsigned simulator builds get errSecMissingEntitlement).
+    /// The Keychain's status (unsigned simulator builds get errSecMissingEntitlement). Updates the item in
+    /// place, adding it only when there is none, so a failure never loses the previous key.
     @discardableResult
     func save(_ key: String) -> OSStatus {
-        SecItemDelete(query as CFDictionary)
-        var q = query
-        q[kSecValueData as String] = Data(key.utf8)
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return SecItemAdd(q as CFDictionary, nil)
+        KeychainItem.upsert(query: query, data: Data(key.utf8))
     }
 
     func delete() {

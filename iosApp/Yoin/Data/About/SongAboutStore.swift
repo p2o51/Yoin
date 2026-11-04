@@ -36,8 +36,10 @@ final class SongAboutStore {
         /// Epoch ms.
         var createdAt: Int64
         var updatedAt: Int64
-        /// The "Answer in" language the row was written in (iOS-written
-        /// canonical rows; nil on rows from Android, which doesn't record it).
+        /// The "Answer in" language the row was written in. Every row written
+        /// now records it (generated ones with the request's language, synced
+        /// ones with the record's); nil only on rows from before, which are not
+        /// shown or synced since their language is unknown (Codex C17).
         var language: String?
 
         struct SongKey: Hashable, Sendable {
@@ -68,6 +70,14 @@ final class SongAboutStore {
 
     private(set) var all: [Entry] = []
     @ObservationIgnored private let fileURL: URL
+    /// The language rows are shown in (`GeminiSettings.targetLanguage`); a loader with its own settings
+    /// points it there.
+    @ObservationIgnored var language: @MainActor () -> String = {
+        GeminiSettings.normalizeLanguage(GeminiSettings.shared.targetLanguage)
+    }
+
+    /// An answer Gemini just gave on this device (not a row from sync): Data/Sync debounces an upload.
+    @ObservationIgnored static var onLocalChange: (@MainActor () -> Void)?
 
     init(fileURL: URL) {
         self.fileURL = fileURL
@@ -99,7 +109,8 @@ final class SongAboutStore {
     /// This song's rows as About shows them: canonical in `Canon.order`, then
     /// ask rows newest first.
     func entries(_ key: Entry.SongKey) -> [Entry] {
-        let rows = all.filter { $0.songKey == key }
+        let language = language()
+        let rows = all.filter { $0.songKey == key && $0.language == language }
         let canon = Canon.order.compactMap { k in rows.first { $0.kind == Kind.canonical && $0.entryKey == k } }
         let asks = rows.filter { $0.kind == Kind.ask }.sorted { $0.updatedAt > $1.updatedAt }
         return canon + asks
@@ -107,13 +118,18 @@ final class SongAboutStore {
 
     /// All six canonical rows are stored (blank answers count: Gemini was asked).
     func hasCanonical(_ key: Entry.SongKey) -> Bool {
-        let have = Set(all.lazy.filter { $0.songKey == key && $0.kind == Kind.canonical }.map(\.entryKey))
+        let language = language()
+        let have = Set(all.lazy.filter { $0.songKey == key && $0.kind == Kind.canonical && $0.language == language }
+            .map(\.entryKey))
         return Set(Canon.order).isSubset(of: have)
     }
 
     /// Inserts or replaces rows by (song, kind, entryKey), Android's primary key.
-    func upsert(_ rows: [Entry]) {
-        guard !rows.isEmpty else { return }
+    /// False when the file couldn't be written; memory then keeps the rows for this run (an answer just
+    /// paid for still shows), and sync, which checks, retries.
+    @discardableResult
+    func upsert(_ rows: [Entry]) -> Bool {
+        guard !rows.isEmpty else { return true }
         var next = all
         for row in rows {
             if let i = next.firstIndex(where: { $0.songKey == row.songKey && $0.kind == row.kind && $0.entryKey == row.entryKey }) {
@@ -123,7 +139,7 @@ final class SongAboutStore {
             }
         }
         all = next
-        save()
+        return save()
     }
 
     /// Gemini's canonical answers for a song as six rows (missing ones blank,
@@ -138,12 +154,15 @@ final class SongAboutStore {
                   artistDisplay: artist, albumDisplay: album, kind: Kind.canonical, entryKey: k, promptText: nil,
                   titleText: nil, answerText: byKey[k] ?? "", createdAt: ms, updatedAt: ms, language: language)
         })
+        Self.onLocalChange?()
     }
 
     /// Android `askAboutSong`'s row: keyed by the normalized question, so
     /// asking it again replaces the answer and keeps the first `createdAt`.
+    /// [language] is the one the question was asked in (nil: the store's current one).
     func saveAsk(title: String, artist: String, album: String, question: String,
-                 reply: GeminiClient.AskAnswer, now: Date = Date()) {
+                 reply: GeminiClient.AskAnswer, language: String? = nil, now: Date = Date()) {
+        let language = language ?? self.language()
         let key = Self.key(title: title, artist: artist, album: album)
         let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
         let questionKey = Self.normalize(asked)
@@ -152,16 +171,28 @@ final class SongAboutStore {
         upsert([Entry(titleKey: key.title, artistKey: key.artist, albumKey: key.album, titleDisplay: title,
                       artistDisplay: artist, albumDisplay: album, kind: Kind.ask, entryKey: questionKey,
                       promptText: asked, titleText: reply.title, answerText: reply.answer,
-                      createdAt: existing?.createdAt ?? ms, updatedAt: ms, language: nil)])
+                      createdAt: existing?.createdAt ?? ms, updatedAt: ms, language: language)])
+        Self.onLocalChange?()
     }
 
-    private func save() {
+    private func save() -> Bool {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             try JSONEncoder().encode(all).write(to: fileURL, options: .atomic)
+            return true
         } catch {
-            // Best effort: the answers stay in memory for this run.
+            return false
         }
+    }
+
+    /// A row from another device: on disk before memory, false = nothing changed (sync retries it).
+    func syncUpsert(_ row: Entry) -> Bool {
+        let before = all
+        guard upsert([row]) else {
+            all = before
+            return false
+        }
+        return true
     }
 }

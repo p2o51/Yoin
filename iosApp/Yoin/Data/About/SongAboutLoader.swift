@@ -29,6 +29,9 @@ final class SongAboutLoader {
         self.store = store ?? .shared
         self.settings = settings ?? .shared
         self.client = client
+        // The store shows rows in this loader's language (Codex C17: a cache is per language).
+        let s = self.settings
+        self.store.language = { s.targetLanguage }
     }
 
     func phase(_ key: SongAboutStore.Entry.SongKey) -> Phase { phases[key] ?? .idle }
@@ -136,7 +139,8 @@ final class SongAboutLoader {
             do {
                 let reply = try await call.ask(apiKey: apiKey, title: title, artist: artist, album: album,
                                                question: asked, targetLanguage: language)
-                store.saveAsk(title: title, artist: artist, album: album, question: asked, reply: reply)
+                store.saveAsk(title: title, artist: artist, album: album, question: asked, reply: reply,
+                              language: language)
                 next = .idle
             } catch is CancellationError {
                 next = .idle

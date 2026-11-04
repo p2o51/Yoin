@@ -87,6 +87,9 @@ final class CloudSync {
         }
         NotesStore.onLocalChange = { CloudSync.shared.localChanged() }
         LocalRatings.onLocalChange = { CloudSync.shared.localChanged() }
+        // Gemini's About / Ask answers are synced too (Android observes song_about_entries); sync's own
+        // writes don't call this, so applying never re-triggers a capture.
+        SongAboutStore.onLocalChange = { CloudSync.shared.localChanged() }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                             queue: .main) { _ in
@@ -287,14 +290,20 @@ private final class StoreFile: NSObject, SyncPersistence, @unchecked Sendable {
 
     func load() -> String? { try? String(contentsOf: url, encoding: .utf8) }
 
-    func save(text: String) {
+    /// True only once the document is on disk; the shared kit keeps the store dirty otherwise (Codex C15).
+    func save(text: String) -> Bool {
         let dir = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        var folder = dir
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? folder.setResourceValues(values)
-        try? text.write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            var folder = dir
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? folder.setResourceValues(values)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

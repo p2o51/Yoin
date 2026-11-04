@@ -147,6 +147,43 @@ class SubsonicClientTest {
         assertEquals(-1, e.code)
     }
 
+    @Test
+    fun should_redactCredentials_when_engineMessageQuotesTheUrl() = runTest {
+        // Ktor's HttpRequestTimeoutException says "Request timeout has expired [url=<the signed URL>, ...]".
+        val engine = MockEngine { request -> throw IllegalStateException("Request timeout has expired [url=${request.url}, request_timeout=30000 ms]") }
+        val c = SubsonicClient("https://h", "alice", "sesame", "c19b2d", engine)
+        val e = assertFailsWith<SubsonicException> { c.ping() }
+        val message = e.message.orEmpty()
+        assertFalse(message.contains(c.token), message)
+        assertFalse(message.contains("c19b2d"), message)
+        assertFalse(message.contains("alice"), message)
+        assertTrue(message.contains("t=REDACTED"), message)
+        assertTrue(message.contains("ping.view"), message)
+    }
+
+    @Test
+    fun should_blankEveryCredentialParam_when_redacting() {
+        val url = "https://h/rest/stream.view?id=s1&u=alice&t=abc123&s=salt9&v=1.16.1&p=enc:7365&apiKey=k"
+        assertEquals(
+            "https://h/rest/stream.view?id=s1&u=REDACTED&t=REDACTED&s=REDACTED&v=1.16.1&p=REDACTED&apiKey=REDACTED",
+            SubsonicClient.redactCredentials(url),
+        )
+        assertEquals("no url here", SubsonicClient.redactCredentials("no url here"))
+    }
+
+    @Test
+    fun should_listExtensionNames_when_openSubsonic() = runTest {
+        val body = SubsonicFixtures.ok(
+            """"openSubsonicExtensions": [{"name": "transcodeOffset", "versions": [1]}, {"name": "songLyrics", "versions": [1]}]""",
+        )
+        assertEquals(
+            listOf("transcodeOffset", "songLyrics"),
+            client(routes = mapOf("getOpenSubsonicExtensions" to body)).getOpenSubsonicExtensions(),
+        )
+        // A plain Subsonic server answers error 0 (unknown endpoint): no extensions.
+        assertEquals(emptyList(), client(routes = emptyMap()).getOpenSubsonicExtensions())
+    }
+
     // --------------------------------------------------------------- library
 
     @Test
