@@ -137,4 +137,89 @@ class OfflineModelTest {
         val failed = OfflineLibrary(listOf(song("tr-1", OfflineSong.State.Done, album), song("tr-2", OfflineSong.State.Failed, album)))
         assertEquals(OfflineStatus.Failed, failed.statusOf(album.key))
     }
+    @Test
+    fun should_rejectRequestUri_when_partMissingOrForeign() {
+        val key = OfflineKeys.of(stream())!!
+        val good = OfflineRequestUri.build("tr-1", key, DownloadQuality.Kbps128)
+        assertNotNull(OfflineRequestUri.parse(good))
+        assertNull(OfflineRequestUri.parse(good.replace("q=128", "q=999")))
+        assertNull(OfflineRequestUri.parse(good.replace("id=tr-1", "id=")))
+        assertNull(OfflineRequestUri.parse(good.substringBefore("&k=")))
+        assertNull(OfflineRequestUri.parse(stream()))
+        assertNull(OfflineRequestUri.parse("yoin-offline://album?id=tr-1&q=320&k=$key"))
+    }
+
+    @Test
+    fun should_roundTripOddSongIds_inRequestUri() {
+        val key = OfflineKeys.of(stream())!!
+        val id = "tr 1/ä&q=original"
+        val parts = OfflineRequestUri.parse(OfflineRequestUri.build(id, key, DownloadQuality.Original))
+        assertEquals(id, parts!!.songRawId)
+        assertEquals(DownloadQuality.Original, parts.quality)
+        assertEquals(key, parts.key)
+    }
+
+    @Test
+    fun should_fallBackToDefaultQuality_when_storedQualityUnknown() {
+        assertNull(DownloadQuality.fromKey("999"))
+        assertNull(DownloadQuality.fromKey(null))
+        val payload = OfflinePayload(profileId = "p1", songId = "subsonic:tr-1", quality = "999")
+        assertEquals(DownloadSettings.DefaultQuality, payload.downloadQuality)
+        DownloadQuality.entries.forEach { assertEquals(it, DownloadQuality.fromKey(it.key)) }
+    }
+
+    @Test
+    fun should_defaultTo320_andWifiOnly() {
+        val settings = DownloadSettings()
+        assertEquals(DownloadQuality.Kbps320, settings.quality)
+        assertFalse(settings.overMobileData)
+        assertEquals(320, settings.quality.maxBitRateKbps)
+        assertNull(DownloadQuality.Original.format)
+    }
+
+    @Test
+    fun should_readPayloadOfANewerVersion_ignoringUnknownFields() {
+        val newer = """{"version":2,"profileId":"p1","songId":"subsonic:tr-1","lyrics":"la","quality":"128"}"""
+        val decoded = OfflinePayload.decode(newer.encodeToByteArray())
+        assertEquals("p1", decoded!!.profileId)
+        assertEquals(DownloadQuality.Kbps128, decoded.downloadQuality)
+        assertTrue(decoded.collections.isEmpty())
+    }
+
+    @Test
+    fun should_stayDownloading_while_anySongWaitsOrIsQueued() {
+        val waiting = OfflineLibrary(
+            listOf(
+                song("tr-1", OfflineSong.State.Done, album),
+                song("tr-2", OfflineSong.State.Failed, album),
+                song("tr-3", OfflineSong.State.Waiting, album),
+                song("tr-4", OfflineSong.State.Queued, album),
+            ),
+        )
+        // One failed, but two still to come: the row says how far, not Failed.
+        assertEquals(OfflineStatus.Downloading(1, 4), waiting.statusOf(album.key))
+        assertEquals(4, waiting.songsOf(album.key).size)
+        assertTrue(waiting.songsOf(playlist.key).isEmpty())
+    }
+
+    @Test
+    fun should_listNothing_when_empty() {
+        val empty = OfflineLibrary()
+        assertTrue(empty.entries.isEmpty())
+        assertEquals(0L, empty.bytes)
+        assertEquals(OfflineStatus.None, empty.statusOf(album.key))
+        assertFalse(empty.isDownloaded("subsonic:tr-1"))
+    }
+
+    @Test
+    fun should_keepLoneSongApartFromItsAlbum() {
+        val lone = OfflineCollection(OfflineCollection.Kind.Song, "subsonic:tr-1", "Song")
+        val library = OfflineLibrary(listOf(song("tr-1", OfflineSong.State.Done, album, lone)))
+        assertEquals(OfflineStatus.Downloaded, library.statusOf(lone.key))
+        assertEquals(OfflineStatus.Downloaded, library.statusOf(album.key))
+        assertNotEquals(lone.key, album.key)
+        // Removing the album leaves the song held by its own download.
+        val payload = library.songs.single().payload.withoutCollection(album.key)
+        assertEquals(listOf(lone), payload!!.collections)
+    }
 }
