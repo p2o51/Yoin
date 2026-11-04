@@ -36,6 +36,7 @@ internal fun rememberStageColumnMetrics(
             pills = pillRowHeight(castVisible),
             oneLineContent = typography.bodyLarge.lineDp(density) + LyricLinePads,
             lyric = lyricWindowMetrics(typography.bodyLarge, typography.bodyMedium, density),
+            compactTransport = shortFocusControlsHeight(fit.controlSize),
         )
     }
 }

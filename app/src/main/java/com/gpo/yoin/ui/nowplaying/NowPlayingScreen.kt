@@ -1329,7 +1329,15 @@ private fun CompactPlayingContent(
         // one-line row hands over to the list as the cover focuses.
         val focusOpensList = lyricOneLine && focusKeepsList
         val stageWidth = budget.stageWidth
-        val stageOffsetX = (maxWidth - stageWidth) / 2
+        // Focus narrows the column to the cover, centred: the cover keeps the
+        // same margin left, top and right, and everything under it lines up
+        // with its edges (owner 2026-11-04).
+        val liveStageWidth = lerpDp(
+            lerpDp(stageWidth, budget.focusStageWidth, immersiveProgress),
+            stageWidth,
+            detailProgress,
+        )
+        val stageOffsetX = (maxWidth - liveStageWidth) / 2
         // Enlarged tablet: the lyric tools ride at the end of the tab row even
         // at rest (TabletPortraitNP).
         val toolsInCompactTabs = enlarged != null && !lyricOneLine
@@ -1344,9 +1352,10 @@ private fun CompactPlayingContent(
         // artist stay too, as in every focus (owner 2026-11-03 "标题和歌手不动";
         // 2026-11-04 they had vanished on the Fold 8 outer screen).
         // On a short window where the regular focus IS offered (the Fold 8 outer
-        // screen is tall enough), its focus takes the same arrangement: the lyric
-        // frame already folds to one line there, so that is the short-window test
-        // (owner 2026-11-02, device screenshot).
+        // screen, 16:9), its focus takes the same arrangement: the lyric frame
+        // already folds to one line there, so that is the short-window test
+        // (owner 2026-11-02, device screenshot). The budget sizes that focus
+        // (compact transport, three lyric lines; owner 2026-11-04).
         var shortFocus by remember { mutableStateOf(false) }
         val shortArrangement = shortFocus || (lyricOneLine && stageMode == NowPlayingStageMode.Immersive)
         val shortFocusProgress by animateFloatAsState(
@@ -1354,13 +1363,16 @@ private fun CompactPlayingContent(
             animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
             label = "npShortFocus",
         )
-        val shortFocusControls = shortFocusControlsHeight(stageControlSize)
+        // The same compact transport height the budget sized the focus with.
+        val shortFocusControls = metrics.compactTransport ?: shortFocusControlsHeight(stageControlSize)
         val shortFocusFreed = (restPose.controls - shortFocusControls).coerceAtLeast(0.dp)
-        // Never smaller than the regular focus's own cover where that is offered.
-        val shortFocusCover = maxOf(
-            minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2),
-            if (focusOffered) focusPose.cover else 0.dp,
-        )
+        // Where the regular focus is offered, the budget already sized it for
+        // the compact transport and three lyric lines: take its cover as is.
+        val shortFocusCover = if (focusOffered) {
+            focusPose.cover
+        } else {
+            minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2)
+        }
         val shortFocusAvailable = !focusOffered && shortFocusCover - restPose.cover >= ShortFocusMinGrowth
         LaunchedEffect(shortFocusAvailable, stageMode) {
             if (!shortFocusAvailable || stageMode != NowPlayingStageMode.Compact) shortFocus = false
@@ -1489,7 +1501,7 @@ private fun CompactPlayingContent(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(stageWidth)
+                .width(liveStageWidth)
                 .align(Alignment.TopCenter),
             horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.Top,
@@ -1580,9 +1592,9 @@ private fun CompactPlayingContent(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight(),
-                                // Short focus centres the grown cover.
+                                // Focus centres the cover in its column.
                                 contentAlignment = BiasAlignment(
-                                    horizontalBias = -1f + shortFocusProgress,
+                                    horizontalBias = -1f + maxOf(shortFocusProgress, immersiveProgress),
                                     verticalBias = -1f,
                                 ),
                             ) {
