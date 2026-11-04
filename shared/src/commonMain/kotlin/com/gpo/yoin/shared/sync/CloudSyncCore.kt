@@ -54,6 +54,13 @@ class CloudSyncCore(
     private val persist: () -> Unit = {},
     /** "%d\nSynced from other devices" — the platform's localized summary line. */
     private val summaryText: (Int) -> String = { "$it\nSynced from other devices" },
+    /**
+     * Safety gate for a new platform (iOS): until one cycle has pulled every peer file, mapped it into
+     * the local stores and backed the whole appDataFolder up through [backupSink], nothing is written
+     * to Drive (no uploads, no duplicate clean-up). The next cycle is two-way, with Android's rules.
+     */
+    private val readOnlyFirstPull: Boolean = false,
+    private val backupSink: SyncBackupSink? = null,
 ) {
     private val mutex = Mutex()
     private val dao: SyncStore get() = store
@@ -159,7 +166,11 @@ class CloudSyncCore(
                 dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
             }
             // The reset epoch belongs to one Drive; the first cycle adopts this Drive's.
-            if (previousOwner != about.permissionId) dao.deleteMeta(SyncMetaKeys.EPOCH)
+            if (previousOwner != about.permissionId) {
+                dao.deleteMeta(SyncMetaKeys.EPOCH)
+                // A new Drive: pull it read-only (and back it up) before the first write again.
+                dao.deleteMeta(META_TWO_WAY)
+            }
             putMeta(SyncMetaKeys.GOOGLE_PERMISSION_ID, about.permissionId)
             putMeta(SyncMetaKeys.REPLICA_PERMISSION_ID, about.permissionId)
             about.email?.let { putMeta(SyncMetaKeys.GOOGLE_EMAIL, it) } ?: dao.deleteMeta(SyncMetaKeys.GOOGLE_EMAIL)
@@ -225,6 +236,10 @@ class CloudSyncCore(
                 val owner = dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)
                 check(owner != null && owner == about.permissionId) { "Reconnect Google before deleting cloud data." }
                 val files = transport.list()
+                // Never delete without a local copy of what is there.
+                if (backupSink != null && dao.meta(SyncMetaKeys.PENDING_RESET) == null) {
+                    checkNotNull(backupAll(files)) { "Couldn't back up your Drive data first; nothing was deleted." }
+                }
                 val pending = dao.meta(SyncMetaKeys.PENDING_RESET)?.let(::parsePendingReset)
                 // Strictly newer than every marker any device has seen, whatever the local clock says.
                 val epoch = pending?.first ?: maxOf(
@@ -427,10 +442,11 @@ class CloudSyncCore(
         }
         val (ownFiles, peerFiles) = dataFiles.partition { it.appProperties[SyncFileProps.DEVICE_ID] == me }
 
+        val twoWay = !readOnlyFirstPull || dao.meta(META_TWO_WAY) == "true"
         // Own files: keep the newest per (kind, shard); a crashed create may have left a duplicate.
         var keptOwn = ownFiles.groupBy { it.fileKey() }.mapValues { (_, group) ->
             val sorted = group.sortedByDescending { it.version }
-            sorted.drop(1).forEach { runCatching { transport.delete(it.id) } }
+            if (twoWay) sorted.drop(1).forEach { runCatching { transport.delete(it.id) } }
             sorted.first()
         }
         val hasPublished = dao.meta(SyncMetaKeys.HAS_PUBLISHED) == "true"
@@ -491,6 +507,17 @@ class CloudSyncCore(
         val applied = engine.apply(bindings.active)
         summarize(applied)
         persist()
+
+        if (!twoWay) {
+            // Read-only first pull: map only. Back the whole folder up; two-way from the next cycle
+            // only when the pull mapped cleanly and the backup is on disk.
+            val mapped = applied.failures.isEmpty() && updateRequiredFrom == null
+            val backup = backupAll(files)
+            if (mapped && backup != null) putMeta(META_TWO_WAY, "true")
+            putMeta(SyncMetaKeys.LAST_SYNC_AT, clock().toString())
+            updateRequiredFrom?.let { return CODE_UPDATE_PREFIX + it }
+            return if (backup == null) ERROR_PREFIX + "Couldn't back up your Drive data on this device." else null
+        }
 
         // Publish what changed.
         val now = clock()
@@ -617,6 +644,47 @@ class CloudSyncCore(
         }
     }
 
+    /** Downloads every file in [files] and hands them to [backupSink]; the folder name, or null. */
+    private suspend fun backupAll(files: List<RemoteFile>): String? {
+        val sink = backupSink ?: return "none"
+        val downloaded = files.map { file ->
+            SyncBackupFile(file.id, file.name, file.version, file.modifiedTime, file.size, file.appProperties,
+                transport.download(file.id))
+        }
+        val manifest = kotlinx.serialization.json.JsonObject(
+            mapOf(
+                "takenAt" to kotlinx.serialization.json.JsonPrimitive(clock()),
+                "deviceId" to kotlinx.serialization.json.JsonPrimitive(deviceId()),
+                "googlePermissionId" to kotlinx.serialization.json.JsonPrimitive(dao.meta(SyncMetaKeys.GOOGLE_PERMISSION_ID)),
+                "files" to kotlinx.serialization.json.JsonArray(
+                    downloaded.map { f ->
+                        kotlinx.serialization.json.JsonObject(
+                            mapOf(
+                                "id" to kotlinx.serialization.json.JsonPrimitive(f.id),
+                                "name" to kotlinx.serialization.json.JsonPrimitive(f.name),
+                                "version" to kotlinx.serialization.json.JsonPrimitive(f.version),
+                                "modifiedTime" to kotlinx.serialization.json.JsonPrimitive(f.modifiedTime),
+                                "size" to kotlinx.serialization.json.JsonPrimitive(f.bytes?.size),
+                                "appProperties" to kotlinx.serialization.json.JsonObject(
+                                    f.appProperties.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) },
+                                ),
+                            ),
+                        )
+                    },
+                ),
+            ),
+        )
+        val folder = sink.save(downloaded, manifest.toString()) ?: return null
+        putMeta(META_LAST_BACKUP, folder)
+        return folder
+    }
+
+    /** Backs up the whole appDataFolder now (Settings › Export backup); the folder name, or null. */
+    @Throws(Throwable::class)
+    suspend fun backupNow(): String? = run {
+        mutex.withLock { backupAll(transport.list()) }.also { refreshState() }
+    }
+
     private fun parsePendingReset(value: String): Pair<Long, String>? {
         val epoch = value.substringBefore('|').toLongOrNull() ?: return null
         val id = value.substringAfter('|', "").takeIf { it.isNotEmpty() } ?: return null
@@ -676,6 +744,8 @@ class CloudSyncCore(
                 cloudOnlyAccounts = bindings?.cloudOnly.orEmpty(),
                 devices = if (enabled || peers.isNotEmpty()) listOf(thisDevice) + peers else emptyList(),
                 lastSummary = dao.meta(SyncMetaKeys.LAST_SUMMARY),
+                readOnly = readOnlyFirstPull && enabled && dao.meta(META_TWO_WAY) != "true",
+                lastBackup = dao.meta(META_LAST_BACKUP),
             ),
         )
     }
@@ -775,6 +845,10 @@ class CloudSyncCore(
 
     companion object {
         const val FOREGROUND_THROTTLE_MS = 60_000L
+
+        /** iOS-only meta: "true" once the read-only first pull has succeeded (writes allowed). */
+        const val META_TWO_WAY = "ios_two_way"
+        const val META_LAST_BACKUP = "ios_last_backup"
 
         /** Android's LOCAL_DEBOUNCE_MS: platforms wait this long after a local change before [localChanged]. */
         const val LOCAL_DEBOUNCE_MS = 8_000L

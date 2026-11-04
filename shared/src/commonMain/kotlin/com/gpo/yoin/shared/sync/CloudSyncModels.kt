@@ -24,6 +24,13 @@ data class CloudSyncState(
     val devices: List<SyncDeviceRow> = emptyList(),
     /** One-line result of the last notable sync, e.g. "Restored 128 notes for alice". */
     val lastSummary: String? = null,
+    /**
+     * iOS safety gate: this device has only pulled from Drive so far (nothing written). It turns
+     * two-way after one successful pull + local mapping + backup (CloudSyncCore.readOnlyFirstPull).
+     */
+    val readOnly: Boolean = false,
+    /** Folder name of the newest local backup of the appDataFolder, if any. */
+    val lastBackup: String? = null,
 ) {
     val enabled: Boolean get() = phase.enabled
 }
@@ -155,3 +162,20 @@ val CloudSyncPhase.wireName: String
         is CloudSyncPhase.UpdateRequired -> "update_required"
         is CloudSyncPhase.Error -> "error"
     }
+
+/** One appDataFolder file as backed up before this device first writes to Drive. */
+class SyncBackupFile(
+    val id: String,
+    val name: String,
+    val version: Long,
+    val modifiedTime: Long?,
+    val size: Long?,
+    val appProperties: Map<String, String>,
+    /** Raw bytes as downloaded (gzip or JSON); null when the file vanished mid-backup. */
+    val bytes: ByteArray?,
+)
+
+/** Writes a backup set somewhere safe; returns the folder name, or null when it failed. */
+interface SyncBackupSink {
+    fun save(files: List<SyncBackupFile>, manifestJson: String): String?
+}

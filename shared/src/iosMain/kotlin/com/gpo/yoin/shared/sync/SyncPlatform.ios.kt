@@ -11,6 +11,7 @@ import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
 import platform.Foundation.NSDate
+import platform.Foundation.create
 import platform.Foundation.timeIntervalSince1970
 import platform.zlib.MAX_WBITS
 import platform.zlib.Z_BUF_ERROR
@@ -106,3 +107,11 @@ private fun concat(parts: List<ByteArray>): ByteArray {
 actual fun syncNowMillis(): Long = (NSDate().timeIntervalSince1970 * 1000.0).toLong()
 
 internal actual fun syncMainContext(): kotlin.coroutines.CoroutineContext = kotlinx.coroutines.Dispatchers.Main
+
+/** Swift: the backup file's bytes as Data (nil when it vanished). */
+fun SyncBackupFile.nsData(): platform.Foundation.NSData? = bytes?.let { b ->
+    if (b.isEmpty()) return@let platform.Foundation.NSData()
+    b.usePinned { pinned ->
+        platform.Foundation.NSData.create(bytes = pinned.addressOf(0), length = b.size.toULong())
+    }
+}

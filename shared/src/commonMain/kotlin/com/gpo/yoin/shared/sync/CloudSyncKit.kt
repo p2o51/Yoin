@@ -45,6 +45,7 @@ class CloudSyncKit(
     /** Drive API base (default Google); the DEBUG fake Drive passes "<base>/drive/v3/". */
     apiBase: String?,
     uploadBase: String?,
+    backupSink: SyncBackupSink?,
 ) {
     val store = InMemorySyncStore().also { store -> persistence.load()?.let(store::restore) }
 
@@ -90,6 +91,8 @@ class CloudSyncKit(
         versionCode = versionCode,
         context = syncMainContext(),
         persist = ::flush,
+        readOnlyFirstPull = true,
+        backupSink = backupSink,
     )
 
     /** Writes the store when it changed. */
