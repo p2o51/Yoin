@@ -18,6 +18,10 @@ enum GlassPreset: String, Codable, CaseIterable, Sendable {
     case current = "Current"
     case balanced = "Balanced"
     case appleHIG = "Apple HIG"
+    /// Gemini 4 Argon's hierarchy proposal (2026-11-04, iosApp/docs/glass-hierarchy-gemini.md):
+    /// one chromatic accent per plane, neutral surface-tinted floors on the
+    /// other floating controls, calmer stages under them.
+    case gemini = "Gemini"
 }
 
 /// Color roles a surface can be tinted with. `auto` = the role Android uses
@@ -164,7 +168,7 @@ final class GlassLab {
         panelOpen = UserDefaults.standard.bool(forKey: "glassLab")
         if let name = UserDefaults.standard.string(forKey: "preset") {
             suppressSave = true
-            apply(name == "hig" ? .appleHIG : name == "balanced" ? .balanced : .current)
+            apply(name == "hig" ? .appleHIG : name == "balanced" ? .balanced : name == "gemini" ? .gemini : .current)
             suppressSave = false
         }
         if UserDefaults.standard.bool(forKey: "barTinted") {
@@ -196,7 +200,14 @@ final class GlassLab {
     /// Extras that aren't a glass surface's: the album page's pulled-up top
     /// bar, 0 = the cover's spectrum (Android, default), 1 = Liquid Glass,
     /// 2 = the system's progressive scroll-edge blur.
-    static let pageExtras: [(String, Double)] = [("detailTopBar", 0)]
+    /// Gemini preset extras (neutral in every other preset):
+    /// darkTintMultiplier scales every glass tint in dark mode,
+    /// sheetPresenterDim dims Now Playing under the Queue sheet,
+    /// searchChromeTint tints the Library / Search search field and ✕
+    /// with surfaceContainerHighest so they group with the chip row.
+    static let pageExtras: [(String, Double)] = [
+        ("detailTopBar", 0), ("darkTintMultiplier", 1), ("sheetPresenterDim", 0), ("searchChromeTint", 0),
+    ]
 
     private func resetValues() {
         var s: [String: SurfaceStyle] = [:]
@@ -241,6 +252,38 @@ final class GlassLab {
             s["transportPrimary"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
             s["heart"] = SurfaceStyle(variant: .none, tintOn: false, tintOpacity: 0, interactive: false)
             s["npPills"] = SurfaceStyle(variant: .none, role: .primary, tintOpacity: 1, interactive: false)
+        case .gemini:
+            // Starts from Balanced (51's decisions stay: tinted bar
+            // selection, glass rating track and NP pills, plain glass).
+            for t in Tokens.glass.balanced { s[t.id] = SurfaceStyle(t) }
+            for x in Tokens.glass.balancedExtras { e[x.id] = x.value }
+            // One chromatic accent per plane: the selected bar button and
+            // PAUSE (and a liked heart, which borrows PAUSE's surface).
+            // Every other floating control gets a neutral floor so covers
+            // and text scrolling under it don't dye it (round 3: 0.24 / 0.28
+            // were invisible over the album grid, raised to 0.52).
+            let floor = { (o: Double) in SurfaceStyle(role: .surfaceContainerHighest, tintOpacity: o) }
+            s["barUnselected"] = floor(0.52)
+            s["barSelected"] = SurfaceStyle(tintOpacity: 0.85, shadowOpacity: 0.12, shadowRadius: 10, shadowY: 4)
+            s["miniPlayer"] = floor(0.52)
+            s["transportPrimary"] = SurfaceStyle(tintOpacity: 0.82, shadowOpacity: 0.18, shadowRadius: 12, shadowY: 5)
+            s["transportSecondary"] = floor(0.22)
+            s["heart"] = floor(0.22)
+            s["ratingTrack"] = SurfaceStyle(role: .surfaceVariant, tintOpacity: 0.38, interactive: false)
+            s["npPills"] = floor(0.35)
+            s["npBackground"] = SurfaceStyle(role: .background, tintOpacity: 0.54, interactive: false, cornerRadius: 44)
+            // Scrolling content: a calmer, denser tonal wash; the cover
+            // underneath is a soft gradient, not a second artwork.
+            s["homeCards"] = SurfaceStyle(variant: .material, tintOpacity: 0.72, interactive: false, cornerRadius: 16)
+            e["washOpacity"] = 0.22
+            e["ambientStrength"] = 0.75
+            e["ambientBlur"] = 110
+            e["neighbourStrength"] = 0.48
+            e["coverBlur"] = 42
+            e["coverStrength"] = 0.5
+            e["darkTintMultiplier"] = 1.15
+            e["sheetPresenterDim"] = 0.14
+            e["searchChromeTint"] = 0.38
         }
         styles = s
         extras = e
@@ -259,6 +302,30 @@ final class GlassLab {
 
     func style(_ id: String) -> SurfaceStyle { styles[id] ?? SurfaceStyle(tintOpacity: 0) }
     func extra(_ id: String) -> Double { extras[id] ?? 0 }
+
+    /// A surface's tint opacity in this appearance (Gemini's dark multiplier).
+    func tintOpacity(_ id: String, dark: Bool) -> Double {
+        let o = style(id).tintOpacity
+        return dark ? min(1, o * (extras["darkTintMultiplier"] ?? 1)) : o
+    }
+
+    /// The accent glass is dense enough (Gemini: PAUSE 0.82, × 1.15 in dark)
+    /// that the accent's own on-color reads on it in dark mode too; thinner
+    /// accent glass (Balanced 0.55) keeps white ink there.
+    func denseAccent(_ id: String, dark: Bool) -> Bool {
+        style(id).tintOn && !neutralTint(id) && tintOpacity(id, dark: dark) >= 0.75
+    }
+
+    /// The surface is tinted with a neutral surface role (Gemini's floors):
+    /// its ink is on-surface, not the accent's on-color.
+    func neutralTint(_ id: String) -> Bool {
+        let st = style(id)
+        guard st.tintOn else { return false }
+        switch st.role {
+        case .surface, .surfaceContainer, .surfaceContainerHighest, .surfaceVariant, .background: return true
+        default: return false
+        }
+    }
 
     var colorScheme: ColorScheme? {
         switch appearance {
@@ -293,35 +360,56 @@ extension CoverScheme {
 extension View {
     /// Applies a Glass Lab surface: glass variant / plain fill, tint role and
     /// opacity, interactive, colored shadow.
-    @ViewBuilder
     func labGlass<S: Shape>(_ id: String, scheme: CoverScheme, brand: CoverScheme,
                             auto: Color, in shape: S) -> some View {
-        let st = GlassLab.shared.style(id)
-        let tint = st.role.color(in: scheme, brand: brand, auto: auto)
-        let shadowColor = tint.opacity(st.shadowOpacity)
-        Group {
-            switch st.variant {
-            case .none:
-                self.background(shape.fill(tint.opacity(st.tintOn ? st.tintOpacity : 0)))
-            case .material:
-                self.background {
-                    ZStack {
-                        shape.fill(.regularMaterial)
-                        shape.fill(tint.opacity(st.tintOn ? st.tintOpacity : 0))
-                    }
-                }
-            case .regular, .clear:
-                let base: Glass = st.variant == .clear ? .clear : .regular
-                let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity)) : base
-                self.glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
-            }
-        }
-        .shadow(color: shadowColor, radius: st.shadowRadius, y: st.shadowY)
+        modifier(LabGlass(id: id, scheme: scheme, brand: brand, auto: auto, shape: shape))
+    }
+
+    /// The Library / Search search field and ✕: plain glass, or (Gemini)
+    /// glass tinted surfaceContainerHighest so it groups with the chip row.
+    func labSearchGlass<S: Shape>(scheme: CoverScheme, in shape: S) -> some View {
+        let o = GlassLab.shared.extra("searchChromeTint")
+        return glassEffect(o > 0 ? .regular.tint(scheme.surfaceContainerHighest.opacity(o)).interactive()
+                                 : .regular.interactive(), in: shape)
     }
 
     /// The contrast shadow under an icon or label on a Glass Lab surface.
     func labContrast(_ id: String) -> some View {
         shadow(color: .black.opacity(GlassLab.shared.style(id).contrastShadow), radius: 1.5, y: 0.5)
+    }
+}
+
+private struct LabGlass<S: Shape>: ViewModifier {
+    let id: String
+    let scheme: CoverScheme
+    let brand: CoverScheme
+    let auto: Color
+    let shape: S
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let lab = GlassLab.shared
+        let st = lab.style(id)
+        let tint = st.role.color(in: scheme, brand: brand, auto: auto)
+        let opacity = st.tintOn ? lab.tintOpacity(id, dark: colorScheme == .dark) : 0
+        Group {
+            switch st.variant {
+            case .none:
+                content.background(shape.fill(tint.opacity(opacity)))
+            case .material:
+                content.background {
+                    ZStack {
+                        shape.fill(.regularMaterial)
+                        shape.fill(tint.opacity(opacity))
+                    }
+                }
+            case .regular, .clear:
+                let base: Glass = st.variant == .clear ? .clear : .regular
+                let tinted = st.tintOn ? base.tint(tint.opacity(opacity)) : base
+                content.glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
+            }
+        }
+        .shadow(color: tint.opacity(st.shadowOpacity), radius: st.shadowRadius, y: st.shadowY)
     }
 }
 
@@ -439,6 +527,14 @@ struct GlassLabPanel: View {
                 }
                 .pickerStyle(.segmented)
             }
+            if lab.preset == .gemini {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Gemini extras").font(.gsf(13)).foregroundStyle(.secondary)
+                    labSlider("Dark-mode tint ×", "darkTintMultiplier", 1...1.5)
+                    labSlider("Dim under the Queue sheet", "sheetPresenterDim", 0...0.6)
+                    labSlider("Search field tint", "searchChromeTint", 0...0.8)
+                }
+            }
             Picker("Page", selection: Binding(
                 get: { model.npExpanded ? 1 : 0 },
                 set: { model.setNowPlaying(expanded: $0 == 1) })) {
@@ -475,6 +571,17 @@ struct GlassLabPanel: View {
             .scrollIndicators(.hidden)
         }
         .font(.gsf(14))
+    }
+
+    private func labSlider(_ label: String, _ id: String, _ range: ClosedRange<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(label)
+                Spacer()
+                Text(String(format: "%.2f", lab.extra(id))).monospacedDigit().foregroundStyle(.secondary)
+            }
+            Slider(value: Binding(get: { lab.extra(id) }, set: { lab.extras[id] = $0 }), in: range)
+        }
     }
 
     private func surfaceGroup(_ surface: GlassLab.Surface) -> some View {

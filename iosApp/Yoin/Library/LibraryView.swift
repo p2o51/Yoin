@@ -227,7 +227,7 @@ struct LibraryView: View {
                 .contentShape(.capsule)
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .labSearchGlass(scheme: scheme, in: .capsule)
             Button { model.openSettings() } label: {
                 Text("5")
                     .font(.gsf(14, .semibold))

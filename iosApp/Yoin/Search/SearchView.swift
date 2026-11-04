@@ -83,7 +83,7 @@ struct SearchView: View {
                     }
                     .padding(.horizontal, 16)
                     .frame(height: 48)
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .labSearchGlass(scheme: scheme, in: .capsule)
                     .matchedGeometryEffect(id: "search.surface", in: npNamespace)
 
                     Button { close() } label: {
@@ -93,7 +93,7 @@ struct SearchView: View {
                             .contentShape(.circle)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .labSearchGlass(scheme: scheme, in: .circle)
                     .accessibilityLabel("Close search")
                 }
             }
