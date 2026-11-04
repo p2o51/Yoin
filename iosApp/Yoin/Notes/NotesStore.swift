@@ -55,7 +55,7 @@ final class NotesStore {
              title: String, artist: String) -> SongNote? {
         let words = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return nil }
-        let ms = Int64((now().timeIntervalSince1970 * 1000).rounded())
+        let ms = nowMs
         let note = SongNote(id: UUID().uuidString, provider: provider, trackId: trackId, content: words,
                             createdAt: ms, updatedAt: ms, title: title, artist: artist,
                             positionMs: positionMs.map { max(0, $0) })
@@ -64,10 +64,44 @@ final class NotesStore {
         return note
     }
 
-    func delete(id: String) {
-        notes.removeAll { $0.id == id }
+    /// Removes a note and hands it back (for Undo); nil when it isn't there.
+    @discardableResult
+    func delete(id: String) -> SongNote? {
+        guard let i = notes.firstIndex(where: { $0.id == id }) else { return nil }
+        let removed = notes.remove(at: i)
+        persist()
+        return removed
+    }
+
+    /// Puts a deleted note back as it was (Android's 撤销 after a delete).
+    func restore(_ note: SongNote) {
+        guard !notes.contains(where: { $0.id == note.id }) else { return }
+        notes.append(note)
         persist()
     }
+
+    /// New words for a note; blank words are ignored. Returns the stored note.
+    @discardableResult
+    func update(id: String, content: String) -> SongNote? {
+        let words = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, let i = notes.firstIndex(where: { $0.id == id }) else { return nil }
+        notes[i].content = words
+        notes[i].updatedAt = nowMs
+        persist()
+        return notes[i]
+    }
+
+    /// Android "Align to now": the note moves to [positionMs] of its song.
+    @discardableResult
+    func realign(id: String, positionMs: Int64) -> SongNote? {
+        guard let i = notes.firstIndex(where: { $0.id == id }) else { return nil }
+        notes[i].positionMs = max(0, positionMs)
+        notes[i].updatedAt = nowMs
+        persist()
+        return notes[i]
+    }
+
+    private var nowMs: Int64 { Int64((now().timeIntervalSince1970 * 1000).rounded()) }
 
     private func persist() {
         do {
@@ -91,6 +125,34 @@ final class NotesStore {
             case (_?, nil): true
             case (nil, _?): false
             }
+        }
+    }
+
+    /// Android `NoteSortMode`: by song moment, or by when they were written
+    /// (oldest first, a journal).
+    enum SortMode: String, Sendable { case timeline, created }
+
+    nonisolated static func sorted(_ notes: [SongNote], _ mode: SortMode) -> [SongNote] {
+        switch mode {
+        case .timeline: timeline(notes)
+        case .created: notes.sorted { $0.createdAt < $1.createdAt }
+        }
+    }
+
+    /// Android `formatNoteDate`: just now / minutes / hours / days ago, then the date.
+    nonisolated static func formatDate(_ epochMs: Int64, nowMs: Int64) -> String {
+        let delta = max(0, nowMs - epochMs) / 1000
+        let minutes = delta / 60, hours = minutes / 60, days = hours / 24
+        switch true {
+        case minutes < 1: return "Just now"
+        case minutes < 60: return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
+        case hours < 24: return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
+        case days < 7: return days == 1 ? "1 day ago" : "\(days) days ago"
+        default:
+            let f = DateFormatter()
+            f.dateStyle = .medium
+            f.timeStyle = .none
+            return f.string(from: Date(timeIntervalSince1970: Double(epochMs) / 1000))
         }
     }
 

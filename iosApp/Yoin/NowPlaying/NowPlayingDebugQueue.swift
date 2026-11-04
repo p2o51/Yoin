@@ -53,9 +53,8 @@ enum NowPlayingDebugQueue {
         }
     }
 
-    /// View-side aids: `-npTab 2` opens the Note window; `-npCompose "words"`
-    /// opens the composer (as the Write pill does) holding those words.
-    static var tab: Int? { UserDefaults.standard.object(forKey: "npTab").map { _ in UserDefaults.standard.integer(forKey: "npTab") } }
+    /// View-side aid: `-npCompose "words"` opens the composer (as the Write
+    /// pill does) holding those words. Tabs and stages: NowPlayingStageLaunch.
     static var compose: String? { UserDefaults.standard.string(forKey: "npCompose") }
 
     /// A queue entry from the shared model: stream and cover URLs from the

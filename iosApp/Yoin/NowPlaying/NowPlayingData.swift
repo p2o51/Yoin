@@ -49,6 +49,15 @@ final class NowPlayingData {
     /// The rating under the finger, until it is committed on release.
     private(set) var draftRating: [String: Double] = [:]
 
+    /// The About page's facts per song (`getSong` on Subsonic; the queue
+    /// entry elsewhere).
+    private(set) var about: [String: AboutState] = [:]
+
+    enum AboutState: Equatable {
+        case loading
+        case ready(SongFacts)
+    }
+
     @ObservationIgnored private let ratings: LocalRatings
     @ObservationIgnored private var lyricsRetry: Set<String> = []
     @ObservationIgnored private var infoRequested: Set<String> = []
@@ -118,6 +127,34 @@ final class NowPlayingData {
     }
 
     func lyricsState(_ t: PlayableTrack) -> LyricsState { lyrics[Self.key(t)] ?? .loading }
+
+    // MARK: About
+
+    func aboutState(_ t: PlayableTrack) -> AboutState { about[Self.key(t)] ?? .loading }
+
+    /// The song's facts: the server's full record where there is one, else
+    /// what the queue entry knows. A failed fetch shows the entry's facts and
+    /// asks again next time.
+    func loadAbout(_ t: PlayableTrack, client: SubsonicClient?) async {
+        let k = Self.key(t)
+        if case .ready(let f)? = about[k], f.complete { return }
+        guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else {
+            about[k] = .ready(SongFacts(t))
+            return
+        }
+        if about[k] == nil { about[k] = .loading }
+        do {
+            if let song = try await client.getSong(id: t.id) {
+                about[k] = .ready(SongFacts(song, fallback: t))
+                if t.starred == nil, serverStarred[k] == nil { serverStarred[k] = song.starred }
+                if t.userRating == nil, serverRating[k] == nil, let r = song.userRating { serverRating[k] = Int(r.int32Value) }
+            } else {
+                about[k] = .ready(SongFacts(t))
+            }
+        } catch {
+            about[k] = .ready(SongFacts(t, complete: false))
+        }
+    }
 
     // MARK: Heart
 

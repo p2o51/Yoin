@@ -27,6 +27,11 @@ struct NowPlayingView: View {
 
     @State private var dragY: CGFloat = 0
     @State private var tab = 0
+    /// Android NowPlayingStageMode (NowPlayingStage.swift): compact, the
+    /// expanded detail page, or the focused cover.
+    @State private var stage: NowPlayingStage = .compact
+    /// The expanded Note page's order (Android NoteSortMode).
+    @State private var noteSort: NotesStore.SortMode = .timeline
     @State private var rating: Double = 6.3
     @State private var favorite = true
     /// One "hands on the controls" state for rating, heart, transport and
@@ -88,12 +93,19 @@ struct NowPlayingView: View {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
         }
+        .task(id: tab == NowPlayingDetailPage.about.rawValue ? engineTrack.map(NowPlayingData.key) : nil) {
+            // Android fetches About when its page is first shown.
+            guard tab == NowPlayingDetailPage.about.rawValue, let t = engineTrack else { return }
+            await data.loadAbout(t, client: model.session.client)
+        }
         #if DEBUG
         .task { await NowPlayingDebugQueue.startIfRequested(model) }
         .task {
-            guard !panel, NowPlayingDebugQueue.tab != nil || NowPlayingDebugQueue.compose != nil else { return }
+            guard !panel, NowPlayingStageLaunch.page != nil || NowPlayingStageLaunch.stage != nil
+                    || NowPlayingDebugQueue.compose != nil else { return }
             try? await Task.sleep(for: .seconds(4))
-            if let t = NowPlayingDebugQueue.tab { withAnimation(Yoin.spatial) { tab = t } }
+            if let page = NowPlayingStageLaunch.page { withAnimation(Yoin.spatial) { tab = page.rawValue } }
+            if let s = NowPlayingStageLaunch.stage { withAnimation(Yoin.spatial) { stage = s } }
             if let words = NowPlayingDebugQueue.compose {
                 startWriting()
                 draft = words
@@ -239,59 +251,100 @@ struct NowPlayingView: View {
 
     private func content(size: CGSize, bottomInset: CGFloat) -> some View {
         let p = model.playback
+        let column = size.height - max(bottomInset, 16) + bottomInset
         let budget = NowPlayingBudget(
             width: min(size.width, model.isPad ? 520 : size.width),
-            height: size.height - max(bottomInset, 16) + bottomInset,
+            height: column,
             forceShort: model.npForceShort
         )
+        // A stale focus (the window can no longer grow the cover) reads as compact.
+        let focusOffered = budget.focus != nil
+        let stage: NowPlayingStage = self.stage == .focus && !focusOffered ? .compact : self.stage
+        let pose = stage == .focus ? (budget.focus ?? budget.rest) : budget.rest
+        let expanded = stage == .expanded
+        let page = NowPlayingDetailPage(rawValue: tab) ?? .lyrics
+        // Expanded (Android ExpandedTopBarHeight …): the cover docks into the
+        // top bar, the transport steps away, the page takes what is left.
+        let topBarH = expanded ? NowPlayingExpanded.topBar : pose.topBar
+        let coverGap = expanded ? NowPlayingExpanded.coverGap : pose.coverGap
+        let tabsH = expanded ? NowPlayingExpanded.tabRow : pose.tabs
+        let tabGap = expanded ? NowPlayingExpanded.tabGap : pose.tabGap
+        let transportH = expanded ? 0 : pose.transport
+        let accessory = expanded
+            ? (page == .note ? NowPlayingExpanded.writeBar + NowPlayingExpanded.writeBarGap : NowPlayingExpanded.bareAccessory)
+            : pose.pills
+        let slack = expanded ? 0 : pose.slack
+        let clear = expanded
+            ? max(0, column - topBarH - coverGap - tabsH - tabGap - pose.hero - accessory)
+            : pose.lyricWindow
+        let oneLine = pose.oneLineLyric
+        let restCover = budget.rest.cover
         return VStack(alignment: .leading, spacing: 0) {
-            topBar(p)
-                .frame(height: budget.topBar)
+            topBar(p, docked: expanded)
+                .frame(height: topBarH)
                 .npFade(open, contentFade)
-            coverRow(budget.cover)
-            Spacer().frame(height: budget.coverGap)
-            if !budget.oneLineLyric {
-                tabs
-                    .frame(height: budget.tabs, alignment: .top)
-                    .npFade(open, contentFade)
-                Spacer().frame(height: budget.tabGap)
+            coverRow(expanded ? restCover : pose.cover, retreat: stage != .compact,
+                     dock: expanded && restCover > 0 ? CoverDock(cover: restCover, topBar: NowPlayingExpanded.topBar) : nil,
+                     tappable: focusOffered || stage != .compact) {
+                coverTapped(focusOffered: focusOffered)
             }
+            // Expanded, the row folds away and the cover flies on to the bar.
+            .frame(height: expanded ? 0 : pose.cover, alignment: .top)
+            .zIndex(1)
+            Spacer().frame(height: coverGap)
+            tabsSlot(expanded: expanded)
+                .frame(height: tabsH, alignment: .top)
+                .clipped()
+                .npFade(open, contentFade)
+            Spacer().frame(height: tabGap)
             // The lyrics run on under the glass transport; the current line
             // always sits in the clear band above it.
-            let clear = budget.lyricWindow
             ZStack(alignment: .top) {
-                lyricArea(p, clear: clear, under: budget.transport,
-                       anchor: budget.oneLineLyric
-                           // OneLineLyricRow: the 32 pt line centered in its slot.
-                           ? (clear - Tokens.type.bodyLarge.lineHeight.cg - 8) / 2 + 4
-                           : clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: !budget.oneLineLyric)
+                lyricArea(p, page: page, stage: stage, preview: pose.preview, clear: clear, under: transportH,
+                          anchor: oneLine
+                              // OneLineLyricRow: the 32 pt line centered in its slot.
+                              ? (clear - Tokens.type.bodyLarge.lineHeight.cg - 8) / 2 + 4
+                              : clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: !oneLine)
+                if !expanded && !unsyncedLyricsShown(page, stage: stage) {
+                    // The small window (and the focused line) open the page.
+                    Color.clear
+                        .frame(height: clear)
+                        .contentShape(.rect)
+                        .onTapGesture { openPage(stage == .focus ? .lyrics : page) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(stage == .focus ? "Lyrics" : page.title)
+                }
                 transport(p)
                     .padding(.top, clear)
+                    .opacity(expanded ? 0 : 1)
+                    .offset(y: expanded ? 48 : 0)
+                    .allowsHitTesting(!expanded)
             }
-            .frame(height: clear + budget.transport, alignment: .top)
+            .frame(height: clear + transportH, alignment: .top)
             .npFade(open, contentFade)
-            if budget.slack > 0 {
-                Spacer().frame(height: budget.slack)
-            }
+            Spacer().frame(height: slack)
             hero(p, inline: budget.inlineHero)
                 // StageHeightSlot: content at the top, air below.
-                .frame(height: budget.hero, alignment: .top)
-            pills
-                .frame(height: budget.pills, alignment: .bottomLeading)
+                .frame(height: pose.hero, alignment: .top)
+            accessorySlot(page: page, expanded: expanded)
+                .frame(height: accessory, alignment: .bottomLeading)
                 .npFade(open, contentFade)
         }
         .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    // 1. Top bar: ⌄ + "PLAYING FROM ALBUM" / album name.
-    private func topBar(_ p: PlaybackSnapshot) -> some View {
+    // 1. Top bar: ⌄ + "PLAYING FROM ALBUM" / album name. Expanded (Android
+    // StageTopBar docked): the chevron turns to point back, the cover lands
+    // in the 48 pt slot after it and the label steps 10 aside.
+    private func topBar(_ p: PlaybackSnapshot, docked: Bool) -> some View {
         HStack(spacing: 4) {
             // A glass circle (the transport's secondary glass), so it reads
             // as a control over the page; it rides along with the drag.
-            Button { collapse() } label: {
+            Button { stageBack() } label: {
                 // Android StageTopBar: 28 dp ChevronDown in onSurfaceVariant.
                 YoinIcon("chevron_down", size: Tokens.np.CHEVRON_GLYPH.cg)
+                    .rotationEffect(.degrees(docked ? 90 : 0))
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .labContrast("transportSecondary")
                     .frame(width: 44, height: 44)
@@ -301,7 +354,9 @@ struct NowPlayingView: View {
             .labGlass("transportSecondary", scheme: scheme, brand: brand,
                       auto: scheme.surfaceContainerHighest, in: Circle())
             .frame(width: 48, height: 48)
-            .accessibilityLabel("Collapse Now Playing")
+            .accessibilityLabel(stage == .compact ? "Collapse Now Playing" : "Back")
+            // DockedCoverSlot: the cover row flies the cover into it.
+            Spacer().frame(width: docked ? NowPlayingExpanded.dockedSlot : 0)
             VStack(alignment: .leading, spacing: 0) {
                 // PlayingFromLabel: labelSmall kind over labelMedium name.
                 Text("PLAYING FROM ALBUM")
@@ -314,6 +369,7 @@ struct NowPlayingView: View {
             .lineLimit(1)
             .padding(.vertical, 2)
             .padding(.horizontal, 4)
+            .offset(x: docked ? 10 : 0)
             Spacer(minLength: 0)
         }
         // Android: page padding 24 + 4 at the start, and the 48 dp icon button
@@ -322,9 +378,12 @@ struct NowPlayingView: View {
     }
 
     // 2. Cover + rating column.
-    private func coverRow(_ cover: CGFloat) -> some View {
+    /// `retreat`: focus / expanded fold the rating column away (Android
+    /// ratingRetreatProgress); `dock`: expanded flies the cover into the top bar.
+    private func coverRow(_ cover: CGFloat, retreat: Bool, dock: CoverDock?, tappable: Bool,
+                          onTap: @escaping () -> Void) -> some View {
         let p = model.playback
-        return HStack(alignment: .top, spacing: Tokens.np.RATING_GAP.cg) {
+        return HStack(alignment: .top, spacing: retreat ? 0 : Tokens.np.RATING_GAP.cg) {
             CoverArt(palette: p.album.palette, cornerRadius: 0, seed: p.album.seed)
                 .frame(width: cover, height: cover)
                 // ContinuousRoundedCornerShape(16dp), smoothing 0.6 ≈ Apple's continuous corners.
@@ -332,6 +391,9 @@ struct NowPlayingView: View {
                 .clipShape(.rect(cornerRadius: open ? Tokens.shape.NOW_PLAYING_COVER.cg : 6, style: .continuous))
                 .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace, isSource: open)
                 .npFade(open, presenceFade)
+                .modifier(CoverStageEffect(dock: dock, tappable: tappable,
+                                           label: stage == .focus ? "Show lyrics and rating" : "Focus artwork",
+                                           onTap: onTap))
             VStack(spacing: 0) {
                 RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld) { down in
                     withAnimation(Yoin.spatialFast) { ratingHeld = down }
@@ -344,7 +406,15 @@ struct NowPlayingView: View {
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
             .frame(width: Tokens.np.PHONE_RATING_COLUMN.cg)
+            .offset(x: retreat ? 72 : 0)
+            .opacity(retreat ? 0 : 1)
+            .allowsHitTesting(!retreat)
+            .frame(width: retreat ? 0 : Tokens.np.PHONE_RATING_COLUMN.cg, alignment: .leading)
             .npFade(open, contentFade)
+        }
+        .background(alignment: .topLeading) {
+            NowPlayingFocusField(scheme: scheme, size: cover, on: stage == .focus)
+                .npFade(open, contentFade)
         }
     }
 
@@ -426,22 +496,210 @@ struct NowPlayingView: View {
         .frame(height: Tokens.np.TAB_ROW_NOMINAL.cg, alignment: .top)
     }
 
-    // 5. Lyrics / Note window. Android: a list with the active line at 22 %
-    // of the window (or one line on short screens). iOS: the list continues
-    // `under` points further down, behind the glass transport, fading out by
-    // its second row.
-    private func lyricArea(_ p: PlaybackSnapshot, clear: CGFloat, under: CGFloat,
+    /// Android StageTabs, expanded: the three pages as a button group.
+    private var expandedTabs: some View {
+        HStack(spacing: 8) {
+            ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
+                let on = tab == page.rawValue
+                Button { withAnimation(Yoin.spatial) { tab = page.rawValue } } label: {
+                    Text(page.title)
+                        .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
+                        .foregroundStyle(on ? scheme.onPrimary : scheme.onPrimaryContainer)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: NowPlayingExpanded.tabRow)
+                        .background(on ? scheme.primary : scheme.primaryContainer, in: Capsule())
+                        .contentShape(.capsule)
+                        .animation(Yoin.effects, value: on)
+                }
+                .buttonStyle(PressScale())
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+    }
+
+    /// The text tabs at rest, the button group expanded (Android StageTabs).
+    private func tabsSlot(expanded: Bool) -> some View {
+        ZStack(alignment: .topLeading) {
+            tabs
+                .opacity(expanded ? 0 : 1)
+                .offset(y: expanded ? -6 : 0)
+                .allowsHitTesting(!expanded)
+            expandedTabs
+                .opacity(expanded ? 1 : 0)
+                .offset(y: expanded ? 0 : 8)
+                .allowsHitTesting(expanded)
+        }
+    }
+
+    /// The pills at rest; the expanded Note page's write bar.
+    private func accessorySlot(page: NowPlayingDetailPage, expanded: Bool) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            pills
+                .opacity(expanded ? 0 : 1)
+                .allowsHitTesting(!expanded)
+            if expanded && page == .note {
+                NoteWriteBarCapsule(scheme: scheme) { startWriting() }
+                    .opacity(composing ? 0 : 1)
+                    .transition(.opacity.combined(with: .offset(y: 12)))
+            }
+        }
+    }
+
+    // MARK: Stage
+
+    /// Cover tap (Android CompactPlayingContent): focus ⇄ rest where focus
+    /// exists; the docked cover goes back to focus (or rest).
+    private func coverTapped(focusOffered: Bool) {
+        withAnimation(Yoin.spatial) {
+            switch stage {
+            case .focus:
+                stage = .compact
+            case .expanded:
+                tab = NowPlayingDetailPage.lyrics.rawValue
+                stage = focusOffered ? .focus : .compact
+            case .compact:
+                guard focusOffered else { return }
+                tab = NowPlayingDetailPage.lyrics.rawValue
+                stage = .focus
+            }
+        }
+    }
+
+    /// The small window opens its page; an empty Note page opens on the composer.
+    private func openPage(_ page: NowPlayingDetailPage) {
+        let key = currentNoteKey
+        if page == .note, NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).isEmpty {
+            startWriting()
+            return
+        }
+        withAnimation(Yoin.spatial) {
+            tab = page.rawValue
+            stage = .expanded
+        }
+    }
+
+    /// The chevron: back to the resting player, or (at rest) collapse.
+    private func stageBack() {
+        guard stage != .compact else { return collapse() }
+        composerFocused = false
+        withAnimation(Yoin.spatial) {
+            if draft.isEmpty { composing = false }
+            stage = .compact
+        }
+    }
+
+    /// Unsynced lyrics scroll by hand in the small window: their own tap opens the page.
+    private func unsyncedLyricsShown(_ page: NowPlayingDetailPage, stage: NowPlayingStage) -> Bool {
+        guard page == .lyrics, stage == .compact, let t = engineTrack,
+              case .lines(let loaded) = data.lyricsState(t) else { return false }
+        return !loaded.synced
+    }
+
+    /// The current song's note moments as fractions of the bar.
+    private func noteAnchors(duration: Double) -> [Double] {
+        guard duration > 0 else { return [] }
+        let key = currentNoteKey
+        return NotesStore.shared.notes(provider: key.provider, trackId: key.rawId)
+            .compactMap { $0.positionMs.map { Double($0) / 1000 / duration } }
+    }
+
+    // 5. The detail page. Compact: the small window (Lyrics / About / Note),
+    // a list with the active line at 22 % of the window (or one line on
+    // short screens) that runs on `under` points further down, behind the
+    // glass transport. Focus: the current line under the grown cover.
+    // Expanded: the whole page.
+    private func lyricArea(_ p: PlaybackSnapshot, page: NowPlayingDetailPage, stage: NowPlayingStage,
+                           preview: Bool, clear: CGFloat, under: CGFloat,
                            anchor: CGFloat, fadeTop: Bool) -> some View {
         ZStack(alignment: .topLeading) {
-            if tab == 2 {
-                noteWindow(clear: clear)
+            switch stage {
+            case .expanded:
+                expandedPage(p, page: page, height: clear)
+                    .id(page)
                     .transition(.opacity)
-            } else {
-                lyrics(p, clear: clear, under: under, anchor: anchor, fadeTop: fadeTop)
+            case .focus where preview:
+                lyricPreview(p)
+                    .frame(height: clear)
+                    .transition(.opacity)
+            default:
+                compactPage(p, page: page, clear: clear, under: under, anchor: anchor, fadeTop: fadeTop)
+                    .id(page)
                     .transition(.opacity)
             }
         }
-        .animation(Yoin.effects, value: tab == 2)
+        .animation(Yoin.effects, value: page)
+    }
+
+    @ViewBuilder
+    private func compactPage(_ p: PlaybackSnapshot, page: NowPlayingDetailPage, clear: CGFloat, under: CGFloat,
+                             anchor: CGFloat, fadeTop: Bool) -> some View {
+        switch page {
+        case .lyrics:
+            lyrics(p, clear: clear, under: under, anchor: anchor, fadeTop: fadeTop)
+        case .about:
+            // Android SongInfoDisplay: the facts, read-only, fading out at the foot.
+            NowPlayingAboutView(state: aboutState(p), expanded: false, scheme: scheme)
+                .frame(height: clear, alignment: .top)
+                .allowsHitTesting(false)
+        case .note:
+            noteWindow(clear: clear)
+        }
+    }
+
+    @ViewBuilder
+    private func expandedPage(_ p: PlaybackSnapshot, page: NowPlayingDetailPage, height: CGFloat) -> some View {
+        switch page {
+        case .lyrics:
+            lyrics(p, clear: height, under: 0, anchor: height * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: true)
+        case .about:
+            NowPlayingAboutView(state: aboutState(p), expanded: true, scheme: scheme, bottomPadding: 48)
+                .frame(height: height, alignment: .top)
+        case .note:
+            notePage
+                .frame(height: height, alignment: .top)
+        }
+    }
+
+    private func aboutState(_ p: PlaybackSnapshot) -> NowPlayingData.AboutState {
+        guard let t = engineTrack else { return .ready(SongFacts(album: p.album, track: p.track)) }
+        return data.aboutState(t)
+    }
+
+    /// Android NoteFullscreenPane over the store: seek, align and delete go
+    /// straight to it; the list shows the draft while writing.
+    private var notePage: some View {
+        let key = currentNoteKey
+        let notes = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId)
+        return NowPlayingNotePage(
+            notes: NotesStore.sorted(notes, noteSort), sort: $noteSort, scheme: scheme,
+            draftAnchorMs: draftAnchorMs, writing: composing,
+            playheadMs: { playheadMs },
+            onSeek: { ms in if engineTrack != nil { model.player.seek(to: Double(ms) / 1000) } },
+            onDelete: { NotesStore.shared.delete(id: $0) },
+            onRestore: { NotesStore.shared.restore($0) },
+            onRealign: { NotesStore.shared.realign(id: $0, positionMs: $1) }
+        )
+    }
+
+    /// Android OneLineLyricPreview: the current line alone, the song's title
+    /// before the first one.
+    @ViewBuilder
+    private func lyricPreview(_ p: PlaybackSnapshot) -> some View {
+        if let t = engineTrack {
+            if case .lines(let loaded) = data.lyricsState(t), loaded.synced {
+                PlaybackPosition { position, _ in
+                    let i = loaded.activeIndex(positionSec: position)
+                    OneLineLyricLine(text: i >= 0 && i < loaded.lines.count && !loaded.lines[i].isEmpty
+                                     ? loaded.lines[i] : t.title, primary: scheme.primary)
+                        .equatable()
+                }
+            } else {
+                OneLineLyricLine(text: t.title, primary: scheme.primary)
+            }
+        } else {
+            OneLineLyricLine(text: p.lyrics.indices.contains(p.activeLyric) ? p.lyrics[p.activeLyric] : p.track.title,
+                             primary: scheme.primary)
+        }
     }
 
     @ViewBuilder
@@ -468,6 +726,7 @@ struct NowPlayingView: View {
             case .lines(let loaded):
                 lyricWindow(clear: clear, under: under, fadeTop: fadeTop, interactive: true) {
                     UnsyncedLyricsView(lines: loaded.lines, onSurfaceVariant: scheme.onSurfaceVariant)
+                        .onTapGesture { if stage == .compact { openPage(.lyrics) } }
                 }
             }
         } else {
@@ -488,16 +747,13 @@ struct NowPlayingView: View {
     }
 
     /// Android NoteCompactPane: the song's notes as lyric-like lines; empty,
-    /// the label opens the composer.
+    /// the label (a tap opens the composer).
     @ViewBuilder
     private func noteWindow(clear: CGFloat) -> some View {
         let key = currentNoteKey
         let notes = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId)
         if notes.isEmpty {
-            Button { startWriting() } label: {
-                windowLabel("Write", clear: clear).contentShape(.rect)
-            }
-            .buttonStyle(.plain)
+            windowLabel("Write", clear: clear)
         } else {
             PlaybackPosition { position, _ in
                 NoteLinesView(notes: notes,
@@ -525,7 +781,11 @@ struct NowPlayingView: View {
         return lines()
         .frame(height: total, alignment: .top)
         .clipped()
-        .mask(
+        .mask {
+            if under <= 0 {
+                // Expanded: nothing runs under it; the foot dissolves.
+                NowPlayingAboutView.fade(top: fadeTop ? 16 : 0, bottom: 64)
+            } else {
             LinearGradient(stops: [
                 .init(color: fadeTop ? .clear : .black, location: 0),
                 .init(color: .black, location: fadeTop ? min(0.12, 16 / total) : 0),
@@ -536,7 +796,8 @@ struct NowPlayingView: View {
                 .init(color: .black.opacity(underStrength), location: (clear + 56) / total),
                 .init(color: .clear, location: (clear + 100) / total),
             ], startPoint: .top, endPoint: .bottom)
-        )
+            }
+        }
         .allowsHitTesting(interactive)
     }
 
@@ -610,6 +871,8 @@ struct NowPlayingView: View {
             WavyProgressBar(progress: position / duration,
                             duration: duration, isPlaying: p.isPlaying,
                             tint: scheme.primary, trackTint: scheme.surfaceContainerHighest,
+                            noteAnchors: noteAnchors(duration: duration),
+                            noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
                             onScrubbing: { touch("progress", $0) }) { fraction in
                 model.player.seek(to: fraction * duration)
             }
@@ -766,7 +1029,8 @@ struct NowPlayingView: View {
     private func startWriting() {
         if draft.isEmpty { draftAnchorMs = playheadMs }
         withAnimation(Yoin.spatial) {
-            tab = 2
+            tab = NowPlayingDetailPage.note.rawValue
+            stage = .expanded
             composing = true
         }
         composerFocused = true
@@ -834,72 +1098,6 @@ struct NowPlayingView: View {
                     withAnimation(Yoin.spatial) { dragY = 0 }
                 }
             }
-    }
-}
-
-/// Android NowPlayingBudget (phone), run from the shared Kotlin
-/// (`resolveStageColumnBudget`, YoinShared): nominal → minimum slot heights,
-/// lower gaps squeezed first, then upper; then the inline hero, then the
-/// one-line lyric. The content minimums are Android's at font scale 1, from
-/// YoinTokens.
-struct NowPlayingBudget {
-    var topBar: CGFloat
-    var cover: CGFloat
-    var coverGap: CGFloat
-    var tabs: CGFloat
-    var tabGap: CGFloat
-    var transport: CGFloat
-    var hero: CGFloat
-    var pills: CGFloat
-    /// The lyric window (list) or the one-line lyric's slot.
-    var lyricWindow: CGFloat
-    var inlineHero: Bool
-    var oneLineLyric: Bool
-    /// Forced short layout on a taller screen: the height Android wouldn't have.
-    var slack: CGFloat = 0
-
-    /// `-screen np-short`: the column of the ~700 dp Android phone the
-    /// reference shots come from.
-    static let referenceShortHeight: CGFloat = 700
-
-    /// Android NowPlayingMetrics at font scale 1 (M3 line heights + YoinTokens).
-    nonisolated(unsafe) static let metrics: StageColumnMetrics = {
-        let t = Tokens.type, n = Tokens.np
-        func f(_ v: Double) -> Float { Float(v) }
-        return StageColumnMetrics(
-            tabText: f(t.labelLarge.lineHeight),
-            transport: f(n.CONTROL_SIZE * 2 + n.CONTROL_ROW_GAP),
-            hero: f(t.titleMedium.lineHeight + n.HERO_LINE_GAP + t.displaySmall.lineHeight),
-            heroOneLine: f(t.displaySmall.lineHeight),
-            pills: f(n.PILL_HEIGHT),
-            oneLineContent: f(t.bodyLarge.lineHeight + n.LYRIC_LINE_PADS),
-            lyric: LyricWindowMetrics(activeLine: f(t.bodyLarge.lineHeight + n.LYRIC_LINE_PADS),
-                                      inactiveLine: f(t.bodyMedium.lineHeight + n.LYRIC_LINE_PADS))
-        )
-    }()
-
-    /// `height` = the column's height: from below the status bar to
-    /// max(home indicator, 16) above the bottom.
-    init(width: CGFloat, height: CGFloat, forceShort: Bool) {
-        let resolved = forceShort ? min(height, Self.referenceShortHeight) : height
-        let budget = NowPlayingBudgetKt.resolveStageColumnBudget(
-            width: Float(width), height: Float(resolved), metrics: Self.metrics, enlarged: nil, previous: nil)
-        let r = budget.rest
-        topBar = CGFloat(r.topBar)
-        cover = CGFloat(r.cover)
-        coverGap = CGFloat(r.coverGap)
-        tabs = CGFloat(r.tabs)
-        tabGap = CGFloat(r.tabGap)
-        transport = CGFloat(r.controls)
-        hero = CGFloat(r.hero)
-        pills = CGFloat(r.accessory)
-        inlineHero = budget.heroOneLine
-        oneLineLyric = r.lyricFrame == LyricFrame.oneline
-        // The one-line lyric is one tappable row; what the slot has beyond
-        // that is air, given to the slack (between transport and hero).
-        let slot = CGFloat(r.lyricSlot)
-        lyricWindow = oneLineLyric ? min(slot, Tokens.np.ONE_LINE_ROW_NOMINAL.cg) : slot
-        slack = max(0, height - CGFloat(r.total)) + (slot - lyricWindow)
     }
 }
 

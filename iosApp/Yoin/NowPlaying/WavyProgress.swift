@@ -195,6 +195,11 @@ public struct WavyProgressBar: View {
     public var onSeek: (Double) -> Void
     /// True while a finger is on the bar, false when it lifts.
     public var onScrubbing: (Bool) -> Void
+    /// Song-moment notes as fractions of the bar (Android `noteAnchorsMs`):
+    /// the thumb is pulled onto them, scrubbing across one ticks, and the
+    /// bubble reads "Note" (in the tint, with `noteInk`) while it sits on one.
+    public var noteAnchors: [Double]
+    public var noteInk: Color
 
     @State private var shown: Double
     @State private var amplitude: CGFloat
@@ -202,6 +207,11 @@ public struct WavyProgressBar: View {
     @State private var phaseStart: Date?
     @State private var scrub: Double?
     @State private var seekCount = 0
+    /// The raw finger fraction (`scrub` is its magnetized projection).
+    @State private var rawScrub: Double?
+    @State private var snapped: Double?
+    @State private var captureTicks = 0
+    @State private var crossTicks = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
@@ -214,9 +224,13 @@ public struct WavyProgressBar: View {
         metrics: WavyProgressMetrics = .yoin,
         look: WavyLook = .tint,
         flattensWhileScrubbing: Bool = true,
+        noteAnchors: [Double] = [],
+        noteInk: Color = .white,
         onScrubbing: @escaping (Bool) -> Void = { _ in },
         onSeek: @escaping (Double) -> Void
     ) {
+        self.noteAnchors = noteAnchors.map { min(max($0, 0), 1) }.sorted()
+        self.noteInk = noteInk
         self.progress = progress
         self.buffered = buffered
         self.duration = duration
@@ -265,6 +279,8 @@ public struct WavyProgressBar: View {
         }
         .frame(height: 40)
         .sensoryFeedback(.selection, trigger: seekCount)
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: captureTicks)
+        .sensoryFeedback(.impact(weight: .medium), trigger: crossTicks)
         .onAppear { if waveMoves { phaseStart = .now } }
         .onChange(of: waveMoves) { _, moves in
             if moves {
@@ -343,18 +359,65 @@ public struct WavyProgressBar: View {
     }
 
     private func bubble(for s: Double) -> some View {
-        Text(timeText(s))
+        let onNote = isOnNote(s)
+        return Text(onNote ? "Note" : timeText(s))
             .font(.subheadline.weight(.semibold).monospacedDigit())
+            .foregroundStyle(onNote ? noteInk : Color.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .glassEffect(.regular.tint(tint.opacity(0.35)), in: .capsule)
+            .glassEffect(.regular.tint(tint.opacity(onNote ? 0.9 : 0.35)), in: .capsule)
             .fixedSize()
+            .animation(.spring(duration: 0.3, bounce: 0), value: onNote)
+    }
+
+    // MARK: Note anchors (WaveProgressBar.kt)
+
+    /// "On a note": ±1.5 s of song, floored at 1 % of the bar.
+    private var noteWindow: Double {
+        duration > 0 ? max(1.5 / duration, 0.01) : 0
+    }
+
+    private func isOnNote(_ f: Double) -> Bool {
+        noteAnchors.contains { abs($0 - f) <= noteWindow }
+    }
+
+    private func nearestAnchor(_ f: Double) -> Double? {
+        noteAnchors.min { abs($0 - f) < abs($1 - f) }
+    }
+
+    /// Inside the inner half of the window the thumb sticks to the note; over
+    /// the outer half it eases back to the finger on a t² ramp that meets the
+    /// window's edge, so capture and escape are both continuous.
+    private func magnetized(_ raw: Double) -> Double {
+        let w = noteWindow
+        guard let nearest = nearestAnchor(raw), w > 0 else { return raw }
+        let d = raw - nearest, ad = abs(d), inner = w * 0.5
+        if ad >= w { return raw }
+        if ad <= inner { return nearest }
+        let t = (ad - inner) / (w - inner)
+        return min(max(nearest + (d < 0 ? -1 : 1) * w * t * t, 0), 1)
+    }
+
+    /// A light tick the moment a note captures the thumb, a full one for
+    /// every note the finger sweeps across.
+    private func tickAnchors(from before: Double?, to raw: Double) {
+        guard !noteAnchors.isEmpty else { return }
+        let captured = nearestAnchor(raw).flatMap { abs($0 - raw) <= noteWindow * 0.5 ? $0 : nil }
+        if let captured, captured != snapped { captureTicks += 1 }
+        snapped = captured
+        if let before, before != raw {
+            let lo = min(before, raw), hi = max(before, raw)
+            if noteAnchors.contains(where: { $0 > lo && $0 <= hi }) { crossTicks += 1 }
+        }
     }
 
     private func scrubGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                let f = min(max(value.location.x / max(width, 1), 0), 1)
+                let raw = min(max(value.location.x / max(width, 1), 0), 1)
+                tickAnchors(from: rawScrub, to: raw)
+                rawScrub = raw
+                let f = magnetized(raw)
                 if scrub == nil {
                     onScrubbing(true)
                     withAnimation(.spring(duration: 0.35, bounce: 0.3)) { scrub = f }
@@ -363,7 +426,9 @@ public struct WavyProgressBar: View {
                 }
             }
             .onEnded { value in
-                let f = min(max(value.location.x / max(width, 1), 0), 1)
+                let f = magnetized(min(max(value.location.x / max(width, 1), 0), 1))
+                rawScrub = nil
+                snapped = nil
                 var t = Transaction()
                 t.disablesAnimations = true
                 withTransaction(t) { shown = f }
