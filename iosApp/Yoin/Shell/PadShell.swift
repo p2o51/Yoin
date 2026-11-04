@@ -28,9 +28,14 @@ struct PadShell: View {
         .tabViewBottomAccessory {
             PadMiniPlayer()
         }
+        // World depth, as on the phone: the shell steps back under Full Now
+        // Playing and under a sheet (the NP panel is part of its plane);
+        // Full Now Playing under a sheet it opens.
+        .modifier(WorldRecede(layer: .padShell))
         .overlay {
             if model.npExpanded {
                 NowPlayingView(npNamespace: npNS)
+                    .modifier(WorldRecede(layer: .nowPlaying))
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
@@ -69,6 +74,7 @@ private struct PadColumns: View {
             HStack(spacing: 0) {
                 columns
                 if model.npPanel {
+                    // Inside the shell's plane: it recedes with the shell.
                     NowPlayingView(npNamespace: npNamespace, panel: true)
                         .frame(width: panelWidth)
                         .clipShape(.rect(cornerRadius: 28))

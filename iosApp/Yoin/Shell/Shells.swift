@@ -153,7 +153,10 @@ private struct StatusEdgeBand: View {
 /// Reads the progress here, so a frame of the morph re-renders this modifier
 /// only, not the shell.
 struct WorldRecede: ViewModifier {
-    enum Layer { case shell, nowPlaying }
+    /// `padShell`: the iPad shell, which has no morph progress. It recedes
+    /// under a sheet (the sheet's rise, as on the phone) and under the Full
+    /// Now Playing overlay (on the spatial spring that brings that in).
+    enum Layer { case shell, nowPlaying, padShell }
     @Environment(AppModel.self) private var model
     var layer: Layer
 
@@ -170,12 +173,19 @@ struct WorldRecede: ViewModifier {
             let depth: CGFloat = switch layer {
             case .shell: underNP ? min(max(model.np.progress, 0), 1) : rise
             case .nowPlaying: model.npExpanded ? rise : 0
+            case .padShell: model.npExpanded ? 0 : rise
             }
             // Unanimated only for the recede itself: a whole-layer
             // `.transaction { $0.animation = nil }` also cut every animation
             // inside the shell (the bar's slide, the search morph).
-            content
-                .animation(nil) { $0.labRecede(depth, sheet: !underNP) }
+            if layer == .padShell {
+                content
+                    .animation(nil) { $0.labRecede(depth, sheet: true) }
+                    .animation(Yoin.spatial) { $0.labRecede(model.npExpanded ? 1 : 0) }
+            } else {
+                content
+                    .animation(nil) { $0.labRecede(depth, sheet: !underNP) }
+            }
         } else {
             content
         }
