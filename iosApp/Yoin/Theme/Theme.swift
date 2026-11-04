@@ -86,14 +86,26 @@ struct YoinIcon: View {
 enum LaunchConfig {
     static var screen: String { UserDefaults.standard.string(forKey: "screen") ?? "home" }
     /// Search screenshots: `-screen search-results` etc. open with a query.
-    static var searchQuery: String { screen == "search" ? "" : (screen.hasPrefix("search") ? "la" : "") }
+    /// `-screen search` and `search-longpress` open empty (the keyboard up);
+    /// `search-empty-results` with a query nothing matches; the rest with "la".
+    static var searchQuery: String {
+        switch screen {
+        case "search", "search-longpress": ""
+        case "search-empty-results": "zzqx"
+        default: screen.hasPrefix("search") ? "la" : ""
+        }
+    }
     static var searchFilter: SearchView.Filter {
         switch screen {
+        case "search-artists": .artists
         case "search-albums": .albums
         case "search-songs": .songs
+        case "search-playlists": .playlists
         default: .all
         }
     }
+    /// `-screen search-scrolled`: the All results start scrolled under the chips.
+    static var searchScrolled: Bool { screen == "search-scrolled" }
     static var glass: String {
         if screen.hasSuffix("-yoinglass") { return "yoin" }
         return UserDefaults.standard.string(forKey: "glass") ?? "system"

@@ -3,7 +3,7 @@ import SwiftUI
 /// Search, the Apple Music iOS 26 way, with Android's content.
 ///
 /// iOS form: the bar's search circle grows into a glass search field at the
-/// top (magnifier, field, mic) with a separate glass close circle, the keyboard
+/// top (magnifier, field, clear) with a separate glass close circle, the keyboard
 /// up at once, and the bottom bar hidden under the keyboard. Under it,
 /// Android's one filter row (scopes | types) in Library's segment chips.
 ///
@@ -12,7 +12,10 @@ import SwiftUI
 /// Apple Music); type filters All / Artists / Albums / Songs / Playlists;
 /// All is sectioned artists → albums → playlists → songs; Artists and Albums
 /// alone are a grid, Songs and Playlists a list; "No results found" when empty.
-/// Android has no recent searches, so the empty state only names the scope.
+/// Android has no recent searches and no voice search: before a query the
+/// surface is blank under the chips (SearchResultsContent returns nothing
+/// while searchResults is null), and the field's trailing slot is only ever
+/// the clear button.
 struct SearchView: View {
     enum Scope: String, CaseIterable { case catalog = "Apple Music", library = "Library" }
     enum Filter: String, CaseIterable { case all = "All", artists = "Artists", albums = "Albums", songs = "Songs", playlists = "Playlists" }
@@ -26,6 +29,7 @@ struct SearchView: View {
     @State private var filter: Filter = LaunchConfig.searchFilter
     /// The results column's width (inside the 16 margins), for the 3-column cells.
     @State private var width: CGFloat = 370
+    @State private var scrollPosition = ScrollPosition()
 
     private var scheme: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -41,6 +45,8 @@ struct SearchView: View {
                 .padding(.top, 8)
                 .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
+        .scrollPosition($scrollPosition)
+        .overlay { if showsNoResults { noResults.transition(.opacity.animation(Yoin.effects)) } }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.soft, for: .top)
         // The header is a safe-area bar so the system soft edge runs under it.
@@ -48,7 +54,14 @@ struct SearchView: View {
         // Android ExpandedFullScreenSearchBar: SearchBarDefaults.colors()
         // container = surfaceContainerHigh of the playing scheme.
         .background(scheme.surfaceContainerHigh.ignoresSafeArea())
-        .onAppear { focused = LaunchConfig.searchQuery.isEmpty }
+        // `-searchFocused YES`: screenshots of typing, the keyboard up over results.
+        .onAppear { focused = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused") }
+        .task {
+            // Screenshots: `-screen search-scrolled` runs the results under the chips.
+            guard LaunchConfig.searchScrolled else { return }
+            try? await Task.sleep(for: .milliseconds(600))
+            scrollPosition.scrollTo(y: 380)
+        }
         // Server search: search3 once typing pauses (300 ms).
         .task(id: "\(model.store.generation)|\(query)") {
             guard model.store.isReal else { return }
@@ -56,6 +69,44 @@ struct SearchView: View {
             guard !Task.isCancelled else { return }
             await model.store.runSearch(query)
         }
+    }
+
+    // MARK: No results
+
+    private var showsNoResults: Bool {
+        guard !query.isEmpty else { return false }
+        let r = results
+        let shownEmpty = switch filter {
+        case .all: r.albums.isEmpty && r.tracks.isEmpty && r.artists.isEmpty && r.playlists.isEmpty
+        case .artists: r.artists.isEmpty
+        case .albums: r.albums.isEmpty
+        case .songs: r.tracks.isEmpty
+        case .playlists: r.playlists.isEmpty
+        }
+        guard shownEmpty else { return false }
+        if model.store.isReal {
+            if model.store.searchPhase == .failed { return false }
+            if model.store.search?.query != query.trimmingCharacters(in: .whitespacesAndNewlines) { return false }
+        }
+        return true
+    }
+
+    /// Android EmptyState: a Card (16) panel 16 in from each side,
+    /// surfaceContainerHighest at 72 %, bodyLarge onSurfaceVariant, padding
+    /// 20 × 18, centred in the results area (the search surface yields to
+    /// the keyboard, so the centre is above it). Labels only, no prompt.
+    private var noResults: some View {
+        Text("No results found")
+            .yoinRole(Tokens.type.bodyLarge)
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .padding(.horizontal, Tokens.library.EMPTY_STATE_PADDING_H.cg)
+            .padding(.vertical, Tokens.library.EMPTY_STATE_PADDING_V.cg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(scheme.surfaceContainerHighest.opacity(Tokens.library.EMPTY_STATE_ALPHA),
+                        in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
     }
 
     // MARK: Header
@@ -71,14 +122,18 @@ struct SearchView: View {
                             .font(.gsf(17))
                             .focused($focused)
                             .submitLabel(.search)
+                        // Android InputField trailingIcon: Close (clear) once
+                        // there is text, nothing before. No mic: Android has
+                        // no voice search.
                         if !query.isEmpty {
                             Button { query = "" } label: {
                                 YoinIcon("close", size: 16).foregroundStyle(Yoin.inkVariant)
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(.circle)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Clear")
-                        } else {
-                            YoinIcon("mic", size: 20).foregroundStyle(Yoin.inkVariant)
+                            .accessibilityLabel("Clear search")
+                            .transition(.opacity.animation(Yoin.effects))
                         }
                     }
                     .padding(.horizontal, 16)
@@ -100,6 +155,10 @@ struct SearchView: View {
             // A Subsonic server has no catalog apart from the library, so
             // no scope pair there.
             filterRow
+                // SegmentChipRow keeps 4 above and below for its press
+                // scale; Android's row sits exactly 8 under the field and 8
+                // over the results, so give those 4s back here.
+                .padding(.vertical, -4)
         }
         .padding(.horizontal, 16)
         .padding(.bottom, Tokens.search.FILTER_ROW_PADDING_V.cg)
@@ -154,14 +213,9 @@ struct SearchView: View {
     @ViewBuilder
     private var content: some View {
         if query.isEmpty {
-            VStack(spacing: 10) {
-                YoinIcon("search", size: 44).foregroundStyle(scheme.onSurfaceVariant)
-                Text(scope == .library || model.store.isReal ? "Search library" : "Search Apple Music")
-                    .font(.gsf(20, .semibold))
-                    .foregroundStyle(scheme.onSurface)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 140)
+            // Android: nothing until there is a query (no icon, no prompt;
+            // the field's placeholder already names the scope).
+            Color.clear.frame(height: 1)
         } else {
             let r = results
             let shownEmpty = switch filter {
@@ -176,18 +230,9 @@ struct SearchView: View {
             } else if shownEmpty && model.store.isReal && model.store.search?.query != query.trimmingCharacters(in: .whitespacesAndNewlines) {
                 RowSkeleton(scheme: scheme, rows: 5)
             } else if shownEmpty {
-                // Android EmptyState: a Card (16) panel, surfaceContainerHighest
-                // at 72 %, bodyLarge onSurfaceVariant, padding 20 × 18,
-                // centred in the results area.
-                Text("No results found")
-                    .yoinRole(Tokens.type.bodyLarge)
-                    .foregroundStyle(scheme.onSurfaceVariant)
-                    .padding(.horizontal, Tokens.library.EMPTY_STATE_PADDING_H.cg)
-                    .padding(.vertical, Tokens.library.EMPTY_STATE_PADDING_V.cg)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(scheme.surfaceContainerHighest.opacity(Tokens.library.EMPTY_STATE_ALPHA),
-                                in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
-                    .containerRelativeFrame(.vertical) { h, _ in h * 0.6 }
+                // Drawn by `noResults`, centred in what the header and the
+                // keyboard leave of the screen.
+                Color.clear.frame(height: 1)
             } else {
                 switch filter {
                 case .all: allResults(r)

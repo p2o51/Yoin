@@ -675,16 +675,16 @@ final class LibraryStore {
         guard let client, let mapping, !q.isEmpty else { search = nil; searchPhase = .idle; return }
         searchPhase = .loading
         do {
-            async let lists: Void = loadPlaylists()
             let r = try await client.search3(query: q, artistCount: 20, albumCount: 30, songCount: 40)
-            await lists
             guard !Task.isCancelled else { return }
-            let lower = q.lowercased()
+            // Android SubsonicMusicSource.search: search3 alone, which has no
+            // playlists (and so no Playlists chip, searchFiltersFor), so All
+            // never lists a Playlists section for a server either.
             search = SearchHits(query: q,
                                 artists: r.artists.map(mapping.artistItem),
                                 albums: r.albums.map(mapping.album),
                                 songs: r.songs.enumerated().map { mapping.entry($1, index: $0) },
-                                playlists: playlists.filter { $0.title.lowercased().contains(lower) })
+                                playlists: [])
             searchPhase = .loaded
         } catch {
             guard !Task.isCancelled else { return }

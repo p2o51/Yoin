@@ -138,7 +138,16 @@ final class AppModel {
         case "artist", "artist-bottom": path = [.artist(ArtistRef("Mina Asahi"))]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
-        case "search", "search-results", "search-catalog", "search-albums", "search-songs": searchActive = true
+        case "search", "search-results", "search-catalog", "search-albums", "search-songs", "search-artists",
+             "search-playlists", "search-empty-results", "search-scrolled": searchActive = true
+        case "search-longpress":
+            // The bar's Library long-press (ShellBar.openLibrarySearch), a
+            // beat after launch so the shot shows where it lands.
+            section = .library
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(900))
+                withAnimation(Yoin.spatial) { self?.searchActive = true }
+            }
         case "idle": isIdle = true
         case "library-idle": isIdle = true; section = .library
         default: break
