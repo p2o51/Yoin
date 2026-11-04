@@ -1429,10 +1429,14 @@ struct NowPlayingView: View {
                 .animation(Yoin.standardDefaultSpatial, value: pausePressed)
                 .animation(Yoin.standardDefaultSpatial, value: nextPressed)
                 Spacer(minLength: 0)
-                roundButton(model.player.shuffle ? "shuffle" : "repeat", fill: scheme.tertiaryContainer,
-                            ink: scheme.onTertiaryContainer, label: "Play mode", badge: playModeBadge) {
-                    model.player.cyclePlayMode()
-                }
+                // Android PlayModeButton: a circle; long-press splits it
+                // into shuffle | repeat, each segment one axis.
+                PlayModeButton(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode,
+                               scheme: scheme, brand: brand,
+                               onCycle: { model.player.cyclePlayMode() },
+                               onShuffle: { model.player.setShuffle($0) },
+                               onRepeat: { model.player.setRepeat($0) },
+                               onPress: { touch("Play mode", $0) })
             }
             .frame(height: 56)
             // The progress row's place: the row itself is drawn over the
@@ -1568,15 +1572,6 @@ struct NowPlayingView: View {
     /// R1) only the progress bar itself while it is scrubbed.
     private var scrubberLifted: Bool {
         lab.extra("liftInFlow") > 0.5 ? interacting && scrubbing : interacting
-    }
-
-    /// Repeat one wears a small 1; repeat off dims the glyph.
-    private var playModeBadge: String? {
-        switch model.player.repeatMode {
-        case .one: "1"
-        case .off: "off"
-        case .all: nil
-        }
     }
 
     private func roundButton(_ icon: String, fill: Color, ink: Color, label: String, badge: String? = nil,
@@ -2265,5 +2260,143 @@ extension View {
             labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
         }
         }
+    }
+}
+
+
+/// Android PlayModeButton (owner 2026-10-17 / 10-21): a round button whose
+/// symbol shows the mode; a tap steps the cycle (repeat all → shuffle →
+/// shuffle + one → one). A long-press splits it into two segments —
+/// shuffle | repeat — each tap switching only its own axis (repeat steps
+/// all → one → off, the only way to repeat off); left alone for 3 s, or
+/// long-pressed again, it merges back. Width and the symbols' travel ride
+/// one spatial spring, colours the effects spring. iOS: one glass capsule
+/// that widens (two adjacent glasses in the transport's container would
+/// bridge into one blob); the lit segment is a solid primary inset in it.
+struct PlayModeButton: View {
+    var shuffle: Bool
+    var repeatMode: RepeatMode
+    var scheme: CoverScheme
+    var brand: CoverScheme
+    var onCycle: () -> Void
+    var onShuffle: (Bool) -> Void
+    var onRepeat: (RepeatMode) -> Void
+    var onPress: (Bool) -> Void
+
+    @State private var split = false
+    /// One more per segment tap: the merge waits for a quiet spell.
+    @State private var splitTouches = 0
+
+    static let size: CGFloat = 56
+    /// Android playModeNaturalWidth: control × 1.6 + the 2 dp gap.
+    static let splitWidth: CGFloat = size * 1.6 + 2
+    static let holdSeconds: Double = 3
+
+    private var tinted: Bool {
+        GlassLab.shared.style("transportSecondary").tintOn && !GlassLab.shared.neutralTint("transportSecondary")
+    }
+    private var ink: Color { tinted ? scheme.onTertiaryContainer : scheme.onSurface }
+
+    var body: some View {
+        let width = split ? Self.splitWidth : Self.size
+        let segment = (Self.splitWidth - 2) / 2
+        ZStack {
+            if split {
+                HStack(spacing: 2) {
+                    half(lit: shuffle, leading: true, width: segment) {
+                        glyph("shuffle", one: false, off: false)
+                    }
+                    .onTapGesture { tick(); onShuffle(!shuffle) }
+                    .accessibilityElement()
+                    .accessibilityLabel("Shuffle")
+                    .accessibilityValue(shuffle ? "On" : "Off")
+                    .accessibilityAddTraits(.isButton)
+                    half(lit: repeatMode != .all, leading: false, width: segment) {
+                        glyph("repeat", one: repeatMode == .one, off: repeatMode == .off)
+                    }
+                    .onTapGesture { tick(); onRepeat(repeatMode.next) }
+                    .accessibilityElement()
+                    .accessibilityLabel("Repeat")
+                    .accessibilityValue(repeatMode == .one ? "One" : repeatMode == .off ? "Off" : "All")
+                    .accessibilityAddTraits(.isButton)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            } else {
+                glyph(shuffle ? "shuffle" : "repeat", one: repeatMode == .one, off: repeatMode == .off)
+                    .foregroundStyle(ink)
+                    .frame(width: Self.size, height: Self.size)
+                    .contentShape(.capsule)
+                    .onTapGesture { onCycle() }
+                    .accessibilityElement()
+                    .accessibilityLabel("Play mode")
+                    .accessibilityValue(modeDescription)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction(named: "Split into shuffle and repeat") { setSplit(true) }
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
+        .frame(width: width, height: Self.size)
+        .onLongPressGesture(minimumDuration: 0.4, perform: {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            setSplit(!split)
+        }, onPressingChanged: { onPress($0) })
+        .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: scheme.tertiaryContainer, in: Capsule())
+        .animation(Yoin.spatial, value: split)
+        .animation(Yoin.effects, value: shuffle)
+        .animation(Yoin.effects, value: repeatMode)
+        .task(id: split ? splitTouches : -1) {
+            guard split else { return }
+            try? await Task.sleep(for: .seconds(Self.holdSeconds / max(LaunchConfig.animationSpeed, 0.05)))
+            if !Task.isCancelled { setSplit(false) }
+        }
+    }
+
+    private var modeDescription: String {
+        let r = repeatMode == .one ? "repeat one" : repeatMode == .off ? "repeat off" : "repeat all"
+        return shuffle ? "Shuffle, " + r : r.prefix(1).uppercased() + r.dropFirst()
+    }
+
+    private func setSplit(_ on: Bool) {
+        splitTouches = 0
+        split = on
+    }
+
+    private func tick() {
+        UISelectionFeedbackGenerator().selectionChanged()
+        splitTouches += 1
+    }
+
+    /// One segment: outer corners round, inner ones nearly square (Android
+    /// PlayModeInnerCornerRatio 0.18); lit, a solid primary inset.
+    private func half<G: View>(lit: Bool, leading: Bool, width: CGFloat, @ViewBuilder _ glyph: () -> G) -> some View {
+        let outer = Self.size / 2, inner = Self.size * 0.18
+        let shape = UnevenRoundedRectangle(topLeadingRadius: leading ? outer : inner,
+                                           bottomLeadingRadius: leading ? outer : inner,
+                                           bottomTrailingRadius: leading ? inner : outer,
+                                           topTrailingRadius: leading ? inner : outer, style: .continuous)
+        return glyph()
+            .foregroundStyle(lit ? scheme.onPrimary : ink)
+            .frame(width: width, height: Self.size)
+            .background { shape.fill(scheme.primary).padding(3).opacity(lit ? 1 : 0) }
+            .contentShape(shape)
+    }
+
+    /// The mode's symbol: repeat one wears a small 1, repeat off is struck
+    /// through (drawn in on the effects spring).
+    private func glyph(_ icon: String, one: Bool, off: Bool) -> some View {
+        YoinIcon(icon, size: 28)
+            .overlay(alignment: .bottomTrailing) {
+                if one && icon == "repeat" {
+                    Text("1").font(.gsf(10, .bold)).offset(x: 4, y: 2)
+                }
+            }
+            .overlay {
+                Capsule()
+                    .frame(width: 2, height: 30)
+                    .rotationEffect(.degrees(-45))
+                    .scaleEffect(y: off && icon == "repeat" ? 1 : 0.001)
+                    .opacity(off && icon == "repeat" ? 1 : 0)
+            }
+            .labContrast("transportSecondary")
     }
 }
