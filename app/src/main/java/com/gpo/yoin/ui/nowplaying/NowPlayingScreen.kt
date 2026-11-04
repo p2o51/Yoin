@@ -1337,10 +1337,12 @@ private fun CompactPlayingContent(
         fun stage(rest: Dp, focus: Dp, expanded: Dp): Dp =
             lerpDp(lerpDp(rest, focus, immersiveProgress), expanded, detailProgress)
         // Short focus (owner 2026-10-30): where the regular focus can't grow the
-        // cover (Fold outer screen, 16:9), a tap still focuses it — the heart,
-        // rating bar and title fold away, PREVIOUS glides up into the top transport
-        // row and the progress bar takes its own row; the freed height goes to the
-        // cover, centred. The current lyric line stays, as in every focus.
+        // cover (Fold outer screen, 16:9), a tap still focuses it — the heart and
+        // rating bar fold away, PREVIOUS glides up into the top transport row and
+        // the progress bar takes its own row; the freed height goes to the cover,
+        // centred. The current lyric line stays, as in every focus. The title and
+        // artist stay too, as in every focus (owner 2026-11-03 "标题和歌手不动";
+        // 2026-11-04 they had vanished on the Fold 8 outer screen).
         // On a short window where the regular focus IS offered (the Fold 8 outer
         // screen is tall enough), its focus takes the same arrangement: the lyric
         // frame already folds to one line there, so that is the short-window test
@@ -1353,7 +1355,7 @@ private fun CompactPlayingContent(
             label = "npShortFocus",
         )
         val shortFocusControls = shortFocusControlsHeight(stageControlSize)
-        val shortFocusFreed = (restPose.hero + restPose.controls - shortFocusControls).coerceAtLeast(0.dp)
+        val shortFocusFreed = (restPose.controls - shortFocusControls).coerceAtLeast(0.dp)
         // Never smaller than the regular focus's own cover where that is offered.
         val shortFocusCover = maxOf(
             minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2),
@@ -1443,7 +1445,8 @@ private fun CompactPlayingContent(
         // The title keeps its resting slot in Expanded — unless the Note
         // composer owns the bottom edge (keyboard up).
         val expandedHeroHeight = lerpDp(restPose.hero, 0.dp, noteHeroYield.coerceIn(0f, 1f))
-        val heroHeight = lerpDp(stage(restPose.hero, focusPose.hero, expandedHeroHeight), 0.dp, shortFocusProgress)
+        // The short arrangement keeps the title row exactly as the focus has it.
+        val heroHeight = stage(restPose.hero, focusPose.hero, expandedHeroHeight)
         // Add back the space the surrounding slots will release at Expanded.
         // Round each slot separately, exactly as their layout modifiers do, so
         // the lazy list receives identical pixel constraints on every frame.
