@@ -318,26 +318,50 @@ struct PillContent: View {
     private let height: CGFloat = 60
     private var lab: GlassLab { GlassLab.shared }
 
+    /// What the pill shows (Android NowPlayingPill `shown`): held through a
+    /// song change's exit so the old song leaves as itself.
+    struct Shown: Equatable {
+        var key: MediaId
+        var album: Album
+        var title: String
+        var artist: String
+    }
+
+    @State private var shown: Shown?
+    /// Android track-change PUSH: 0 at rest; 0 → 1 carries the old song out
+    /// left, then −1 → 0 brings the new one in from the right.
+    @State private var push: CGFloat = 0
+    @State private var pushGeneration = 0
+
+    /// Android PillPushTravel.
+    private static let pushTravel: CGFloat = 30
+
+    private var live: Shown {
+        let p = model.playback
+        return Shown(key: p.track.id, album: p.album, title: p.track.title, artist: p.album.artist)
+    }
+
     var body: some View {
         let p = model.playback
+        let s = shown ?? live
         let scheme = model.isIdle ? CoverScheme.brand(dark: colorScheme == .dark)
             : CoverScheme(album: p.album, dark: colorScheme == .dark)
         HStack(spacing: 10) {
-            CoverArt(palette: p.album.palette, cornerRadius: 6, seed: p.album.seed)
+            CoverArt(palette: s.album.palette, cornerRadius: 6, seed: s.album.seed)
                 .frame(width: 42, height: 42)
                 .opacity(showCover ? 1 : 0)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
                     np?.pillCoverFrame = r
                 }
             VStack(alignment: .leading, spacing: 1) {
-                Text(p.track.title)
+                Text(s.title)
                     .font(.gsf(15, .semibold))
                     .foregroundStyle(Yoin.ink)
                     .opacity(showTitle ? 1 : 0)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
                         np?.pillTitleFrame = r
                     }
-                Text(p.album.artist)
+                Text(s.artist)
                     .font(.gsf(13))
                     .foregroundStyle(Yoin.inkVariant)
             }
@@ -345,6 +369,8 @@ struct PillContent: View {
             .labContrast("miniPlayer")
             Spacer(minLength: 0)
         }
+        .offset(x: -Self.pushTravel * push)
+        .opacity(1 - 0.9 * abs(push))
         .padding(.leading, 9)
         .padding(.trailing, 12)
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
@@ -358,6 +384,43 @@ struct PillContent: View {
             }
             .clipShape(.capsule)
         }
+        .onAppear { shown = live }
+        .onChange(of: live) { old, new in songChanged(from: old, to: new) }
+    }
+
+    /// Every hand-off (skip, auto-advance, another device) pushes; the same
+    /// song (metadata or cover refresh) and idle → first song sync silently.
+    private func songChanged(from old: Shown, to new: Shown) {
+        let instant = Transaction(animation: nil)
+        guard old.key != new.key, !model.isIdle, showCover, showTitle else {
+            if pushGeneration == 0 || push == 0 { withTransaction(instant) { shown = new } }
+            return
+        }
+        pushGeneration += 1
+        let generation = pushGeneration
+        // A skip mid-push lands the interrupted frame first, so two pushes
+        // never compound; the old song is whatever is on screen now.
+        if push != 0 { withTransaction(instant) { push = 0 } }
+        // Out: a fast, critically damped exit (Android: 90 ms).
+        withAnimation(Self.exitSpring) { push = 1 } completion: {
+            guard generation == pushGeneration else { return }
+            withTransaction(instant) {
+                shown = live
+                push = -1
+            }
+            // In: the Expressive spatial spring.
+            withAnimation(Yoin.spatial) { push = 0 } completion: {
+                if generation == pushGeneration { pushGeneration = 0 }
+            }
+        }
+    }
+
+    /// Expressive fast effects (critically damped, ~0.1 s): the exit.
+    private static var exitSpring: Animation {
+        let s = Tokens.motion.expressiveFastEffects
+        let k = s.stiffness
+        return Animation.interpolatingSpring(mass: 1, stiffness: k, damping: s.damping * 2 * k.squareRoot())
+            .speed(LaunchConfig.animationSpeed)
     }
 }
 

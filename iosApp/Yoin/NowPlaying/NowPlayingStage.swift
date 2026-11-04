@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UIKit.UIGestureRecognizerSubclass
 import YoinShared
 
 /// Android `NowPlayingStageMode`: how Now Playing reshapes in place.
@@ -271,6 +273,58 @@ struct OneLineLyricLine: View, Equatable {
                                         removal: .opacity))
         }
         .animation(Yoin.spatial, value: text)
+    }
+}
+
+/// Reports every touch that lands in the window, without taking part:
+/// a recognizer that fails at once (never cancels or delays a touch), so
+/// buttons, scrolls and drags underneath work exactly as before.
+struct TouchWatcher: UIViewRepresentable {
+    var onTouch: () -> Void
+
+    func makeUIView(context: Context) -> TouchWatcherView { TouchWatcherView() }
+    func updateUIView(_ view: TouchWatcherView, context: Context) { view.onTouch = onTouch }
+
+    final class TouchWatcherView: UIView {
+        var onTouch: () -> Void = {}
+        private var recognizer: Watcher?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let r = recognizer { r.view?.removeGestureRecognizer(r) }
+            recognizer = nil
+            guard let window else { return }
+            let r = Watcher { [weak self] in self?.onTouch() }
+            window.addGestureRecognizer(r)
+            recognizer = r
+        }
+    }
+
+    final class Watcher: UIGestureRecognizer, UIGestureRecognizerDelegate {
+        let fire: () -> Void
+        init(fire: @escaping () -> Void) {
+            self.fire = fire
+            super.init(target: nil, action: nil)
+            cancelsTouchesInView = false
+            delaysTouchesBegan = false
+            delaysTouchesEnded = false
+            delegate = self
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            fire()
+            state = .failed
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
     }
 }
 

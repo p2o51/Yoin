@@ -67,12 +67,13 @@ struct QueueSheet: View {
         .presentationContentInteraction(.scrolls)
     }
 
-    /// The album the queue plays from, when it is one album (iOS has no
-    /// playlist context yet: a mixed queue reads "Queue" / "Next up").
+    /// Where the queue plays from (Android queuePlayingFrom): the album,
+    /// playlist or artist page it was started on. Started from a list (Home,
+    /// Library, Search): "Queue" / "Next up". The mock: its album.
     private var sourceTitle: String? {
-        guard let t = engine.currentTrack else { return model.playback.album.title }
-        let albums = Set(engine.queue.map { $0.track.albumId ?? $0.track.album })
-        return albums.count == 1 && !t.album.isEmpty ? t.album : nil
+        guard engine.currentTrack != nil else { return model.playback.album.title }
+        guard let from = model.playingFrom, !from.title.isEmpty else { return nil }
+        return from.title
     }
 
     /// Android QueueHeader: labelMedium "Playing from" over the source in titleLarge.
@@ -155,7 +156,10 @@ struct QueueSheet: View {
     private func row(_ item: QueueItem, index: Int, current: Bool) -> some View {
         let album = AppModel.album(for: item.track, library: model.library)
         return Button {
-            if !current { engine.jump(to: index) }
+            // Android: select, then the sheet goes away.
+            guard !current else { return }
+            engine.jump(to: index)
+            model.queueSheetOpen = false
         } label: {
             HStack(spacing: 14) {
                 CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)

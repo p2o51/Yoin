@@ -90,6 +90,9 @@ struct NowPlayingView: View {
     /// The transport row is on screen (Android stageControlsLive): off once
     /// the expanded stage has settled over it, on as soon as it collapses.
     @State private var transportLive = true
+    /// Android auto-immersive lyric tools (LyricToolsIdleState): stepped away.
+    @State private var lyricToolsIdle = false
+    @State private var lyricToolsTouchedAt = Date()
     /// Which way the lyric stream moves on a song change (forward in the queue = up).
     @State private var lyricsDirection = LyricsDirection()
 
@@ -124,7 +127,47 @@ struct NowPlayingView: View {
                 ratingTargetReplaced()
             }
             .onChange(of: draft) { old, new in draftChanged(from: old, to: new) }
+            .task(id: lyricToolsIdleEligible) { await trackLyricToolsIdle(lyricToolsIdleEligible) }
+            // Any touch on the player re-arms the count (passive: it never
+            // takes a touch from anything).
+            .background(TouchWatcher { wakeLyricTools() })
     }
+
+    // MARK: Lyric tools idle (Android LyricToolsIdle.kt)
+
+    /// Playing synced lyrics that follow the playhead, on the expanded
+    /// Lyrics page, not selecting lines (Android lyricToolsIdleEligible).
+    private var lyricToolsIdleEligible: Bool {
+        guard model.player.isPlaying, stage == .expanded, tab == NowPlayingDetailPage.lyrics.rawValue,
+              lyricsFollow, !lyricsSelecting, let l = loadedLyrics else { return false }
+        return l.synced
+    }
+
+    /// Android LyricToolsIdleMs (3 s) and its 200 ms poll; a fresh count
+    /// each time eligibility returns. Not eligible: the tools are back.
+    private func trackLyricToolsIdle(_ eligible: Bool) async {
+        if lyricToolsIdle { withAnimation(Self.lyricToolsSpring) { lyricToolsIdle = false } }
+        guard eligible else { return }
+        lyricToolsTouchedAt = .now
+        while !Task.isCancelled {
+            let elapsed = Date.now.timeIntervalSince(lyricToolsTouchedAt)
+            if elapsed >= 3 {
+                if !lyricToolsIdle { withAnimation(Self.lyricToolsSpring) { lyricToolsIdle = true } }
+                try? await Task.sleep(for: .milliseconds(200))
+            } else {
+                try? await Task.sleep(for: .seconds(3 - elapsed))
+            }
+        }
+    }
+
+    private func wakeLyricTools() {
+        lyricToolsTouchedAt = .now
+        if lyricToolsIdle { withAnimation(Self.lyricToolsSpring) { lyricToolsIdle = false } }
+    }
+
+    /// The slot folds on the stage's spring (it is a stage reshape); the
+    /// tools' alpha rides the same transaction.
+    private static var lyricToolsSpring: Animation { Yoin.stageSettle }
 
     /// The page, its keyboard tracking, its sheets and their song resets.
     private var withSheets: some View {
@@ -422,7 +465,10 @@ struct NowPlayingView: View {
         let transportH = expanded ? 0 : (short?.transport ?? pose.transport)
         let accessory = expanded
             ? (page == .note || page == .about ? NowPlayingExpanded.writeBar + NowPlayingExpanded.writeBarGap
-                : page == .lyrics && engineTrack != nil ? NowPlayingExpanded.lyricTools
+                // Idle (Android auto-immersive): the tools step away and
+                // their slot folds; the title sinks, the lyrics grow.
+                : page == .lyrics && engineTrack != nil
+                    ? (lyricToolsIdle ? NowPlayingExpanded.bareAccessory : NowPlayingExpanded.lyricTools)
                 : NowPlayingExpanded.bareAccessory)
             : pose.pills
         let slack = expanded ? 0 : (short?.slack ?? pose.slack)
@@ -490,6 +536,18 @@ struct NowPlayingView: View {
                 .frame(height: short != nil ? 0 : pose.hero, alignment: .top)
             accessorySlot(page: page, expanded: expanded)
                 .frame(height: accessory, alignment: .bottomLeading)
+                .overlay(alignment: .bottom) {
+                    // Android lyricToolsWakeGuard: while the tools are away,
+                    // the first tap where they stood only brings them back
+                    // (the title sank into that band).
+                    if lyricToolsIdle {
+                        Color.clear
+                            .frame(height: NowPlayingExpanded.lyricTools)
+                            .contentShape(.rect)
+                            .onTapGesture { wakeLyricTools() }
+                            .accessibilityHidden(true)
+                    }
+                }
                 .npFade(open, contentFade)
         }
         .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg)
@@ -519,14 +577,16 @@ struct NowPlayingView: View {
             .accessibilityLabel(stage == .compact ? "Collapse Now Playing" : "Back")
             // DockedCoverSlot: the cover row flies the cover into it.
             Spacer().frame(width: docked ? NowPlayingExpanded.dockedSlot : 0)
-            VStack(alignment: .leading, spacing: 0) {
-                // PlayingFromLabel: labelSmall kind over labelMedium name.
-                Text("PLAYING FROM ALBUM")
-                    .yoinRole(Tokens.type.labelSmall)
-                    .foregroundStyle(scheme.onSurfaceVariant.opacity(0.55))
-                Text(p.album.title)
-                    .yoinRole(Tokens.type.labelMedium)
-                    .foregroundStyle(scheme.onSurface)
+            routeLink(albumRoute(p), label: "Go to album") {
+                VStack(alignment: .leading, spacing: 0) {
+                    // PlayingFromLabel: labelSmall kind over labelMedium name.
+                    Text("PLAYING FROM ALBUM")
+                        .yoinRole(Tokens.type.labelSmall)
+                        .foregroundStyle(scheme.onSurfaceVariant.opacity(0.55))
+                    Text(p.album.title)
+                        .yoinRole(Tokens.type.labelMedium)
+                        .foregroundStyle(scheme.onSurface)
+                }
             }
             .lineLimit(1)
             .padding(.vertical, 2)
@@ -780,6 +840,8 @@ struct NowPlayingView: View {
             }
             if expanded && page == .lyrics, let t = engineTrack {
                 lyricTools(t)
+                    .opacity(lyricToolsIdle ? 0 : 1)
+                    .allowsHitTesting(!lyricToolsIdle)
                     .transition(.opacity.combined(with: .offset(y: 12)))
             }
             if expanded && page == .about {
@@ -880,7 +942,10 @@ struct NowPlayingView: View {
                 selecting: lyricsSelecting, selected: lyricsSelected, limitNudge: lyricsLimitNudge > 0,
                 scheme: scheme,
                 // Browsing for lines in select mode isn't "stop following".
-                onUserScroll: { if !lyricsSelecting { lyricsFollow = false } },
+                onUserScroll: {
+                    if !lyricsSelecting { lyricsFollow = false }
+                    wakeLyricTools()
+                },
                 onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) }
             )
         }
@@ -1548,12 +1613,16 @@ struct NowPlayingView: View {
             // the artist capped at 40 % of the row (HeroOneLineArtistShare).
             GeometryReader { g in
                 HStack(alignment: .firstTextBaseline, spacing: Tokens.np.HERO_ONE_LINE_GAP.cg) {
-                    heroTitle(p)
+                    routeLink(albumRoute(p), label: "Go to album") { heroTitle(p) }
                         .layoutPriority(1)
-                    Text(p.album.artist)
-                        .font(.gsf(14.4, .medium))
-                        .foregroundStyle(scheme.onSurfaceVariant)
-                        .scaleEffect(x: 1.02, y: 1, anchor: .leading)
+                    routeLink(artistRoute(p), label: "Go to artist") {
+                        Text(p.album.artist)
+                            .font(.gsf(14.4, .medium))
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                            .animation(Self.heroStretchSpring) {
+                                $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
+                            }
+                    }
                         .frame(maxWidth: g.size.width * Tokens.np.HERO_ONE_LINE_ARTIST_SHARE.cg, alignment: .leading)
                         // Measured first (capped); the title takes the rest.
                         .layoutPriority(2)
@@ -1565,13 +1634,17 @@ struct NowPlayingView: View {
             .frame(height: Tokens.type.displaySmall.lineHeight.cg)
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                Text(p.album.artist)
-                    .font(.gsf(14.4, .medium))
-                    .foregroundStyle(scheme.onSurfaceVariant)
-                    .frame(height: 24, alignment: .leading)
-                    .scaleEffect(x: 1.02, y: 1, anchor: .leading)
-                    .npFade(open, contentFade)
-                heroTitle(p)
+                routeLink(artistRoute(p), label: "Go to artist") {
+                    Text(p.album.artist)
+                        .font(.gsf(14.4, .medium))
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                        .frame(height: 24, alignment: .leading)
+                        .animation(Self.heroStretchSpring) {
+                            $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
+                        }
+                }
+                .npFade(open, contentFade)
+                routeLink(albumRoute(p), label: "Go to album") { heroTitle(p) }
                     .frame(height: 44, alignment: .leading)
             }
             .lineLimit(1)
@@ -1584,12 +1657,81 @@ struct NowPlayingView: View {
         Text(p.track.title)
             .font(.gsf(36))
             .foregroundStyle(scheme.onSurface)
-            .scaleEffect(x: 1.03, y: 1, anchor: .leading)
+            .animation(Self.heroStretchSpring) { $0.scaleEffect(x: titleStretch(p), y: 1, anchor: .leading) }
             .scaleEffect(open ? 1 : Self.titleFoldScale, anchor: .leading)
             .matchedGeometryEffect(id: panel ? "np.title.panel" : "np.title", in: npNamespace,
                                    properties: .position, anchor: .leading, isSource: open)
             .npFade(open, presenceFade)
             .npMorphAnchor(.title)
+    }
+
+    // MARK: Hero stretch and routes (Android titleStretchScale / artistStretchScale,
+    // rememberNowPlayingRouteInteraction)
+
+    /// PAUSE / NEXT held (Android transportPressed).
+    private var transportPressed: Bool { touching.contains("pause") || touching.contains("Next") }
+
+    /// Pressed 1.05, playing 1.03, paused 0.97 (Android, Full motion).
+    private func titleStretch(_ p: PlaybackSnapshot) -> CGFloat {
+        if UIAccessibility.isReduceMotionEnabled {
+            return transportPressed ? 1.02 : p.isPlaying ? 1.01 : 0.99
+        }
+        return transportPressed ? 1.05 : p.isPlaying ? 1.03 : 0.97
+    }
+
+    private func artistStretch(_ p: PlaybackSnapshot) -> CGFloat {
+        if UIAccessibility.isReduceMotionEnabled {
+            return transportPressed ? 1.015 : p.isPlaying ? 1.008 : 0.992
+        }
+        return transportPressed ? 1.04 : p.isPlaying ? 1.02 : 0.98
+    }
+
+    /// Android heroStretchSpec: the Expressive slow spatial spring.
+    private static var heroStretchSpring: Animation {
+        let s = Tokens.motion.expressiveSlowSpatial
+        let k = s.stiffness
+        return Animation.interpolatingSpring(mass: 1, stiffness: k, damping: s.damping * 2 * k.squareRoot())
+            .speed(LaunchConfig.animationSpeed)
+    }
+
+    /// The song's album, when it has a page (not a lone song's stand-in).
+    private func albumRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
+        let album = p.album
+        guard !album.id.rawId.isEmpty, !album.id.rawId.hasPrefix("song:") else { return nil }
+        return { [model] in
+            Self.leaveForRoute(model)
+            model.open(album)
+        }
+    }
+
+    /// The song's artist, when it can be resolved to a page.
+    private func artistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
+        let album = p.album
+        guard !album.artist.isEmpty, album.artistId != nil || album.id.provider == "mock" else { return nil }
+        return { [model] in
+            Self.leaveForRoute(model)
+            model.openArtist(album.artist, id: album.artistId)
+        }
+    }
+
+    /// Now Playing folds away under the page it opens.
+    private static func leaveForRoute(_ model: AppModel) {
+        if model.npExpanded { model.setNowPlaying(expanded: false) }
+        if model.npPanel { withAnimation(Yoin.spatial) { model.npPanel = false } }
+    }
+
+    /// A label that opens a page (Android route interaction: it swells under
+    /// the finger, on the fast spatial spring). Plain text when there is none.
+    @ViewBuilder
+    private func routeLink<L: View>(_ route: (() -> Void)?, label: String,
+                                    @ViewBuilder _ content: () -> L) -> some View {
+        if let route {
+            Button(action: route) { content() }
+                .buttonStyle(RoutePressStyle())
+                .accessibilityHint(label)
+        } else {
+            content()
+        }
     }
 
     // 8. Bottom pills: Queue · Devices · Write.
@@ -2049,6 +2191,16 @@ struct ScrubberGlassShape: Shape {
         let r = CGRect(x: rect.minX - lead + inset, y: rect.midY + 9 - h / 2,
                        width: max(0, rect.width + lead + trail - inset * 2), height: h)
         return Capsule().path(in: r)
+    }
+}
+
+/// Now Playing's route labels: 1.08 under the finger, from the leading edge.
+struct RoutePressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 1.08 : 1, anchor: .leading)
+            .animation(Yoin.spatialFast, value: configuration.isPressed)
+            .contentShape(.rect)
     }
 }
 
