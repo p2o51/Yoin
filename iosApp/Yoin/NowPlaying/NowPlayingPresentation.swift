@@ -25,6 +25,12 @@ final class NowPlayingPresentation {
     private(set) var inFlight = false
     private(set) var dragging = false
 
+    /// Folding back into the pill on its own (not held). The bar's pill
+    /// stays hidden until the spring settles, which is a while after the
+    /// shape has visibly landed on it: a tap there meanwhile lands on the
+    /// morph, so the morph takes it as the pill's tap and opens again.
+    var closing: Bool { mounted && !dragging && target == 0 }
+
     /// Global frames of the bar's pill and its cover / title.
     var pillFrame: CGRect = .zero
     var pillCoverFrame: CGRect = .zero
@@ -40,7 +46,7 @@ final class NowPlayingPresentation {
 
     /// `-screen np-morph`: a slow spring for frame-by-frame review.
     @ObservationIgnored var slow = false
-    @ObservationIgnored private var target: CGFloat = 0
+    private var target: CGFloat = 0
     @ObservationIgnored private let spring = NowPlayingSpring()
     @ObservationIgnored private var dragFrom: CGFloat = 1
 
@@ -263,6 +269,14 @@ struct NowPlayingMorph: View {
                                 .offset(x: rect.minX, y: rect.minY)
                         }
                         .allowsHitTesting(false)
+                }
+
+                if np.closing {
+                    // Over the page: nothing on the folding page is live.
+                    Color.clear
+                        .contentShape(MorphHitShape(rect: rect, radius: radius))
+                        .onTapGesture { model.setNowPlaying(expanded: true) }
+                        .accessibilityHidden(true)
                 }
             }
             .frame(width: screen.width, height: screen.height, alignment: .topLeading)

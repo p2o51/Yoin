@@ -259,7 +259,8 @@ final class LibraryStore {
         let inputs = historyInputs(extra: l.recent + l.frequent + l.newest + l.highest + l.random
             + l.recentTracks.map(\.album))
         let records = history.recentActivities(scope: historyScope, provider: provider, limit: 40)
-        if inputs.plays.isEmpty && records.isEmpty && inputs.notes.isEmpty && ratings.ratings.isEmpty { return nil }
+        if inputs.plays.isEmpty && records.isEmpty && inputs.notes.isEmpty && ratings.ratings.isEmpty
+            && inputs.ratedAlbumIds.isEmpty { return nil }
         let memories = HomeHistory.memories(inputs)
         var o = HomeOverlay(hasHistory: !inputs.plays.isEmpty, now: inputs.now)
         o.activities = HomeHistory.activityAlbums(records, resolve: inputs.resolve)
@@ -882,6 +883,8 @@ final class LibraryStore {
         for a in albums + extra where known[a.id.rawId] == nil { known[a.id.rawId] = a }
         let details = albumDetails
         let ratings = ratings
+        let albumRecords = AlbumMemoryStore.shared.albums.values.filter { $0.provider == provider }
+        let albumRatings = Dictionary(albumRecords.map { ($0.albumId, $0.rating) }, uniquingKeysWith: { $1 })
         return HomeHistory.Inputs(
             now: history.nowMs,
             plays: history.plays(scope: historyScope, provider: provider),
@@ -890,7 +893,11 @@ final class LibraryStore {
             localRating: { ratings.rating(provider: provider, songId: $0) },
             resolve: { [weak self] id, snap in
                 details[id] ?? known[id] ?? self?.snapshotAlbum(id, snap)
-            })
+            },
+            localAlbumRating: { albumRatings[$0] },
+            ratedAlbumIds: albumRecords
+                .filter { $0.rating > 0 || !($0.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map(\.albumId))
     }
 
     /// An album made from a play's snapshot, for one the app has no copy of.

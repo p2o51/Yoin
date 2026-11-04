@@ -101,22 +101,17 @@ struct AlbumScrapbookView: View {
         return list.isEmpty ? nil : list.map { Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content) }
     }
     private func starred(_ t: Track) -> Bool { isMock ? [2, 3].contains(t.number) : t.starred }
-    /// The track's score: this device's (or a synced) rating first, then the server's.
+    /// The Bun's inputs from the local stores (AlbumBun: what page 1 reads too).
+    private var bun: AlbumBun { AlbumBun.of(album, memories: memories) }
+    /// The track's score: this device's (or a synced) rating; Android never shows the server's here.
     private func score(_ t: Track) -> Double? {
-        if isMock { return t.rating }
-        return LocalRatings.shared.rating(provider: provider, songId: t.id.rawId).flatMap { $0 > 0 ? $0 : nil } ?? t.rating
+        guard let i = album.tracks.firstIndex(where: { $0.id == t.id }) else { return nil }
+        return bun.trackScores[i]
     }
     private func playCount(_ t: Track) -> Int { isMock ? t.number * 3 + 5 : (t.playCount ?? 0) }
-    /// The album's own score: the synced album rating (Android album_ratings), else the server's.
-    private var albumScore: Double? {
-        if isMock { return album.rating }
-        if let r = memories.album(provider: provider, albumId: album.id.rawId)?.rating, r > 0 { return r }
-        return album.rating
-    }
-    private var averageScore: Double? {
-        let scores = album.tracks.compactMap(score)
-        return scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count)
-    }
+    /// The album's own score: the synced album rating (Android album_ratings).
+    private var albumScore: Double? { bun.albumRating }
+    private var averageScore: Double? { bun.average }
 
     var body: some View {
         ScrollView {
@@ -156,9 +151,9 @@ struct AlbumScrapbookView: View {
 
     // MARK: Stamp
 
-    private var emblemKind: ScoreEmblem.Kind { ScoreEmblem.Kind(rating: albumScore, average: averageScore) }
-    private var emblemScore: Double { albumScore ?? averageScore ?? 0 }
-    private var emblemRated: [Bool] { album.tracks.map { score($0) != nil } }
+    private var emblemKind: ScoreEmblem.Kind { bun.kind }
+    private var emblemScore: Double { bun.score }
+    private var emblemRated: [Bool] { bun.rated }
     private var awardKey: String { "\(emblemScore)|\(emblemKind)|\(emblemRated)" }
 
     private func stampIfSettled() {

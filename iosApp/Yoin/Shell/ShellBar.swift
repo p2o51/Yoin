@@ -24,28 +24,33 @@ struct ShellBar: View {
 
     private let height: CGFloat = 60
     private var lab: GlassLab { GlassLab.shared }
-    /// A long-press just fired on the pill / Library: the release that ends
-    /// it must not also tap. A Button usually drops that release itself, so
-    /// the guard only lives for a moment and never eats a later, real tap.
-    @State private var longPressed: (which: ShellLongPress, at: Date)?
+    /// A long-press fired during the current touch on the pill / Library:
+    /// the release that ends it must not also tap. Cleared when the next
+    /// touch goes down, so it only ever guards its own touch's release and
+    /// never eats a later, real tap (a time window did: a tap soon after the
+    /// song sheet closed was swallowed).
+    @State private var longPressed: ShellLongPress?
     @State private var longPresses = 0
 
     private enum ShellLongPress { case pill, library }
 
     /// Android YoinButtonGroup: Library long-press, the pill's long-press.
     private func longPress(_ which: ShellLongPress, _ action: @escaping () -> Void) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-            longPressed = (which, .now)
-            longPresses += 1
-            action()
-        }
+        LongPressGesture(minimumDuration: 0.45)
+            // Touch down: a new touch, whatever the last one did.
+            .onChanged { _ in if longPressed == which { longPressed = nil } }
+            .onEnded { _ in
+                longPressed = which
+                longPresses += 1
+                action()
+            }
     }
 
-    /// The tap, unless it is the release of a long-press.
+    /// The tap, unless it is the release of this touch's long-press.
     private func tap(_ which: ShellLongPress, _ action: () -> Void) {
-        if let last = longPressed {
+        if longPressed == which {
             longPressed = nil
-            if last.which == which, Date.now.timeIntervalSince(last.at) < 1.5 { return }
+            return
         }
         action()
     }

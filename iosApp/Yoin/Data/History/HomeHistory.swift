@@ -72,6 +72,10 @@ enum HomeHistory {
         var localRating: (String) -> Double?
         /// The album for [id]: the app's copy, else one made from the play's snapshot.
         var resolve: (_ albumId: String, _ snapshot: PlayEvent?) -> Album?
+        /// An album's own rating (Android `album_ratings`, 0–10; AlbumMemoryStore).
+        var localAlbumRating: (String) -> Double? = { _ in nil }
+        /// Albums with an album rating or review here (Android seeds Memories from `album_ratings`).
+        var ratedAlbumIds: [String] = []
     }
 
     // MARK: Memories
@@ -84,12 +88,10 @@ enum HomeHistory {
         var songAlbum: [String: String] = [:]
         var songsOf: [String: Set<String>] = [:]
         for p in x.plays { if let a = p.albumId { songAlbum[p.songId] = a; songsOf[a, default: []].insert(p.songId) } }
-        var serverRating: [String: Double] = [:]
         for (id, album) in x.details {
             for t in album.tracks {
                 songAlbum[t.id.rawId] = songAlbum[t.id.rawId] ?? id
                 songsOf[id, default: []].insert(t.id.rawId)
-                if let r = t.rating, r > 0 { serverRating[t.id.rawId] = r }
             }
         }
         var notesOf: [String: (count: Int, last: Int64)] = [:]
@@ -98,11 +100,12 @@ enum HomeHistory {
             let prev = notesOf[a] ?? (0, 0)
             notesOf[a] = (prev.count + 1, max(prev.last, n.updatedAt))
         }
+        // Android AlbumMemoryCandidateBuilder: local_ratings and album_ratings only, never the server's stars
+        // (the album page's Bun reads the same: AlbumBun).
         func rating(_ song: String) -> Double? {
-            if let r = x.localRating(song), r > 0 { return r }
-            return serverRating[song]
+            x.localRating(song).flatMap { $0 > 0 ? $0 : nil }
         }
-        var ids = Set(stats.keys).union(notesOf.keys)
+        var ids = Set(stats.keys).union(notesOf.keys).union(x.ratedAlbumIds)
         for (id, songs) in songsOf where songs.contains(where: { rating($0) != nil }) { ids.insert(id) }
 
         var out: [AlbumMemory] = []
@@ -115,7 +118,7 @@ enum HomeHistory {
                 ?? x.known[id]?.songCount ?? album.songCount ?? 0
             let coverage = total > 0 ? Double(rated.count) / Double(total) : 0
             let notes = notesOf[id]
-            let albumRating = (detail?.rating ?? x.known[id]?.rating ?? album.rating).flatMap { $0 > 0 ? $0 : nil }
+            let albumRating = x.localAlbumRating(id).flatMap { $0 > 0 ? $0 : nil }
             let noteCount = notes?.count ?? 0
             let eligible = (coverage >= coverageGate || noteCount >= noteCountGate)
                 && (total == 0 || total >= memoryMinTrackCount)
@@ -191,8 +194,7 @@ enum HomeHistory {
         guard let note = words.max(by: { ($0.updatedAt, $0.createdAt) < ($1.updatedAt, $1.createdAt) }) else { return nil }
         let play = x.plays.filter { $0.songId == note.trackId }.max { $0.startedAt < $1.startedAt }
         let album = play?.albumId.flatMap { x.details[$0] ?? x.resolve($0, play) } ?? placeholder(note)
-        let rating = x.localRating(note.trackId)
-            ?? album.tracks.first { $0.id.rawId == note.trackId }?.rating
+        let rating = x.localRating(note.trackId).flatMap { $0 > 0 ? $0 : nil }
         var track = album.tracks.first { $0.id.rawId == note.trackId }
             ?? Track(id: MediaId(provider: note.provider, rawId: note.trackId), number: 1, title: note.title,
                      durationSec: max(1, Int((play?.durationSec ?? 0).rounded())), rating: rating,

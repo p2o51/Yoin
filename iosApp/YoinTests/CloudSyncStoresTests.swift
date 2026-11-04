@@ -19,6 +19,29 @@ final class CloudSyncStoresTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
+    func test_should_buildBunFromLocalStores_when_serverHasNoRatings() {
+        let ratings = LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"))
+        let memories = AlbumMemoryStore(fileURL: dir.appendingPathComponent("album-memories.json"))
+        let tracks = (1...4).map { Track(id: MediaId(provider: "subsonic", rawId: "t\($0)"), number: $0, title: "T\($0)",
+                                         durationSec: 200, rating: 2) }
+        let album = Album(id: MediaId(provider: "subsonic", rawId: "al"), title: "A", artist: "B", year: 2020,
+                          palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: tracks, rating: 4)
+        // Nothing here: the server's stars never count (Android) → Unrated.
+        XCTAssertEqual(AlbumBun.of(album, ratings: ratings, memories: memories).kind, .unrated)
+        ratings.syncPut(8, provider: "subsonic", songId: "t1", updatedAt: 1)
+        ratings.syncPut(9, provider: "subsonic", songId: "t3", updatedAt: 1)
+        var bun = AlbumBun.of(album, ratings: ratings, memories: memories)
+        XCTAssertEqual(bun.kind, .average)
+        XCTAssertEqual(bun.score, 8.5)
+        XCTAssertEqual(bun.rated, [true, false, true, false])
+        XCTAssertEqual(bun.ratedCount, 2)
+        memories.putAlbum(.init(provider: "subsonic", albumId: "al", rating: 8.7, review: nil, reviewUpdatedAt: nil,
+                                updatedAt: 1))
+        bun = AlbumBun.of(album, ratings: ratings, memories: memories)
+        XCTAssertEqual(bun.kind, .album)
+        XCTAssertEqual(bun.score, 8.7)
+    }
+
     func test_should_readLegacyRatings_when_noTimesFileExists() throws {
         let url = dir.appendingPathComponent("ratings.json")
         try JSONEncoder().encode(["subsonic:s1": 7.5]).write(to: url)

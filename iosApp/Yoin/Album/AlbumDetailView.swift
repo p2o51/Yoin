@@ -445,9 +445,7 @@ struct AlbumDetailView: View {
     }
 
     private func hero(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
-        let ratedFlags = album.tracks.map { $0.rating != nil }
-        let kind = ScoreEmblem.Kind(rating: album.rating, average: album.averageRating)
-        let score = album.rating ?? album.averageRating ?? 0
+        let bun = self.bun
         return VStack(alignment: .leading, spacing: 0) {
             Spacer().frame(height: headerContent + band + 8)
             if let playlist {
@@ -460,9 +458,9 @@ struct AlbumDetailView: View {
             // Emblem + comment, as wide as the cover.
             HStack(spacing: 20) {
                 HStack(spacing: 10) {
-                    ScoreEmblem(score: score, kind: kind, rated: ratedFlags, palette: album.palette, size: 64,
+                    ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: 64,
                                 neutrals: app)
-                    if kind == .average { ratedCoverage }
+                    if bun.kind == .average { ratedCoverage }
                 }
                 comment
             }
@@ -516,9 +514,12 @@ struct AlbumDetailView: View {
         .foregroundStyle(app.onSurface)
     }
 
+    /// The Bun from the local stores (album rating > local track average > N/A), as page 2 reads it.
+    private var bun: AlbumBun { AlbumBun.of(album) }
+
     /// AlbumRatedCoverage: "2/4 rated" in labelSmall tabular, onSurfaceVariant.
     private var ratedCoverage: some View {
-        Text("\(album.ratedCount)/\(album.tracks.count) rated")
+        Text("\(bun.ratedCount)/\(album.tracks.count) rated")
             .monospacedDigit()
             .lineLimit(1)
             .yoinRole(Tokens.type.labelSmall)
@@ -783,7 +784,7 @@ struct AlbumDetailView: View {
     /// Last Play (label, 4, day bodyLarge, 4, time bodyMedium tabular) and the
     /// emblem (+ "X/N rated") across one row, centred; the comment 14 below.
     private var linerNotes: some View {
-        let kind = ScoreEmblem.Kind(rating: album.rating, average: album.averageRating)
+        let bun = self.bun
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
                 if isMock || plays != nil {
@@ -799,10 +800,9 @@ struct AlbumDetailView: View {
                 }
                 Spacer()
                 HStack(spacing: 10) {
-                    ScoreEmblem(score: album.rating ?? album.averageRating ?? 0, kind: kind,
-                                rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: 64,
+                    ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: 64,
                                 neutrals: app)
-                    if kind == .average { ratedCoverage }
+                    if bun.kind == .average { ratedCoverage }
                 }
             }
             comment

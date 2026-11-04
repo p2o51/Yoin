@@ -333,3 +333,40 @@ extension CoverSeed {
         return album.map { CoverSeed.seed(for: $0) } ?? palette.a
     }
 }
+
+/// An album's Bun as Android's album page builds it (AlbumDetailViewModel:
+/// `album_ratings` → `userRating`, AlbumScrapbookSource's `local_ratings` →
+/// the track average and rated set; AlbumDetailUiState.albumScore): the manual
+/// album rating > the average of the locally rated tracks > N/A. Only this
+/// device's records (and what cloud sync brought from Android) count — Android
+/// never reads the server's stars here. Page 1, page 2 and Home all read this.
+/// The mock library keeps its hand-set values (screenshots).
+struct AlbumBun: Equatable {
+    /// The album's own rating (> 0), else nil.
+    var albumRating: Double?
+    /// Each track's score (> 0), in track order; nil = not rated.
+    var trackScores: [Double?]
+
+    var rated: [Bool] { trackScores.map { $0 != nil } }
+    var ratedCount: Int { trackScores.compactMap { $0 }.count }
+    var average: Double? {
+        let s = trackScores.compactMap { $0 }
+        return s.isEmpty ? nil : s.reduce(0, +) / Double(s.count)
+    }
+    var kind: ScoreEmblem.Kind { ScoreEmblem.Kind(rating: albumRating, average: average) }
+    var score: Double { albumRating ?? average ?? 0 }
+
+    @MainActor
+    static func of(_ album: Album, ratings: LocalRatings = .shared, memories: AlbumMemoryStore = .shared) -> AlbumBun {
+        if album.id.provider == "mock" {
+            return AlbumBun(albumRating: album.rating, trackScores: album.tracks.map(\.rating))
+        }
+        let provider = album.id.provider
+        let own = memories.album(provider: provider, albumId: album.id.rawId)?.rating
+        return AlbumBun(
+            albumRating: own.flatMap { $0 > 0 ? $0 : nil },
+            trackScores: album.tracks.map { t in
+                ratings.rating(provider: t.id.provider, songId: t.id.rawId).flatMap { $0 > 0 ? $0 : nil }
+            })
+    }
+}

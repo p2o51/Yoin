@@ -89,11 +89,12 @@ final class HistoryStoreTests: XCTestCase {
     // MARK: HomeHistory
 
     private func inputs(_ h: HistoryStore, details: [Album], notes: [SongNote] = [],
-                        ratings: [String: Double] = [:]) -> HomeHistory.Inputs {
+                        ratings: [String: Double] = [:], albumRatings: [String: Double] = [:]) -> HomeHistory.Inputs {
         let byId = Dictionary(uniqueKeysWithValues: details.map { ($0.id.rawId, $0) })
         return HomeHistory.Inputs(now: now, plays: h.plays(scope: "s", provider: "subsonic"), notes: notes,
                                   details: byId, known: [:], localRating: { ratings[$0] },
-                                  resolve: { id, _ in byId[id] })
+                                  resolve: { id, _ in byId[id] },
+                                  localAlbumRating: { albumRatings[$0] }, ratedAlbumIds: Array(albumRatings.keys))
     }
 
     private func note(_ track: String, at: Int64) -> SongNote {
@@ -106,14 +107,28 @@ final class HistoryStoreTests: XCTestCase {
         play(h, "r-0", album: "r", at: now - day)
         play(h, "n-0", album: "n", at: now - day)
         play(h, "p-0", album: "p", at: now - day)
-        let albums = [album("r", tracks: 5), album("n", tracks: 5), album("p", tracks: 5), album("s", tracks: 5, rating: 8)]
+        // "s": a synced album rating (album_ratings) → solid; "x": only the server's stars → no mark (Android).
+        let albums = [album("r", tracks: 5), album("n", tracks: 5), album("p", tracks: 5), album("s", tracks: 5),
+                      album("x", tracks: 5, rating: 8)]
         play(h, "s-0", album: "s", at: now - day)
-        let m = HomeHistory.memories(inputs(h, details: albums, notes: [note("n-1", at: now)], ratings: ["r-0": 7]))
+        play(h, "x-0", album: "x", at: now - day)
+        let m = HomeHistory.memories(inputs(h, details: albums, notes: [note("n-1", at: now)], ratings: ["r-0": 7],
+                                            albumRatings: ["s": 8.7]))
         let marks = HomeHistory.marks(m)
         XCTAssertEqual(marks["r"], .outline)
         XCTAssertEqual(marks["n"], .dashed)
         XCTAssertEqual(marks["s"], .solid)
         XCTAssertNil(marks["p"])
+        XCTAssertNil(marks["x"])
+    }
+
+    func test_should_readSyncedAlbumRating_when_albumNeverPlayedHere() {
+        let h = store()
+        let m = HomeHistory.memories(inputs(h, details: [album("synced", tracks: 5)],
+                                            ratings: ["synced-0": 8, "synced-1": 9, "synced-2": 9, "synced-3": 9],
+                                            albumRatings: ["synced": 8.7]))
+        XCTAssertEqual(m.first?.albumRating, 8.7)
+        XCTAssertEqual(HomeHistory.ratedAlbumSignal(m)?.score, "8.7")
     }
 
     func test_should_pickRatedAlbumSignal_when_coverageMeetsGate() {
