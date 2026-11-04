@@ -132,14 +132,18 @@ final class NowPlayingPresentation {
         withTransaction(t) { mounted = value }
     }
 
+    /// Open keeps the Expressive bounce (clamped at the page). Close lands
+    /// critically damped at the same stiffness: same pace, no swing past
+    /// the pill (the geometry clamps at 0 as well, for a fast fling).
     private func springFor(_ open: Bool) -> Spring {
         if slow { return Spring(response: 3, dampingRatio: 1) }
         if GlassLab.shared.sharedMotion {
             let s = Tokens.motion.expressiveDefaultSpatial
             let k = Double(s.stiffness)
-            return Spring(mass: 1, stiffness: k, damping: Double(s.damping) * 2 * k.squareRoot())
+            let ratio = open ? Double(s.damping) : max(1, Double(s.damping))
+            return Spring(mass: 1, stiffness: k, damping: ratio * 2 * k.squareRoot())
         }
-        return Spring(response: 0.42, dampingRatio: 0.78)
+        return Spring(response: 0.42, dampingRatio: open ? 0.78 : 1)
     }
 }
 
@@ -227,9 +231,11 @@ struct NowPlayingMorph: View {
             let screen = CGRect(origin: .zero, size: geo.size)
             let pill = pillRect(np.pillFrame.offsetBy(dx: -origin.x, dy: -origin.y), in: screen)
             // Spring overshoot past the page is clamped (the page doesn't
-            // leave the screen); only a drag lifts it (rubber band).
+            // leave the screen); only a drag lifts it (rubber band). Below 0
+            // the geometry holds the pill's rect: the shape never folds
+            // smaller than the pill it lands in (no squish at the close's end).
             let p = np.dragging ? np.progress : min(np.progress, 1)
-            let q = min(p, 1)
+            let q = clamp01(p)
             let lift = max(0, p - 1) * np.dismissDistance
             let h = NowPlayingPresentation.rise(q)
             let rect = CGRect(x: lerp(pill.minX, screen.minX, q), y: lerp(pill.minY, screen.minY, h) - lift,

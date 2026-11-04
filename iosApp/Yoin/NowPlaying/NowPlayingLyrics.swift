@@ -156,6 +156,8 @@ struct NoteComposer: View {
     var focus: FocusState<Bool>.Binding
     var onRealign: () -> Void
     var onSave: () -> Void
+    /// Editing a saved note: Cancel beside Save leaves it as it was.
+    var onCancel: (() -> Void)? = nil
 
     private var canSave: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -187,8 +189,20 @@ struct NoteComposer: View {
                 // First line centered on the 36 pt stamp (bodyLarge 24 pt line).
                 .padding(.top, 6)
             }
-            HStack {
+            HStack(spacing: 4) {
                 Spacer(minLength: 0)
+                if let onCancel {
+                    Button(action: onCancel) {
+                        Text("Cancel")
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(scheme.primary)
+                            .padding(.horizontal, 12)
+                            .frame(height: 36)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(PressScale())
+                    .transition(.opacity)
+                }
                 Button(action: onSave) {
                     Text("Save")
                         .yoinRole(Tokens.type.labelLarge)

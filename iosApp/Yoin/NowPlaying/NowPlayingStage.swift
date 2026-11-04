@@ -106,7 +106,14 @@ struct NowPlayingBudget {
     /// `height` = the column's height: from below the status bar to
     /// max(home indicator, 16) above the bottom.
     init(width: CGFloat, height: CGFloat, forceShort: Bool) {
-        let resolved = forceShort ? min(height, Self.referenceShortHeight) : height
+        var short = Self.referenceShortHeight
+        #if DEBUG
+        // `-npShortHeight 600`: a shorter forced column (16:9, the Fold's
+        // outer screen), where the regular focus isn't offered.
+        let override = UserDefaults.standard.double(forKey: "npShortHeight")
+        if override > 0 { short = override }
+        #endif
+        let resolved = forceShort ? min(height, short) : height
         let budget = NowPlayingBudgetKt.resolveStageColumnBudget(
             width: Float(width), height: Float(resolved), metrics: Self.metrics, enlarged: nil, previous: nil)
         inlineHero = budget.heroOneLine
@@ -125,6 +132,40 @@ struct NowPlayingBudget {
                     hero: CGFloat(r.hero), pills: CGFloat(r.accessory), lyricWindow: window,
                     oneLineLyric: oneLine, preview: r.lyricFrame == LyricFrame.preview,
                     slack: max(0, height - CGFloat(r.total)) + (slot - window))
+    }
+
+    /// Android short focus (NowPlayingScreen.kt, owner 2026-10-30): where the
+    /// regular focus can't grow the cover, a tap still focuses it. The
+    /// rating column, heart and big title fold away, PREVIOUS rises into the
+    /// top transport row and the progress bar takes its own 36 pt row; the
+    /// freed height goes to the cover, centred. The current lyric line stays.
+    struct ShortFocus: Equatable {
+        var cover: CGFloat
+        var transport: CGFloat
+        /// What the column has left once the cover is capped by the width.
+        var slack: CGFloat
+    }
+
+    /// Android ShortFocusProgressRowHeight.
+    static let shortFocusProgressRow: CGFloat = 36
+    /// Android ShortFocusMinGrowth: offered only where the cover grows by this.
+    static let shortFocusMinGrowth: CGFloat = 24
+
+    /// Android shortFocusControlsHeight: PAUSE's row, the gap, the bar's row.
+    static var shortFocusTransport: CGFloat {
+        Tokens.np.CONTROL_SIZE.cg + Tokens.np.CONTROL_ROW_GAP.cg + shortFocusProgressRow
+    }
+
+    /// nil where the regular focus is offered or the cover wouldn't grow by
+    /// 24 pt. `columnWidth` = the stage minus its side padding.
+    func shortFocus(columnWidth: CGFloat) -> ShortFocus? {
+        guard focus == nil, rest.cover > 0 else { return nil }
+        let transport = Self.shortFocusTransport
+        let freed = max(0, rest.hero + rest.transport - transport)
+        let cover = min(rest.cover + freed, columnWidth)
+        guard cover - rest.cover >= Self.shortFocusMinGrowth else { return nil }
+        return ShortFocus(cover: cover, transport: transport,
+                          slack: rest.slack + freed - (cover - rest.cover))
     }
 }
 
@@ -229,6 +270,10 @@ enum NowPlayingStageLaunch {
     }
 
     static var focusDemo: Bool { UserDefaults.standard.bool(forKey: "npFocusDemo") }
+
+    /// `-npShortFocus YES`: Android's short focus (where the regular focus
+    /// isn't offered, e.g. `-screen np-short`).
+    static var shortFocus: Bool { UserDefaults.standard.bool(forKey: "npShortFocus") }
 
     static var stage: NowPlayingStage? {
         if UserDefaults.standard.bool(forKey: "npFocus") { return .focus }

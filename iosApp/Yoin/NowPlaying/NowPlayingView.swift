@@ -33,6 +33,9 @@ struct NowPlayingView: View {
     /// Android NowPlayingStageMode (NowPlayingStage.swift): compact, the
     /// expanded detail page, or the focused cover.
     @State private var stage: NowPlayingStage = .compact
+    /// Android short focus (NowPlayingBudget.ShortFocus): the cover tap's
+    /// focus where the regular one isn't offered. Compact only.
+    @State private var shortFocus = false
     /// The expanded Note page's order (Android NoteSortMode).
     @State private var noteSort: NotesStore.SortMode = .timeline
     @State private var rating: Double = 6.3
@@ -50,6 +53,11 @@ struct NowPlayingView: View {
     @State private var composing = false
     @State private var draft = ""
     @State private var draftAnchorMs: Int64?
+    /// Editing a saved note (the Note page's long-press Edit): the composer
+    /// holds its words and moment; Save writes them back, Cancel leaves it.
+    /// A new note's unsaved draft waits in `parkedDraft` meanwhile.
+    @State private var editingNoteId: String?
+    @State private var parkedDraft: (words: String, anchorMs: Int64?)?
     @State private var notesSaved = 0
     @FocusState private var composerFocused: Bool
     /// The page's geometry before the keyboard came up (see `page`).
@@ -106,7 +114,8 @@ struct NowPlayingView: View {
         .task { await NowPlayingDebugQueue.startIfRequested(model) }
         .task {
             guard !panel, NowPlayingStageLaunch.page != nil || NowPlayingStageLaunch.stage != nil
-                    || NowPlayingStageLaunch.focusDemo || NowPlayingDebugQueue.compose != nil else { return }
+                    || NowPlayingStageLaunch.focusDemo || NowPlayingStageLaunch.shortFocus
+                    || NowPlayingDebugQueue.compose != nil || NowPlayingDebugQueue.editNote else { return }
             try? await Task.sleep(for: .seconds(4))
             if let page = NowPlayingStageLaunch.page { withAnimation(Yoin.spatial) { tab = page.rawValue } }
             if let s = NowPlayingStageLaunch.stage { withAnimation(Yoin.spatial) { stage = s } }
@@ -117,15 +126,45 @@ struct NowPlayingView: View {
                     try? await Task.sleep(for: .seconds(2.5))
                 }
             }
+            // `-npShortFocus YES`: the short focus (with `-screen np-short`).
+            if NowPlayingStageLaunch.shortFocus { withAnimation(Yoin.spatial) { shortFocus = true } }
             if let words = NowPlayingDebugQueue.compose {
                 startWriting()
                 draft = words
             }
+            // `-npEditNote YES`: the long-press menu's Edit on the first note.
+            if NowPlayingDebugQueue.editNote {
+                let key = currentNoteKey
+                if NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).isEmpty {
+                    NotesStore.shared.add(provider: key.provider, trackId: key.rawId, content: "Bass walks up here",
+                                          positionMs: 34_000, title: model.playback.track.title,
+                                          artist: model.playback.album.artist)
+                }
+                if let first = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).first {
+                    withAnimation(Yoin.spatial) { tab = NowPlayingDetailPage.note.rawValue; stage = .expanded }
+                    try? await Task.sleep(for: .seconds(1))
+                    startEditing(first)
+                    if let words = NowPlayingDebugQueue.editWords { draft = words }
+                    // `-npEditSave YES`: Save, two seconds later.
+                    if NowPlayingDebugQueue.editSave {
+                        try? await Task.sleep(for: .seconds(2))
+                        saveNote()
+                    }
+                }
+            }
         }
         #endif
+        .onChange(of: "\(currentNoteKey.provider):\(currentNoteKey.rawId)") {
+            // The song moved on under an edit: the edit is left as it was.
+            if editingNoteId != nil { endEditing() }
+        }
+        .onChange(of: stage) { _, s in
+            // Android: short focus belongs to the resting player.
+            if s != .compact { shortFocus = false }
+        }
         .onChange(of: composerFocused) { _, focused in
             // Keyboard down over an empty draft: back to the pills.
-            if !focused && draft.isEmpty { withAnimation(Yoin.spatial) { composing = false } }
+            if !focused && draft.isEmpty && editingNoteId == nil { withAnimation(Yoin.spatial) { composing = false } }
         }
         .task {
             // Screenshot aid: `-screen np-airplay` taps Devices once the page is up.
@@ -260,6 +299,10 @@ struct NowPlayingView: View {
         let stage: NowPlayingStage = self.stage == .focus && !focusOffered ? .compact : self.stage
         let pose = stage == .focus ? (budget.focus ?? budget.rest) : budget.rest
         let expanded = stage == .expanded
+        // Short focus: only where the regular focus isn't offered, at rest.
+        let shortOffer = budget.shortFocus(columnWidth: min(size.width, model.isPad ? 520 : size.width)
+                                           - Tokens.np.COLUMN_PADDING.cg * 2)
+        let short = shortFocus && stage == .compact ? shortOffer : nil
         let page = NowPlayingDetailPage(rawValue: tab) ?? .lyrics
         // Expanded (Android ExpandedTopBarHeight …): the cover docks into the
         // top bar, the transport steps away, the page takes what is left.
@@ -267,11 +310,12 @@ struct NowPlayingView: View {
         let coverGap = expanded ? NowPlayingExpanded.coverGap : pose.coverGap
         let tabsH = expanded ? NowPlayingExpanded.tabRow : pose.tabs
         let tabGap = expanded ? NowPlayingExpanded.tabGap : pose.tabGap
-        let transportH = expanded ? 0 : pose.transport
+        let transportH = expanded ? 0 : (short?.transport ?? pose.transport)
         let accessory = expanded
             ? (page == .note ? NowPlayingExpanded.writeBar + NowPlayingExpanded.writeBarGap : NowPlayingExpanded.bareAccessory)
             : pose.pills
-        let slack = expanded ? 0 : pose.slack
+        let slack = expanded ? 0 : (short?.slack ?? pose.slack)
+        let coverH = short?.cover ?? pose.cover
         let clear = expanded
             ? max(0, column - topBarH - coverGap - tabsH - tabGap - pose.hero - accessory)
             : pose.lyricWindow
@@ -281,13 +325,15 @@ struct NowPlayingView: View {
             topBar(p, docked: expanded)
                 .frame(height: topBarH)
                 .npFade(open, contentFade)
-            coverRow(expanded ? restCover : pose.cover, retreat: stage != .compact,
+            coverRow(expanded ? restCover : coverH, retreat: stage != .compact || short != nil,
                      dock: expanded && restCover > 0 ? CoverDock(cover: restCover, topBar: NowPlayingExpanded.topBar) : nil,
-                     tappable: focusOffered || stage != .compact) {
-                coverTapped(focusOffered: focusOffered)
+                     tappable: focusOffered || shortOffer != nil || stage != .compact) {
+                coverTapped(focusOffered: focusOffered, shortOffered: shortOffer != nil)
             }
+            // Short focus centres the grown cover.
+            .frame(maxWidth: .infinity, alignment: short != nil ? .top : .topLeading)
             // Expanded, the row folds away and the cover flies on to the bar.
-            .frame(height: expanded ? 0 : pose.cover, alignment: .top)
+            .frame(height: expanded ? 0 : coverH, alignment: .top)
             .zIndex(1)
             Spacer().frame(height: coverGap)
             tabsSlot(expanded: expanded)
@@ -312,7 +358,7 @@ struct NowPlayingView: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(stage == .focus ? "Lyrics" : page.title)
                 }
-                transport(p)
+                transport(p, short: short != nil)
                     .padding(.top, clear)
                     .opacity(expanded ? 0 : 1)
                     .offset(y: expanded ? 48 : 0)
@@ -322,8 +368,11 @@ struct NowPlayingView: View {
             .npFade(open, contentFade)
             Spacer().frame(height: slack)
             hero(p, inline: budget.inlineHero)
+                // Short focus folds the title away.
+                .opacity(short != nil ? 0 : 1)
+                .allowsHitTesting(short == nil)
                 // StageHeightSlot: content at the top, air below.
-                .frame(height: pose.hero, alignment: .top)
+                .frame(height: short != nil ? 0 : pose.hero, alignment: .top)
             accessorySlot(page: page, expanded: expanded)
                 .frame(height: accessory, alignment: .bottomLeading)
                 .npFade(open, contentFade)
@@ -550,8 +599,13 @@ struct NowPlayingView: View {
 
     /// Cover tap (Android CompactPlayingContent): focus ⇄ rest where focus
     /// exists; the docked cover goes back to focus (or rest).
-    private func coverTapped(focusOffered: Bool) {
+    private func coverTapped(focusOffered: Bool, shortOffered: Bool = false) {
         withAnimation(Yoin.spatial) {
+            if stage == .compact, !focusOffered {
+                // Android short focus: tap in, tap again to leave.
+                if shortOffered || shortFocus { shortFocus.toggle() }
+                return
+            }
             switch stage {
             case .focus:
                 stage = .compact
@@ -582,6 +636,7 @@ struct NowPlayingView: View {
     /// The chevron: back to the resting player, or (at rest) collapse.
     private func stageBack() {
         guard stage != .compact else { return collapse() }
+        if editingNoteId != nil { endEditing() }
         composerFocused = false
         withAnimation(Yoin.spatial) {
             if draft.isEmpty { composing = false }
@@ -678,7 +733,9 @@ struct NowPlayingView: View {
             onSeek: { ms in if engineTrack != nil { model.player.seek(to: Double(ms) / 1000) } },
             onDelete: { NotesStore.shared.delete(id: $0) },
             onRestore: { NotesStore.shared.restore($0) },
-            onRealign: { NotesStore.shared.realign(id: $0, positionMs: $1) }
+            onRealign: { NotesStore.shared.realign(id: $0, positionMs: $1) },
+            editingId: editingNoteId,
+            onEdit: { startEditing($0) }
         )
     }
 
@@ -803,14 +860,22 @@ struct NowPlayingView: View {
     }
 
     // 6. Transport: [PAUSE][Next] … [Repeat] / [Prev] 1:14 ~~~ -2:41
-    private func transport(_ p: PlaybackSnapshot) -> some View {
+    /// `short` (Android short focus, prevToTopRow = 1): PREVIOUS glides up
+    /// to the top row's start (PLAY and NEXT make room) and the progress bar
+    /// takes the second row alone, 36 pt tall. One button the whole way, so
+    /// one press state and one glass.
+    private func transport(_ p: PlaybackSnapshot, short: Bool = false) -> some View {
+        let control = Tokens.np.CONTROL_SIZE.cg
+        let gap = Tokens.np.TRANSPORT_GAP.cg
+        let rowGap = Tokens.np.CONTROL_ROW_GAP.cg
+        let secondRow = short ? NowPlayingBudget.shortFocusProgressRow : control
         // One glass layer: Pause, Next and Prev sit 4–8 pt apart. A 3 pt
         // container spacing keeps them separate at rest (10 bridged Pause and
         // Prev into one blob) and lets neighbours blend as interactive glass
         // swells on press.
-        GlassEffectContainer(spacing: lab.extra("containerSpacing")) {
-        VStack(spacing: 4) {
-            HStack(spacing: Tokens.np.TRANSPORT_GAP.cg) {
+        return GlassEffectContainer(spacing: lab.extra("containerSpacing")) {
+        VStack(spacing: rowGap) {
+            HStack(spacing: gap) {
                 Button { model.player.togglePlayPause() } label: {
                     // titleLarge × 0.9, Bold, 0.5 tracking; the playing
                     // stretch (1.06) grows from the word's leading edge.
@@ -829,6 +894,8 @@ struct NowPlayingView: View {
                 .buttonStyle(PressReport { touch("pause", $0) })
                 .labGlass("transportPrimary", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
                 .accessibilityLabel(p.isPlaying ? "Pause" : "Play")
+                // PREVIOUS's place in this row, opening as it arrives.
+                .padding(.leading, short ? control + gap : 0)
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next") {
                     model.player.next()
                 }
@@ -840,16 +907,22 @@ struct NowPlayingView: View {
             }
             .frame(height: 56)
             HStack(spacing: 0) {
-                roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: "Previous") {
-                    model.player.previous()
-                }
-                Spacer().frame(width: Tokens.np.TRANSPORT_GAP.cg)
+                // PREVIOUS's slot narrows to nothing as the button rises.
+                Spacer().frame(width: short ? 0 : control + gap)
                 progress(p)
             }
             .font(.gsf(14, .medium))
             .monospacedDigit()
             .foregroundStyle(scheme.onSurfaceVariant)
-            .frame(height: 56)
+            .frame(height: secondRow)
+        }
+        .overlay(alignment: .topLeading) {
+            // PREVIOUS: at the start of the progress row at rest, at the
+            // start of the top row in short focus.
+            roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: "Previous") {
+                model.player.previous()
+            }
+            .offset(y: short ? 0 : control + rowGap + (secondRow - control) / 2)
         }
         }
     }
@@ -1038,7 +1111,52 @@ struct NowPlayingView: View {
         composerFocused = true
     }
 
+    /// The Note page's long-press Edit: the composer opens on the note's own
+    /// words and moment (an unsaved new draft is parked meanwhile).
+    private func startEditing(_ note: SongNote) {
+        if editingNoteId == nil, !draft.isEmpty { parkedDraft = (draft, draftAnchorMs) }
+        withAnimation(Yoin.spatial) {
+            editingNoteId = note.id
+            draft = note.content
+            draftAnchorMs = note.positionMs
+            tab = NowPlayingDetailPage.note.rawValue
+            stage = .expanded
+            composing = true
+        }
+        composerFocused = true
+    }
+
+    /// Save on an edit: the words (and the moment, when the stamp was
+    /// tapped to align it to now) go back to the note.
+    private func saveEdit(_ id: String) {
+        // Deleted meanwhile: nothing to write back to.
+        guard let before = NotesStore.shared.notes.first(where: { $0.id == id }) else { return endEditing() }
+        guard NotesStore.shared.update(id: id, content: draft) != nil else { return }
+        if let ms = draftAnchorMs, ms != before.positionMs { NotesStore.shared.realign(id: id, positionMs: ms) }
+        notesSaved += 1
+        endEditing()
+    }
+
+    /// Back from an edit: the keyboard goes down; a parked new draft comes
+    /// back to the composer, waiting under the Write bar.
+    private func endEditing() {
+        composerFocused = false
+        withAnimation(Yoin.spatial) {
+            editingNoteId = nil
+            if let parked = parkedDraft {
+                draft = parked.words
+                draftAnchorMs = parked.anchorMs
+            } else {
+                draft = ""
+                draftAnchorMs = nil
+            }
+            parkedDraft = nil
+            composing = false
+        }
+    }
+
     private func saveNote() {
+        if let id = editingNoteId { return saveEdit(id) }
         let key = currentNoteKey
         let p = model.playback
         guard NotesStore.shared.add(provider: key.provider, trackId: key.rawId, content: draft,
@@ -1056,10 +1174,14 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             Color.clear
                 .contentShape(.rect)
-                .onTapGesture { composerFocused = false; if draft.isEmpty { withAnimation(Yoin.spatial) { composing = false } } }
+                .onTapGesture {
+                    composerFocused = false
+                    if draft.isEmpty && editingNoteId == nil { withAnimation(Yoin.spatial) { composing = false } }
+                }
             NoteComposer(scheme: scheme, text: $draft, anchorMs: draftAnchorMs, focus: $composerFocused,
                          onRealign: { withAnimation(Yoin.spatialFast) { draftAnchorMs = playheadMs } },
-                         onSave: saveNote)
+                         onSave: saveNote,
+                         onCancel: editingNoteId == nil ? nil : { endEditing() })
                 .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg - 8)
                 .padding(.bottom, 8)
                 .background(alignment: .bottom) {

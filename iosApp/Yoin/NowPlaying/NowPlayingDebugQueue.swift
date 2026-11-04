@@ -57,6 +57,12 @@ enum NowPlayingDebugQueue {
     /// pill does) holding those words. Tabs and stages: NowPlayingStageLaunch.
     static var compose: String? { UserDefaults.standard.string(forKey: "npCompose") }
 
+    /// `-npEditNote YES`: opens the composer on the song's first note (the
+    /// long-press menu's Edit), with `-npEditWords "…"` typed over it.
+    static var editNote: Bool { UserDefaults.standard.bool(forKey: "npEditNote") }
+    static var editWords: String? { UserDefaults.standard.string(forKey: "npEditWords") }
+    static var editSave: Bool { UserDefaults.standard.bool(forKey: "npEditSave") }
+
     /// A queue entry from the shared model: stream and cover URLs from the
     /// client, the star and rating as the server sent them.
     static func playable(_ s: SongInfo, _ client: SubsonicClient) -> PlayableTrack? {

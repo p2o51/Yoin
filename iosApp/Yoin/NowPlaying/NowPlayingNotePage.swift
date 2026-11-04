@@ -4,9 +4,10 @@ import SwiftUI
 /// read like its lyrics: a stamp, then the words; the line the playhead is
 /// inside lights up and the list glides to keep it ~22 % down (Timeline).
 /// Above them, the note count and the Timeline / Created switch. Tap an
-/// anchored line to play from its moment; long-press it to align it to now
-/// or delete it (a deleted line offers Undo in its place for a few seconds).
-/// While the composer is open the list shows where the draft will land.
+/// anchored line to play from its moment; long-press it to edit its words,
+/// align it to now or delete it (a deleted line offers Undo in its place for
+/// a few seconds). While the composer is open the list shows where the draft
+/// will land; while it edits a note, that note's line stands as "Editing…".
 struct NowPlayingNotePage: View {
     var notes: [SongNote]
     @Binding var sort: NotesStore.SortMode
@@ -19,6 +20,9 @@ struct NowPlayingNotePage: View {
     var onDelete: (String) -> SongNote?
     var onRestore: (SongNote) -> Void
     var onRealign: (String, Int64) -> Void
+    /// The note the composer is editing (its line reads "Editing…").
+    var editingId: String? = nil
+    var onEdit: (SongNote) -> Void = { _ in }
 
     @State private var activeId: String?
     @State private var deleted: SongNote?
@@ -45,7 +49,10 @@ struct NowPlayingNotePage: View {
     }
 
     private var rows: [Row] {
-        var all = notes.map(Row.line)
+        // An edited note gives its place to the draft line (at its moment,
+        // or where it stood in the Created order).
+        let editedAt = editingId.flatMap { id in notes.firstIndex { $0.id == id } }
+        var all = notes.filter { $0.id != editingId }.map(Row.line)
         if let d = deleted, !notes.contains(where: { $0.id == d.id }) {
             // The undo row stands where the note stood in this order.
             let placed = NotesStore.sorted(notes + [d], sort)
@@ -55,6 +62,8 @@ struct NowPlayingNotePage: View {
         if writing {
             let draft = Row.draft(draftAnchorMs)
             switch sort {
+            case .created where editedAt != nil:
+                all.insert(draft, at: min(editedAt ?? 0, all.count))
             case .created:
                 all.append(draft)
             case .timeline:
@@ -184,6 +193,11 @@ struct NowPlayingNotePage: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button {
+                onEdit(note)
+            } label: {
+                Label { Text("Edit") } icon: { Image("yoin.edit") }
+            }
+            Button {
                 onRealign(note.id, playheadMs())
             } label: {
                 Label { Text("Align to now") } icon: { Image("yoin.music_note") }
@@ -236,7 +250,7 @@ struct NowPlayingNotePage: View {
                 .monospacedDigit()
                 .foregroundStyle(scheme.primary.opacity(0.8))
                 .frame(width: NoteLinesView.stampColumn, alignment: .leading)
-            Text("Writing…")
+            Text(editingId != nil ? "Editing…" : "Writing…")
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(scheme.onSurfaceVariant)
                 .padding(.bottom, 3)
