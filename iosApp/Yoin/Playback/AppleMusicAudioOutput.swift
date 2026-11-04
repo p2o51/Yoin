@@ -223,7 +223,7 @@ final class RoutingAudioOutput: AudioOutput {
         apple.events = gates[1]
     }
 
-    static func isApple(_ url: URL?) -> Bool { url?.scheme == AppleMusicMapping.streamScheme }
+    nonisolated static func isApple(_ url: URL?) -> Bool { url?.scheme == AppleMusicMapping.streamScheme }
 
     var currentTimeSec: Double { active.currentTimeSec }
 

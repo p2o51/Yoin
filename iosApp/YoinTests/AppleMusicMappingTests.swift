@@ -154,13 +154,14 @@ final class AppleMusicMappingTests: XCTestCase {
         XCTAssertFalse(RoutingAudioOutput.isApple(URL(string: "https://h/rest/stream?id=1")!))
     }
 
+    @MainActor
     func test_should_default_to_subsonic_when_signed_in_before_any_choice() {
         let d = UserDefaults(suiteName: "AppleMusicMappingTests")!
         d.removePersistentDomain(forName: "AppleMusicMappingTests")
-        XCTAssertEqual(MainActor.assumeIsolated { SourceSelection(subsonicSignedIn: true, defaults: d).active }, .subsonic)
-        XCTAssertEqual(MainActor.assumeIsolated { SourceSelection(subsonicSignedIn: false, defaults: d).active }, .mock)
-        MainActor.assumeIsolated { SourceSelection(subsonicSignedIn: false, defaults: d).use(.appleMusic) }
-        XCTAssertEqual(MainActor.assumeIsolated { SourceSelection(subsonicSignedIn: true, defaults: d).active }, .appleMusic)
+        XCTAssertEqual(SourceSelection(subsonicSignedIn: true, defaults: d).active, .subsonic)
+        XCTAssertEqual(SourceSelection(subsonicSignedIn: false, defaults: d).active, .mock)
+        SourceSelection(subsonicSignedIn: false, defaults: d).use(.appleMusic)
+        XCTAssertEqual(SourceSelection(subsonicSignedIn: true, defaults: d).active, .appleMusic)
         d.removePersistentDomain(forName: "AppleMusicMappingTests")
     }
 }
