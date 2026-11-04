@@ -92,3 +92,19 @@ Verdicts: `docs/codex-verdicts/G4.md`. Stills: `/private/tmp/claude-501/-Users-g
 | Artist | `-serverRoute artist:ar-kiri`, server slow / failing | Empty page + live star offline; Most Played from server counts | artist-loading-light.png, artist-failed-dark.png, artist-dark.png | fixed 620e376bf (A06, A18) |
 | Playlist | `-serverRoute playlist:pl-drive`, server slow / failing | Loading looked like an empty playlist | playlist-loading-dark.png, playlist-failed-light.png | fixed 620e376bf (A42) |
 | Album (Apple Music) | code | Heart looked live, did nothing | code | fixed 620e376bf (A15): + / ✓ library button; not run (no MusicKit in sim) |
+
+## 2026-11-05 Codex G1 fix agent (Now Playing + animation), iPhone 17 Pro sim (iOS 26.5), demo Subsonic :4997
+
+Verdicts: `docs/codex-verdicts/G1.md`. Clips / strips: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/codex-g1/`.
+
+| Screen | Step | What was wrong | Evidence | Status / fix commit |
+|---|---|---|---|---|
+| NP morph | `-screen np-morph-close`, tap the folding card | Reversal restarted the spring at rest (speed jump) | b01-reverse.mp4 | fixed 3b7c806c3 (B01) |
+| NP lyrics | demo server, Next | Song change replaced lyrics in one frame; loading slot blank | b06-next.mp4 / -strip.png | fixed 3b7c806c3 (B06, A28) |
+| NP focus | `-screen np -npFocusDemo YES -animationSpeed 0.25` | Active line drawn twice at two anchors | b07-focus-in.png | fixed 3b7c806c3 (B07) |
+| NP lyrics | long lines | Truncated to one line | a37-idle-strip.png | fixed 3b7c806c3 (A27, B08) |
+| NP sheets / iPad | lyric search / edit / share; iPad `-screen np-queue` | No World recede under them; none on iPad | b05-ipad-np-queue.png | fixed 3b7c806c3 (B04), 7146fc589 (B05) |
+| NP expanded Lyrics | `-npTab lyrics-full`, wait 3 s | Tools never stepped away | a37-idle.mp4 | fixed e5e4abe41 (A37) |
+| Mini player | auto-advance with NP closed | Old song replaced in one frame | a32-pill.mp4 | fixed e5e4abe41 (A32) |
+| NP transport | long-press play mode | No split, repeat off unreachable | a31-split.mp4 | fixed f90e5ffa3 (A31) |
+| NP | skip while writing a note / editing lyrics / holding the rating | Note, lyrics or rating went to the new song | code | fixed 3b7c806c3 (C12–C14) |
