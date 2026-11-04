@@ -83,6 +83,7 @@ object ServiceFeatureCatalog {
             Capability.PLAYLIST_IMPORT,
             Capability.LYRICS,
             Capability.STREAM_QUALITY,
+            Capability.REPLAY_GAIN,
             Capability.OFFLINE_DOWNLOAD,
             Capability.PLAY_REPORTING,
         ),

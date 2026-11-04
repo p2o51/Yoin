@@ -6,6 +6,7 @@ import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
+import com.gpo.yoin.data.model.ReplayGain
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
 import kotlinx.serialization.Serializable
@@ -36,6 +37,7 @@ internal data class TrackDto(
     val addedAt: String? = null,
     val audioFormat: AudioFormatDto? = null,
     val discNumber: Int? = null,
+    val replayGain: ReplayGainDto? = null,
 ) {
     fun toDomain(): Track = Track(
         id = MediaId.parse(id),
@@ -55,6 +57,7 @@ internal data class TrackDto(
         addedAt = addedAt,
         audioFormat = audioFormat?.toDomain(),
         discNumber = discNumber,
+        replayGain = replayGain?.toDomain(),
     )
 
     companion object {
@@ -76,6 +79,7 @@ internal data class TrackDto(
             addedAt = t.addedAt,
             audioFormat = t.audioFormat?.let(AudioFormatDto::from),
             discNumber = t.discNumber,
+            replayGain = t.replayGain?.let(ReplayGainDto::from),
         )
     }
 }
@@ -96,6 +100,24 @@ internal data class AudioFormatDto(
     }
 }
 
+/** [ReplayGain] on disk; also what a download's OfflinePayload carries. */
+@Serializable
+data class ReplayGainDto(
+    val trackGainDb: Float? = null,
+    val albumGainDb: Float? = null,
+    val trackPeak: Float? = null,
+    val albumPeak: Float? = null,
+    val baseGainDb: Float? = null,
+    val fallbackGainDb: Float? = null,
+) {
+    fun toDomain(): ReplayGain = ReplayGain(trackGainDb, albumGainDb, trackPeak, albumPeak, baseGainDb, fallbackGainDb)
+
+    companion object {
+        fun from(g: ReplayGain): ReplayGainDto =
+            ReplayGainDto(g.trackGainDb, g.albumGainDb, g.trackPeak, g.albumPeak, g.baseGainDb, g.fallbackGainDb)
+    }
+}
+
 @Serializable
 internal data class AlbumDto(
     val id: String,
@@ -111,6 +133,7 @@ internal data class AlbumDto(
     val tracks: List<TrackDto> = emptyList(),
     val addedAt: String? = null,
     val releaseType: String? = null,
+    val version: String? = null,
 ) {
     fun toDomain(): Album = Album(
         id = MediaId.parse(id),
@@ -126,6 +149,7 @@ internal data class AlbumDto(
         tracks = tracks.map(TrackDto::toDomain),
         addedAt = addedAt,
         releaseType = releaseType?.let { name -> ReleaseType.entries.firstOrNull { it.name == name } },
+        version = version,
     )
 
     companion object {
@@ -143,6 +167,7 @@ internal data class AlbumDto(
             tracks = a.tracks.map(TrackDto::from),
             addedAt = a.addedAt,
             releaseType = a.releaseType?.name,
+            version = a.version,
         )
     }
 }

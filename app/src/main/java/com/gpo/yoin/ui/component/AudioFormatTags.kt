@@ -9,11 +9,19 @@ import kotlin.math.roundToInt
  * numbers read the same in every language, so the tags are not translated.
  */
 
-/** How a codec is written on a tag: "flac" → "FLAC", "opus" → "Opus". */
+/**
+ * How a codec is written on a tag: "flac" → "FLAC", "opus" → "Opus".
+ * E-AC-3 JOC is "Dolby Atmos", in words only: the logo needs a licence, and
+ * the trademark reads in English in every language.
+ */
 fun codecLabel(codec: String): String = when (codec.lowercase()) {
     "opus" -> "Opus"
     "vorbis" -> "Vorbis"
     "wavpack" -> "WavPack"
+    "ac3" -> "AC-3"
+    "eac3" -> "E-AC-3"
+    "ac4" -> "AC-4"
+    AudioFormat.CODEC_EAC3_JOC -> "Dolby Atmos"
     else -> codec.uppercase()
 }
 
@@ -36,6 +44,7 @@ fun channelLayoutLabel(channels: Int?): String? = when (channels) {
  */
 fun codecTag(format: AudioFormat): String? {
     val codec = format.codec?.let(::codecLabel) ?: return null
+    if (format.isDolbyAtmos) return codec
     if (format.isLossless) {
         val khz = format.sampleRateHz?.let(::khzLabel)
         return when {
@@ -47,10 +56,11 @@ fun codecTag(format: AudioFormat): String? {
     return format.bitRateKbps?.let { "$codec $it" } ?: codec
 }
 
-/** Every tag of [format], codec first: ["FLAC 16/44.1", "5.1"]. */
+/** Every tag of [format], codec first: ["FLAC 16/44.1", "5.1"]; Dolby Atmos alone. */
 fun audioFormatTags(format: AudioFormat?): List<String> {
     format ?: return emptyList()
-    return listOfNotNull(codecTag(format), channelLayoutLabel(format.channels))
+    val layout = if (format.isDolbyAtmos) null else channelLayoutLabel(format.channels)
+    return listOfNotNull(codecTag(format), layout)
 }
 
 /** 44100 → "44.1", 96000 → "96". */

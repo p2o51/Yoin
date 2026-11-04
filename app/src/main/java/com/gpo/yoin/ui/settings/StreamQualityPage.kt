@@ -80,7 +80,7 @@ private fun QualityGroup(
 }
 
 @Composable
-private fun QualityRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+internal fun QualityRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
