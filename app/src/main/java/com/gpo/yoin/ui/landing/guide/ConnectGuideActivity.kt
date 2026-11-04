@@ -241,10 +241,8 @@ class ConnectGuideActivity : ComponentActivity() {
     /** From full screen only: a window that only floats may not start Yoin, and finishing would strand the user. */
     private fun returnToYoin() {
         if (isFinishing) return
-        val main = Intent(this, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            .putExtra(MainActivity.EXTRA_FROM_SPOTIFY_GUIDE, kind == GuideKind.Spotify)
-        runCatching { startActivity(main) }
+        // The page that opened the guide (the landing, or Settings' Spotify setup) comes back as it was.
+        MainActivity.bringForward(this)
         finishAndRemoveTask()
     }
 

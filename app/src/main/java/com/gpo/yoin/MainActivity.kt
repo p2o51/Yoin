@@ -1,5 +1,6 @@
 package com.gpo.yoin
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -58,6 +59,8 @@ class MainActivity : ComponentActivity() {
         // Must be called before super.onCreate(); also applies postSplashScreenTheme.
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && handOverToLiveShell()) return
+        liveShells += this
         pendingWidgetDetail = WidgetDetailRequest.parse(
             savedInstanceState?.getString(STATE_WIDGET_DETAIL_ENTITY),
             savedInstanceState?.getString(STATE_WIDGET_DETAIL_ID),
@@ -122,7 +125,27 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handleWidgetIntent(intent)
     }
 
+    /**
+     * A second shell started on top of the live one in this task (an intent that doesn't match the task's root,
+     * e.g. `am start`, the widget's "open Yoin", a notification) would leave whatever page was open — Settings,
+     * the add-server page — UNDER Home, so back from Home lands there. Give the intent to the live shell instead
+     * (back to its Home, pages above it closed, the intent read in onNewIntent) and step aside.
+     */
+    private fun handOverToLiveShell(): Boolean {
+        if (isTaskRoot || liveShells.none { it.taskId == taskId && !it.isFinishing }) return false
+        finish()
+        runCatching {
+            startActivity(
+                Intent(intent).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            )
+        }
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
+        return true
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
+        if (!::shellHandoffHostKey.isInitialized) return super.onSaveInstanceState(outState)
         outState.putString(STATE_SHELL_HANDOFF_HOST, shellHandoffHostKey)
         outState.putString(STATE_WIDGET_DETAIL_ENTITY, pendingWidgetDetail?.entity?.name)
         outState.putString(STATE_WIDGET_DETAIL_ID, pendingWidgetDetail?.id?.toString())
@@ -135,6 +158,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        liveShells -= this
+        if (!::shellHandoffHostKey.isInitialized) return super.onDestroy()
         (application as YoinApplication).container.experienceSessionStore
             .detachShellHandoffHost(shellHandoffHostKey, isChangingConfigurations)
         super.onDestroy()
@@ -170,19 +195,28 @@ class MainActivity : ComponentActivity() {
         /** Settings › About › Welcome guide: run the landing again. */
         const val EXTRA_WELCOME_GUIDE = "welcomeGuide"
 
-        /** The Spotify guide's "back to Yoin": the landing's Spotify step reads the copied Client ID. */
-        const val EXTRA_FROM_SPOTIFY_GUIDE = "fromSpotifyGuide"
-
         /** The splash never waits on the landing longer than this. */
         private const val SplashHoldLimitMs = 1_500L
+
+        /** Shells alive in this process (main thread only), to spot one started on top of another. */
+        private val liveShells = mutableSetOf<MainActivity>()
 
         /**
          * Yoin forward as it is, a landing keeping its step (the Spotoolfy share receiver: the landing picks the file
          * up itself); started when it isn't running.
          */
-        fun bringForwardIntent(context: Context): Intent =
-            Intent(context, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        fun bringForward(context: Context) {
+            // Yoin's task as it is. REORDER_TO_FRONT used to lift the shell over the pages above it (Settings,
+            // the add-server page), which back from Home then landed on.
+            val task = context.getSystemService(ActivityManager::class.java)?.appTasks?.firstOrNull { task ->
+                runCatching { task.taskInfo?.baseActivity?.className == MainActivity::class.java.name }
+                    .getOrDefault(false)
+            }
+            if (task != null && runCatching { task.moveToFront() }.isSuccess) return
+            runCatching {
+                context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
 
         fun welcomeGuideIntent(context: Context): Intent =
             Intent(context, MainActivity::class.java)
