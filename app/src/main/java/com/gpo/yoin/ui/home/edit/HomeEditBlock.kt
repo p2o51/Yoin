@@ -498,6 +498,7 @@ internal fun homeEditPlaceholderText(section: HomeSection, resources: Resources?
             HomeSection.Rediscover -> RediscoverPlaceholderText // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.RecentlyPlayed -> "Nothing played lately" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.YourPlaylists -> "No playlists in your library" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.OtherProfiles -> "Nothing played on your other accounts lately" // i18n-allow: HomeEditBlockTest asserts this English
         }
     }
     return resources.getString(section.placeholderRes)

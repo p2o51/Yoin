@@ -82,7 +82,8 @@ class HomeAlbumMemoryMarkTest {
     }
 
     @Test
-    fun should_matchSpotifyCovers_when_theirRawIdsAreMarked() {
+    fun should_leaveSpotifyCoversBare_when_theirRawIdsAreMarked() {
+        // Spotify's design guidelines forbid overlays on its artwork.
         val rawId = "6dVIqQ8qmQ5GBnJ9shOYGE"
         val marks = homeAlbumMemoryMarks(
             listOf(candidate(rawId, albumRating = 8f, provider = MediaId.PROVIDER_SPOTIFY))
@@ -90,8 +91,8 @@ class HomeAlbumMemoryMarkTest {
         val card = albumCard(MediaId.spotify(rawId))
 
         assertEquals(setOf(rawId), marks.keys)
-        assertEquals(marks.getValue(rawId), card.albumMemoryMark(marks))
-        assertEquals(marks.getValue(rawId), album(MediaId.spotify(rawId)).albumMemoryMark(marks))
+        assertNull(card.albumMemoryMark(marks))
+        assertNull(album(MediaId.spotify(rawId)).albumMemoryMark(marks))
     }
 
     @Test
@@ -180,7 +181,7 @@ class HomeAlbumMemoryMarkTest {
         target = HomeWidgetTarget.AlbumDetail(id.toString())
     )
 
-    private fun album(rawId: String): Album = album(MediaId.spotify(rawId))
+    private fun album(rawId: String): Album = album(MediaId.subsonic(rawId))
 
     private fun album(id: MediaId): Album = Album(
         id = id,

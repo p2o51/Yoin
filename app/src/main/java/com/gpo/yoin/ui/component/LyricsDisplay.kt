@@ -2,11 +2,16 @@ package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOutCubic
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,14 +36,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.experience.LocalWindowCovered
+import com.gpo.yoin.ui.nowplaying.HeldLineMotion
+import com.gpo.yoin.ui.nowplaying.LocalNowPlayingTransportSignal
+import com.gpo.yoin.ui.nowplaying.LyricDotsBreakMs
+import com.gpo.yoin.ui.nowplaying.LyricDotsDevelopFrom
+import com.gpo.yoin.ui.nowplaying.LyricDotsDevelopMs
+import com.gpo.yoin.ui.nowplaying.LyricDotsRest
+import com.gpo.yoin.ui.nowplaying.LyricDotsSolid
 import com.gpo.yoin.ui.nowplaying.LyricLine
+import com.gpo.yoin.ui.nowplaying.UpNextHandoffTickSlackMs
+import com.gpo.yoin.ui.nowplaying.UpNextLyrics
+import com.gpo.yoin.ui.nowplaying.lastLineOutroFor
+import com.gpo.yoin.ui.nowplaying.lastLineStretchScale
+import com.gpo.yoin.ui.nowplaying.lyricDotRadius
+import com.gpo.yoin.ui.nowplaying.lyricHalftone
+import com.gpo.yoin.ui.nowplaying.outroProgress
+import com.gpo.yoin.ui.nowplaying.upNextHandedOver
+import com.gpo.yoin.ui.nowplaying.upNextTimingFor
 import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -80,19 +104,43 @@ fun LyricsDisplay(
     fontScale: Float = 1f,
     trackKey: Any = Unit,
     queueIndex: Int = 0,
+    // Focus (tap the cover), 0..1, read in draw: the lines print through
+    // fine dots and the song's last line is held wide over the outro
+    // (owner 2026-11-03). 0 = the resting page, solid.
+    focus: () -> Float = { 0f },
+    // The song's length, for the outro (last-line hold, up next). 0 = none.
+    durationMs: Long = 0L,
+    // Focus only: the next song's first line rises under the last line and
+    // takes its place at the hand-over (UpNextTiming), so the song change
+    // swaps in place.
+    upNext: UpNextLyrics? = null,
+    // Extra room past the end edge the held last line may draw into (the
+    // caller widened this box by as much); the lines still wrap without it.
+    endOverflow: Dp = 0.dp,
 ) {
+    val liveTrackKey by rememberUpdatedState(trackKey)
     // Song change = the stream carries on (see LyricsTrackTransition);
     // loading → loaded dissolves instead of popping.
     LyricsTrackTransition(
         trackKey = trackKey,
-        data = lyrics to loading,
+        data = CompactLyricsFrame(trackKey, lyrics, loading, upNext, durationMs),
         queueIndex = queueIndex,
         positionMs = positionMs,
         modifier = modifier,
-    ) { (trackLyrics, trackLoading), songPositionMs ->
+        continuesInto = { from, fromPositionMs, toKey -> from.handedOverTo(toKey, fromPositionMs) },
+    ) { frame, songPositionMs ->
         AnimatedContent(
-            targetState = trackLyrics to trackLoading,
-            contentKey = { it.first.isEmpty() },
+            targetState = frame,
+            // In-place swap: the outgoing list already shows what the incoming
+            // one opens with; it steps out at once instead of doubling up.
+            modifier = Modifier.graphicsLayer {
+                alpha = if (frame.trackKey != liveTrackKey && frame.handedOverTo(liveTrackKey, songPositionMs())) {
+                    0f
+                } else {
+                    1f
+                }
+            },
+            contentKey = { it.lyrics.isEmpty() },
             transitionSpec = {
                 (
                     YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it / 12 } +
@@ -100,30 +148,52 @@ fun LyricsDisplay(
                     ) togetherWith YoinMotion.fadeOut(role = YoinMotionRole.Standard)
             },
             label = "compactLyricsLoaded",
-        ) { (shownLyrics, shownLoading) ->
+        ) { shown ->
             LyricsDisplayContent(
-                lyrics = shownLyrics,
+                trackKey = shown.trackKey,
+                lyrics = shown.lyrics,
                 positionMs = songPositionMs,
-                loading = shownLoading,
+                loading = shown.loading,
                 fontScale = fontScale,
+                focus = focus,
+                durationMs = shown.durationMs,
+                upNext = shown.upNext,
+                endOverflow = endOverflow,
             )
         }
     }
 }
 
+private data class CompactLyricsFrame(
+    val trackKey: Any,
+    val lyrics: List<LyricLine>,
+    val loading: Boolean,
+    val upNext: UpNextLyrics?,
+    val durationMs: Long,
+)
+
+private fun CompactLyricsFrame.handedOverTo(toKey: Any, atPositionMs: Long): Boolean =
+    upNextHandedOver(lyrics, upNext, durationMs, followedPlayhead = true, toKey = toKey, atPositionMs = atPositionMs)
+
 @Composable
 private fun LyricsDisplayContent(
+    trackKey: Any,
     lyrics: List<LyricLine>,
     positionMs: () -> Long,
     loading: Boolean,
     fontScale: Float,
+    focus: () -> Float,
+    durationMs: Long,
+    upNext: UpNextLyrics?,
+    endOverflow: Dp,
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     if (lyrics.isEmpty()) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp),
+                .heightIn(min = 48.dp)
+                .padding(end = endOverflow),
             contentAlignment = Alignment.CenterStart,
         ) {
             if (loading) {
@@ -157,6 +227,68 @@ private fun LyricsDisplayContent(
     // viewport; resets per song so a new track re-anchors immediately.
     var hasCentered by remember(lyrics) { mutableStateOf(false) }
 
+    // The outro (focus): the last line held wide (I-2) and, with a next song
+    // known, its first line rising under it with a small label, taking the
+    // stage at the hand-over (UpNextTiming).
+    val lastLineOutro = remember(lyrics, durationMs) { lastLineOutroFor(lyrics, durationMs) }
+    val lastLineIndex = remember(lyrics) { lyrics.indexOfLast { it.startMs != null } }
+    val lastLineStretch by remember(lastLineOutro) {
+        derivedStateOf { lastLineOutro?.outroProgress(currentPositionMs()) ?: 0f }
+    }
+    val upNextTiming = remember(lyrics, upNext, durationMs) { upNextTimingFor(lyrics, upNext, durationMs) }
+    val upNextLine = upNext?.lines?.firstOrNull { it.startMs != null }
+    val shownUpNext = upNext.takeIf { upNextTiming != null && upNextLine != null }
+    val upNextLabelIndex = if (shownUpNext != null) lyrics.size else -1
+    val upNextLineIndex = if (shownUpNext != null) lyrics.size + 1 else -1
+    val upNextReveal by remember(upNextTiming) {
+        derivedStateOf { upNextTiming?.outroProgress(currentPositionMs()) ?: 0f }
+    }
+    val handingOver by remember(upNextTiming) {
+        derivedStateOf { upNextTiming != null && currentPositionMs() >= upNextTiming.handoffAtMs }
+    }
+    // No background flow on top of a song change already staged in place.
+    val transportSignal = LocalNowPlayingTransportSignal.current
+    val handoverStaged by remember(upNextTiming) {
+        derivedStateOf {
+            upNextTiming != null && currentPositionMs() >= upNextTiming.handoffAtMs - UpNextHandoffTickSlackMs
+        }
+    }
+    val stagedNow = handoverStaged && shownUpNext != null
+    val stagedSongId = shownUpNext?.songId
+    // Only this window's own word: the expanded page (composed alongside it)
+    // speaks for itself, so an unstaged window never clears its hand-over.
+    val publishedStaged = remember { booleanArrayOf(false) }
+    SideEffect {
+        if (stagedNow || publishedStaged[0]) {
+            transportSignal?.publishLyricsHandover(fromSongId = trackKey, toSongId = stagedSongId, staged = stagedNow)
+            publishedStaged[0] = stagedNow
+        }
+    }
+    // The next line waits out the first half of the outro (the last line is
+    // held alone), then surfaces faintly; at the hand-over it settles to how
+    // the next song's own list opens (an inactive line at the top).
+    val revealEase = FastOutSlowInEasing.transform(((upNextReveal - 0.5f) / 0.5f).coerceIn(0f, 1f))
+    val upNextAlpha by animateFloatAsState(
+        targetValue = when {
+            shownUpNext == null -> 0f
+            handingOver -> 1f
+            else -> UpNextRevealAlpha * revealEase
+        },
+        animationSpec = YoinMotion.slowEffectsSpec(),
+        label = "compactUpNextAlpha",
+    )
+    val upNextRisePx by animateFloatAsState(
+        targetValue = if (handingOver) 0f else (1f - revealEase) * with(LocalDensity.current) { UpNextRise.toPx() },
+        animationSpec = YoinMotion.slowSpatialSpec(),
+        label = "compactUpNextRise",
+    )
+    // This song (and the label) step back as the next one takes the stage.
+    val currentBlockAlpha by animateFloatAsState(
+        targetValue = if (handingOver && shownUpNext != null) 0f else 1f,
+        animationSpec = YoinMotion.slowEffectsSpec(),
+        label = "compactCurrentLyricsAlpha",
+    )
+
     // ONE settle driver owns the scroll. Anchor the active line ~22% from the top
     // so there is roughly one past line above it and the upcoming lines below.
     //
@@ -176,17 +308,21 @@ private fun LyricsDisplayContent(
     // old coroutine running with the OLD list and OLD hasCentered captured —
     // the new song then never gets its instant first centring and the next
     // line advance snaps instead of gliding.
+    //
+    // The hand-over glides the next song's line to the very top, where the
+    // next song's own list opens (scroll 0), so the swap is in place.
     val windowCovered = LocalWindowCovered.current
-    LaunchedEffect(lyrics, currentIndex, listState) {
-        if (currentIndex < 0) return@LaunchedEffect
-        val target = currentIndex.coerceIn(0, lyrics.lastIndex)
+    val handOverTarget = handingOver && upNextLineIndex >= 0
+    LaunchedEffect(lyrics, currentIndex, listState, handOverTarget) {
+        if (currentIndex < 0 && !handOverTarget) return@LaunchedEffect
+        val target = if (handOverTarget) upNextLineIndex else currentIndex.coerceIn(0, lyrics.lastIndex)
         var firstAnchor = true
         // filter { it > 0 }: during an expand the height is ~0 for a frame, and a 0
         // offset would slip the anchoring by a line.
         snapshotFlow { listState.layoutInfo.viewportSize.height }
             .filter { it > 0 }
             .collect { viewportPx ->
-                val offsetPx = -(viewportPx * 0.22f).toInt()
+                val offsetPx = if (handOverTarget) 0 else -(viewportPx * 0.22f).toInt()
                 when {
                     // Very first centre of the song: instant, no animation.
                     !hasCentered -> {
@@ -220,15 +356,61 @@ private fun LyricsDisplayContent(
             // effect above); untimed lyrics scroll by hand.
             userScrollEnabled = isUnsynced,
             verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp, end = endOverflow),
         ) {
             itemsIndexed(lyrics, key = { i, _ -> i }) { index, line ->
+                val active = index == currentIndex && currentIndex >= 0 && !handingOver
                 LyricLineItem(
                     text = line.text,
-                    isActive = index == currentIndex && currentIndex >= 0,
+                    isActive = active,
                     distance = if (currentIndex >= 0) abs(index - currentIndex) else 99,
                     fontScale = fontScale,
+                    focus = focus,
+                    // Held while it is the current line; the hand-over lets go.
+                    stretch = if (index == lastLineIndex && active) lastLineStretch else 0f,
+                    blockAlpha = { currentBlockAlpha },
                 )
+            }
+            if (shownUpNext != null && upNextLine != null) {
+                val rise: () -> Float = { upNextRisePx }
+                item(key = "upNextLabel") {
+                    Text(
+                        text = stringResource(R.string.np_lyric_up_next, shownUpNext.title),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = UpNextLabelGap, bottom = 2.dp)
+                            .graphicsLayer {
+                                alpha = upNextAlpha * currentBlockAlpha
+                                translationY = rise()
+                            },
+                    )
+                }
+                item(key = "upNextLine") {
+                    // As the next song's own list shows it before its first
+                    // line: inactive, far from any current line.
+                    LyricLineItem(
+                        text = upNextLine.text,
+                        isActive = false,
+                        distance = 99,
+                        fontScale = fontScale,
+                        focus = focus,
+                        stretch = 0f,
+                        blockAlpha = { upNextAlpha },
+                        blockOffsetY = rise,
+                    )
+                }
+                // Long enough that the hand-over can park the next line at the top.
+                item(key = "upNextTail") {
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillParentMaxHeight(),
+                    )
+                }
             }
         }
     }
@@ -241,6 +423,10 @@ private fun LyricLineItem(
     modifier: Modifier = Modifier,
     distance: Int = 0,
     fontScale: Float = 1f,
+    focus: () -> Float = { 0f },
+    stretch: Float = 0f,
+    blockAlpha: () -> Float = { 1f },
+    blockOffsetY: () -> Float = { 0f },
 ) {
     // Distance-based falloff (not just active/inactive): lines dim the further they
     // are from the current one, for the smooth Apple-style gradient.
@@ -271,6 +457,32 @@ private fun LyricLineItem(
         animationSpec = YoinMotion.spatialSpring(),
         label = "lyricScale",
     )
+    // Focus's halftone: the line's own dot radius. The current line develops
+    // from dots to solid, a sung line breaks back into dots, the rest stay
+    // fine dots. Lines that are current when they first show start solid.
+    val dots = remember { Animatable(if (isActive) LyricDotsSolid else LyricDotsRest) }
+    val shownBefore = remember { booleanArrayOf(false) }
+    LaunchedEffect(isActive) {
+        if (!shownBefore[0]) {
+            shownBefore[0] = true
+            return@LaunchedEffect
+        }
+        if (isActive) {
+            dots.snapTo(minOf(dots.value, LyricDotsDevelopFrom))
+            dots.animateTo(LyricDotsSolid, tween(LyricDotsDevelopMs, easing = EaseOutCubic))
+        } else if (dots.value > LyricDotsRest) {
+            dots.animateTo(LyricDotsRest, tween(LyricDotsBreakMs, easing = EaseOutCubic))
+        }
+    }
+    // I-2 in focus: the song's last line held wide from its left edge. A
+    // draw-time scaleX of the whole line: it never re-wraps, and past the
+    // row's end it simply runs on toward (and off) the screen edge.
+    val held = remember { HeldLineMotion() }
+    val widen = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    val release = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    LaunchedEffect(held, stretch) {
+        held.follow(stretch, widen, release)
+    }
 
     // Active line: SemiBold (down from the old Bold — the preview sizes don't
     // need that much ink) in the rounded variable cut; color + scale carry
@@ -295,11 +507,13 @@ private fun LyricLineItem(
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
-                this.alpha = alpha
-                scaleX = scale
+                this.alpha = alpha * blockAlpha()
+                translationY = blockOffsetY()
+                scaleX = scale * lastLineStretchScale(held.progress.value * focus().coerceIn(0f, 1f))
                 scaleY = scale
                 transformOrigin = TransformOrigin(0f, 0.5f)
             }
+            .lyricHalftone { lyricDotRadius(dots.value, focus()) }
             .padding(vertical = 4.dp),
     )
 }
@@ -382,3 +596,12 @@ private fun LyricsDisplayLoadingPreview() {
         )
     }
 }
+
+/** The next line surfaces to this strength during the outro (full at the hand-over). */
+private const val UpNextRevealAlpha = 0.4f
+
+/** The next line rises this far into place. */
+private val UpNextRise = 24.dp
+
+/** Air between the song's last line and the up-next label. */
+private val UpNextLabelGap = 20.dp

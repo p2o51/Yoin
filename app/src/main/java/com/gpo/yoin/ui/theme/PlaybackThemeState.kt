@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
 
 /** Playback colors belong to the app session, not to each incoming window. */
 class PlaybackThemeState(private val scope: CoroutineScope) {
-    val transition = ColorSchemeTransition(scope)
+    val sharedScheme = SharedColorScheme()
     private var palette by mutableStateOf<PlaybackPalette?>(null)
     private var request: ArtworkRequest? = null
 

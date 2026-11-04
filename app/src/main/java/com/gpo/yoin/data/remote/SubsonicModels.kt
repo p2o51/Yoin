@@ -23,6 +23,13 @@ data class SubsonicResponseBody(
     val playlists: PlaylistsResponse? = null,
     val playlist: Playlist? = null,
     val lyricsList: LyricsList? = null,
+    val openSubsonicExtensions: List<OpenSubsonicExtension>? = null,
+)
+
+@Serializable
+data class OpenSubsonicExtension(
+    val name: String,
+    val versions: List<Int> = emptyList(),
 )
 
 @Serializable

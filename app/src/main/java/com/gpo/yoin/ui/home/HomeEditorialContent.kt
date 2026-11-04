@@ -290,6 +290,9 @@ internal fun HomeEditorialContent(
     albumMemoryMarks: Map<String, HomeAlbumMemoryMark> = emptyMap(),
     playlists: List<LibraryPlaylist> = emptyList(),
     recentlyPlayed: List<Album> = emptyList(),
+    // What the other accounts play most (HomeOtherProfiles.kt); a tap switches and plays.
+    otherProfileItems: List<OtherProfileItem> = emptyList(),
+    onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -696,7 +699,8 @@ internal fun HomeEditorialContent(
         recentlyAddedAlbums,
         rediscover,
         recentlyPlayed,
-        playlists
+        playlists,
+        otherProfileItems
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
@@ -714,6 +718,7 @@ internal fun HomeEditorialContent(
                         HomeSection.Rediscover -> rediscover.isNotEmpty()
                         HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
                         HomeSection.YourPlaylists -> playlists.isNotEmpty()
+                        HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
                     }
                 },
             )
@@ -881,6 +886,7 @@ internal fun HomeEditorialContent(
         rediscover,
         playlists,
         recentlyPlayed,
+        otherProfileItems,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -894,6 +900,7 @@ internal fun HomeEditorialContent(
                 rediscover = rediscover,
                 playlists = playlists,
                 recentlyPlayed = recentlyPlayed,
+                otherProfileItems = otherProfileItems,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -1220,6 +1227,23 @@ internal fun HomeEditorialContent(
                                             )
                                     },
                                 )
+
+                                // What the other accounts play most; a tap switches and plays.
+                                HomeSection.OtherProfiles -> OtherProfilesSection(
+                                    items = otherProfileItems,
+                                    extractBackdropColors = shouldExtractBackdropColors,
+                                    onItemClick = onOtherProfileItemClick,
+                                    frame = feedFrame,
+                                    shelfScrollEnabled = !editing,
+                                    modifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.payload },
+                                                rise = 16.dp,
+                                            )
+                                    },
+                                )
                             }
                         }
                     }
@@ -1469,6 +1493,7 @@ private fun homeStripCovers(
     rediscover: List<HomeRediscoverItem>,
     playlists: List<LibraryPlaylist>,
     recentlyPlayed: List<Album>,
+    otherProfileItems: List<OtherProfileItem>,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1501,6 +1526,12 @@ private fun homeStripCovers(
         }
         HomeSection.YourPlaylists -> playlists.take(count).map { playlist ->
             stripCover(resolveHomeCoverArtUrl(playlist.coverArt, buildCoverArtUrl), shapes.playlist)
+        }
+        HomeSection.OtherProfiles -> otherProfileItems.take(count).map { item ->
+            stripCover(
+                item.coverUrl,
+                if (item.kind == OtherProfileItem.Kind.Playlist) shapes.playlist else shapes.album,
+            )
         }
     }
 }
@@ -2676,6 +2707,97 @@ private fun YourPlaylistsSection(
                 )
             }
         }
+    }
+}
+
+/**
+ * On Your Other Accounts (owner 2026-11-04,「在你的其他资料里」): what the
+ * other accounts play most, the Recently Added card's size and type with the
+ * account's name under the title. Nothing on the cover (owner: no badge, and
+ * Spotify's rules allow nothing over its artwork).
+ */
+@Composable
+private fun OtherProfilesSection(
+    items: List<OtherProfileItem>,
+    extractBackdropColors: Boolean,
+    onItemClick: (OtherProfileItem) -> Unit,
+    frame: HomeFeedFrame,
+    shelfScrollEnabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val editCardScope = LocalHomeEditCardScope.current
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HomeSectionTitle(text = stringResource(HomeSection.OtherProfiles.titleRes))
+        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
+        LazyRow(
+            state = rememberLazyListState(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
+            contentPadding = sidePadding,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
+            userScrollEnabled = shelfScrollEnabled,
+        ) {
+            itemsIndexed(
+                items = items,
+                key = { _, item -> item.stableId },
+            ) { index, item ->
+                OtherProfileCard(
+                    item = item,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onItemClick(item) },
+                    modifier = Modifier.homeEditCard(index),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OtherProfileCard(
+    item: OtherProfileItem,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier
+            .width(RecentlyAddedAlbumCover)
+            .noRippleClickable(
+                interactionSource = interactionSource,
+                enabled = homeEditInteractive(),
+                onClick = onClick,
+            )
+            .elasticPress(interactionSource),
+    ) {
+        WidgetBackdropArtwork(
+            model = item.coverUrl,
+            kind = if (item.kind == OtherProfileItem.Kind.Playlist) WidgetShapeKind.Playlist else WidgetShapeKind.Album,
+            contentDescription = item.title,
+            extractBackdropColors = extractBackdropColors,
+            interactionSource = interactionSource,
+            modifier = Modifier.size(RecentlyAddedAlbumCover),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
+        )
+        Text(
+            text = item.profileName,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
+        )
     }
 }
 

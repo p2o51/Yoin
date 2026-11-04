@@ -115,7 +115,6 @@
     <string name="settings_switch_preparing">Closing the current session…</string>
     <string name="settings_switch_connecting">Connecting to %1$s…</string>
     <string name="settings_switch_connecting_unnamed">Connecting to the new account…</string>
-    <string name="settings_switch_priming">Warming caches…</string>
     <string name="settings_switch_failed">Couldn\'t switch account</string>
     <string name="settings_switch_ok">OK</string>
     <string name="settings_remove_title">Remove this account?</string>

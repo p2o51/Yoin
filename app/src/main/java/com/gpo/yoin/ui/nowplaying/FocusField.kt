@@ -122,32 +122,38 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
 
 /**
  * Dark focus's room from Now Playing's dark scheme: the hues of [primary],
- * [secondary] and [tertiary] (and [surface] as it is) at the dark tones the
- * page itself sits in. The 2025 expressive scheme puts its dark containers
- * at tone 75-93, far too bright for white lyrics on top (2.5-3.5:1 on
- * device, round 3); at these tones white stays near 10:1.
+ * [secondary] and [tertiary], held dark enough for white lyrics on top but
+ * pushed to full colour, so focus reads richer than the page it came from
+ * (owner 2026-11-04: "聚焦之后反而变得死气沉沉了"). The 2025 expressive
+ * scheme's own dark containers sit at tone 75-93, far too bright for white
+ * text; its surfaces are grey. The fourth colour is a deep blend of the
+ * primary and tertiary hues instead of a surface, and the wanderer is the
+ * brightest point, a lit primary moving through the room.
  */
-fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int, surface: Int): RoomPalette {
-    fun at(color: Int, tone: Double): Int {
-        val hct = Hct.fromInt(color)
-        return Hct.from(hct.hue, min(hct.chroma, DarkRoomMaxChroma), tone).toInt()
-    }
+fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int): RoomPalette {
+    val p = Hct.fromInt(primary)
+    val s = Hct.fromInt(secondary)
+    val t = Hct.fromInt(tertiary)
+    fun at(hue: Double, chroma: Double, tone: Double): Int = Hct.from(hue, chroma, tone).toInt()
+    val between = midHue(p.hue, t.hue)
     return RoomPalette(
         colors = intArrayOf(
-            at(primary, DarkRoomPrimaryTone),
-            at(secondary, DarkRoomSecondaryTone),
-            at(tertiary, DarkRoomTertiaryTone),
-            surface,
+            at(p.hue, max(p.chroma, DarkRoomMinChroma), 32.0),
+            at(s.hue, max(s.chroma, DarkRoomMinChroma * 0.8), 24.0),
+            at(t.hue, max(t.chroma, DarkRoomMinChroma), 32.0),
+            at(between, DarkRoomMinChroma, 14.0),
         ),
-        accent = at(primary, DarkRoomAccentTone),
+        accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 46.0),
     )
 }
 
-private const val DarkRoomPrimaryTone = 26.0
-private const val DarkRoomSecondaryTone = 20.0
-private const val DarkRoomTertiaryTone = 24.0
-private const val DarkRoomAccentTone = 32.0
-private const val DarkRoomMaxChroma = 48.0
+/** The hue halfway round the shorter way from [a] to [b], in degrees. */
+private fun midHue(a: Double, b: Double): Double {
+    val d = ((b - a + 540.0) % 360.0) - 180.0
+    return (a + d / 2.0 + 360.0) % 360.0
+}
+
+private const val DarkRoomMinChroma = 40.0
 
 /**
  * A ready-made room palette: the theme's own colours (ARGB), used as they
