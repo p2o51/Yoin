@@ -80,3 +80,15 @@ Clips and stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67
 | Library Favorites | `-screen library-favorites` (+ demo server) | "Random mix" stand-in | final/s2.png, srv-fav.png | fixed 3827df9e8: starred songs (getStarred2; mock: starred tracks) under "Songs", hearts taken off drop out, re-read after any heart change, "No favorites yet" panel. Android also lists starred artists and albums: not done |
 | iPad NP | iPad Pro 13 portrait | Phone column stretched, empty form-sheet queue | qa-audit/ev-ipad-np.png | open, skipped here (NP files owned by the NP fix agent) |
 | Shell (all pages) | any `withAnimation` in the shell under World | `WorldRecede` (95bb4dcbe) ends with `.transaction { $0.animation = nil }` on the whole shell layer: the bar's slide-away, Library chips and other shell animations land in one frame (seen while verifying Search: the bar vanished in 1 frame) | run2/light/search-from-bar.mp4 | open, for the NP/shell agent (verified Search in a worktree without it) |
+
+## 2026-11-05 Codex G4 fix agent (Album / Artist), iPhone 17 sim (iOS 26.5), light + dark, demo Subsonic copy on :5000
+
+Verdicts: `docs/codex-verdicts/G4.md`. Stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98e1-185c0f1e0f7c/scratchpad/g4qa/`.
+
+| Screen | Step | What was wrong | Evidence | Status / fix commit |
+|---|---|---|---|---|
+| Album list | `-serverRoute album:al-harbor -screen album-list` | Repeated track ids collided; no disc headings / performer; no note marker | harbor-list-light.png | fixed 620e376bf (A04, A16, A17) |
+| Album hero / scrapbook | `-serverRoute album:al-harbor` (+ `-screen album-scrapbook`, `-screen album-rate`) | Synced review missing on page 1; pen/emblem dead; title read-only | harbor-review-dark.png, harbor-scrap-light.png, harbor-rate-dark.png | fixed 620e376bf (A05, A19 part) |
+| Artist | `-serverRoute artist:ar-kiri`, server slow / failing | Empty page + live star offline; Most Played from server counts | artist-loading-light.png, artist-failed-dark.png, artist-dark.png | fixed 620e376bf (A06, A18) |
+| Playlist | `-serverRoute playlist:pl-drive`, server slow / failing | Loading looked like an empty playlist | playlist-loading-dark.png, playlist-failed-light.png | fixed 620e376bf (A42) |
+| Album (Apple Music) | code | Heart looked live, did nothing | code | fixed 620e376bf (A15): + / ✓ library button; not run (no MusicKit in sim) |
