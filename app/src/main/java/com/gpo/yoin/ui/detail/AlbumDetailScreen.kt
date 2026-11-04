@@ -87,6 +87,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -535,19 +536,28 @@ private fun AlbumDetailContent(
             panelBeside = LocalNowPlayingPanelBeside.current,
             playingThisAlbum = currentTrackId != null && content.songs.any { it.id == currentTrackId },
         )
-        // Start where the hero is: opened already yielded ("Go to album" from
-        // the panel), or switched INTO a yielding layout because the panel just
-        // opened (Medium → Compact, its width at rest flips with the spring's
-        // first frame). Keyed on the layout so that switch never starts at 0
-        // and flashes the full cover for a few frames before fading it; only a
-        // change inside one layout (the panel moves to or off this album)
-        // animates.
-        val coverYield = remember(content.albumId, barLayout) { Animatable(if (coverYielded) 1f else 0f) }
+        // Keyed on the layout: the panel opening or closing flips the page's
+        // tier in one frame (its width at rest changes with the spring's first
+        // frame), and each side of that switch starts from what it should show.
+        // - Into a yielding layout (Medium → Compact as the panel opens, or
+        //   "Go to album" from the panel): starts hidden, so the full cover
+        //   never flashes for a few frames before fading.
+        // - Out of one (Compact → Medium as the panel closes): starts from the
+        //   last value shown, so the cover fades back in instead of popping.
+        // A change inside one layout (the panel moves to or off this album)
+        // simply animates.
+        val lastYield = remember(content.albumId) { floatArrayOf(if (coverYielded) 1f else 0f) }
+        val coverYield = remember(content.albumId, barLayout) {
+            Animatable(if (coverYielded) 1f else lastYield[0])
+        }
         val coverYieldSpec = YoinMotion.defaultSpatialSpec<Float>()
         LaunchedEffect(coverYield, coverYielded) {
             coverYield.animateTo(if (coverYielded) 1f else 0f, coverYieldSpec)
         }
-        val coverYieldNow: () -> Float = { coverYield.value.coerceIn(0f, 1f) }
+        // Read in layout / draw only (never in composition: a per-frame
+        // recomposition re-lays out the whole flowing title text and drops
+        // frames). Remembers the last value shown for the next layout switch.
+        val coverYieldNow: () -> Float = { coverYield.value.coerceIn(0f, 1f).also { lastYield[0] = it } }
         // Landscape handsets: the header and body clear the capsule band and a
         // cutout (detailChromeBand); the bar itself runs edge to edge under them.
         val startInsetPx = with(density) {
@@ -1180,7 +1190,7 @@ private fun AlbumOverviewPage(
         // for them, and closes as they fly into the bar, so the list docks
         // straight under the header.
         val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
-        val slotHeight = lerp((heroCoverSide + 56.dp) * (1f - coverYield()), 0.dp, expand.coerceIn(0f, 1f))
+        val slotHeight = lerp(heroCoverSide + 56.dp, 0.dp, expand.coerceIn(0f, 1f))
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -1191,7 +1201,13 @@ private fun AlbumOverviewPage(
                 Spacer(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(slotHeight),
+                        // The yield closes the slot in the layout pass, so its
+                        // spring never recomposes the page.
+                        .layout { measurable, constraints ->
+                            val h = (slotHeight.toPx() * (1f - coverYield())).roundToInt().coerceAtLeast(0)
+                            val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                            layout(placeable.width, h) { placeable.place(0, 0) }
+                        },
                 )
 
                 Box(
@@ -1977,12 +1993,19 @@ private fun AlbumShortOverview(
                     .stagedBeat(progress = { stagedReveal.meta }, rise = 14.dp)
                     .padding(start = AlbumShortCoverStart, end = 16.dp, top = 4.dp),
             ) {
-                val coverRoom = 1f - coverYield()
                 Row {
                     // The cover and its two blocks are drawn by the bar layer above the
                     // pager (they fly into the header on the pull-up); this keeps their place.
-                    Spacer(modifier = Modifier.size(coverSide * coverRoom))
-                    Spacer(modifier = Modifier.width(AlbumShortHeroGap * coverRoom))
+                    // It closes with the yield in the layout pass (no per-frame recomposition).
+                    Spacer(
+                        modifier = Modifier.layout { measurable, _ ->
+                            val room = 1f - coverYield()
+                            val side = (coverSide.toPx() * room).roundToInt()
+                            val w = side + (AlbumShortHeroGap.toPx() * room).roundToInt()
+                            val placeable = measurable.measure(Constraints.fixed(w, side))
+                            layout(w, side) { placeable.place(0, 0) }
+                        },
+                    )
                     AlbumHeroMetaBlocks(
                         content = content,
                         interactive = expand < 0.5f,
