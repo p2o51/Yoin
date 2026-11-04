@@ -81,8 +81,15 @@ final class SharedKotlinTests: XCTestCase {
                                     balanced.0["transportPrimary"]?.tintOpacity ?? 0)
         XCTAssertEqual(lab.style("transportPrimary").role, .auto)
         // R1: the in-flow fixtures are tonal, the chrome over the lyrics glass.
-        XCTAssertEqual(lab.style("npPills").variant, .none)
+        // 51 (11-04): Queue / Devices / Write stay glass, on a neutral floor
+        // (PAUSE the one accent); the rating is the solid fixture that lifts.
+        XCTAssertEqual(lab.style("npPills").variant, .regular)
+        XCTAssertTrue(lab.neutralTint("npPills"))
+        XCTAssertEqual(lab.extra("liftInFlow"), 1)
         XCTAssertEqual(lab.style("heart").variant, .none)
+        // The pinned filter chips: the HIG glass track with one tinted lozenge.
+        XCTAssertEqual(SegmentChipStyle.current, .glassTrack)
+        XCTAssertTrue(SegmentChipStyle.current.isTrack)
         XCTAssertEqual(lab.style("transportSecondary").variant, .regular)
         XCTAssertEqual(lab.style("npFloating").variant, .regular)
         // R5: the mini player is the NP room folded.

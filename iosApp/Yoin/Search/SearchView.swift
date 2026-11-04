@@ -30,6 +30,8 @@ struct SearchView: View {
     /// The results column's width (inside the 16 margins), for the 3-column cells.
     @State private var width: CGFloat = 370
     @State private var scrollPosition = ScrollPosition()
+    /// Results have scrolled under the pinned header (scrollLitTrack).
+    @State private var scrolledUnder = false
 
     private var scheme: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -46,6 +48,9 @@ struct SearchView: View {
                 .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
         .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 1 } action: { _, under in
+            scrolledUnder = under
+        }
         .overlay { if showsNoResults { noResults.transition(.opacity.animation(Yoin.effects)) } }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.soft, for: .top)
@@ -184,7 +189,8 @@ struct SearchView: View {
                 }
             },
             scheme: scheme,
-            style: .current
+            style: .current,
+            overContent: scrolledUnder
         )
         // Full bleed: the resting first chip sits on the results' 16 edge,
         // scrolled chips run out under the screen's edges.

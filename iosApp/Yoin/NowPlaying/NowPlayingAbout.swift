@@ -258,7 +258,9 @@ struct NowPlayingAboutView: View {
                 .labContrast("transportPrimary")
                 .padding(.horizontal, 12)
                 .frame(minHeight: 40)
-                .npPillGlass(tint: scheme.primary, in: Capsule())
+                // World: the pills went neutral glass; these keep the accent.
+                .npPillGlass(GlassLab.shared.oneAccentPerLayer ? "npFloating" : "npPills",
+                             tint: scheme.primary, in: Capsule())
                 .contentShape(.capsule)
         }
         .buttonStyle(PressScale())

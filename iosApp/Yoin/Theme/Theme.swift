@@ -24,18 +24,18 @@ enum Yoin {
 
     /// MD3 Expressive spatial spring (position, size).
     @MainActor static var spatial: Animation {
-        GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveDefaultSpatial)
-            : .spring(response: 0.42, dampingFraction: 0.78)
+        (GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveDefaultSpatial)
+            : .spring(response: 0.42, dampingFraction: 0.78)).speed(LaunchConfig.animationSpeed)
     }
     /// Fast spatial spring for small components.
     @MainActor static var spatialFast: Animation {
-        GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveFastSpatial)
-            : .spring(response: 0.3, dampingFraction: 0.72)
+        (GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveFastSpatial)
+            : .spring(response: 0.3, dampingFraction: 0.72)).speed(LaunchConfig.animationSpeed)
     }
     /// Effects spring (color, alpha). No overshoot.
     @MainActor static var effects: Animation {
-        GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveDefaultEffects)
-            : .spring(response: 0.35, dampingFraction: 1)
+        (GlassLab.shared.sharedMotion ? shared(Tokens.motion.expressiveDefaultEffects)
+            : .spring(response: 0.35, dampingFraction: 1)).speed(LaunchConfig.animationSpeed)
     }
 
     /// Android's MD3 Expressive spring (damping ratio + stiffness, mass 1)
@@ -113,6 +113,17 @@ enum LaunchConfig {
     static var baseScreen: String {
         screen.replacingOccurrences(of: "-yoinglass", with: "")
     }
+    /// Debug slow motion for recordings: `-animationSpeed 0.25` plays Yoin's
+    /// springs (and, through the window's layer, Core Animation and the
+    /// glass) at a quarter speed. Release builds ignore it.
+    static let animationSpeed: Double = {
+        #if DEBUG
+        let v = UserDefaults.standard.double(forKey: "animationSpeed")
+        return v > 0 ? v : 1
+        #else
+        return 1
+        #endif
+    }()
 }
 
 func formatTime(_ sec: Int) -> String {

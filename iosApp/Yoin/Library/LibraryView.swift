@@ -11,7 +11,8 @@ import YoinShared
 ///
 /// iOS adaptations: the pill opens the shared Search screen; covers follow
 /// the iOS bare-cover rule; the header floats in glass over the grid, the
-/// filter chips are Android's tonal chips under it (LibraryFilterRow).
+/// filter chips are the style Glass Lab picks under it (LibraryFilterRow;
+/// World: one glass track with a tinted lozenge).
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
@@ -152,7 +153,9 @@ struct LibraryView: View {
             // Android: the app bar (64), the chips right under it, then the
             // Column's 4 gap. The chips' 4 vertical padding (room for the
             // glass press bloom) overlaps the bar and is that 4 gap.
-            VStack(alignment: .leading, spacing: -4) {
+            // The track styles keep 8 between the field and the track, so
+            // the two capsules read as a pair, not one stacked slab.
+            VStack(alignment: .leading, spacing: LibraryFilterRow.Style.current.isTrack ? 0 : -4) {
                 header
                 chips
             }
@@ -182,7 +185,8 @@ struct LibraryView: View {
                 // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
                 // bottom = floatingBottomGroupContentPadding 108 over the inset,
                 // less the 62 the shell already reserves for the bar.
-                .padding(.top, 64 + Tokens.library.CHIP_HEIGHT.cg + 4 + Tokens.library.SCROLLER_TOP_INSET.cg)
+                .padding(.top, 64 + Tokens.library.CHIP_HEIGHT.cg + 4 + Tokens.library.SCROLLER_TOP_INSET.cg
+                         + (LibraryFilterRow.Style.current.isTrack ? 4 : 0))
                 .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
             }
         }
@@ -251,7 +255,8 @@ struct LibraryView: View {
     /// Android LibraryFilterRow, in the style Glass Lab picks (see
     /// LibraryFilterRow below; Android-faithful tonal chips by default).
     private var chips: some View {
-        LibraryFilterRow(filter: $filter, scheme: scheme, style: LibraryFilterRow.Style.current)
+        LibraryFilterRow(filter: $filter, scheme: scheme, style: LibraryFilterRow.Style.current,
+                         overContent: metrics.offset > 1)
     }
 
     // MARK: All / Artists / Albums / Playlists grid
@@ -453,6 +458,7 @@ struct LibraryFilterRow: View {
     @Binding var filter: LibraryKind?
     var scheme: CoverScheme
     var style: Style
+    var overContent = true
 
     private static let kinds: [LibraryKind] = [.playlists, .artists, .albums, .songs, .favorites]
 
@@ -464,31 +470,45 @@ struct LibraryFilterRow: View {
             onTap: { kind in withAnimation(Yoin.spatial) { filter = filter == kind ? nil : kind } },
             onClear: filter == nil ? nil : { withAnimation(Yoin.spatial) { filter = nil } },
             scheme: scheme,
-            style: style
+            style: style,
+            overContent: overContent
         )
     }
 }
 
 // MARK: Shared with Search
 
-/// The look Glass Lab › Library filter picks (`-libraryFilterStyle 0|1|2`)
-/// for every segment chip row (Library's filters, Search's scopes and types):
-/// - glassTrack: one glass capsule holds plain labels; the chip that is on is
-///   a secondaryContainer pill that slides between them, as a segmented
-///   control does.
-/// - android (default): ExpressiveSegmentChip as is: solid 44-high chips,
-///   corner 18, surfaceContainerHigh with onSurfaceVariant, on =
-///   secondaryContainer with onSecondaryContainer; the ✕ is a tonal circle.
-///   No glass on the chips: the header bar's soft edge is the only glass.
+/// The look Glass Lab › Filter chips picks (`-libraryFilterStyle 0…4`) for
+/// every segment chip row (Library's filters, Search's scopes and types):
+/// - glassTrack (World's default): the HIG segmented look. One neutral glass
+///   capsule (the search field's glass) holds the chips as plain labels; the
+///   chip that is on is a lozenge of tinted glass inside it, concentric with
+///   the track, that slides from chip to chip. The row's one accent is the
+///   selected Library tab's (secondary); in Search the scope pair's lozenge
+///   is a quiet neutral one, so the result type is the only accent.
+/// - glassPills: every chip its own glass capsule (Android's 44 / 18 / 8
+///   gaps), the chip that is on in the same tinted glass, all in one
+///   GlassEffectContainer.
+/// - scrollLitTrack: glassTrack, but the track's glass materializes only
+///   while content has scrolled under the row; at rest the labels sit flat
+///   on the page (R1: no glass until something moves under it).
+/// - android: ExpressiveSegmentChip as is: solid 44-high chips, corner 18,
+///   surfaceContainerHigh with onSurfaceVariant, on = secondaryContainer
+///   with onSecondaryContainer; the ✕ is a tonal circle. No glass.
 /// - slidingTonal: the android chips, but the secondaryContainer fill slides
 ///   from chip to chip instead of cross-fading in place.
 enum SegmentChipStyle: Int {
-    case glassTrack = 0, android = 1, slidingTonal = 2
+    case glassTrack = 0, android = 1, slidingTonal = 2, glassPills = 3, scrollLitTrack = 4
 
     /// Glass Lab's choice; Android-faithful when unset.
     @MainActor static var current: SegmentChipStyle {
         SegmentChipStyle(rawValue: Int((GlassLab.shared.extras["libraryFilterStyle"] ?? 1).rounded())) ?? .android
     }
+
+    /// The chips sit in one capsule track.
+    var isTrack: Bool { self == .glassTrack || self == .scrollLitTrack }
+    /// The chips (or their track) are glass, the ✕ a glass circle.
+    var isGlass: Bool { isTrack || self == .glassPills }
 }
 
 /// Android ExpressiveSegmentRow of ExpressiveSegmentChips: single-choice
@@ -507,6 +527,8 @@ struct SegmentChipRow<ID: Hashable>: View {
     var onClear: (() -> Void)?
     var scheme: CoverScheme
     var style: SegmentChipStyle
+    /// Content has scrolled under the row (scrollLitTrack lights the track).
+    var overContent = true
 
     @State private var fadeLeading = false
     @State private var fadeTrailing = false
@@ -519,6 +541,8 @@ struct SegmentChipRow<ID: Hashable>: View {
     @State private var position = ScrollPosition()
     /// The chips on at launch are brought into view once, without motion.
     @State private var arrived = false
+    @Namespace private var glassNS
+    @Environment(\.colorScheme) private var colorScheme
 
     private var height: CGFloat { Tokens.library.CHIP_HEIGHT.cg }
     private var corner: CGFloat { Tokens.library.CHIP_CORNER.cg }
@@ -527,12 +551,16 @@ struct SegmentChipRow<ID: Hashable>: View {
     private let fade: CGFloat = 24
     /// Android SearchFilterDividerHeight.
     private let hairline: CGFloat = 24
+    /// The track's inset around the lozenge: 44 track, 36 lozenge (corner
+    /// 18, Android's chip corner), concentric.
+    private let trackInset: CGFloat = 4
     private var showsClear: Bool { onClear != nil }
+    private var trackLit: Bool { style == .glassTrack || (style == .scrollLitTrack && overContent) }
 
     var body: some View {
         Group {
-            if style == .glassTrack {
-                GlassEffectContainer(spacing: gap) { row }
+            if style == .glassPills {
+                GlassEffectContainer(spacing: gap / 2) { row }
             } else {
                 row
             }
@@ -547,11 +575,14 @@ struct SegmentChipRow<ID: Hashable>: View {
                     .padding(.leading, 16)
                     .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
             }
-            if style == .glassTrack {
+            if style.isTrack {
                 scroller
-                    .padding(.horizontal, 4)
-                    // Same glass as the search field above it (one pinned header).
-                    .labSearchGlass(scheme: scheme, in: .capsule)
+                    .clipShape(.capsule)
+                    // The track glass sits behind the labels, in no container
+                    // (a container lifts background glass over them; as the
+                    // glass's content they'd lose the edge fade's mask).
+                    .background { Color.clear.modifier(TrackGlass(lit: trackLit, scheme: scheme)) }
+                    .animation(Yoin.effects, value: trackLit)
                     .padding(.leading, showsClear ? gap : 16)
                     .padding(.trailing, 16)
             } else {
@@ -564,30 +595,25 @@ struct SegmentChipRow<ID: Hashable>: View {
     private var clearButton: some View {
         Button { onClear?() } label: {
             YoinIcon("close", size: Tokens.library.CLEAR_ICON.cg)
-                .foregroundStyle(style == .glassTrack ? AnyShapeStyle(.primary) : AnyShapeStyle(scheme.onSurfaceVariant))
+                .foregroundStyle(style.isGlass ? AnyShapeStyle(.primary) : AnyShapeStyle(scheme.onSurfaceVariant))
                 .frame(width: height, height: height)
                 .background {
-                    if style != .glassTrack { Circle().fill(scheme.surfaceContainerHigh) }
+                    if !style.isGlass { Circle().fill(scheme.surfaceContainerHigh) }
                 }
                 .contentShape(.circle)
         }
         .buttonStyle(PressScale())
-        .modifier(GlassIf(on: style == .glassTrack, scheme: scheme))
+        .modifier(GlassIf(on: style.isGlass, scheme: scheme))
         .accessibilityLabel("Clear filter")
     }
 
     private var scroller: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: style == .glassTrack ? 0 : gap) {
+            HStack(spacing: style.isTrack ? 0 : gap) {
                 ForEach(Array(groups.enumerated()), id: \.offset) { i, group in
-                    if i > 0 {
-                        Rectangle()
-                            .fill(scheme.outlineVariant)
-                            .frame(width: 1, height: hairline)
-                            .padding(.horizontal, style == .glassTrack ? 4 : 0)
-                    }
+                    if i > 0 { divider }
                     ForEach(group, id: \.self) { id in
-                        chip(id)
+                        chip(id, accent: i == groups.count - 1)
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
                                 frames[id] = $0
                                 revealOnArrival()
@@ -599,10 +625,12 @@ struct SegmentChipRow<ID: Hashable>: View {
             // labels, so the pill never passes over a neighbour's label. The
             // frames are the HStack's own, so the inset giving way to the ✕
             // carries fills and labels together.
-            .background(alignment: .topLeading) { if style != .android { slidingFills } }
+            .background(alignment: .topLeading) {
+                if style == .slidingTonal { slidingFills } else if style.isTrack { lozenges }
+            }
             .coordinateSpace(.named(Self.space))
             .padding(.leading, leadingInset)
-            .padding(.trailing, style == .glassTrack ? 0 : 16)
+            .padding(.trailing, style.isTrack ? trackInset : 16)
         }
         .scrollIndicators(.hidden)
         .scrollPosition($position)
@@ -616,16 +644,7 @@ struct SegmentChipRow<ID: Hashable>: View {
             }
             revealOnArrival()
         }
-        .mask {
-            HStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: fadeLeading ? fade : 0)
-                Rectangle()
-                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: fadeTrailing ? fade : 0)
-            }
-            .padding(.vertical, -8)
-        }
+        .mask { edgeFade }
         .onChange(of: selected) { old, new in
             for id in new where !old.contains(id) {
                 reveal(id)
@@ -636,6 +655,33 @@ struct SegmentChipRow<ID: Hashable>: View {
                 }
             }
         }
+    }
+
+    /// Fades only an edge the row has been scrolled past. In the track the
+    /// fade runs out to the rim, so a label dissolves into the capsule's
+    /// round end instead of being cut by it; it eases (no hard start).
+    private var edgeFade: some View {
+        let w = style.isTrack ? fade + 8 : fade
+        let stops: [Gradient.Stop] = [.init(color: .clear, location: 0), .init(color: .black.opacity(0.35), location: 0.35),
+                                      .init(color: .black.opacity(0.85), location: 0.7), .init(color: .black, location: 1)]
+        return HStack(spacing: 0) {
+            LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
+                .frame(width: fadeLeading ? w : 0)
+            Rectangle()
+            LinearGradient(stops: stops, startPoint: .trailing, endPoint: .leading)
+                .frame(width: fadeTrailing ? w : 0)
+        }
+        .padding(.vertical, -8)
+    }
+
+    /// Between groups (Search's scope pair | result types). In the track a
+    /// short, faint rule with room either side, so it reads as a pause
+    /// rather than a stroke; Android's 1 × 24 outlineVariant elsewhere.
+    private var divider: some View {
+        Rectangle()
+            .fill(style.isTrack ? scheme.onSurface.opacity(colorScheme == .dark ? 0.22 : 0.16) : scheme.outlineVariant)
+            .frame(width: 1, height: style.isTrack ? 18 : hairline)
+            .padding(.horizontal, style.isTrack ? 8 : 0)
     }
 
     /// Scrolls only as far as it takes to bring the chip whole into view,
@@ -667,22 +713,26 @@ struct SegmentChipRow<ID: Hashable>: View {
 
     private static var space: String { "segmentChips" }
 
-    /// 16 at rest; the 8 gap after the ✕ while it shows. None in the track.
+    /// 16 at rest; the 8 gap after the ✕ while it shows. The track's own
+    /// inset inside it.
     private var leadingInset: CGFloat {
-        style == .glassTrack ? 0 : (showsClear ? gap : 16)
+        style.isTrack ? trackInset : (showsClear ? gap : 16)
     }
 
-    private func chip(_ id: ID) -> some View {
+    /// `accent`: the chip's group is the row's last (the one accent; an
+    /// earlier group, Search's scope pair, gets a quiet lozenge in a track).
+    private func chip(_ id: ID, accent: Bool) -> some View {
         let on = selected.contains(id)
+        let pillShape = RoundedRectangle(cornerRadius: corner, style: .continuous)
         return Button { onTap(id) } label: {
             Text(label(id))
                 .lineLimit(1)
                 .yoinRole(Tokens.type.labelLarge)
-                .foregroundStyle(on ? scheme.onSecondaryContainer : labelOff)
+                .foregroundStyle(ink(on: on, accent: accent))
                 .animation(Yoin.effects, value: on)
                 .padding(.horizontal, Tokens.library.CHIP_PADDING_H.cg)
                 .padding(.vertical, Tokens.library.CHIP_PADDING_V.cg)
-                .frame(minHeight: style == .glassTrack ? height - 8 : height)
+                .frame(minHeight: style.isTrack ? height - trackInset * 2 : height)
                 .background {
                     if style == .android {
                         RoundedRectangle(cornerRadius: corner, style: .circular)
@@ -690,26 +740,29 @@ struct SegmentChipRow<ID: Hashable>: View {
                             .animation(Yoin.effects, value: on)
                     }
                 }
-                .padding(.vertical, style == .glassTrack ? 4 : 0)
+                .modifier(ChipPillGlass(on: style == .glassPills ? on : nil, accent: accent,
+                                        scheme: scheme, shape: pillShape))
+                .padding(.vertical, style.isTrack ? trackInset : 0)
                 .contentShape(.rect)
         }
         .buttonStyle(PressScale())
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
-    private var labelOff: Color {
-        style == .glassTrack ? scheme.onSurface : scheme.onSurfaceVariant
+    private func ink(on: Bool, accent: Bool) -> Color {
+        switch style {
+        case .android, .slidingTonal: on ? scheme.onSecondaryContainer : scheme.onSurfaceVariant
+        default: on && accent ? scheme.onSecondary : scheme.onSurface
+        }
     }
 
     /// slidingTonal: a surfaceContainerHigh fill on every chip, then one
-    /// pill per group; glassTrack: the pills alone. A group's pill moves to
-    /// its chip that is on with the selection's spatial spring.
+    /// pill per group. A group's pill moves to its chip that is on with the
+    /// selection's spatial spring.
     private var slidingFills: some View {
         ZStack(alignment: .topLeading) {
-            if style == .slidingTonal {
-                ForEach(groups.flatMap { $0 }, id: \.self) { id in
-                    if let f = frames[id] { fill(scheme.surfaceContainerHigh, f) }
-                }
+            ForEach(groups.flatMap { $0 }, id: \.self) { id in
+                if let f = frames[id] { fill(scheme.surfaceContainerHigh, f) }
             }
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 if let on = group.first(where: selected.contains), let f = frames[on] {
@@ -721,11 +774,80 @@ struct SegmentChipRow<ID: Hashable>: View {
     }
 
     private func fill(_ color: Color, _ f: CGRect) -> some View {
-        let r = style == .glassTrack ? (height - 8) / 2 : corner
-        return RoundedRectangle(cornerRadius: r, style: .circular)
+        RoundedRectangle(cornerRadius: corner, style: .circular)
             .fill(color)
-            .frame(width: f.width, height: f.height - (style == .glassTrack ? 8 : 0))
-            .offset(x: f.minX, y: f.minY + (style == .glassTrack ? 4 : 0))
+            .frame(width: f.width, height: f.height)
+            .offset(x: f.minX, y: f.minY)
+    }
+
+    /// The track styles' lozenges: one per group, tinted glass sliding
+    /// between that group's chips with the selection's spring (the frame
+    /// and offset animate; the glass keeps its identity per group, so it
+    /// moves rather than reappears). Turning a group off dematerializes it.
+    private var lozenges: some View {
+        // Their own container (labels stay out of it, drawn over them), so
+        // a lozenge morphs by its ID and materializes in and out.
+        GlassEffectContainer {
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(groups.enumerated()), id: \.offset) { i, group in
+                if let on = group.first(where: selected.contains), let f = frames[on] {
+                    let accent = i == groups.count - 1
+                    let r = f.insetBy(dx: 0, dy: trackInset)
+                    Capsule().fill(.clear)
+                        .glassEffect(accent
+                                     ? .regular.tint(scheme.secondary.opacity(lozengeOpacity)).interactive()
+                                     : .regular.tint(scheme.surfaceContainerHighest.opacity(0.7)).interactive(),
+                                     in: .capsule)
+                        .glassEffectID("lozenge\(i)", in: glassNS)
+                        .glassEffectTransition(.materialize)
+                        .frame(width: r.width, height: r.height)
+                        .offset(x: r.minX, y: r.minY)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    /// The bar's selected tab strength (World 0.85), so the lozenge and the
+    /// Library tab read as one accent.
+    private var lozengeOpacity: Double {
+        GlassLab.shared.tintOpacity("barSelected", dark: colorScheme == .dark)
+    }
+}
+
+/// The track: the search field's glass (one pinned header), or none yet
+/// (scrollLitTrack at rest).
+private struct TrackGlass: ViewModifier {
+    var lit: Bool
+    var scheme: CoverScheme
+
+    func body(content: Content) -> some View {
+        let o = GlassLab.shared.extra("searchChromeTint")
+        let glass: Glass = o > 0 ? .regular.tint(scheme.surfaceContainerHighest.opacity(o)) : .regular
+        content.glassEffect(lit ? glass : .identity, in: .capsule)
+    }
+}
+
+/// glassPills: each chip its own glass, the one that is on in the accent.
+private struct ChipPillGlass<S: Shape>: ViewModifier {
+    /// nil: not the pills style.
+    var on: Bool?
+    var accent: Bool
+    var scheme: CoverScheme
+    var shape: S
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        if let on {
+            content.glassEffect(
+                on && accent ? .regular.tint(scheme.secondary.opacity(GlassLab.shared.tintOpacity("barSelected", dark: colorScheme == .dark))).interactive()
+                    : on ? .regular.tint(scheme.surfaceContainerHighest.opacity(0.9)).interactive()
+                    : .regular.tint(scheme.surfaceContainerHighest.opacity(GlassLab.shared.extra("searchChromeTint"))).interactive(),
+                in: shape)
+        } else {
+            content
+        }
     }
 }
 

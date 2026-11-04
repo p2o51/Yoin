@@ -193,7 +193,7 @@ final class GlassLab {
             extras["detailTopBar"] = mode
             suppressSave = false
         }
-        // Screenshots: `-libraryFilterStyle 0|1|2` (LibraryFilterRow.Style).
+        // Screenshots: `-libraryFilterStyle 0…4` (SegmentChipStyle).
         if let mode = UserDefaults.standard.string(forKey: "libraryFilterStyle").flatMap(Double.init) {
             suppressSave = true
             extras["libraryFilterStyle"] = mode
@@ -370,9 +370,11 @@ final class GlassLab {
         e["darkAmbientStrength"] = 0.88
         e["darkNeighbourStrength"] = 0.42
         e["auraOnTop"] = 1
-        // Fixtures stay well under the floating accent (Gemini round 2: the
-        // pills read as four PAUSEs at 0.6).
-        s["npPills"] = SurfaceStyle(variant: .none, role: .primaryContainer, tintOpacity: 0.45, interactive: false)
+        // Queue / Devices / Write: glass at all times (51, 11-04: they stay
+        // glass; the rating bar is the one solid fixture). Neutral floor, as
+        // Next / Prev: PAUSE stays the room's one accent (R2).
+        s["npPills"] = SurfaceStyle(role: .surfaceContainerHighest, tintOpacity: 0.28,
+                                    shadowOpacity: 0.14, shadowRadius: 10, shadowY: 5)
         // Expanded: tabs, lyric keys and the Ask Gemini bar float over the
         // scrolling page — glass; the selected tab the accent, the rest neutral.
         s["npFloating"] = SurfaceStyle(role: .primary, tintOpacity: 0.78,
@@ -390,8 +392,9 @@ final class GlassLab {
         e["sheetRecedeBlur"] = 3.5
         // R6: covers are objects with a contact shadow.
         e["coverContactShadow"] = 0.22
-        // R1: the pinned chips have the list scrolling under them (question 1 for 51).
-        e["libraryFilterStyle"] = 0
+        // R1: the pinned chips have the list scrolling under them (51, 11-04:
+        // a glass track, made refined): the HIG track, one tinted lozenge.
+        e["libraryFilterStyle"] = Double(SegmentChipStyle.glassTrack.rawValue)
     }
 
     /// Launch-arg overrides (screenshots) are applied without saving.
@@ -689,7 +692,8 @@ struct GlassLabPanel: View {
                 Picker("Library filter", selection: Binding(
                     get: { Int((lab.extras["libraryFilterStyle"] ?? 1).rounded()) },
                     set: { v in withAnimation(Yoin.spatial) { lab.extras["libraryFilterStyle"] = Double(v) } })) {
-                    Text("Android").tag(1); Text("Sliding").tag(2); Text("Glass track").tag(0)
+                    Text("Android").tag(1); Text("Sliding").tag(2); Text("Track").tag(0)
+                    Text("Pills").tag(3); Text("Lit on scroll").tag(4)
                 }
                 .pickerStyle(.segmented)
             }

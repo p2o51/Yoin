@@ -85,7 +85,7 @@ Material column = World. "Lift" = tonal at rest, glass while held.
 | Element | Layer | Material | Why |
 |---|---|---|---|
 | Search field, ✕, chip track | L2 | glass, `surfaceContainerHighest` 0.48 (one pinned header) | R1 pinned over the list |
-| Filter chips (pinned) | L2 | **glass track** (libraryFilterStyle 0) with a sliding selection | R1 — changes 51's earlier decision, see Q1 |
+| Filter chips (pinned) | L2 | **HIG track** (libraryFilterStyle 0): one 44 glass capsule, 8 under the field; plain labels; the chip that is on is a 36 lozenge of `secondary` glass (the Library tab's accent, 0.85) sliding inside, concentric (4 inset); Search's scope pair gets a neutral lozenge, the type the accent; a short faint divider; eased edge fade to the rim | R1 + R2 (51, 11-04: glass track OK, made refined) |
 | Fast scroller thumb / bubble | L2 | glass | R1 floats over the grid |
 | Rows, grid covers | L1 | none | R1 content |
 
@@ -116,14 +116,14 @@ Material column = World. "Lift" = tonal at rest, glass while held.
 | Room background | L3 room | glass `background` 0.46 over ambient (this cover 0.68 / dark 0.88 on top, neighbours 1.0 / dark 0.42) | R5, R7 |
 | ⌄ | L3 chrome | glass, neutral floor 0.28 | R1 pinned to the room frame (the expanded page scrolls under it) |
 | Cover | L3 fixture | solid + contact shadow | R6 |
-| Rating track | L3 fixture | **lift**: tonal `surfaceVariant` 0.45 at rest (fill 0.78), glass 0.28 while dragged (fill 1.0) | R1 static slider |
+| Rating track | L3 fixture | **lift** (`RatingLift`): tonal `surfaceVariant` 0.45 at rest (fill 0.78); held, it scales 1.06 on `Yoin.spatial`, the glass (0.28, interactive) materializes in its own container and the black shadow (0.18 / 12 / 6) fades in; release reverses on the same spring. Relative drag: touch-down keeps the score | R1 static slider (51, 11-04: solid at rest) |
 | Heart | L3 fixture | tonal: liked solid tertiary, unliked tertiaryContainer (Android) | R1; keeps the cover's second colour visible (51) |
 | Tabs (Lyrics / About / Note text) | L3 fixture | none | text |
 | Lyrics | L1 of the room | none; run on under the PAUSE row (lyricsUnder 0.55), gone before the progress row | R1 |
 | PAUSE | L3 chrome | glass primary 0.70 | R1 (lyrics under it) + R2 the room's accent |
 | Next / Prev / play mode | L3 chrome | glass neutral floor 0.28 | R1 + R2 |
 | Progress bar | L3 fixture | **lift**: bare wave; glass capsule only while the bar itself is scrubbed | R1 |
-| Queue / Devices / Write | L3 fixture | tonal `primaryContainer` 0.45 | R1 static flow — changes 51's earlier decision, see Q2 |
+| Queue / Devices / Write | L3 chrome | glass at all times, neutral floor `surfaceContainerHighest` 0.28 (as Next / Prev), black 0.14 / 10 / 5 | 51 (11-04): they stay glass; R2 keeps PAUSE the one accent |
 
 ### Now Playing expanded (lyrics / about / note)
 
@@ -133,7 +133,7 @@ Material column = World. "Lift" = tonal at rest, glass while held.
 | Page tabs | L3 chrome | glass `npFloating`: selected primary 0.78, others neutral | R1 + R2 (PAUSE is away, the selected tab is the accent) |
 | Lyrics action keys (Search / Translate / Select / Recenter) | L3 chrome | glass `npFloating`, neutral; an emphasized key primary | R1 floats over the lyrics list; R2 |
 | Ask Gemini bar / field | L3 chrome | glass `npFloating`, primaryContainer | R1 floats over About |
-| About's Settings / Retry buttons | L1 of the page | `npPills` (tonal) | R1 they scroll with About |
+| About's Settings / Retry buttons | L1 of the page | `npFloating` primary glass (they kept the accent when the pills went neutral) | 51: every Ask Gemini control is glass |
 | Note write bar | L3 chrome | its own capsule (unchanged) | R1 |
 
 ### Sheets (L4)
@@ -159,7 +159,19 @@ Material column = World. "Lift" = tonal at rest, glass while held.
 - Screenshot aids: `-mockAlbum 1…12` (another mock cover in Now Playing),
   `-screen song-menu`.
 
-## Questions for 51 (where a rule changes an earlier decision)
+## Questions for 51 (answered 11-04)
+
+51's answers: (1) the glass track is OK but looked ugly → redesigned as the
+HIG track above, with "Pills" (each chip its own glass) and "Lit on scroll"
+(the track's glass appears only once content scrolls under it) kept in Glass
+Lab; (2) Queue / Devices / Write stay glass, the rating bar can be solid →
+done, and the rating's lift was re-made (it used to jump the score to the
+finger at touch-down and switch its glass off in one frame on release);
+(3) two coloured islands in the bar: accepted. Debug recordings:
+`-animationSpeed 0.25` plays Yoin's springs and the window's layers at a
+quarter speed.
+
+Original questions:
 
 1. **Library pinned chips** — R1 makes them glass (the list scrolls under them),
    so World uses the glass track. You kept Android's tonal chips. Keep the glass

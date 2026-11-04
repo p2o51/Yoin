@@ -61,10 +61,25 @@ struct RootView: View {
         }
         .animation(Yoin.spatial, value: GlassLab.shared.panelOpen)
         .background(GlassLabGestureInstaller())
+        .background(SlowMotionInstaller())
         .fullScreenCover(isPresented: $model.showLanding) {
             LandingGuideView()
                 .environment(model)
                 .environment(\.glassFlavor, model.glassFlavor)
         }
     }
+}
+
+/// `-animationSpeed` (debug): slows the window's layer tree too, so Core
+/// Animation and the glass's own transitions run at the springs' speed.
+private struct SlowMotionInstaller: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        if LaunchConfig.animationSpeed != 1 {
+            DispatchQueue.main.async { v.window?.layer.speed = Float(LaunchConfig.animationSpeed) }
+        }
+        return v
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }

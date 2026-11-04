@@ -54,8 +54,8 @@ struct LyricKeyRow: View {
         // The pills' ink: onPrimary in light, white in dark (neutral preset: onSurface).
         // World: the keys float over the lyrics (NP's floating chrome), neutral
         // glass with on-surface ink; only an emphasized key takes the accent.
-        let ink = lab.neutralTint("npPills") || (lab.oneAccentPerLayer && !key.emphasized) ? scheme.onSurface
-            : colorScheme == .dark ? Color.white : scheme.onPrimary
+        let neutral = lab.oneAccentPerLayer ? !key.emphasized : lab.neutralTint("npPills")
+        let ink = neutral ? scheme.onSurface : colorScheme == .dark ? Color.white : scheme.onPrimary
         let live = key.enabled || key.busy
         return Button {
             if key.enabled, !key.busy { key.action() }

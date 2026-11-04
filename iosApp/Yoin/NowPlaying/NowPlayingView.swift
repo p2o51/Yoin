@@ -524,7 +524,8 @@ struct NowPlayingView: View {
                 .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
             VStack(spacing: 0) {
                 RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld) { down in
-                    withAnimation(Yoin.spatialFast) { ratingHeld = down }
+                    // One spring lifts and settles the bar (scale, glass, shadow).
+                    withAnimation(Yoin.spatial) { ratingHeld = down }
                     touch("rating", down)
                     if !down, let t = engineTrack { data.commitRating(t, client: model.session.client) }
                 }
@@ -1379,13 +1380,11 @@ struct NowPlayingView: View {
             // The primary glass reads mid-tone in both modes: onPrimary in
             // light; white in dark, where dark onPrimary (and, on glass,
             // onPrimaryContainer too) sank into it.
-            // Gemini preset: a neutral floor, so on-surface ink.
-            // World: a solid primaryContainer pill, its own on-color.
+            // Gemini and World: a neutral glass floor, so on-surface ink.
             .foregroundStyle(lab.neutralTint("npPills") ? scheme.onSurface
                              : lab.style("npPills").role == .primaryContainer ? scheme.onPrimaryContainer
                              : colorScheme == .dark ? Color.white : scheme.onPrimary)
-            // Same contrast shadow as PAUSE on the same primary glass; a
-            // tonal pill (World) needs none.
+            // Same contrast shadow as PAUSE on glass; a solid pill needs none.
             .labContrast(lab.style("npPills").variant == .none ? "npPills" : "transportPrimary")
             .padding(.horizontal, 13.2)
             .frame(minWidth: 58, minHeight: 44)
@@ -1538,15 +1537,26 @@ struct NowPlayingView: View {
 /// (titleLarge, tabular) at the top in onSurfaceVariant, onPrimary once the
 /// fill passes 80 % of the height.
 ///
-/// iOS: the track is glass. Held, the whole control reads as a glass
-/// slider (iOS 26 sliders): interactive glass, a touch larger, and the fill
-/// drawn inset so it sits inside the glass capsule.
+/// iOS: held, the whole control reads as a glass slider (iOS 26 sliders):
+/// it lifts a touch larger into interactive glass, the fill drawn inset so
+/// it sits inside the glass capsule. World (`liftInFlow`): a tonal slot at
+/// rest that physically lifts off the stage while held (RatingLift).
+///
+/// The drag is relative: touching down keeps the score, moving the finger
+/// changes it (no jump to the finger at touch-down while the bar lifts). A
+/// tap without movement still sets the score where it lands.
 struct RatingBar: View {
     @Binding var value: Double
     var scheme: CoverScheme
     var held = false
     /// Finger down / up.
     var onHold: (Bool) -> Void = { _ in }
+
+    /// The score at touch-down; nil while not touched.
+    @State private var dragStart: Double?
+
+    /// Below this many points a touch is a tap.
+    private static let tapSlop: CGFloat = 4
 
     var body: some View {
         GeometryReader { geo in
@@ -1557,8 +1567,12 @@ struct RatingBar: View {
             ZStack(alignment: .top) {
                 // Track: glass tinted with the container role, so the
                 // background shows through; the fill (the score) stays solid.
-                Capsule().fill(.clear)
-                    .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: held, in: Capsule())
+                if GlassLab.shared.extra("liftInFlow") > 0.5 {
+                    RatingLift(lifted: held, scheme: scheme)
+                } else {
+                    Capsule().fill(.clear)
+                        .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: held, in: Capsule())
+                }
                 Capsule()
                     // Held, the fill goes full strength (World rests it lower).
                     .fill(scheme.primary.opacity(held ? 1 : GlassLab.shared.extra("ratingFill")))
@@ -1579,18 +1593,73 @@ struct RatingBar: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        if !held { onHold(true) }
-                        let raw = Double((1 - v.location.y / h) * 10)
-                        value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
+                        if dragStart == nil {
+                            dragStart = value
+                            onHold(true)
+                        }
+                        guard let start = dragStart, abs(v.translation.height) >= Self.tapSlop else { return }
+                        set(start - Double(v.translation.height / h * 10))
                     }
-                    .onEnded { _ in onHold(false) }
+                    .onEnded { v in
+                        if abs(v.translation.height) < Self.tapSlop {
+                            set(Double((1 - v.location.y / h) * 10))
+                        }
+                        dragStart = nil
+                        onHold(false)
+                    }
             )
             .animation(Yoin.spatialFast, value: value)
         }
-        .scaleEffect(held ? 1.08 : 1)
+        .scaleEffect(held ? RatingLift.scale : 1)
         .accessibilityElement()
         .accessibilityLabel("Rating")
         .accessibilityValue(String(format: "%.1f", value))
+    }
+
+    private func set(_ raw: Double) {
+        value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
+    }
+}
+
+/// World's rating track (Glass Lab "ratingTrack" + liftInFlow): a tonal
+/// slot at rest that lifts off the stage while held. The rest fill fades
+/// out as the glass materializes in its own container (and dematerializes
+/// back on release: the glass is inserted and removed, never switched to
+/// `.identity`, which snapped off in one frame); the shadow, from the one
+/// light straight above (R4), exists only while lifted. The caller scales
+/// the bar by `scale` under the same spring, so lift and settle are one
+/// motion.
+struct RatingLift: View {
+    var lifted: Bool
+    var scheme: CoverScheme
+
+    /// The lift's scale (and the settle's, back to 1).
+    static let scale: CGFloat = 1.06
+
+    var body: some View {
+        let lab = GlassLab.shared
+        let st = lab.style("ratingTrack")
+        let tint = st.role.color(in: scheme, brand: .brand(dark: false), auto: scheme.surfaceVariant)
+        ZStack {
+            // The shadow sits under the glass, a blurred capsule straight
+            // down, so it fades in and out with the lift and never pops.
+            Capsule()
+                .fill(.black.opacity(st.shadowOpacity))
+                .blur(radius: st.shadowRadius / 2)
+                .offset(y: st.shadowY)
+                .opacity(lifted ? 1 : 0)
+            GlassEffectContainer {
+                if lifted {
+                    Capsule().fill(.clear)
+                        .glassEffect(.regular.tint(tint.opacity(st.tintOpacity)).interactive(), in: .capsule)
+                        .glassEffectTransition(.materialize)
+                }
+            }
+            Capsule()
+                .fill(tint.opacity(lab.extra("liftRestOpacity")))
+                .opacity(lifted ? 0 : 1)
+        }
+        .animation(Yoin.effects, value: lifted)
     }
 }
 
