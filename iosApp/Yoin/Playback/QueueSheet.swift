@@ -43,9 +43,24 @@ struct QueueSheet: View {
                 sectionLabel(sourceTitle.map { "Next from: \($0)" } ?? "Next up")
                 part(next)
             }
+            if upcoming.isEmpty {
+                // Empty: a label, not a blank sheet under the header.
+                Text(engine.currentItem == nil ? "Queue is empty" : "Nothing up next")
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 18)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        // The soft scroll edge drew a grey band along the sheet's bottom edge
+        // over the glass; the sheet's own rounded edge already ends the list.
+        .scrollEdgeEffectHidden(true, for: .bottom)
         .contentMargins(.bottom, 16, for: .scrollContent)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)

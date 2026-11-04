@@ -77,7 +77,10 @@ struct TrackMenuSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @AppStorage("keepScreenOn") private var keepScreenOn = false
-    @State private var height: CGFloat = 420
+    /// The content's measured height; until the first layout, `estimatedHeight`.
+    /// (A fixed 420 guess presented the sheet at one height and then re-sized
+    /// it mid-rise: the opening looked like two moves.)
+    @State private var height: CGFloat?
     @State private var tapped = 0
     /// The top-row button under the finger (it widens, its corners squeeze).
     @State private var pressedQuick: String?
@@ -240,12 +243,27 @@ struct TrackMenuSheet: View {
             .padding(.horizontal, 16)
             .padding(.top, 24)
             .padding(.bottom, 16)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { new in
+                // Sub-point differences from the estimate don't re-size the sheet.
+                if abs(new - (height ?? estimatedHeight)) > 0.5 { height = new }
+            }
         }
         .scrollBounceBehavior(.basedOnSize)
-        .presentationDetents([.height(min(height + 8, 640))])
+        // No soft scroll edge: it laid a grey band along the sheet's bottom.
+        .scrollEdgeEffectHidden(true, for: .bottom)
+        .presentationDetents([.height(min((height ?? estimatedHeight) + 8, 640))])
         .presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: tapped)
+    }
+
+    /// The content's height from the layout's own numbers (padding 24 + 16,
+    /// header 56 + 4, groups 12 apart, the top row 76, rows 56 two apart,
+    /// Keep screen on 56), so the sheet presents at its final detent.
+    private var estimatedHeight: CGFloat {
+        var h: CGFloat = 24 + 60 + 12 + Self.quickHeight
+        for rows in groups { h += 12 + CGFloat(rows.count) * 56 + CGFloat(max(rows.count - 1, 0)) * 2 }
+        if context.kind == .nowPlaying { h += 12 + 56 }
+        return h + 16
     }
 
     /// TrackMenuHeader: 56 Thumb, 16, titleMedium SemiBold over bodyMedium.
@@ -462,10 +480,10 @@ private struct PlaylistActionsHost: ViewModifier {
         @Bindable var actions = PlaylistActions.shared
         content
             .sheet(item: $actions.menu, onDismiss: { PlaylistActions.shared.flushPendingAdd() }) { t in
-                TrackMenuSheet(track: t.entry, context: t.context).environment(model)
+                TrackMenuSheet(track: t.entry, context: t.context).environment(model).reportsSheetRise()
             }
             .sheet(item: $actions.adding) { t in
-                AddToPlaylistSheet(entries: t.entries).environment(model)
+                AddToPlaylistSheet(entries: t.entries).environment(model).reportsSheetRise()
             }
             .alert("Rename playlist", isPresented: Binding(get: { actions.renaming != nil },
                                                            set: { if !$0 { actions.renaming = nil } }),

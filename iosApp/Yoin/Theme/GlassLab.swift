@@ -564,16 +564,22 @@ extension View {
         // Blur inside the corner mask, so the plane's silhouette stays crisp.
         return self
             .blur(radius: lab.extra(k + "Blur") * d)
-            .overlay {
-                Color.black.opacity(lab.extra(k + "Dim") * d)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
             // The world behind keeps the display's corners as it steps back.
             .mask {
                 RoundedRectangle(cornerRadius: d > 0.001 ? 44 : 0, style: .continuous).ignoresSafeArea()
             }
             .scaleEffect(1 - lab.extra(k + "Scale") * d)
+            // What the shrinking plane uncovers is the app's surface, not the
+            // window's black (a black rim at the corners read as a flash),
+            // and the dim lies over both, so the rim dims with the plane.
+            .background {
+                if d > 0.001 { Yoin.surface.ignoresSafeArea() }
+            }
+            .overlay {
+                Color.black.opacity(lab.extra(k + "Dim") * d)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
     }
 
     /// A cover as a physical object: a soft contact shadow straight down.

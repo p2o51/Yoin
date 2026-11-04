@@ -360,8 +360,12 @@ public struct WavyProgressBar: View {
 
     private func bubble(for s: Double) -> some View {
         let onNote = isOnNote(s)
+        // Android PreviewTimeBubble: labelLarge, tabular figures, in Google
+        // Sans Flex (the system font read as a different app).
         return Text(onNote ? "Note" : timeText(s))
-            .font(.subheadline.weight(.semibold).monospacedDigit())
+            .font(.gsf(Tokens.type.labelLarge.size.cg, Font.Weight(gsf: Tokens.type.labelLarge.weight)))
+            .tracking(Tokens.type.labelLarge.letterSpacing.cg)
+            .monospacedDigit()
             .foregroundStyle(onNote ? noteInk : Color.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

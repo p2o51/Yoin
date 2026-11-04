@@ -128,7 +128,7 @@ struct NowPlayingView: View {
                 .animation(Yoin.effects, value: model.queueSheetOpen)
         }
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
-            QueueSheet()
+            QueueSheet().reportsSheetRise()
         }
         // The lyric tools' sheets (Android LyricsSearchSheet / LyricsApplyDialog / LyricsShareSheet).
         .sheet(isPresented: Binding(get: { LyricsActions.shared.search.isOpen },
@@ -1201,31 +1201,45 @@ struct NowPlayingView: View {
         return GlassEffectContainer(spacing: lab.extra("containerSpacing")) {
         VStack(spacing: rowGap) {
             HStack(spacing: gap) {
+                // PLAY ⇄ PAUSE (Android PlaybackControls): one spring reshapes
+                // the pill — the word's box and the side padding (16 ⇄ 24) on
+                // the Standard fast spatial spring — while the word swaps
+                // weight and stretch (0.97 ⇄ 1.06, 1.10 held). The pill and
+                // NEXT are one connected group: the pressed key gains 15 % of
+                // its width from the other. Keyed on the state itself, so
+                // every source animates (button, lock screen, headphones, the
+                // engine stopping on its own). One Button, one glass: the
+                // glass shape follows the frame, nothing is rebuilt.
+                let playing = p.isPlaying
+                let pausePressed = touching.contains("pause"), nextPressed = touching.contains("Next")
+                let word = Self.playWordWidth(playing: playing)
+                let pad: CGFloat = playing ? 24 : 16
+                let playRest = word + pad * 2
+                let grow = Self.transportKeyExpandedRatio
+                let playWidth = playRest + (pausePressed ? grow * playRest : 0) - (nextPressed ? grow * control : 0)
+                let nextWidth = control + (nextPressed ? grow * control : 0) - (pausePressed ? grow * playRest : 0)
                 Button { model.player.togglePlayPause() } label: {
-                    // titleLarge × 0.9, Bold, 0.5 tracking; the playing
-                    // stretch (1.06) grows from the word's leading edge.
-                    Text(p.isPlaying ? "PAUSE" : "PLAY")
-                        .font(.gsf(19.8, .bold))
-                        .tracking(0.5)
-                        .scaleEffect(x: 1.06, y: 1, anchor: .leading)
-                        // Same rule as the pills on the same primary glass:
-                        // dark onPrimary sank into thin glass (Balanced);
-                        // dense glass (Gemini) carries it.
-                        .foregroundStyle(colorScheme == .dark && !lab.denseAccent("transportPrimary", dark: true)
-                                         ? Color.white : scheme.onPrimary)
-                        .labContrast("transportPrimary")
-                        .padding(.horizontal, 24)
-                        .frame(height: 56)
+                    playPauseLabel(playing: playing, pressed: pausePressed)
+                        .frame(width: word)
+                        .padding(.horizontal, pad)
+                        .frame(width: max(0, playWidth), height: 56)
                         .contentShape(.capsule)
                 }
                 .buttonStyle(PressReport { touch("pause", $0) })
                 .labGlass("transportPrimary", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
-                .accessibilityLabel(p.isPlaying ? "Pause" : "Play")
+                .accessibilityLabel(playing ? "Pause" : "Play")
+                .animation(Yoin.standardFastSpatial, value: playing)
+                .animation(Yoin.standardDefaultSpatial, value: pausePressed)
+                .animation(Yoin.standardDefaultSpatial, value: nextPressed)
                 // PREVIOUS's place in this row, opening as it arrives.
                 .padding(.leading, short ? control + gap : 0)
-                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next") {
+                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next",
+                            width: max(0, nextWidth)) {
                     model.player.next()
                 }
+                .animation(Yoin.standardFastSpatial, value: playing)
+                .animation(Yoin.standardDefaultSpatial, value: pausePressed)
+                .animation(Yoin.standardDefaultSpatial, value: nextPressed)
                 Spacer(minLength: 0)
                 roundButton(model.player.shuffle ? "shuffle" : "repeat", fill: scheme.tertiaryContainer,
                             ink: scheme.onTertiaryContainer, label: "Play mode", badge: playModeBadge) {
@@ -1233,15 +1247,9 @@ struct NowPlayingView: View {
                 }
             }
             .frame(height: 56)
-            HStack(spacing: 0) {
-                // PREVIOUS's slot narrows to nothing as the button rises.
-                Spacer().frame(width: short ? 0 : control + gap)
-                progress(p)
-            }
-            .font(.gsf(14, .medium))
-            .monospacedDigit()
-            .foregroundStyle(scheme.onSurfaceVariant)
-            .frame(height: secondRow)
+            // The progress row's place: the row itself is drawn over the
+            // container (below), so its glass stays behind the times and the bar.
+            Color.clear.frame(height: secondRow)
         }
         .overlay(alignment: .topLeading) {
             // PREVIOUS: at the start of the progress row at rest, at the
@@ -1251,6 +1259,17 @@ struct NowPlayingView: View {
             }
             .offset(y: short ? 0 : control + rowGap + (secondRow - control) / 2)
         }
+        }
+        .overlay(alignment: .bottom) {
+            HStack(spacing: 0) {
+                // PREVIOUS's slot narrows to nothing as the button rises.
+                Spacer().frame(width: short ? 0 : control + gap)
+                progress(p)
+            }
+            .font(.gsf(14, .medium))
+            .monospacedDigit()
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .frame(height: secondRow)
         }
     }
 
@@ -1284,13 +1303,72 @@ struct NowPlayingView: View {
                 .offset(y: 6)
         }
         }
-        // The row itself carries the glass (as glass content the times and
-        // the bar draw over it; a background glass in the transport's
-        // container would be lifted above them). The shape does the morph.
-        // The row sits where Android's does; the capsule reaches 4 pt past
-        // its leading edge (clear of Previous) and 10 pt past its end.
-        .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: true,
-                 in: ScrubberGlassShape(grow: scrubberLifted ? 1 : 0, leading: 4, trailing: 10))
+        // The glass is a layer of its own BEHIND the row, outside the
+        // transport's glass container: the times and the bar are drawn on
+        // top of it, not as its content (as content they were refracted and
+        // tinted with it, "inside" the glass). The shape does the morph. The
+        // row sits where Android's does; the capsule reaches 4 pt past its
+        // leading edge (clear of Previous) and 10 pt past its end.
+        .background {
+            Color.clear
+                .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: true,
+                         in: ScrubberGlassShape(grow: scrubberLifted ? 1 : 0, leading: 4, trailing: 10))
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// The PLAY / PAUSE word (English) or the morphing symbol (every other
+    /// language, Android wordLabel), in a box the pill sizes from the word.
+    @ViewBuilder
+    private func playPauseLabel(playing: Bool, pressed: Bool) -> some View {
+        let stretch: CGFloat = pressed ? 1.10 : (playing ? 1.06 : 0.97)
+        let ink = colorScheme == .dark && !lab.denseAccent("transportPrimary", dark: true) ? Color.white : scheme.onPrimary
+        Group {
+            if Self.spellsPlayWord {
+                // titleLarge × 0.9; PAUSE Bold with 0.5 tracking, PLAY Medium
+                // with none. Laid out at its own width (it never sizes the
+                // pill); the stretch grows from its leading edge.
+                Text(playing ? "PAUSE" : "PLAY")
+                    .font(.gsf(19.8, playing ? .bold : .medium))
+                    .tracking(playing ? 0.5 : 0)
+                    // The word swaps outright (Android Text): no cross-fade
+                    // of PLAY over PAUSE while the pill reshapes.
+                    .contentTransition(.identity)
+                    .fixedSize()
+                    .scaleEffect(x: stretch, y: 1, anchor: .leading)
+            } else {
+                YoinIcon(playing ? "pause_filled" : "play_filled", size: 28)
+                    .contentTransition(.symbolEffect(.replace))
+                    .scaleEffect(stretch)
+            }
+        }
+        .foregroundStyle(ink)
+        .labContrast("transportPrimary")
+        // The stretch: fast while held, default otherwise (Android textStretchSpec).
+        .animation(pressed ? Yoin.standardFastSpatial : Yoin.standardDefaultSpatial, value: stretch)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Android: only English spells the word; every other language (one
+    /// added later included) shows the symbol. Read from the language the app
+    /// runs in, as Android's configuration locale is (the iOS app is English
+    /// only today, so a Chinese phone still reads English UI and the word).
+    private static var spellsPlayWord: Bool {
+        let lang = Bundle.main.preferredLocalizations.first ?? "en"
+        return Locale(identifier: lang).language.languageCode?.identifier == "en"
+    }
+
+    /// M3 ButtonGroupDefaults.ExpandedRatio (Android TransportKeyExpandedRatio).
+    private static let transportKeyExpandedRatio: CGFloat = 0.15
+
+    /// The pill's word box: the English word measured in its own style (other
+    /// languages use the same box, so the shape never changes with language).
+    static func playWordWidth(playing: Bool) -> CGFloat {
+        let name = playing ? "GoogleSansFlex-Bold" : "GoogleSansFlex-Medium"
+        let font = UIFont(name: name, size: 19.8) ?? .systemFont(ofSize: 19.8, weight: playing ? .bold : .medium)
+        let text = NSAttributedString(string: playing ? "PAUSE" : "PLAY",
+                                      attributes: [.font: font, .kern: playing ? 0.5 : 0])
+        return ceil(text.size().width)
     }
 
     /// The scrubber's glass: any control touched (iOS 26 Music), or (World,
@@ -1309,7 +1387,7 @@ struct NowPlayingView: View {
     }
 
     private func roundButton(_ icon: String, fill: Color, ink: Color, label: String, badge: String? = nil,
-                             action: @escaping () -> Void) -> some View {
+                             width: CGFloat = 56, action: @escaping () -> Void) -> some View {
         // Untinted (Balanced / HIG presets) or a neutral floor (Gemini):
         // the glyph goes on-surface.
         let tinted = GlassLab.shared.style("transportSecondary").tintOn
@@ -1325,11 +1403,12 @@ struct NowPlayingView: View {
                     }
                 }
                 .labContrast("transportSecondary")
-                .frame(width: 56, height: 56)
-                .contentShape(.circle)
+                .frame(width: width, height: 56)
+                .contentShape(.capsule)
         }
         .buttonStyle(PressReport { touch(label, $0) })
-        .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: fill, in: Circle())
+        // A capsule: a circle at 56 × 56, the pill a press widens it into.
+        .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: fill, in: Capsule())
         .accessibilityLabel(label)
     }
 
@@ -1581,6 +1660,7 @@ struct RatingBar: View {
     @Binding var value: Double?
     var scheme: CoverScheme
     var held = false
+    @Environment(\.colorScheme) private var colorScheme
     /// Finger down / up.
     var onHold: (Bool) -> Void = { _ in }
 
@@ -1607,6 +1687,18 @@ struct RatingBar: View {
                 } else {
                     Capsule().fill(.clear)
                         .npGlass("ratingTrack", scheme: scheme, auto: scheme.surfaceVariant, held: held, in: Capsule())
+                }
+                if value == nil {
+                    // Unrated: the empty slot must still read as a bar. The
+                    // rest tint sank into dark backgrounds (nearly invisible),
+                    // so the empty track carries a tonal fill and an outline
+                    // of its own (no number, no fill height).
+                    Capsule()
+                        .fill(scheme.surfaceVariant.opacity(colorScheme == .dark ? 0.32 : 0.22))
+                        .overlay(Capsule().strokeBorder(scheme.outline.opacity(colorScheme == .dark ? 0.55 : 0.35),
+                                                        lineWidth: 1.5))
+                        .transition(.opacity.animation(Yoin.effects))
+                        .allowsHitTesting(false)
                 }
                 Capsule()
                     // Held, the fill goes full strength (World rests it lower).

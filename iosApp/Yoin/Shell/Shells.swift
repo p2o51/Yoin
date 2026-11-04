@@ -74,7 +74,10 @@ struct PhoneShell: View {
             if model.searchActive {
                 SearchView(npNamespace: npNS)
                     .zIndex(0.5)
-                    .transition(.opacity)
+                    // In: SearchView stages itself (the field grows out of
+                    // the bar's circle opaque; surface, then chips, fade in).
+                    // Out: one fade while the field folds back.
+                    .transition(.asymmetric(insertion: .identity, removal: .opacity))
             }
 
             if model.np.mounted {
@@ -86,25 +89,19 @@ struct PhoneShell: View {
                     .transition(.identity)
             }
         }
-        // World: the shell steps back into black (the room in front of it).
-        .background(GlassLab.shared.extra("recedeScale") > 0 ? Color.black : Yoin.surface)
+        // The plane behind a receding layer is the app surface, never black
+        // (labRecede draws it too): black read as a flash at the corners.
+        .background(Yoin.surface.ignoresSafeArea())
         .overlay(alignment: .top) {
             // Soft top edge under the status bar. The system scroll-edge
             // effect only runs under a real bar, and the root pages hide the
             // navigation bar (custom headers), so this approximates it: a
             // material band that fades out downward, like Apple Music's top.
-            if model.path.isEmpty && !model.npExpanded {
-                GeometryReader { g in
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .mask(LinearGradient(stops: [.init(color: .black, location: 0),
-                                                     .init(color: .black, location: 0.45),
-                                                     .init(color: .clear, location: 1)],
-                                             startPoint: .top, endPoint: .bottom))
-                        .frame(height: g.safeAreaInsets.top + 22)
-                        .ignoresSafeArea(edges: .top)
-                }
-                .allowsHitTesting(false)
+            // Off the morph's own progress (a frame of the fold fades it in
+            // step), not an insert on `npExpanded`, which landed in one frame
+            // at the end of the close.
+            if model.path.isEmpty {
+                StatusEdgeBand()
             }
         }
         .onChange(of: model.npExpanded) { _, open in model.np.show(open) }
@@ -124,6 +121,31 @@ struct PhoneShell: View {
     }
 }
 
+/// Soft top edge under the status bar. The system scroll-edge effect only
+/// runs under a real bar, and the root pages hide the navigation bar (custom
+/// headers), so this approximates it: a material band that fades out
+/// downward, like Apple Music's top. Hidden under Now Playing, by the morph's
+/// progress (read here, so its frames re-render the band only).
+private struct StatusEdgeBand: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let shown = model.np.mounted ? 1 - min(max(model.np.progress, 0), 1) : (model.npExpanded ? 0 : 1)
+        GeometryReader { g in
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .mask(LinearGradient(stops: [.init(color: .black, location: 0),
+                                             .init(color: .black, location: 0.45),
+                                             .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(height: g.safeAreaInsets.top + 22)
+                .ignoresSafeArea(edges: .top)
+        }
+        .opacity(shown)
+        .allowsHitTesting(false)
+    }
+}
+
 /// World depth cue (Glass Lab recedeScale / recedeDim / recedeBlur): the
 /// layer behind whatever sits on top steps back. The shell recedes with Now
 /// Playing's morph progress (one controller: ⌄, drag and back all move it)
@@ -138,21 +160,153 @@ struct WorldRecede: ViewModifier {
     func body(content: Content) -> some View {
         let lab = GlassLab.shared
         if lab.extra("recedeScale") > 0 || lab.extra("recedeDim") > 0 || lab.extra("recedeBlur") > 0 {
-            let actions = PlaylistActions.shared
-            let sheet = actions.menu != nil || actions.adding != nil || model.queueSheetOpen
+            // Both depths are read straight off what sits on top, frame by
+            // frame, with no animation of their own: the morph's progress, and
+            // the sheet's rise (SheetRise: its own presentation, dismissal and
+            // drag). A separate spring here ran out of step with the sheet and
+            // landed in one frame.
+            let rise = SheetRise.shared.progress
             let underNP = layer == .shell && model.np.mounted
             let depth: CGFloat = switch layer {
-            case .shell: underNP ? min(max(model.np.progress, 0), 1) : (sheet ? 1 : 0)
-            case .nowPlaying: sheet && model.npExpanded ? 1 : 0
+            case .shell: underNP ? min(max(model.np.progress, 0), 1) : rise
+            case .nowPlaying: model.npExpanded ? rise : 0
             }
             content
                 .labRecede(depth, sheet: !underNP)
-                // The morph's frames drive the shell's depth directly; a
-                // sheet's comes in on the sheet's spring.
-                .animation(model.np.mounted && layer == .shell ? nil : Yoin.spatial, value: sheet)
+                .transaction { $0.animation = nil }
         } else {
             content
         }
+    }
+}
+
+/// How far the song sheet, Add to playlist or the Queue is up: 0 down, 1 at
+/// its detent. Read off the sheet's own presentation layer every frame by a
+/// SheetRiseReporter inside it, so the world behind steps back exactly with
+/// the system sheet: as it presents, as it dismisses, under a finger.
+@MainActor @Observable
+final class SheetRise {
+    static let shared = SheetRise()
+    private(set) var progress: CGFloat = 0
+    @ObservationIgnored private var sources: [ObjectIdentifier: CGFloat] = [:]
+
+    func report(_ source: ObjectIdentifier, _ value: CGFloat?) {
+        sources[source] = value
+        let p = sources.values.max() ?? 0
+        // Ends are always written; in between, sub-pixel steps are skipped.
+        if p != progress && (p == 0 || p == 1 || abs(p - progress) > 0.002) { progress = p }
+    }
+}
+
+extension View {
+    /// Put inside a sheet's content: reports the sheet's rise (SheetRise).
+    func reportsSheetRise() -> some View { background(SheetRiseReporter()) }
+}
+
+private struct SheetRiseReporter: UIViewRepresentable {
+    func makeUIView(context: Context) -> SheetRiseView { SheetRiseView() }
+    func updateUIView(_ uiView: SheetRiseView, context: Context) {}
+}
+
+/// The sheet's top as drawn this frame (its presentation layer) against
+/// where it rests. The rest is the sheet's own frame, except while a finger
+/// is on it: UIKit moves the frame itself under a drag, which would read as
+/// "at rest" all the way down.
+final class SheetRiseView: UIView {
+    private var link: CADisplayLink?
+    private var rest: CGFloat?
+    private weak var sheet: UIView?
+    private weak var controller: UIViewController?
+    /// The sheet's rise has been seen under way (or it had none to show):
+    /// until then a frame read before UIKit attaches the presentation
+    /// animation (model = drawn, at rest) would report a full rise for one
+    /// frame.
+    private var armed = false
+    private var attachedAt: CFTimeInterval = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        link?.invalidate()
+        link = nil
+        if window != nil {
+            let l = CADisplayLink(target: self, selector: #selector(tick))
+            l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            l.add(to: .main, forMode: .common)
+            link = l
+            armed = false
+            attachedAt = CACurrentMediaTime()
+        } else {
+            rest = nil
+            SheetRise.shared.report(ObjectIdentifier(self), nil)
+        }
+    }
+
+    /// The presented view the sheet controller moves.
+    private func findSheet() -> UIView? {
+        if let sheet { return sheet }
+        var r: UIResponder? = self
+        while let next = r?.next {
+            if let vc = next as? UIViewController, vc.presentingViewController != nil,
+               let v = vc.presentationController?.presentedView {
+                sheet = v
+                controller = vc
+                return v
+            }
+            r = next
+        }
+        return nil
+    }
+
+    private func dragged(_ v: UIView) -> Bool {
+        var view: UIView? = v
+        while let cur = view {
+            if cur.gestureRecognizers?.contains(where: { $0 is UIPanGestureRecognizer
+                && ($0.state == .began || $0.state == .changed) }) == true { return true }
+            view = cur.superview
+        }
+        // A scroll view inside the sheet hands its pan to the sheet at the top.
+        return v.firstScrollViewPanActive()
+    }
+
+    @objc private func tick() {
+        guard let window, let sheet = findSheet() else { return }
+        let model = sheet.convert(sheet.bounds, to: window).minY
+        let wl = window.layer.presentation() ?? window.layer
+        let pl = sheet.layer.presentation() ?? sheet.layer
+        let now = pl.convert(pl.bounds, to: wl).minY
+        // Only when the frame moved for a detent change: not under a drag,
+        // and not as it leaves (UIKit sets the frame off screen at once).
+        if let r = rest, abs(model - r) > 0.5, controller?.isBeingDismissed != true,
+           model < window.bounds.height - 1, !dragged(sheet) { rest = model }
+        if rest == nil { rest = model }
+        let bottom = window.bounds.height
+        guard let rest, bottom - rest > 1 else { return }
+        let p = min(max((bottom - now) / (bottom - rest), 0), 1)
+        if !armed {
+            guard p < 0.98 || CACurrentMediaTime() - attachedAt > 0.3 else { return }
+            armed = true
+        }
+        SheetRise.shared.report(ObjectIdentifier(self), p)
+    }
+}
+
+private extension UIView {
+    func firstScrollViewPanActive() -> Bool {
+        for sub in subviews {
+            if let s = sub as? UIScrollView, s.panGestureRecognizer.state == .began || s.panGestureRecognizer.state == .changed {
+                return true
+            }
+            if sub.firstScrollViewPanActive() { return true }
+        }
+        return false
     }
 }
 

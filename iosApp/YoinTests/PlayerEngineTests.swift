@@ -560,3 +560,53 @@ final class StreamQualityTests: XCTestCase {
         XCTAssertEqual(query(output.preloaded)["maxBitRate"], "192")
     }
 }
+
+/// Now Playing's background edges (shared rule with Android): previous / next
+/// in play order, repeat-all wraps, otherwise the playing cover's own scheme.
+final class NowPlayingNeighboursTests: XCTestCase {
+    typealias N = NowPlayingNeighbours
+
+    func test_should_pickItemsAroundCurrent_when_inTheMiddle() {
+        let e = N.edges(count: 5, current: 2, repeatAll: false)
+        XCTAssertEqual(e.top, .item(1))
+        XCTAssertEqual(e.bottom, .item(3))
+    }
+
+    func test_should_fallBackToOwnScheme_when_atTheEndsWithoutRepeatAll() {
+        let first = N.edges(count: 3, current: 0, repeatAll: false)
+        XCTAssertEqual(first.top, .own)
+        XCTAssertEqual(first.bottom, .item(1))
+        let last = N.edges(count: 3, current: 2, repeatAll: false)
+        XCTAssertEqual(last.top, .item(1))
+        XCTAssertEqual(last.bottom, .own)
+    }
+
+    func test_should_wrapAround_when_repeatAll() {
+        let first = N.edges(count: 3, current: 0, repeatAll: true)
+        XCTAssertEqual(first.top, .item(2))
+        XCTAssertEqual(first.bottom, .item(1))
+        let last = N.edges(count: 3, current: 2, repeatAll: true)
+        XCTAssertEqual(last.top, .item(1))
+        XCTAssertEqual(last.bottom, .item(0))
+    }
+
+    func test_should_beItsOwnNeighbour_when_aSingleSongRepeatsAll() {
+        let e = N.edges(count: 1, current: 0, repeatAll: true)
+        XCTAssertEqual(e.top, .item(0))
+        XCTAssertEqual(e.bottom, .item(0))
+    }
+
+    func test_should_useOwnScheme_when_noQueueOrNoCurrent() {
+        XCTAssertEqual(N.edges(count: 0, current: nil, repeatAll: true).top, .own)
+        XCTAssertEqual(N.edges(count: 4, current: nil, repeatAll: true).bottom, .own)
+        XCTAssertEqual(N.edges(count: 4, current: 9, repeatAll: false).top, .own)
+    }
+
+    func test_should_followThePlayOrderGiven_when_shuffled() {
+        // The engine's queue is already in play order (shuffled when shuffle
+        // is on), so the rule is index-based on that order.
+        let e = N.edges(count: 4, current: 3, repeatAll: false)
+        XCTAssertEqual(e.top, .item(2))
+        XCTAssertEqual(e.bottom, .own)
+    }
+}

@@ -321,9 +321,12 @@ struct NowPlayingMorph: View {
             .offset(x: rect.minX, y: rect.minY)
             // Never quite 0: the page's first real render lands with the
             // mount, not as a hitch half way through the open.
-            // Read off the rise (the shape's height), so a drag-down keeps
-            // the page readable until the card is well folded.
-            .opacity(max(0.002, smooth(0.3, 0.75, NowPlayingPresentation.rise(q))))
+            // Read off the rise (the shape's height). Objects transform (R5):
+            // the page shrinks with the card and stays on it until the card
+            // is nearly the pill (rise 0.2 ≈ progress 0.1), then hands over
+            // to the pill's own content; fading from rise 0.75 down left an
+            // empty frosted slab for a third of the fold.
+            .opacity(max(0.002, smooth(0.04, 0.2, NowPlayingPresentation.rise(q))))
             .mask(alignment: .topLeading) {
                 shape.frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
@@ -518,19 +521,62 @@ private struct NowPlayingMorphAnchorModifier: ViewModifier {
 
 // MARK: - Background
 
+/// Which colours frame Now Playing's background (shared rule with Android):
+/// the top edge is the album of the queue item before the playing one, the
+/// bottom edge the album of the item after it, in PLAY order (shuffled when
+/// shuffle is on). Repeat-all wraps around the ends; otherwise an end with no
+/// neighbour falls back to the playing cover's own scheme (top
+/// secondaryContainer, bottom tertiaryContainer). A neighbour on the same
+/// album is still a neighbour (its primaryContainer).
+enum NowPlayingNeighbours {
+    enum Edge: Equatable {
+        /// The queue item at this index (play order): its album's primaryContainer.
+        case item(Int)
+        /// No neighbour: the playing scheme's secondaryContainer (top) / tertiaryContainer (bottom).
+        case own
+    }
+
+    static func edges(count: Int, current: Int?, repeatAll: Bool) -> (top: Edge, bottom: Edge) {
+        guard let i = current, count > 0, (0..<count).contains(i) else { return (.own, .own) }
+        let before = i - 1, after = i + 1
+        let top: Edge = before >= 0 ? .item(before) : (repeatAll ? .item(count - 1) : .own)
+        let bottom: Edge = after < count ? .item(after) : (repeatAll ? .item(0) : .own)
+        return (top, bottom)
+    }
+}
+
 /// Now Playing's ambient colors under its glass: this album's primary in the
-/// middle, the previous album's at the top edge, the next album's at the bottom.
+/// middle, the previous album's at the top edge, the next album's at the
+/// bottom (NowPlayingNeighbours). Mock / no queue: the stand-in albums.
 struct NowPlayingAmbient: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     var scheme: CoverScheme
     private var lab: GlassLab { GlassLab.shared }
 
+    /// The two edge colours.
+    private func neighbourColors(dark: Bool) -> (top: Color, bottom: Color) {
+        let engine = model.player
+        guard engine.currentTrack != nil, !engine.queue.isEmpty else {
+            let albums = model.library.albums()
+            return (CoverScheme(album: albums[11], dark: dark).primaryContainer,
+                    CoverScheme(album: albums[1], dark: dark).primaryContainer)
+        }
+        let edges = NowPlayingNeighbours.edges(count: engine.queue.count, current: engine.currentIndex,
+                                               repeatAll: engine.repeatMode == .all)
+        func color(_ edge: NowPlayingNeighbours.Edge, own: Color) -> Color {
+            guard case .item(let i) = edge else { return own }
+            let t = engine.queue[i].track
+            let album = model.store.albumForPlaying(t) ?? AppModel.album(for: t, library: model.library)
+            return CoverScheme(album: album, dark: dark).primaryContainer
+        }
+        return (color(edges.top, own: scheme.secondaryContainer),
+                color(edges.bottom, own: scheme.tertiaryContainer))
+    }
+
     var body: some View {
-        let albums = model.library.albums()
         let dark = colorScheme == .dark
-        let previous = CoverScheme(album: albums[11], dark: dark)
-        let next = CoverScheme(album: albums[1], dark: dark)
+        let edge = neighbourColors(dark: dark)
         // World: dark mode has its own strengths (0 = as in light).
         let strength = dark && lab.extra("darkAmbientStrength") > 0
             ? lab.extra("darkAmbientStrength") : lab.extra("ambientStrength")
@@ -543,14 +589,18 @@ struct NowPlayingAmbient: View {
             scheme.background
             if !onTop { aura }
             VStack {
-                Ellipse().fill(previous.primaryContainer.opacity(neighbours))
+                Ellipse().fill(edge.top.opacity(neighbours))
                     .frame(height: 300).offset(y: -90).blur(radius: 50)
                 Spacer()
-                Ellipse().fill(next.primaryContainer.opacity(neighbours))
+                Ellipse().fill(edge.bottom.opacity(neighbours))
                     .frame(height: 320).offset(y: 110).blur(radius: 50)
             }
             // World: the room's own cover leads; neighbours only frame it.
             if onTop { aura }
         }
+        // A new song (or a reordered queue) re-colours the edges on the
+        // effects spring, never a snap.
+        .animation(Yoin.effects, value: model.player.currentItem?.id)
+        .animation(Yoin.effects, value: model.player.queue.count)
     }
 }

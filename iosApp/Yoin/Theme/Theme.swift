@@ -38,6 +38,16 @@ enum Yoin {
             : .spring(response: 0.35, dampingFraction: 1)).speed(LaunchConfig.animationSpeed)
     }
 
+    /// M3 Standard motion scheme's fast / default spatial springs (Android
+    /// YoinMotionRole.Standard: damping 0.9 at stiffness 1400 / 700). The
+    /// transport's PLAY ⇄ PAUSE pill and its press run on these.
+    @MainActor static var standardFastSpatial: Animation {
+        shared(Tokens.motion.standardFastSpatial).speed(LaunchConfig.animationSpeed)
+    }
+    @MainActor static var standardDefaultSpatial: Animation {
+        shared(Tokens.motion.standardDefaultSpatial).speed(LaunchConfig.animationSpeed)
+    }
+
     /// Android's MD3 Expressive spring (damping ratio + stiffness, mass 1)
     /// from the shared YoinTokens.Motion, as a SwiftUI spring.
     private static func shared(_ s: YoinTokens.MotionSpring) -> Animation {
