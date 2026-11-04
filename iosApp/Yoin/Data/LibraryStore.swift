@@ -632,10 +632,14 @@ final class LibraryStore {
                         try await client.getAlbumList2(type: .newest, size: Int32(size), offset: Int32(offset))
                             .map(mapping.album)
                     },
-                    loadAlbum: { [weak self] album in
+                    loadAlbum: { [weak self, gen = generation] album in
                         if let have = self?.albumDetails[album.id.rawId], !have.tracks.isEmpty { return have }
-                        guard let full = try await client.getAlbum(id: album.id.rawId).map(mapping.album) else { return nil }
-                        self?.albumDetails[full.id.rawId] = full
+                        let read = try await client.getAlbum(id: album.id.rawId).map(mapping.album)
+                        // Another source or account since (C01): nothing it read lands.
+                        guard let self, gen == self.generation else { throw CancellationError() }
+                        try self.ensureLive()
+                        guard let full = read else { return nil }
+                        self.albumDetails[full.id.rawId] = full
                         return full
                     })
                 songsPager = pager

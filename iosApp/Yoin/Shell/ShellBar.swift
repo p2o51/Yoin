@@ -97,6 +97,17 @@ struct ShellBar: View {
         .animation(Yoin.spatial, value: model.section)
         .animation(Yoin.spatial, value: model.isIdle)
         .frame(height: height)
+        // A song that couldn't be played holds playback on it (Codex A39):
+        // say so over the bar, with Retry (the pill's play does the same).
+        .overlay(alignment: .bottom) {
+            if let failure = model.player.failure {
+                PlaybackFailureBanner(failure: failure, scheme: scheme) { model.player.retry() }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, height + 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Yoin.spatial, value: model.player.failure)
         .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
     }
 
@@ -453,5 +464,44 @@ struct PillWash: View {
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// A playback failure the engine is holding on (PlayerEngine.failure, Android
+/// "Playback unavailable" + its message): errorContainer, the message, and an
+/// explicit Retry that plays the song again from where it stopped.
+struct PlaybackFailureBanner: View {
+    var failure: PlaybackFailure
+    var scheme: CoverScheme
+    var retry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Playback unavailable")
+                    .yoinRole(Tokens.type.titleSmall)
+                Text(failure.message)
+                    .yoinRole(Tokens.type.bodySmall)
+                    .lineLimit(2)
+            }
+            .foregroundStyle(scheme.onErrorContainer)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: retry) {
+                Text("Retry")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.onError)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 40)
+                    .background(scheme.error, in: .capsule)
+                    .contentShape(.capsule)
+            }
+            .buttonStyle(PressScale())
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .background(scheme.errorContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityAction(named: "Retry", retry)
     }
 }

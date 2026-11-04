@@ -287,6 +287,7 @@ private struct PadDetailPlay: View {
 /// accessory opens Now Playing; the play / pause glyph is its own button.
 private struct PadMiniPlayer: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let p = model.playback
@@ -336,6 +337,23 @@ private struct PadMiniPlayer: View {
         }
         .foregroundStyle(Yoin.ink)
         .padding(.horizontal, 12)
+        // A held playback failure (Codex A39): its explicit Retry.
+        .overlay(alignment: .trailing) {
+            // Inside the accessory (it clips): the Retry beside the transport.
+            if model.player.failure != nil {
+                Button { model.player.retry() } label: {
+                    Text("Retry").yoinRole(Tokens.type.labelLarge)
+                        .foregroundStyle(CoverScheme.brand(dark: colorScheme == .dark).onError)
+                        .padding(.horizontal, 16).frame(minHeight: 36)
+                        .background(CoverScheme.brand(dark: colorScheme == .dark).error, in: .capsule)
+                }
+                .buttonStyle(PressScale())
+                .padding(.trailing, 60)
+                .accessibilityLabel("Retry playback")
+                .transition(.opacity)
+            }
+        }
         .animation(Yoin.spatial, value: model.isIdle)
+        .animation(Yoin.effects, value: model.player.failure)
     }
 }
