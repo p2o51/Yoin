@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import com.gpo.yoin.R
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -34,6 +35,9 @@ import com.gpo.yoin.ui.detail.ArtistDetailScreen
 import com.gpo.yoin.ui.detail.ArtistDetailUiState
 import com.gpo.yoin.ui.detail.ArtistDetailViewModel
 import com.gpo.yoin.ui.detail.DetailMenuRows
+import com.gpo.yoin.ui.detail.albumOfflineCollection
+import com.gpo.yoin.ui.detail.playlistOfflineCollection
+import com.gpo.yoin.ui.detail.rememberOfflineToggle
 import com.gpo.yoin.ui.detail.PlaylistDetailScreen
 import com.gpo.yoin.ui.detail.PlaylistDetailUiState
 import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
@@ -156,6 +160,12 @@ internal fun AlbumPaneEntry(
         inLibrary = content?.librarySaved,
         onToggleLibrary = viewModel::toggleLibrarySaved,
         queueAvailable = content?.hasQueueableSongs() == true,
+        offline = rememberOfflineToggle(
+            container = app.container,
+            collection = albumOfflineCollection(content),
+            tracks = { viewModel.getAlbumSongs() },
+            onMessage = onMessage,
+        ),
     )
     val currentOnOpenArtist by rememberUpdatedState(onOpenArtist)
     val currentOnAddToPlaylist by rememberUpdatedState(onAddToPlaylist)
@@ -425,6 +435,16 @@ internal fun PlaylistPaneEntry(
         onDelete = viewModel::delete,
         onBackUp = viewModel::backUp.takeIf { viewModel.canBackUp },
         backingUp = backingUp,
+        offline = rememberOfflineToggle(
+            container = app.container,
+            collection = playlistOfflineCollection(
+                content,
+                viewModel.getPlaylistCoverArtKey()
+                    ?: viewModel.getPlaylistSongs().firstNotNullOfOrNull { CoverRef.toStorageKey(it.coverArt) },
+            ),
+            tracks = { viewModel.getPlaylistSongs() },
+            onMessage = onMessage,
+        ),
         onShare = share,
         isPlaying = playback.isPlaying,
         playbackSignal = playback.playbackSignal,

@@ -165,6 +165,8 @@ fun PlaylistDetailScreen(
     // waits while [backingUp].
     onBackUp: (() -> Unit)? = null,
     backingUp: Boolean = false,
+    // Download / Remove download in the ⋮ menu; null leaves it out (Spotify, Apple Music).
+    offline: OfflineToggle? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
@@ -274,7 +276,7 @@ fun PlaylistDetailScreen(
     val titleRowTopPx = WindowInsets.statusBars.getTop(density) +
         with(density) { PlaylistHeaderTopPadding.toPx() }
     val titleRowBottomPx = with(density) { PlaylistHeaderBottomPadding.toPx() }
-    val hasOverflow = content != null && (content.canWrite || onBackUp != null)
+    val hasOverflow = content != null && (content.canWrite || onBackUp != null || offline != null)
     // The stamp sits just before the overflow button when there is one (the
     // Album's header has none), and the title gives up its room as the bar forms.
     val stampEndInsetPx = with(density) { if (hasOverflow) PlaylistBarOverflowRoom.toPx() else 0f }
@@ -483,6 +485,7 @@ fun PlaylistDetailScreen(
                                     onDelete = { showDeleteConfirm = true },
                                     onBackUp = if (content != null) onBackUp else null,
                                     backingUp = backingUp,
+                                    offline = if (content != null) offline else null,
                                     titleEndRoom = if (useBar) titleEndRoom else 0.dp,
                                     titleEndProgress = titleEndProgress,
                                     modifier = Modifier
@@ -663,7 +666,7 @@ fun PlaylistDetailScreen(
  * The Album page's compact header, in playlist terms: back, title, owner, and
  * Playlist, plus the overflow: Rename/Delete when the current profile can
  * write this playlist (Spotify followed-but-not-owned playlists hide them
- * rather than showing disabled items), and Back up ([onBackUp] non-null). No
+ * rather than showing disabled items), Back up ([onBackUp] non-null) and Download ([offline] non-null). No
  * rows, no overflow.
  */
 @Composable
@@ -677,6 +680,7 @@ private fun PlaylistTopHeader(
     onDelete: () -> Unit,
     onBackUp: (() -> Unit)? = null,
     backingUp: Boolean = false,
+    offline: OfflineToggle? = null,
     modifier: Modifier = Modifier,
     // The bar's stamp: the title gives up this much room at its end as the bar forms.
     titleEndRoom: Dp = 0.dp,
@@ -743,7 +747,7 @@ private fun PlaylistTopHeader(
                     Icon(imageVector = YoinSymbols.MoreVertical, contentDescription = null)
                 }
             }
-        } else if (canWrite || onBackUp != null) {
+        } else if (canWrite || onBackUp != null || offline != null) {
             Box {
                 IconButton(
                     onClick = {
@@ -760,6 +764,16 @@ private fun PlaylistTopHeader(
                     expanded = showOverflow,
                     onDismissRequest = { showOverflow = false },
                 ) {
+                    if (offline != null) {
+                        YoinDropdownMenuItem(
+                            text = offline.label,
+                            leadingIcon = { Icon(offline.icon, contentDescription = null) },
+                            onClick = {
+                                showOverflow = false
+                                offline.onClick()
+                            },
+                        )
+                    }
                     if (onBackUp != null) {
                         YoinDropdownMenuItem(
                             text = stringResource(R.string.detail_playlist_backup_menu),

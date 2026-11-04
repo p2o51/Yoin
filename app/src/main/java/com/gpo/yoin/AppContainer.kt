@@ -456,6 +456,19 @@ class AppContainer(private val context: Context) {
         com.gpo.yoin.player.dlna.DlnaManager(context)
     }
 
+    /** The stream cache and the listener's downloads (Subsonic); brought up on first use. */
+    val offlineDownloads: com.gpo.yoin.data.offline.OfflineDownloads by lazy {
+        com.gpo.yoin.data.offline.OfflineDownloads(
+            context = context,
+            settingsStore = com.gpo.yoin.data.offline.DownloadSettingsStore(context),
+            activeProfileId = profileManager.activeProfileId,
+            activeSubsonic = {
+                profileManager.activeSource.value as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
+            },
+            scope = applicationScope,
+        ).also { it.ensureStarted() }
+    }
+
     val playbackManager: PlaybackManager by lazy {
         PlaybackManager(
             context = context,

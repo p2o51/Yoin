@@ -98,6 +98,13 @@ enum class Capability {
      * so Settings offers Streaming quality for Wi‑Fi and mobile data.
      */
     STREAM_QUALITY,
+
+    /**
+     * The player streams the service's files itself, so they can be kept on
+     * the device (Subsonic): an album, a playlist or a song offers Download,
+     * and Settings offers Downloads. Spotify and Apple Music don't allow it.
+     */
+    OFFLINE_DOWNLOAD,
 }
 
 interface MusicLibrary {

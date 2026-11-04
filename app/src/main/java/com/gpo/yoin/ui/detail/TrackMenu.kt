@@ -49,6 +49,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.offline.OfflineStatus
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.YoinSymbols
@@ -147,12 +148,24 @@ internal fun TrackMenuSheet(
             runCatching { context.startActivity(Intent.createChooser(send, null)) }
         }
     }
+    // Download this song alone. A song kept as part of a downloaded album or
+    // playlist has no row: that page's own Download says it, and removes it.
+    val songCollection = remember(track) { songOfflineCollection(track) }
+    val offline = rememberOfflineToggle(
+        container = host.container,
+        collection = songCollection,
+        tracks = { listOfNotNull(track) },
+        onMessage = host.onMessage,
+    )?.takeUnless { toggle ->
+        toggle.status == OfflineStatus.None && host.container.offlineDownloads.library.value.isDownloaded(songId)
+    }
     val queueRows = listOfNotNull(
         menu.onPlayNext?.let { TrackMenuRow(stringResource(R.string.detail_menu_play_next), YoinSymbols.SkipNext, it) },
         menu.onAddToQueue?.let { TrackMenuRow(stringResource(R.string.detail_menu_add_to_queue), YoinSymbols.Queue, it) },
         menu.onAddToPlaylist?.let {
             TrackMenuRow(stringResource(R.string.detail_menu_add_to_playlist), YoinSymbols.Playlist, it)
         },
+        offline?.let { TrackMenuRow(it.label, it.icon, it.onClick) },
     )
     val goRows = listOfNotNull(
         host.onGoToAlbum?.let { go ->
