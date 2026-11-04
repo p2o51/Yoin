@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,11 +59,10 @@ private const val COLOR_WASH_STEPS = 12
  * Both locals are static, so a new instance turns skipping off for the whole
  * tree below: every step re-runs every composable in the window. On a phone
  * that fits in a frame; in the tablet's three panes (Home | album | Now
- * Playing) one step took 75–82 ms of composition plus ~40 ms of layout/draw,
- * so twelve steps blocked the main thread for the whole ~720 ms wash and the
- * song-change motion stuttered. [ColorWashPacer] measures each step's frame
- * and, when it overruns, holds the next step back long enough for the
- * window's other animations to get smooth frames in between.
+ * Playing) one step cost ~40 ms in a release build (recompose 23–34 ms plus
+ * layout and draw), so the wash became a run of back-to-back long frames and
+ * the song-change motion stuttered. [ColorWashBudget] times each step's frame;
+ * a window that can't afford a step lands the wash in one cut instead.
  */
 @Composable
 fun animateColorScheme(
@@ -91,6 +91,7 @@ class ColorSchemeTransition(private val scope: CoroutineScope) {
     private var displayed by mutableStateOf<ColorScheme?>(null)
     private var target: ColorScheme? = null
     private var animation: Job? = null
+    private val budget = ColorWashBudget()
 
     internal fun currentOrInitial(initial: ColorScheme): ColorScheme =
         displayed ?: initial.also { displayed = it; target = it }
@@ -108,20 +109,32 @@ class ColorSchemeTransition(private val scope: CoroutineScope) {
         val from = currentOrInitial(destination)
         if (sameAnimatedTokens(from, destination)) return
         animation = scope.launch {
+            budget.forgetMark()
+            if (budget.cutsOnly) {
+                // This window can't afford a step: one cut, and check it still can't.
+                withFrameNanos {
+                    displayed = destination
+                    budget.mark(System.nanoTime())
+                }
+                withFrameNanos { budget.measure(System.nanoTime()) }
+                return@launch
+            }
             var lastStep = 0
-            val pacer = ColorWashPacer()
             Animatable(0f).animateTo(targetValue = 1f, animationSpec = spec) {
-                // Every frame, so the pacer sees the frame that carried a step.
-                val mayStep = pacer.onFrame(System.nanoTime())
+                if (budget.measure(System.nanoTime()) == true) {
+                    // The step we just sent took the whole window too long; land now.
+                    lastStep = COLOR_WASH_STEPS
+                    displayed = destination
+                }
                 val step = (value * COLOR_WASH_STEPS).toInt().coerceIn(0, COLOR_WASH_STEPS)
-                if (step > lastStep && mayStep) {
+                if (step > lastStep) {
                     lastStep = step
-                    pacer.onStep(System.nanoTime())
                     displayed = if (step == COLOR_WASH_STEPS) {
                         destination
                     } else {
                         lerpColorScheme(from, destination, step / COLOR_WASH_STEPS.toFloat(), darkTheme)
                     }
+                    budget.mark(System.nanoTime())
                 }
             }
             displayed = destination
@@ -130,34 +143,41 @@ class ColorSchemeTransition(private val scope: CoroutineScope) {
 }
 
 /**
- * Spaces the wash's steps by what they cost. Each step recomposes the whole
- * window (see [animateColorScheme]); the pacer times the frame that carried a
- * step and, if it ran over [budgetNanos], lets no further step through until
- * [recoveryFactor] times that long has passed. A heavy window then spends at
- * most about a third of the wash composing colours and the rest of its frames
- * stay smooth; a light one (frames within budget) steps exactly as before.
- * The wash still ends on its destination when the spring settles.
+ * Decides whether this window can afford a stepped wash. Each step recomposes
+ * the whole window (see [animateColorScheme]). The frame after a step (or a
+ * cut) is timed: over [budgetNanos] and the window is too heavy, so the wash
+ * lands at once and later washes cut in one recomposition; within budget and
+ * washes step again. Phones step as before; the tablet's three panes, where a
+ * step costs ~40 ms in release, cut.
  */
-internal class ColorWashPacer(
+internal class ColorWashBudget(
     private val budgetNanos: Long = COLOR_WASH_FRAME_BUDGET_NANOS,
-    private val recoveryFactor: Long = 2,
 ) {
-    private var steppedAt = NONE
-    private var holdUntil = Long.MIN_VALUE
+    /** True once a step or cut ran over budget, until a cut fits again. */
+    var cutsOnly = false
+        private set
+    private var markedAt = NONE
 
-    /** Called on every wash frame; true when a step may go out on this frame. */
-    fun onFrame(nowNanos: Long): Boolean {
-        if (steppedAt != NONE) {
-            val cost = nowNanos - steppedAt
-            steppedAt = NONE
-            if (cost > budgetNanos) holdUntil = nowNanos + cost * recoveryFactor
-        }
-        return nowNanos >= holdUntil
+    /** A step or cut went out on this frame. */
+    fun mark(nowNanos: Long) {
+        markedAt = nowNanos
     }
 
-    /** A step went out on this frame; its cost shows up at the next [onFrame]. */
-    fun onStep(nowNanos: Long) {
-        steppedAt = nowNanos
+    /** Drops a mark whose frame was never measured (cancelled or settled wash). */
+    fun forgetMark() {
+        markedAt = NONE
+    }
+
+    /**
+     * Called on the next frame. Null when nothing was marked; otherwise
+     * whether the marked frame ran over budget.
+     */
+    fun measure(nowNanos: Long): Boolean? {
+        if (markedAt == NONE) return null
+        val heavy = nowNanos - markedAt > budgetNanos
+        markedAt = NONE
+        cutsOnly = heavy
+        return heavy
     }
 
     private companion object {
@@ -165,8 +185,8 @@ internal class ColorWashPacer(
     }
 }
 
-/** A step frame longer than this (about one and a half 60 Hz frames) is "heavy". */
-internal const val COLOR_WASH_FRAME_BUDGET_NANOS = 24_000_000L
+/** A step frame longer than this (nearly two 60 Hz frames) is too heavy to step. */
+internal const val COLOR_WASH_FRAME_BUDGET_NANOS = 30_000_000L
 
 /**
  * True when the 36 wash-animated tokens of [a] and [b] are identical — used to skip
