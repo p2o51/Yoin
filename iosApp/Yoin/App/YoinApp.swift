@@ -10,7 +10,10 @@ struct YoinApp: App {
 }
 
 struct RootView: View {
-    @State private var model = AppModel()
+    // Created once. A `@State` initial value is re-evaluated every time
+    // RootView is re-created, and each throwaway AppModel signed in and built
+    // its own player (hundreds per launch).
+    @State private var model = AppModel.shared
     @Environment(\.horizontalSizeClass) private var hsc
 
     var body: some View {

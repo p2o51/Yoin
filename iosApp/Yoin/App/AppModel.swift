@@ -18,6 +18,9 @@ enum ShellSection: Hashable {
 @MainActor
 @Observable
 final class AppModel {
+    /// The app's one model (see RootView).
+    static let shared = AppModel()
+
     let library: any MusicLibrary
     let playbackSource: any PlaybackSource
 
