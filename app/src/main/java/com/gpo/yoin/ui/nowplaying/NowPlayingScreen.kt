@@ -1326,6 +1326,9 @@ private fun CompactPlayingContent(
         // In focus the lyric slot keeps its list where four lines still fit
         // (tablet portrait), else it cross-fades to the one-line preview.
         val focusKeepsList = focusPose.lyricFrame == LyricFrame.List
+        // A short resting window can still offer the list in focus: the
+        // one-line row hands over to the list as the cover focuses.
+        val focusOpensList = lyricOneLine && focusKeepsList
         val stageWidth = budget.stageWidth
         val stageOffsetX = (maxWidth - stageWidth) / 2
         // Enlarged tablet: the lyric tools ride at the end of the tab row even
@@ -1808,7 +1811,12 @@ private fun CompactPlayingContent(
                                     // modifier stays the same across reshape frames,
                                     // so the hidden compact page can skip them.
                                     modifier = pageModifier.graphicsLayer {
-                                        alpha = if (lyricOneLine) 0f else resolvedStageProgress.compact
+                                        val compact = resolvedStageProgress.compact
+                                        alpha = when {
+                                            focusOpensList -> resolvedStageProgress.immersive * compact
+                                            lyricOneLine -> 0f
+                                            else -> compact
+                                        }
                                         translationY = 12.dp.toPx() * resolvedStageProgress.detail
                                     },
                                 )
@@ -1875,7 +1883,13 @@ private fun CompactPlayingContent(
                                     .fillMaxWidth()
                                     .heightIn(max = OneLineLyricRowHeight)
                                     .padding(horizontal = horizontalPadding)
-                                    .graphicsLayer { alpha = compactProgress },
+                                    .graphicsLayer {
+                                        alpha = if (focusOpensList) {
+                                            compactProgress * (1f - resolvedStageProgress.immersive)
+                                        } else {
+                                            compactProgress
+                                        }
+                                    },
                             )
                         }
 
@@ -2387,7 +2401,11 @@ private fun WidePlayingContent(
                 // "Title - Artist" under the label when the window is too
                 // short for the title block (focus keeps the title in place).
                 subline = { if (titleInBar) 1f else 0f },
-                onBack = onDismiss,
+                // A short window keeps this bar in focus: its back steps out
+                // of focus first, like the system back.
+                onBack = {
+                    if (stageMode != NowPlayingStageMode.Immersive || !onStageBack()) onDismiss()
+                },
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
                 onPlaylistClick = onPlaylistClick,
