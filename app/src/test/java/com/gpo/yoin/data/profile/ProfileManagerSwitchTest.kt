@@ -29,8 +29,8 @@ import org.junit.Test
 
 /**
  * A switch's stages say what it is doing — Connecting while the target's
- * server is asked (the ping), Priming only through the warm-up after it
- * (PIP-19: "Warming caches…" stood over a hanging ping) — and the target's
+ * server is asked (the ping); the warm-up runs after the switch is done,
+ * never in front of it (a switch stood ~8 s on Spotify's) — and the target's
  * source is built off the caller's thread (a switch begun from a tap runs on
  * the main thread; its credentials are a file and a Keystore decrypt).
  */
@@ -53,7 +53,7 @@ class ProfileManagerSwitchTest {
     }
 
     @Test
-    fun should_connectWhileTheServerIsAskedAndPrimeOnlyAfterIt_when_switching() = runTest {
+    fun should_connectWhileTheServerIsAskedAndPrimeAfterTheSwitch_when_switching() = runTest {
         server.dispatcher = heldServer()
         server.start()
         val scope = TestScope(StandardTestDispatcher(testScheduler))
@@ -70,18 +70,14 @@ class ProfileManagerSwitchTest {
             manager.switchingState.value
         )
 
-        // The server answered: the warm-up is what it is waiting on now.
+        // The server answered: the switch is done, the warm-up still unanswered behind it.
         answerPing.countDown()
-        assertTrue(warmUpAsked.await(WAIT_S, TimeUnit.SECONDS))
-        assertEquals(
-            ProfileManager.SwitchState.Switching(TARGET, ProfileManager.SwitchState.Stage.Priming),
-            manager.switchingState.value
-        )
-
-        answerWarmUp.countDown()
         switch.await()
         assertEquals(ProfileManager.SwitchState.Idle, manager.switchingState.value)
         assertEquals(TARGET, manager.activeProfileId.value)
+        assertTrue(warmUpAsked.await(WAIT_S, TimeUnit.SECONDS))
+
+        answerWarmUp.countDown()
         scope.cancelChildren()
     }
 

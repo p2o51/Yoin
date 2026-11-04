@@ -100,7 +100,6 @@
     <string name="settings_switch_preparing">正在关闭当前会话…</string>
     <string name="settings_switch_connecting">正在连接 %1$s…</string>
     <string name="settings_switch_connecting_unnamed">正在连接新账号…</string>
-    <string name="settings_switch_priming">正在预热缓存…</string>
     <string name="settings_switch_failed">无法切换账号</string>
     <string name="settings_switch_ok">好</string>
     <string name="settings_remove_title">移除此账号？</string>
