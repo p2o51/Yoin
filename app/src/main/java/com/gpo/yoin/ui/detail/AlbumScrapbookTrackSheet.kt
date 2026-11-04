@@ -182,13 +182,18 @@ internal fun ScrapTrackSheet(
     val gemini by feeds.gemini.collectAsState()
 
     ScrapSheet(onDismiss = onDismiss) {
-        Box(modifier = modifier) {
+        // The notice takes its own room under the scroll, so it never covers the buttons at the foot.
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding(),
+        ) {
             Column(
                 modifier = Modifier
+                    .weight(1f, fill = false)
                     .fillMaxWidth()
-                    .imePadding()
                     .verticalScroll(rememberScrollState())
-                    .navigationBarsPadding()
                     .padding(start = SheetGutter, end = SheetGutter, bottom = 32.dp)
                     // A removed row folds away instead of the sheet snapping shorter.
                     .animateContentSize(YoinMotion.defaultSpatialSpec()),
@@ -242,14 +247,9 @@ internal fun ScrapTrackSheet(
                     }
                 }
             }
-            // Over the sheet's foot while it is open; the page shows the same host once it closes.
+            // At the sheet's foot while it is open; the page shows the same host once it closes.
             snackbar?.let { host ->
-                YoinSnackbarHost(
-                    hostState = host,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding(),
-                )
+                YoinSnackbarHost(hostState = host, modifier = Modifier.fillMaxWidth())
             }
         }
     }
@@ -488,7 +488,7 @@ private fun AboutTab(
                     focusEditor = focusEditor,
                     thinking = asking || ask.ref in gemini.regenerating,
                     onStartEdit = { startEdit(ask.ref) },
-                    onDelete = { ask.ref?.let { remove(it, wasTitle, ask.answer, null) } },
+                    onDelete = { ask.ref?.let { remove(it, wasTitle, ask.answer, wasTitle ?: ask.question) } },
                     onRegenerate = { ask.ref?.let(::regenerate) },
                     onDone = { title, answer -> ask.ref?.let { done(it, wasTitle, ask.answer, title, answer, null) } },
                 )
@@ -623,7 +623,8 @@ private fun AskEntry(
 ) {
     val container = if (ask.own) colors.review else colors.ask
     val content = if (ask.own) colors.onReview else colors.onAsk
-    val mark = if (ask.own) colors.ink else colors.askMark
+    // The pen and the byline in the card's own ink: the page's tertiary mark is too faint on its mint.
+    val mark = content
     val editLabel = stringResource(R.string.detail_scrap_cd_edit)
     Column(
         modifier = Modifier
@@ -730,8 +731,8 @@ private fun PendingAsk(question: String, colors: ScrapbookColors) {
             style = userTextStyle().copy(fontSize = 13.5.sp),
             color = colors.onAsk.copy(alpha = 0.75f),
         )
-        ThinkingDots(color = colors.askMark, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-        Byline(own = false, color = colors.askMark, modifier = Modifier.padding(top = 8.dp))
+        ThinkingDots(color = colors.onAsk, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+        Byline(own = false, color = colors.onAsk, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
@@ -936,7 +937,7 @@ private fun NewEntry(
                 enabled = hasTitle,
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = colors.ask,
-                    contentColor = colors.askMark,
+                    contentColor = colors.onAsk,
                 ),
                 modifier = Modifier
                     .weight(1f)

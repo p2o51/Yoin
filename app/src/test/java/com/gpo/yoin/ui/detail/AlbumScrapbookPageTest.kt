@@ -134,7 +134,7 @@ class AlbumScrapbookPageTest {
         rule.waitForIdle()
         rule.onNodeWithText("Delete").performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("Deleted").assertIsDisplayed()
+        rule.onNodeWithText("Deleted “The band”").assertIsDisplayed()
         rule.onNodeWithText("Undo").performClick()
         rule.waitForIdle()
 
