@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -25,8 +27,14 @@ class AboutEntryLongPressTest {
     @get:Rule
     val rule = createComposeRule()
 
-    private fun entry(kind: String, key: String, title: String?, answer: String) = SongAboutEntry(
-        titleKey = "harbour lights",
+    private fun entry(
+        kind: String,
+        key: String,
+        title: String?,
+        answer: String,
+        song: String = "harbour lights",
+    ) = SongAboutEntry(
+        titleKey = song,
         artistKey = "night qa band",
         albumKey = "tide",
         titleDisplay = "Harbour Lights",
@@ -50,7 +58,10 @@ class AboutEntryLongPressTest {
     private val regenerated = mutableListOf<String>()
     private val regenerating = MutableStateFlow<Set<AlbumScrapbookAboutRef>>(emptySet())
 
-    private fun setPane(canManage: Boolean = true) {
+    private fun setPane(
+        canManage: Boolean = true,
+        state: State<AboutUiState> = mutableStateOf(AboutUiState.Ready(listOf(producer, ask, own))),
+    ) {
         val actions = AboutEntryActions(
             regenerating = regenerating,
             canManage = { canManage },
@@ -60,7 +71,7 @@ class AboutEntryLongPressTest {
         rule.setContent {
             CompositionLocalProvider(LocalAboutEntryActions provides actions) {
                 AboutFullscreenPane(
-                    aboutUiState = AboutUiState.Ready(listOf(producer, ask, own)),
+                    aboutUiState = state.value,
                     onRetryCanonical = {},
                 )
             }
@@ -108,6 +119,22 @@ class AboutEntryLongPressTest {
 
         rule.onNodeWithText("Regenerate with Gemini").assertIsDisplayed()
         rule.onNodeWithText("Manage in Scrapbook").assertDoesNotExist()
+    }
+
+    @Test
+    fun should_closeTheSheet_when_theSongMovesOnUnderIt() {
+        val state = mutableStateOf<AboutUiState>(AboutUiState.Ready(listOf(producer, ask, own)))
+        setPane(state = state)
+
+        rule.onNodeWithText("Nobody sampled it yet.").performTouchInput { longClick() }
+        rule.onNodeWithText("Manage in Scrapbook").assertIsDisplayed()
+        state.value = AboutUiState.Ready(
+            listOf(entry(SongAboutEntry.KIND_ASK, "who sang it", "Vocals", "A choir.", song = "next song")),
+        )
+        rule.waitForIdle()
+
+        rule.onNodeWithText("Manage in Scrapbook").assertDoesNotExist()
+        assertEquals(emptyList<String>(), managed)
     }
 
     @Test

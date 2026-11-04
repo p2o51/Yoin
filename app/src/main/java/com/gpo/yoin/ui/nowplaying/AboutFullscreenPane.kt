@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -204,7 +205,10 @@ private fun ReadyContent(
         }
         Spacer(modifier = Modifier.height(bottomPadding))
     }
-    val open = menuFor
+    // The song can move on while a row's sheet is open: the sheet goes with its row, so Manage never
+    // pairs one song's row with the next song's album.
+    val open = menuFor?.takeIf { (row, _) -> entries.any { it.aboutRef() == row.aboutRef() } }
+    LaunchedEffect(open == null) { if (open == null) menuFor = null }
     if (actions != null && open != null) {
         AboutEntrySheet(
             entry = open.first,

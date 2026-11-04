@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.aboutRef
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.symbols.YoinSymbols
@@ -149,7 +150,12 @@ fun NowPlayingOverlayHost(
             regenerating = viewModel.aboutRegenerating,
             canManage = { currentTrack()?.albumId != null },
             onManage = { entry ->
-                currentTrack()?.let { track ->
+                // Only the playing song's own row: one picked just before the song moved on stays put.
+                currentTrack()?.takeIf { track ->
+                    entry.titleKey == SongAboutEntry.normalize(track.title.orEmpty()) &&
+                        entry.artistKey == SongAboutEntry.normalize(track.artist.orEmpty()) &&
+                        entry.albumKey == SongAboutEntry.normalize(track.album.orEmpty())
+                }?.let { track ->
                     track.albumId?.let { albumId ->
                         ScrapbookFocusRequest.request(track.id.toString(), edit = entry.aboutRef())
                         currentOnAlbumClick(albumId.toString())

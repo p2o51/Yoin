@@ -559,7 +559,7 @@ class YoinRepositoryTest {
     @Test
     fun writeOwnAboutEntry_files_the_listeners_entry_under_the_song() = runTest {
         val captured = slot<SongAboutEntry>()
-        coEvery { songAboutEntryDao.get(any(), any(), any(), any(), any()) } returns null
+        coEvery { songAboutEntryDao.getOwn(any(), any(), any()) } returns emptyList()
         coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
 
         currentTime = 5_000L
@@ -574,6 +574,44 @@ class YoinRepositoryTest {
             assertNull(promptText)
             assertEquals(5_000L, createdAt)
         }
+    }
+
+    @Test
+    fun writeOwnAboutEntry_leaves_a_renamed_entry_when_its_old_heading_is_written_again() = runTest {
+        // "The video" was renamed to "Shot list" in the scrapbook; its key stays "the video".
+        val renamed = ownRow(key = "the video", heading = "Shot list", answer = "Miami, 2018.", createdAt = 1_000L)
+        coEvery { songAboutEntryDao.getOwn("fake love", "drake", "clb") } returns listOf(renamed)
+        val captured = mutableListOf<SongAboutEntry>()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+
+        currentTime = 5_000L
+        repository.writeOwnAboutEntry("Fake Love", "Drake", "CLB", heading = "The video", text = "Shot in one take.")
+        currentTime = 6_000L
+        repository.writeOwnAboutEntry("Fake Love", "Drake", "CLB", heading = "shot list", text = "Miami, then LA.")
+
+        val (fresh, edited) = captured
+        assertEquals("the video #2", fresh.entryKey)
+        assertEquals("The video", fresh.titleText)
+        assertEquals(5_000L, fresh.createdAt)
+        assertEquals("the video", edited.entryKey)
+        assertEquals("shot list", edited.titleText)
+        assertEquals("Miami, then LA.", edited.answerText)
+        assertEquals(1_000L, edited.createdAt)
+    }
+
+    @Test
+    fun writeOwnAboutEntry_reuses_the_key_of_a_removed_entry() = runTest {
+        val removed = ownRow(key = "the video", heading = "The video", answer = "", createdAt = 1_000L)
+        coEvery { songAboutEntryDao.getOwn(any(), any(), any()) } returns listOf(removed)
+        val captured = slot<SongAboutEntry>()
+        coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
+
+        currentTime = 5_000L
+        repository.writeOwnAboutEntry("Fake Love", "Drake", "CLB", heading = "The video", text = "Shot in Miami.")
+
+        assertEquals("the video", captured.captured.entryKey)
+        assertEquals("Shot in Miami.", captured.captured.answerText)
+        assertEquals(5_000L, captured.captured.createdAt)
     }
 
     @Test
@@ -817,6 +855,22 @@ class YoinRepositoryTest {
         answerText = answer,
         createdAt = 1L,
         updatedAt = 1L,
+    )
+
+    private fun ownRow(key: String, heading: String, answer: String, createdAt: Long) = SongAboutEntry(
+        titleKey = "fake love",
+        artistKey = "drake",
+        albumKey = "clb",
+        titleDisplay = "Fake Love",
+        artistDisplay = "Drake",
+        albumDisplay = "CLB",
+        kind = SongAboutEntry.KIND_OWN,
+        entryKey = key,
+        promptText = null,
+        titleText = heading,
+        answerText = answer,
+        createdAt = createdAt,
+        updatedAt = createdAt,
     )
 
     private fun askRow(

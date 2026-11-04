@@ -2985,6 +2985,10 @@ class YoinRepository(
      * The listener's own About entry for a song (the scrapbook's "Write", beside "Ask Gemini"): a
      * [heading] and their [text], filed under the song like Gemini's rows so Now Playing's About shows
      * it too. Writing the same heading again replaces the text. Blank input writes nothing.
+     *
+     * An entry's key is fixed when it is first written, while its heading can be renamed later
+     * ([editAboutEntry]), so a heading is matched against the live entries' headings, not their keys:
+     * a renamed entry is never overwritten by a new entry under its old heading.
      */
     suspend fun writeOwnAboutEntry(title: String, artist: String, album: String, heading: String, text: String) {
         val head = heading.trim()
@@ -2993,9 +2997,16 @@ class YoinRepository(
         val titleKey = SongAboutEntry.normalize(title)
         val artistKey = SongAboutEntry.normalize(artist)
         val albumKey = SongAboutEntry.normalize(album)
-        val entryKey = SongAboutEntry.normalize(head)
+        val headKey = SongAboutEntry.normalize(head)
         val now = clock()
-        val existing = songAboutEntryDao.get(titleKey, artistKey, albumKey, SongAboutEntry.KIND_OWN, entryKey)
+        val own = songAboutEntryDao.getOwn(titleKey, artistKey, albumKey)
+        val live = own.filter { it.answerText.isNotBlank() }
+        val existing = live.firstOrNull { SongAboutEntry.normalize(it.titleText.orEmpty()) == headKey }
+        // A removed entry's key is free again; a live entry's key stays its own even after a rename.
+        val entryKey = existing?.entryKey
+            ?: generateSequence(1) { it + 1 }
+                .map { n -> if (n == 1) headKey else "$headKey #$n" }
+                .first { key -> live.none { it.entryKey == key } }
         songAboutEntryDao.upsert(
             SongAboutEntry(
                 titleKey = titleKey,

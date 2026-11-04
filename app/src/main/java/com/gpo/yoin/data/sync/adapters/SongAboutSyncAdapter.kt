@@ -25,6 +25,10 @@ import kotlinx.serialization.json.JsonObject
  * that language is part of the key; a device only applies records in its own
  * language. Deletes never propagate: the language-switch wipe is local
  * housekeeping, and the records stay in Drive for the language they belong to.
+ *
+ * The listener's own entries ([SongAboutEntry.KIND_OWN]) are their words, not
+ * Gemini's: a switch keeps them, so they are stamped [ANY_LANGUAGE] and every
+ * device applies them whatever its language.
  */
 class SongAboutSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
     override val kind = SyncKinds.SONG_ABOUT
@@ -39,7 +43,8 @@ class SongAboutSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
     override suspend fun readAll(localProfileId: String?): List<DomainRow> {
         val language = currentLanguage()
         return dao.allSongAbout().map { row ->
-            DomainRow(key = keyOf(language, row), projection = projection(language, row), rowTs = row.updatedAt)
+            val stamp = stampOf(row, language)
+            DomainRow(key = keyOf(stamp, row), projection = projection(stamp, row), rowTs = row.updatedAt)
         }
     }
 
@@ -60,7 +65,7 @@ class SongAboutSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
         if (language == null || entry == null || key != keyOf(language, entry)) {
             return@withTransaction ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null)
         }
-        val local = currentLanguage()
+        val local = stampOf(entry, currentLanguage())
         // Another language's answers stay in Drive for devices reading that language. Reported as
         // "not now" (CHANGED_LOCALLY) rather than POLICY so the engine retries them: after the
         // user switches to that language they apply on the next cycle.
@@ -79,6 +84,10 @@ class SongAboutSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
 
     private suspend fun currentLanguage(): String =
         GeminiConfig.normalizeTargetLanguage(dao.geminiConfig()?.targetLanguage)
+
+    /** The language a row is filed under in Drive: Gemini's rows the device's, the listener's own none. */
+    private fun stampOf(row: SongAboutEntry, language: String) =
+        if (row.kind == SongAboutEntry.KIND_OWN) ANY_LANGUAGE else language
 
     private fun keyOf(language: String, row: SongAboutEntry) =
         SyncFormat.compositeKey(language, row.titleKey, row.artistKey, row.albumKey, row.kind, row.entryKey)
@@ -120,5 +129,6 @@ class SongAboutSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
 
     private companion object {
         const val LANGUAGE = "targetLanguage"
+        const val ANY_LANGUAGE = "*"
     }
 }
