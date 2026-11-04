@@ -231,6 +231,8 @@
     <string name="track_menu_go_to_album">Go to album</string>
     <string name="track_menu_go_to_artist">Go to artist</string>
     <string name="track_menu_share">Share</string>
+    <string name="track_menu_favorite">Favorite</string>
+    <string name="track_menu_favorited">Favorited</string>
     <string name="track_menu_view_in_scrapbook">View in Scrapbook</string>
     <!-- Playlist "Back up" (docs/playlist-transfer.md §7) -->
     <string name="detail_playlist_backup_menu">Cloud backup</string>

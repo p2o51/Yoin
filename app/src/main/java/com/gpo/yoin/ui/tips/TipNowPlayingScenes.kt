@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -57,9 +58,11 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.PlayMode
+import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.LyricsDisplay
 import com.gpo.yoin.ui.detail.TrackMenuGroup
+import com.gpo.yoin.ui.detail.TrackMenuQuickAction
 import com.gpo.yoin.ui.detail.TrackMenuRow
 import com.gpo.yoin.ui.detail.TrackMenuSheetBody
 import com.gpo.yoin.ui.detail.TrackMenuToggleRow
@@ -142,7 +145,8 @@ internal fun CoverMenuDemo(playing: Boolean, keepScreenOn: Boolean) {
             onDismiss = { open = false },
             track = DemoNowPlayingTrack(),
             coverUrl = demoCoverUrl(DemoAlbums[0]),
-            groups = demoSongSheetRows(withGoToAlbum = true),
+            groups = demoSongSheetRows(withGoToAlbum = true, nowPlaying = true),
+            quickActions = demoSongSheetQuickActions(nowPlaying = true),
             scrollState = sheetScroll,
             playerSection = {
                 TrackMenuGroup(count = 1) { _, shape ->
@@ -499,6 +503,7 @@ internal fun BoxScope.DemoSongSheet(
     track: Track,
     coverUrl: String?,
     groups: List<List<TrackMenuRow>>,
+    quickActions: List<TrackMenuQuickAction> = emptyList(),
     playerSection: (@Composable () -> Unit)? = null,
     scrollState: ScrollState = rememberScrollState(),
 ) {
@@ -534,6 +539,8 @@ internal fun BoxScope.DemoSongSheet(
                     track = track,
                     coverUrl = coverUrl,
                     groups = groups,
+                    quickActions = quickActions,
+                    onQuickActionClick = { if (!it.keepsOpen) onDismiss() },
                     onRowClick = { onDismiss() },
                     bottomPadding = 16.dp + navBottom,
                     playerSection = playerSection,
@@ -544,28 +551,51 @@ internal fun BoxScope.DemoSongSheet(
     }
 }
 
-/** The sheet's rows for a song, as TrackMenuSheet lists them (Go to album only away from the album). */
+/**
+ * The sheet's top row for a song, as TrackMenuSheet builds it: Play next / Add to
+ * queue / Favorite / Share, or for the playing song Favorite / Add to playlist / Share.
+ */
 @Composable
-internal fun demoSongSheetRows(withGoToAlbum: Boolean): List<List<TrackMenuRow>> {
+internal fun demoSongSheetQuickActions(nowPlaying: Boolean): List<TrackMenuQuickAction> {
     val playNext = stringResource(R.string.detail_menu_play_next)
     val addToQueue = stringResource(R.string.detail_menu_add_to_queue)
+    val addToPlaylist = stringResource(R.string.detail_menu_add_to_playlist)
+    val favorite = stringResource(R.string.track_menu_favorite)
+    val share = stringResource(R.string.track_menu_share)
+    val favoriteAction = TrackMenuQuickAction(favorite, { rememberFavoriteSymbolPainter(favorite = false) }, keepsOpen = true) {}
+    val shareAction = TrackMenuQuickAction(share, { rememberVectorPainter(YoinSymbols.Share) }, keepsOpen = false) {}
+    return remember(nowPlaying, playNext) {
+        if (nowPlaying) {
+            listOf(
+                favoriteAction,
+                TrackMenuQuickAction(addToPlaylist, { rememberVectorPainter(YoinSymbols.Playlist) }, keepsOpen = false) {},
+                shareAction,
+            )
+        } else {
+            listOf(
+                TrackMenuQuickAction(playNext, { rememberVectorPainter(YoinSymbols.SkipNext) }, keepsOpen = true) {},
+                TrackMenuQuickAction(addToQueue, { rememberVectorPainter(YoinSymbols.Queue) }, keepsOpen = true) {},
+                favoriteAction,
+                shareAction,
+            )
+        }
+    }
+}
+
+/** The sheet's list rows for a song, as TrackMenuSheet lists them (Go to album only away from the album). */
+@Composable
+internal fun demoSongSheetRows(withGoToAlbum: Boolean, nowPlaying: Boolean = false): List<List<TrackMenuRow>> {
     val addToPlaylist = stringResource(R.string.detail_menu_add_to_playlist)
     val goToAlbum = stringResource(R.string.track_menu_go_to_album)
     val scrapbook = stringResource(R.string.track_menu_view_in_scrapbook)
     val goToArtist = stringResource(R.string.track_menu_go_to_artist)
-    val share = stringResource(R.string.track_menu_share)
-    return remember(withGoToAlbum, playNext, goToAlbum) {
+    return remember(withGoToAlbum, nowPlaying, goToAlbum) {
         listOf(
-            listOf(
-                TrackMenuRow(playNext, YoinSymbols.SkipNext) {},
-                TrackMenuRow(addToQueue, YoinSymbols.Queue) {},
-                TrackMenuRow(addToPlaylist, YoinSymbols.Playlist) {},
-            ),
+            if (nowPlaying) emptyList() else listOf(TrackMenuRow(addToPlaylist, YoinSymbols.Playlist) {}),
             listOfNotNull(
                 if (withGoToAlbum) TrackMenuRow(goToAlbum, YoinSymbols.Album) {} else null,
                 TrackMenuRow(scrapbook, YoinSymbols.Note) {},
                 TrackMenuRow(goToArtist, YoinSymbols.Artist) {},
-                TrackMenuRow(share, YoinSymbols.Share) {},
             ),
         )
     }
