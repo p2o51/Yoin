@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -14,6 +15,8 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.experience.LocalWindowChromeInfo
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -85,6 +88,20 @@ internal const val LyricDotsDevelopFrom = 1f
 
 /** Other lines' resting dots, dp. */
 internal const val LyricDotsRest = 1.3f
+
+/**
+ * Tablets and the fold's inner screen (medium width AND height): the resting
+ * dots are fuller, so the other lines still read across the larger, longer
+ * lyric column (owner 2026-11-04: 「平板上波点减弱一点，让用户能看清字」).
+ */
+internal const val LyricDotsRestLarge = 1.8f
+
+/** The other lines' resting dot radius for this window. */
+@Composable
+internal fun lyricDotsRest(): Float {
+    val window = LocalWindowChromeInfo.current ?: LocalYoinWindowInfo.current
+    return if (window.isWidthAtLeastMedium && window.isHeightAtLeastMedium) LyricDotsRestLarge else LyricDotsRest
+}
 
 /** The current line develops dots → solid over this long. */
 internal const val LyricDotsDevelopMs = 700

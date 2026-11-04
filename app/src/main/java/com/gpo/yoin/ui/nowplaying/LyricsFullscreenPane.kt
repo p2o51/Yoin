@@ -765,7 +765,8 @@ private fun LyricRow(
     // Focus's halftone (see LyricHalftone.kt): the current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
     // fine dots. A line that is current when it first shows starts solid.
-    val dots = remember { Animatable(if (isActive) LyricDotsSolid else LyricDotsRest) }
+    val restDots = lyricDotsRest()
+    val dots = remember { Animatable(if (isActive) LyricDotsSolid else restDots) }
     val shownBefore = remember { booleanArrayOf(false) }
     LaunchedEffect(isActive) {
         if (!shownBefore[0]) {
@@ -775,8 +776,8 @@ private fun LyricRow(
         if (isActive) {
             dots.snapTo(minOf(dots.value, LyricDotsDevelopFrom))
             dots.animateTo(LyricDotsSolid, tween(LyricDotsDevelopMs, easing = EaseOutCubic))
-        } else if (dots.value > LyricDotsRest) {
-            dots.animateTo(LyricDotsRest, tween(LyricDotsBreakMs, easing = EaseOutCubic))
+        } else if (dots.value > restDots) {
+            dots.animateTo(restDots, tween(LyricDotsBreakMs, easing = EaseOutCubic))
         }
     }
     val emphasized = isActive || selected

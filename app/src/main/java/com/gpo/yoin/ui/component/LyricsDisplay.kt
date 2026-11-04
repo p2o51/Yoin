@@ -50,7 +50,6 @@ import com.gpo.yoin.ui.nowplaying.LocalNowPlayingTransportSignal
 import com.gpo.yoin.ui.nowplaying.LyricDotsBreakMs
 import com.gpo.yoin.ui.nowplaying.LyricDotsDevelopFrom
 import com.gpo.yoin.ui.nowplaying.LyricDotsDevelopMs
-import com.gpo.yoin.ui.nowplaying.LyricDotsRest
 import com.gpo.yoin.ui.nowplaying.LyricDotsSolid
 import com.gpo.yoin.ui.nowplaying.LyricLine
 import com.gpo.yoin.ui.nowplaying.UpNextHandoffTickSlackMs
@@ -58,6 +57,7 @@ import com.gpo.yoin.ui.nowplaying.UpNextLyrics
 import com.gpo.yoin.ui.nowplaying.lastLineOutroFor
 import com.gpo.yoin.ui.nowplaying.lastLineStretchScale
 import com.gpo.yoin.ui.nowplaying.lyricDotRadius
+import com.gpo.yoin.ui.nowplaying.lyricDotsRest
 import com.gpo.yoin.ui.nowplaying.lyricHalftone
 import com.gpo.yoin.ui.nowplaying.outroProgress
 import com.gpo.yoin.ui.nowplaying.upNextHandedOver
@@ -460,7 +460,8 @@ private fun LyricLineItem(
     // Focus's halftone: the line's own dot radius. The current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
     // fine dots. Lines that are current when they first show start solid.
-    val dots = remember { Animatable(if (isActive) LyricDotsSolid else LyricDotsRest) }
+    val restDots = lyricDotsRest()
+    val dots = remember { Animatable(if (isActive) LyricDotsSolid else restDots) }
     val shownBefore = remember { booleanArrayOf(false) }
     LaunchedEffect(isActive) {
         if (!shownBefore[0]) {
@@ -470,8 +471,8 @@ private fun LyricLineItem(
         if (isActive) {
             dots.snapTo(minOf(dots.value, LyricDotsDevelopFrom))
             dots.animateTo(LyricDotsSolid, tween(LyricDotsDevelopMs, easing = EaseOutCubic))
-        } else if (dots.value > LyricDotsRest) {
-            dots.animateTo(LyricDotsRest, tween(LyricDotsBreakMs, easing = EaseOutCubic))
+        } else if (dots.value > restDots) {
+            dots.animateTo(restDots, tween(LyricDotsBreakMs, easing = EaseOutCubic))
         }
     }
     // I-2 in focus: the song's last line held wide from its left edge. A
