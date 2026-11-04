@@ -107,7 +107,7 @@ struct AlbumScrapbookView: View {
 
     // MARK: Stamp
 
-    private var emblemKind: ScoreEmblem.Kind { album.rating != nil ? .album : .average }
+    private var emblemKind: ScoreEmblem.Kind { ScoreEmblem.Kind(rating: album.rating, average: album.averageRating) }
     private var emblemScore: Double { album.rating ?? album.averageRating ?? 0 }
     private var emblemRated: [Bool] { album.tracks.map { $0.rating != nil } }
     private var awardKey: String { "\(emblemScore)|\(emblemKind)|\(emblemRated)" }
@@ -121,7 +121,7 @@ struct AlbumScrapbookView: View {
     // MARK: Opening cluster
 
     private var opening: some View {
-        let kind: ScoreEmblem.Kind = album.rating != nil ? .album : .average
+        let kind = emblemKind
         let cover = Tokens.detail.SCRAPBOOK_COVER.cg
         let badge = Tokens.detail.SCRAPBOOK_BADGE.cg
         let overhangX = Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_X.cg
@@ -146,7 +146,9 @@ struct AlbumScrapbookView: View {
                         }
                         .frame(width: cover, height: cover + Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_Y.cg * badge, alignment: .top)
                     ScoreEmblem(score: emblemScore, kind: kind, rated: emblemRated,
-                                palette: album.palette, size: badge, award: award)
+                                palette: album.palette, size: badge,
+                                // nothing rated: the empty mould, no ceremony (GrooveScript tier 0)
+                                award: kind == .unrated ? nil : award, onCover: true)
                         .offset(x: overhangX * badge)
                         .modifier(layer(0, depth: 0.6))
                 }

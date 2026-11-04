@@ -446,7 +446,7 @@ struct AlbumDetailView: View {
 
     private func hero(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
         let ratedFlags = album.tracks.map { $0.rating != nil }
-        let kind: ScoreEmblem.Kind = album.rating != nil ? .album : .average
+        let kind = ScoreEmblem.Kind(rating: album.rating, average: album.averageRating)
         let score = album.rating ?? album.averageRating ?? 0
         return VStack(alignment: .leading, spacing: 0) {
             Spacer().frame(height: headerContent + band + 8)
@@ -460,7 +460,8 @@ struct AlbumDetailView: View {
             // Emblem + comment, as wide as the cover.
             HStack(spacing: 20) {
                 HStack(spacing: 10) {
-                    ScoreEmblem(score: score, kind: kind, rated: ratedFlags, palette: album.palette, size: 64)
+                    ScoreEmblem(score: score, kind: kind, rated: ratedFlags, palette: album.palette, size: 64,
+                                neutrals: app)
                     if kind == .average { ratedCoverage }
                 }
                 comment
@@ -782,7 +783,7 @@ struct AlbumDetailView: View {
     /// Last Play (label, 4, day bodyLarge, 4, time bodyMedium tabular) and the
     /// emblem (+ "X/N rated") across one row, centred; the comment 14 below.
     private var linerNotes: some View {
-        let kind: ScoreEmblem.Kind = album.rating != nil ? .album : .average
+        let kind = ScoreEmblem.Kind(rating: album.rating, average: album.averageRating)
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center) {
                 if isMock || plays != nil {
@@ -799,7 +800,8 @@ struct AlbumDetailView: View {
                 Spacer()
                 HStack(spacing: 10) {
                     ScoreEmblem(score: album.rating ?? album.averageRating ?? 0, kind: kind,
-                                rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: 64)
+                                rated: album.tracks.map { $0.rating != nil }, palette: album.palette, size: 64,
+                                neutrals: app)
                     if kind == .average { ratedCoverage }
                 }
             }
