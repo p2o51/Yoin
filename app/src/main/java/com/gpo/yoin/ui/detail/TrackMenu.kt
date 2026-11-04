@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ButtonGroup
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
@@ -483,9 +485,14 @@ private fun TrackMenuQuickRow(actions: List<TrackMenuQuickAction>, onClick: (Tra
                                 modifier = Modifier.size(24.dp),
                             )
                             Spacer(modifier = Modifier.height(6.dp))
+                            // A neighbour squeezed by a press shrinks its label rather than cut it.
                             Text(
                                 text = action.label,
                                 style = MaterialTheme.typography.labelMedium,
+                                autoSize = TextAutoSize.StepBased(
+                                    minFontSize = 9.sp,
+                                    maxFontSize = MaterialTheme.typography.labelMedium.fontSize,
+                                ),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center,
