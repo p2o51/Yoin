@@ -1,5 +1,7 @@
 package com.gpo.yoin.player.scrobble
 
+import kotlin.math.abs
+
 /*
  * Play reporting ("scrobble") rules, kept free of android.* so they can move to the
  * KMP :shared module as they are and iOS (PlayerEngine.swift) can use the same ones.
@@ -97,6 +99,7 @@ class ScrobbleTracker(
         var playingSinceMs: Long? = null,
         var durationMs: Long = snapshot.durationMs,
         var lastPositionMs: Long = snapshot.positionMs,
+        var lastUpdateMs: Long = 0L,
         var lastReportedPlaying: Boolean = false,
     ) {
         val key get() = snapshot.profileId to snapshot.playKey
@@ -124,9 +127,15 @@ class ScrobbleTracker(
         }
         if (snapshot == null) return events
         val active = session ?: Session(snapshot).also { session = it }
+        // Where the song would be had nothing moved it: a seek shows as a jump from there.
+        val expectedPositionMs = active.lastPositionMs +
+            (if (active.playingSinceMs != null) now - active.lastUpdateMs else 0L)
+        val seeked = active.announced &&
+            abs(snapshot.positionMs - expectedPositionMs) > SEEK_TOLERANCE_MS
         active.accrue(now)
         if (snapshot.durationMs > 0L) active.durationMs = snapshot.durationMs
         active.lastPositionMs = snapshot.positionMs
+        active.lastUpdateMs = now
         if (snapshot.isPlaying) {
             active.playingSinceMs = now
             if (!active.announced) {
@@ -137,7 +146,8 @@ class ScrobbleTracker(
         } else {
             active.playingSinceMs = null
         }
-        if (active.announced && active.lastReportedPlaying != snapshot.isPlaying) {
+        // A play / pause, or a seek (the server estimates the position between reports).
+        if (active.announced && (active.lastReportedPlaying != snapshot.isPlaying || seeked)) {
             active.lastReportedPlaying = snapshot.isPlaying
             events += ScrobbleEvent.StateChanged(
                 snapshot.profileId,
@@ -157,6 +167,11 @@ class ScrobbleTracker(
         val threshold = rule.thresholdMs(active.durationMs) ?: return null
         val listened = active.listenedMs + (monotonicMs() - active.playingSinceMs!!)
         return (threshold - listened).coerceAtLeast(0L)
+    }
+
+    private companion object {
+        /** Drift between reports that isn't a seek (position reads, ticks). */
+        const val SEEK_TOLERANCE_MS = 3_000L
     }
 
     private fun Session.accrue(now: Long) {

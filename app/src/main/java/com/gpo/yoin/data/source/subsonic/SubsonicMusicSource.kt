@@ -25,6 +25,8 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.PlayReport
+import com.gpo.yoin.data.source.PlayReportRejectedException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import kotlin.math.roundToInt
 
@@ -38,8 +40,7 @@ class SubsonicMusicSource(
     private val apiFactory: (() -> ServerCredentials) -> SubsonicApi = { provider ->
         SubsonicApiFactory.create(credentialsProvider = provider, loggingEnabled = false)
     },
-    /** The profile this source was built for; null outside ProfileManager (probes, tests). Plays go only to it. */
-    val profileId: String? = null,
+    override val profileId: String? = null,
 ) : MusicSource {
 
     private val api: SubsonicApi = apiFactory { credentials }
@@ -204,7 +205,61 @@ class SubsonicMusicSource(
             val uri = SubsonicApiFactory.buildStreamUrl(credentials, rawId)
             return PlaybackHandle.DirectStream(uri = uri)
         }
+
+        override suspend fun reportNowPlaying(trackId: MediaId): Result<Unit> = runCatching {
+            unwrap(api.scrobble(id = listOf(trackId.requireSubsonic()), submission = false))
+        }
+
+        override suspend fun submitPlays(plays: List<PlayReport>): Result<Unit> = runCatching {
+            try {
+                unwrap(
+                    api.scrobble(
+                        id = plays.map { it.trackId.requireSubsonic() },
+                        time = plays.map { it.timeMs },
+                        submission = true,
+                    ),
+                )
+            } catch (error: SubsonicException) {
+                // 10 a parameter it won't take, 70 a song it no longer has: sending again won't help.
+                // Anything else (auth, a server hiccup) is worth retrying.
+                if (error.code == 10 || error.code == 70) throw PlayReportRejectedException(error.message, error)
+                throw error
+            }
+        }
+
+        override suspend fun supportsPlaybackStateReport(): Boolean {
+            playbackReportSupported?.let { return it }
+            // A server that answers without the extension (plain Subsonic: an error or a 404) is
+            // remembered as without; no answer at all (offline) is asked again next time.
+            val supported = try {
+                unwrap(api.getOpenSubsonicExtensions()).openSubsonicExtensions.orEmpty()
+                    .any { it.name == "playbackReport" }
+            } catch (error: SubsonicException) {
+                false
+            } catch (error: retrofit2.HttpException) {
+                false
+            }
+            playbackReportSupported = supported
+            return supported
+        }
+
+        override suspend fun reportPlaybackState(trackId: MediaId, state: String, positionMs: Long): Result<Unit> =
+            runCatching {
+                unwrap(
+                    api.reportPlayback(
+                        mediaId = trackId.requireSubsonic(),
+                        mediaType = "song",
+                        positionMs = positionMs.coerceAtLeast(0L),
+                        state = state,
+                        // Plays are counted through scrobble only, so online and offline plays count once.
+                        ignoreScrobble = true,
+                    ),
+                )
+            }
     }
+
+    // Asked once per source: see [MusicPlayback.supportsPlaybackStateReport].
+    @Volatile private var playbackReportSupported: Boolean? = null
 
     override fun library(): MusicLibrary = library
     override fun metadata(): MusicMetadata = metadata
@@ -236,47 +291,6 @@ class SubsonicMusicSource(
         SubsonicApiFactory.buildStreamUrl(credentials, songRawId)
 
     val rawCredentials: ServerCredentials get() = credentials
-
-    // ── Play reporting (see player/scrobble) ──────────────────────────
-
-    /** Plays ([submission] true, dated by [timesMs]) or "now playing" (false, no times). */
-    suspend fun scrobble(songIds: List<String>, timesMs: List<Long>?, submission: Boolean) {
-        unwrap(api.scrobble(id = songIds, time = timesMs, submission = submission))
-    }
-
-    @Volatile private var playbackReportSupported: Boolean? = null
-
-    /**
-     * Whether this server has OpenSubsonic `playbackReport`, asked once per source. A
-     * server that answers without it (plain Subsonic: an error or a 404) is remembered
-     * as without; no answer at all (offline) is asked again next time.
-     */
-    suspend fun supportsPlaybackReport(): Boolean {
-        playbackReportSupported?.let { return it }
-        val supported = try {
-            unwrap(api.getOpenSubsonicExtensions()).openSubsonicExtensions.orEmpty()
-                .any { it.name == "playbackReport" }
-        } catch (error: SubsonicException) {
-            false
-        } catch (error: retrofit2.HttpException) {
-            false
-        }
-        playbackReportSupported = supported
-        return supported
-    }
-
-    /** Now playing only (ignoreScrobble=true): plays are counted through [scrobble]. */
-    suspend fun reportPlayback(songId: String, state: String, positionMs: Long) {
-        unwrap(
-            api.reportPlayback(
-                mediaId = songId,
-                mediaType = "song",
-                positionMs = positionMs.coerceAtLeast(0L),
-                state = state,
-                ignoreScrobble = true,
-            ),
-        )
-    }
 
     /**
      * Rough proxy for "can this source hit its server right now". We derive it

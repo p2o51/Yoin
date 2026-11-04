@@ -106,6 +106,21 @@ class ScrobbleTrackerTest {
     }
 
     @Test
+    fun `a seek while playing reports the new position but earns no listening`() {
+        tracker.update(snap(playing = true))
+        now = 10_000L
+        // Normal progress: no report.
+        assertTrue(tracker.update(snap(playing = true)).isEmpty())
+        now = 11_000L
+        val seek = tracker.update(snap(playing = true).copy(positionMs = 150_000L))
+        assertEquals(
+            listOf(ScrobbleEvent.StateChanged("p1", "s1", PlaybackReportState.PLAYING, 150_000L)),
+            seek,
+        )
+        assertEquals(89_000L, tracker.msUntilSubmit())
+    }
+
+    @Test
     fun `pause and resume are reported after the start`() {
         val start = tracker.update(snap(playing = true))
         assertEquals(PlaybackReportState.PLAYING, (start[1] as ScrobbleEvent.StateChanged).state)

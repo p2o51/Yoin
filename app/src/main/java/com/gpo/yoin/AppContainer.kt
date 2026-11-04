@@ -40,8 +40,6 @@ import com.gpo.yoin.data.repository.RoomLibraryRecentsSource
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
-import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
-import com.gpo.yoin.data.source.subsonic.SubsonicScrobbleTarget
 import com.gpo.yoin.data.sync.CloudSyncManager
 import com.gpo.yoin.perf.YoinPerfHttp
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
@@ -52,6 +50,7 @@ import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.player.scrobble.FilePendingScrobbleStore
 import com.gpo.yoin.player.scrobble.ScrobbleReporter
+import com.gpo.yoin.player.scrobble.SourceScrobbleTarget
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.library.LibraryOpenStore
@@ -481,11 +480,7 @@ class AppContainer(private val context: Context) {
         ScrobbleReporter(
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             store = FilePendingScrobbleStore(File(context.noBackupFilesDir, "scrobble-queue.json")),
-            target = {
-                // The source's own profile, never activeProfileId: during a switch the two disagree for a beat.
-                val source = profileManager.activeSource.value as? SubsonicMusicSource
-                source?.profileId?.let { profileId -> SubsonicScrobbleTarget(profileId, source) }
-            },
+            target = { SourceScrobbleTarget.of(profileManager.activeSource.value) },
             monotonicMs = SystemClock::elapsedRealtime,
             wallMs = System::currentTimeMillis,
             log = { message, error -> Log.i("YoinScrobble", message, error) },

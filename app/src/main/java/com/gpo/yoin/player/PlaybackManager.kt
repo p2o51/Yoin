@@ -21,6 +21,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.player.dlna.DlnaDevice
@@ -1302,13 +1303,14 @@ class PlaybackManager(
     }
 
     /**
-     * What the scrobble rule follows: only Subsonic songs this device plays itself
-     * (Spotify and Apple Music count their own plays).
+     * What the scrobble rule follows: only songs this device plays itself from a
+     * service that takes play reports (Subsonic; Spotify and Apple Music count their own).
      */
     private fun scrobbleSnapshotOf(state: PlaybackState): ScrobbleSnapshot? {
         if (activeBackend != ActiveBackend.LOCAL) return null
         val track = state.currentTrack ?: return null
-        if (track.id.provider != MediaId.PROVIDER_SUBSONIC) return null
+        if (track.id.provider != repository.currentProviderId()) return null
+        if (Capability.PLAY_REPORTING !in repository.currentCapabilities()) return null
         val profileId = repository.currentProfileId() ?: return null
         val entry = state.queueEntryIds.getOrNull(state.currentIndex) ?: "i${state.currentIndex}"
         return ScrobbleSnapshot(
