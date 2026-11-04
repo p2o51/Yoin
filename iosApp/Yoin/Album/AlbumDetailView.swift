@@ -20,8 +20,10 @@ import YoinShared
 /// iOS adaptations: the back button is a glass circle (Android: a tonal
 /// circle), and edge-swipe back still works with the navigation bar hidden
 /// and always wins over the pager. The pulled-up top bar is a Glass Lab
-/// choice (`detailTopBar`): the spectrum (Android, default), Liquid Glass, or
-/// the system's progressive scroll-edge blur.
+/// choice (`detailTopBar`): the spectrum with a soft lower edge (default: its
+/// colors fade out over `bandFade` while the list under them blurs
+/// progressively, one curve for both), Liquid Glass, the system's progressive
+/// scroll-edge blur, or Android's hard-edged spectrum.
 struct AlbumDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
@@ -88,8 +90,21 @@ struct AlbumDetailView: View {
     /// Screenshots: `-listScroll 160` opens the pulled-up list scrolled.
     @State private var listPosition = ScrollPosition(y: CGFloat(UserDefaults.standard.double(forKey: "listScroll")))
 
-    /// Pulled-up top bar (Glass Lab): 0 spectrum, 1 Liquid Glass, 2 progressive blur.
+    /// Pulled-up top bar (Glass Lab): 0 spectrum with a soft blurred edge,
+    /// 1 Liquid Glass, 2 progressive blur, 3 Android's hard-edged spectrum.
     private var topBar: Int { Int(GlassLab.shared.extra("detailTopBar").rounded()) }
+    /// The spectrum is drawn (with or without its soft edge).
+    private var spectrumBar: Bool { topBar == 0 || topBar == 3 }
+    /// The spectrum's soft edge: how far below the header its colors fade
+    /// out, and the list's blur radius at the header's edge. The list's
+    /// content starts below the fade, so at rest nothing sits under it.
+    private var bandFade: CGFloat { topBar == 0 ? 28 : 0 }
+    private static let bandBlurRadius: CGFloat = 10
+    /// The page's own space (the header's top edge is y = 0), where the list
+    /// rows find the band.
+    static let pageSpace = "albumPage"
+    /// The soft edge's strength: 0 until the list is nearly pulled up.
+    private var bandSoft: CGFloat { topBar == 0 ? smooth(p, 0.7, 1) : 0 }
     /// The hero's cover flies to page 2 (hero at rest, an album, motion allowed).
     private var coverFlies: Bool { playlist == nil && !reduceMotion && scrapCover != nil && p < 0.01 }
 
@@ -114,7 +129,7 @@ struct AlbumDetailView: View {
             let e = smooth(p)
             let f = pageFrac
             // The spectrum turns the header white; glass and blur keep its ink.
-            let white = topBar == 0 ? smooth(p, 0.25, 0.7) : 0
+            let white = spectrumBar ? smooth(p, 0.25, 0.7) : 0
             // Hero text while its cover flies: gone a third of the way in (albumHeroPageFade).
             let heroFade = coverFlies ? min(1, max(0, 1 - f * 3.5)) : 1
             ZStack(alignment: .topLeading) {
@@ -182,6 +197,7 @@ struct AlbumDetailView: View {
                 }
                 .zIndex(3)
             }
+            .coordinateSpace(.named(Self.pageSpace))
             .contentShape(.rect)
             .gesture(axisPan(width: w, travel: geo.size.height * 0.55))
             .onAppear {
@@ -599,10 +615,12 @@ struct AlbumDetailView: View {
                     .padding(.leading, 8)
                     .padding(.top, 2)
                     .padding(.bottom, 10)
+                    .modifier(bandBlur)
                 if loadFailed { retryButton.padding(.leading, 4) }
                 if let playlist {
                     ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
                         playlistRow(e)
+                            .modifier(bandBlur)
                             .onTapGesture { model.play(playlist.entries, startAt: i) }
                             .trackMenu(for: e, context: .playlist(playlist.id.rawId, index: i))
                     }
@@ -612,7 +630,7 @@ struct AlbumDetailView: View {
                         .opacity(max(0, (smooth(p) - 0.6) / 0.4))
                 } else {
                 ForEach(album.tracks) { t in
-                    trackRow(t).onTapGesture { playAlbum(from: t) }
+                    trackRow(t).modifier(bandBlur).onTapGesture { playAlbum(from: t) }
                         .trackMenu(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
                             settlePage(to: 1, velocity: 0)
                         }))
@@ -627,12 +645,25 @@ struct AlbumDetailView: View {
             .padding(.top, 4)
         }
         .scrollPosition($listPosition)
+        #if DEBUG
+        // Recordings: `-listAutoScroll YES` sweeps the pulled-up list up and down.
+        .task {
+            guard UserDefaults.standard.bool(forKey: "listAutoScroll") else { return }
+            try? await Task.sleep(for: .seconds(2))
+            var down = true
+            while !Task.isCancelled {
+                withAnimation(.easeInOut(duration: 2.4)) { listPosition.scrollTo(y: down ? 420 : 0) }
+                down.toggle()
+                try? await Task.sleep(for: .seconds(2.8))
+            }
+        }
+        #endif
         .contentMargins(.bottom, 112, for: .scrollContent)
         // The header's room as a bar, so the blur variant's soft scroll edge
         // runs under it (spectrum and glass cover it themselves).
         .scrollEdgeEffectStyle(.soft, for: .top)
         .scrollEdgeEffectHidden(topBar != 2, for: .top)
-        .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent) }
+        .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent + bandFade) }
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
             listAtTop = top
         }
@@ -822,7 +853,7 @@ struct AlbumDetailView: View {
         let n = AlbumSpectrum.strips
         let slice = side / CGFloat(n)
         let heroX = (w - side) / 2, heroY = headerContent + 28
-        let barH = top + headerContent
+        let barH = top + headerContent + bandFade
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
@@ -852,8 +883,41 @@ struct AlbumDetailView: View {
             }
         }
         .frame(width: w, alignment: .topLeading)
+        .mask(alignment: .topLeading) { bandMask(w: w, top: top) }
         .opacity(p > 0.001 ? 1 : 0)
         .allowsHitTesting(false)
+    }
+
+    /// The spectrum's soft edge: solid down to the header's edge, then the
+    /// band's colors fade out over `bandFade` (the list's blur reads the same
+    /// curve, `albumBandBlur`); it comes in as the list settles, so the strips
+    /// in flight are never cut.
+    @ViewBuilder
+    private func bandMask(w: CGFloat, top: CGFloat) -> some View {
+        if bandFade > 0 {
+            let k = bandSoft
+            VStack(spacing: 0) {
+                Rectangle().frame(height: top + headerContent)
+                LinearGradient(stops: (0...8).map { i in
+                    let t = CGFloat(i) / 8
+                    let ease = t * t * (3 - 2 * t)
+                    return .init(color: .black.opacity(1 - ease * k), location: t)
+                }, startPoint: .top, endPoint: .bottom)
+                .frame(height: bandFade)
+                Rectangle().opacity(1 - k).frame(height: 4000)
+            }
+            .frame(width: w + 40)
+            .offset(x: -20, y: -top)
+        } else {
+            Rectangle().frame(width: w + 40, height: 8000).offset(x: -20, y: -4000)
+        }
+    }
+
+    /// The soft edge's blur on one piece of the list: only a piece under the
+    /// fade runs the shader (one or two rows at a time), and the curve is the
+    /// band mask's.
+    private var bandBlur: AlbumBandBlur {
+        AlbumBandBlur(zoneTop: headerContent, zoneHeight: bandFade, radius: Self.bandBlurRadius * bandSoft)
     }
 
     // MARK: Pager and pull-up (one axis-locked pan)
@@ -999,5 +1063,26 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
         let live = isAlbumEdge(gestureRecognizer) ? AlbumPopGate.blocksPop
             : gestureRecognizer === interactivePopGestureRecognizer && !AlbumPopGate.blocksPop
         return live && viewControllers.count > 1 && other.view?.isDescendant(of: view) == true
+    }
+}
+
+/// A list piece's progressive blur under the album spectrum's soft edge
+/// (`AlbumBandBlur.metal`): full `radius` at `zoneTop` (the header's edge, in
+/// `AlbumDetailView.pageSpace`), none `zoneHeight` below it. Off the zone the
+/// effect is disabled, so a scroll costs nothing for the rest of the list.
+struct AlbumBandBlur: ViewModifier {
+    var zoneTop: CGFloat
+    var zoneHeight: CGFloat
+    var radius: CGFloat
+
+    func body(content: Content) -> some View {
+        let zoneTop = zoneTop, zoneHeight = zoneHeight, radius = radius
+        return content.visualEffect { c, proxy in
+            let f = proxy.frame(in: .named(AlbumDetailView.pageSpace))
+            let on = radius > 0.3 && zoneHeight > 0 && f.maxY > zoneTop - radius && f.minY < zoneTop + zoneHeight
+            return c.layerEffect(ShaderLibrary.albumBandBlur(.float(zoneTop - f.minY), .float(max(1, zoneHeight)),
+                                                             .float(radius)),
+                                 maxSampleOffset: CGSize(width: radius, height: radius), isEnabled: on)
+        }
     }
 }

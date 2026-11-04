@@ -172,7 +172,7 @@ final class GlassLab {
             extras["barSelectedStyle"] = 1
             suppressSave = false
         }
-        // Screenshots: `-detailTopBar 0|1|2`.
+        // Screenshots: `-detailTopBar 0|1|2|3`.
         if let mode = UserDefaults.standard.string(forKey: "detailTopBar").flatMap(Double.init) {
             suppressSave = true
             extras["detailTopBar"] = mode
@@ -194,8 +194,9 @@ final class GlassLab {
     }
 
     /// Extras that aren't a glass surface's: the album page's pulled-up top
-    /// bar, 0 = the cover's spectrum (Android, default), 1 = Liquid Glass,
-    /// 2 = the system's progressive scroll-edge blur.
+    /// bar, 0 = the cover's spectrum with a soft, progressively blurred lower
+    /// edge (default), 1 = Liquid Glass, 2 = the system's progressive
+    /// scroll-edge blur, 3 = the spectrum with Android's hard edge.
     static let pageExtras: [(String, Double)] = [("detailTopBar", 0)]
 
     private func resetValues() {
@@ -426,7 +427,7 @@ struct GlassLabPanel: View {
                 Picker("Detail top bar", selection: Binding(
                     get: { Int(lab.extra("detailTopBar").rounded()) },
                     set: { lab.extras["detailTopBar"] = Double($0) })) {
-                    Text("Spectrum").tag(0); Text("Glass").tag(1); Text("Blur").tag(2)
+                    Text("Spectrum").tag(0); Text("Hard edge").tag(3); Text("Glass").tag(1); Text("Blur").tag(2)
                 }
                 .pickerStyle(.segmented)
             }
