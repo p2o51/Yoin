@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -154,6 +155,9 @@ internal fun PlaybackControls(
         var playCenter by remember { mutableStateOf(Offset.Unspecified) }
         var nextCenter by remember { mutableStateOf(Offset.Unspecified) }
         var prevCenter by remember { mutableStateOf(Offset.Unspecified) }
+        // Each key's outline (root px), for its ring of tap dots: plain slots,
+        // written on layout, read on tap — never composed.
+        val keyBounds = remember { arrayOf(Rect.Zero, Rect.Zero, Rect.Zero) }
         // PREVIOUS is stamped with the playhead it was tapped at, and every tick
         // reports the playhead back: a PREVIOUS the player answered with a
         // restart (no song change) is spent the moment the playhead lands back
@@ -239,13 +243,16 @@ internal fun PlaybackControls(
                                 positionMs = latestPositionMs,
                             )
                         }
+                        transportSignal?.recordTapDots(keyBounds[KeyPrevious], lean = -1)
                         haptics.performTick()
                         onSkipPrevious()
                     },
                     modifier = Modifier
                         .size(controlSize)
                         .onGloballyPositioned {
-                            prevCenter = it.boundsInRoot().center
+                            val bounds = it.boundsInRoot()
+                            prevCenter = bounds.center
+                            keyBounds[KeyPrevious] = bounds
                         },
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.secondary,
@@ -273,13 +280,16 @@ internal fun PlaybackControls(
                             if (playCenter.isSpecified) {
                                 transportSignal?.recordTap(playCenter, TransportTapKind.PlayPause)
                             }
+                            transportSignal?.recordTapDots(keyBounds[KeyPlay], lean = 0)
                             haptics.performClick()
                             onTogglePlayPause()
                         },
                         modifier = Modifier
                             .fillMaxHeight()
                             .onGloballyPositioned {
-                                playCenter = it.boundsInRoot().center
+                                val bounds = it.boundsInRoot()
+                                playCenter = bounds.center
+                                keyBounds[KeyPlay] = bounds
                                 transportSignal?.gatherAnchorRoot = playCenter
                             },
                         shape = MaterialTheme.shapes.extraLarge,
@@ -336,6 +346,7 @@ internal fun PlaybackControls(
                             if (nextCenter.isSpecified) {
                                 transportSignal?.recordTap(nextCenter, TransportTapKind.SkipNext)
                             }
+                            transportSignal?.recordTapDots(keyBounds[KeyNext], lean = 1)
                             haptics.performTick()
                             onSkipNext()
                         },
@@ -343,7 +354,9 @@ internal fun PlaybackControls(
                             .fillMaxHeight()
                             .width(controlButtonSize)
                             .onGloballyPositioned {
-                                nextCenter = it.boundsInRoot().center
+                                val bounds = it.boundsInRoot()
+                                nextCenter = bounds.center
+                                keyBounds[KeyNext] = bounds
                             },
                         interactionSource = nextInteractionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
@@ -1101,3 +1114,8 @@ private fun PlaybackControlsShuffleRepeatOnePreview() {
 private fun PlaybackControlsRepeatOnePreview() {
     PlayModePreviewControls(PlayMode.RepeatOne)
 }
+
+// Slots of PlaybackControls' key outlines (tap dots).
+private const val KeyPrevious = 0
+private const val KeyPlay = 1
+private const val KeyNext = 2

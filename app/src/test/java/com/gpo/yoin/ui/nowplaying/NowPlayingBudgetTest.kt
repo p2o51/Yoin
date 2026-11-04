@@ -54,7 +54,17 @@ class NowPlayingBudgetTest {
         assertDp(86.dp, rest.hero)
         assertDp(68.dp, rest.accessory)
         assertDp(843.dp, rest.total)
-        assertDp(364.dp, nn(budget.focus).cover)
+        // Clean focus: top bar and pills retreat, the cover grows to the
+        // column and the lyric list stays; controls and title rest as they are.
+        val focus = nn(budget.focus)
+        assertDp(364.dp, focus.cover)
+        assertEquals(LyricFrame.List, focus.lyricFrame)
+        assertDp(0.dp, focus.tabs)
+        assertDp(148.dp, focus.controls)
+        assertDp(86.dp, focus.hero)
+        assertTrue(focus.topBar < rest.topBar)
+        assertTrue(focus.accessory < rest.accessory)
+        assertDp(843.dp, focus.total)
     }
 
     @Test
@@ -68,12 +78,12 @@ class NowPlayingBudgetTest {
         assertTrue(rest.lower > 0f)
         // 16:9: title and artist share one row.
         assertTrue(budget.heroOneLine)
-        // Focus visibly grows (the old Immersive stayed at 288) and keeps the
-        // current lyric line.
+        // Focus visibly grows; with the pills and top bar gone the list fits
+        // again for a cover that yields under 15% of its focus size.
         val focus = nn(budget.focus)
-        assertDp(368.dp, focus.cover)
-        assertEquals(LyricFrame.Preview, focus.lyricFrame)
-        assertTrue(focus.lyricSlot >= 36.dp - 0.5.dp)
+        assertDp(358.4.dp, focus.cover)
+        assertEquals(LyricFrame.List, focus.lyricFrame)
+        assertTrue(focus.lyricSlot >= lyric.cleanLines(2) - 0.5.dp)
         assertDp(684.dp, focus.total)
     }
 
@@ -195,7 +205,19 @@ class NowPlayingBudgetTest {
         val focus = nn(resolveStageColumnBudget(400.dp, 1212.dp, column(transport = 136.dp)).focus)
         assertEquals(LyricFrame.List, focus.lyricFrame)
         val phoneFocus = nn(resolveStageColumnBudget(412.dp, 843.dp, column()).focus)
-        assertEquals(LyricFrame.Preview, phoneFocus.lyricFrame)
+        assertEquals(LyricFrame.List, phoneFocus.lyricFrame)
+    }
+
+    @Test
+    fun should_fallBackToCurrentLine_when_listWouldCostTheCoverOver15Percent() {
+        // Find a window whose focus keeps only the current line: the cover
+        // there is larger than any list-keeping cover would have been.
+        val preview = (560..760).map { it.dp }.firstNotNullOfOrNull { h ->
+            resolveStageColumnBudget(412.dp, h, column()).focus?.takeIf { it.lyricFrame == LyricFrame.Preview }
+        }
+        val p = nn(preview)
+        assertTrue(p.lyricSlot >= 36.dp - 0.5.dp)
+        assertDp(0.dp, p.tabs)
     }
 
     // ── DualPane ────────────────────────────────────────────────────────
@@ -223,6 +245,9 @@ class NowPlayingBudgetTest {
         val focus = nn(budget.focus)
         assertTrue(focus.cover >= budget.rest.cover + 40.dp)
         assertEquals(maxOf(DualPaneStackWidth, focus.cover), focus.slot)
+        // The title stays in focus, exactly as it rests; only the rating retreats.
+        assertDp(budget.rest.title, focus.title)
+        assertDp(0.dp, focus.rating)
     }
 
     @Test
