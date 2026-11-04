@@ -209,23 +209,19 @@ internal fun TrackMenuSheet(
         if (pendingFavorite == resolvedFavorite) pendingFavorite = null
     }
     val favorite = pendingFavorite ?: resolvedFavorite
-    val toggleFavorite: (() -> Unit)? = if (canFavorite && track != null) {
+    val couldntSaveFavorite = stringResource(R.string.np_msg_couldnt_save_favorite)
+    val couldntRemoveFavorite = stringResource(R.string.np_msg_couldnt_remove_favorite)
+    val toggleFavorite: (() -> Unit)? = track?.takeIf { canFavorite }?.let { song ->
         {
             val next = !favorite
             pendingFavorite = next
             scope.launch(NonCancellable) {
-                repository.setFavorite(track, next).onFailure {
+                repository.setFavorite(song, next).onFailure {
                     pendingFavorite = null
-                    host.onMessage(
-                        context.getString(
-                            if (next) R.string.np_msg_couldnt_save_favorite else R.string.np_msg_couldnt_remove_favorite,
-                        ),
-                    )
+                    host.onMessage(if (next) couldntSaveFavorite else couldntRemoveFavorite)
                 }
             }
         }
-    } else {
-        null
     }
 
     val playNextLabel = stringResource(R.string.detail_menu_play_next)
