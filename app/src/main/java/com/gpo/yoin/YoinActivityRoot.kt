@@ -9,11 +9,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import com.gpo.yoin.ui.nowplaying.LocalCoverDarkScheme
 import com.gpo.yoin.ui.nowplaying.LocalCoverField
+import com.gpo.yoin.ui.nowplaying.LocalCoverNeighbours
+import com.gpo.yoin.ui.nowplaying.roomNeighbourIndices
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.media3.common.Player
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -33,6 +36,7 @@ import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.motionProfileValues
 import com.gpo.yoin.ui.experience.rememberShellChromeInsets
 import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
+import com.gpo.yoin.ui.theme.CoverNeighbours
 import com.gpo.yoin.ui.theme.CoverSeedExtractor
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -119,6 +123,32 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
                 (imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()
             }
         }
+
+        // Now Playing's room is framed by the songs before and after this one
+        // (RoomAmbient, the iOS World recipe).
+        val (previousIndex, nextIndex) = roomNeighbourIndices(
+            queueSize = playbackState.queue.size,
+            currentIndex = playbackState.currentIndex,
+            upcoming = playbackState.upcoming,
+            repeatAll = playbackState.repeatMode == Player.REPEAT_MODE_ALL,
+            repeatOne = playbackState.repeatMode == Player.REPEAT_MODE_ONE,
+            shuffle = playbackState.shuffleEnabled,
+        )
+        val previousArt = previousIndex?.let { playbackState.queue.getOrNull(it)?.coverArt }
+        val nextArt = nextIndex?.let { playbackState.queue.getOrNull(it)?.coverArt }
+        LaunchedEffect(previousArt, nextArt, configurationRevision) {
+            app.container.playbackThemeState.updateNeighbours(
+                previous = previousArt?.let { app.container.repository.resolveCoverUrl(it) },
+                next = nextArt?.let { app.container.repository.resolveCoverUrl(it) },
+            ) { url ->
+                val request = ImageRequest.Builder(context)
+                    .data(url)
+                    .size(Size(CoverSeedExtractor.BitmapSizePx, CoverSeedExtractor.BitmapSizePx))
+                    .allowHardware(false)
+                    .build()
+                (imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()
+            }
+        }
     }
 
     // Window size + fold posture, observed once per Activity. Drives the
@@ -133,6 +163,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         LocalWindowCovered provides windowCovered,
         LocalCoverField provides app?.container?.playbackThemeState?.coverField,
         LocalCoverDarkScheme provides app?.container?.playbackThemeState?.colorScheme(darkTheme = true),
+        LocalCoverNeighbours provides (app?.container?.playbackThemeState?.neighbours ?: CoverNeighbours()),
         LocalPlaybackWaveState provides app?.container?.experienceSessionStore?.playbackWave,
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         // The motion tier, and Yoin Symbols' animated icons following it.

@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 
 import android.graphics.Bitmap
 import android.os.SystemClock
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -47,10 +48,12 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import com.gpo.yoin.ui.experience.voteHighFrameRate
+import com.gpo.yoin.ui.theme.CoverNeighbours
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.PI
@@ -278,6 +281,9 @@ val LocalCoverField = compositionLocalOf<CoverField?> { null }
  */
 val LocalCoverDarkScheme = compositionLocalOf<ColorScheme?> { null }
 
+/** The songs before and after the playing one, framing the room (RoomAmbient). */
+val LocalCoverNeighbours = compositionLocalOf { CoverNeighbours() }
+
 /**
  * Reports where this cover sits on screen, for the focus field to open out
  * from. Place it after the cover's own transforms (the bounds include them).
@@ -299,8 +305,10 @@ fun Modifier.reportFocusCover(): Modifier {
  * rest it is still; it only moves to answer something the user did or is
  * waiting on.
  *
- *  - **Base + rest wash** — [baseTop] → [baseBottom], with a quiet wash of the
- *    cover's own colours across the top (four soft control points, static).
+ *  - **Room at rest** — iOS's World recipe ([RoomAmbient]): [background],
+ *    the previous / next songs' colours past the top / bottom edges
+ *    ([neighbourTop], [neighbourBottom]), this cover's primary as a soft
+ *    aura in the middle, under a veil of [background]. Static.
  *  - **Song change** — the new song's wash flows in: from the tapped side
  *    while the cover leads (NEXT from the end, PREVIOUS from the start), with
  *    the lyric stream while the lyrics lead (next from below). It waits for
@@ -325,6 +333,9 @@ fun Modifier.reportFocusCover(): Modifier {
  * animated values are read in [drawBehind] (draw-phase invalidation only).
  *
  * @param accentColors the palette's primary, secondary and tertiary.
+ * @param neighbourTop / [neighbourBottom] the previous / next song's
+ *   primaryContainer, or this scheme's own containers where there is none;
+ *   they cross over on an effects spring when the queue moves.
  * @param pulseTrigger the committed state (song id + playing flag + queue
  *   position, never the playhead), null when not playing; see [resolveTransportPulse].
  * @param focusProgress the focus (immersive) stage progress, read in draw.
@@ -333,9 +344,10 @@ fun Modifier.reportFocusCover(): Modifier {
  */
 @Composable
 fun Modifier.nowPlayingAuroraBackground(
-    baseTop: Color,
-    baseBottom: Color,
+    background: Color,
     accentColors: List<Color>,
+    neighbourTop: Color,
+    neighbourBottom: Color,
     auroraActive: Boolean,
     pulseTrigger: TransportPulseKey?,
     isPlaying: Boolean,
@@ -347,8 +359,9 @@ fun Modifier.nowPlayingAuroraBackground(
     focusProgress: () -> Float = { 0f },
     darkRoom: RoomPalette? = null,
 ): Modifier {
-    val isDark = baseBottom.luminance() < 0.5f
-    val primary = accentColors.getOrElse(0) { baseTop }
+    val baseBottom = background
+    val isDark = background.luminance() < 0.5f
+    val primary = accentColors.getOrElse(0) { background }
     val secondary = accentColors.getOrElse(1) { primary }
     val tertiary = accentColors.getOrElse(2) { secondary }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -398,9 +411,21 @@ fun Modifier.nowPlayingAuroraBackground(
     // Latched with the commit: the player round-trips long after the tap.
     var burstFocalFrozen by remember { mutableStateOf<Offset?>(null) }
 
-    val washTarget = remember(coverField, isDark) {
-        restWashColors(coverField, isDark, fallback = listOf(primary, tertiary, secondary))
+    val washTarget = remember(coverField, isDark, primary) {
+        restWashColors(coverField, isDark, fallback = listOf(primary, tertiary, secondary), aura = primary)
     }
+    // Only the room's frame animates here; the theme itself lands in one cut.
+    val topBlob by animateColorAsState(
+        targetValue = neighbourTop,
+        animationSpec = YoinMotion.slowEffectsSpec(),
+        label = "roomNeighbourTop",
+    )
+    val bottomBlob by animateColorAsState(
+        targetValue = neighbourBottom,
+        animationSpec = YoinMotion.slowEffectsSpec(),
+        label = "roomNeighbourBottom",
+    )
+    val density = LocalDensity.current.density
     val wash = remember { RestWash(washTarget) }
     val band = remember { Animatable(0f) }
     var bandY by remember { mutableStateOf(0f) }
@@ -612,29 +637,34 @@ fun Modifier.nowPlayingAuroraBackground(
             val blend = if (isDark) BlendMode.Screen else BlendMode.SrcOver
             val t = clock.floatValue
 
-            drawRect(Brush.verticalGradient(listOf(baseTop, baseBottom)))
+            // The room: base, the neighbours at the edges, then this
+            // cover's aura (sliding in on a song change), under the veil.
+            drawRect(background)
+            val k = RoomAmbient.scaleFor(w / density) * density
+            drawRoomNeighbours(topBlob, bottomBlob, RoomAmbient.neighbourAlpha(isDark), k)
 
             // Rest wash, or a song change flowing in.
             val e = wash.progress.value
             val shown = wash.shown
             val previousWash = wash.previous
             if (e >= 1f || previousWash == null) {
-                drawRestWash(shown, 0f, 0f, 1f, isDark, blend)
+                drawRestWash(shown, 0f, 0f, 1f, isDark, k)
             } else if (wash.dir == Offset.Zero) {
-                drawRestWash(previousWash, 0f, 0f, 1f - e, isDark, blend)
-                drawRestWash(shown, 0f, 0f, e, isDark, blend)
+                drawRestWash(previousWash, 0f, 0f, 1f - e, isDark, k)
+                drawRestWash(shown, 0f, 0f, e, isDark, k)
             } else {
                 val travel = (if (wash.dir.x != 0f) w else h) * 0.9f
-                drawRestWash(previousWash, -wash.dir.x * travel * e, -wash.dir.y * travel * e, 1f - e, isDark, blend)
+                drawRestWash(previousWash, -wash.dir.x * travel * e, -wash.dir.y * travel * e, 1f - e, isDark, k)
                 drawRestWash(
                     shown,
                     wash.dir.x * travel * (1f - e),
                     wash.dir.y * travel * (1f - e),
                     min(1f, e * 1.4f),
                     isDark,
-                    blend,
+                    k,
                 )
             }
+            drawRect(background.copy(alpha = RoomAmbient.veilAlpha(isDark)))
 
             // Focus: the whole room in the cover's colours.
             val field = fieldShown
@@ -755,15 +785,15 @@ fun Modifier.nowPlayingAuroraBackground(
 }
 
 /** The rest wash's three colours, lifted toward the page (k1, k2, k3 in the lab). */
-private data class WashColors(val k1: Color, val k2: Color, val k3: Color)
+private data class WashColors(val k1: Color, val k2: Color, val k3: Color, val aura: Color)
 
-private fun restWashColors(field: CoverField?, dark: Boolean, fallback: List<Color>): WashColors {
+private fun restWashColors(field: CoverField?, dark: Boolean, fallback: List<Color>, aura: Color): WashColors {
     val (a, b, c) = if (field != null) {
         Triple(Color(field.palette[0]), Color(field.palette[1]), Color(field.palette[2]))
     } else {
         Triple(fallback[0], fallback[1], fallback[2])
     }
-    return WashColors(lift(a, dark), lift(b, dark), lift(c, dark))
+    return WashColors(lift(a, dark), lift(b, dark), lift(c, dark), aura)
 }
 
 private fun lift(color: Color, dark: Boolean): Color = if (dark) {
@@ -827,38 +857,65 @@ private fun DrawScope.drawBloom(center: Offset, radius: Float, color: Color, alp
     )
 }
 
+/** This cover's aura (RoomAmbient.Aura), offset by a song change's flow. */
 private fun DrawScope.drawRestWash(
     colors: WashColors,
     dx: Float,
     dy: Float,
     alpha: Float,
     dark: Boolean,
-    blend: BlendMode,
+    k: Float,
 ) {
     if (alpha <= 0.001f) return
+    val a = RoomAmbient.auraAlpha(dark) * alpha.coerceIn(0f, 1f)
+    // iOS: Circle().frame(width: 360) takes min(360, height) as its diameter.
+    val fit = min(1f, size.height / (RoomAmbient.Aura.radius * 2f * k))
+    val center = Offset(size.width / 2f + dx, size.height / 2f + dy)
+    drawSoftDisk(RoomAmbient.AuraStops, colors.aura, a, center, RoomAmbient.Aura.outerRadius * k * fit)
+}
+
+/**
+ * The previous / next songs' colours past the top / bottom edges, each a
+ * full-width soft ellipse (RoomAmbient.TopBlob / BottomBlob).
+ */
+private fun DrawScope.drawRoomNeighbours(top: Color, bottom: Color, alpha: Float, k: Float) {
+    if (alpha <= 0.001f) return
     val w = size.width
-    val h = size.height
-    val a = (if (dark) 0.42f else 0.34f) * alpha.coerceIn(0f, 1f)
-    fun point(color: Color, x: Float, y: Float, r: Float) {
-        val center = Offset(x * w + dx, y * h + dy)
-        val radius = r * w
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to color.copy(alpha = a),
-                0.6f to color.copy(alpha = a * 0.4f),
-                1f to color.copy(alpha = 0f),
-                center = center,
-                radius = radius,
-            ),
-            radius = radius,
-            center = center,
-            blendMode = blend,
-        )
+    fun blob(stops: List<Pair<Float, Float>>, disk: SoftDisk, color: Color, centerY: Float) {
+        val center = Offset(w / 2f, centerY)
+        // A circle of the ellipse's half height, stretched to half the width.
+        val stretch = (w / 2f) / (disk.radius * k)
+        withTransform({ scale(scaleX = stretch, scaleY = 1f, pivot = center) }) {
+            drawSoftDisk(stops, color, alpha, center, disk.outerRadius * k)
+        }
     }
-    point(colors.k1, 0.12f, 0.06f, 0.85f)
-    point(colors.k3, 0.86f, 0.10f, 0.70f)
-    point(colors.k2, 0.52f, 0.30f, 0.75f)
-    point(colors.k1, 0.95f, 0.42f, 0.50f)
+    blob(RoomAmbient.TopBlobStops, RoomAmbient.TopBlob, top, RoomAmbient.TopBlobCenterDp * k)
+    blob(
+        RoomAmbient.BottomBlobStops,
+        RoomAmbient.BottomBlob,
+        bottom,
+        size.height - RoomAmbient.BottomBlobCenterDp * k,
+    )
+}
+
+/** A blurred disk: [stops] are (fraction of [radius], coverage) from [SoftDisk.stops]. */
+private fun DrawScope.drawSoftDisk(
+    stops: List<Pair<Float, Float>>,
+    color: Color,
+    alpha: Float,
+    center: Offset,
+    radius: Float,
+) {
+    if (radius <= 0f || alpha <= 0.001f) return
+    val colorStops = Array(stops.size) { i ->
+        val (at, coverage) = stops[i]
+        at to color.copy(alpha = (alpha * coverage).coerceIn(0f, 1f))
+    }
+    drawCircle(
+        brush = Brush.radialGradient(*colorStops, center = center, radius = radius),
+        radius = radius,
+        center = center,
+    )
 }
 
 /** Two wide, faint ellipses of the cover's colours at the tapped line. */

@@ -105,6 +105,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -312,7 +313,6 @@ fun NowPlayingScreen(
         { id -> latestNotes.firstOrNull { it.id == id }?.let { noteDeletion.delete(it, latestDeleteNote) } }
     }
     val scheme = MaterialTheme.colorScheme
-    val surfaceContainer = scheme.surfaceContainer
     // Dark focus: the room in this screen's own dark scheme (owner
     // 2026-11-03), with the same field motion and dots. From the cover's
     // resolved scheme, so a song change crosses the room over on the field's
@@ -326,6 +326,12 @@ fun NowPlayingScreen(
         )
     }
     val background = scheme.background
+    // The room's frame: the songs before / after this one, or (none there)
+    // this cover's own secondary / tertiary container, never a grey edge.
+    val neighbours = LocalCoverNeighbours.current
+    val roomDark = background.luminance() < 0.5f
+    val neighbourTop = neighbours.previous?.of(roomDark) ?: scheme.secondaryContainer
+    val neighbourBottom = neighbours.next?.of(roomDark) ?: scheme.tertiaryContainer
 
     // Reactions for the Now Playing background (see nowPlayingAuroraBackground):
     //  • Gemini thinking (long wait) → a slow aurora wash blooms while Loading.
@@ -391,9 +397,10 @@ fun NowPlayingScreen(
             modifier = modifier
                 .fillMaxSize()
                 .nowPlayingAuroraBackground(
-                    baseTop = surfaceContainer,
-                    baseBottom = background,
+                    background = background,
                     accentColors = listOf(scheme.primary, scheme.secondary, scheme.tertiary),
+                    neighbourTop = neighbourTop,
+                    neighbourBottom = neighbourBottom,
                     auroraActive = auroraActive,
                     pulseTrigger = pulseTrigger,
                     isPlaying = isPlayingNow,

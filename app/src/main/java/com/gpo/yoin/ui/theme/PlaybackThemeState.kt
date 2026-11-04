@@ -2,9 +2,11 @@ package com.gpo.yoin.ui.theme
 
 import android.graphics.Bitmap
 import androidx.compose.material3.ColorScheme
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import com.gpo.yoin.ui.nowplaying.CoverField
 import com.gpo.yoin.ui.nowplaying.buildCoverField
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +30,19 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
     var coverField by mutableStateOf<CoverField?>(null)
         private set
     private var loading: Job? = null
+
+    /**
+     * The previous / next songs' `primaryContainer`s, framing Now Playing's
+     * room at the top and bottom edges (RoomAmbient). Null where there is
+     * no neighbour or its cover hasn't been read yet.
+     */
+    var neighbours by mutableStateOf(CoverNeighbours())
+        private set
+    private var neighbourRequest: Pair<String?, String?>? = null
+    private var neighbourLoading: Job? = null
+    private val neighbourCache = object : LinkedHashMap<String, NeighbourTint>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, NeighbourTint>?) = size > 8
+    }
 
     fun colorScheme(darkTheme: Boolean): ColorScheme? =
         palette?.let { if (darkTheme) it.dark else it.light }
@@ -62,7 +77,59 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
             }
         }
     }
+
+    /**
+     * Reads the neighbours' covers after the current one's colours are in
+     * (they never hold up the song change), from a small cache first so a
+     * skip reuses the cover that just played.
+     */
+    fun updateNeighbours(
+        previous: String?,
+        next: String?,
+        loadBitmap: suspend (String) -> Bitmap?,
+    ) {
+        val key = previous to next
+        if (neighbourRequest == key) return
+        neighbourRequest = key
+        neighbourLoading?.cancel()
+        neighbourLoading = scope.launch {
+            // All cached (a skip): straight in. Otherwise the old frame stays
+            // until the new covers are read, so the edges cross over once.
+            val cachedPrevious = previous?.let { neighbourCache[it] }
+            val cachedNext = next?.let { neighbourCache[it] }
+            if ((previous == null || cachedPrevious != null) && (next == null || cachedNext != null)) {
+                neighbours = CoverNeighbours(previous = cachedPrevious, next = cachedNext)
+                return@launch
+            }
+            loading?.join()
+            suspend fun tintOf(model: String?): NeighbourTint? {
+                if (model == null) return null
+                neighbourCache[model]?.let { return it }
+                val seed = CoverSeedExtractor.extractSeedArgb(loadBitmap(model)) ?: return null
+                val tint = withContext(Dispatchers.Default) {
+                    NeighbourTint(
+                        light = ExpressiveColorSchemeFactory.fromSeed(seed, isDark = false).primaryContainer,
+                        dark = ExpressiveColorSchemeFactory.fromSeed(seed, isDark = true).primaryContainer,
+                    )
+                }
+                neighbourCache[model] = tint
+                return tint
+            }
+            val p = tintOf(previous)
+            val n = tintOf(next)
+            neighbours = CoverNeighbours(previous = p, next = n)
+        }
+    }
 }
+
+/** A neighbour song's `primaryContainer`, in both modes. */
+@Immutable
+data class NeighbourTint(val light: Color, val dark: Color) {
+    fun of(dark: Boolean): Color = if (dark) this.dark else light
+}
+
+@Immutable
+data class CoverNeighbours(val previous: NeighbourTint? = null, val next: NeighbourTint? = null)
 
 private suspend fun readCoverField(bitmap: Bitmap): CoverField? = withContext(Dispatchers.Default) {
     val w = bitmap.width
