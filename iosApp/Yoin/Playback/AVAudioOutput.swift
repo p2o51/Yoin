@@ -97,7 +97,9 @@ final class AVAudioOutput: AudioOutput {
     // MARK: -
 
     private func makeItem(_ url: URL) -> AVPlayerItem {
-        let item = AVPlayerItem(asset: AVURLAsset(url: url))
+        // A Subsonic stream reads through the disk cache (Data/Cache): stored
+        // as it plays, played offline once held.
+        let item = AVPlayerItem(asset: CachedAudio.asset(for: url))
         // Buffer ahead a little so the preloaded item is ready at the hand-over.
         item.preferredForwardBufferDuration = 30
         return item

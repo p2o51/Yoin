@@ -28,6 +28,8 @@ final class PlaybackSystem {
         let apple = AppleMusicAudioOutput()
         let system = PlaybackSystem(engine: PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: apple)))
         system.engine.streamQuality = { StreamQualityChoice.resolvedNow() }
+        system.engine.isStoredWhole = { AudioCache.shared.isComplete(url: $0) }
+        AudioCache.shared.warmUp()
         system.appleOutput = apple
         return system
     }

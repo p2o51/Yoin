@@ -163,13 +163,18 @@ final class AppModel {
     private func signInFromLaunchArguments() {
         let d = UserDefaults.standard
         if d.bool(forKey: "subsonicSignOut") { session.signOut() }
-        guard let url = d.string(forKey: "subsonicURL") else { return }
+        let url = d.string(forKey: "subsonicURL")
         let user = d.string(forKey: "subsonicUser") ?? ""
         let pass = d.string(forKey: "subsonicPass") ?? ""
         let route = d.string(forKey: "serverRoute")
         let play = d.string(forKey: "serverPlay")
+        // `-serverPlay` / `-serverRoute` without `-subsonicURL`: the saved
+        // account as it is, answering or not (offline cache QA).
+        guard url != nil || (session.isSignedIn && (route != nil || play != nil)) else { return }
         Task {
-            guard await session.signIn(baseUrl: url, username: user, password: pass) else { return }
+            if let url {
+                guard await session.signIn(baseUrl: url, username: user, password: pass) else { return }
+            }
             sources.use(.subsonic)
             // `-historySeed demo`: backdated plays, ratings and a note (Data/History/HistoryDebugSeed.swift).
             if let seed = d.string(forKey: "historySeed") { await store.seedHistory(seed) }

@@ -68,6 +68,9 @@ final class PlayerEngine {
     @ObservationIgnored var onStateChange: (() -> Void)?
     /// The Subsonic stream quality, read when a song opens (Settings › Server, the route).
     @ObservationIgnored var streamQuality: () -> StreamQuality = { .original }
+    /// The whole stream behind a URL is in the audio cache (Data/Cache): a
+    /// stored transcode seeks in its own bytes instead of reopening at `timeOffset`.
+    @ObservationIgnored var isStoredWhole: (URL) -> Bool = { _ in false }
 
     // MARK: Internals
 
@@ -412,7 +415,10 @@ final class PlayerEngine {
 
     private func delivery(for item: QueueItem) -> StreamDelivery {
         if let pinned = deliveries[item.id] { return pinned }
-        let planned = StreamDelivery.plan(streamQuality(), track: item.track)
+        var planned = StreamDelivery.plan(streamQuality(), track: item.track)
+        if planned.seeksByTime, isStoredWhole(SubsonicStreamURLs.url(item.track.streamURL, delivery: planned)) {
+            planned.seeksByTime = false
+        }
         deliveries[item.id] = planned
         return planned
     }

@@ -70,6 +70,7 @@ struct ServerSettingsView: View {
                 if edited { signInButton.transition(.opacity.combined(with: .scale(scale: 0.96))) }
                 appleMusicGroup
                 GeminiSettingsSection(app: app, row: row)
+                StorageSettingsSection(app: app, row: row)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 40)

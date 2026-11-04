@@ -45,6 +45,8 @@ final class LibraryStore {
     @ObservationIgnored let history: HistoryStore
     @ObservationIgnored let notes: NotesStore
     @ObservationIgnored let ratings: LocalRatings
+    /// Pages and lists on disk (Data/Cache/DetailDiskCache): painted at once, refreshed behind.
+    @ObservationIgnored let disk: DetailDiskCache
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
 
     /// Bumps on every sign-in / sign-out; views key their load tasks on it.
@@ -81,14 +83,17 @@ final class LibraryStore {
     private(set) var starredOverride: [String: Bool] = [:]
 
     init(session: ServerSession, sources: SourceSelection, appleMusic: AppleMusicSource,
-         history: HistoryStore = .shared, notes: NotesStore = .shared, ratings: LocalRatings = .shared) {
+         history: HistoryStore = .shared, notes: NotesStore = .shared, ratings: LocalRatings = .shared,
+         disk: DetailDiskCache = .shared) {
         self.session = session
         self.sources = sources
         self.appleMusic = appleMusic
         self.history = history
         self.notes = notes
         self.ratings = ratings
+        self.disk = disk
         observeSession()
+        Task { await disk.purgeExpired() }
     }
 
     /// A new client (sign-in, sign-out, another server) or another source
@@ -143,6 +148,7 @@ final class LibraryStore {
         search = nil
         searchPhase = .idle
         starredOverride = [:]
+        inFlight = [:]
     }
 
     func phase(_ key: String) -> Phase { phases[key] ?? .idle }
@@ -151,10 +157,18 @@ final class LibraryStore {
 
     func loadHome(force: Bool = false) async {
         guard force || homePhase == .idle || homePhase == .failed else { return }
-        if let apple { return await loadAppleHome(apple) }
-        guard let client, let mapping else { return }
-        let gen = generation
+        guard isReal else { return }
+        // The last feed paints at once (Android's Home snapshot); the load below replaces it.
+        let gen = generation, epoch = diskEpoch, scope = historyScope
         homePhase = .loading
+        if homeLists == nil, let codec, let hit = await disk.read(DetailCacheDTO.Home.self, scope: scope, kind: .home, id: ""),
+           gen == generation, homeLists == nil {
+            homeLists = codec.home(hit.value)
+            homePhase = .loaded
+        }
+        guard gen == generation else { return }
+        if let apple { return await loadAppleHome(apple, epoch: epoch) }
+        guard let client, let mapping else { return }
         do {
             // One after another: the Kotlin client isn't Sendable, so no `async let`.
             let r = try await client.getAlbumList2(type: .recent, size: 12, offset: 0)
@@ -169,18 +183,22 @@ final class LibraryStore {
             for info in n.prefix(2) {
                 if let full = try? await client.getAlbum(id: info.id) {
                     let album = mapping.album(full)
-                    albumDetails[album.id.rawId] = album
+                    guard gen == generation else { return }
+                    keepAlbum(album, epoch: epoch)
                     tracks += album.tracks.prefix(2).map { PlaylistEntry(album: album, track: $0) }
                 }
             }
             guard gen == generation else { return }
-            homeLists = HomeLists(recent: recentAlbums, frequent: f.map(mapping.album), newest: newestAlbums,
+            let lists = HomeLists(recent: recentAlbums, frequent: f.map(mapping.album), newest: newestAlbums,
                                   highest: h.map(mapping.album), random: x.map(mapping.album), recentTracks: tracks)
+            homeLists = lists
             homePhase = .loaded
+            persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
         } catch {
             guard gen == generation else { return }
             log.error("home failed: \(ServerSession.message(for: error), privacy: .public)")
-            homePhase = .failed
+            // Offline: the stored feed stays up.
+            homePhase = homeLists != nil ? .loaded : .failed
         }
     }
 
@@ -189,19 +207,21 @@ final class LibraryStore {
     /// the rest of recently played, then older library adds; Recently Added =
     /// the library's newest albums, its 2 × 2 grid the last songs played;
     /// Rediscover = older library adds (no ratings to read from Apple).
-    private func loadAppleHome(_ apple: AppleMusicSource) async {
+    private func loadAppleHome(_ apple: AppleMusicSource, epoch: Int) async {
         let gen = generation
         homePhase = .loading
         do {
             let l = try await apple.homeLists()
             guard gen == generation else { return }
-            homeLists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
+            let lists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
                                   random: l.older, recentTracks: l.recentTracks)
+            homeLists = lists
             homePhase = .loaded
+            persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
         } catch {
             guard gen == generation else { return }
             log.error("home failed: \(AppleMusicSource.message(for: error), privacy: .public)")
-            homePhase = .failed
+            homePhase = homeLists != nil ? .loaded : .failed
         }
     }
 
@@ -344,30 +364,134 @@ final class LibraryStore {
         }
     }
 
-    /// Runs `body` once per key and generation (again after a failure or with `force`).
-    private func once(_ key: String, force: Bool = false, _ body: () async throws -> Void) async {
+    /// Runs `body` once per key and generation (again after a failure or with
+    /// `force`). A caller that comes while it runs waits for it instead of
+    /// returning empty-handed (Android's single-flight).
+    private func once(_ key: String, force: Bool = false, _ body: @escaping @MainActor () async throws -> Void) async {
         guard isReal else { return }
+        if let running = inFlight[key] {
+            await running.value
+            guard force else { return }
+        }
         let p = phase(key)
         guard force || p == .idle || p == .failed else { return }
         let gen = generation
         phases[key] = .loading
-        do {
-            try await body()
-            if gen == generation { phases[key] = .loaded }
-        } catch {
-            let message = apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
-            log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
-            if gen == generation { phases[key] = .failed }
+        let task = Task { @MainActor in
+            do {
+                try await body()
+                if gen == self.generation { self.phases[key] = .loaded }
+            } catch {
+                let message = self.apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
+                self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
+                if gen == self.generation { self.phases[key] = .failed }
+            }
+        }
+        inFlight[key] = task
+        await task.value
+        if inFlight[key] == task { inFlight[key] = nil }
+    }
+
+    // MARK: Disk cache
+
+    @ObservationIgnored private var inFlight: [String: Task<Void, Never>] = [:]
+    /// Bumps on every edit that drops a disk entry; a load writes back only
+    /// what it fetched after the last edit to its entry (DetailDiskCache).
+    @ObservationIgnored private var diskEpoch = 0
+
+    /// Album / artist pages hardly change: a stored copy under a week old
+    /// is served without the network, refreshed behind it past two hours
+    /// (Android `detailDiskFreshMs`, `detailRevalidateAfterMs`). Playlists
+    /// and the lists always ask again; their copy paints first and stands
+    /// in offline.
+    static let detailFresh: TimeInterval = 7 * 24 * 60 * 60
+    static let revalidateAfter: TimeInterval = 2 * 60 * 60
+
+    /// How this source's models go to disk; nil for the mock library.
+    private var codec: DetailCacheCodec? {
+        if apple != nil { return .appleMusic }
+        return mapping.map(DetailCacheCodec.subsonic)
+    }
+
+    /// [once] with the disk in front (Android `loadCachedDetail`): with
+    /// nothing in memory the stored copy paints first; then [fetch] runs
+    /// unless the copy is younger than [fresh]; a failed fetch over a
+    /// stored copy keeps the copy (offline). [fetch] returns what to store.
+    private func cachedLoad<D: Codable & Sendable>(
+        _ key: String, kind: DetailDiskCache.Kind, id: String, force: Bool, fresh: TimeInterval = 0,
+        inMemory: @escaping @MainActor () -> Bool,
+        restore: @escaping @MainActor (D, DetailCacheCodec) -> Void,
+        fetch: @escaping @MainActor () async throws -> D?
+    ) async {
+        await once(key, force: force) { [self] in
+            let gen = generation, epoch = diskEpoch, scope = historyScope
+            var storedAt: Date?
+            if !inMemory(), let codec, let hit = await disk.read(D.self, scope: scope, kind: kind, id: id) {
+                guard gen == generation else { return }
+                restore(hit.value, codec)
+                storedAt = hit.cachedAt
+                phases[key] = .loaded
+            }
+            @MainActor func fetchAndStore() async throws {
+                let value = try await fetch()
+                guard gen == generation else { return }
+                persist(value, kind: kind, id: id, epoch: epoch, scope: scope)
+            }
+            if !force, let storedAt, fresh > 0 {
+                let age = Date().timeIntervalSince(storedAt)
+                if age <= fresh {
+                    if age > Self.revalidateAfter { Task { try? await fetchAndStore() } }
+                    return
+                }
+            }
+            do {
+                try await fetchAndStore()
+            } catch {
+                guard storedAt != nil else { throw error }
+                log.info("\(key, privacy: .public): offline, showing the stored copy")
+            }
+        }
+    }
+
+    /// Writes [value] behind the caller (encode and file write off the main actor).
+    private func persist<D: Codable & Sendable>(_ value: D?, kind: DetailDiskCache.Kind, id: String, epoch: Int,
+                                                scope: String? = nil) {
+        guard let value, isReal else { return }
+        let scope = scope ?? historyScope
+        let disk = disk
+        Task.detached(priority: .utility) { await disk.write(value, scope: scope, kind: kind, id: id, epoch: epoch) }
+    }
+
+    /// An album fetched on the way to something else (Home's grid, an
+    /// artist's releases): kept in memory and on disk like an opened one.
+    private func keepAlbum(_ album: Album, epoch: Int) {
+        albumDetails[album.id.rawId] = album
+        persist(codec?.dto(album), kind: .album, id: album.id.rawId, epoch: epoch)
+    }
+
+    /// An edit changed what an entry holds: its disk copy goes, and loads
+    /// begun before it can't write the old one back.
+    private func dropFromDisk(_ kind: DetailDiskCache.Kind, _ id: String) {
+        diskEpoch += 1
+        let epoch = diskEpoch, scope = historyScope, disk = disk
+        Task.detached(priority: .utility) { await disk.remove(scope: scope, kind: kind, id: id, epoch: epoch) }
+    }
+
+    /// A heart or rating on [trackId] changed: the stored pages that show it go.
+    private func dropAlbums(containing trackId: String) {
+        for (id, album) in albumDetails where album.tracks.contains(where: { $0.id.rawId == trackId }) {
+            dropFromDisk(.album, id)
         }
     }
 
     func loadAlbums(force: Bool = false) async {
-        await once("albums", force: force) {
+        await cachedLoad("albums", kind: .list, id: "albums", force: force, inMemory: { !self.albums.isEmpty },
+                         restore: { (d: [DetailCacheDTO.Album], c) in self.albums = d.map(c.album) }) { [self] in
             if let apple {
                 albums = try await apple.libraryAlbums()
-                return
+                return codec?.dtoAlbums(albums)
             }
-            guard let client, let mapping else { return }
+            guard let client, let mapping else { return nil }
             var all: [Album] = []
             var offset: Int32 = 0
             while true {
@@ -377,49 +501,58 @@ final class LibraryStore {
                 offset += 500
             }
             albums = all
+            return codec?.dtoAlbums(all)
         }
     }
 
     func loadArtists(force: Bool = false) async {
-        await once("artists", force: force) {
+        await cachedLoad("artists", kind: .list, id: "artists", force: force, inMemory: { !self.artists.isEmpty },
+                         restore: { (d: [DetailCacheDTO.Item], c) in self.artists = d.map(c.item) }) { [self] in
             if let apple {
                 artists = try await apple.libraryArtists()
-                return
+            } else {
+                guard let client, let mapping else { return nil }
+                artists = try await client.getArtists().flatMap { $0.artists.map(mapping.artistItem) }
             }
-            guard let client, let mapping else { return }
-            artists = try await client.getArtists().flatMap { $0.artists.map(mapping.artistItem) }
+            return codec.map { c in artists.map(c.dto) }
         }
     }
 
     func loadPlaylists(force: Bool = false) async {
-        await once("playlists", force: force) {
+        await cachedLoad("playlists", kind: .list, id: "playlists", force: force, inMemory: { !self.playlists.isEmpty },
+                         restore: { (d: [DetailCacheDTO.Item], c) in self.playlists = d.map(c.item) }) { [self] in
             if let apple {
                 playlists = try await apple.libraryPlaylists()
-                return
+            } else {
+                guard let client, let mapping else { return nil }
+                playlists = try await client.getPlaylists().map(mapping.playlistItem)
             }
-            guard let client, let mapping else { return }
-            playlists = try await client.getPlaylists().map(mapping.playlistItem)
+            return codec.map { c in playlists.map(c.dto) }
         }
     }
 
     func loadSongs(force: Bool = false) async {
-        await once("songs", force: force) {
+        await cachedLoad("songs", kind: .list, id: "songs", force: force, inMemory: { !self.songs.isEmpty },
+                         restore: { (d: [DetailCacheDTO.Entry], c) in self.songs = d.map(c.entry) }) { [self] in
             if let apple {
                 songs = try await apple.librarySongs()
-                return
+            } else {
+                guard let client, let mapping else { return nil }
+                songs = try await client.getRandomSongs(size: 50).enumerated().map { mapping.entry($1, index: $0) }
             }
-            guard let client, let mapping else { return }
-            songs = try await client.getRandomSongs(size: 50).enumerated().map { mapping.entry($1, index: $0) }
+            return codec.map { c in songs.map(c.dto) }
         }
     }
 
     func loadFavorites(force: Bool = false) async {
-        await once("favorites", force: force) {
+        await cachedLoad("favorites", kind: .list, id: "favorites", force: force, inMemory: { !self.favorites.isEmpty },
+                         restore: { (d: [DetailCacheDTO.Entry], c) in self.favorites = d.map(c.entry) }) { [self] in
             // Apple Music has no favorites read (loved songs aren't listable,
             // library membership isn't a heart: Android rule): none.
-            if apple != nil { return }
-            guard let client, let mapping else { return }
+            if apple != nil { return nil }
+            guard let client, let mapping else { return nil }
             favorites = try await client.getStarred2().songs.enumerated().map { mapping.entry($1, index: $0) }
+            return codec.map { c in favorites.map(c.dto) }
         }
     }
 
@@ -435,26 +568,35 @@ final class LibraryStore {
     func album(_ id: String) -> Album? { albumDetails[id] }
 
     func loadAlbum(_ id: String, force: Bool = false) async {
-        await once("album:\(id)", force: force) {
+        await cachedLoad("album:\(id)", kind: .album, id: id, force: force, fresh: Self.detailFresh,
+                         inMemory: { self.albumDetails[id] != nil },
+                         restore: { (d: DetailCacheDTO.Album, c) in self.albumDetails[id] = c.album(d) }) { [self] in
+            var album: Album?
             if let apple {
-                if let album = try await apple.album(id) { albumDetails[id] = album }
-                return
+                album = try await apple.album(id)
+            } else if let client, let mapping {
+                album = try await client.getAlbum(id: id).map(mapping.album)
             }
-            guard let client, let mapping else { return }
-            if let info = try await client.getAlbum(id: id) { albumDetails[id] = mapping.album(info) }
+            guard let album else { return nil }
+            albumDetails[id] = album
+            return codec?.dto(album)
         }
     }
 
     func artistPage(_ id: String) -> ArtistPage? { artistPages[id] }
 
     func loadArtist(_ id: String, force: Bool = false) async {
-        await once("artist:\(id)", force: force) {
+        await cachedLoad("artist:\(id)", kind: .artist, id: id, force: force, fresh: Self.detailFresh,
+                         inMemory: { self.artistPages[id] != nil },
+                         restore: { (d: DetailCacheDTO.ArtistPage, c) in self.artistPages[id] = c.artistPage(d) }) { [self] in
             if let apple {
-                if let page = try await apple.artist(id) { artistPages[id] = page }
-                return
+                guard let page = try await apple.artist(id) else { return nil }
+                artistPages[id] = page
+                return codec?.dto(page)
             }
-            guard let client, let mapping else { return }
-            guard let info = try await client.getArtist(id: id) else { return }
+            guard let client, let mapping else { return nil }
+            guard let info = try await client.getArtist(id: id) else { return nil }
+            let gen = generation, epoch = diskEpoch
             artistPages[id] = mapping.artistPage(info, loadedAlbums: info.albums.compactMap { albumDetails[$0.id] })
             // Most Played needs the songs: fetch the releases (up to 12).
             var loaded: [Album] = []
@@ -462,28 +604,36 @@ final class LibraryStore {
                 if let have = albumDetails[summary.id] { loaded.append(have); continue }
                 if let full = try? await client.getAlbum(id: summary.id) {
                     let album = mapping.album(full)
-                    albumDetails[summary.id] = album
+                    guard gen == generation else { return nil }
+                    keepAlbum(album, epoch: epoch)
                     loaded.append(album)
                 }
             }
-            artistPages[id] = mapping.artistPage(info, loadedAlbums: loaded)
+            let page = mapping.artistPage(info, loadedAlbums: loaded)
+            artistPages[id] = page
+            return codec?.dto(page)
         }
     }
 
     func playlist(_ id: String) -> PlaylistInfo? { playlistDetails[id] }
 
     func loadPlaylist(_ id: String, force: Bool = false) async {
-        await once("playlist:\(id)", force: force) {
+        await cachedLoad("playlist:\(id)", kind: .playlist, id: id, force: force,
+                         inMemory: { self.playlistDetails[id] != nil },
+                         restore: { (d: DetailCacheDTO.Playlist, c) in self.playlistDetails[id] = c.playlist(d) }) { [self] in
+            var detail: PlaylistInfo?
             if let apple {
-                if var detail = try await apple.playlist(id) {
+                if var d = try await apple.playlist(id) {
                     // The library row's cover when the playlist answers without one.
-                    if detail.palette.cover == nil, let row = playlistSummary(id) { detail.palette = row.palette }
-                    playlistDetails[id] = detail
+                    if d.palette.cover == nil, let row = playlistSummary(id) { d.palette = row.palette }
+                    detail = d
                 }
-                return
+            } else if let client, let mapping {
+                detail = try await client.getPlaylist(id: id).map(mapping.playlist)
             }
-            guard let client, let mapping else { return }
-            if let detail = try await client.getPlaylist(id: id) { playlistDetails[id] = mapping.playlist(detail) }
+            guard let detail else { return nil }
+            playlistDetails[id] = detail
+            return codec?.dto(detail)
         }
     }
 
@@ -492,8 +642,20 @@ final class LibraryStore {
 
     /// Playlist writes (Data/PlaylistActions.swift) edit the Library rows and
     /// the cached pages in place, ahead of the server.
+    /// The edit lands on disk too: changed pages and the list are dropped
+    /// (so no load in flight writes the old ones back), then stored as edited.
     func patchPlaylists(_ edit: (inout [LibraryItem], inout [String: PlaylistInfo]) -> Void) {
+        let before = playlistDetails, rowsBefore = playlists
         edit(&playlists, &playlistDetails)
+        guard let codec else { return }
+        for id in Set(before.keys).union(playlistDetails.keys) where before[id] != playlistDetails[id] {
+            dropFromDisk(.playlist, id)
+            persist(playlistDetails[id].map(codec.dto), kind: .playlist, id: id, epoch: diskEpoch)
+        }
+        if rowsBefore != playlists {
+            dropFromDisk(.list, "playlists")
+            persist(playlists.map(codec.dto), kind: .list, id: "playlists", epoch: diskEpoch)
+        }
     }
 
     // MARK: Search
@@ -553,6 +715,8 @@ final class LibraryStore {
             on ? try await client.star(id: key, albumId: nil, artistId: nil)
                 : try await client.unstar(id: key, albumId: nil, artistId: nil)
         }
+        dropAlbums(containing: key)
+        dropFromDisk(.list, "favorites")
     }
 
     func toggleStar(artist page: ArtistPage) {
@@ -563,6 +727,7 @@ final class LibraryStore {
             on ? try await client.star(id: nil, albumId: nil, artistId: id)
                 : try await client.unstar(id: nil, albumId: nil, artistId: id)
         }
+        dropFromDisk(.artist, id)
     }
 
     private func write(key: String, on: Bool, _ call: @escaping @MainActor (SubsonicClient, Bool) async throws -> Void) {
@@ -584,6 +749,7 @@ final class LibraryStore {
         guard let client, track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
         do {
             try await client.setRating(id: track.id.rawId, rating: Int32(SubsonicMapping.serverRating(rating)))
+            dropAlbums(containing: track.id.rawId)
             return true
         } catch {
             log.error("rating failed: \(ServerSession.message(for: error), privacy: .public)")
