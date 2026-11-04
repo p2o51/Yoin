@@ -102,6 +102,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
@@ -158,7 +159,6 @@ import com.gpo.yoin.ui.component.NoteWriteBarDefaults
 import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.SongInfoDisplay
-import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.component.horizontalFadeMask
@@ -362,6 +362,65 @@ fun NowPlayingScreen(
     // the finger: gather while held, ripple/sink from the tapped button on
     // commit. The lyrics column and the outro hand-over publish here too.
     val transportSignal = remember { NowPlayingTransportSignal() }
+
+    // Action lights (ActionGlow.kt) for the actions decided up here; the
+    // controls (heart, rating, play mode, wave bar) fire their own.
+    val latestOnSaveNote by rememberUpdatedState(onSaveNote)
+    val latestOnSelectDevice by rememberUpdatedState(onSelectDevice)
+    val latestOnApplySearchResult by rememberUpdatedState(onApplyLyricsSearchResult)
+    val latestOnApplyLyrics by rememberUpdatedState(onApplyLyrics)
+    val latestRequestNoteDelete by rememberUpdatedState(requestNoteDelete)
+    val glowSaveNote: (NoteSaveRequest) -> Unit = remember(transportSignal) {
+        { request ->
+            val signal = transportSignal
+            val from = signal.anchorOf(GlowAnchor.Write)
+                ?: signal.lyricsAreaRoot?.let { Rect(Offset(it.center.x, it.bottom), 1f) }
+            signal.glow(ActionGlowKind.NoteSave, from, targetY = signal.currentLineRootY ?: Float.NaN)
+            latestOnSaveNote(request)
+        }
+    }
+    val glowDeleteNote: (String) -> Unit = remember(transportSignal) {
+        { id ->
+            val signal = transportSignal
+            signal.glow(
+                ActionGlowKind.NoteDelete,
+                signal.lyricsAreaRoot ?: signal.anchorOf(GlowAnchor.Write),
+                targetY = signal.currentLineRootY ?: Float.NaN,
+            )
+            latestRequestNoteDelete(id)
+        }
+    }
+    val glowSelectDevice: (YoinDevice) -> Unit = remember(transportSignal) {
+        { device ->
+            transportSignal.glow(ActionGlowKind.DeviceHandoff, transportSignal.anchorOf(GlowAnchor.Devices))
+            latestOnSelectDevice(device)
+        }
+    }
+    val revealLyrics = remember(transportSignal) {
+        { transportSignal.glow(ActionGlowKind.LyricsReveal, null, areaRoot = transportSignal.lyricsAreaRoot) }
+    }
+    val glowApplySearchResult: (LyricsSearchResultUi) -> Unit = remember(revealLyrics) {
+        { result ->
+            latestOnApplySearchResult(result)
+            revealLyrics()
+        }
+    }
+    val glowApplyLyrics: (String) -> Unit = remember(revealLyrics) {
+        { text ->
+            latestOnApplyLyrics(text)
+            revealLyrics()
+        }
+    }
+    // A translation: the slow sweep while it is fetched, each line lights once when it lands.
+    val translating = (uiState as? NowPlayingUiState.Playing)?.lyricsActionInFlight == LyricsAction.Translate
+    val translationShown = (uiState as? NowPlayingUiState.Playing)?.showLyricsTranslation == true
+    val latestTranslationShown by rememberUpdatedState(translationShown)
+    var wasTranslating by remember { mutableStateOf(false) }
+    LaunchedEffect(translating) {
+        transportSignal.lyricsWaiting = translating
+        if (wasTranslating && !translating && latestTranslationShown) revealLyrics()
+        wasTranslating = translating
+    }
     // Every user seek (lyric line, note row, wave bar) tells the background
     // first: the player may buffer at the new spot, and that dip is the
     // seek's, not a play/pause (NowPlayingTransportSignal.recordSeek).
@@ -451,10 +510,10 @@ fun NowPlayingScreen(
                     onOpenLyricsSearch = onOpenLyricsSearch,
                     onLyricsSearchQueryChange = onLyricsSearchQueryChange,
                     onSearchLyrics = onSearchLyrics,
-                    onApplyLyricsSearchResult = onApplyLyricsSearchResult,
+                    onApplyLyricsSearchResult = glowApplySearchResult,
                     onDismissLyricsSearch = onDismissLyricsSearch,
                     onTranslateLyrics = onTranslateLyrics,
-                    onApplyLyrics = onApplyLyrics,
+                    onApplyLyrics = glowApplyLyrics,
                     onLyricsMessage = onLyricsMessage,
                     onRatingChange = onRatingChange,
                     onToggleFavorite = onToggleFavorite,
@@ -483,14 +542,14 @@ fun NowPlayingScreen(
                     onStageBack = onStageBack,
                     onDetailPageChange = onDetailPageChange,
                     notesState = visibleNotes,
-                    onSaveNote = onSaveNote,
+                    onSaveNote = glowSaveNote,
                     noteSortMode = noteSortMode,
                     onNoteSortModeChange = { noteSortMode = it },
                     noteDraft = noteDraft,
-                    onDeleteNote = requestNoteDelete,
+                    onDeleteNote = glowDeleteNote,
                     devicesState = devicesState,
                     onRefreshDevices = onRefreshDevices,
-                    onSelectDevice = onSelectDevice,
+                    onSelectDevice = glowSelectDevice,
                     castState = castState,
                     onCastClick = onCastClick,
                     sharedTransitionScope = sharedTransitionScope,
@@ -1727,7 +1786,7 @@ private fun CompactPlayingContent(
                                         )
                                     }
                                     if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
-                                        TrackLibraryButton(
+                                        NowPlayingLibraryButton(
                                             membership = state.libraryMembership,
                                             isWorking = state.libraryActionInFlight,
                                             onClick = onAddCurrentToLibrary,
@@ -2574,7 +2633,7 @@ private fun WidePlayingContent(
                             )
                         }
                         if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
-                            TrackLibraryButton(
+                            NowPlayingLibraryButton(
                                 membership = state.libraryMembership,
                                 isWorking = state.libraryActionInFlight,
                                 onClick = onAddCurrentToLibrary,
@@ -3143,7 +3202,7 @@ private fun LandscapePlayingContent(
                     }
                     if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
                         Spacer(modifier = Modifier.width(12.dp))
-                        TrackLibraryButton(
+                        NowPlayingLibraryButton(
                             membership = state.libraryMembership,
                             isWorking = state.libraryActionInFlight,
                             onClick = onAddCurrentToLibrary,
@@ -3817,7 +3876,7 @@ private fun TabletopPlayingContent(
                 verticalArrangement = Arrangement.Bottom,
             ) {
                 if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
-                    TrackLibraryButton(
+                    NowPlayingLibraryButton(
                         membership = state.libraryMembership,
                         isWorking = state.libraryActionInFlight,
                         onClick = onAddCurrentToLibrary,
@@ -5332,6 +5391,9 @@ internal fun FavoriteButton(
         // and put both click + long-click on the same combinedClickable so
         // gesture dispatch stays on one clickable node.
         val interactionSource = remember { MutableInteractionSource() }
+        // Action lights (ActionGlow.kt): the heart fills or empties with a light from itself.
+        val glowSignal = LocalNowPlayingTransportSignal.current
+        val glowBounds = remember { GlowBounds() }
         var tapPulse by remember { mutableIntStateOf(0) }
         val bounce = remember { Animatable(1f) }
         val bounceSpec = YoinMotion.defaultSpatialSpec<Float>()
@@ -5348,6 +5410,7 @@ internal fun FavoriteButton(
             modifier = modifier
                 .size(44.dp)
                 .minimumTouchTarget()
+                .trackGlowBounds(glowBounds)
                 .graphicsLayer {
                     scaleX = bounce.value
                     scaleY = bounce.value
@@ -5364,11 +5427,16 @@ internal fun FavoriteButton(
                         } else {
                             haptics.performTick()
                         }
+                        glowSignal?.glow(
+                            if (isStarred) ActionGlowKind.FavoriteOff else ActionGlowKind.FavoriteOn,
+                            glowBounds.rootBounds,
+                        )
                         onClick()
                     },
                     onLongClick = onLongClick?.let { longClick ->
                         {
                             haptics.performLongPress()
+                            glowSignal?.glow(ActionGlowKind.GatherInto, glowBounds.rootBounds)
                             longClick()
                         }
                     },

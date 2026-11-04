@@ -39,12 +39,15 @@ internal class CoverMenuState(
     val host: TrackMenuHost?,
     private val haptics: YoinHaptics,
     val longClickLabel: String,
+    private val glowSignal: NowPlayingTransportSignal? = null,
 ) {
     var open by mutableStateOf(false)
 
     fun show() {
         if (host == null) return
         haptics.performLongPress()
+        // Action light (ActionGlow.kt): a ring closes in on the cover as its menu opens.
+        glowSignal?.let { it.glow(ActionGlowKind.CoverHold, it.focusCoverRoot) }
         open = true
     }
 }
@@ -54,7 +57,8 @@ internal fun rememberCoverMenuState(): CoverMenuState {
     val host = LocalNowPlayingCoverMenu.current
     val haptics = rememberYoinHaptics()
     val label = stringResource(R.string.np_cd_cover_menu)
-    return remember(host, haptics, label) { CoverMenuState(host, haptics, label) }
+    val signal = LocalNowPlayingTransportSignal.current
+    return remember(host, haptics, label, signal) { CoverMenuState(host, haptics, label, signal) }
 }
 
 /**
@@ -97,6 +101,7 @@ internal fun NowPlayingCoverMenu(songId: String, menu: CoverMenuState) {
     if (!menu.open) return
     val context = LocalContext.current
     val keepScreenOn = rememberNowPlayingKeepScreenOn()
+    val glowSignal = LocalNowPlayingTransportSignal.current
     TrackMenuSheet(
         songId = songId,
         onDismissRequest = { menu.open = false },
@@ -108,7 +113,11 @@ internal fun NowPlayingCoverMenu(songId: String, menu: CoverMenuState) {
                     label = stringResource(R.string.np_keep_screen_on),
                     icon = YoinSymbols.LightMode,
                     checked = keepScreenOn,
-                    onCheckedChange = { NowPlayingKeepScreenOn.set(context, it) },
+                    onCheckedChange = {
+                        // Action light (ActionGlow.kt): the room brightens as the screen stays on.
+                        if (it) glowSignal?.glow(ActionGlowKind.RoomLift, null)
+                        NowPlayingKeepScreenOn.set(context, it)
+                    },
                     shape = shape,
                 )
             }

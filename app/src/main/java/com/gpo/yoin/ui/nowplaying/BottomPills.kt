@@ -143,6 +143,7 @@ internal fun BottomPills(
                                 showLabel = labelVisible(devicesPressed, devicesLabel),
                                 pressWiden = layout.labelled,
                                 interactionSource = devicesInteraction,
+                                modifier = Modifier.reportGlowAnchor(GlowAnchor.Devices),
                                 shape = if (forceCapsule) {
                                     YoinShapeTokens.Full
                                 } else {
@@ -166,6 +167,7 @@ internal fun BottomPills(
                                     showLabel = labelVisible(writePressed, writeLabel),
                                     pressWiden = layout.labelled,
                                     interactionSource = writeInteraction,
+                                    modifier = Modifier.reportGlowAnchor(GlowAnchor.Write),
                                     shape = YoinShapeTokens.Full,
                                     pillHeight = pillHeight,
                                 )
@@ -260,6 +262,7 @@ private fun ButtonGroupScope.PillButton(
     pillHeight: Dp = 44.dp,
     // Icon-only groups don't widen a pressed label past its natural width.
     pressWiden: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     val pressed by interactionSource.collectIsPressedAsState()
     val labelFraction by animateFloatAsState(
@@ -275,7 +278,7 @@ private fun ButtonGroupScope.PillButton(
 
     FilledTonalButton(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .height(pillHeight)
             .minimumTouchTarget()
             .animateWidth(interactionSource),

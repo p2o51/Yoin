@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -108,6 +109,9 @@ fun WaveProgressBar(
     // The tip page's demo: a scrub it acts out, as a fraction of the bar (null
     // = none). Null in the app, where only the finger scrubs.
     actedScrub: (() -> Float?)? = null,
+    // The fraction under a finger on the bar while it presses or drags, null
+    // once it lifts (Now Playing's background lights the spot).
+    onScrubPreview: ((Float?) -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val noteAnchorFractions = remember(noteAnchorsMs, durationMs) {
@@ -127,6 +131,10 @@ fun WaveProgressBar(
     var rawDragFraction by remember { mutableFloatStateOf(0f) }
     var snappedAnchor by remember { mutableStateOf<Float?>(null) }
     var previewFraction by remember { mutableStateOf<Float?>(null) }
+    val latestOnScrubPreview by rememberUpdatedState(onScrubPreview)
+    LaunchedEffect(Unit) {
+        snapshotFlow { previewFraction }.collect { latestOnScrubPreview?.invoke(it) }
+    }
     // Magnetic note snapping: inside the inner half of the note window the
     // thumb sticks to the anchor; over the outer half it eases back to the
     // finger on a t² ramp that reaches the window edge exactly, so capture

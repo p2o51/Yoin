@@ -18,6 +18,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -122,6 +123,55 @@ class NowPlayingTransportSignal {
     internal fun recordTapDots(boundsRoot: Rect, lean: Int) {
         if (boundsRoot.isEmpty) return
         tapDots = TapDots(boundsRoot, lean, SystemClock.uptimeMillis())
+    }
+
+    // ── Action lights (ActionGlow.kt) ──
+    private val glowAnchors = HashMap<GlowAnchor, Rect>(4)
+
+    /** Lights fired since the background last took them; read with [glowFires]. */
+    internal val pendingGlows = ArrayList<ActionGlow>(4)
+
+    /** Bumped on every [glow]; observed with snapshotFlow, never composed. */
+    internal var glowFires by mutableIntStateOf(0)
+        private set
+
+    /** A finger held on the rating bar or the wave bar (read in draw only). */
+    internal var glowHold by mutableStateOf<GlowHold?>(null)
+
+    /** Something is being fetched for the lyrics (a translation): the slow sweep runs. */
+    internal var lyricsWaiting by mutableStateOf(false)
+
+    internal fun reportAnchor(anchor: GlowAnchor, boundsRoot: Rect) {
+        glowAnchors[anchor] = boundsRoot
+    }
+
+    internal fun anchorOf(anchor: GlowAnchor): Rect? = glowAnchors[anchor]?.takeIf { !it.isEmpty }
+
+    /** The lyrics column's bounds (root px), or null when none is on screen. */
+    internal val lyricsAreaRoot: Rect?
+        get() = lyricsSurface?.boundsRoot?.takeIf { !it.isEmpty }
+
+    /** Where the current lyric line lands (root px), or null with no lyrics on screen. */
+    internal val currentLineRootY: Float?
+        get() = lyricsSurface?.takeIf { !it.boundsRoot.isEmpty }?.let { it.boundsRoot.top + it.landingFromTopPx }
+
+    /**
+     * Light the background for an action at [anchorRoot] (the control, root
+     * px). A light with nowhere to start from (an empty anchor) only fires
+     * for the kinds that don't need one.
+     */
+    internal fun glow(
+        kind: ActionGlowKind,
+        anchorRoot: Rect?,
+        value: Float = 0f,
+        targetY: Float = Float.NaN,
+        areaRoot: Rect? = null,
+    ) {
+        val anchor = anchorRoot?.takeIf { !it.isEmpty }
+            ?: if (kind == ActionGlowKind.RoomLift || kind == ActionGlowKind.LyricsReveal) Rect.Zero else return
+        if (pendingGlows.size >= MaxPendingGlows) pendingGlows.removeAt(0)
+        pendingGlows += ActionGlow(kind, anchor, SystemClock.uptimeMillis(), value, targetY, areaRoot)
+        glowFires++
     }
 
     /** Bumped whenever the current lyric line moves on; observed with snapshotFlow, never composed. */
@@ -482,6 +532,56 @@ fun Modifier.nowPlayingAuroraBackground(
     val tapDotsLayer = remember { DotLayers(1) }
     var tapDotsShown by remember { mutableStateOf<TapDots?>(null) }
 
+    // Action lights (ActionGlow.kt): each fired light runs on the glow clock
+    // until its time is up; a held finger and a lyrics wait fade in and out.
+    val glows = remember { ArrayList<ActionGlow>(MaxRunningGlows) }
+    val glowCount = remember { mutableIntStateOf(0) }
+    val glowNow = remember { mutableLongStateOf(0L) }
+    val holdFade = remember { Animatable(0f) }
+    val waitFade = remember { Animatable(0f) }
+    val glowPalette = remember(primary, secondary, tertiary, isDark) {
+        GlowPalette(primary, secondary, tertiary, isDark)
+    }
+    // The last hold drawn, kept while its light fades out after the finger lifts.
+    val lastHold = remember { arrayOfNulls<GlowHold>(1) }
+    val glowLive by remember(transportSignal) {
+        derivedStateOf {
+            glowCount.intValue > 0 || transportSignal?.glowHold != null || transportSignal?.lyricsWaiting == true ||
+                holdFade.isRunning || waitFade.isRunning || holdFade.value > 0f || waitFade.value > 0f
+        }
+    }
+    LaunchedEffect(transportSignal) {
+        val signal = transportSignal ?: return@LaunchedEffect
+        launch {
+            snapshotFlow { signal.glowFires }.collect {
+                if (signal.pendingGlows.isEmpty()) return@collect
+                glows += signal.pendingGlows
+                signal.pendingGlows.clear()
+                while (glows.size > MaxRunningGlows) glows.removeAt(0)
+                glowNow.longValue = SystemClock.uptimeMillis()
+                glowCount.intValue = glows.size
+            }
+        }
+        launch {
+            snapshotFlow { signal.glowHold != null }.collect { held ->
+                launch { holdFade.animateTo(if (held) 1f else 0f, YoinMotion.defaultEffectsSpec()) }
+            }
+        }
+        snapshotFlow { signal.lyricsWaiting }.collect { waiting ->
+            launch { waitFade.animateTo(if (waiting) 1f else 0f, YoinMotion.slowEffectsSpec()) }
+        }
+    }
+    LaunchedEffect(glowLive) {
+        if (!glowLive) return@LaunchedEffect
+        while (true) {
+            withFrameMillis {
+                val now = SystemClock.uptimeMillis()
+                glowNow.longValue = now
+                if (glows.removeAll { now - it.bornUptimeMs > it.durationMs }) glowCount.intValue = glows.size
+            }
+        }
+    }
+
     // Pulses run in this scope, not the keyed effects: the next commit must
     // not cancel one mid-sweep and leave it frozen on screen.
     val pulseScope = rememberCoroutineScope()
@@ -611,7 +711,7 @@ fun Modifier.nowPlayingAuroraBackground(
     return this
         // Short no-touch motions (the finger has lifted): vote High for
         // exactly their run, so an adaptive panel doesn't pace them at 60Hz.
-        .voteHighFrameRate(effectMoving)
+        .voteHighFrameRate(effectMoving || glowLive)
         .onGloballyPositioned { originRoot = it.positionInRoot() }
         .then(pointerModifier)
         .drawBehind {
@@ -767,6 +867,26 @@ fun Modifier.nowPlayingAuroraBackground(
                     t = td,
                     color = primary.copy(alpha = if (isDark) 0.75f else 0.6f),
                 )
+            }
+
+            // Action lights: a held finger, a lyrics wait, and the fired lights.
+            val gNow = glowNow.longValue
+            val hold = transportSignal?.glowHold
+            if (hold != null) lastHold[0] = hold
+            val holdA = holdFade.value
+            val heldShown = lastHold[0]
+            if (heldShown != null && holdA > 0.001f) {
+                drawGlowHold(heldShown, originRoot, holdA, glowPalette, blend)
+            }
+            val waitA = waitFade.value
+            if (waitA > 0.001f) {
+                drawGlowWait(transportSignal?.lyricsAreaRoot, originRoot, gNow.toFloat(), waitA, glowPalette, blend)
+            }
+            if (glowCount.intValue > 0) {
+                for (i in glows.indices) {
+                    val g = glows[i]
+                    drawActionGlow(g, (gNow - g.bornUptimeMs).toFloat(), originRoot, glowPalette, blend)
+                }
             }
         }
 }
@@ -1065,6 +1185,12 @@ private fun smoothstep(x: Float): Float {
     val c = x.coerceIn(0f, 1f)
     return c * c * (3f - 2f * c)
 }
+
+/** Lights waiting for the background beyond this drop the oldest. */
+private const val MaxPendingGlows = 6
+
+/** At most this many lights draw at once; a new one past it ends the oldest. */
+private const val MaxRunningGlows = 6
 
 /** A finger-down older than this isn't the line a seek came from. */
 private const val LineTapFingerValidityMs = 1_500L
