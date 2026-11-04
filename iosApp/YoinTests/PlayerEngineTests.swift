@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import Yoin
 
@@ -383,5 +384,179 @@ final class PlayModeCycleTests: XCTestCase {
         engine.cyclePlayMode()
         XCTAssertTrue(engine.shuffle)
         XCTAssertEqual(engine.repeatMode, .all)
+    }
+}
+
+// MARK: - Stream quality
+
+@MainActor
+final class StreamQualityTests: XCTestCase {
+    private var output: FakeAudioOutput!
+    private var engine: PlayerEngine!
+    private var quality: StreamQuality = .kbps128
+
+    override func setUp() async throws {
+        output = FakeAudioOutput()
+        engine = PlayerEngine(output: output)
+        quality = .kbps128
+        engine.streamQuality = { [unowned self] in self.quality }
+    }
+
+    private let base = "https://music.example/rest/stream?u=me&t=tok&s=salt&v=1.16.1&c=Yoin&f=json"
+
+    private func track(_ n: Int, kbps: Int? = 320, duration: Double = 200) -> PlayableTrack {
+        PlayableTrack(id: "t\(n)", provider: "subsonic", title: "T\(n)", artist: "A", album: "Al", albumId: nil,
+                      durationSec: duration, streamURL: URL(string: "\(base)&id=t\(n)")!, coverURL: nil,
+                      sourceKbps: kbps)
+    }
+
+    private func query(_ url: URL?) -> [String: String] {
+        let items = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
+        return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, b in b })
+    }
+
+    // MARK: URLs
+
+    func test_should_add_mp3_transcode_params_when_capped() {
+        let url = SubsonicStreamURLs.url(URL(string: "\(base)&id=9")!,
+                                         delivery: StreamDelivery(maxBitRateKbps: 128, seeksByTime: true))
+        let q = query(url)
+        XCTAssertEqual(q["maxBitRate"], "128")
+        XCTAssertEqual(q["format"], "mp3")
+        XCTAssertEqual(q["estimateContentLength"], "true")
+        XCTAssertNil(q["timeOffset"])
+        XCTAssertEqual(q["t"], "tok")
+        XCTAssertEqual(q["id"], "9")
+    }
+
+    func test_should_add_time_offset_and_replace_old_params_when_reopening() {
+        let first = SubsonicStreamURLs.url(URL(string: "\(base)&id=9")!,
+                                           delivery: StreamDelivery(maxBitRateKbps: 192, seeksByTime: true),
+                                           timeOffsetSec: 30)
+        let again = SubsonicStreamURLs.url(first, delivery: StreamDelivery(maxBitRateKbps: 192, seeksByTime: true),
+                                           timeOffsetSec: 75)
+        XCTAssertEqual(query(again)["timeOffset"], "75")
+        XCTAssertEqual(again.absoluteString.components(separatedBy: "maxBitRate=").count, 2)
+    }
+
+    func test_should_strip_transcode_params_when_original() {
+        let capped = URL(string: "\(base)&id=9&maxBitRate=128&format=mp3&timeOffset=4&estimateContentLength=true")!
+        let q = query(SubsonicStreamURLs.url(capped, delivery: .original))
+        XCTAssertNil(q["maxBitRate"]); XCTAssertNil(q["format"]); XCTAssertNil(q["timeOffset"])
+        XCTAssertNil(q["estimateContentLength"])
+        XCTAssertEqual(q["id"], "9")
+    }
+
+    func test_should_leave_non_stream_urls_alone() {
+        let apple = URL(string: "applemusic://song/123")!
+        XCTAssertEqual(SubsonicStreamURLs.url(apple, delivery: StreamDelivery(maxBitRateKbps: 128, seeksByTime: true)),
+                       apple)
+        XCTAssertEqual(StreamDelivery.plan(.kbps128, track: PlayableTrack(
+            id: "1", provider: "applemusic", title: "", artist: "", album: "", albumId: nil, durationSec: 1,
+            streamURL: apple, coverURL: nil)), .original)
+    }
+
+    func test_should_plan_original_when_file_is_under_the_cap() {
+        XCTAssertEqual(StreamDelivery.plan(.kbps192, track: track(1, kbps: 128)), .original)
+        XCTAssertEqual(StreamDelivery.plan(.original, track: track(1, kbps: 1411)), .original)
+        XCTAssertEqual(StreamDelivery.plan(.kbps192, track: track(1, kbps: 1411)),
+                       StreamDelivery(maxBitRateKbps: 192, seeksByTime: true))
+        // Unknown source rate: transcode, but a byte isn't known to be a time.
+        XCTAssertEqual(StreamDelivery.plan(.kbps128, track: track(1, kbps: nil)),
+                       StreamDelivery(maxBitRateKbps: 128, seeksByTime: false))
+    }
+
+    func test_should_default_to_automatic_with_labels() {
+        XCTAssertEqual(StreamQualityChoice.default, .automatic)
+        XCTAssertEqual(StreamQualityChoice.allCases.map(\.label),
+                       ["Automatic", "Original", "320 kbps", "192 kbps", "128 kbps"])
+    }
+
+    func test_should_play_original_over_a_wire_and_128_otherwise() {
+        for wired in [AVAudioSession.Port.headphones, .usbAudio, .lineOut, .HDMI] {
+            XCTAssertEqual(StreamQuality.forRoute([wired]), .original, wired.rawValue)
+        }
+        for other in [AVAudioSession.Port.bluetoothA2DP, .bluetoothLE, .bluetoothHFP, .builtInSpeaker,
+                      .builtInReceiver, .airPlay, .carAudio] {
+            XCTAssertEqual(StreamQuality.forRoute([other]), .kbps128, other.rawValue)
+        }
+        XCTAssertEqual(StreamQuality.forRoute([]), .kbps128)
+        XCTAssertEqual(StreamQuality.forRoute([.airPlay, .headphones]), .original)
+    }
+
+    func test_should_resolve_automatic_by_route_and_fixed_choices_as_set() {
+        XCTAssertEqual(StreamQualityChoice.automatic.resolve(routeOutputs: [.headphones]), .original)
+        XCTAssertEqual(StreamQualityChoice.automatic.resolve(routeOutputs: [.bluetoothA2DP]), .kbps128)
+        XCTAssertEqual(StreamQualityChoice.kbps192.resolve(routeOutputs: [.headphones]), .kbps192)
+        XCTAssertEqual(StreamQualityChoice.original.resolve(routeOutputs: [.builtInSpeaker]), .original)
+    }
+
+    // MARK: Engine
+
+    func test_should_open_and_preload_transcodes_when_capped() {
+        engine.play(queue: [track(1), track(2)])
+        XCTAssertEqual(query(output.loaded)["maxBitRate"], "128")
+        XCTAssertEqual(query(output.preloaded)["maxBitRate"], "128")
+    }
+
+    func test_should_reopen_with_time_offset_and_offset_position_when_seeking_a_transcode() {
+        engine.play(queue: [track(1), track(2)])
+        let loads = output.loads
+        engine.seek(to: 75.6)
+        XCTAssertEqual(output.loads, loads + 1)
+        XCTAssertTrue(output.seeks.isEmpty)
+        XCTAssertEqual(query(output.loaded)["timeOffset"], "75")
+        XCTAssertEqual(output.startSec, 0)
+        XCTAssertTrue(output.playing)
+        XCTAssertEqual(query(output.preloaded)["id"], "t2")
+        XCTAssertEqual(engine.progress.positionSec, 75)
+
+        output.tick(to: 10)
+        XCTAssertEqual(engine.progress.positionSec, 85, accuracy: 0.001)
+        // The transcode's estimated length (what's left) never replaces the song's.
+        output.events?.outputDurationDidChange(125)
+        XCTAssertEqual(engine.progress.durationSec, 200)
+
+        output.currentTimeSec = 12
+        engine.pause()
+        XCTAssertEqual(engine.progress.positionSec, 87, accuracy: 0.001)
+        XCTAssertFalse(output.playing)
+
+        engine.seek(to: 0)
+        XCTAssertNil(query(output.loaded)["timeOffset"])
+        XCTAssertFalse(output.playing)
+        output.tick(to: 1)
+        XCTAssertEqual(engine.progress.positionSec, 1, accuracy: 0.001)
+    }
+
+    func test_should_count_from_zero_again_when_the_next_song_takes_over() {
+        engine.play(queue: [track(1), track(2)])
+        engine.seek(to: 150)
+        output.finishItem()
+        XCTAssertEqual(engine.currentTrack?.id, "t2")
+        output.tick(to: 3)
+        XCTAssertEqual(engine.progress.positionSec, 3, accuracy: 0.001)
+    }
+
+    func test_should_seek_the_output_when_playing_the_original() {
+        quality = .original
+        engine.play(queue: [track(1)])
+        XCTAssertNil(query(output.loaded)["maxBitRate"])
+        engine.seek(to: 40)
+        XCTAssertEqual(output.seeks, [40])
+        output.events?.outputDurationDidChange(201)
+        XCTAssertEqual(engine.progress.durationSec, 201)
+    }
+
+    func test_should_keep_the_current_stream_and_redo_the_next_when_quality_changes() {
+        engine.play(queue: [track(1), track(2)])
+        quality = .kbps320
+        engine.streamQualityDidChange()
+        XCTAssertEqual(query(output.preloaded)["maxBitRate"], nil, "320 kbps source under a 320 cap plays as is")
+        engine.seek(to: 20)
+        XCTAssertEqual(query(output.loaded)["maxBitRate"], "128", "the current song keeps its stream")
+        quality = .kbps192
+        engine.streamQualityDidChange()
+        XCTAssertEqual(query(output.preloaded)["maxBitRate"], "192")
     }
 }

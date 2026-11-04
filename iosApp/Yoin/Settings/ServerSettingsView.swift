@@ -15,6 +15,8 @@ struct ServerSettingsView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var working = false
+    @State private var quality = StreamQualityChoice.current
+    @State private var qualityOpen = false
     @FocusState private var focus: Field?
 
     private enum Field: Hashable { case address, username, password }
@@ -48,7 +50,10 @@ struct ServerSettingsView: View {
                     .foregroundStyle(app.onSurface)
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
-                if session.account != nil { connectionGroup }
+                if session.account != nil {
+                    connectionGroup
+                    qualityGroup
+                }
                 group("Account") {
                     [AnyView(field("Server address", text: $address, field: .address, keyboard: .URL)),
                      AnyView(field("Username", text: $username, field: .username)),
@@ -70,6 +75,8 @@ struct ServerSettingsView: View {
             .animation(Yoin.spatial, value: edited)
             .animation(Yoin.effects, value: session.state)
             .animation(Yoin.spatial, value: active)
+            .animation(Yoin.spatial, value: qualityOpen)
+            .animation(Yoin.effects, value: quality)
             .animation(Yoin.effects, value: apple.authorization)
             .animation(Yoin.effects, value: apple.subscription)
         }
@@ -117,6 +124,72 @@ struct ServerSettingsView: View {
             rows.append(AnyView(signOutRow))
             return rows
         }
+    }
+
+    private var qualityGroup: some View {
+        group("Playback") {
+            [AnyView(qualityRow)] + (qualityOpen ? StreamQualityChoice.allCases.map { AnyView(qualityChoice($0)) } : [])
+        }
+    }
+
+    /// Playback quality: the row shows the choice; a tap opens the four
+    /// choices right under it (Android Settings › Playback quality).
+    /// Automatic: the original file over a wire, 128 kbps otherwise. The
+    /// next song opened plays at the new choice.
+    private var qualityRow: some View {
+        Button { qualityOpen.toggle() } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Playback quality")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                    Text(quality.label)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .contentTransition(.opacity)
+                }
+                Spacer(minLength: 16)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(app.onSurfaceVariant)
+                    .rotationEffect(.degrees(qualityOpen ? 180 : 0))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(quality.label)
+    }
+
+    private func qualityChoice(_ choice: StreamQualityChoice) -> some View {
+        let selected = choice == quality
+        return Button {
+            guard !selected else { return }
+            quality = choice
+            StreamQualityChoice.current = choice
+            model.player.streamQualityDidChange()
+        } label: {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().strokeBorder(selected ? app.primary : app.onSurfaceVariant, lineWidth: 2)
+                    Circle().fill(app.primary).padding(5).scaleEffect(selected ? 1 : 0.01).opacity(selected ? 1 : 0)
+                }
+                .frame(width: 20, height: 20)
+                .padding(.horizontal, 2)
+                Text(choice.label)
+                    .yoinRole(Tokens.type.titleMedium)
+                    .foregroundStyle(app.onSurface)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     private var statusText: String {

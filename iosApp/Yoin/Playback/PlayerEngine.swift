@@ -66,6 +66,8 @@ final class PlayerEngine {
     @ObservationIgnored var onWillPlay: (() -> Void)?
     /// Track, play state, duration or a seek changed (refresh the lock screen).
     @ObservationIgnored var onStateChange: (() -> Void)?
+    /// The Subsonic stream quality, read when a song opens (Settings › Server, the route).
+    @ObservationIgnored var streamQuality: () -> StreamQuality = { .original }
 
     // MARK: Internals
 
@@ -80,6 +82,13 @@ final class PlayerEngine {
     @ObservationIgnored private var ended = false
     @ObservationIgnored private var consecutiveFailures = 0
     @ObservationIgnored private var scrobble = ScrobbleState()
+    /// Each slot's stream, chosen when it is first opened or preloaded: a
+    /// song keeps it through seeks and retries, so the quality never
+    /// switches mid-song (Android `SubsonicStreamResolver` pins).
+    @ObservationIgnored private var deliveries: [UUID: StreamDelivery] = [:]
+    /// Where the current item's stream starts in the song: a transcode
+    /// reopened with `timeOffset` reports time from its own start.
+    @ObservationIgnored private var timeBaseSec: Double = 0
 
     private struct ScrobbleState {
         var itemID: UUID?
@@ -132,6 +141,8 @@ final class PlayerEngine {
         ended = false
         preloadedID = nil
         preloadedURL = nil
+        deliveries = [:]
+        timeBaseSec = 0
         progress.positionSec = 0
         progress.durationSec = 0
         scrobble = ScrobbleState()
@@ -163,7 +174,7 @@ final class PlayerEngine {
         isPlaying = false
         output.pause()
         // The output's own clock is the truth at the moment of the pause.
-        progress.positionSec = output.currentTimeSec
+        progress.positionSec = output.currentTimeSec + timeBaseSec
         scrobble.lastTickSec = progress.positionSec
         onStateChange?()
     }
@@ -204,6 +215,10 @@ final class PlayerEngine {
         if ended {
             ended = false
             loadCurrent(play: false, startSec: target)
+            return
+        }
+        if let item = currentItem, delivery(for: item).seeksByTime {
+            reopenTranscode(item, at: target)
             return
         }
         output.seek(to: target)
@@ -347,14 +362,22 @@ final class PlayerEngine {
     private func loadCurrent(play: Bool, startSec: Double = 0) {
         guard let item = currentItem else { return }
         ended = false
+        let live = Set(queue.map(\.id))
+        deliveries = deliveries.filter { live.contains($0.key) }
+        let delivery = delivery(for: item)
+        // A transcode starts at the second asked for; a file seeks by byte.
+        let offset = delivery.seeksByTime ? Self.wholeSeconds(startSec) : 0
+        timeBaseSec = Double(offset)
+        let start = delivery.seeksByTime ? Double(offset) : startSec
         let next = autoAdvanceIndex.map { queue[$0] }
         preloadedID = next?.id
-        preloadedURL = next?.track.streamURL
-        progress.positionSec = startSec
+        preloadedURL = next.map { streamURL(for: $0) }
+        progress.positionSec = start
         progress.durationSec = item.track.durationSec
-        beginScrobble(item, at: startSec)
+        beginScrobble(item, at: start)
         isBuffering = true
-        output.load(item.track.streamURL, next: next?.track.streamURL, startSec: startSec)
+        output.load(streamURL(for: item, timeOffsetSec: offset), next: preloadedURL,
+                    startSec: delivery.seeksByTime ? 0 : startSec)
         if play {
             onWillPlay?()
             isPlaying = true
@@ -369,10 +392,54 @@ final class PlayerEngine {
     /// Tells the output what plays after the current item, when that changed.
     private func syncPreload() {
         let next = autoAdvanceIndex.map { queue[$0] }
-        guard next?.id != preloadedID || next?.track.streamURL != preloadedURL else { return }
+        let url = next.map { streamURL(for: $0) }
+        guard next?.id != preloadedID || url != preloadedURL else { return }
         preloadedID = next?.id
-        preloadedURL = next?.track.streamURL
-        output.preload(next?.track.streamURL)
+        preloadedURL = url
+        output.preload(url)
+    }
+
+    // MARK: Stream quality
+
+    /// The quality changed (Settings, or the route under Automatic): every
+    /// song not yet playing chooses again when it opens (the preloaded one included); the current song
+    /// keeps its stream.
+    func streamQualityDidChange() {
+        let currentID = currentItem?.id
+        deliveries = deliveries.filter { $0.key == currentID }
+        syncPreload()
+    }
+
+    private func delivery(for item: QueueItem) -> StreamDelivery {
+        if let pinned = deliveries[item.id] { return pinned }
+        let planned = StreamDelivery.plan(streamQuality(), track: item.track)
+        deliveries[item.id] = planned
+        return planned
+    }
+
+    private func streamURL(for item: QueueItem, timeOffsetSec: Int = 0) -> URL {
+        let delivery = delivery(for: item)
+        guard delivery.transcoded else { return item.track.streamURL }
+        return SubsonicStreamURLs.url(item.track.streamURL, delivery: delivery, timeOffsetSec: timeOffsetSec)
+    }
+
+    /// A seek in a transcode: the server has no bytes to range into, so the
+    /// stream reopens at [sec] (`timeOffset`, whole seconds) and the output's
+    /// clock counts from there.
+    private func reopenTranscode(_ item: QueueItem, at sec: Double) {
+        let offset = Self.wholeSeconds(sec)
+        timeBaseSec = Double(offset)
+        isBuffering = true
+        output.load(streamURL(for: item, timeOffsetSec: offset), next: preloadedURL, startSec: 0)
+        if isPlaying { output.play() }
+        progress.positionSec = Double(offset)
+        // A seek is a jump, not listening time.
+        scrobble.lastTickSec = Double(offset)
+        onStateChange?()
+    }
+
+    static func wholeSeconds(_ sec: Double) -> Int {
+        sec.isFinite && sec > 0 ? Int(sec.rounded(.down)) : 0
     }
 
     // MARK: Scrobble
@@ -444,8 +511,9 @@ final class PlayerEngine {
 // MARK: - AudioOutputEvents
 
 extension PlayerEngine: AudioOutputEvents {
-    func outputTimeDidChange(_ sec: Double) {
+    func outputTimeDidChange(_ outputSec: Double) {
         guard currentIndex != nil, !ended else { return }
+        let sec = outputSec + timeBaseSec
         if sec > 0.5 { consecutiveFailures = 0 }
         countListening(to: sec)
         if abs(progress.positionSec - sec) >= 0.01 { progress.positionSec = sec }
@@ -453,6 +521,9 @@ extension PlayerEngine: AudioOutputEvents {
 
     func outputDurationDidChange(_ sec: Double) {
         guard sec.isFinite, sec > 0, abs(progress.durationSec - sec) > 0.5 else { return }
+        // A transcode's length is the server's estimate (and only what is left
+        // after a `timeOffset`): the song's own duration stays the truth.
+        if let item = currentItem, delivery(for: item).transcoded, item.track.durationSec > 0 { return }
         progress.durationSec = sec
         onStateChange?()
     }
@@ -468,13 +539,14 @@ extension PlayerEngine: AudioOutputEvents {
         }
         currentIndex = index
         let item = queue[index]
+        timeBaseSec = 0
         progress.positionSec = 0
         progress.durationSec = item.track.durationSec
         beginScrobble(item, at: 0)
         let next = autoAdvanceIndex.map { queue[$0] }
         preloadedID = next?.id
-        preloadedURL = next?.track.streamURL
-        output.preload(next?.track.streamURL)
+        preloadedURL = next.map { streamURL(for: $0) }
+        output.preload(preloadedURL)
         announceIfNeeded()
         onStateChange?()
     }
@@ -491,7 +563,7 @@ extension PlayerEngine: AudioOutputEvents {
         guard currentIndex != nil, !ended, playing != isPlaying else { return }
         isPlaying = playing
         if !playing {
-            progress.positionSec = output.currentTimeSec
+            progress.positionSec = output.currentTimeSec + timeBaseSec
             scrobble.lastTickSec = progress.positionSec
         } else {
             announceIfNeeded()

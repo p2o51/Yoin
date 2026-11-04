@@ -27,6 +27,7 @@ final class PlaybackSystem {
     static func live() -> PlaybackSystem {
         let apple = AppleMusicAudioOutput()
         let system = PlaybackSystem(engine: PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: apple)))
+        system.engine.streamQuality = { StreamQualityChoice.resolvedNow() }
         system.appleOutput = apple
         return system
     }
@@ -86,6 +87,8 @@ final class PlaybackSystem {
             MainActor.assumeIsolated {
                 // Headphones out: pause, never blast the speaker (Android AUDIO_BECOMING_NOISY).
                 if reason == .oldDeviceUnavailable { self?.engine.pause() }
+                // Automatic quality follows the route from the next song on.
+                self?.engine.streamQualityDidChange()
             }
         })
         observers.append(center.addObserver(

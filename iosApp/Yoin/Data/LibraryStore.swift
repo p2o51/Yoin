@@ -607,6 +607,7 @@ final class LibraryStore {
                               coverURL: e.album.coverURL)
         t.starred = isStarred(e.track)
         t.userRating = e.track.rating.map { SubsonicMapping.serverRating($0) }
+        t.sourceKbps = e.track.bitRateKbps
         return t
     }
 
