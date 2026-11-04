@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +49,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -90,11 +96,15 @@ fun NowPlayingPill(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     interactionSource: MutableInteractionSource? = null,
     enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val playbackUnavailable = stringResource(R.string.cmp_pill_playback_unavailable)
     val nothingPlaying = stringResource(R.string.cmp_pill_nothing_playing)
     val openPlayer = stringResource(R.string.cmp_pill_tap_open)
+    val songOptions = stringResource(R.string.np_cd_cover_menu)
+    val longPress = onLongClick?.takeIf { enabled && currentTrackId != null }
+    val latestLongPress by rememberUpdatedState(longPress)
     // Theme tokens already share one app-wide wash. Only animate the local
     // empty/playing state; a second color spring would lag behind a new window.
     val trackPresence by animateFloatAsState(
@@ -155,12 +165,17 @@ fun NowPlayingPill(
             haptics.performContextClick()
             onClick()
         },
-        modifier = modifier.semantics {
-            onClick(label = openPlayer) {
-                onClick()
-                true
+        modifier = modifier
+            .pillLongPress(enabled = longPress != null, label = songOptions) {
+                haptics.performLongPress()
+                latestLongPress?.invoke()
             }
-        },
+            .semantics {
+                onClick(label = openPlayer) {
+                    onClick()
+                    true
+                }
+            },
         enabled = enabled,
         interactionSource = interactionSource,
         shape = MaterialTheme.shapes.extraLarge,
@@ -362,11 +377,15 @@ fun NowPlayingPillVertical(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     val playbackUnavailable = stringResource(R.string.cmp_pill_vertical_playback_unavailable)
     val nothingPlaying = stringResource(R.string.cmp_pill_vertical_nothing_playing)
     val openPlayer = stringResource(R.string.cmp_pill_tap_open)
+    val songOptions = stringResource(R.string.np_cd_cover_menu)
+    val longPress = onLongClick?.takeIf { enabled && currentTrackId != null }
+    val latestLongPress by rememberUpdatedState(longPress)
     val trackPresence by animateFloatAsState(
         targetValue = if (currentTrackTitle != null) 1f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -410,12 +429,17 @@ fun NowPlayingPillVertical(
             haptics.performContextClick()
             onClick()
         },
-        modifier = modifier.semantics {
-            onClick(label = openPlayer) {
-                onClick()
-                true
+        modifier = modifier
+            .pillLongPress(enabled = longPress != null, label = songOptions) {
+                haptics.performLongPress()
+                latestLongPress?.invoke()
             }
-        },
+            .semantics {
+                onClick(label = openPlayer) {
+                    onClick()
+                    true
+                }
+            },
         enabled = enabled,
         shape = shape,
         contentPadding = PaddingValues(0.dp),
@@ -634,4 +658,44 @@ private fun NowPlayingPillVerticalPreview() {
                 .size(width = 52.dp, height = 142.dp),
         )
     }
+}
+
+/**
+ * The pill's long-press (owner 2026-11-03: the playing song's menu, as Apple
+ * Music's mini player). The pill is a Button, which takes no long click, so
+ * this watches the press on the Initial pass, ahead of the button: held past
+ * the long-press timeout without moving, [action] runs and the rest of
+ * the gesture is consumed, so the button cancels its press and never clicks.
+ * A tap or a drag is left alone. Null: no long-press, nothing added.
+ */
+private fun Modifier.pillLongPress(enabled: Boolean, label: String, action: () -> Unit): Modifier {
+    if (!enabled) return this
+    return this
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull true
+                        if (!change.pressed || change.isConsumed) return@withTimeoutOrNull true
+                        if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                            return@withTimeoutOrNull true
+                        }
+                    }
+                }
+                if (released != null) return@awaitEachGesture
+                action()
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    event.changes.forEach { it.consume() }
+                } while (event.changes.any { it.pressed })
+            }
+        }
+        .semantics {
+            onLongClick(label = label) {
+                action()
+                true
+            }
+        }
 }

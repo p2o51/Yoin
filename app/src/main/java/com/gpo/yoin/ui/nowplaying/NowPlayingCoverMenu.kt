@@ -101,6 +101,7 @@ internal fun NowPlayingCoverMenu(songId: String, menu: CoverMenuState) {
         songId = songId,
         onDismissRequest = { menu.open = false },
         host = host,
+        nowPlaying = true,
         playerSection = {
             TrackMenuGroup(count = 1) { _, shape ->
                 TrackMenuToggleRow(
