@@ -3,11 +3,13 @@ import YoinShared
 
 /// Library root, ported from Android ui/library/LibraryScreen.kt (Compact):
 /// search pill + avatar header (no title on Compact), filter chips with the
-/// ✕ that appears while one is on, the sort row as the grid's first row, and
-/// the All grid fixed at 3 columns (16 sides, 12 / 16 gaps) mixing artists
-/// (circles) with albums and playlists (bare covers, as on iOS Home). Songs
-/// is a 68 pt row list under the Random mix header. Numbers are cited in
-/// iosApp/docs/fidelity/library.md.
+/// ✕ that appears while one is on, the sort row as the list's first row, and
+/// the All grid (3 columns on a phone, more on a wider pane; 16 sides,
+/// 12 / 16 gaps) mixing artists (circles) with albums and playlists (bare
+/// covers, as on iOS Home). Playlists is a row list with New playlist;
+/// Songs a 68 pt row list (the newest albums' songs, page by page, on
+/// Subsonic); Favorites starred artists, albums and songs. Numbers are cited
+/// in iosApp/docs/fidelity/library.md.
 ///
 /// iOS adaptations: the pill opens the shared Search screen; covers follow
 /// the iOS bare-cover rule; the header floats in glass over the grid, the
@@ -17,21 +19,22 @@ struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.zoomNamespace) private var zoomNS
-    @State private var filter: LibraryKind? = switch LaunchConfig.screen {
-    case "library-albums": .albums
-    case "library-songs": .songs
-    case "library-artists": .artists
-    case "library-playlists": .playlists
-    case "library-favorites": .favorites
-    default: nil
-    }
     @State private var width: CGFloat = 370
-    @State private var sort = "Recents"
+    @State private var height: CGFloat = 800
     @State private var position = ScrollPosition()
     @State private var metrics = ScrollMetrics()
     @State private var awake = LaunchConfig.screen == "library-scroller"
     @State private var held = LaunchConfig.screen == "library-scroller"
     @State private var hideTask: Task<Void, Never>?
+    @State private var naming = false
+    @State private var newName = ""
+
+    /// Filter, sorts and positions outlive the page (Android keeps them in
+    /// its ViewModel): Home → Library comes back to the same view.
+    private var memory: LibraryMemory { .shared }
+    private var filter: LibraryKind? { memory.filter }
+    private var tab: LibraryMemory.Tab { LibraryMemory.Tab(filter) }
+    private var sort: LibrarySortOrder { memory.sort(for: tab, offered: sortOptions) }
 
     /// The grid in rows for the shared fast-scroller mapping (FastScrollMath,
     /// YoinShared): Android's knee mapping, where the thumb tracks the top row
@@ -72,35 +75,43 @@ struct LibraryView: View {
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
     }
 
-    /// Sorted items for the current sort (mock: Recents keeps library order).
-    private var items: [LibraryItem] {
-        let base = filtered
-        switch sort {
-        case "Alphabetical": return base.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
-        case "Creator": return base.sorted { creator($0).localizedCompare(creator($1)) == .orderedAscending }
-        case "Recently added":
-            if model.store.isReal { return base.sorted { ($0.album?.created ?? "") > ($1.album?.created ?? "") } }
-            return base.sorted { ($0.album?.year ?? 0) > ($1.album?.year ?? 0) }
-        default: return base
+    /// Android libraryGridCells: Fixed(3) on a phone's width; past it the
+    /// cells stay phone-sized and the count follows the width (min 96, a
+    /// landscape phone's short window 100).
+    private var columns: Int { LibraryGrid.columns(width: width, height: height) }
+    private var cell: CGFloat { LibraryGrid.cell(width: width, columns: columns) }
+
+    /// Android librarySortOptions: only orders the data can back. No source
+    /// dates its artists or (here) its playlists; Songs and Favorites keep
+    /// their one order and have no sort row.
+    private var sortOptions: [LibrarySortOrder] {
+        switch filter {
+        case nil, .albums?: [.recents, .recentlyAdded, .alphabetical, .creator]
+        case .artists?: [.recents, .alphabetical]
+        case .playlists?: [.recents, .alphabetical, .creator]
+        case .songs?, .favorites?: []
         }
     }
 
-    private func creator(_ i: LibraryItem) -> String { i.kind == .artist ? i.title : (i.album?.artist ?? "") }
+    private var sorter: LibrarySorter {
+        LibrarySorter(recents: model.store.libraryRecents(), ignoresArticles: model.store.client != nil)
+    }
 
-    /// Fast-scroller sections per sort (Android LibraryIndex / LibraryScrollIndex).
-    private var sections: [LibraryFastScroller.Section] {
-        var out: [LibraryFastScroller.Section] = []
-        for (i, item) in items.enumerated() {
-            let label: String
-            switch sort {
-            case "Alphabetical": label = String(item.title.prefix(1)).uppercased()
-            case "Creator": label = String(creator(item).prefix(1)).uppercased()
-            case "Recently added": label = item.album.map { String($0.year) } ?? "#"
-            default: label = i < 3 ? "Today" : i < 8 ? "This week" : i < 16 ? "This month" : "Not opened"
-            }
-            if out.last?.label != label { out.append(.init(label: label, start: i)) }
+    /// Sorted items for the current view and sort.
+    private var items: [LibraryItem] {
+        var base = filtered
+        if filter == .playlists, memory.byYou, byYouAvailable {
+            base = base.filter { $0.owner == model.store.username }
         }
-        return out
+        return sorter.sorted(base, by: sort)
+    }
+
+    /// Android PlaylistsByYou: offered only when the playlists are mixed
+    /// (some the user's, some someone else's), so it never empties the list.
+    private var byYouAvailable: Bool {
+        guard let me = model.store.username else { return false }
+        let owners = model.store.playlists.compactMap(\.owner)
+        return owners.contains(me) && owners.contains { $0 != me }
     }
 
     private var filtered: [LibraryItem] {
@@ -125,25 +136,25 @@ struct LibraryView: View {
     }
 
     var body: some View {
+        let shown = items
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if filter == .songs {
-                    // Android SongsTabContent: Random mix header, then the
-                    // list's 8 top padding.
-                    randomMixHeader
-                    songList.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+                    songsTab
                 } else if filter == .favorites {
                     // Android FavoritesTabContent: 8 top padding, then the
-                    // starred songs under their "Songs" section header.
+                    // starred artists, albums and songs under section headers.
                     favoritesList.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+                } else if filter == .playlists {
+                    playlistsTab(shown)
                 } else {
                     // Grid contentPadding top 8 (LibraryScreen.kt AllTabContent).
-                    grid.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
-                    if items.isEmpty && model.store.isReal { loadState }
+                    gridTab(shown)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
         .task(id: LoadKey(generation: model.store.generation, filter: filter)) {
@@ -175,6 +186,7 @@ struct LibraryView: View {
                           viewport: $0.containerSize.height)
         } action: { _, m in
             metrics = m
+            memory.offsets[tab] = m.offset
             wake()
         }
         .overlay {
@@ -182,11 +194,11 @@ struct LibraryView: View {
             if filter == nil || filter == .artists || filter == .albums {
                 LibraryFastScroller(
                     fraction: held && LaunchConfig.screen == "library-scroller" && metrics.offset == 0
-                        ? 0.45 : metrics.fraction(items.count, columns: 3),
-                    worthShowing: metrics.worthShowing(items.count, columns: 3),
-                    awake: awake, sections: sections, itemCount: items.count, columns: 3, scheme: scheme,
+                        ? 0.45 : metrics.fraction(shown.count, columns: columns),
+                    worthShowing: metrics.worthShowing(shown.count, columns: columns),
+                    awake: awake, sections: sections(shown), itemCount: shown.count, columns: columns, scheme: scheme,
                     onDrag: { f in
-                        position.scrollTo(y: metrics.offset(for: f, items.count, columns: 3))
+                        position.scrollTo(y: metrics.offset(for: f, shown.count, columns: columns))
                         wake()
                     },
                     held: $held)
@@ -199,14 +211,29 @@ struct LibraryView: View {
                 .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if filter == .playlists && canCreatePlaylist {
+                newPlaylistButton.transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
+        }
+        .alert("New playlist", isPresented: $naming) {
+            TextField("Name", text: $newName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") { PlaylistActions.shared.create(newName, with: [], store: model.store) }
+                .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
         .onAppear {
             if LaunchConfig.screen == "library-scroller" {
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
-                    position.scrollTo(y: metrics.offset(for: 0.45, items.count, columns: 3))
+                    position.scrollTo(y: metrics.offset(for: 0.45, items.count, columns: columns))
                 }
+            } else if let y = memory.offsets[tab], y > 0 {
+                // Back where this view was left (Android keeps each tab's state).
+                position.scrollTo(y: y)
             }
         }
+        .onChange(of: model.store.generation) { _, _ in memory.offsets = [:] }
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
                            startPoint: .top, endPoint: .bottom)
@@ -222,6 +249,11 @@ struct LibraryView: View {
             try? await Task.sleep(for: .milliseconds(1600))
             if !Task.isCancelled && !held && LaunchConfig.screen != "library-scroller" { awake = false }
         }
+    }
+
+    /// Fast-scroller sections per sort (Android LibraryIndex / LibraryScrollIndex).
+    private func sections(_ items: [LibraryItem]) -> [LibraryFastScroller.Section] {
+        LibraryScrollIndex.sections(items, sort: sort, sorter: sorter)
     }
 
     // MARK: Header: search pill + avatar
@@ -269,46 +301,72 @@ struct LibraryView: View {
     /// Android LibraryFilterRow, in the style Glass Lab picks (see
     /// LibraryFilterRow below; Android-faithful tonal chips by default).
     private var chips: some View {
-        LibraryFilterRow(filter: $filter, scheme: scheme, style: LibraryFilterRow.Style.current,
-                         overContent: metrics.offset > 1)
+        LibraryFilterRow(filter: Binding(get: { memory.filter }, set: { select($0) }),
+                         byYou: filter == .playlists && byYouAvailable
+                             ? Binding(get: { memory.byYou }, set: { memory.byYou = $0 }) : nil,
+                         scheme: scheme, style: LibraryFilterRow.Style.current, overContent: metrics.offset > 1)
     }
 
-    // MARK: All / Artists / Albums / Playlists grid
+    /// Another view: this one's place is kept, the new one's comes back.
+    private func select(_ kind: LibraryKind?) {
+        memory.offsets[tab] = metrics.offset
+        memory.filter = kind
+        position.scrollTo(y: memory.offsets[LibraryMemory.Tab(kind)] ?? 0)
+    }
 
-    private var grid: some View {
+    // MARK: All / Artists / Albums grid
+
+    @ViewBuilder
+    private func gridTab(_ shown: [LibraryItem]) -> some View {
+        if shown.isEmpty && model.store.isReal {
+            // Android: no sort row over an empty view; its loading, failure
+            // or empty panel instead.
+            loadState(empty: true)
+        } else if shown.isEmpty {
+            emptyPanel
+        } else {
+            grid(shown).padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+            // All with one list failed: the others stay, its Retry under them.
+            if model.store.isReal { loadState(empty: false) }
+        }
+    }
+
+    private func grid(_ shown: [LibraryItem]) -> some View {
         let gutter = Tokens.library.GRID_GUTTER_H.cg
-        let cell = (width - 32 - 2 * gutter) / 3
-        return LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gutter, alignment: .top), count: 3),
+        return LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gutter, alignment: .top), count: columns),
                          alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
             Section {
-                ForEach(items) { item in
+                ForEach(shown) { item in
                     gridCell(item, side: cell)
+                        .transition(.opacity.animation(Yoin.effects))
                 }
             } header: {
                 sortRow
             }
         }
         .padding(.horizontal, 16)
-        .animation(Yoin.spatial, value: filter)
+        // Android animateItem: arrivals, removals and a new order move on the
+        // spatial spring and fade on the effects one.
+        .animation(Yoin.spatial, value: shown.map(\.id))
     }
 
-    /// The sort row: label + sort symbol, as the grid's first row.
+    /// The sort row: label + sort symbol, as the list's first row.
     private var sortRow: some View {
         Menu {
-            ForEach(["Recents", "Recently added", "Alphabetical", "Creator"], id: \.self) { option in
+            ForEach(sortOptions, id: \.self) { option in
                 Button {
-                    withAnimation(Yoin.spatial) { sort = option }
+                    withAnimation(Yoin.spatial) { memory.sorts[tab] = option }
                 } label: {
                     if option == sort {
-                        Label { Text(option) } icon: { YoinIcon("check", size: 18) }
+                        Label { Text(option.label) } icon: { YoinIcon("check", size: 18) }
                     } else {
-                        Text(option)
+                        Text(option.label)
                     }
                 }
             }
         } label: {
             HStack(spacing: 6) {
-                Text(sort).yoinRole(Tokens.type.labelLarge).foregroundStyle(scheme.onSurface)
+                Text(sort.label).yoinRole(Tokens.type.labelLarge).foregroundStyle(scheme.onSurface)
                 YoinIcon("sort", size: 18).foregroundStyle(scheme.onSurfaceVariant)
             }
             .padding(.horizontal, Tokens.library.SORT_ROW_PRESS_BLEED.cg)
@@ -325,11 +383,7 @@ struct LibraryView: View {
     @ViewBuilder
     private func gridCell(_ item: LibraryItem, side: CGFloat) -> some View {
         let isArtist = item.kind == .artist
-        Button {
-            if isArtist { model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId) }
-            else if item.kind == .playlist { model.openPlaylist(item.id.rawId) }
-            else if let album = item.album { model.open(album) }
-        } label: {
+        Button { open(item) } label: {
             VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
                                seed: item.id.rawId.count, size: side, stroke: scheme.primary)
@@ -350,6 +404,14 @@ struct LibraryView: View {
         .buttonStyle(PressScale())
     }
 
+    private func open(_ item: LibraryItem) {
+        switch item.kind {
+        case .artist: model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId)
+        case .playlist: model.openPlaylist(item.id.rawId)
+        case .album: if let album = item.album { model.open(album) }
+        }
+    }
+
     private func subtitle(_ item: LibraryItem) -> String {
         switch item.kind {
         case .artist:
@@ -360,7 +422,68 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: Playlists
+
+    /// Android PlaylistsTabContent: the sort row, then PlaylistListItem rows
+    /// (16 × 10, 48 Thumb, 12, titleSmall over owner and "N tracks"); the
+    /// New playlist button where the source can write playlists.
+    @ViewBuilder
+    private func playlistsTab(_ shown: [LibraryItem]) -> some View {
+        if shown.isEmpty && model.store.isReal {
+            loadState(empty: true)
+        } else if shown.isEmpty {
+            emptyPanel
+        } else {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                sortRow.padding(.horizontal, 16)
+                ForEach(shown) { p in
+                    PlaylistRow(item: p, scheme: scheme) { open(p) }
+                        .transition(.opacity.animation(Yoin.effects))
+                }
+            }
+            .padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+            .animation(Yoin.spatial, value: shown.map(\.id))
+            if model.store.isReal { loadState(empty: false) }
+        }
+    }
+
+    /// Android PlaylistsTabContent's FAB: Subsonic writes playlists here
+    /// (PlaylistActions.create); Apple Music's are made in its own app.
+    private var canCreatePlaylist: Bool { model.store.client != nil }
+
+    /// Android ExtendedFloatingActionButton "New playlist": primaryContainer,
+    /// + and the label, bottom-end over the list.
+    private var newPlaylistButton: some View {
+        Button {
+            newName = ""
+            naming = true
+        } label: {
+            HStack(spacing: 12) {
+                YoinIcon("add", size: 24)
+                Text("New playlist").yoinRole(Tokens.type.labelLarge)
+            }
+            .foregroundStyle(scheme.onPrimaryContainer)
+            .padding(.horizontal, 20)
+            .frame(height: 56)
+            .background(scheme.primaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(PressScale())
+        .padding(.trailing, 16)
+        .padding(.bottom, 16)
+    }
+
     // MARK: Songs
+
+    /// Android SongsTabContent: the Random mix header only where Songs is a
+    /// random sample (the mock library); Subsonic's songs come from the
+    /// newest albums a page at a time, read on near the end, with the
+    /// loading / retry foot; Apple Music lists its library songs.
+    @ViewBuilder
+    private var songsTab: some View {
+        if model.store.songsAreRandomMix { randomMixHeader }
+        songList.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+        if model.store.isReal { songsFoot }
+    }
 
     /// Android RandomMixHeader: labelLarge onSurfaceVariant, a 20 shuffle in
     /// a 48 button; 16 start, 8 end.
@@ -371,8 +494,7 @@ struct LibraryView: View {
                 .foregroundStyle(scheme.onSurfaceVariant)
             Spacer(minLength: 0)
             Button {
-                if filter == .songs { Task { await model.store.loadSongs(force: true) } }
-                else { model.play(songEntries, shuffle: true) }
+                model.play(songEntries, shuffle: true)
             } label: {
                 YoinIcon("shuffle", size: 20)
                     .foregroundStyle(scheme.onSurfaceVariant)
@@ -386,7 +508,24 @@ struct LibraryView: View {
         .padding(.trailing, 8)
     }
 
-    /// Songs: the server's random mix; mock: three per album.
+    /// Android LibrarySongsFoot: a loading indicator while more can follow,
+    /// a Retry once a read failed, nothing at the end.
+    @ViewBuilder
+    private var songsFoot: some View {
+        switch model.store.songsMore {
+        case .none: EmptyView()
+        case .available, .loading:
+            RowSkeleton(scheme: scheme, rows: 2)
+                .transition(.opacity.animation(Yoin.effects))
+                .onAppear { Task { await model.store.loadMoreSongs() } }
+        case .failed:
+            RetryRow(scheme: scheme) { Task { await model.store.loadMoreSongs() } }
+                .padding(.vertical, 12)
+                .transition(.opacity.animation(Yoin.effects))
+        }
+    }
+
+    /// Songs: the source's songs; mock: three per album.
     /// Favorites: the source's starred songs (mock: the starred tracks),
     /// minus any heart taken off here since (FavoritesStore, shared with NP).
     private var songEntries: [PlaylistEntry] {
@@ -408,36 +547,63 @@ struct LibraryView: View {
         }
     }
 
-    /// Android FavoritesTabContent (songs): SectionHeader "Songs" (labelLarge
-    /// onSurfaceVariant, 16 sides, 18 top, 6 bottom) over the rows; nothing
-    /// starred = the "No favorites yet" panel.
+    /// Starred artists, minus any star taken off on an artist page since.
+    private var favoriteArtists: [LibraryItem] {
+        guard model.store.isReal else { return [] }
+        return model.store.favoriteArtists.filter { model.store.starredOverride["artist:\($0.id.rawId)"] != false }
+    }
+
+    private var favoriteAlbums: [Album] { model.store.isReal ? model.store.favoriteAlbums : [] }
+
+    /// Android FavoritesTabContent: Artists (ArtistListItem), Albums
+    /// (AlbumListItem), Songs, each under a SectionHeader (labelLarge
+    /// onSurfaceVariant, 16 sides, 18 top, 6 bottom); nothing starred in any
+    /// of them = the "No favorites yet" panel.
     @ViewBuilder
     private var favoritesList: some View {
         let loaded = !model.store.isReal || model.store.phase("favorites") == .loaded
-        if favoriteEntries.isEmpty && loaded {
-            Text("No favorites yet")
-                .yoinRole(Tokens.type.bodyLarge)
-                .foregroundStyle(scheme.onSurfaceVariant)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(scheme.surfaceContainerHighest.opacity(0.72),
-                            in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
-                .padding(.horizontal, 16)
-                .padding(.top, 48)
-                .transition(.opacity)
+        let artists = favoriteArtists, albums = favoriteAlbums, songs = favoriteEntries
+        if artists.isEmpty && albums.isEmpty && songs.isEmpty && loaded {
+            EmptyPanel(text: "No favorites yet", scheme: scheme)
         } else {
-            if !favoriteEntries.isEmpty {
-                Text("Songs")
-                    .yoinRole(Tokens.type.labelLarge)
-                    .foregroundStyle(scheme.onSurfaceVariant)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
-                    .padding(.bottom, 6)
-                    .accessibilityAddTraits(.isHeader)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if !artists.isEmpty {
+                    sectionHeader("Artists")
+                    ForEach(artists) { a in
+                        LibraryListRow(title: a.title, subtitle: subtitle(a), scheme: scheme) {
+                            EntityBackdrop(entity: .artist, palette: a.palette, seed: a.id.rawId.count,
+                                           size: Tokens.library.ROW_THUMB.cg)
+                        } action: { open(a) }
+                        .transition(.opacity.animation(Yoin.effects))
+                    }
+                }
+                if !albums.isEmpty {
+                    sectionHeader("Albums")
+                    ForEach(albums) { a in
+                        LibraryListRow(title: a.title, subtitle: a.artist, scheme: scheme) {
+                            CoverArt(palette: a.palette, cornerRadius: 0, seed: a.seed)
+                                .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
+                                .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+                        } action: { model.open(a) }
+                        .transition(.opacity.animation(Yoin.effects))
+                    }
+                }
+                if !songs.isEmpty { sectionHeader("Songs") }
             }
+            .animation(Yoin.spatial, value: artists.map(\.id))
+            .animation(Yoin.spatial, value: albums.map(\.id))
             songList
         }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .yoinRole(Tokens.type.labelLarge)
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
+            .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
@@ -449,16 +615,24 @@ struct LibraryView: View {
                 RetryRow(scheme: scheme) { Task { await reload(force: true) } }
             } else if model.store.phase(key) != .loaded {
                 RowSkeleton(scheme: scheme)
+            } else if filter == .songs {
+                EmptyPanel(text: "No songs found", scheme: scheme)
             }
         }
+        // Keyed by song and occurrence (a song listed twice is two rows), so
+        // arrivals, removals (a heart taken off) and pages move, not cut.
+        let keyed = LibraryGrid.occurrenceKeys(entries.map { "\($0.track.id)" })
         LazyVStack(spacing: 0) {
-            ForEach(Array(entries.enumerated()), id: \.offset) { i, e in
+            ForEach(Array(zip(keyed, entries.indices)), id: \.0) { _, i in
+                let e = entries[i]
                 LibrarySongRow(album: e.album, track: e.track, current: model.playback.track.id == e.track.id,
                                scheme: scheme)
                     .onTapGesture { model.play(entries, startAt: i) }
                     .trackMenu(for: e)
+                    .transition(.opacity.animation(Yoin.effects))
             }
         }
+        .animation(Yoin.spatial, value: keyed)
     }
 
     // MARK: Server load states
@@ -482,9 +656,10 @@ struct LibraryView: View {
     private func reload(force: Bool) async {
         switch filter {
         case .none:
-            await model.store.loadAlbums(force: force)
-            await model.store.loadArtists(force: force)
-            await model.store.loadPlaylists(force: force)
+            async let a: Void = model.store.loadAlbums(force: force)
+            async let b: Void = model.store.loadArtists(force: force)
+            async let c: Void = model.store.loadPlaylists(force: force)
+            _ = await (a, b, c)
         case .albums?: await model.store.loadAlbums(force: force)
         case .artists?: await model.store.loadArtists(force: force)
         case .playlists?: await model.store.loadPlaylists(force: force)
@@ -493,16 +668,223 @@ struct LibraryView: View {
         }
     }
 
+    /// The view's loading, failure and empty states. [empty]: nothing is
+    /// shown yet (skeleton, Retry, or the view's empty panel once every list
+    /// has answered); otherwise only a failed list's Retry, under the rows.
     @ViewBuilder
-    private var loadState: some View {
+    private func loadState(empty: Bool) -> some View {
         let phases = phaseKeys.map { model.store.phase($0) }
         if phases.contains(.failed) {
             RetryRow(scheme: scheme) { Task { await reload(force: false) } }
-        } else if phases.contains(where: { $0 != .loaded }) {
-            let gutter = Tokens.library.GRID_GUTTER_H.cg
-            GridSkeleton(cell: (width - 32 - 2 * gutter) / 3, gutter: gutter, scheme: scheme)
-                .padding(.horizontal, 16)
+                .padding(.top, empty ? 0 : 12)
+                .transition(.opacity.animation(Yoin.effects))
+        } else if empty && phases.contains(where: { $0 != .loaded }) {
+            Group {
+                if filter == .playlists {
+                    RowSkeleton(scheme: scheme)
+                } else {
+                    GridSkeleton(cell: cell, gutter: Tokens.library.GRID_GUTTER_H.cg, scheme: scheme)
+                        .padding(.horizontal, 16)
+                }
+            }
+            .padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+        } else if empty {
+            emptyPanel
         }
+    }
+
+    /// Android EmptyState, per view (strings_library.xml).
+    private var emptyPanel: some View {
+        let text = switch filter {
+        case nil: "Your library is empty"
+        case .albums?: "No albums found"
+        case .artists?: "No artists found"
+        case .playlists?: "No playlists"
+        case .songs?: "No songs found"
+        case .favorites?: "No favorites yet"
+        }
+        return EmptyPanel(text: text, scheme: scheme)
+    }
+}
+
+/// Android EmptyState: a Card (16) panel 16 in from each side,
+/// surfaceContainerHighest at 72 %, bodyLarge onSurfaceVariant, 20 × 18.
+struct EmptyPanel: View {
+    var text: String
+    var scheme: CoverScheme
+
+    var body: some View {
+        Text(text)
+            .yoinRole(Tokens.type.bodyLarge)
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .padding(.horizontal, Tokens.library.EMPTY_STATE_PADDING_H.cg)
+            .padding(.vertical, Tokens.library.EMPTY_STATE_PADDING_V.cg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(scheme.surfaceContainerHighest.opacity(Tokens.library.EMPTY_STATE_ALPHA),
+                        in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 48)
+            .transition(.opacity.animation(Yoin.effects))
+    }
+}
+
+/// Android ArtistListItem / AlbumListItem: 16 × 10, a 48 artwork, 12,
+/// titleSmall over bodySmall onSurfaceVariant.
+struct LibraryListRow<Art: View>: View {
+    var title: String
+    var subtitle: String
+    var scheme: CoverScheme
+    @ViewBuilder var art: Art
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Tokens.library.ROW_GAP.cg) {
+                art
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title).lineLimit(1).yoinRole(Tokens.type.titleSmall).foregroundStyle(scheme.onSurface)
+                    Text(subtitle).lineLimit(1).yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurfaceVariant)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Tokens.library.ROW_PADDING_H.cg)
+            .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Android PlaylistListItem: 16 × 10 padding, 48 Thumb (4), 12, titleSmall
+/// over PlaylistMeta (owner, then "N tracks" as a stat).
+struct PlaylistRow: View {
+    var item: LibraryItem
+    var scheme: CoverScheme
+    var horizontalPadding: CGFloat = Tokens.library.ROW_PADDING_H.cg
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Tokens.library.ROW_GAP.cg) {
+                CoverArt(palette: item.palette, cornerRadius: 0, seed: 3)
+                    .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
+                    .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(item.title)
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.titleSmall)
+                        .foregroundStyle(scheme.onSurface)
+                    meta
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// MetaLine: the owner plain; the count a Stat (number Medium tabular,
+    /// unit Regular at 60 %); "Playlist" when the source says neither.
+    @ViewBuilder
+    private var meta: some View {
+        let owner = item.owner?.trimmingCharacters(in: .whitespaces).nilIfEmpty
+        let n = item.count ?? item.subtitle.split(separator: " ").compactMap { Int($0) }.first
+        if owner == nil && n == nil {
+            Text("Playlist").yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurfaceVariant)
+        } else {
+            HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                if let owner {
+                    Text(owner).lineLimit(1).yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurface)
+                }
+                if let n {
+                    HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
+                        Text("\(n)").monospacedDigit().yoinRole(Tokens.type.bodySmall, weight: .medium)
+                            .foregroundStyle(scheme.onSurface)
+                        Text(n == 1 ? "track" : "tracks").yoinRole(Tokens.type.bodySmall)
+                            .foregroundStyle(scheme.onSurface.opacity(Tokens.metaLine.MUTED_ALPHA))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+/// Library's grid geometry, shared with Search (Android libraryGridCells).
+enum LibraryGrid {
+    /// Fixed 3 at a phone's width (< 600); past it the count follows the
+    /// width at a 96 minimum cell (a short landscape window: 100), 12 gaps,
+    /// inside the 16 margins.
+    static func columns(width: CGFloat, height: CGFloat) -> Int {
+        let gutter = Tokens.library.GRID_GUTTER_H.cg
+        let available = width - 32
+        if height < 480 && width > height {
+            return max(3, Int((available + gutter) / (100 + gutter)))
+        }
+        guard width >= 600 else { return 3 }
+        return max(3, Int((available + gutter) / (96 + gutter)))
+    }
+
+    /// A cell's side for [columns] across [width] (16 margins, 12 gaps).
+    static func cell(width: CGFloat, columns: Int) -> CGFloat {
+        let gutter = Tokens.library.GRID_GUTTER_H.cg
+        return (width - 32 - CGFloat(columns - 1) * gutter) / CGFloat(columns)
+    }
+
+    /// Unique row keys: each id, and "#2", "#3"… for its repeats.
+    static func occurrenceKeys(_ ids: [String]) -> [String] {
+        var seen: [String: Int] = [:]
+        return ids.map { id in
+            let n = (seen[id] ?? 0) + 1
+            seen[id] = n
+            return n == 1 ? id : "\(id)#\(n)"
+        }
+    }
+}
+
+/// Library's retained view state (Android LibraryViewModel holds it): the
+/// view picked, each view's sort, each view's scroll offset, By You.
+@MainActor
+@Observable
+final class LibraryMemory {
+    static let shared = LibraryMemory()
+
+    enum Tab: Hashable {
+        case all, albums, artists, playlists, songs, favorites
+
+        init(_ kind: LibraryKind?) {
+            switch kind {
+            case nil: self = .all
+            case .albums?: self = .albums
+            case .artists?: self = .artists
+            case .playlists?: self = .playlists
+            case .songs?: self = .songs
+            case .favorites?: self = .favorites
+            }
+        }
+    }
+
+    var filter: LibraryKind? = switch LaunchConfig.screen {
+    case "library-albums": .albums
+    case "library-songs": .songs
+    case "library-artists": .artists
+    case "library-playlists": .playlists
+    case "library-favorites": .favorites
+    default: nil
+    }
+    var sorts: [Tab: LibrarySortOrder] = [:]
+    var byYou = false
+    @ObservationIgnored var offsets: [Tab: CGFloat] = [:]
+
+    /// The tab's chosen order while still offered, else the default (Recents).
+    func sort(for tab: Tab, offered: [LibrarySortOrder]) -> LibrarySortOrder {
+        if let chosen = sorts[tab], offered.contains(chosen) { return chosen }
+        return offered.first ?? .recents
     }
 }
 
@@ -511,23 +893,44 @@ struct LibraryView: View {
 /// Android ui/library/LibraryFilterRow.kt: one chip per view, none on = All.
 /// With a chip on, a ✕ (44, the page margin from the edge) unfolds in front
 /// of the row and turns it off again, as does tapping the chip that is on.
-/// Playlists' By You sub-chip has no iOS data yet, so it is not here.
+/// Playlists' By You sub-chip follows when the playlists are mixed.
 struct LibraryFilterRow: View {
     typealias Style = SegmentChipStyle
 
     @Binding var filter: LibraryKind?
+    /// Playlists' By You sub-chip (Android LibraryByYouChip), where the
+    /// playlists are mixed; nil hides it.
+    var byYou: Binding<Bool>? = nil
     var scheme: CoverScheme
     var style: Style
     var overContent = true
 
     private static let kinds: [LibraryKind] = [.playlists, .artists, .albums, .songs, .favorites]
 
+    enum Chip: Hashable {
+        case kind(LibraryKind), byYou
+
+        var label: String {
+            switch self {
+            case .kind(let k): k.rawValue
+            case .byYou: "By You"
+            }
+        }
+    }
+
     var body: some View {
         SegmentChipRow(
-            groups: [Self.kinds],
-            selected: filter.map { [$0] } ?? [],
-            label: \.rawValue,
-            onTap: { kind in withAnimation(Yoin.spatial) { filter = filter == kind ? nil : kind } },
+            groups: [Self.kinds.map(Chip.kind)] + (byYou == nil ? [] : [[Chip.byYou]]),
+            selected: (filter.map { [Chip.kind($0)] } ?? []) + (byYou?.wrappedValue == true ? [.byYou] : []),
+            label: \.label,
+            onTap: { chip in
+                withAnimation(Yoin.spatial) {
+                    switch chip {
+                    case .kind(let kind): filter = filter == kind ? nil : kind
+                    case .byYou: byYou?.wrappedValue.toggle()
+                    }
+                }
+            },
             onClear: filter == nil ? nil : { withAnimation(Yoin.spatial) { filter = nil } },
             scheme: scheme,
             style: style,

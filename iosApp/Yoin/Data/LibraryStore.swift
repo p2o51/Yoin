@@ -33,6 +33,7 @@ final class LibraryStore {
 
     struct SearchHits: Sendable {
         var query: String
+        var scope: SearchScope = .library
         var artists: [LibraryItem] = []
         var albums: [Album] = []
         var songs: [PlaylistEntry] = []
@@ -70,6 +71,10 @@ final class LibraryStore {
     private(set) var playlists: [LibraryItem] = []
     private(set) var songs: [PlaylistEntry] = []
     private(set) var favorites: [PlaylistEntry] = []
+    /// The source's starred artists and albums (Subsonic getStarred2), over
+    /// Favorites' songs. In memory only: the disk copy holds the songs.
+    private(set) var favoriteArtists: [LibraryItem] = []
+    private(set) var favoriteAlbums: [Album] = []
     private(set) var phases: [String: Phase] = [:]
 
     private(set) var albumDetails: [String: Album] = [:]
@@ -149,12 +154,17 @@ final class LibraryStore {
         artists = []
         playlists = []
         songs = []
+        songsMore = .none
+        songsPager = nil
         favorites = []
+        favoriteArtists = []
+        favoriteAlbums = []
         phases = [:]
         albumDetails = [:]
         artistPages = [:]
         playlistDetails = [:]
         search = nil
+        searchRequest = nil
         searchPhase = .idle
         starredOverride = [:]
         hearts.reset()
@@ -542,16 +552,67 @@ final class LibraryStore {
         }
     }
 
+    /// What follows Songs' rows (Android LibrarySongsMore): nothing (the
+    /// list is whole), more to read, a page being read, or a failed read.
+    enum SongsMore: Equatable { case none, available, loading, failed }
+
+    /// Songs' foot. Only Subsonic reads Songs a page at a time.
+    private(set) var songsMore: SongsMore = .none
+    /// Subsonic's Songs: its albums' songs, newest album first (Android
+    /// `songsFromNewestAlbums`). Apple Music lists library songs of its own.
+    @ObservationIgnored private var songsPager: NewestAlbumSongsPager?
+
+    /// Songs is a random sample (Android `canReshuffleSongs`): no source
+    /// here does that any more; the mock library still shows its mix.
+    var songsAreRandomMix: Bool { !isReal }
+
     func loadSongs(force: Bool = false) async {
         await cachedLoad("songs", kind: .list, id: "songs", force: force, inMemory: { !self.songs.isEmpty },
                          restore: { (d: [DetailCacheDTO.Entry], c) in self.songs = d.map(c.entry) }) { [self] in
             if let apple {
                 songs = try await apple.librarySongs()
+                songsMore = .none
             } else {
                 guard let client, let mapping else { return nil }
-                songs = try await client.getRandomSongs(size: 50).enumerated().map { mapping.entry($1, index: $0) }
+                // A refresh starts again from the newest album.
+                let pager = NewestAlbumSongsPager(
+                    loadAlbums: { offset, size in
+                        try await client.getAlbumList2(type: .newest, size: Int32(size), offset: Int32(offset))
+                            .map(mapping.album)
+                    },
+                    loadAlbum: { [weak self] album in
+                        if let have = self?.albumDetails[album.id.rawId], !have.tracks.isEmpty { return have }
+                        guard let full = try await client.getAlbum(id: album.id.rawId).map(mapping.album) else { return nil }
+                        self?.albumDetails[full.id.rawId] = full
+                        return full
+                    })
+                songsPager = pager
+                let first = try await pager.next()
+                guard songsPager === pager else { return nil }
+                songs = first
+                songsMore = pager.reachedEnd ? .none : .available
             }
             return codec.map { c in songs.map(c.dto) }
+        }
+    }
+
+    /// Songs' next page (Android `loadMoreSongs`): as the list nears its
+    /// end, or from the foot's retry after a failed read. One at a time.
+    func loadMoreSongs() async {
+        guard let pager = songsPager, songsMore == .available || songsMore == .failed else { return }
+        let gen = generation
+        songsMore = .loading
+        do {
+            let more = try await pager.next()
+            guard gen == generation, songsPager === pager else { return }
+            songs += more
+            songsMore = pager.reachedEnd ? .none : .available
+            persist(codec.map { c in songs.map(c.dto) }, kind: .list, id: "songs", epoch: diskEpoch)
+        } catch {
+            guard gen == generation, songsPager === pager else { return }
+            log.error("songs page failed: \(ServerSession.message(for: error), privacy: .public)")
+            // The rows stay; the foot's retry reads the same page again.
+            songsMore = .failed
         }
     }
 
@@ -567,10 +628,42 @@ final class LibraryStore {
             // library membership isn't a heart: Android rule): none.
             if apple != nil { return nil }
             guard let client, let mapping else { return nil }
-            favorites = try await client.getStarred2().songs.enumerated().map { mapping.entry($1, index: $0) }
+            let starred = try await client.getStarred2()
+            // Android FavoritesTabContent: starred artists, albums, then songs.
+            favoriteArtists = starred.artists.map(mapping.artistItem)
+            favoriteAlbums = starred.albums.map(mapping.album)
+            favorites = starred.songs.enumerated().map { mapping.entry($1, index: $0) }
             return codec.map { c in favorites.map(c.dto) }
         }
     }
+
+    /// When each album, artist and playlist was last opened or played in
+    /// Yoin (Android LibraryRecents), keyed "album:<id>" / "artist:<id>" /
+    /// "playlist:<id>": Library's Recents order and its rail.
+    func libraryRecents() -> [String: Int64] {
+        guard isReal else { return [:] }
+        let scope = historyScope, provider = provider
+        var out: [String: Int64] = [:]
+        func note(_ key: String, _ at: Int64) { if at > out[key] ?? .min { out[key] = at } }
+        for a in history.activities where a.scope == scope && a.provider == provider {
+            switch a.entity {
+            case .album: note("album:\(a.entityId)", a.timestamp)
+            case .artist: note("artist:\(a.entityId)", a.timestamp)
+            case .playlist: note("playlist:\(a.entityId)", a.timestamp)
+            case .song:
+                if let album = a.albumId { note("album:\(album)", a.timestamp) }
+                if let artist = a.artistId { note("artist:\(artist)", a.timestamp) }
+            }
+        }
+        for play in history.plays(scope: scope, provider: provider) {
+            if let album = play.albumId { note("album:\(album)", play.startedAt) }
+            if let artist = play.artistId { note("artist:\(artist)", play.startedAt) }
+        }
+        return out
+    }
+
+    /// The signed-in user (Subsonic), whose playlists are "By You".
+    var username: String? { client != nil ? session.account?.username : nil }
 
     /// Library's All grid: playlists, artists, then albums.
     var libraryItems: [LibraryItem] {
@@ -676,41 +769,57 @@ final class LibraryStore {
 
     // MARK: Search
 
-    func runSearch(_ query: String) async {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let apple, !q.isEmpty { return await runAppleSearch(q, apple) }
-        guard let client, let mapping, !q.isEmpty else { search = nil; searchPhase = .idle; return }
-        searchPhase = .loading
-        do {
-            let r = try await client.search3(query: q, artistCount: 20, albumCount: 30, songCount: 40)
-            guard !Task.isCancelled else { return }
-            // Android SubsonicMusicSource.search: search3 alone, which has no
-            // playlists (and so no Playlists chip, searchFiltersFor), so All
-            // never lists a Playlists section for a server either.
-            search = SearchHits(query: q,
-                                artists: r.artists.map(mapping.artistItem),
-                                albums: r.albums.map(mapping.album),
-                                songs: r.songs.enumerated().map { mapping.entry($1, index: $0) },
-                                playlists: [])
-            searchPhase = .loaded
-        } catch {
-            guard !Task.isCancelled else { return }
-            log.error("search failed: \(ServerSession.message(for: error), privacy: .public)")
-            searchPhase = .failed
-        }
+    /// Where a search looks (Android LibrarySearchScope): the saved library,
+    /// or the provider's whole catalog (Apple Music only; Subsonic's
+    /// search3 is its library).
+    enum SearchScope: String, Sendable { case library, catalog }
+
+    /// The query and scope `search` / `searchPhase` answer: results and a
+    /// failure belong to one request, never shown under another (Android
+    /// drops a reply whose query or scope moved on).
+    struct SearchRequest: Equatable, Sendable {
+        var query: String
+        var scope: SearchScope
     }
 
-    /// The Apple Music catalog (Android searches the catalog the same way).
-    private func runAppleSearch(_ q: String, _ apple: AppleMusicSource) async {
+    private(set) var searchRequest: SearchRequest?
+
+    /// Whether this source searches a catalog apart from its library.
+    var searchesCatalog: Bool { apple != nil }
+
+    func runSearch(_ query: String, scope: SearchScope = .library) async {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isReal, !q.isEmpty else { search = nil; searchRequest = nil; searchPhase = .idle; return }
+        let request = SearchRequest(query: q, scope: searchesCatalog ? scope : .library)
+        searchRequest = request
         searchPhase = .loading
         do {
-            let r = try await apple.search(q)
-            guard !Task.isCancelled else { return }
-            search = SearchHits(query: q, artists: r.artists, albums: r.albums, songs: r.songs, playlists: r.playlists)
+            let hits: SearchHits
+            if let apple {
+                // Android searchWithScope: the catalog, or the saved library.
+                let r = request.scope == .catalog ? try await apple.search(q) : try await apple.searchLibrary(q)
+                hits = SearchHits(query: q, scope: request.scope, artists: r.artists, albums: r.albums,
+                                  songs: r.songs, playlists: r.playlists)
+            } else if let client, let mapping {
+                let r = try await client.search3(query: q, artistCount: 20, albumCount: 30, songCount: 40)
+                // Android SubsonicMusicSource.search: search3 alone, which has no
+                // playlists (and so no Playlists chip, searchFiltersFor), so All
+                // never lists a Playlists section for a server either.
+                hits = SearchHits(query: q, scope: .library,
+                                  artists: r.artists.map(mapping.artistItem),
+                                  albums: r.albums.map(mapping.album),
+                                  songs: r.songs.enumerated().map { mapping.entry($1, index: $0) },
+                                  playlists: [])
+            } else { return }
+            guard !Task.isCancelled, searchRequest == request else { return }
+            search = hits
             searchPhase = .loaded
         } catch {
-            guard !Task.isCancelled else { return }
-            log.error("search failed: \(AppleMusicSource.message(for: error), privacy: .public)")
+            guard !Task.isCancelled, searchRequest == request else { return }
+            let message = apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
+            log.error("search failed: \(message, privacy: .public)")
+            // A failure is not "no results": the old request's rows go too.
+            search = nil
             searchPhase = .failed
         }
     }

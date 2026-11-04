@@ -312,6 +312,26 @@ final class AppleMusicSource {
                              playlists: list("playlists").compactMap(AppleMusicMapping.playlist).map(AppleMusicMapping.playlistItem))
     }
 
+    /// The user's saved library (Android `AppleMusicSource.searchLibrary`):
+    /// `/v1/me/library/search`, 25 a type. Two library songs or albums can
+    /// share one identity; the result lists key rows by id, so each comes once.
+    func searchLibrary(_ term: String) async throws -> SearchResults {
+        let root = try await get("/v1/me/library/search",
+                                 ["term": term, "types": "library-songs,library-albums,library-artists,library-playlists",
+                                  "limit": "25"])
+        let results = root["results"] as? AppleMusicJSON.Object
+        func list(_ key: String) -> [AppleMusicJSON.Object] {
+            (results?[key] as? AppleMusicJSON.Object)?["data"] as? [AppleMusicJSON.Object] ?? []
+        }
+        var songIds = Set<String>(), albumIds = Set<String>(), artistIds = Set<String>()
+        return SearchResults(
+            artists: list("library-artists").compactMap(AppleMusicMapping.artist).map(AppleMusicMapping.artistItem)
+                .filter { artistIds.insert($0.id.rawId).inserted },
+            albums: AppleMusicMapping.albums(in: list("library-albums")).filter { albumIds.insert($0.id.rawId).inserted },
+            songs: AppleMusicMapping.entries(songs(list("library-songs"))).filter { songIds.insert($0.track.id.rawId).inserted },
+            playlists: list("library-playlists").compactMap(AppleMusicMapping.playlist).map(AppleMusicMapping.playlistItem))
+    }
+
     // MARK: Playback
 
     /// The MusicKit song a queue entry plays: decoded from the JSON a list

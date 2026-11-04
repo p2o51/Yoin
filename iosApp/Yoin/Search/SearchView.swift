@@ -17,7 +17,11 @@ import SwiftUI
 /// while searchResults is null), and the field's trailing slot is only ever
 /// the clear button.
 struct SearchView: View {
-    enum Scope: String, CaseIterable { case catalog = "Apple Music", library = "Library" }
+    enum Scope: String, CaseIterable {
+        case catalog = "Apple Music", library = "Library"
+
+        var store: LibraryStore.SearchScope { self == .catalog ? .catalog : .library }
+    }
     enum Filter: String, CaseIterable { case all = "All", artists = "Artists", albums = "Albums", songs = "Songs", playlists = "Playlists" }
 
     @Environment(AppModel.self) private var model
@@ -29,7 +33,13 @@ struct SearchView: View {
     @State private var filter: Filter = LaunchConfig.searchFilter
     /// The results column's width (inside the 16 margins), for the 3-column cells.
     @State private var width: CGFloat = 370
+    @State private var height: CGFloat = 800
     @State private var scrollPosition = ScrollPosition()
+    /// Android LibrarySearchScrollMemory: one position per (scope, filter)
+    /// for the current query, so All → Songs → All lands where All was left.
+    /// Another query forgets them all.
+    @State private var savedOffsets: [String: CGFloat] = [:]
+    @State private var offset: CGFloat = 0
     /// Results have scrolled under the pinned header (scrollLitTrack).
     @State private var scrolledUnder = false
     /// The open staging: false on the first frame, then true on the effects
@@ -63,10 +73,13 @@ struct SearchView: View {
                 .padding(.top, 8)
                 .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 1 } action: { _, under in
-            scrolledUnder = under
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
+            offset = y
+            scrolledUnder = y > 1
         }
+        .onChange(of: query) { _, _ in savedOffsets = [:] }
         .opacity(staged ? 1 : 0)
         .animation(Self.fadeThrough, value: staged)
         .overlay { if showsNoResults { noResults.transition(.opacity.animation(Yoin.effects)) } }
@@ -114,12 +127,12 @@ struct SearchView: View {
             try? await Task.sleep(for: .milliseconds(600))
             scrollPosition.scrollTo(y: 380)
         }
-        // Server search: search3 once typing pauses (300 ms).
-        .task(id: "\(model.store.generation)|\(query)") {
+        // Source search once typing pauses (300 ms); a scope change asks again.
+        .task(id: "\(model.store.generation)|\(scope)|\(query)") {
             guard model.store.isReal else { return }
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            await model.store.runSearch(query)
+            await model.store.runSearch(query, scope: scope.store)
         }
     }
 
@@ -136,11 +149,19 @@ struct SearchView: View {
         case .playlists: r.playlists.isEmpty
         }
         guard shownEmpty else { return false }
-        if model.store.isReal {
-            if model.store.searchPhase == .failed { return false }
-            if model.store.search?.query != query.trimmingCharacters(in: .whitespacesAndNewlines) { return false }
-        }
-        return true
+        return !model.store.isReal || realState == .loaded
+    }
+
+    /// What the source says about this query and scope (Android
+    /// SearchResultsContent): loading while it is asked (or the 300 ms pause
+    /// before), the failure with its Retry, else its results. Results and a
+    /// failure for another query or scope are never shown under this one.
+    private var realState: LibraryStore.Phase {
+        let store = model.store
+        let request = LibraryStore.SearchRequest(query: query.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                 scope: store.searchesCatalog ? scope.store : .library)
+        guard store.searchRequest == request else { return .loading }
+        return store.searchPhase == .idle ? .loading : store.searchPhase
     }
 
     /// Android EmptyState: a Card (16) panel 16 in from each side,
@@ -248,17 +269,19 @@ struct SearchView: View {
     /// is on is secondaryContainer, as ExpressiveSegmentChip is everywhere.
     private var filterRow: some View {
         SegmentChipRow(
-            groups: (model.store.isReal ? [] : [Scope.allCases.map(SearchChip.scope)])
+            groups: (model.store.isReal && !model.store.searchesCatalog ? [] : [Scope.allCases.map(SearchChip.scope)])
                 + [availableFilters.map(SearchChip.filter)],
             selected: [.scope(scope), .filter(filter)],
             label: \.label,
             onTap: { chip in
+                savedOffsets[positionKey] = offset
                 withAnimation(Yoin.spatial) {
                     switch chip {
                     case .scope(let s): scope = s
                     case .filter(let f): filter = f
                     }
                 }
+                scrollPosition.scrollTo(y: savedOffsets[positionKey] ?? 0)
             },
             scheme: scheme,
             style: .current,
@@ -270,10 +293,12 @@ struct SearchView: View {
     }
 
     /// Android searchFiltersFor: Playlists only where search returns them
-    /// (not Subsonic's search3).
+    /// (Apple Music, in either scope; not Subsonic's search3).
     private var availableFilters: [Filter] {
-        model.store.isReal ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
+        model.store.isReal && !model.store.searchesCatalog ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
     }
+
+    private var positionKey: String { "\(scope)|\(filter)" }
 
     private enum SearchChip: Hashable {
         case scope(Scope), filter(Filter)
@@ -303,10 +328,12 @@ struct SearchView: View {
             case .songs: r.tracks.isEmpty
             case .playlists: r.playlists.isEmpty
             }
-            if shownEmpty && model.store.isReal && model.store.searchPhase == .failed {
-                RetryRow(scheme: scheme) { Task { await model.store.runSearch(query) } }
-            } else if shownEmpty && model.store.isReal && model.store.search?.query != query.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if model.store.isReal && realState == .failed {
+                RetryRow(scheme: scheme) { Task { await model.store.runSearch(query, scope: scope.store) } }
+                    .transition(.opacity.animation(Yoin.effects))
+            } else if model.store.isReal && realState != .loaded {
                 RowSkeleton(scheme: scheme, rows: 5)
+                    .transition(.opacity.animation(Yoin.effects))
             } else if shownEmpty {
                 // Drawn by `noResults`, centred in what the header and the
                 // keyboard leave of the screen.
@@ -344,7 +371,7 @@ struct SearchView: View {
     /// the whole service, so it searches everything with artist names too.
     private var results: Results {
         if model.store.isReal {
-            guard let hits = model.store.search else { return Results() }
+            guard realState == .loaded, let hits = model.store.search else { return Results() }
             return Results(artists: hits.artists.map {
                                ArtistHit(id: $0.id, name: $0.title, serverId: $0.id.rawId, palette: $0.palette,
                                          seed: 0, albumCount: $0.count ?? 0)
@@ -382,7 +409,7 @@ struct SearchView: View {
             }
             if !r.albums.isEmpty {
                 sectionHeader("Albums")
-                // Fixed 3 columns on Compact, chunked into rows with no
+                // Library's columns (3 on Compact), chunked into rows with no
                 // vertical gap (a LazyColumn of Rows, spacedBy 12 across).
                 albumRows(r.albums)
             }
@@ -406,8 +433,10 @@ struct SearchView: View {
             .padding(.bottom, Tokens.search.SECTION_HEADER_BOTTOM.cg)
     }
 
-    /// Library's Compact cell: (width − 32 − 24) / 3.
-    private var cell: CGFloat { (width - 2 * Tokens.library.GRID_GUTTER_H.cg) / 3 }
+    /// Library's grid (LibraryGrid): 3 columns on a phone, more on a wider
+    /// pane at Library's cell size. [width] is inside the 16 margins.
+    private var columns: Int { LibraryGrid.columns(width: width + 32, height: height) }
+    private var cell: CGFloat { LibraryGrid.cell(width: width + 32, columns: columns) }
 
     /// Android ArtistListItem: 16 × 10 padding, 48 circle, 12, titleSmall,
     /// then 8 and the album-count meta pill.
@@ -441,7 +470,7 @@ struct SearchView: View {
 
     /// Artists alone: the Library grid's circles.
     private func artistGrid(_ artists: [ArtistHit]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: Tokens.library.GRID_GUTTER_H.cg, alignment: .top), count: 3),
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: Tokens.library.GRID_GUTTER_H.cg, alignment: .top), count: columns),
                   alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
             ForEach(artists) { a in
                 Button { openArtist(a) } label: {
@@ -473,17 +502,17 @@ struct SearchView: View {
 
     private func albumRows(_ albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(stride(from: 0, to: albums.count, by: 3)), id: \.self) { i in
+            ForEach(Array(stride(from: 0, to: albums.count, by: columns)), id: \.self) { i in
                 HStack(alignment: .top, spacing: Tokens.library.GRID_GUTTER_H.cg) {
-                    ForEach(albums[i..<min(i + 3, albums.count)]) { a in gridCell(a, isArtist: false) }
+                    ForEach(albums[i..<min(i + columns, albums.count)]) { a in gridCell(a, isArtist: false) }
                 }
             }
         }
     }
 
-    /// Android SearchResultsGrid: the Library grid (3 fixed columns, 12 / 16).
+    /// Android SearchResultsGrid: the Library grid (LibraryGrid columns, 12 / 16).
     private func grid(_ items: [(Album, Bool)]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: Tokens.library.GRID_GUTTER_H.cg, alignment: .top), count: 3),
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: Tokens.library.GRID_GUTTER_H.cg, alignment: .top), count: columns),
                   alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
             ForEach(items, id: \.0.id) { a, isArtist in gridCell(a, isArtist: isArtist) }
         }
