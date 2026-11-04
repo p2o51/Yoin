@@ -25,13 +25,17 @@ class RoomAmbientTest {
     }
 
     @Test
-    fun `iOS World strengths`() {
-        assertEquals(0.68f, RoomAmbient.auraAlpha(dark = false))
-        assertEquals(0.88f, RoomAmbient.auraAlpha(dark = true))
-        assertEquals(1f, RoomAmbient.neighbourAlpha(dark = false))
-        assertEquals(0.42f, RoomAmbient.neighbourAlpha(dark = true))
-        assertEquals(0.46f, RoomAmbient.veilAlpha(dark = false))
+    fun `strengths tuned to iOS World`() {
+        assertEquals(0.36f, RoomAmbient.auraAlpha(dark = false))
+        assertEquals(0.40f, RoomAmbient.auraAlpha(dark = true))
+        assertEquals(0.42f, RoomAmbient.neighbourAlpha(dark = false))
+        assertEquals(0.24f, RoomAmbient.neighbourAlpha(dark = true))
+        assertEquals(0.40f, RoomAmbient.veilAlpha(dark = false))
         assertEquals(0.46f, RoomAmbient.veilAlpha(dark = true))
+        assertEquals(1.8f, RoomAmbient.glassSaturation(dark = false))
+        assertEquals(1.25f, RoomAmbient.glassSaturation(dark = true))
+        assertEquals(0f, RoomAmbient.glassShade(dark = false))
+        assertEquals(0.15f, RoomAmbient.glassShade(dark = true))
         assertEquals(1f, RoomAmbient.scaleFor(402f))
         assertEquals(1.6f, RoomAmbient.scaleFor(1280f))
     }

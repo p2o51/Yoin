@@ -18,7 +18,10 @@ import kotlin.math.sqrt
  *  3. this cover's `primary` as a soft circle in the middle ([RoomAmbient.Aura]),
  *     over the neighbours in both modes;
  *  4. a veil of `background` ([RoomAmbient.veilAlpha]), standing in for
- *     iOS's frosted glass.
+ *     iOS's frosted glass;
+ *  5. the glass's own effect on the room: a saturation lift in light
+ *     ([RoomAmbient.glassSaturation]) and a darkening in dark
+ *     ([RoomAmbient.glassShade]), applied to the room layer only.
  *
  * Lengths are iOS points for a 402 pt-wide phone, scaled by [scaleFor].
  * Pure Kotlin, JVM-tested in RoomAmbientTest.
@@ -46,13 +49,29 @@ object RoomAmbient {
     /** Bottom blob's centre above the bottom edge (160 − 110). */
     const val BottomBlobCenterDp = 50f
 
-    fun auraAlpha(dark: Boolean): Float = if (dark) 0.88f else 0.68f
+    // Strengths below were tuned on the emulator against iOS screenshots of
+    // the same covers (2026-11-04): the centre within a few points of iOS's
+    // lightness / saturation in both modes. iOS's own values (aura .68 / .88,
+    // neighbours 1 / .42, veil .46) read grey in light and foggy in dark here,
+    // because Android has no Liquid Glass behind the room.
+    fun auraAlpha(dark: Boolean): Float = if (dark) 0.40f else 0.36f
 
-    fun neighbourAlpha(dark: Boolean): Float = if (dark) 0.42f else 1f
+    fun neighbourAlpha(dark: Boolean): Float = if (dark) 0.24f else 0.42f
 
-    /** iOS's room glass tint, `background` at 0.46 on the phone in both modes. */
-    @Suppress("UNUSED_PARAMETER")
-    fun veilAlpha(dark: Boolean): Float = 0.46f
+    /** The room's glass tint, a veil of `background`. */
+    fun veilAlpha(dark: Boolean): Float = if (dark) 0.46f else 0.40f
+
+    /**
+     * Glass emulation: the saturation the room layer is drawn at. iOS's
+     * Liquid Glass lifts colour behind it, most in light mode.
+     */
+    fun glassSaturation(dark: Boolean): Float = if (dark) 1.25f else 1.8f
+
+    /**
+     * Glass emulation: black over the room, inside the room layer (a
+     * multiply by 1 − this). iOS's glass darkens what is behind it in dark mode.
+     */
+    fun glassShade(dark: Boolean): Float = if (dark) 0.15f else 0f
 
     /** Phone widths read as iOS; tablets grow the shapes, but not without bound. */
     fun scaleFor(widthDp: Float): Float = (widthDp / ReferenceWidthDp).coerceIn(0.85f, 1.6f)

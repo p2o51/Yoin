@@ -35,8 +35,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -472,6 +475,17 @@ fun Modifier.nowPlayingAuroraBackground(
 
     var originRoot by remember { mutableStateOf(Offset.Zero) }
     val focusCanvas = remember { FocusCanvas() }
+    // The room's glass emulation (RoomAmbient.glassSaturation), one layer paint per mode.
+    val roomGlassPaint = remember(isDark) {
+        val saturation = RoomAmbient.glassSaturation(isDark)
+        if (saturation == 1f) {
+            null
+        } else {
+            Paint().apply {
+                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(saturation) })
+            }
+        }
+    }
     val dots = remember { DotBatch() }
 
     // Focus's edge band (EdgeDotBand.kt): born when focus opens, again on a
@@ -638,7 +652,9 @@ fun Modifier.nowPlayingAuroraBackground(
             val t = clock.floatValue
 
             // The room: base, the neighbours at the edges, then this
-            // cover's aura (sliding in on a song change), under the veil.
+            // cover's aura (sliding in on a song change), under the veil,
+            // all in one layer that carries the glass emulation.
+            roomGlassPaint?.let { drawContext.canvas.saveLayer(Rect(0f, 0f, w, h), it) }
             drawRect(background)
             val k = RoomAmbient.scaleFor(w / density) * density
             drawRoomNeighbours(topBlob, bottomBlob, RoomAmbient.neighbourAlpha(isDark), k)
@@ -665,6 +681,9 @@ fun Modifier.nowPlayingAuroraBackground(
                 )
             }
             drawRect(background.copy(alpha = RoomAmbient.veilAlpha(isDark)))
+            val shade = RoomAmbient.glassShade(isDark)
+            if (shade > 0f) drawRect(Color.Black.copy(alpha = shade))
+            if (roomGlassPaint != null) drawContext.canvas.restore()
 
             // Focus: the whole room in the cover's colours.
             val field = fieldShown
