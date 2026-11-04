@@ -38,6 +38,8 @@ enum NowPlayingExpanded {
     static let writeBarGap: CGFloat = 12
     /// Air under the hero when the page has no accessory (Lyrics / About on iOS).
     static let bareAccessory: CGFloat = 12
+    /// The Lyrics page's four tools: Android ExpandedAccessoryHeight (52 pt keys + 16).
+    static let lyricTools: CGFloat = 68
 }
 
 /// Android NowPlayingBudget (phone), run from the shared Kotlin

@@ -70,6 +70,11 @@ final class NowPlayingData {
         let k = Self.key(t)
         if let s = t.starred { hearts.report(s, provider: t.provider, songId: t.id) }
         if let r = t.userRating, serverRating[k] == nil { serverRating[k] = r }
+        // Lyrics the user chose (search / editor) win over every provider's.
+        if lyrics[k] == nil, let lrc = LyricsUserStore.shared.chosen(k) {
+            let parsed = LrcParser.shared.parse(raw: lrc)
+            if !parsed.lines.isEmpty { lyrics[k] = .lines(LoadedLyrics(parsed)) }
+        }
         if t.provider == AppleMusicMapping.provider {
             // No lyrics through MusicKit; the "heart" is library membership
             // (Android's add-to-library button), the rating stays local.
@@ -126,6 +131,18 @@ final class NowPlayingData {
     }
 
     func lyricsState(_ t: PlayableTrack) -> LyricsState { lyrics[Self.key(t)] ?? .loading }
+
+    /// The user applied lyrics (search result or the editor): stored so they
+    /// win on every later load, shown at once.
+    func applyUserLyrics(_ lrc: String, for t: PlayableTrack) -> Bool {
+        let parsed = LrcParser.shared.parse(raw: lrc)
+        guard !parsed.lines.isEmpty else { return false }
+        let k = Self.key(t)
+        LyricsUserStore.shared.choose(lrc, for: k)
+        lyricsRetry.remove(k)
+        lyrics[k] = .lines(LoadedLyrics(parsed))
+        return true
+    }
 
     // MARK: About
 

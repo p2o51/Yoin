@@ -66,6 +66,17 @@ struct NowPlayingView: View {
     /// The page's geometry before the keyboard came up (see `page`).
     @State private var frozenGeometry: PageGeometry?
     @State private var keyboardHeight: CGFloat = 0
+    /// The expanded Lyrics page (Android NowPlayingScreen's lyricsAutoScroll /
+    /// lyricsRecenterTick and LyricsSelectionState): following the playhead,
+    /// the Recenter key's tick, select mode and its pick, the editor and the
+    /// share card.
+    @State private var lyricsFollow = true
+    @State private var lyricsRecenterTick = 0
+    @State private var lyricsSelecting = false
+    @State private var lyricsSelected: Set<Int> = []
+    @State private var lyricsLimitNudge = 0
+    @State private var lyricsEditing = false
+    @State private var lyricsShare: LyricsShareSnapshot?
 
     /// The engine's song; nil = the mock snapshot (screenshots) as before.
     private var engineTrack: PlayableTrack? { model.player.currentTrack }
@@ -117,6 +128,29 @@ struct NowPlayingView: View {
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet()
         }
+        // The lyric tools' sheets (Android LyricsSearchSheet / LyricsApplyDialog / LyricsShareSheet).
+        .sheet(isPresented: Binding(get: { LyricsActions.shared.search.isOpen },
+                                    set: { if !$0 { LyricsActions.shared.dismissSearch() } })) {
+            LyricsSearchSheet(scheme: scheme, onSelect: { match in
+                if let t = engineTrack { LyricsActions.shared.applySearchResult(match, for: t) }
+            }, onClose: { LyricsActions.shared.dismissSearch() })
+            .presentationDetents([.large])
+        }
+        .sheet(isPresented: $lyricsEditing) {
+            LyricsEditSheet(scheme: scheme, initialText: editableLyrics, onApply: { text in
+                lyricsEditing = false
+                if let t = engineTrack { LyricsActions.shared.applyEdited(text, for: t) }
+            }, onCancel: { lyricsEditing = false })
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $lyricsShare) { snap in
+            LyricsShareSheet(snapshot: snap, scheme: scheme) { lyricsShare = nil }
+                .presentationDetents([.large])
+        }
+        // Select mode belongs to one song's lyrics on the expanded page.
+        .onChange(of: engineTrack.map(NowPlayingData.key)) { _, _ in leaveLyricsSelect(follow: true) }
+        .onChange(of: stage) { _, s in if s != .expanded { leaveLyricsSelect(follow: true) } }
+        .onChange(of: tab) { _, t in if t != NowPlayingDetailPage.lyrics.rawValue { leaveLyricsSelect(follow: false) } }
         .task(id: engineTrack.map(NowPlayingData.key)) {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
@@ -346,6 +380,7 @@ struct NowPlayingView: View {
         let transportH = expanded ? 0 : (short?.transport ?? pose.transport)
         let accessory = expanded
             ? (page == .note || page == .about ? NowPlayingExpanded.writeBar + NowPlayingExpanded.writeBarGap
+                : page == .lyrics && engineTrack != nil ? NowPlayingExpanded.lyricTools
                 : NowPlayingExpanded.bareAccessory)
             : pose.pills
         let slack = expanded ? 0 : (short?.slack ?? pose.slack)
@@ -642,6 +677,10 @@ struct NowPlayingView: View {
                     .opacity(composing ? 0 : 1)
                     .transition(.opacity.combined(with: .offset(y: 12)))
             }
+            if expanded && page == .lyrics, let t = engineTrack {
+                lyricTools(t)
+                    .transition(.opacity.combined(with: .offset(y: 12)))
+            }
             if expanded && page == .about {
                 AskGeminiBar(state: about.askState, scheme: scheme, onFocus: startAsking,
                              onDismissError: { about.dismissAskError() })
@@ -649,6 +688,150 @@ struct NowPlayingView: View {
                     .transition(.opacity.combined(with: .offset(y: 12)))
             }
         }
+    }
+
+    // MARK: Lyric tools (Android LyricsTools / LyricsActionBar / LyricsSelectionBar)
+
+    private var loadedLyrics: NowPlayingData.LoadedLyrics? {
+        guard let t = engineTrack, case .lines(let l) = data.lyricsState(t) else { return nil }
+        return l
+    }
+
+    /// The editor opens on the song's lyrics as LRC (empty when there are none).
+    private var editableLyrics: String { loadedLyrics.map { LyricsRules.editableText($0.lyrics) } ?? "" }
+
+    /// The four tools, or — in select mode — the selection keys, in the same
+    /// slot and footprint, cross-faded on the effects spring.
+    @ViewBuilder
+    private func lyricTools(_ t: PlayableTrack) -> some View {
+        let actions = LyricsActions.shared
+        let loaded = loadedLyrics
+        let hasLines = !(loaded?.lines.isEmpty ?? true)
+        let idle = actions.inFlight == nil
+        ZStack(alignment: .bottomLeading) {
+            if lyricsSelecting {
+                LyricKeyRow(keys: [
+                    LyricKey(icon: "close", label: "Done selecting lyrics", emphasized: true) {
+                        withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
+                    },
+                    LyricKey(icon: "copy", label: "Copy selected lyrics", enabled: !lyricsSelected.isEmpty) {
+                        copySelectedLyrics(t)
+                    },
+                    LyricKey(icon: "share", label: "Share selected lyrics as an image",
+                             enabled: !lyricsSelected.isEmpty) { shareSelectedLyrics(t) },
+                    LyricKey(icon: "edit", label: "Edit lyrics") {
+                        withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
+                        lyricsEditing = true
+                    },
+                ], scheme: scheme)
+                .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
+            } else {
+                LyricKeyRow(keys: [
+                    LyricKey(icon: "search", label: "Search lyrics", enabled: idle) {
+                        actions.openSearch(t)
+                    },
+                    LyricKey(icon: "translate", label: "Translate lyrics", enabled: idle && hasLines,
+                             busy: actions.inFlight == .translate) {
+                        withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
+                    },
+                    // ✓ = select lines; with no lines it opens the editor (paste lyrics).
+                    LyricKey(icon: "check", label: hasLines ? "Select lyrics" : "Add lyrics", enabled: idle) {
+                        if hasLines {
+                            withAnimation(Yoin.effects) {
+                                lyricsSelected = []
+                                lyricsSelecting = true
+                            }
+                        } else {
+                            lyricsEditing = true
+                        }
+                    },
+                    LyricKey(icon: "recenter", label: "Return to current line",
+                             enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
+                        lyricsFollow = true
+                        lyricsRecenterTick += 1
+                    },
+                ], scheme: scheme)
+                .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
+            }
+        }
+        .animation(Yoin.effects, value: lyricsSelecting)
+    }
+
+    /// Android LyricsFullscreenPane on the expanded page.
+    private func expandedLyrics(_ t: PlayableTrack, _ loaded: NowPlayingData.LoadedLyrics) -> some View {
+        let actions = LyricsActions.shared
+        let translations = actions.shownTranslations(t, count: loaded.lines.count)
+        let times = loaded.lyrics.lines.map(\.timeMs)
+        return PlaybackPosition { position, _ in
+            ExpandedLyricsList(
+                lines: loaded.lines, times: times, translations: translations, synced: loaded.synced,
+                active: loaded.activeIndex(positionSec: position),
+                follow: lyricsFollow && !lyricsSelecting, recenterTick: lyricsRecenterTick,
+                selecting: lyricsSelecting, selected: lyricsSelected, limitNudge: lyricsLimitNudge > 0,
+                scheme: scheme,
+                // Browsing for lines in select mode isn't "stop following".
+                onUserScroll: { if !lyricsSelecting { lyricsFollow = false } },
+                onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) }
+            )
+        }
+    }
+
+    private func lyricLineTapped(_ i: Int, times: [Int64], synced: Bool) {
+        if lyricsSelecting {
+            let step = LyricsRules.nextSelection(lyricsSelected, tapped: i)
+            if step.hitLimit {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                lyricsLimitNudge += 1
+                let tick = lyricsLimitNudge
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(1800))
+                    if lyricsLimitNudge == tick { lyricsLimitNudge = 0 }
+                }
+            } else {
+                lyricsLimitNudge = 0
+                UISelectionFeedbackGenerator().selectionChanged()
+                lyricsSelected = step.selected
+            }
+            return
+        }
+        // Tap a timed line: seek there and follow again.
+        guard synced, i < times.count, engineTrack != nil else { return }
+        lyricsFollow = true
+        lyricsRecenterTick += 1
+        model.player.seek(to: Double(times[i]) / 1000)
+    }
+
+    private func leaveLyricsSelect(follow: Bool) {
+        lyricsSelecting = false
+        lyricsSelected = []
+        lyricsLimitNudge = 0
+        if follow { lyricsFollow = true }
+    }
+
+    private func pickedLyrics(_ t: PlayableTrack) -> (lines: [String], translations: [String?], starts: Set<Int>)? {
+        guard let loaded = loadedLyrics else { return nil }
+        let all = LyricsActions.shared.shownTranslations(t, count: loaded.lines.count)
+        let picked = lyricsSelected.filter { $0 >= 0 && $0 < loaded.lines.count }.sorted()
+        guard !picked.isEmpty else { return nil }
+        return (picked.map { loaded.lines[$0] }, picked.map { all[$0] },
+                LyricsRules.passageStarts(lyricsSelected, lineCount: loaded.lines.count))
+    }
+
+    /// Android onCopyClick: the text with its credit, then leave the mode.
+    private func copySelectedLyrics(_ t: PlayableTrack) {
+        guard let p = pickedLyrics(t) else { return }
+        UIPasteboard.general.string = LyricsRules.clipboardText(lines: p.lines, translations: p.translations,
+                                                                passageStarts: p.starts, title: t.title, artist: t.artist)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        PlaylistActions.shared.show(p.lines.count == 1 ? "Copied 1 line" : "Copied \(p.lines.count) lines")
+        withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
+    }
+
+    /// Android openShare: the pick frozen into the share card.
+    private func shareSelectedLyrics(_ t: PlayableTrack) {
+        guard let p = pickedLyrics(t) else { return }
+        lyricsShare = LyricsShareSnapshot(lines: p.lines, translations: p.translations, passageStarts: p.starts,
+                                          title: t.title, artist: t.artist)
     }
 
     // MARK: Stage
@@ -797,7 +980,14 @@ struct NowPlayingView: View {
     private func expandedPage(_ p: PlaybackSnapshot, page: NowPlayingDetailPage, height: CGFloat) -> some View {
         switch page {
         case .lyrics:
-            lyrics(p, clear: height, under: 0, anchor: height * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: true)
+            if let t = engineTrack, case .lines(let loaded) = data.lyricsState(t) {
+                expandedLyrics(t, loaded)
+                    // New lyrics (a search / edit applied) open as a new list.
+                    .id(ObjectIdentifier(loaded.lyrics))
+                    .frame(height: height, alignment: .top)
+            } else {
+                lyrics(p, clear: height, under: 0, anchor: height * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: true)
+            }
         case .about:
             NowPlayingAboutView(state: aboutState(p), expanded: true, scheme: scheme, bottomPadding: 48)
                 .frame(height: height, alignment: .top)
