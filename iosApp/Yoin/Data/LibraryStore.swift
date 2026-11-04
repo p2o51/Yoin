@@ -35,6 +35,8 @@ final class LibraryStore {
     }
 
     @ObservationIgnored let session: ServerSession
+    @ObservationIgnored let sources: SourceSelection
+    @ObservationIgnored let appleMusic: AppleMusicSource
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
 
     /// Bumps on every sign-in / sign-out; views key their load tasks on it.
@@ -60,14 +62,21 @@ final class LibraryStore {
     /// Hearts set here, ahead of the server (reverted when the write fails).
     private(set) var starredOverride: [String: Bool] = [:]
 
-    init(session: ServerSession) {
+    init(session: ServerSession, sources: SourceSelection, appleMusic: AppleMusicSource) {
         self.session = session
+        self.sources = sources
+        self.appleMusic = appleMusic
         observeSession()
     }
 
-    /// A new client (sign-in, sign-out, another server) starts from scratch.
+    /// A new client (sign-in, sign-out, another server) or another source
+    /// starts from scratch.
     private func observeSession() {
-        withObservationTracking { _ = session.client } onChange: { [weak self] in
+        withObservationTracking {
+            _ = session.client
+            _ = sources.active
+            _ = appleMusic.authorization
+        } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
                 self.reset()
@@ -76,8 +85,20 @@ final class LibraryStore {
         }
     }
 
-    var client: SubsonicClient? { session.client }
-    var isReal: Bool { session.client != nil }
+    /// The Subsonic client, when Subsonic is the active source.
+    var client: SubsonicClient? { sources.active == .subsonic ? session.client : nil }
+    /// Apple Music, when it is the active source and authorized.
+    var apple: AppleMusicSource? { sources.active == .appleMusic && appleMusic.isAuthorized ? appleMusic : nil }
+    var isReal: Bool { client != nil || apple != nil }
+    /// The active source's provider token (new ids are minted in it).
+    var provider: String { apple != nil ? AppleMusicMapping.provider : MediaRef.companion.PROVIDER_SUBSONIC }
+
+    /// A palette for a page whose data is still loading: Subsonic's cover for
+    /// [coverId] when given, else a quiet placeholder.
+    func placeholderPalette(coverId: String?) -> CoverPalette {
+        if let mapping { return mapping.palette(coverId: coverId) }
+        return AppleMusicMapping.palette(nil, key: coverId ?? "")
+    }
 
     private var mapping: SubsonicMapping? { client.map(SubsonicMapping.init(client:)) }
 
@@ -105,7 +126,9 @@ final class LibraryStore {
     // MARK: Home
 
     func loadHome(force: Bool = false) async {
-        guard let client, let mapping, force || homePhase == .idle || homePhase == .failed else { return }
+        guard force || homePhase == .idle || homePhase == .failed else { return }
+        if let apple { return await loadAppleHome(apple) }
+        guard let client, let mapping else { return }
         let gen = generation
         homePhase = .loading
         do {
@@ -133,6 +156,27 @@ final class LibraryStore {
         } catch {
             guard gen == generation else { return }
             log.error("home failed: \(ServerSession.message(for: error), privacy: .public)")
+            homePhase = .failed
+        }
+    }
+
+    /// Apple Music (Android AppleMusicSource for the lists): Activities =
+    /// recently played albums; Jump Back In = heavy rotation interleaved with
+    /// the rest of recently played, then older library adds; Recently Added =
+    /// the library's newest albums, its 2 × 2 grid the last songs played;
+    /// Rediscover = older library adds (no ratings to read from Apple).
+    private func loadAppleHome(_ apple: AppleMusicSource) async {
+        let gen = generation
+        homePhase = .loading
+        do {
+            let l = try await apple.homeLists()
+            guard gen == generation else { return }
+            home = Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
+                                  random: l.older, recentTracks: l.recentTracks)
+            homePhase = .loaded
+        } catch {
+            guard gen == generation else { return }
+            log.error("home failed: \(AppleMusicSource.message(for: error), privacy: .public)")
             homePhase = .failed
         }
     }
@@ -211,13 +255,18 @@ final class LibraryStore {
             try await body()
             if gen == generation { phases[key] = .loaded }
         } catch {
-            log.error("\(key, privacy: .public) failed: \(ServerSession.message(for: error), privacy: .public)")
+            let message = apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
+            log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
             if gen == generation { phases[key] = .failed }
         }
     }
 
     func loadAlbums(force: Bool = false) async {
         await once("albums", force: force) {
+            if let apple {
+                albums = try await apple.libraryAlbums()
+                return
+            }
             guard let client, let mapping else { return }
             var all: [Album] = []
             var offset: Int32 = 0
@@ -233,6 +282,10 @@ final class LibraryStore {
 
     func loadArtists(force: Bool = false) async {
         await once("artists", force: force) {
+            if let apple {
+                artists = try await apple.libraryArtists()
+                return
+            }
             guard let client, let mapping else { return }
             artists = try await client.getArtists().flatMap { $0.artists.map(mapping.artistItem) }
         }
@@ -240,6 +293,10 @@ final class LibraryStore {
 
     func loadPlaylists(force: Bool = false) async {
         await once("playlists", force: force) {
+            if let apple {
+                playlists = try await apple.libraryPlaylists()
+                return
+            }
             guard let client, let mapping else { return }
             playlists = try await client.getPlaylists().map(mapping.playlistItem)
         }
@@ -247,6 +304,10 @@ final class LibraryStore {
 
     func loadSongs(force: Bool = false) async {
         await once("songs", force: force) {
+            if let apple {
+                songs = try await apple.librarySongs()
+                return
+            }
             guard let client, let mapping else { return }
             songs = try await client.getRandomSongs(size: 50).enumerated().map { mapping.entry($1, index: $0) }
         }
@@ -254,6 +315,9 @@ final class LibraryStore {
 
     func loadFavorites(force: Bool = false) async {
         await once("favorites", force: force) {
+            // Apple Music has no favorites read (loved songs aren't listable,
+            // library membership isn't a heart: Android rule): none.
+            if apple != nil { return }
             guard let client, let mapping else { return }
             favorites = try await client.getStarred2().songs.enumerated().map { mapping.entry($1, index: $0) }
         }
@@ -261,6 +325,7 @@ final class LibraryStore {
 
     /// Library's All grid: playlists, artists, then albums.
     var libraryItems: [LibraryItem] {
+        if apple != nil { return playlists + artists + albums.map(AppleMusicMapping.albumItem) }
         guard let mapping else { return [] }
         return playlists + artists + albums.map(mapping.albumItem)
     }
@@ -271,6 +336,10 @@ final class LibraryStore {
 
     func loadAlbum(_ id: String, force: Bool = false) async {
         await once("album:\(id)", force: force) {
+            if let apple {
+                if let album = try await apple.album(id) { albumDetails[id] = album }
+                return
+            }
             guard let client, let mapping else { return }
             if let info = try await client.getAlbum(id: id) { albumDetails[id] = mapping.album(info) }
         }
@@ -280,6 +349,10 @@ final class LibraryStore {
 
     func loadArtist(_ id: String, force: Bool = false) async {
         await once("artist:\(id)", force: force) {
+            if let apple {
+                if let page = try await apple.artist(id) { artistPages[id] = page }
+                return
+            }
             guard let client, let mapping else { return }
             guard let info = try await client.getArtist(id: id) else { return }
             artistPages[id] = mapping.artistPage(info, loadedAlbums: info.albums.compactMap { albumDetails[$0.id] })
@@ -301,6 +374,14 @@ final class LibraryStore {
 
     func loadPlaylist(_ id: String, force: Bool = false) async {
         await once("playlist:\(id)", force: force) {
+            if let apple {
+                if var detail = try await apple.playlist(id) {
+                    // The library row's cover when the playlist answers without one.
+                    if detail.palette.cover == nil, let row = playlistSummary(id) { detail.palette = row.palette }
+                    playlistDetails[id] = detail
+                }
+                return
+            }
             guard let client, let mapping else { return }
             if let detail = try await client.getPlaylist(id: id) { playlistDetails[id] = mapping.playlist(detail) }
         }
@@ -313,6 +394,7 @@ final class LibraryStore {
 
     func runSearch(_ query: String) async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let apple, !q.isEmpty { return await runAppleSearch(q, apple) }
         guard let client, let mapping, !q.isEmpty else { search = nil; searchPhase = .idle; return }
         searchPhase = .loading
         do {
@@ -334,6 +416,21 @@ final class LibraryStore {
         }
     }
 
+    /// The Apple Music catalog (Android searches the catalog the same way).
+    private func runAppleSearch(_ q: String, _ apple: AppleMusicSource) async {
+        searchPhase = .loading
+        do {
+            let r = try await apple.search(q)
+            guard !Task.isCancelled else { return }
+            search = SearchHits(query: q, artists: r.artists, albums: r.albums, songs: r.songs, playlists: r.playlists)
+            searchPhase = .loaded
+        } catch {
+            guard !Task.isCancelled else { return }
+            log.error("search failed: \(AppleMusicSource.message(for: error), privacy: .public)")
+            searchPhase = .failed
+        }
+    }
+
     // MARK: Hearts and ratings
 
     func isStarred(_ track: Track) -> Bool { starredOverride[track.id.rawId] ?? track.starred }
@@ -342,6 +439,8 @@ final class LibraryStore {
 
     /// Optimistic heart; reverts when the server refuses (Android rule).
     func toggleStar(_ track: Track) {
+        // Apple Music has no heart to write (library membership is Now Playing's add button).
+        guard track.id.provider != AppleMusicMapping.provider else { return }
         let key = track.id.rawId
         let now = !isStarred(track)
         write(key: key, on: now) { client, on in
@@ -351,6 +450,7 @@ final class LibraryStore {
     }
 
     func toggleStar(artist page: ArtistPage) {
+        guard page.id.provider != AppleMusicMapping.provider else { return }
         let id = page.id.rawId
         let now = !isStarred(artist: page)
         write(key: "artist:\(id)", on: now) { client, on in
@@ -375,7 +475,7 @@ final class LibraryStore {
 
     /// Writes a track's rating (Yoin's 0–10; the server gets 0–5).
     func setRating(_ track: Track, rating: Double?) async -> Bool {
-        guard let client else { return false }
+        guard let client, track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
         do {
             try await client.setRating(id: track.id.rawId, rating: Int32(SubsonicMapping.serverRating(rating)))
             return true
@@ -389,7 +489,15 @@ final class LibraryStore {
 
     /// A queue entry for the engine (stream + cover URLs from the client).
     func playable(_ e: PlaylistEntry) -> PlayableTrack? {
-        guard let client, e.track.id.provider != "mock" else { return nil }
+        if apple != nil, e.track.id.provider == AppleMusicMapping.provider {
+            return PlayableTrack(id: e.track.id.rawId, provider: AppleMusicMapping.provider, title: e.track.title,
+                                 artist: e.track.artist ?? e.album.artist, album: e.album.title,
+                                 albumId: e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId,
+                                 durationSec: Double(e.track.durationSec),
+                                 streamURL: AppleMusicMapping.streamURL(rawId: e.track.id.rawId),
+                                 coverURL: e.album.coverURL)
+        }
+        guard let client, e.track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return nil }
         var t = PlayableTrack(id: e.track.id.rawId, provider: e.track.id.provider, title: e.track.title,
                               artist: e.track.artist ?? e.album.artist, album: e.album.title,
                               albumId: e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId,
@@ -410,7 +518,8 @@ final class LibraryStore {
     }
 
     func scrobble(_ track: PlayableTrack, submission: Bool) {
-        guard let client, track.provider != "mock" else { return }
+        // Apple Music counts its own plays (ApplicationMusicPlayer reports them).
+        guard let client, track.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
         let ms = submission ? KotlinLong(value: Int64(Date().timeIntervalSince1970 * 1000)) : nil
         Task {
             do { try await client.scrobble(id: track.id, submission: submission, timeMs: ms) } catch {

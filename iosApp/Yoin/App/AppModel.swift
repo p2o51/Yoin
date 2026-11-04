@@ -59,6 +59,10 @@ final class AppModel {
     /// The signed-in Subsonic server (shared Kotlin client); signed out =
     /// the mock library, as the screenshots use.
     let session = ServerSession()
+    /// Apple Music through MusicKit (authorization, catalog and library reads).
+    let appleMusic = AppleMusicSource()
+    /// Mock, Subsonic or Apple Music: what the screens read from.
+    let sources: SourceSelection
     /// What the screens read from that server (signed out: nothing; the
     /// screens fall back to the mock library).
     let store: LibraryStore
@@ -109,7 +113,11 @@ final class AppModel {
         self.playbackSource = playback
         self.mockPlayback = playback.current()
         self.playbackSystem = PlaybackSystem.live()
-        self.store = LibraryStore(session: session)
+        let sources = SourceSelection(subsonicSignedIn: session.isSignedIn)
+        self.sources = sources
+        self.store = LibraryStore(session: session, sources: sources, appleMusic: appleMusic)
+        let apple = appleMusic
+        playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
@@ -154,6 +162,7 @@ final class AppModel {
         let play = d.string(forKey: "serverPlay")
         Task {
             guard await session.signIn(baseUrl: url, username: user, password: pass) else { return }
+            sources.use(.subsonic)
             // Screenshots of server pages: `-serverRoute album:<id>` (artist:, playlist:),
             // `-serverPlay album:<id>` starts that album (pair with -silentAudio YES).
             try? await Task.sleep(for: .milliseconds(300))
@@ -238,8 +247,8 @@ final class AppModel {
     func artistPage(_ ref: ArtistRef) -> ArtistPage {
         if store.isReal, let id = ref.id {
             return store.artistPage(id)
-                ?? ArtistPage(id: MediaId(provider: MediaRef.companion.PROVIDER_SUBSONIC, rawId: id), name: ref.name,
-                              starred: false, palette: SubsonicMapping(client: store.client!).palette(coverId: nil),
+                ?? ArtistPage(id: MediaId(provider: store.provider, rawId: id), name: ref.name,
+                              starred: false, palette: store.placeholderPalette(coverId: nil),
                               releases: [], mostPlayed: [])
         }
         return MockLibrary.shared.artistPage(ref.name)
@@ -249,8 +258,8 @@ final class AppModel {
         guard store.isReal else { return MockLibrary.shared.playlist(id) }
         if let loaded = store.playlist(id) { return loaded }
         let row = store.playlistSummary(id)
-        let palette = row?.palette ?? SubsonicMapping(client: store.client!).palette(coverId: id)
-        return PlaylistInfo(id: MediaId(provider: MediaRef.companion.PROVIDER_SUBSONIC, rawId: id),
+        let palette = row?.palette ?? store.placeholderPalette(coverId: id)
+        return PlaylistInfo(id: MediaId(provider: store.provider, rawId: id),
                             title: row?.title ?? "", owner: "", isPublic: nil, description: nil,
                             palette: palette, entries: [])
     }

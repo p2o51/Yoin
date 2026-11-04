@@ -486,4 +486,16 @@ extension PlayerEngine: AudioOutputEvents {
     func outputDidFail(_ message: String) {
         skipAfterFailure(message)
     }
+
+    func outputPlayingDidChangeExternally(_ playing: Bool) {
+        guard currentIndex != nil, !ended, playing != isPlaying else { return }
+        isPlaying = playing
+        if !playing {
+            progress.positionSec = output.currentTimeSec
+            scrobble.lastTickSec = progress.positionSec
+        } else {
+            announceIfNeeded()
+        }
+        onStateChange?()
+    }
 }

@@ -75,6 +75,8 @@ targets:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
+        # MusicKit's authorization prompt (Apple Music library, catalog and playback).
+        NSAppleMusicUsageDescription: Yoin plays and shows your Apple Music library.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin

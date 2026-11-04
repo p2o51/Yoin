@@ -17,10 +17,22 @@ final class PlaybackSystem {
     private var pausedByInterruption = false
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
 
-    /// The app's engine: AVQueuePlayer output, wired to the OS.
+    /// Apple Music songs play through MusicKit (set when built by `live()`).
+    private(set) var appleOutput: AppleMusicAudioOutput?
+    /// MusicKit owns the lock screen card and remote commands while it plays.
+    private var nowPlayingWritten = false
+
+    /// The app's engine: AVQueuePlayer for streams, ApplicationMusicPlayer for
+    /// Apple Music, wired to the OS.
     static func live() -> PlaybackSystem {
-        PlaybackSystem(engine: PlayerEngine(output: AVAudioOutput()))
+        let apple = AppleMusicAudioOutput()
+        let system = PlaybackSystem(engine: PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: apple)))
+        system.appleOutput = apple
+        return system
     }
+
+    /// The current song plays through MusicKit.
+    private var isAppleMusic: Bool { engine.currentTrack?.provider == AppleMusicMapping.provider }
 
     init(engine: PlayerEngine) {
         self.engine = engine
@@ -32,6 +44,17 @@ final class PlaybackSystem {
     // MARK: Audio session
 
     private func prepareForSound() {
+        if isAppleMusic {
+            // MusicKit plays outside our audio session and drives the lock
+            // screen itself: an active non-mixable session of ours would
+            // interrupt it, and our commands would double its own.
+            removeRemoteCommands()
+            if sessionActive {
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                sessionActive = false
+            }
+            return
+        }
         installRemoteCommands()
         guard !sessionActive else { return }
         let session = AVAudioSession.sharedInstance()
@@ -130,9 +153,28 @@ final class PlaybackSystem {
         }
     }
 
+    private func removeRemoteCommands() {
+        guard commandsInstalled else { return }
+        commandsInstalled = false
+        let c = MPRemoteCommandCenter.shared()
+        for command in [c.playCommand, c.pauseCommand, c.togglePlayPauseCommand, c.nextTrackCommand,
+                        c.previousTrackCommand, c.changePlaybackPositionCommand] {
+            command.removeTarget(nil)
+        }
+    }
+
     // MARK: Lock screen
 
     private func refreshNowPlaying() {
+        if isAppleMusic {
+            // Clear our card once; after that the card is MusicKit's.
+            if nowPlayingWritten {
+                nowPlaying.update(track: nil, elapsed: 0, duration: 0, playing: false, index: nil, count: 0)
+                nowPlayingWritten = false
+            }
+            return
+        }
+        nowPlayingWritten = engine.currentTrack != nil
         nowPlaying.update(
             track: engine.currentTrack,
             elapsed: engine.progress.positionSec,

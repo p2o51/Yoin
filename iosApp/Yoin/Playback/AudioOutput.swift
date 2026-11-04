@@ -35,4 +35,7 @@ protocol AudioOutputEvents: AnyObject {
     func outputDidReachEnd()
     /// The current item could not be loaded or stopped with an error.
     func outputDidFail(_ message: String)
+    /// Paused or played from outside the app's own controls (the lock
+    /// screen of a player that owns its remote commands, e.g. MusicKit).
+    func outputPlayingDidChangeExternally(_ playing: Bool)
 }
