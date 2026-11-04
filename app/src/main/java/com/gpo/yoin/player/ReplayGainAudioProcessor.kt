@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Timeline
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
@@ -12,6 +13,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.gpo.yoin.data.model.ReplayGain
 import java.nio.ByteBuffer
 import java.util.Locale
@@ -160,6 +163,10 @@ internal class ReplayGainAudioProcessor(
 @OptIn(UnstableApi::class)
 internal fun replayGainRenderersFactory(context: Context, processor: AudioProcessor): DefaultRenderersFactory =
     object : DefaultRenderersFactory(context) {
+        init {
+            setMediaCodecSelector(DolbyAtmosCodecSelector)
+        }
+
         override fun buildAudioSink(
             context: Context,
             enableFloatOutput: Boolean,
@@ -170,3 +177,23 @@ internal fun replayGainRenderersFactory(context: Context, processor: AudioProces
             .setAudioProcessors(arrayOf(processor))
             .build()
     }
+
+/**
+ * Media3's codec choice, with an E-AC-3 decoder for E-AC-3 JOC (Dolby Atmos)
+ * where the device lists none for JOC itself: a Pixel Tablet's
+ * c2.dolby.eac3.decoder names only audio/eac3, and Media3 then reports the
+ * Atmos track unsupported and plays nothing. Every E-AC-3 decoder decodes the
+ * JOC stream's 5.1 bed.
+ */
+@OptIn(UnstableApi::class)
+internal object DolbyAtmosCodecSelector : MediaCodecSelector {
+    override fun getDecoderInfos(
+        mimeType: String,
+        requiresSecureDecoder: Boolean,
+        requiresTunnelingDecoder: Boolean,
+    ): List<MediaCodecInfo> {
+        val infos = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
+        if (infos.isNotEmpty() || mimeType != MimeTypes.AUDIO_E_AC3_JOC) return infos
+        return MediaCodecSelector.DEFAULT.getDecoderInfos(MimeTypes.AUDIO_E_AC3, requiresSecureDecoder, requiresTunnelingDecoder)
+    }
+}

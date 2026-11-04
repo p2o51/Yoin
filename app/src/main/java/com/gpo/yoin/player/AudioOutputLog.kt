@@ -2,7 +2,9 @@ package com.gpo.yoin.player
 
 import android.util.Log
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -46,6 +48,19 @@ internal object AudioOutputLog : AnalyticsListener {
                 "channelMask=0x${Integer.toHexString(audioTrackConfig.channelConfig)} " +
                 "channels=${Integer.bitCount(audioTrackConfig.channelConfig)} offload=${audioTrackConfig.offload}",
         )
+    }
+
+    override fun onTracksChanged(eventTime: AnalyticsListener.EventTime, tracks: Tracks) {
+        tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.forEach { group ->
+            (0 until group.length).forEach { i ->
+                val format = group.getTrackFormat(i)
+                Log.d(
+                    TAG,
+                    "track mime=${format.sampleMimeType} channels=${format.channelCount} " +
+                        "support=${C.getFormatSupportString(group.getTrackSupport(i))} selected=${group.isTrackSelected(i)}",
+                )
+            }
+        }
     }
 
     override fun onAudioUnderrun(

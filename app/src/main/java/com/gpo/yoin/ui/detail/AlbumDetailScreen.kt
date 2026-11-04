@@ -96,6 +96,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
+import com.gpo.yoin.data.model.albumNameWithoutVersion
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.BarExtraAction
@@ -1035,7 +1036,8 @@ private fun AlbumTopHeader(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = albumName,
+                        // The version is its own tag here, not repeated in the title.
+                        text = albumNameWithoutVersion(albumName, albumVersion),
                         style = MaterialTheme.typography.headlineSmall,
                         color = titleColor,
                         maxLines = 1,

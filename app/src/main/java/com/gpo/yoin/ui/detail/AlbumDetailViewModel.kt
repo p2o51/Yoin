@@ -240,8 +240,7 @@ class AlbumDetailViewModel(
                 launch { repository.recordAlbumVisit(album) }
                 _uiState.value = AlbumDetailUiState.Content(
                     albumId = album.id.toString(),
-                    // The version is its own tag beside the title, not repeated in it.
-                    albumName = album.nameWithoutVersion,
+                    albumName = album.name,
                     albumVersion = album.version,
                     artistName = album.artist.orEmpty(),
                     artistId = album.artistId?.toString(),
