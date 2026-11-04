@@ -470,7 +470,7 @@ class AppContainer(private val context: Context) {
         AudioVisualizerManager()
     }
 
-    // The Compose UI frame clock keeps one color wash alive across window handoffs.
+    // One palette for the app session; every window shows the same scheme instance.
     val playbackThemeState: PlaybackThemeState by lazy {
         PlaybackThemeState(
             CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main),
