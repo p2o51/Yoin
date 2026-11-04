@@ -98,9 +98,11 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         main {
             guard let provider = Self.provider(of: profileId) else { return [] }
             let store = LocalRatings.shared
-            return store.ratings.compactMap { key, value in
+            // Cleared rows go too (rating nil → the wire's bare `rating: 0`).
+            return store.ratings.keys.compactMap { key in
                 guard let p = LocalRatings.parts(of: key), p.provider == provider else { return nil }
-                return TrackRatingRow(provider: p.provider, songId: p.songId, rating: value,
+                return TrackRatingRow(provider: p.provider, songId: p.songId,
+                                      rating: store.rating(key: key).map { KotlinDouble(value: $0) },
                                       updatedAt: store.updatedAt[key] ?? 0)
             }
         }
@@ -108,15 +110,20 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func trackRating(profileId: String, provider: String, songId: String) -> TrackRatingRow? {
         main {
-            guard Self.provider(of: profileId) == provider,
-                  let r = LocalRatings.shared.rating(provider: provider, songId: songId) else { return nil }
-            let t = LocalRatings.shared.updatedAt[LocalRatings.key(provider: provider, songId: songId)] ?? 0
-            return TrackRatingRow(provider: provider, songId: songId, rating: r, updatedAt: t)
+            let store = LocalRatings.shared
+            let key = LocalRatings.key(provider: provider, songId: songId)
+            guard Self.provider(of: profileId) == provider, store.hasRow(key: key) else { return nil }
+            return TrackRatingRow(provider: provider, songId: songId,
+                                  rating: store.rating(key: key).map { KotlinDouble(value: $0) },
+                                  updatedAt: store.updatedAt[key] ?? 0)
         }
     }
 
     func putTrackRating(profileId: String, row: TrackRatingRow) {
-        main { LocalRatings.shared.syncPut(row.rating, provider: row.provider, songId: row.songId, updatedAt: row.updatedAt) }
+        main {
+            LocalRatings.shared.syncPut(row.rating?.doubleValue, provider: row.provider, songId: row.songId,
+                                        updatedAt: row.updatedAt)
+        }
     }
 
     func deleteTrackRating(profileId: String, provider: String, songId: String) {

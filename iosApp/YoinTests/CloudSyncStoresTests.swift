@@ -71,6 +71,22 @@ final class CloudSyncStoresTests: XCTestCase {
         XCTAssertEqual(HomeHistory.scoreText(nil), "N/A")
     }
 
+    /// Android 557a58681: a 0 saved before the zero mark existed reads as not rated; sync's nil keeps a row.
+    func test_should_readLegacyZeroAsUnrated_when_noZeroMarkExists() throws {
+        let url = dir.appendingPathComponent("ratings.json")
+        try JSONEncoder().encode(["subsonic:s1": 0.0, "subsonic:s2": 4.2]).write(to: url)
+        let store = LocalRatings(fileURL: url)
+        XCTAssertNil(store.rating(provider: "subsonic", songId: "s1"))
+        XCTAssertEqual(store.rating(provider: "subsonic", songId: "s2"), 4.2)
+        store.syncPut(0, provider: "subsonic", songId: "s3", updatedAt: 5)
+        store.syncPut(nil, provider: "subsonic", songId: "s2", updatedAt: 6)
+        let reloaded = LocalRatings(fileURL: url)
+        XCTAssertEqual(reloaded.rating(provider: "subsonic", songId: "s3"), 0)
+        XCTAssertNil(reloaded.rating(provider: "subsonic", songId: "s2"))
+        XCTAssertTrue(reloaded.hasRow(key: "subsonic:s2"))
+        XCTAssertEqual(reloaded.updatedAt["subsonic:s2"], 6)
+    }
+
     /// The scrapbook's Clear: back to nil (not 0), counted as a local edit for sync.
     func test_should_forgetRating_when_cleared() {
         var local = 0
@@ -80,7 +96,9 @@ final class CloudSyncStoresTests: XCTestCase {
         ratings.set(6.4, provider: "subsonic", songId: "s1")
         ratings.clear(provider: "subsonic", songId: "s1")
         XCTAssertNil(ratings.rating(provider: "subsonic", songId: "s1"))
-        XCTAssertNil(ratings.updatedAt["subsonic:s1"])
+        // The row stays (sync carries the clear as a bare `rating: 0`), with a new change time.
+        XCTAssertTrue(ratings.hasRow(key: "subsonic:s1"))
+        XCTAssertNotNil(ratings.updatedAt["subsonic:s1"])
         XCTAssertNil(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "s1"))
         XCTAssertEqual(local, 2)
         ratings.clear(provider: "subsonic", songId: "s1")

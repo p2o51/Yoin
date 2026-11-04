@@ -14,11 +14,11 @@ import com.gpo.yoin.shared.sync.identity.SyncProfile
  * single-threaded, so "re-read, compare, write" in one call is atomic).
  */
 
-/** `local_ratings`: Yoin's 0..10 track rating. */
+/** `local_ratings`: Yoin's 0..10 track rating; null = not rated (a cleared row, kept so the clear syncs). */
 data class TrackRatingRow(
     val provider: String,
     val songId: String,
-    val rating: Double,
+    val rating: Double?,
     val updatedAt: Long,
 )
 

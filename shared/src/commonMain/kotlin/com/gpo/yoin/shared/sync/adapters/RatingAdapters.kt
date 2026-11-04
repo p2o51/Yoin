@@ -10,6 +10,7 @@ import com.gpo.yoin.shared.sync.SyncFormat
 import com.gpo.yoin.shared.sync.SyncKinds
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /*
  * Ports of Android's TrackRatingSyncAdapter, AlbumRatingSyncAdapter and
@@ -31,7 +32,13 @@ internal fun albumKey(provider: String, albumId: String) = SyncFormat.compositeK
 internal fun albumKeyParts(key: String): Pair<String, String>? =
     splitKey(key, 2)?.let { (provider, albumId) -> provider to albumId }
 
-/** `local_ratings` <-> [SyncKinds.TRACK_RATING], key = provider␟songId. Only the 0..10 rating syncs. */
+/**
+ * `local_ratings` <-> [SyncKinds.TRACK_RATING], key = provider␟songId. Only the 0..10 rating syncs.
+ *
+ * Android 557a58681: "not rated" (a cleared row, rating null) travels as the format's original
+ * bare `rating: 0` (older builds wrote 0 for a clear and read it as unrated); a real 0.0 score adds
+ * `"zero": true`, which older builds ignore. See [ratingFrom] / [projection].
+ */
 class TrackRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
     override val kind = SyncKinds.TRACK_RATING
     override val kindVersion = 1
@@ -45,7 +52,7 @@ class TrackRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         return domain.trackRatings(profileId).map { row ->
             DomainRow(
                 key = SyncFormat.compositeKey(row.provider, row.songId),
-                projection = projection(row.songId, row.provider, row.rating.asRating()),
+                projection = projection(row.songId, row.provider, row.rating?.asRating()),
                 rowTs = row.updatedAt,
             )
         }
@@ -55,7 +62,7 @@ class TrackRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val songId = payload.requiredString("songId")?.takeIf(String::isNotEmpty) ?: return null
         val provider = payload.requiredString("provider")?.takeIf(String::isNotEmpty) ?: return null
         val rating = payload.rating("rating") ?: return null
-        return projection(songId, provider, rating)
+        return projection(songId, provider, ratingFrom(rating, payload))
     }
 
     override suspend fun apply(
@@ -68,15 +75,16 @@ class TrackRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val profileId = requireNotNull(localProfileId) { "track_rating is per-account" }
         val (provider, songId) = splitKey(key, 2) ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null)
         val existing = domain.trackRating(profileId, provider, songId)
-        val currentHash = existing?.let { projection(it.songId, it.provider, it.rating.asRating()) }.hashOrNull()
-        val rating = payload.rating("rating")
+        val currentHash = existing?.let { projection(it.songId, it.provider, it.rating?.asRating()) }.hashOrNull()
+        val wire = payload.rating("rating")
         val matchesKey = payload.requiredString("songId") == songId && payload.requiredString("provider") == provider
-        if (rating == null || !matchesKey) return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
+        if (wire == null || !matchesKey) return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
+        val rating = ratingFrom(wire, payload)
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
-        domain.putTrackRating(profileId, TrackRatingRow(provider, songId, rating.asDomainRating(), versionTs))
+        domain.putTrackRating(profileId, TrackRatingRow(provider, songId, rating?.asDomainRating(), versionTs))
         return ApplyOutcome.Applied(
             domain.trackRating(profileId, provider, songId)
-                ?.let { projection(it.songId, it.provider, it.rating.asRating()) }
+                ?.let { projection(it.songId, it.provider, it.rating?.asRating()) }
                 .hashOrNull(),
         )
     }
@@ -85,19 +93,32 @@ class TrackRatingSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         val profileId = requireNotNull(localProfileId) { "track_rating is per-account" }
         val (provider, songId) = splitKey(key, 2) ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null)
         val current = domain.trackRating(profileId, provider, songId) ?: return ApplyOutcome.Applied(null)
-        val currentHash = projection(current.songId, current.provider, current.rating.asRating()).hashOrNull()
+        val currentHash = projection(current.songId, current.provider, current.rating?.asRating()).hashOrNull()
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
         domain.deleteTrackRating(profileId, provider, songId)
         return ApplyOutcome.Applied(null)
     }
 
-    private fun projection(songId: String, provider: String, rating: Float) = JsonObject(
-        mapOf(
-            "songId" to jsonString(songId),
-            "provider" to jsonString(provider),
-            "rating" to jsonRating(rating),
-        ),
+    private fun projection(songId: String, provider: String, rating: Float?) = JsonObject(
+        buildMap {
+            put("songId", jsonString(songId))
+            put("provider", jsonString(provider))
+            put("rating", jsonRating(rating ?: 0f))
+            if (rating == 0f) put(ZERO, JsonPrimitive(true))
+        },
     )
+
+    companion object {
+        /** Marks a real 0.0 score; a bare `rating: 0` is "not rated". */
+        const val ZERO = "zero"
+
+        /** The local rating a synced [wire] value means: 0 is "not rated" unless the payload marks it a score. */
+        fun ratingFrom(wire: Float, payload: JsonObject): Float? = when {
+            wire != 0f -> wire
+            (payload[ZERO] as? JsonPrimitive)?.booleanOrNull == true -> 0f
+            else -> null
+        }
+    }
 }
 
 /** `album_ratings.rating` <-> [SyncKinds.ALBUM_RATING], key = provider␟albumId. See Android's file header. */
