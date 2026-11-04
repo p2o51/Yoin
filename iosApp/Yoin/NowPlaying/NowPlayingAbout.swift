@@ -1,12 +1,13 @@
 import SwiftUI
 import YoinShared
 
-/// What the About page says about a song: labelled facts in a fixed order.
+/// What the server says about a song: labelled facts in a fixed order.
 ///
-/// Android fills About from Gemini (creation time, place, lyricist, composer,
-/// producer, a review: `SongAboutEntry.CANONICAL_ORDER`). iOS has no Gemini
-/// yet, so the page reads the server's own record of the song (`getSong`)
-/// in Android's About language: label over value, nothing else.
+/// Android fills About from Gemini only (creation time, place, lyricist,
+/// composer, producer, a review: `SongAboutEntry.CANONICAL_ORDER`). iOS does
+/// too once a key is saved (`SongAboutLoader`); without one, or for a song
+/// Gemini isn't asked about, the page reads the server's own record of the
+/// song (`getSong`) in Android's About language: label over value.
 struct SongFacts: Equatable {
     struct Fact: Equatable, Identifiable {
         var label: String
@@ -89,6 +90,72 @@ struct SongFacts: Equatable {
     }
 }
 
+/// The song About asks Gemini about (title, artist, album as playing).
+struct AboutSong: Equatable {
+    var title: String
+    var artist: String
+    var album: String
+
+    init(_ t: PlayableTrack) {
+        title = t.title
+        artist = t.artist
+        album = t.album
+    }
+
+    var key: SongAboutStore.Entry.SongKey { SongAboutStore.key(title: title, artist: artist, album: album) }
+    /// Android asks only with a title and an artist.
+    var askable: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty && !artist.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
+extension NowPlayingData {
+    /// The About page's state (Android `AboutUiState`, plus the server's facts).
+    enum AboutState: Equatable {
+        /// The server's facts are on the way.
+        case loading
+        /// The server's facts (no Gemini for this song).
+        case ready(SongFacts)
+        /// Gemini is being asked (Android `Loading`).
+        case searching
+        /// A key is saved and nothing is cached yet: ask now.
+        case pending(AboutSong)
+        /// Gemini's rows for the song (Android `Ready`).
+        case gemini([SongAboutStore.Entry])
+        /// No Gemini key (Android `ApiKeyMissing`), over the server's facts.
+        case noKey(SongFacts?)
+        /// Android `Error`: the message and a retry.
+        case failed(String, AboutSong)
+
+        /// Gemini's answers where there are any, else Android's order of
+        /// error → rows → loading, with the server's facts standing in.
+        @MainActor
+        static func compose(server: AboutState, song: AboutSong,
+                            loader: SongAboutLoader = .shared) -> AboutState {
+            guard song.askable else { return server }
+            let key = song.key
+            let entries = loader.store.entries(key).filter {
+                !$0.answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            let facts: SongFacts? = if case .ready(let f) = server { f } else { nil }
+            switch loader.phase(key) {
+            case .failed(let message):
+                return .failed(message, song)
+            case _ where !entries.isEmpty:
+                return .gemini(entries)
+            case .loading:
+                return .searching
+            case .noKey:
+                return .noKey(facts)
+            case .idle:
+                if loader.settings.hasKey, !loader.store.hasCanonical(key) { return .pending(song) }
+                // Asked, and Gemini found nothing: the server's facts.
+                return server
+            }
+        }
+    }
+}
+
 /// The About page in both sizes (Android `SongInfoDisplay` in the small
 /// window, `AboutFullscreenPane` expanded): label in primary over the value
 /// in onSurface. Small: labelMedium / bodyMedium, 3 apart, the foot fading
@@ -109,28 +176,153 @@ struct NowPlayingAboutView: View {
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .transition(.opacity)
             case .ready(let facts):
-                list(facts.facts)
+                list(facts.facts.map { Item(label: $0.label, value: $0.value) })
                     .transition(.opacity)
+            case .searching:
+                searching.transition(.opacity)
+            case .pending(let song):
+                searching
+                    .task(id: song.key) { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album) }
+                    .transition(.opacity)
+            case .gemini(let entries):
+                list(items(entries))
+                    .transition(.opacity)
+            case .noKey(let facts):
+                list((facts?.facts ?? []).map { Item(label: $0.label, value: $0.value) }, header: AnyView(noKey))
+                    .transition(.opacity)
+            case .failed(let message, let song):
+                failed(message, song).transition(.opacity)
             }
         }
         .animation(Yoin.effects, value: state)
     }
 
+    // MARK: States
+
+    /// Android: the loading indicator over "Searching for song info…";
+    /// start-aligned in the small window, centred expanded.
+    private var searching: some View {
+        VStack(alignment: expanded ? .center : .leading, spacing: 8) {
+            ProgressView()
+                .tint(scheme.primary)
+                .controlSize(expanded ? .large : .regular)
+            Text("Searching for song info…")
+                .yoinRole(Tokens.type.bodyMedium)
+                .foregroundStyle(scheme.onSurfaceVariant)
+        }
+        .frame(maxWidth: .infinity, maxHeight: expanded ? .infinity : nil,
+               alignment: expanded ? .center : .leading)
+        .frame(minHeight: 96)
+    }
+
+    /// Android ApiKeyMissing: "No Gemini API key" and a Settings button.
+    private var noKey: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("No Gemini API key")
+                .yoinRole(Tokens.type.bodyMedium)
+                .foregroundStyle(scheme.onSurfaceVariant)
+            textButton("Settings") {
+                let model = AppModel.shared
+                if model.npExpanded { model.setNowPlaying(expanded: false) }
+                if !model.path.contains(.settings) { model.openSettings() }
+            }
+        }
+        .padding(.vertical, expanded ? 12 : 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Android Error: the message in error, then Retry.
+    private func failed(_ message: String, _ song: AboutSong) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(message)
+                .yoinRole(Tokens.type.bodyMedium)
+                .foregroundStyle(scheme.error)
+                .fixedSize(horizontal: false, vertical: true)
+            textButton("Retry") {
+                Task { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album, retry: true) }
+            }
+        }
+        .padding(.vertical, expanded ? 12 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// M3 TextButton: primary label, 12 in, 40 tall; the text lines up with
+    /// the page edge as Android's does under its 12 dp content padding.
+    private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(scheme.primary)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 40)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
+        .padding(.leading, -12)
+    }
+
+    // MARK: Rows
+
+    private struct Item: Identifiable {
+        var label: String
+        var value: String
+        /// Android's small window sets the review 8 lower with its own heading gap.
+        var gapAbove: CGFloat = 0
+        var id: String { label + "\u{1}" + value }
+    }
+
+    /// Android's rows: canonical in order (blank ones skipped), then the
+    /// asks: every one expanded under a 20 gap, the latest only in the
+    /// small window under a 12 gap. The review reads "About".
+    private func items(_ entries: [SongAboutStore.Entry]) -> [Item] {
+        var out: [Item] = entries.filter { $0.kind == SongAboutStore.Kind.canonical }.map { row in
+            Item(label: Self.label(row.entryKey, expanded: expanded), value: row.answerText,
+                 gapAbove: !expanded && row.entryKey == SongAboutStore.Canon.review ? 8 : 0)
+        }
+        let asks = entries.filter { $0.kind == SongAboutStore.Kind.ask }
+        for (i, row) in (expanded ? asks : Array(asks.prefix(1))).enumerated() {
+            let heading = row.titleText.flatMap { $0.isEmpty ? nil : $0 } ?? row.promptText ?? ""
+            out.append(Item(label: heading, value: row.answerText, gapAbove: i == 0 ? (expanded ? 20 : 12) : 0))
+        }
+        return out
+    }
+
+    /// Android `np_about_*` (expanded) and `cmp_song_info_*` (small) labels.
+    static func label(_ key: String, expanded: Bool) -> String {
+        switch key {
+        case SongAboutStore.Canon.creationTime: expanded ? "Creation Time" : "Created"
+        case SongAboutStore.Canon.creationLocation: expanded ? "Creation Location" : "Location"
+        case SongAboutStore.Canon.lyricist: "Lyricist"
+        case SongAboutStore.Canon.composer: "Composer"
+        case SongAboutStore.Canon.producer: "Producer"
+        case SongAboutStore.Canon.review: "About"
+        default: key
+        }
+    }
+
+    /// Android `markdownBoldAnnotatedString`: **bold** spans, the rest as is.
+    static func markdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+
     @ViewBuilder
-    private func list(_ facts: [SongFacts.Fact]) -> some View {
+    private func list(_ items: [Item], header: AnyView? = nil) -> some View {
         let column = VStack(alignment: .leading, spacing: 0) {
-            ForEach(facts) { fact in
+            if let header { header }
+            ForEach(items) { item in
                 VStack(alignment: .leading, spacing: expanded ? 2 : 0) {
-                    Text(fact.label)
+                    Text(item.label)
                         .yoinRole(expanded ? Tokens.type.titleMedium : Tokens.type.labelMedium)
                         .foregroundStyle(scheme.primary)
-                    Text(fact.value)
+                    Text(Self.markdown(item.value))
                         .yoinRole(expanded ? Tokens.type.bodyLarge : Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurface)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, expanded ? 8 : 3)
+                .padding(.top, item.gapAbove)
                 .accessibilityElement(children: .combine)
             }
             Spacer().frame(height: bottomPadding)

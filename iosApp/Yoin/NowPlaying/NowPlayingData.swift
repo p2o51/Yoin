@@ -49,14 +49,9 @@ final class NowPlayingData {
     /// The rating under the finger, until it is committed on release.
     private(set) var draftRating: [String: Double] = [:]
 
-    /// The About page's facts per song (`getSong` on Subsonic; the queue
-    /// entry elsewhere).
+    /// The About page's server facts per song (`getSong` on Subsonic; the
+    /// queue entry elsewhere). `AboutState` (NowPlayingAbout.swift) adds Gemini.
     private(set) var about: [String: AboutState] = [:]
-
-    enum AboutState: Equatable {
-        case loading
-        case ready(SongFacts)
-    }
 
     @ObservationIgnored private let ratings: LocalRatings
     @ObservationIgnored private var lyricsRetry: Set<String> = []
@@ -130,12 +125,23 @@ final class NowPlayingData {
 
     // MARK: About
 
-    func aboutState(_ t: PlayableTrack) -> AboutState { about[Self.key(t)] ?? .loading }
+    func aboutState(_ t: PlayableTrack) -> AboutState {
+        AboutState.compose(server: about[Self.key(t)] ?? .loading, song: AboutSong(t))
+    }
+
+    /// Gemini's About (when a key is saved; once per song, cached) alongside
+    /// the server's facts.
+    func loadAbout(_ t: PlayableTrack, client: SubsonicClient?) async {
+        let (title, artist, album) = (t.title, t.artist, t.album)
+        let gemini = Task { await SongAboutLoader.shared.ensure(title: title, artist: artist, album: album) }
+        await loadFacts(t, client: client)
+        await gemini.value
+    }
 
     /// The song's facts: the server's full record where there is one, else
     /// what the queue entry knows. A failed fetch shows the entry's facts and
     /// asks again next time.
-    func loadAbout(_ t: PlayableTrack, client: SubsonicClient?) async {
+    private func loadFacts(_ t: PlayableTrack, client: SubsonicClient?) async {
         let k = Self.key(t)
         if case .ready(let f)? = about[k], f.complete { return }
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else {
