@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import android.content.Intent
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,10 +10,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.ScrollState
@@ -20,26 +23,37 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -48,7 +62,9 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.WebLinkKind
+import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
@@ -56,6 +72,7 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.settingsSegmentShape
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 
 /**
  * What a song's long-press sheet can reach, built once by its window (owner,
@@ -94,16 +111,40 @@ class TrackMenuHost(
 internal class TrackMenuRow(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
 /**
+ * One button of the sheet's top row: an action on the song itself that lands
+ * in one tap and has a short name (owner 2026-11-03, after Apple Music's
+ * Add / Favorite / Share row). [keepsOpen]: the sheet stays up after it (a
+ * toggle, a queue add with its own snackbar); otherwise it goes down as a
+ * row's does. [checked] draws the button selected (Favorite on).
+ */
+internal class TrackMenuQuickAction(
+    val label: String,
+    val icon: @Composable () -> Painter,
+    val keepsOpen: Boolean,
+    val checked: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+/**
  * A song's long-press sheet, rising from the bottom (owner 2026-10-17: a
- * bottom sheet, not a dropdown): the song (cover, title, artist), then
- * Play next / Add to queue / Add to playlist — the detail ▾ rows for one song
- * ([rememberDetailMenu], so the provider rules and the snackbar lines are the
- * same) — then Go to album / View in Scrapbook / Go to artist / Share / Open in …, then
- * [playerSection] when the host has player settings (Now Playing's Keep screen
- * on). A row the song or provider can't do is left out, and so is an empty
- * group. Compose it only while open; [onDismissRequest] clears that. A row
- * acts at once and the sheet slides down; back, a tap on the scrim or a drag
- * down close it the M3 way ([YoinModalBottomSheet]).
+ * bottom sheet, not a dropdown): the song (cover, title, artist), then a top
+ * row of one-tap actions on the song — Play next / Add to queue / Favorite /
+ * Share (owner 2026-11-03) — then Add to playlist, then Go to album / View in
+ * Scrapbook / Go to artist / Open in …, then [playerSection] when the host has
+ * player settings (Now Playing's Keep screen on). The queue actions are the
+ * detail ▾ rows for one song ([rememberDetailMenu], so the provider rules and
+ * the snackbar lines are the same).
+ *
+ * [nowPlaying]: the sheet is about the song that is playing (the mini player's
+ * and the Now Playing cover's long-press). Queueing it again makes no sense, so
+ * Play next / Add to queue leave and Add to playlist takes their place on top:
+ * Favorite / Add to playlist / Share.
+ *
+ * A row or button the song or provider can't do is left out, and so is an
+ * empty group; a top row that would hold fewer than two buttons folds into the
+ * list instead. Compose it only while open; [onDismissRequest] clears that.
+ * Back, a tap on the scrim or a drag down close it the M3 way
+ * ([YoinModalBottomSheet]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,15 +152,17 @@ internal fun TrackMenuSheet(
     songId: String,
     onDismissRequest: () -> Unit,
     host: TrackMenuHost,
+    nowPlaying: Boolean = false,
     playerSection: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val repository = host.container.repository
     // Read once as the sheet opens, so it is the song as it is now.
     val track = remember(songId) { host.trackFor(songId) }
-    val coverUrl = remember(track) { track?.coverArt?.let { host.container.repository.resolveCoverUrl(it) } }
+    val coverUrl = remember(track) { track?.coverArt?.let { repository.resolveCoverUrl(it) } }
     val link = rememberDetailWebLink(host.container, WebLinkKind.Track, songId)
     val menu = rememberDetailMenu(
         container = host.container,
@@ -128,7 +171,7 @@ internal fun TrackMenuSheet(
         tracks = { listOfNotNull(track) },
         onMessage = host.onMessage,
         onAddToPlaylist = host.onAddToPlaylist,
-        queueAvailable = track != null && !track.isUnplayableAppleImport,
+        queueAvailable = !nowPlaying && track != null && !track.isUnplayableAppleImport,
     )
     val close: () -> Unit = {
         scope.launch { sheetState.hide() }.invokeOnCompletion {
@@ -145,11 +188,90 @@ internal fun TrackMenuSheet(
             runCatching { context.startActivity(Intent.createChooser(send, null)) }
         }
     }
-    val queueRows = listOfNotNull(
-        menu.onPlayNext?.let { TrackMenuRow(stringResource(R.string.detail_menu_play_next), YoinSymbols.SkipNext, it) },
-        menu.onAddToQueue?.let { TrackMenuRow(stringResource(R.string.detail_menu_add_to_queue), YoinSymbols.Queue, it) },
-        menu.onAddToPlaylist?.let {
-            TrackMenuRow(stringResource(R.string.detail_menu_add_to_playlist), YoinSymbols.Playlist, it)
+    // Favorite: the heart as Yoin knows it now (a write in flight wins over
+    // the flag the song was read with), flipped here at once and put back if
+    // the service refuses. The write outlives the sheet.
+    val canFavorite = track != null && track.id.rawId.isNotBlank() &&
+        Capability.FAVORITES in repository.currentCapabilities()
+    var favorite by remember(track) {
+        mutableStateOf(track?.let { repository.favoriteOverrides.value[it.id] ?: it.isStarred } ?: false)
+    }
+    val toggleFavorite: (() -> Unit)? = if (canFavorite && track != null) {
+        {
+            val next = !favorite
+            favorite = next
+            scope.launch(NonCancellable) {
+                repository.setFavorite(track, next).onFailure {
+                    favorite = !next
+                    host.onMessage(
+                        context.getString(
+                            if (next) R.string.np_msg_couldnt_save_favorite else R.string.np_msg_couldnt_remove_favorite,
+                        ),
+                    )
+                }
+            }
+        }
+    } else {
+        null
+    }
+
+    val playNextLabel = stringResource(R.string.detail_menu_play_next)
+    val addToQueueLabel = stringResource(R.string.detail_menu_add_to_queue)
+    val addToPlaylistLabel = stringResource(R.string.detail_menu_add_to_playlist)
+    val favoriteLabel = stringResource(R.string.track_menu_favorite)
+    val favoritedLabel = stringResource(R.string.track_menu_favorited)
+    val shareLabel = stringResource(R.string.track_menu_share)
+    val favoriteAction = toggleFavorite?.let {
+        TrackMenuQuickAction(
+            label = if (favorite) favoritedLabel else favoriteLabel,
+            icon = { rememberFavoriteSymbolPainter(favorite = favorite) },
+            keepsOpen = true,
+            checked = favorite,
+            onClick = it,
+        )
+    }
+    val shareAction = share?.let {
+        TrackMenuQuickAction(shareLabel, { rememberVectorPainter(YoinSymbols.Share) }, keepsOpen = false, onClick = it)
+    }
+    val playlistAction = menu.onAddToPlaylist?.let {
+        TrackMenuQuickAction(
+            addToPlaylistLabel,
+            { rememberVectorPainter(YoinSymbols.Playlist) },
+            keepsOpen = false,
+            onClick = it,
+        )
+    }
+    val candidates = if (nowPlaying) {
+        listOfNotNull(favoriteAction, playlistAction, shareAction)
+    } else {
+        listOfNotNull(
+            menu.onPlayNext?.let {
+                TrackMenuQuickAction(playNextLabel, { rememberVectorPainter(YoinSymbols.SkipNext) }, keepsOpen = true, onClick = it)
+            },
+            menu.onAddToQueue?.let {
+                TrackMenuQuickAction(addToQueueLabel, { rememberVectorPainter(YoinSymbols.Queue) }, keepsOpen = true, onClick = it)
+            },
+            favoriteAction,
+            shareAction,
+        )
+    }
+    // One button alone is not a row: it goes back to the list.
+    val quickActions = candidates.takeIf { it.size >= 2 }.orEmpty()
+    val folded = if (quickActions.isEmpty()) {
+        candidates.filter { it !== favoriteAction }.map { action ->
+            val vector = when (action) {
+                shareAction -> YoinSymbols.Share
+                playlistAction -> YoinSymbols.Playlist
+                else -> if (action.label == playNextLabel) YoinSymbols.SkipNext else YoinSymbols.Queue
+            }
+            TrackMenuRow(action.label, vector, action.onClick)
+        }
+    } else {
+        emptyList()
+    }
+    val playlistRows = listOfNotNull(
+        playlistAction?.takeIf { !nowPlaying && quickActions.isNotEmpty() }?.let {
+            TrackMenuRow(addToPlaylistLabel, YoinSymbols.Playlist, it.onClick)
         },
     )
     val goRows = listOfNotNull(
@@ -179,7 +301,6 @@ internal fun TrackMenuSheet(
                 TrackMenuRow(stringResource(R.string.track_menu_go_to_artist), YoinSymbols.Artist) { go(id.toString()) }
             }
         },
-        share?.let { TrackMenuRow(stringResource(R.string.track_menu_share), YoinSymbols.Share, it) },
         menu.onOpenIn?.let { open -> menu.openInLabel?.let { TrackMenuRow(it, YoinSymbols.Launch, open) } },
     )
 
@@ -196,7 +317,18 @@ internal fun TrackMenuSheet(
         TrackMenuSheetBody(
             track = track,
             coverUrl = coverUrl,
-            groups = listOf(queueRows, goRows),
+            quickActions = quickActions,
+            onQuickActionClick = { action ->
+                if (action.keepsOpen) {
+                    haptics.performTick()
+                    action.onClick()
+                } else {
+                    haptics.performContextClick()
+                    action.onClick()
+                    close()
+                }
+            },
+            groups = listOf(folded + playlistRows, goRows),
             onRowClick = { row ->
                 haptics.performContextClick()
                 row.onClick()
@@ -223,6 +355,8 @@ internal fun TrackMenuSheetBody(
     playerSection: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
     scrollState: ScrollState = rememberScrollState(),
+    quickActions: List<TrackMenuQuickAction> = emptyList(),
+    onQuickActionClick: (TrackMenuQuickAction) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -232,6 +366,9 @@ internal fun TrackMenuSheetBody(
         verticalArrangement = Arrangement.spacedBy(TrackMenuGroupGap),
     ) {
         TrackMenuHeader(track = track, coverUrl = coverUrl)
+        if (quickActions.isNotEmpty()) {
+            TrackMenuQuickRow(actions = quickActions, onClick = onQuickActionClick)
+        }
         for (rows in groups) {
             if (rows.isEmpty()) continue
             TrackMenuGroup(count = rows.size) { index, shape ->
@@ -283,6 +420,72 @@ private fun TrackMenuHeader(track: Track?, coverUrl: String?) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+/**
+ * The top row: an MD3 Expressive connected button group. Outer corners round,
+ * inner corners tight; a press squeezes the button's corners (the toggle
+ * button's own shape morph) and a checked button rounds into a pill in the
+ * tonal colour, its heart beating in ([rememberFavoriteSymbolPainter]).
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun TrackMenuQuickRow(actions: List<TrackMenuQuickAction>, onClick: (TrackMenuQuickAction) -> Unit) {
+    val colors = ToggleButtonDefaults.colors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+        checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    )
+    // Every button fits: the group never overflows, so it has no overflow menu.
+    ButtonGroup(
+        overflowIndicator = {},
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        actions.forEachIndexed { index, action ->
+            customItem(
+                buttonGroupContent = {
+                    val interaction = remember { MutableInteractionSource() }
+                    ToggleButton(
+                        checked = action.checked,
+                        onCheckedChange = { onClick(action) },
+                        shapes = when (index) {
+                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                            actions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                            else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                        },
+                        colors = colors,
+                        elevation = null,
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 12.dp),
+                        interactionSource = interaction,
+                        // The pressed button widens and its neighbours give way.
+                        modifier = Modifier
+                            .weight(1f)
+                            .animateWidth(interaction)
+                            .heightIn(min = TrackMenuQuickHeight),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = action.icon(),
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = action.label,
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                },
+                menuContent = {},
+            )
         }
     }
 }
@@ -366,3 +569,4 @@ private val TrackMenuCoverSize = 56.dp
 private val TrackMenuRowHeight = 56.dp
 private val TrackMenuRowGap = 2.dp
 private val TrackMenuGroupGap = 12.dp
+private val TrackMenuQuickHeight = 76.dp

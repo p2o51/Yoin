@@ -137,6 +137,8 @@ fun YoinButtonGroup(
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
     onLibraryLongClick: () -> Unit = onLibraryClick,
+    // The playing song's menu (owner 2026-11-03); null: the pill has no long-press.
+    onNowPlayingLongClick: (() -> Unit)? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     // ShellChromeForm.CenteredBar: centred, capped at 600, and the detail pose
@@ -518,6 +520,7 @@ fun YoinButtonGroup(
                     playbackProgress = playbackProgress,
                     isPlaying = isPlaying,
                     onClick = onNowPlayingClick,
+                    onLongClick = onNowPlayingLongClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                     interactionSource = centerInteraction,

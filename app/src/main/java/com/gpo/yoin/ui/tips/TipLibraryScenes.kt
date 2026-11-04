@@ -101,6 +101,7 @@ internal fun SongMenuDemo(playing: Boolean) {
             track = demoTrack(openRow, album, cover),
             coverUrl = cover,
             groups = demoSongSheetRows(withGoToAlbum = false),
+            quickActions = demoSongSheetQuickActions(nowPlaying = false),
         )
     }
 }

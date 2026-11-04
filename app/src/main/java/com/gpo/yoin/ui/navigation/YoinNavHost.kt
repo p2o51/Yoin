@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -114,6 +115,8 @@ import com.gpo.yoin.ui.detail.launchDetailFromShell
 import com.gpo.yoin.ui.detail.prefetchAlbumDetail
 import com.gpo.yoin.ui.detail.prefetchArtistDetail
 import com.gpo.yoin.ui.detail.prefetchPlaylistDetail
+import com.gpo.yoin.ui.detail.TrackMenuHost
+import com.gpo.yoin.ui.detail.TrackMenuSheet
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.EdgeSplitSide
 import com.gpo.yoin.ui.experience.HomeSurface
@@ -468,6 +471,9 @@ private fun YoinShell(
     val memoriesVisible by remember(memoriesReveal) { derivedStateOf { memoriesReveal.isVisible } }
     val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesVisible
     val shellScope = rememberCoroutineScope()
+    // The mini player's song menu: the song it was opened on, null while closed.
+    var miniMenuSongIdState by rememberSaveable { mutableStateOf<String?>(null) }
+    val miniMenuSongId = miniMenuSongIdState
     val homeSongTap = remember(shellScope) {
         HomeSongTap(
             scope = shellScope,
@@ -1333,6 +1339,33 @@ private fun YoinShell(
             panelMinContentWidth = npPanelMinContent,
         )
 
+        // ── The mini player's long-press: the playing song's menu ─────────
+        // (owner 2026-11-03, as Apple Music's mini player): the same song
+        // sheet as a row's long-press, without the queue actions.
+        if (miniMenuSongId != null) {
+            val miniMenuHost = remember(app.container, nowPlayingViewModel) {
+                TrackMenuHost(
+                    container = app.container,
+                    // The song as playback has it: the menu is about the one playing.
+                    trackFor = { id ->
+                        playbackManager.playbackState.value.currentTrack?.takeIf { it.id.toString() == id }
+                    },
+                    onMessage = { message ->
+                        shellScope.launch { snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short) }
+                    },
+                    onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
+                    onGoToAlbum = { albumId -> navigateToAlbumFromShell(albumId, null) },
+                    onGoToArtist = { artistId -> navigateToArtistFromShell(artistId, null) },
+                )
+            }
+            TrackMenuSheet(
+                songId = miniMenuSongId,
+                onDismissRequest = { miniMenuSongIdState = null },
+                host = miniMenuHost,
+                nowPlaying = true,
+            )
+        }
+
         // ── Navigation chrome: the Button Group in the window's form ──────
         // Bar forms slide the group fully off-screen BELOW the nav bar when
         // Now Playing rises: the group carries the nav-bar inset as internal
@@ -1492,6 +1525,9 @@ private fun YoinShell(
                             experienceSessionStore.setSelectedSection(YoinSection.HOME)
                             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                             // LaunchedEffect(homeSurface) handles the close animation.
+                        },
+                        onNowPlayingLongClick = {
+                            miniMenuSongIdState = currentTrack?.id?.toString()
                         },
                         onNowPlayingClick = {
                             dismissMemoriesIfActive()
