@@ -1336,6 +1336,10 @@ struct LibrarySongRow: View {
     var scheme: CoverScheme
     var horizontalPadding: CGFloat = Tokens.library.ROW_PADDING_H.cg
 
+    private var hasNote: Bool {
+        track.id.provider != "mock" && !NotesStore.shared.notes(provider: track.id.provider, trackId: track.id.rawId).isEmpty
+    }
+
     var body: some View {
         HStack(spacing: Tokens.library.ROW_GAP.cg) {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
@@ -1350,8 +1354,16 @@ struct LibrarySongRow: View {
                         .lineLimit(1)
                         .yoinRole(Tokens.type.titleSmall)
                         .foregroundStyle(current ? scheme.primary : scheme.onSurface)
+                    // Android SongListItem: the song has notes (12, primary at 72 %, 6 after the title).
+                    if hasNote {
+                        YoinIcon("note", size: 12)
+                            .foregroundStyle(scheme.primary.opacity(0.72))
+                            .padding(.leading, 6)
+                            .accessibilityLabel("Has note")
+                    }
                 }
-                LibraryMetaLine(parts: [(album.artist, false), (album.title, true)], scheme: scheme)
+                // The song's own artist, else the album's (a compilation's rows).
+                LibraryMetaLine(parts: [(track.artist ?? album.artist, false), (album.title, true)], scheme: scheme)
             }
             Spacer(minLength: 6)
             Text(formatTime(track.durationSec))
