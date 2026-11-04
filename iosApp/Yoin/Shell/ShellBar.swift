@@ -141,61 +141,18 @@ struct ShellBar: View {
         return Button {
             if model.isPad { model.openNowPlayingOnPad() } else { model.setNowPlaying(expanded: true) }
         } label: {
-            HStack(spacing: 10) {
-                // The pill is the geometry source for the page's cover, title
-                // and surface while the morph is folded: invisible proxies,
-                // present only then, so the page grows out of these frames
-                // and shrinks back into them. The pill's own content stays
-                // put underneath (the page's opaque surface covers it).
-                CoverArt(palette: p.album.palette, cornerRadius: 6, seed: p.album.seed)
-                    .frame(width: 42, height: 42)
-                    .overlay {
-                        if !model.npMorphOpen {
-                            Color.clear.matchedGeometryEffect(id: "np.cover", in: npNamespace)
-                        }
-                    }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(p.track.title)
-                        .font(.gsf(15, .semibold))
-                        .foregroundStyle(Yoin.ink)
-                        .background {
-                            if !model.npMorphOpen {
-                                Color.clear.matchedGeometryEffect(id: "np.title", in: npNamespace,
-                                                                  properties: .position, anchor: .leading)
-                            }
-                        }
-                    Text(p.album.artist)
-                        .font(.gsf(13))
-                        .foregroundStyle(Yoin.inkVariant)
-                }
-                .lineLimit(1)
-                .labContrast("miniPlayer")
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 9)
-            .padding(.trailing, 12)
-            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
-            .background {
-                // The engine's position is read inside PlaybackPosition, so
-                // its ticks redraw the wash only, not the bar.
-                PlaybackPosition { position, duration in
-                    PillWash(progress: position / duration, playing: p.isPlaying,
-                             color: scheme.primary.opacity(lab.extra("washOpacity")),
-                             amplitude: lab.extra("washAmplitude"))
-                }
-                .clipShape(.capsule)
-            }
-            .contentShape(.capsule)
+            PillContent(np: model.isPad ? nil : model.np)
+                .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .labGlass("miniPlayer", scheme: scheme, brand: brand, auto: scheme.primaryContainer, in: Capsule())
         .glassEffectID("np", in: glassNS)
-        .background {
-            if !model.npMorphOpen {
-                Capsule().fill(.clear)
-                    .matchedGeometryEffect(id: "np.surface", in: npNamespace)
-            }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+            if !model.isPad { model.np.pillFrame = r }
         }
+        // While Now Playing is up (or morphing), the morph's glass shape is
+        // the pill: it starts and ends exactly on this frame.
+        .opacity(model.np.mounted ? 0 : 1)
         .accessibilityLabel("Now playing, \(p.track.title) by \(p.album.artist)")
         .accessibilityValue(model.player.currentTrack != nil
                             ? (p.isPlaying ? "Playing" : "Paused")
@@ -272,6 +229,61 @@ struct ShellBar: View {
 
     private func enqueueDetail(next: Bool) {
         Task { model.enqueue(await model.detailEntries(), next: next) }
+    }
+}
+
+/// The mini player's content: cover, title over artist, progress wash.
+/// The bar's pill reports its cover / title frames to the Now Playing
+/// morph (`np`); the morph draws a copy without cover and title (those fly).
+struct PillContent: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
+    var np: NowPlayingPresentation? = nil
+    var showCover = true
+    var showTitle = true
+    private let height: CGFloat = 60
+    private var lab: GlassLab { GlassLab.shared }
+
+    var body: some View {
+        let p = model.playback
+        let scheme = model.isIdle ? CoverScheme.brand(dark: colorScheme == .dark)
+            : CoverScheme(album: p.album, dark: colorScheme == .dark)
+        HStack(spacing: 10) {
+            CoverArt(palette: p.album.palette, cornerRadius: 6, seed: p.album.seed)
+                .frame(width: 42, height: 42)
+                .opacity(showCover ? 1 : 0)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                    np?.pillCoverFrame = r
+                }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(p.track.title)
+                    .font(.gsf(15, .semibold))
+                    .foregroundStyle(Yoin.ink)
+                    .opacity(showTitle ? 1 : 0)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                        np?.pillTitleFrame = r
+                    }
+                Text(p.album.artist)
+                    .font(.gsf(13))
+                    .foregroundStyle(Yoin.inkVariant)
+            }
+            .lineLimit(1)
+            .labContrast("miniPlayer")
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 9)
+        .padding(.trailing, 12)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
+        .background {
+            // The engine's position is read inside PlaybackPosition, so
+            // its ticks redraw the wash only, not the bar.
+            PlaybackPosition { position, duration in
+                PillWash(progress: position / duration, playing: p.isPlaying,
+                         color: scheme.primary.opacity(lab.extra("washOpacity")),
+                         amplitude: lab.extra("washAmplitude"))
+            }
+            .clipShape(.capsule)
+        }
     }
 }
 

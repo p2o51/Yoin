@@ -22,6 +22,9 @@ struct NowPlayingView: View {
     var npNamespace: Namespace.ID
     /// iPad side panel: no sheet morph, no drag-to-dismiss.
     var panel = false
+    /// Phone: the shell's pill ⇄ page morph hosts this page (it draws the
+    /// background, owns the drag-down and flies the cover / title).
+    @Environment(\.npMorph) private var npMorph
     /// Morph target: true = the full page, false = folded into the bar's pill.
     var open = true
 
@@ -85,7 +88,8 @@ struct NowPlayingView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 withAnimation(Yoin.spatial) { keyboardHeight = 0 }
             }
-        .gesture(dismissDrag, isEnabled: !panel)
+        // iPad Full only; on the phone the morph owns the drag.
+        .gesture(dismissDrag, isEnabled: !panel && npMorph == nil)
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet()
         }
@@ -137,7 +141,7 @@ struct NowPlayingView: View {
         ZStack {
             if panel {
                 pageGradient.ignoresSafeArea()
-            } else {
+            } else if npMorph == nil {
                 base
             }
             GeometryReader { geo in
@@ -238,20 +242,7 @@ struct NowPlayingView: View {
     /// SchemeExpressive): this one's primary in the middle, the previous
     /// album's at the top edge, the next album's at the bottom.
     private var neighbourAmbient: some View {
-        let albums = model.library.albums()
-        let dark = colorScheme == .dark
-        let previous = CoverScheme(album: albums[11], dark: dark)
-        let next = CoverScheme(album: albums[1], dark: dark)
-        return ZStack {
-            scheme.background
-            Circle().fill(scheme.primary.opacity(lab.extra("ambientStrength")))
-                .frame(width: 360).blur(radius: lab.extra("ambientBlur"))
-            VStack {
-                Ellipse().fill(previous.primaryContainer.opacity(lab.extra("neighbourStrength"))).frame(height: 300).offset(y: -90).blur(radius: 50)
-                Spacer()
-                Ellipse().fill(next.primaryContainer.opacity(lab.extra("neighbourStrength"))).frame(height: 320).offset(y: 110).blur(radius: 50)
-            }
-        }
+        NowPlayingAmbient(scheme: scheme)
     }
 
     // MARK: Content (Android CompactPlayingContent)
@@ -398,6 +389,7 @@ struct NowPlayingView: View {
                 .clipShape(.rect(cornerRadius: open ? Tokens.shape.NOW_PLAYING_COVER.cg : 6, style: .continuous))
                 .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace, isSource: open)
                 .npFade(open, presenceFade)
+                .npMorphAnchor(.cover)
                 .modifier(CoverStageEffect(dock: dock, tappable: tappable,
                                            label: stage == .focus ? "Show lyrics and rating" : "Focus artwork",
                                            onTap: onTap))
@@ -980,6 +972,7 @@ struct NowPlayingView: View {
             .matchedGeometryEffect(id: panel ? "np.title.panel" : "np.title", in: npNamespace,
                                    properties: .position, anchor: .leading, isSource: open)
             .npFade(open, presenceFade)
+            .npMorphAnchor(.title)
     }
 
     // 8. Bottom pills: Queue · Devices · Write.

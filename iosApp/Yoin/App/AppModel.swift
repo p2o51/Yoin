@@ -29,10 +29,9 @@ final class AppModel {
     var padSelection: Album?
     var isPad = false
     var npExpanded = false
-    /// Phone: the Now Playing morph's target (lags `npExpanded` by a frame on
-    /// open so the page mounts at the pill first). The pill is the geometry
-    /// source for cover / title / surface whenever this is false.
-    var npMorphOpen = false
+    /// Phone: the pill ⇄ page morph (one progress value; see
+    /// NowPlayingPresentation). Follows `npExpanded`.
+    let np = NowPlayingPresentation()
     /// iPad: Now Playing as a right-hand inspector panel (Closed → Panel → Full).
     var npPanel = false
     /// iPad: the window's content width, for the panel/columns budget.
@@ -131,8 +130,8 @@ final class AppModel {
         case "np-queue": npExpanded = true; queueSheetOpen = true
         case "np-airplay": npExpanded = true
         case "np-short": npExpanded = true; npForceShort = true
-        case "np-morph": slowMorph = true
-        case "np-morph-close": slowMorph = true; npExpanded = true
+        case "np-morph": slowMorph = true; np.slow = true
+        case "np-morph-close": slowMorph = true; np.slow = true; npExpanded = true
         case "np-panel": npPanel = true
         case "landing": showLanding = true
         case "settings": path = [.settings]

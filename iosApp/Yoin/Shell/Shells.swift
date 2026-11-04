@@ -26,13 +26,12 @@ struct SectionContent: View {
 }
 
 /// Phone: one NavigationStack, the glass bar floats on top, Now Playing is a
-/// shell overlay that grows out of the bar's pill.
+/// shell overlay whose glass morphs out of the bar's pill and back into it
+/// (NowPlayingPresentation: one progress for ⌄, `npExpanded` and the drag).
 struct PhoneShell: View {
     @Environment(AppModel.self) private var model
     @Namespace private var zoomNS
     @Namespace private var npNS
-    /// Now Playing is in the tree: from the open tap until the close morph lands.
-    @State private var npMounted = false
 
     var body: some View {
         @Bindable var model = model
@@ -75,10 +74,10 @@ struct PhoneShell: View {
                     .transition(.opacity)
             }
 
-            if npMounted {
-                // Mounted and unmounted without a transition: the morph
-                // (`open`) carries the whole in and out.
-                NowPlayingView(npNamespace: npNS, open: model.npMorphOpen)
+            if model.np.mounted {
+                // Mounted and unmounted without a transition: the morph's
+                // progress carries the whole in and out.
+                NowPlayingMorph(npNamespace: npNS)
                     .zIndex(1)
                     .transition(.identity)
             }
@@ -103,12 +102,9 @@ struct PhoneShell: View {
                 .allowsHitTesting(false)
             }
         }
-        .onChange(of: model.npExpanded) { _, open in morph(open) }
+        .onChange(of: model.npExpanded) { _, open in model.np.show(open) }
         .onAppear {
-            if model.npExpanded {
-                npMounted = true
-                model.npMorphOpen = true
-            }
+            if model.npExpanded { model.np.snapOpen() }
         }
         .task {
             // `-screen np-morph` / `np-morph-close`: a deliberately slow
@@ -117,30 +113,61 @@ struct PhoneShell: View {
             try? await Task.sleep(for: .seconds(1))
             model.setNowPlaying(expanded: !model.npExpanded)
         }
-    }
-
-    /// Open: mount at the pill (no animation), then on the next frame
-    /// spring the morph open, so the page grows out of the pill instead of
-    /// appearing at full size. Close: spring the morph shut, unmount when it
-    /// lands (unless it was reopened meanwhile).
-    private func morph(_ open: Bool) {
-        let spring = model.slowMorph ? Animation.linear(duration: 6) : Yoin.spatial
-        var instant = Transaction()
-        instant.disablesAnimations = true
-        if open {
-            withTransaction(instant) { npMounted = true }
-            DispatchQueue.main.async {
-                guard model.npExpanded else { return }
-                withAnimation(spring) { model.npMorphOpen = true }
-            }
-        } else {
-            withAnimation(spring) {
-                model.npMorphOpen = false
-            } completion: {
-                guard !model.npExpanded else { return }
-                withTransaction(instant) { npMounted = false }
-            }
-        }
+        #if DEBUG
+        .task { await NowPlayingMorphDebug.run(model) }
+        #endif
     }
 }
 
+#if DEBUG
+/// Recording aids. `-npAutoCycle YES`: open after 1 s, close after 3 s
+/// (`-npAutoCycleHold`), twice.
+/// `-npScriptedDrag YES`: open, then a scripted finger drags the page down
+/// 40 % of the way and lets go (it folds into the pill), then opens again
+/// and a short drag is let go (it springs back).
+@MainActor
+enum NowPlayingMorphDebug {
+    static func run(_ model: AppModel) async {
+        let d = UserDefaults.standard
+        if d.bool(forKey: "npAutoCycle") {
+            // `-npAutoCycleHold 6`: stay open longer (e.g. for `-npTab about-full`).
+            let hold = d.double(forKey: "npAutoCycleHold") > 0 ? d.double(forKey: "npAutoCycleHold") : 3
+            for _ in 0..<2 {
+                try? await Task.sleep(for: .seconds(1))
+                model.setNowPlaying(expanded: true)
+                try? await Task.sleep(for: .seconds(hold))
+                model.setNowPlaying(expanded: false)
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        if d.bool(forKey: "npScriptedDrag") {
+            try? await Task.sleep(for: .seconds(1))
+            model.setNowPlaying(expanded: true)
+            try? await Task.sleep(for: .seconds(2))
+            await drag(model, to: 0.4, release: 900)
+            try? await Task.sleep(for: .seconds(2))
+            model.setNowPlaying(expanded: true)
+            try? await Task.sleep(for: .seconds(2))
+            await drag(model, to: 0.12, release: 0)
+        }
+    }
+
+    /// A finger dragging down `fraction` of the fold distance over 0.5 s
+    /// (ease-out), holding briefly, then lifting at `release` pt/s.
+    private static func drag(_ model: AppModel, to fraction: CGFloat, release: CGFloat) async {
+        let np = model.np
+        let total = fraction * np.dismissDistance
+        let start = Date()
+        while true {
+            let t = min(1, CGFloat(Date().timeIntervalSince(start) / 0.5))
+            np.dragChanged(12 + (total - 12) * (1 - pow(1 - t, 2)))
+            if t >= 1 { break }
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+        try? await Task.sleep(for: .milliseconds(120))
+        if np.dragEnded(total, velocity: release, predicted: total + release * 0.25) {
+            model.setNowPlaying(expanded: false)
+        }
+    }
+}
+#endif
