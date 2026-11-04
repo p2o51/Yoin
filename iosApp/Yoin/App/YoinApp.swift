@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct YoinApp: App {
+    init() {
+        YoinFont.selfCheck()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -34,6 +38,9 @@ struct RootView: View {
         .environment(\.glassFlavor, model.glassFlavor)
         .tint(model.accent)
         .fontDesign(.default)
+        // Text without its own font (sheets, menus, fields) is Google Sans
+        // Flex too, not SF.
+        .font(.gsf(17))
         .onChange(of: hsc, initial: true) { _, new in model.isPad = new == .regular }
         .preferredColorScheme(GlassLab.shared.colorScheme)
         .overlay {

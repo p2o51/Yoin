@@ -18,29 +18,66 @@ enum YoinFont {
         var opticalSize: CGFloat?
     }
 
-    nonisolated(unsafe) private static let base: CTFontDescriptor? = {
+    /// The variable file as a CGFont. Not a descriptor from
+    /// `CTFontManagerCreateFontDescriptorsFromURL`: a font built from an
+    /// unregistered file descriptor resolved on the simulator but fell back to
+    /// Helvetica on the iPhone (51, 2026-11-04). A CGFont from the file's own
+    /// data with its variations applied needs no lookup by name.
+    nonisolated(unsafe) private static let base: CGFont? = {
         guard let url = Bundle.main.url(forResource: "google_sans_flex_variable", withExtension: "ttf"),
-              let list = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor]
+              let provider = CGDataProvider(url: url as CFURL)
         else { return nil }
-        return list.first
+        return CGFont(provider)
     }()
 
-    private static func tag(_ s: String) -> NSNumber {
-        NSNumber(value: s.utf8.reduce(UInt32(0)) { $0 << 8 | UInt32($1) })
-    }
+    /// Axis tags by name, from the font itself (CGFont variations are keyed
+    /// by axis name: "Weight", "Width", "Roundness", "Optical size").
+    nonisolated(unsafe) private static let axisNames: [String: String] = {
+        guard let axes = base?.variationAxes as? [[String: Any]] else { return [:] }
+        var out: [String: String] = [:]
+        for a in axes {
+            guard let name = a[CGFont.variationAxisName as String] as? String else { continue }
+            switch name.lowercased() {
+            case let n where n.contains("weight"): out["wght"] = name
+            case let n where n.contains("width"): out["wdth"] = name
+            case let n where n.contains("round"): out["ROND"] = name
+            case let n where n.contains("optical"): out["opsz"] = name
+            default: break
+            }
+        }
+        return out
+    }()
 
     static func uiFont(size: CGFloat, _ axes: Axes) -> UIFont {
-        guard let base else { return .systemFont(ofSize: size) }
-        let variation: [NSNumber: NSNumber] = [
-            tag("wght"): NSNumber(value: Double(axes.weight)),
-            tag("wdth"): NSNumber(value: Double(axes.width)),
-            tag("ROND"): NSNumber(value: Double(axes.round)),
-            tag("opsz"): NSNumber(value: Double(min(Tokens.type.OPTICAL_SIZE_MAX.cg,
-                                                    max(Tokens.type.OPTICAL_SIZE_MIN.cg, axes.opticalSize ?? size)))),
+        guard let base else {
+            assertionFailure("Google Sans Flex variable font missing from the bundle")
+            return UIFont(name: "GoogleSansFlex-Regular", size: size) ?? .systemFont(ofSize: size)
+        }
+        let values: [String: CGFloat] = [
+            "wght": axes.weight,
+            "wdth": axes.width,
+            "ROND": axes.round,
+            "opsz": min(Tokens.type.OPTICAL_SIZE_MAX.cg, max(Tokens.type.OPTICAL_SIZE_MIN.cg, axes.opticalSize ?? size)),
         ]
-        let desc = CTFontDescriptorCreateCopyWithAttributes(
-            base, [kCTFontVariationAttribute: variation] as CFDictionary)
-        return CTFontCreateWithFontDescriptor(desc, size, nil) as UIFont
+        var variations: [String: NSNumber] = [:]
+        for (tag, value) in values {
+            if let name = axisNames[tag] { variations[name] = NSNumber(value: Double(value)) }
+        }
+        let instance = base.copy(withVariations: variations as CFDictionary) ?? base
+        return CTFontCreateWithGraphicsFont(instance, size, nil, nil) as UIFont
+    }
+
+    /// Launch self-check: logs which Google Sans Flex faces resolve, and
+    /// warns when any falls back (static faces via UIAppFonts, variable via file).
+    static func selfCheck() {
+        let statics = ["GoogleSansFlex-Regular", "GoogleSansFlex-Medium", "GoogleSansFlex-SemiBold", "GoogleSansFlex-Bold"]
+        let missing = statics.filter { UIFont(name: $0, size: 12) == nil }
+        let variable = uiFont(size: 17, Axes(weight: 500, round: 100))
+        let family = variable.familyName
+        let line = "[YoinFont] statics missing: \(missing.isEmpty ? "none" : missing.joined(separator: ", ")); variable → \(variable.fontName) (\(family)); axes \(axisNames.keys.sorted())"
+        print(line)
+        NSLog("%@", line)
+        assert(missing.isEmpty && family.contains("Google Sans"), line)
     }
 
     /// A SwiftUI font that also scales with Dynamic Type.
