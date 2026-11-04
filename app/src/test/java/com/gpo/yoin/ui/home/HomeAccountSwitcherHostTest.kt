@@ -121,7 +121,6 @@ class HomeAccountSwitcherHostTest {
                             // until the next account's feed (or the old one back).
                             uiState = if (account.switchPending) HomeUiState.Loading else feedOf(inUse.orEmpty()),
                             isPlaying = false,
-                            playbackSignal = 0f,
                             onNavigateToSettings = {},
                             onNavigateToMemories = {},
                             onAlbumClick = { _, _ -> },

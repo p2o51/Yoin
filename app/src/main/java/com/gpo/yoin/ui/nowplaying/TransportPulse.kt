@@ -1,11 +1,8 @@
 package com.gpo.yoin.ui.nowplaying
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -15,8 +12,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 
 /**
  * What the Now Playing background answers on a committed playback change
@@ -25,15 +20,15 @@ import kotlinx.coroutines.launch
  *  - Play/pause keeps the approved breath — a ring (play) or sink (pause) from
  *    the PLAY button that was tapped, or from the neutral point when nothing
  *    was tapped (headset, notification, audio focus).
- *  - A song change while the lyrics are the primary surface is a soft band of
- *    light travelling WITH the lyric flow (next: up from below the column,
- *    previous: down from above) that settles on the new title card — from any
- *    source, tapped or not, except when the outro already handed the next song
- *    over in place (that reveal IS the transition).
- *  - A song change while the cover is the primary surface keeps today's ring
- *    from the tapped NEXT / PREVIOUS button — only for a fresh tap. Untapped
- *    changes (auto-advance, external controls, queue taps) never reuse an old
- *    button's position: no pulse.
+ *  - A song change while the lyrics are the primary surface flows the new
+ *    song's colours in WITH the lyric stream (next: up from below, previous:
+ *    down from above) — from any source, tapped or not, except when the outro
+ *    already handed the next song over in place (that reveal IS the transition).
+ *  - A song change while the cover is the primary surface flows the new
+ *    colours in from the tapped side (NEXT: from the end, PREVIOUS: from the
+ *    start; owner 2026-11-02, gradient lab round 3) — only for a fresh tap.
+ *    Untapped changes (auto-advance, external controls, queue taps) never
+ *    reuse an old button: the colours just cross over in place.
  */
 internal sealed interface TransportPulse {
     data object None : TransportPulse
@@ -41,8 +36,11 @@ internal sealed interface TransportPulse {
     /** Ring (play) or sink (pause) from [focalRoot]; null = the neutral point above the controls. */
     data class Burst(val isPlay: Boolean, val focalRoot: Offset?) : TransportPulse
 
-    /** The light along the lyric flow; [forward] = rising from below (next / auto-advance). */
+    /** The colours flow in with the lyric stream; [forward] = rising from below (next / auto-advance). */
     data class FlowLight(val forward: Boolean) : TransportPulse
+
+    /** The colours flow in sideways; [fromEnd] = from the end side (NEXT), else from the start (PREVIOUS). */
+    data class SideFlow(val fromEnd: Boolean) : TransportPulse
 }
 
 /** The committed state the pulse reacts to — never the playhead, so ticks can't fire it. */
@@ -204,7 +202,7 @@ internal fun resolveTransportPulse(
             lyricsPrimary -> TransportPulse.FlowLight(
                 forward = lyricFlowForward(previous.queueIndex, current.queueIndex),
             )
-            skipTap != null -> TransportPulse.Burst(isPlay = current.isPlaying, focalRoot = skipTap.centerRoot)
+            skipTap != null -> TransportPulse.SideFlow(fromEnd = skipTap.kind == TransportTapKind.SkipNext)
             else -> TransportPulse.None
         }
         // Skipped away from playing: the new song may still be buffering (it
@@ -245,86 +243,6 @@ internal fun resolveTransportPulse(
  */
 internal fun lyricFlowForward(previousQueueIndex: Int, queueIndex: Int): Boolean =
     queueIndex >= previousQueueIndex
-
-/** One frame of the flow light: an ellipse in the background's local px. */
-internal data class FlowLightFrame(val center: Offset, val radiusX: Float, val radiusY: Float)
-
-/**
- * Flow-light geometry (D4 §1 B). [column] is the lyrics column, [landingY] the
- * new title card's centre. The centre travels from a quarter column below the
- * bottom (forward; above the top when stepping back) to the title with
- * [travel] (a spatial spring, may overshoot); the band's half-height tightens
- * 0.25·H → 0.09·H on the same progress, its half-width stays 0.62·W.
- */
-internal fun flowLightFrame(
-    column: Rect,
-    landingY: Float,
-    forward: Boolean,
-    travel: Float,
-): FlowLightFrame {
-    val h = column.height
-    val startY = if (forward) {
-        column.bottom + FlowLightStartBeyond * h
-    } else {
-        column.top - FlowLightStartBeyond * h
-    }
-    val settled = travel.coerceIn(0f, 1f)
-    return FlowLightFrame(
-        center = Offset(column.center.x, startY + (landingY - startY) * travel),
-        radiusX = FlowLightHalfWidth * column.width,
-        radiusY = (FlowLightHalfHeightStart + (FlowLightHalfHeightEnd - FlowLightHalfHeightStart) * settled) * h,
-    )
-}
-
-/** Travel progress past which the light lets go (fades on the slow effects spring). */
-internal const val FlowLightFadeOutAt = 0.85f
-
-/**
- * One flow light's motion: [travel] 0 → 1 (+ the spatial spring's overshoot)
- * from beyond the column edge onto the new title, [alpha] in on the fast
- * effects spring and out on the slow one once the travel passes
- * [FlowLightFadeOutAt]. A new [play] restarts both (the caller cancels the
- * previous run).
- *
- * [moving] spans the whole run, first frame to last: the window the
- * background votes a high frame rate for. The light moves after the finger
- * has lifted (or with no finger at all), so without the vote an adaptive
- * refresh-rate panel paces it at ~60Hz. Snapshot-backed (Animatable's
- * isRunning), so a reader's derivedStateOf flips only at the two ends.
- */
-@Stable
-internal class FlowLightRun {
-    val travel = Animatable(0f)
-    val alpha = Animatable(0f)
-
-    val moving: Boolean
-        get() = travel.isRunning || alpha.isRunning
-
-    suspend fun play(
-        travelSpec: AnimationSpec<Float>,
-        inSpec: AnimationSpec<Float>,
-        outSpec: AnimationSpec<Float>,
-    ) = coroutineScope {
-        travel.snapTo(0f)
-        alpha.snapTo(0f)
-        launch { alpha.animateTo(1f, inSpec) }
-        var lettingGo = false
-        travel.animateTo(1f, travelSpec) {
-            // Read per travel frame (no snapshotFlow): the fade-out starts on
-            // the frame the travel crosses the line, taking over the fade-in's
-            // velocity if it is somehow still rising.
-            if (!lettingGo && value >= FlowLightFadeOutAt) {
-                lettingGo = true
-                launch { alpha.animateTo(0f, outSpec) }
-            }
-        }
-    }
-}
-
-private const val FlowLightStartBeyond = 0.25f
-private const val FlowLightHalfWidth = 0.62f
-private const val FlowLightHalfHeightStart = 0.25f
-private const val FlowLightHalfHeightEnd = 0.09f
 
 /**
  * Where the new song's title card settles below the top of the expanded

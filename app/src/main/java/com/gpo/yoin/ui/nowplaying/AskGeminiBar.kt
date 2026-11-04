@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -38,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
@@ -105,6 +107,20 @@ internal fun AskGeminiBar(
         label = "askBarHeight",
     )
 
+    // While Gemini thinks, the bar lightens toward the page so it sits in the
+    // pastel wash above instead of reading as a dark slab under it (gradient
+    // lab, owner 2026-11-03). Effects spring: a colour change.
+    val scheme = MaterialTheme.colorScheme
+    val barColor by animateColorAsState(
+        targetValue = if (askState is AskBarState.Loading) {
+            lerp(scheme.primaryContainer, scheme.background, 0.45f)
+        } else {
+            scheme.primaryContainer
+        },
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Expressive),
+        label = "askBarColor",
+    )
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -115,7 +131,7 @@ internal fun AskGeminiBar(
         // the rest of Now Playing but reads as calmer than a selected
         // tab would. onPrimaryContainer gives enough contrast for the
         // "Ask Gemini" label without fighting the hero title above.
-        color = MaterialTheme.colorScheme.primaryContainer,
+        color = barColor,
         // No shadow: the bar is a solid colour block over a gradient;
         // an elevation shadow would fake depth that isn't earned.
         tonalElevation = 0.dp,

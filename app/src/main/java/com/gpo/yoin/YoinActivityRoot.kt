@@ -7,6 +7,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import com.gpo.yoin.ui.nowplaying.LocalCoverDarkScheme
+import com.gpo.yoin.ui.nowplaying.LocalCoverField
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -129,6 +131,8 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
 
     CompositionLocalProvider(
         LocalWindowCovered provides windowCovered,
+        LocalCoverField provides app?.container?.playbackThemeState?.coverField,
+        LocalCoverDarkScheme provides app?.container?.playbackThemeState?.colorScheme(darkTheme = true),
         LocalPlaybackWaveState provides app?.container?.experienceSessionStore?.playbackWave,
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         // The motion tier, and Yoin Symbols' animated icons following it.
