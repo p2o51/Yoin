@@ -431,7 +431,7 @@ struct GlassLabPanel: View {
                 .pickerStyle(.segmented)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("Library · filter chips").font(.gsf(13)).foregroundStyle(.secondary)
+                Text("Filter chips (Library, Search)").font(.gsf(13)).foregroundStyle(.secondary)
                 Picker("Library filter", selection: Binding(
                     get: { Int((lab.extras["libraryFilterStyle"] ?? 1).rounded()) },
                     set: { v in withAnimation(Yoin.spatial) { lab.extras["libraryFilterStyle"] = Double(v) } })) {
