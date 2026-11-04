@@ -102,6 +102,21 @@ final class CloudSync {
                 _ = try? await GIDSignIn.sharedInstance.restorePreviousSignIn()
             }
             try? await kit.core.initialize()
+            #if DEBUG
+            // `-syncDebugAutoEnable YES` with the fake Drive: turn on at launch (QA without taps).
+            if debug != nil, UserDefaults.standard.bool(forKey: "syncDebugAutoEnable"), !state.phase.enabled {
+                try? await Task.sleep(for: .seconds(2))
+                await turnOn()
+                return
+            }
+            // `-syncDebugGoogleSignIn YES`: start the real Google sign-in at launch (checks the consent flow
+            // without tapping; never completes on its own).
+            if debug == nil, UserDefaults.standard.bool(forKey: "syncDebugGoogleSignIn") {
+                try? await Task.sleep(for: .seconds(2))
+                await turnOn()
+                return
+            }
+            #endif
             foreground()
         }
     }

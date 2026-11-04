@@ -370,15 +370,20 @@ class CloudSyncCore(
             if (!isEnabled()) return
             lastCycleStartedAt = clock()
             setPhase(CloudSyncPhase.Syncing)
+            var detail: String? = null
             val outcome = try {
                 cycle()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: SyncTransportException) {
+                detail = error.toString()
                 handleTransportError(error)
             } catch (error: Exception) {
+                detail = error.toString()
                 ERROR_PREFIX + (error.message ?: error::class.simpleName)
             }
+            // Diagnostics only (never shown as UI copy): what the last failed cycle threw.
+            if (detail != null) putMeta(META_LAST_ERROR_DETAIL, detail.take(500)) else dao.deleteMeta(META_LAST_ERROR_DETAIL)
             withContext(NonCancellable) {
                 if (outcome == null) dao.deleteMeta(SyncMetaKeys.LAST_ERROR) else putMeta(SyncMetaKeys.LAST_ERROR, outcome)
             }
@@ -849,6 +854,7 @@ class CloudSyncCore(
         /** iOS-only meta: "true" once the read-only first pull has succeeded (writes allowed). */
         const val META_TWO_WAY = "ios_two_way"
         const val META_LAST_BACKUP = "ios_last_backup"
+        const val META_LAST_ERROR_DETAIL = "last_error_detail"
 
         /** Android's LOCAL_DEBOUNCE_MS: platforms wait this long after a local change before [localChanged]. */
         const val LOCAL_DEBOUNCE_MS = 8_000L

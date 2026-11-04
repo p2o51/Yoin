@@ -8,11 +8,17 @@ struct CloudSyncEntryRow: View {
     var row: Color
     var shape: UnevenRoundedRectangle
     @State private var sync = CloudSync.shared
+    /// DEBUG `-syncOpenPage YES` (with `-serverRoute settings`): opens the page at launch for screenshots.
+    @State private var open = {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "syncOpenPage")
+        #else
+        false
+        #endif
+    }()
 
     var body: some View {
-        NavigationLink {
-            CloudSyncView()
-        } label: {
+        Button { open = true } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Cloud sync")
@@ -33,6 +39,7 @@ struct CloudSyncEntryRow: View {
         }
         .buttonStyle(PressScale())
         .animation(Yoin.effects, value: CloudSyncTexts.summary(sync))
+        .navigationDestination(isPresented: $open) { CloudSyncView() }
     }
 }
 
