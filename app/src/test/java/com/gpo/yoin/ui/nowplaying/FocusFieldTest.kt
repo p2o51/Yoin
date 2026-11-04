@@ -145,21 +145,27 @@ class FocusFieldTest {
     }
 
     @Test
-    fun should_keepWhiteTextReadable_when_theRoomComesFromABrightDarkScheme() {
+    fun should_keepWhiteTextReadableButColourful_when_theRoomComesFromABrightDarkScheme() {
         // The 2025 expressive dark scheme's primary sits near tone 90.
         val room = darkRoomOf(
             primary = argb(220, 240, 150),
             secondary = argb(200, 200, 180),
             tertiary = argb(150, 230, 220),
-            surface = argb(30, 32, 28),
         )
-        (room.colors.toList() + room.accent).forEach { c ->
-            assertTrue("white on ${Integer.toHexString(c)}", 1.05f / (luminance(c) + 0.05f) >= 7f)
+        room.colors.forEach { c ->
+            assertTrue("white on ${Integer.toHexString(c)}", 1.05f / (luminance(c) + 0.05f) >= 8f)
         }
-        // The hue survives: the primary room colour is still yellow-green.
+        // The wanderer is the lit point, still readable under white.
+        assertTrue(1.05f / (luminance(room.accent) + 0.05f) >= 4.5f)
         val hsl = FloatArray(3)
+        // The hue survives: the primary room colour is still yellow-green…
         argbToHsl(room.colors[0], hsl)
         assertEquals(75f, hsl[0], 20f)
+        // …and every room colour is a colour, not a grey.
+        room.colors.forEach { c ->
+            argbToHsl(c, hsl)
+            assertTrue("saturation of ${Integer.toHexString(c)}", hsl[1] > 0.3f)
+        }
     }
 
     private fun luminance(c: Int): Float {
