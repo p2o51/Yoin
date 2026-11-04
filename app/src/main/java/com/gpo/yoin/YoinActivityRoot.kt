@@ -135,7 +135,9 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
             shuffle = playbackState.shuffleEnabled,
         )
         val previousArt = previousIndex?.let { playbackState.queue.getOrNull(it)?.coverArt }
-        val nextArt = nextIndex?.let { playbackState.queue.getOrNull(it)?.coverArt }
+        // The player's own next (shuffle + repeat-all wrap included) wins
+        // over the non-wrapping upcoming list.
+        val nextArt = (playbackState.nextTrack ?: nextIndex?.let { playbackState.queue.getOrNull(it) })?.coverArt
         LaunchedEffect(previousArt, nextArt, configurationRevision) {
             app.container.playbackThemeState.updateNeighbours(
                 previous = previousArt?.let { app.container.repository.resolveCoverUrl(it) },
