@@ -28,6 +28,18 @@ struct ArtistDetailView: View {
             : Album(id: page.id, title: "", artist: page.name, year: 0, palette: page.palette, tracks: []))
     }
     private var s: CoverScheme { CoverScheme(album: hero, dark: colorScheme == .dark) }
+
+    /// Android ArtistDetailUiState: the server's page loaded (or cached) is
+    /// content, also while it revalidates; before that the body is quiet
+    /// blocks, or Retry once the request failed. The header stays throughout.
+    private enum BodyState: Equatable { case content, loading, failed }
+    private var state: BodyState {
+        guard model.store.isReal, let id = ref.id, model.store.artistPage(id) == nil else { return .content }
+        return model.store.phase("artist:\(id)") == .failed ? .failed : .loading
+    }
+    /// Follow is a favorite: Apple Music has none (Android supportsFavorites),
+    /// and there is nothing to follow before the page has loaded.
+    private var showFollow: Bool { state == .content && page.id.provider != AppleMusicMapping.provider }
     private var app: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
@@ -39,6 +51,11 @@ struct ArtistDetailView: View {
             let portrait = min(Tokens.detail.ARTIST_PORTRAIT_WIDTH_FRACTION.cg * w, Tokens.detail.ARTIST_PORTRAIT_MAX.cg)
             ZStack(alignment: .top) {
                 background
+                if state != .content {
+                    pendingBody(portrait: portrait)
+                        .padding(.top, headerHeight)
+                        .transition(.opacity)
+                } else {
                 ScrollView {
                     VStack(spacing: 0) {
                         pinwheel(w: w, portrait: portrait)
@@ -75,6 +92,8 @@ struct ArtistDetailView: View {
                     scrollPosition.scrollTo(edge: .bottom)
                 }
                 .scrollEdgeEffectStyle(.soft, for: .bottom)
+                .transition(.opacity)
+                }
                 header
                     .background(alignment: .top) {
                         // Tide line under the fixed header: a soft material
@@ -93,6 +112,8 @@ struct ArtistDetailView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Loading → content / Retry: an alpha change, the effects spring.
+        .animation(Yoin.effects, value: state)
         .task(id: "\(model.store.generation)|\(ref.id ?? ref.name)") {
             guard let id = ref.id, model.store.isReal else { return }
             await model.store.loadArtist(id)
@@ -144,6 +165,7 @@ struct ArtistDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if showFollow {
             Button {
                 withAnimation(Yoin.effects) { model.store.toggleStar(artist: page) }
             } label: {
@@ -165,6 +187,8 @@ struct ArtistDetailView: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel(following ? "Favorited" : "Favorite")
+            .transition(.opacity)
+            }
         }
         .padding(.leading, 8).padding(.trailing, 4).padding(.top, 4).padding(.bottom, 6)
     }
@@ -204,6 +228,31 @@ struct ArtistDetailView: View {
         .frame(width: w, height: portrait + Tokens.detail.ARTIST_BAND_EXTRA.cg)
     }
 
+    // MARK: Loading / failed
+
+    /// The body before the page has loaded (Android Loading / Error under the
+    /// persistent header): the round portrait and a few rows as quiet blocks
+    /// (LoadStates.swift), or Retry once the request failed.
+    @ViewBuilder
+    private func pendingBody(portrait: CGFloat) -> some View {
+        if state == .failed {
+            RetryRow(scheme: app) {
+                guard let id = ref.id else { return }
+                Task { await model.store.loadArtist(id, force: true) }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        } else {
+            VStack(spacing: 32) {
+                SkeletonBlock(color: app.surfaceContainerHigh, cornerRadius: portrait / 2)
+                    .frame(width: portrait, height: portrait)
+                    .frame(height: portrait + Tokens.detail.ARTIST_BAND_EXTRA.cg)
+                RowSkeleton(scheme: app, rows: 4)
+                    .padding(.horizontal, 16)
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+    }
+
     // MARK: Most Played
 
     private func sectionHeader(_ title: String, _ trailing: String) -> some View {
@@ -219,11 +268,56 @@ struct ArtistDetailView: View {
         .padding(.horizontal, 8)
     }
 
+    /// Android getArtistListening (ArtistDetailViewModel.loadPersonal): the
+    /// listener's own plays in Yoin, not the server's counts. A play is the
+    /// artist's when it came off one of their releases or carries their
+    /// exact name; the top five songs by plays (the newest play breaks a
+    /// tie), and the total over all of them. HistoryStore is observed, so a
+    /// play made meanwhile shows up here. The mock keeps its hand-set list.
+    private var listening: (total: Int, top: [(entry: PlaylistEntry, plays: Int)]) {
+        if isMock {
+            let rows = page.mostPlayed.map { (entry: $0, plays: $0.track.playCount ?? 0) }
+            return (rows.map(\.plays).reduce(0, +), rows)
+        }
+        let store = model.store
+        guard store.isReal, store.provider == page.id.provider else { return (0, []) }
+        let releaseIds = Set(releases.map(\.id.rawId))
+        let plays = store.history.plays(scope: store.historyScope, provider: store.provider).filter { p in
+            p.albumId.map(releaseIds.contains) == true || (!artist.isEmpty && p.artist == artist)
+        }
+        guard !plays.isEmpty else { return (0, []) }
+        var groups: [String: (count: Int, last: PlayEvent)] = [:]
+        for p in plays {
+            if let g = groups[p.songId] {
+                groups[p.songId] = (g.count + 1, p.startedAt > g.last.startedAt ? p : g.last)
+            } else {
+                groups[p.songId] = (1, p)
+            }
+        }
+        let ranked = groups.values.sorted {
+            $0.count != $1.count ? $0.count > $1.count : $0.last.startedAt > $1.last.startedAt
+        }.prefix(5)
+        let x = store.historyInputs()
+        let top = ranked.map { g -> (entry: PlaylistEntry, plays: Int) in
+            let p = g.last
+            let album = p.albumId.flatMap { x.details[$0] ?? x.resolve($0, p) }
+                ?? Album(id: MediaId(provider: p.provider, rawId: "song:\(p.songId)"), title: p.album, artist: p.artist,
+                         year: 0, palette: store.placeholderPalette(coverId: nil), tracks: [])
+            let track = album.tracks.first { $0.id.rawId == p.songId }
+                ?? Track(id: MediaId(provider: p.provider, rawId: p.songId), number: 1, title: p.title,
+                         durationSec: max(1, Int(p.durationSec.rounded())), artist: p.artist)
+            return (PlaylistEntry(album: album, track: track), g.count)
+        }
+        return (plays.count, top)
+    }
+
     private var mostPlayed: some View {
-        let picks: [(Album, Track, Int)] = page.mostPlayed.map { ($0.album, $0.track, $0.track.playCount ?? 0) }
+        let listening = self.listening
+        let entries = listening.top.map(\.entry)
+        let picks: [(Album, Track, Int)] = listening.top.map { ($0.entry.album, $0.entry.track, $0.plays) }
         return VStack(alignment: .leading, spacing: 0) {
             if !picks.isEmpty {
-            sectionHeader("Most Played", "\(picks.map(\.2).reduce(0, +)) plays")
+            sectionHeader("Most Played", listening.total == 1 ? "1 play" : "\(listening.total) plays")
             Spacer().frame(height: 6)
             }
             ForEach(Array(picks.enumerated()), id: \.offset) { i, item in
@@ -236,7 +330,7 @@ struct ArtistDetailView: View {
                             model.playback.positionSec = 0
                         }
                     } else {
-                        model.play(page.mostPlayed, startAt: i)
+                        model.play(entries, startAt: i)
                     }
                 } label: {
                     HStack(spacing: 12) {

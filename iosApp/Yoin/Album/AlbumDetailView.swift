@@ -89,6 +89,9 @@ struct AlbumDetailView: View {
     @State private var scrapCoverTilt: Double = 0
     /// Screenshots: `-listScroll 160` opens the pulled-up list scrolled.
     @State private var listPosition = ScrollPosition(y: CGFloat(UserDefaults.standard.double(forKey: "listScroll")))
+    /// The album's rate + review sheet (Android AlbumRateSheet): the pen, the
+    /// comment, the emblem and the scrapbook's review all open it.
+    @State private var rating = LaunchConfig.screen == "album-rate"
 
     /// Pulled-up top bar (Glass Lab): 0 spectrum with a soft blurred edge,
     /// 1 Liquid Glass, 2 progressive blur, 3 Android's hard-edged spectrum.
@@ -172,7 +175,8 @@ struct AlbumDetailView: View {
                     AlbumScrapbookView(album: album, plays: plays,
                                        settled: page >= 1 && pageBase == nil && !pageMoving,
                                        topInset: headerContent, pageOffset: 1 - f, pageWidth: w,
-                                       coverInFlight: coverFlies && f < 0.999) { rect, tilt in
+                                       coverInFlight: coverFlies && f < 0.999,
+                                       onEditReview: { rating = true }) { rect, tilt in
                         scrapCover = rect
                         scrapCoverTilt = tilt
                     }
@@ -233,6 +237,11 @@ struct AlbumDetailView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
+        .sheet(isPresented: $rating) {
+            AlbumRateSheet(album: album, scheme: s)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
         .task(id: "\(model.store.generation)|\(routeAlbum.id.rawId)") {
             guard !isMock, playlist == nil else { return }
             await model.store.loadAlbum(routeAlbum.id.rawId)
@@ -251,12 +260,27 @@ struct AlbumDetailView: View {
         isMock ? ("Yesterday", "16:04") : plays?.lastPlay
     }
 
-    /// Server page whose tracks didn't load: a retry under the header.
-    private var loadFailed: Bool {
-        guard !isMock else { return false }
+    private var loadPhase: LibraryStore.Phase {
+        guard !isMock else { return .loaded }
         let key = playlist.map { "playlist:\($0.id.rawId)" } ?? "album:\(routeAlbum.id.rawId)"
-        return model.store.phase(key) == .failed
+        return model.store.phase(key)
     }
+
+    /// Server page whose tracks didn't load: a retry under the header.
+    private var loadFailed: Bool { loadPhase == .failed }
+
+    /// Android's Loading / Error vs Content: no entries yet and the request
+    /// isn't done. The header, cover and backdrop stay (the route knows
+    /// them); the body is quiet blocks, or Retry once it failed. A page with
+    /// its entries (cached or loaded) is content, also while it revalidates.
+    private var bodyPending: Bool {
+        guard !isMock else { return false }
+        let empty = playlist.map { $0.entries.isEmpty } ?? album.tracks.isEmpty
+        return empty && loadPhase != .loaded
+    }
+
+    /// Opens the rate + review sheet (server albums; the mock's are hand-set).
+    private var canRate: Bool { !isMock && playlist == nil && !bodyPending }
 
     private func retry() {
         Task {
@@ -267,10 +291,12 @@ struct AlbumDetailView: View {
 
     // MARK: Playing
 
-    private func playAlbum(from track: Track) {
+    /// Plays the album from row [index] (the row's own occurrence: an album
+    /// can list one track twice, Android's index-qualified rows).
+    private func playAlbum(from index: Int) {
         let a = album
         let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
-        model.play(entries, startAt: entries.firstIndex { $0.track.id == track.id } ?? 0)
+        model.play(entries, startAt: entries.indices.contains(index) ? index : 0)
     }
 
     // MARK: Pieces
@@ -488,7 +514,10 @@ struct AlbumDetailView: View {
         let bun = self.bun
         return VStack(alignment: .leading, spacing: 0) {
             Spacer().frame(height: headerContent + band + 8)
-            if let playlist {
+            if bodyPending {
+                pendingBody(side: side)
+                    .transition(.opacity)
+            } else if let playlist {
                 playlistMeta(playlist).frame(width: side).frame(maxWidth: .infinity)
                 Spacer().frame(height: 28)
                 Text(flowingTitles)
@@ -498,8 +527,14 @@ struct AlbumDetailView: View {
             // Emblem + comment, as wide as the cover.
             HStack(spacing: 20) {
                 HStack(spacing: 10) {
-                    ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: 64,
-                                neutrals: app)
+                    // Android onTapBun: the emblem opens the rate sheet too.
+                    Button { rating = true } label: {
+                        ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: 64,
+                                    neutrals: app)
+                    }
+                    .buttonStyle(PressScale())
+                    .disabled(!canRate)
+                    .accessibilityLabel("Rate")
                     if bun.kind == .average { ratedCoverage }
                 }
                 comment
@@ -527,6 +562,44 @@ struct AlbumDetailView: View {
         }
         .padding(.horizontal, 16)
         .frame(width: w, alignment: .topLeading)
+        // Loading → content (or → Retry) is an alpha change: an effects spring.
+        .animation(Yoin.effects, value: bodyPending)
+        .animation(Yoin.effects, value: loadFailed)
+    }
+
+    /// The hero's body while the page loads (Android AlbumLoadingState /
+    /// DetailErrorState, in iOS's quiet-block language, LoadStates.swift):
+    /// the emblem's round, the stat line and the title paragraph as blocks,
+    /// or one Retry once the request failed. The cover above already stands.
+    @ViewBuilder
+    private func pendingBody(side: CGFloat) -> some View {
+        if loadFailed {
+            RetryRow(scheme: app, action: retry)
+        } else {
+            let fill = app.surfaceContainerHigh
+            VStack(alignment: .leading, spacing: 0) {
+                if playlist == nil {
+                    HStack(spacing: 20) {
+                        SkeletonBlock(color: fill, cornerRadius: 32).frame(width: 64, height: 64)
+                        VStack(alignment: .leading, spacing: 8) {
+                            SkeletonBlock(color: fill, cornerRadius: 4).frame(height: 12)
+                            SkeletonBlock(color: fill, cornerRadius: 4).frame(width: side * 0.4, height: 12)
+                        }
+                    }
+                    .frame(width: side)
+                    .frame(maxWidth: .infinity)
+                    Spacer().frame(height: 28)
+                }
+                SkeletonBlock(color: fill, cornerRadius: 4).frame(width: 120, height: 12)
+                Spacer().frame(height: 14)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach([1.0, 0.86, 0.94, 0.6], id: \.self) { k in
+                        SkeletonBlock(color: fill, cornerRadius: 6).frame(height: 24)
+                            .padding(.trailing, (1 - k) * side)
+                    }
+                }
+            }
+        }
     }
 
     /// AlbumTrackCountLabel: a MetaLine in labelMedium of Stat groups 12
@@ -568,26 +641,38 @@ struct AlbumDetailView: View {
 
     /// AlbumHeroComment: written, bodyMedium (3 lines) over its date in
     /// labelMedium onSurfaceVariant, 4 apart; not written, a 40 tonal pen.
+    /// Tapping either opens the rate + review sheet (a server album).
     @ViewBuilder
     private var comment: some View {
-        if let comment = mockComment {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(comment).lineLimit(3)
-                    .yoinRole(Tokens.type.bodyMedium)
-                    .foregroundStyle(app.onSurface)
-                Text("Yesterday")
-                    .yoinRole(Tokens.type.labelMedium)
-                    .foregroundStyle(app.onSurfaceVariant)
+        if let comment = review {
+            Button { rating = true } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(comment.text).lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurface)
+                    // When it was written (owner 2026-10-05).
+                    if let at = comment.at {
+                        Text(at)
+                            .yoinRole(Tokens.type.labelMedium)
+                            .foregroundStyle(app.onSurfaceVariant)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .disabled(!canRate)
+            .accessibilityLabel("Edit comment")
         } else {
-            Button {} label: {
+            Button { rating = true } label: {
                 YoinIcon("edit", size: 18)
                     .foregroundStyle(app.onSecondaryContainer)
                     .frame(width: 40, height: 40)
                     .background(app.secondaryContainer, in: .circle)
             }
             .buttonStyle(PressScale())
+            .disabled(!canRate)
             .accessibilityLabel("Write a comment")
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -614,8 +699,19 @@ struct AlbumDetailView: View {
         return out
     }
 
-    private var mockComment: String? {
-        isMock && album.rating != nil ? "A record for the walk home, warm even on the cold tracks" : nil
+    /// The listener's review and when it was written (AlbumMemoryStore, as
+    /// page 2 reads it: written here or restored by sync); the mock's stand-in.
+    private var review: (text: String, at: String?)? {
+        if isMock {
+            return album.rating != nil ? ("A record for the walk home, warm even on the cold tracks", "Yesterday") : nil
+        }
+        guard playlist == nil,
+              let record = AlbumMemoryStore.shared.album(provider: album.id.provider, albumId: album.id.rawId),
+              let text = record.review?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        let at = record.reviewUpdatedAt.map {
+            HomeHistory.relativeDay($0, now: Int64(Date().timeIntervalSince1970 * 1000))
+        }
+        return (text, at)
     }
 
     private var retryButton: some View {
@@ -640,8 +736,15 @@ struct AlbumDetailView: View {
                     .padding(.top, 2)
                     .padding(.bottom, 10)
                     .modifier(bandBlur)
-                if loadFailed { retryButton.padding(.leading, 4) }
-                if let playlist {
+                if bodyPending {
+                    Group {
+                        if loadFailed { RetryRow(scheme: app, action: retry) } else { RowSkeleton(scheme: app) }
+                    }
+                    .transition(.opacity)
+                } else if loadFailed { retryButton.padding(.leading, 4) }
+                if bodyPending {
+                    EmptyView()
+                } else if let playlist {
                     ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
                         playlistRow(e)
                             .modifier(bandBlur)
@@ -653,8 +756,23 @@ struct AlbumDetailView: View {
                         .padding(.top, 28)
                         .opacity(max(0, (smooth(p) - 0.6) / 0.4))
                 } else {
-                ForEach(album.tracks) { t in
-                    trackRow(t).modifier(bandBlur).onTapGesture { playAlbum(from: t) }
+                // Index-qualified (Android "${song.id}#$index"): a provider can
+                // list the same track twice on one album.
+                let tracks = album.tracks
+                let multiDisc = Set(tracks.compactMap(\.disc)).count > 1
+                ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
+                    // A multi-disc album: each disc opens with its number.
+                    if multiDisc, let disc = t.disc, i == 0 || tracks[i - 1].disc != disc {
+                        Text("Disc \(disc)")
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(app.onSurfaceVariant)
+                            .accessibilityAddTraits(.isHeader)
+                            .padding(.leading, 8)
+                            .padding(.top, i == 0 ? 0 : 16)
+                            .padding(.bottom, 6)
+                            .modifier(bandBlur)
+                    }
+                    trackRow(t).modifier(bandBlur).onTapGesture { playAlbum(from: i) }
                         .trackMenu(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
                             settlePage(to: 1, velocity: 0)
                         }))
@@ -667,6 +785,7 @@ struct AlbumDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
+            .animation(Yoin.effects, value: bodyPending)
         }
         .scrollPosition($listPosition)
         #if DEBUG
@@ -708,34 +827,89 @@ struct AlbumDetailView: View {
                 }
             }
             .frame(minWidth: 18, alignment: .trailing)
-            Text(t.title)
-                .lineLimit(1)
-                .yoinRole(Tokens.type.titleMedium)
-                .foregroundStyle(playing ? s.primary : app.onSurface)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(t.title)
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.titleMedium)
+                        .foregroundStyle(playing ? s.primary : app.onSurface)
+                    // The song has notes (they live on the scrapbook page).
+                    if hasNote(t) {
+                        YoinIcon("note", size: 12)
+                            .foregroundStyle(s.primary.opacity(0.8))
+                            .accessibilityLabel("Has note")
+                            .accessibilityHidden(false)
+                    }
+                }
+                // The performer when it isn't the album artist again
+                // (compilations, features); else one 56 pt line.
+                if let artist = t.artist?.trimmingCharacters(in: .whitespaces), !artist.isEmpty, artist != album.artist {
+                    Text(artist)
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.bodySmall)
+                        .foregroundStyle(app.onSurfaceVariant)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Text(formatTime(t.durationSec))
                 .monospacedDigit()
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(app.onSurfaceVariant)
-            let liked = model.store.isStarred(t)
-            Button { withAnimation(Yoin.effects) { model.store.toggleStar(t) } } label: {
-                YoinIcon(liked ? "favorite_filled" : "favorite", size: 16)
-                    .foregroundStyle(liked ? s.onPrimary : app.onSurfaceVariant)
-                    .frame(width: 28, height: 28)
-                    .background {
-                        if liked { Circle().fill(s.primary) }
-                        else { Circle().strokeBorder(app.outline.opacity(0.5), lineWidth: 1.5) }
-                    }
-                    .frame(width: 36, height: 36)
-                    .contentShape(.circle)
+            if t.id.provider == AppleMusicMapping.provider {
+                libraryButton(t)
+            } else {
+                heartButton(t)
             }
-            .buttonStyle(PressScale())
-            .accessibilityLabel(liked ? "Remove from favorites" : "Add to favorites")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .frame(minHeight: 56)
         .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
+    }
+
+    private func hasNote(_ t: Track) -> Bool {
+        !isMock && !NotesStore.shared.notes(provider: t.id.provider, trackId: t.id.rawId).isEmpty
+    }
+
+    /// Apple Music has no heart: its row button is library membership
+    /// (Android TrackLibraryButton): + adds, ✓ once added (MusicKit has no remove).
+    private func libraryButton(_ t: Track) -> some View {
+        let hearts = FavoritesStore.shared
+        let added = AppleMusicMapping.isLibraryId(t.id.rawId)
+            || hearts.isFavorite(provider: t.id.provider, songId: t.id.rawId, known: t.starred ? true : nil)
+        return Button {
+            withAnimation(Yoin.effects) {
+                hearts.toggle(provider: t.id.provider, songId: t.id.rawId, known: added,
+                              client: nil, apple: model.store.apple)
+            }
+        } label: {
+            YoinIcon(added ? "check" : "add", size: 20)
+                .foregroundStyle(added ? s.primary : app.onSurfaceVariant)
+                .contentTransition(.opacity)
+                .frame(width: 36, height: 36)
+                .contentShape(.circle)
+        }
+        .buttonStyle(PressScale())
+        .disabled(added)
+        .accessibilityLabel(added ? "In library" : "Add to library")
+    }
+
+    /// The heart ring (Android AlbumCircleToggle).
+    private func heartButton(_ t: Track) -> some View {
+        let liked = model.store.isStarred(t)
+        return Button { withAnimation(Yoin.effects) { model.store.toggleStar(t) } } label: {
+            YoinIcon(liked ? "favorite_filled" : "favorite", size: 16)
+                .foregroundStyle(liked ? s.onPrimary : app.onSurfaceVariant)
+                .frame(width: 28, height: 28)
+                .background {
+                    if liked { Circle().fill(s.primary) }
+                    else { Circle().strokeBorder(app.outline.opacity(0.5), lineWidth: 1.5) }
+                }
+                .frame(width: 36, height: 36)
+                .contentShape(.circle)
+        }
+        .buttonStyle(PressScale())
+        .accessibilityLabel(liked ? "Remove from favorites" : "Add to favorites")
     }
 
     // MARK: Playlist pieces
@@ -855,8 +1029,13 @@ struct AlbumDetailView: View {
                 }
                 Spacer()
                 HStack(spacing: 10) {
-                    ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: 64,
-                                neutrals: app)
+                    Button { rating = true } label: {
+                        ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: 64,
+                                    neutrals: app)
+                    }
+                    .buttonStyle(PressScale())
+                    .disabled(!canRate)
+                    .accessibilityLabel("Rate")
                     if bun.kind == .average { ratedCoverage }
                 }
             }

@@ -31,6 +31,8 @@ struct AlbumScrapbookView: View {
     var pageWidth: CGFloat = 402
     /// The hero cover is flying here: this page's cover waits hidden until it lands.
     var coverInFlight = false
+    /// Opens the album's rate + review sheet (the review clipping, the blank pen).
+    var onEditReview: (() -> Void)? = nil
     /// The cover's resting rect in `space` and its tilt (the flight's target).
     var onCoverPlaced: (CGRect, Double) -> Void = { _, _ in }
 
@@ -47,6 +49,10 @@ struct AlbumScrapbookView: View {
     @Environment(AppModel.self) private var model
     /// The ticket whose score sheet is open (Android AlbumScrapbookTrackSheet's score row).
     @State private var scoring: Track?
+    /// The Memory title being renamed in place (Android OpeningTitle).
+    @State private var renaming = false
+    @State private var titleDraft = ""
+    @FocusState private var titleFocused: Bool
     /// The stamp (Android CoverWithEmblem, D3 §8): once per album page, the
     /// emblem's award plays when the pager comes to rest here; until then it
     /// waits uncut. No haptics on the album page (D3 §11.12).
@@ -209,10 +215,7 @@ struct AlbumScrapbookView: View {
                     // OpeningTitle: the serif (a title someone or the AI wrote),
                     // 22 SemiBold, line 1.25 em (27.5).
                     if let memoryTitle {
-                    Text(memoryTitle)
-                        .font(Font(Self.titleFont))
-                        .lineSpacing(max(0, 22 * 1.25 - Self.titleFont.lineHeight))
-                        .foregroundStyle(s.onSurface)
+                        openingTitle(memoryTitle)
                     }
                     // AlbumScrapLastPlay: AlbumSectionLabel (labelLarge
                     // underlined), 4, then titleMedium tabular.
@@ -233,6 +236,7 @@ struct AlbumScrapbookView: View {
             }
             // Title present → the review goes below, full width.
             if let review {
+            Button { onEditReview?() } label: {
             VStack(alignment: .leading, spacing: 6) {
                 // ReviewClipping: GSF 15, line 1.55 em; its date in labelMedium.
                 Text(review)
@@ -247,7 +251,27 @@ struct AlbumScrapbookView: View {
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isMock || onEditReview == nil)
+            .accessibilityLabel("Edit comment")
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
+            } else if !isMock, let onEditReview {
+                // BlankReview: a 48 dashed circle with the pen, at the row's start.
+                Button(action: onEditReview) {
+                    YoinIcon("edit", size: 20)
+                        .foregroundStyle(s.onSurface)
+                        .frame(width: 48, height: 48)
+                        .overlay {
+                            Circle().strokeBorder(s.outline, style: StrokeStyle(lineWidth: 1.5, dash: [5, 5]))
+                        }
+                        .contentShape(.circle)
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel("Write a comment")
+                .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
+                .padding(.top, 8)
             }
             // Album note sticky: own row on the end side, tucks 6 over the review.
             if let albumNote {
@@ -265,6 +289,100 @@ struct AlbumScrapbookView: View {
                 .accessibilityLabel("Album note: \(albumNote)")
             }
         }
+    }
+
+    // MARK: Memory title (Android OpeningTitle)
+
+    /// The listener renamed it (the sparkle then restores the AI's).
+    private var userTitle: String? { memories.userTitle(provider: provider, albumId: album.id.rawId) }
+    private var aiTitle: String? {
+        let t = memories.memory(provider: provider, entityId: album.id.rawId)?.title?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return t?.isEmpty == false ? t : nil
+    }
+    /// Matches Android AlbumMemoryTitleStore's cap.
+    private static let titleMaxLength = 80
+
+    /// The serif title beside the cover (a title someone or the AI wrote;
+    /// 22 SemiBold, line 1.25 em). Tap to rename in place: the line becomes
+    /// the field, Return or leaving it saves, blank goes back to Yoin's
+    /// title; once renamed, the sparkle restores the AI title. No outlined
+    /// field, no labels.
+    @ViewBuilder
+    private func openingTitle(_ title: String) -> some View {
+        let lineGap = max(0, 22 * 1.25 - Self.titleFont.lineHeight)
+        if renaming {
+            HStack(alignment: .top, spacing: 4) {
+                TextField("", text: $titleDraft, axis: .vertical)
+                    .font(Font(Self.titleFont))
+                    .lineSpacing(lineGap)
+                    .foregroundStyle(s.onSurface)
+                    .tint(s.primary)
+                    .focused($titleFocused)
+                    .submitLabel(.done)
+                    .textInputAutocapitalization(.sentences)
+                    .onChange(of: titleDraft) { _, text in
+                        // One line of meaning: Return saves; pasted breaks become spaces.
+                        if text.hasSuffix("\n") && !text.dropLast().contains("\n") {
+                            titleDraft = String(text.dropLast())
+                            titleFocused = false
+                        } else if text.contains("\n") || text.count > Self.titleMaxLength {
+                            titleDraft = String(text.replacingOccurrences(of: "\n", with: " ").prefix(Self.titleMaxLength))
+                        }
+                    }
+                if userTitle != nil, aiTitle != nil {
+                    Button {
+                        renaming = false
+                        setTitle(nil)
+                    } label: {
+                        YoinIcon("sparkle", size: 20)
+                            .foregroundStyle(s.onSurfaceVariant)
+                            .frame(width: 40, height: 40)
+                            .contentShape(.circle)
+                    }
+                    .buttonStyle(PressScale())
+                    .accessibilityLabel("Restore title")
+                }
+            }
+            .onAppear { titleFocused = true }
+            .onChange(of: titleFocused) { was, now in
+                if was, !now { commitTitle(was: title) }
+            }
+        } else {
+            Text(title)
+                .font(Font(Self.titleFont))
+                .lineSpacing(lineGap)
+                .foregroundStyle(s.onSurface)
+                .contentShape(.rect)
+                .onTapGesture {
+                    guard !isMock else { return }
+                    titleDraft = userTitle ?? title
+                    renaming = true
+                }
+                .accessibilityAddTraits(isMock ? [] : .isButton)
+                .accessibilityHint(isMock ? "" : "Rename")
+        }
+    }
+
+    private func commitTitle(was title: String) {
+        guard renaming else { return }
+        renaming = false
+        let text = titleDraft.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text != title else { return }
+        setTitle(text.isEmpty ? nil : String(text.prefix(Self.titleMaxLength)))
+    }
+
+    /// nil = Yoin's title again (the user title's row goes; sync carries the delete).
+    private func setTitle(_ text: String?) {
+        withAnimation(Yoin.effects) {
+            if let text {
+                memories.putTitle(.init(provider: provider, albumId: album.id.rawId, title: text,
+                                        updatedAt: Int64(Date().timeIntervalSince1970 * 1000)))
+            } else {
+                memories.removeTitle(provider: provider, albumId: album.id.rawId)
+            }
+        }
+        CloudSync.shared.localChanged()
     }
 
     // MARK: Track blocks
@@ -774,5 +892,124 @@ private struct ScrapScoreBar: View {
         .accessibilityElement()
         .accessibilityLabel("Score")
         .accessibilityValue(RatingBar.label(value) ?? "Not rated")
+    }
+}
+
+/// The album's rate + review sheet (Android AlbumRateSheet): "Rate" and the
+/// album at the top left beside the emblem, the score bar in the cover's
+/// colors, then the review. A score commits on release (0 = no album
+/// rating, the emblem goes back to the tracks' average); the words save
+/// when the sheet closes. No Clear here: clearing a song's score lives in
+/// the scrapbook's score sheet. Written to AlbumMemoryStore (Android
+/// album_ratings) and handed to cloud sync.
+struct AlbumRateSheet: View {
+    var album: Album
+    var scheme: CoverScheme
+
+    @State private var draft: Double?
+    @State private var dragging = false
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    private var memories: AlbumMemoryStore { .shared }
+    private var record: AlbumMemoryStore.AlbumRecord? {
+        memories.album(provider: album.id.provider, albumId: album.id.rawId)
+    }
+    /// The album's own score; nil = not rated (album_ratings keeps 0 for that).
+    private var stored: Double? { record.flatMap { $0.rating > 0 ? $0.rating : nil } }
+    private var live: Double? {
+        guard let draft else { return stored }
+        return draft > 0 ? draft : nil
+    }
+    private var bun: AlbumBun {
+        var b = AlbumBun.of(album)
+        b.albumRating = live
+        return b
+    }
+    private var open: Bool { focused || !text.isEmpty }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Rate")
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                        Text(album.title)
+                            .lineLimit(3)
+                            .yoinRole(Tokens.type.titleLarge, weight: .semibold)
+                            .foregroundStyle(scheme.onSurface)
+                    }
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isHeader)
+                    // Lifts and leans with the score while the bar is held.
+                    ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette,
+                                size: 120, neutrals: scheme)
+                        .scaleEffect(dragging ? 1.06 : 1)
+                        .rotationEffect(.degrees(dragging ? ((live ?? 0) - 5) * 1.4 : 0))
+                        .animation(Yoin.spatial, value: dragging)
+                }
+                ScrapScoreBar(value: live, scheme: scheme, onChange: { v in
+                    draft = v
+                    dragging = true
+                }, onCommit: commit)
+                reviewField
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 20)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(scheme.surfaceContainerLow)
+        .onAppear { text = record?.review ?? "" }
+        .onDisappear(perform: saveReview)
+    }
+
+    /// AlbumReviewField: a borderless field on surfaceContainerHigh, 28
+    /// corners closed, 20 once open (a spatial spring); "Review" as its hint.
+    private var reviewField: some View {
+        TextField("", text: $text, prompt: Text("Review").foregroundStyle(scheme.onSurfaceVariant), axis: .vertical)
+            .lineLimit(3...)
+            .font(.gsf(Tokens.type.bodyLarge.size.cg))
+            .lineSpacing(YoinType.lineSpacing(Tokens.type.bodyLarge))
+            .foregroundStyle(scheme.onSurface)
+            .tint(scheme.primary)
+            .focused($focused)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(scheme.surfaceContainerHigh,
+                        in: .rect(cornerRadius: open ? 20 : 28, style: .continuous))
+            .animation(Yoin.spatial, value: open)
+    }
+
+    private var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    private func commit() {
+        dragging = false
+        guard let v = draft else { return }
+        draft = nil
+        let was = record
+        withAnimation(Yoin.effects) {
+            memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
+                                    rating: min(10, max(0, v)), review: was?.review,
+                                    reviewUpdatedAt: was?.reviewUpdatedAt, updatedAt: now))
+        }
+        CloudSync.shared.localChanged()
+    }
+
+    /// Android setAlbumReview: trimmed, blank = none; the written date moves
+    /// only when the words do.
+    private func saveReview() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.isEmpty ? nil : trimmed
+        let was = record
+        guard normalized != was?.review, was != nil || normalized != nil else { return }
+        memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
+                                rating: was?.rating ?? 0, review: normalized,
+                                reviewUpdatedAt: normalized == nil ? nil : now, updatedAt: now))
+        CloudSync.shared.localChanged()
     }
 }
