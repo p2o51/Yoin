@@ -186,16 +186,22 @@ final class AudioCache: @unchecked Sendable {
         save(key)
     }
 
-    /// Writes [data] at [offset]. A ranged stream is whole once every byte is held.
-    func write(_ key: String, at offset: Int64, _ data: Data) {
+    /// Tests: every write fails, as a full or unwritable disk does.
+    var failWrites = false
+
+    /// Writes [data] at [offset]. A ranged stream is whole once every byte is held. False when the bytes
+    /// didn't reach the disk: the loader then serves them from memory (Codex C06).
+    @discardableResult
+    func write(_ key: String, at offset: Int64, _ data: Data) -> Bool {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard !data.isEmpty, var e = entries[key], let handle = handle(key) else { return }
+        guard !data.isEmpty else { return true }
+        guard !failWrites, var e = entries[key], let handle = handle(key) else { return false }
         do {
             try handle.seek(toOffset: UInt64(offset))
             try handle.write(contentsOf: data)
         } catch {
             log.error("write failed: \(error.localizedDescription, privacy: .public)")
-            return
+            return false
         }
         let added = e.ranges.insert(offset, offset + Int64(data.count))
         totalBytes += added
@@ -204,6 +210,7 @@ final class AudioCache: @unchecked Sendable {
         unsaved[key, default: 0] += added
         if e.complete || unsaved[key, default: 0] >= 1 << 20 { save(key) }
         if totalBytes > maxBytes { trim() }
+        return true
     }
 
     /// A transcode's download ended cleanly at [length]: it is whole.

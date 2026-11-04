@@ -41,4 +41,38 @@ final class FavoritesStoreTests: XCTestCase {
         hearts.reset()
         XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s3", known: false))
     }
+
+    /// Codex C10: an older write's failure never undoes a newer tap, and nothing lands after a reset.
+    func test_should_rollBackOnlyTheNewestTap_when_writesFailOutOfOrder() async {
+        let hearts = FavoritesStore()
+        var release: [CheckedContinuation<Void, Error>] = []
+        func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
+        // off → on (A), on → off (B), off → on (C): three requests in flight.
+        hearts.write(provider: "subsonic", songId: "s1", target: true, was: false, send: send)
+        hearts.write(provider: "subsonic", songId: "s1", target: false, was: true, send: send)
+        hearts.write(provider: "subsonic", songId: "s1", target: true, was: false, send: send)
+        while release.count < 3 { await Task.yield() }
+        XCTAssertTrue(hearts.isFavorite(provider: "subsonic", songId: "s1"))
+        // A (an older true) fails: the newest tap (C, also true) stands.
+        release[0].resume(throwing: URLError(.timedOut))
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertTrue(hearts.isFavorite(provider: "subsonic", songId: "s1"))
+        // C fails: back to what C replaced.
+        release[2].resume(throwing: URLError(.timedOut))
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s1"))
+
+        // After a reset (another account) a late success reports nothing.
+        hearts.reset()
+        release[1].resume()
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(hearts.hasReport(provider: "subsonic", songId: "s1"))
+    }
+
+    func test_should_forgetReports_when_reset() {
+        let hearts = FavoritesStore()
+        hearts.report(true, provider: "subsonic", songId: "s9")
+        hearts.reset()
+        XCTAssertFalse(hearts.hasReport(provider: "subsonic", songId: "s9"))
+    }
 }

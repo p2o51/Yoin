@@ -31,6 +31,9 @@ final class AppleMusicAudioOutput: AudioOutput {
     private var generation = 0
     /// The current song is in MusicKit's queue.
     private var loaded = false
+    /// Yoin has put something in MusicKit's queue that may still be sounding (set when a queue is handed
+    /// over, cleared by stop): replacing or stopping must silence it even while the next song resolves.
+    private var ownsPlayer = false
     private var wantsPlay = false
     /// The player has been seen playing this song (end detection needs it).
     private var sawPlaying = false
@@ -39,13 +42,15 @@ final class AppleMusicAudioOutput: AudioOutput {
     private var timer: Timer?
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
     /// Within this of the end, a stop counts as the song ending.
-    private static let endSlackSec: Double = 1.5
+    nonisolated static let endSlackSec: Double = 1.5
 
     var currentTimeSec: Double { loaded ? player.playbackTime : lastTime }
 
     func load(_ current: URL, next: URL?, startSec: Double) {
         generation += 1
         let gen = generation
+        // The previous song mustn't keep playing while this one resolves (Codex C08).
+        if ownsPlayer, !silent { player.pause() }
         currentId = AppleMusicMapping.rawId(fromStreamURL: current)
         nextId = next.flatMap(AppleMusicMapping.rawId(fromStreamURL:))
         loaded = false
@@ -72,6 +77,7 @@ final class AppleMusicAudioOutput: AudioOutput {
             events?.outputIsBufferingDidChange(false)
             return
         }
+        ownsPlayer = true
         player.queue = ApplicationMusicPlayer.Queue(for: [song])
         player.state.repeatMode = MusicPlayer.RepeatMode.none
         player.state.shuffleMode = .off
@@ -127,7 +133,9 @@ final class AppleMusicAudioOutput: AudioOutput {
         nextId = nil
         timer?.invalidate()
         timer = nil
-        if wasLoaded { player.stop() }
+        // Whatever Yoin handed MusicKit stops, loaded or still resolving the next song (Codex C08).
+        if wasLoaded || ownsPlayer { player.stop() }
+        ownsPlayer = false
     }
 
     private func fail(_ message: String) {
@@ -165,13 +173,23 @@ final class AppleMusicAudioOutput: AudioOutput {
             return
         }
         guard wantsPlay, sawPlaying else { return }
-        let nearEnd = duration > 0 && lastTime >= duration - Self.endSlackSec
-        if status == .stopped || player.queue.currentEntry == nil || nearEnd {
+        if Self.isNaturalEnd(status: status, hasEntry: player.queue.currentEntry != nil, time: time,
+                             lastPlayingTime: lastTime, duration: duration) {
             songEnded()
         } else if status == .paused || status == .interrupted {
             wantsPlay = false
             events?.outputPlayingDidChangeExternally(false)
         }
+    }
+
+    /// The song ran out by itself (Codex C09): stopped, its entry gone, or paused at / back to the start
+    /// after playing into the last [endSlackSec]. An interruption is never an end, and a pause near the end
+    /// whose playhead still sits where it was playing is the listener's pause (lock screen, a call).
+    nonisolated static func isNaturalEnd(status: MusicPlayer.PlaybackStatus, hasEntry: Bool, time: Double,
+                                         lastPlayingTime: Double, duration: Double) -> Bool {
+        if status == .stopped || !hasEntry { return true }
+        guard status == .paused, duration > 0, lastPlayingTime >= duration - endSlackSec else { return false }
+        return time >= duration - 0.25 || time < lastPlayingTime - 1
     }
 
     private func songEnded() {
@@ -270,7 +288,7 @@ final class RoutingAudioOutput: AudioOutput {
         func outputIsBufferingDidChange(_ buffering: Bool) { target?.outputIsBufferingDidChange(buffering) }
         func outputDidAdvanceToPreloaded() { target?.outputDidAdvanceToPreloaded() }
         func outputDidReachEnd() { target?.outputDidReachEnd() }
-        func outputDidFail(_ message: String) { target?.outputDidFail(message) }
+        func outputDidFail(_ message: String, network: Bool) { target?.outputDidFail(message, network: network) }
         func outputPlayingDidChangeExternally(_ playing: Bool) { target?.outputPlayingDidChangeExternally(playing) }
     }
 }

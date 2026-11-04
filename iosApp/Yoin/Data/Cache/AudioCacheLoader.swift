@@ -84,6 +84,9 @@ final class AudioCacheLoader: @unchecked Sendable {
     /// …and why it ended short, when it did: every later request fails with it.
     private var sequentialError: Error?
     private var closed = false
+    /// Bytes fetched that the cache couldn't write (full or unwritable disk).
+    private var spill = SpillBuffer()
+    static let spillLimit = 32 * 1024 * 1024
 
     /// How far ahead of a running fetch a request waits instead of fetching on its own.
     static let lookahead: Int64 = 512 * 1024
@@ -136,6 +139,10 @@ final class AudioCacheLoader: @unchecked Sendable {
         requests.removeAll { $0.isDone }
         failure = nil
         dropIdleFetches()
+        // Memory is only a stand-in for the disk: keep what the requests still ahead may read.
+        if spill.bytes > Self.spillLimit, let low = requests.filter({ $0.dataRange != nil }).map(\.currentOffset).min() {
+            spill.drop(below: low)
+        }
     }
 
     private func serve(_ r: CacheLoadingRequest, _ e: AudioCache.Entry?) {
@@ -158,6 +165,10 @@ final class AudioCacheLoader: @unchecked Sendable {
             if at >= end { r.finish(); return }
             let n = min(cache.available(key, from: at), end - at, Int64(Self.chunk))
             if n > 0, let data = cache.read(key, at: at, count: Int(n)), !data.isEmpty {
+                r.respond(data)
+                continue
+            }
+            if let data = spill.read(at: at, max: Int(min(end - at, Int64(Self.chunk)))) {
                 r.respond(data)
                 continue
             }
@@ -197,7 +208,8 @@ final class AudioCacheLoader: @unchecked Sendable {
     /// waiting on it, has nothing left to bring.
     private func dropIdleFetches() {
         guard !sequential else { return }
-        for f in fetches where f.answered && !isWaitedOn(f) && cache.available(key, from: f.next) > 0 {
+        for f in fetches where f.answered && !isWaitedOn(f)
+            && (cache.available(key, from: f.next) > 0 || spill.read(at: f.next, max: 1) != nil) {
             stop(f)
         }
         if cache.entry(key)?.complete == true {
@@ -221,7 +233,8 @@ final class AudioCacheLoader: @unchecked Sendable {
             },
             onData: { [weak self, weak f] data in
                 guard let self, let f, self.fetches.contains(where: { $0 === f }) else { return }
-                self.cache.write(self.key, at: f.next, data)
+                // Audio never depends on the disk: bytes the cache couldn't store play from memory.
+                if !self.cache.write(self.key, at: f.next, data) { self.spill.write(at: f.next, data) }
                 f.next += Int64(data.count)
                 self.pump()
             },
@@ -487,5 +500,35 @@ final class URLSessionUpstream: NSObject, CacheUpstream, URLSessionDataDelegate,
         let total = parts.count == 2 ? Int64(parts[1]) : nil
         let start = parts.first.flatMap { $0.split(separator: "-").first }.flatMap { Int64($0) }
         return (start, total)
+    }
+}
+
+/// Fetched bytes the disk wouldn't take, by offset: contiguous runs, appended to as a fetch streams.
+struct SpillBuffer {
+    private var runs: [(start: Int64, data: Data)] = []
+
+    var bytes: Int { runs.reduce(0) { $0 + $1.data.count } }
+
+    mutating func write(at offset: Int64, _ data: Data) {
+        if let i = runs.firstIndex(where: { $0.start + Int64($0.data.count) == offset }) {
+            runs[i].data.append(data)
+        } else {
+            runs.append((offset, data))
+        }
+    }
+
+    /// Up to [max] bytes from [offset], when a run holds it.
+    func read(at offset: Int64, max: Int) -> Data? {
+        guard max > 0 else { return nil }
+        for run in runs where run.start <= offset && offset < run.start + Int64(run.data.count) {
+            let from = Int(offset - run.start)
+            let to = min(from + max, run.data.count)
+            return run.data.subdata(in: (run.data.startIndex + from)..<(run.data.startIndex + to))
+        }
+        return nil
+    }
+
+    mutating func drop(below offset: Int64) {
+        runs.removeAll { $0.start + Int64($0.data.count) <= offset }
     }
 }

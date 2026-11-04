@@ -1,4 +1,5 @@
 import AVFoundation
+import MusicKit
 import XCTest
 @testable import Yoin
 
@@ -286,6 +287,28 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertEqual(events.count, 1)
     }
 
+    /// Codex A39: a network / server failure holds on the song (no march through the queue), keeps the
+    /// error, and Retry starts it again where it was.
+    func test_should_holdOnTheSong_when_theNetworkFails_and_retry() {
+        var events: [PlayerEvent] = []
+        engine.onEvent = { events.append($0) }
+        engine.play(queue: tracks(3))
+        output.tick(to: 42)
+        engine.outputDidFail("offline", network: true)
+        XCTAssertEqual(engine.currentTrack?.id, "t1")
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.failure?.track.id, "t1")
+        XCTAssertEqual(engine.failure?.network, true)
+        XCTAssertEqual(events.count, 1)
+        let loads = output.loads
+        engine.togglePlayPause()
+        XCTAssertNil(engine.failure)
+        XCTAssertEqual(output.loads, loads + 1)
+        XCTAssertEqual(output.startSec, 42, accuracy: 0.001)
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.currentTrack?.id, "t1")
+    }
+
     func test_should_stop_when_every_song_fails() {
         var events: [PlayerEvent] = []
         engine.onEvent = { events.append($0) }
@@ -294,6 +317,7 @@ final class PlayerEngineTests: XCTestCase {
         engine.outputDidFail("x")
         XCTAssertFalse(engine.isPlaying)
         XCTAssertEqual(events.last, .queueFailed)
+        XCTAssertNotNil(engine.failure, "a failed queue keeps its error")
     }
 
     // MARK: Scrobble & progress
@@ -394,12 +418,15 @@ final class StreamQualityTests: XCTestCase {
     private var output: FakeAudioOutput!
     private var engine: PlayerEngine!
     private var quality: StreamQuality = .kbps128
+    private var timeOffset = true
 
     override func setUp() async throws {
         output = FakeAudioOutput()
         engine = PlayerEngine(output: output)
         quality = .kbps128
+        timeOffset = true
         engine.streamQuality = { [unowned self] in self.quality }
+        engine.timeOffsetSupported = { [unowned self] in self.timeOffset }
     }
 
     private let base = "https://music.example/rest/stream?u=me&t=tok&s=salt&v=1.16.1&c=Yoin&f=json"
@@ -453,17 +480,32 @@ final class StreamQualityTests: XCTestCase {
                        apple)
         XCTAssertEqual(StreamDelivery.plan(.kbps128, track: PlayableTrack(
             id: "1", provider: "applemusic", title: "", artist: "", album: "", albumId: nil, durationSec: 1,
-            streamURL: apple, coverURL: nil)), .original)
+            streamURL: apple, coverURL: nil), timeOffset: true), .original)
     }
 
     func test_should_plan_original_when_file_is_under_the_cap() {
-        XCTAssertEqual(StreamDelivery.plan(.kbps192, track: track(1, kbps: 128)), .original)
-        XCTAssertEqual(StreamDelivery.plan(.original, track: track(1, kbps: 1411)), .original)
-        XCTAssertEqual(StreamDelivery.plan(.kbps192, track: track(1, kbps: 1411)),
+        XCTAssertEqual(StreamDelivery.plan(.kbps192, track: track(1, kbps: 128), timeOffset: true), .original)
+        XCTAssertEqual(StreamDelivery.plan(.original, track: track(1, kbps: 1411), timeOffset: true), .original)
+        XCTAssertEqual(StreamDelivery.plan(.kbps192, track: track(1, kbps: 1411), timeOffset: true),
                        StreamDelivery(maxBitRateKbps: 192, seeksByTime: true))
         // Unknown source rate: transcode, but a byte isn't known to be a time.
-        XCTAssertEqual(StreamDelivery.plan(.kbps128, track: track(1, kbps: nil)),
+        XCTAssertEqual(StreamDelivery.plan(.kbps128, track: track(1, kbps: nil), timeOffset: true),
                        StreamDelivery(maxBitRateKbps: 128, seeksByTime: false))
+        // Codex A38: a server without OpenSubsonic transcodeOffset never gets timeOffset.
+        XCTAssertEqual(StreamDelivery.plan(.kbps192, track: track(1, kbps: 1411), timeOffset: false),
+                       StreamDelivery(maxBitRateKbps: 192, seeksByTime: false))
+    }
+
+    func test_should_seek_in_the_transcode_without_time_offset_when_server_lacks_transcodeOffset() {
+        timeOffset = false
+        engine.play(queue: [track(1), track(2)])
+        let loads = output.loads
+        engine.seek(to: 75.6)
+        XCTAssertEqual(output.loads, loads, "no reopen")
+        XCTAssertEqual(output.seeks, [75.6])
+        XCTAssertNil(query(output.loaded)["timeOffset"])
+        output.tick(to: 76)
+        XCTAssertEqual(engine.progress.positionSec, 76, accuracy: 0.001, "no invented time base")
     }
 
     func test_should_default_to_automatic_with_labels() {
@@ -608,5 +650,69 @@ final class NowPlayingNeighboursTests: XCTestCase {
         let e = N.edges(count: 4, current: 3, repeatAll: false)
         XCTAssertEqual(e.top, .item(2))
         XCTAssertEqual(e.bottom, .own)
+    }
+}
+
+/// Codex C05 / C09: pure rules behind playlist removal and Apple Music's end detection.
+@MainActor
+final class G3RulesTests: XCTestCase {
+    private func entry(_ n: Int, song: String) -> PlaylistEntry {
+        let album = Album(id: MediaId(provider: "subsonic", rawId: "al"), title: "A", artist: "B", year: 2020,
+                          palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: [])
+        return PlaylistEntry(album: album, track: Track(id: MediaId(provider: "subsonic", rawId: song), number: n,
+                                                        title: song, durationSec: 100))
+    }
+
+    func test_should_findTheRemovedSongWhereTheServerHasIt_when_anEarlierRemovalFailed() {
+        let a = entry(1, song: "A"), b = entry(2, song: "B"), c = entry(3, song: "C")
+        // Tapped: remove A (UI index 0), then B (UI index 0 now). A's removal failed: the server still has A.
+        XCTAssertEqual(PlaylistActions.serverIndex(of: b, in: [a, b, c], near: 0), 1)
+        // A's removal went through: B is first on the server.
+        XCTAssertEqual(PlaylistActions.serverIndex(of: b, in: [b, c], near: 0), 0)
+        XCTAssertNil(PlaylistActions.serverIndex(of: b, in: [a, c], near: 0))
+    }
+
+    func test_should_treatAPauseNearTheEndAsAPause_and_aRunOutAsTheEnd() {
+        // The listener paused 1 s before the end: the playhead is where it was playing.
+        XCTAssertFalse(AppleMusicAudioOutput.isNaturalEnd(status: .paused, hasEntry: true, time: 199,
+                                                          lastPlayingTime: 199, duration: 200))
+        XCTAssertFalse(AppleMusicAudioOutput.isNaturalEnd(status: .interrupted, hasEntry: true, time: 199.9,
+                                                          lastPlayingTime: 199.9, duration: 200))
+        // Ran out: paused at the end, or back at the start.
+        XCTAssertTrue(AppleMusicAudioOutput.isNaturalEnd(status: .paused, hasEntry: true, time: 199.9,
+                                                         lastPlayingTime: 199.2, duration: 200))
+        XCTAssertTrue(AppleMusicAudioOutput.isNaturalEnd(status: .paused, hasEntry: true, time: 0,
+                                                         lastPlayingTime: 199.2, duration: 200))
+        XCTAssertTrue(AppleMusicAudioOutput.isNaturalEnd(status: .stopped, hasEntry: true, time: 0,
+                                                         lastPlayingTime: 50, duration: 200))
+        XCTAssertTrue(AppleMusicAudioOutput.isNaturalEnd(status: .paused, hasEntry: false, time: 0,
+                                                         lastPlayingTime: 50, duration: 200))
+        // A pause mid-song is never an end.
+        XCTAssertFalse(AppleMusicAudioOutput.isNaturalEnd(status: .paused, hasEntry: true, time: 0,
+                                                          lastPlayingTime: 50, duration: 200))
+    }
+
+    /// Codex C01: a load that began before a reset can't publish after it.
+    func test_should_refusePublication_when_aLoadOutlivesAReset() async throws {
+        let defaults = UserDefaults(suiteName: "g3-\(UUID().uuidString)")!
+        let store = LibraryStore(session: ServerSession(), sources: SourceSelection(subsonicSignedIn: false, defaults: defaults),
+                                 appleMusic: AppleMusicSource())
+        let gen = store.generation
+        try await LibraryStore.$loadGeneration.withValue(gen) {
+            XCTAssertNoThrow(try store.ensureLive())
+        }
+        store.reset()
+        try await LibraryStore.$loadGeneration.withValue(gen) {
+            XCTAssertThrowsError(try store.ensureLive())
+        }
+    }
+
+    /// Codex C07: what the player logs of a stream URL never carries the credentials.
+    func test_should_logNoCredentials_when_describingAStreamURL() {
+        let url = URL(string: "https://music.example/rest/stream.view?id=s1&u=alice&t=abc&s=salt&v=1.16.1&c=Yoin&maxBitRate=128")!
+        let logged = AVAudioOutput.describe(url)
+        for secret in ["alice", "abc", "salt"] { XCTAssertFalse(logged.contains(secret), logged) }
+        XCTAssertTrue(logged.contains("id=s1"))
+        XCTAssertTrue(logged.contains("maxBitRate=128"))
     }
 }

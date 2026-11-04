@@ -17,6 +17,17 @@ final class AVAudioOutput: AudioOutput {
     private var endObservers: [NSObjectProtocol] = []
     static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
 
+    /// A stream URL as it may be logged: host, endpoint and the song / delivery
+    /// parameters, never the credentials (`u`, `t`, `s`, `p`, `apiKey`) or anything unknown.
+    nonisolated static func describe(_ url: URL) -> String {
+        let safe: Set<String> = ["id", "maxBitRate", "format", "timeOffset", "estimateContentLength"]
+        guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return "<url>" }
+        let items = (c.queryItems ?? []).filter { safe.contains($0.name) }
+            .map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
+        let endpoint = c.path.split(separator: "/").last.map(String.init) ?? ""
+        return "\(c.scheme ?? "")://\(c.host ?? "")/…/\(endpoint)" + (items.isEmpty ? "" : "?" + items)
+    }
+
     init() {
         player.actionAtItemEnd = .advance
         player.automaticallyWaitsToMinimizeStalling = true
@@ -57,7 +68,8 @@ final class AVAudioOutput: AudioOutput {
         next = nil
         self.nextURL = nil
         preload(nextURL)
-        Self.log.info("load \(url.absoluteString, privacy: .public) next=\(nextURL?.absoluteString ?? "-", privacy: .public)")
+        // Never the URLs themselves: a Subsonic stream URL carries u/t/s, enough to sign in as the user.
+        Self.log.info("load \(Self.describe(url), privacy: .public) next=\(nextURL.map(Self.describe) ?? "-", privacy: .public)")
     }
 
     func preload(_ url: URL?) {
@@ -112,10 +124,11 @@ final class AVAudioOutput: AudioOutput {
             item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 let failed = item.status == .failed
                 let message = item.error?.localizedDescription ?? "unknown error"
+                let network = PlaybackFailureKind.isNetwork(item.error)
                 Task { @MainActor in
                     guard let self, failed, self.isCurrent(id) else { return }
-                    Self.log.error("item failed: \(message, privacy: .public)")
-                    self.events?.outputDidFail(message)
+                    Self.log.error("item failed: \(message, privacy: .public) network=\(network)")
+                    self.events?.outputDidFail(message, network: network)
                 }
             },
             item.observe(\.duration, options: [.new]) { [weak self] item, _ in
@@ -131,11 +144,12 @@ final class AVAudioOutput: AudioOutput {
             NotificationCenter.default.addObserver(
                 forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main
             ) { [weak self] note in
-                let message = (note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?
-                    .localizedDescription ?? "playback stopped"
+                let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                let message = error?.localizedDescription ?? "playback stopped"
+                let network = PlaybackFailureKind.isNetwork(error)
                 MainActor.assumeIsolated {
                     guard let self, self.isCurrent(id) else { return }
-                    self.events?.outputDidFail(message)
+                    self.events?.outputDidFail(message, network: network)
                 }
             },
         ]

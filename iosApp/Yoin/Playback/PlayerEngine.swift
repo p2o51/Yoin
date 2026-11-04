@@ -47,6 +47,10 @@ final class PlayerEngine {
     private(set) var repeatMode: RepeatMode = .all
     /// Ticks live here; see [PlaybackProgress].
     let progress = PlaybackProgress()
+    /// The current song couldn't be played and playback is held on it (the network or the server is
+    /// down: skipping on would only fail the rest of the queue too), or the whole queue failed. Cleared
+    /// by `retry`, or any new load (Codex A39; Android keeps the failed track and its error).
+    private(set) var failure: PlaybackFailure?
 
     var currentItem: QueueItem? { currentIndex.map { queue[$0] } }
     var currentTrack: PlayableTrack? { currentItem?.track }
@@ -71,6 +75,8 @@ final class PlayerEngine {
     /// The whole stream behind a URL is in the audio cache (Data/Cache): a
     /// stored transcode seeks in its own bytes instead of reopening at `timeOffset`.
     @ObservationIgnored var isStoredWhole: (URL) -> Bool = { _ in false }
+    /// The Subsonic server takes `timeOffset` on `stream` (OpenSubsonic `transcodeOffset`).
+    @ObservationIgnored var timeOffsetSupported: () -> Bool = { false }
 
     // MARK: Internals
 
@@ -160,6 +166,7 @@ final class PlayerEngine {
 
     func resume() {
         guard currentIndex != nil, !isPlaying else { return }
+        if failure != nil { return retry() }
         if ended {
             ended = false
             loadCurrent(play: true)
@@ -362,9 +369,18 @@ final class PlayerEngine {
         }
     }
 
+    /// Plays the failed song again from where it stopped (Retry; play does the same).
+    func retry() {
+        guard failure != nil, currentIndex != nil else { return }
+        let at = progress.positionSec
+        consecutiveFailures = 0
+        loadCurrent(play: true, startSec: at)
+    }
+
     private func loadCurrent(play: Bool, startSec: Double = 0) {
         guard let item = currentItem else { return }
         ended = false
+        failure = nil
         let live = Set(queue.map(\.id))
         deliveries = deliveries.filter { live.contains($0.key) }
         let delivery = delivery(for: item)
@@ -415,7 +431,7 @@ final class PlayerEngine {
 
     private func delivery(for item: QueueItem) -> StreamDelivery {
         if let pinned = deliveries[item.id] { return pinned }
-        var planned = StreamDelivery.plan(streamQuality(), track: item.track)
+        var planned = StreamDelivery.plan(streamQuality(), track: item.track, timeOffset: timeOffsetSupported())
         if planned.seeksByTime, isStoredWhole(SubsonicStreamURLs.url(item.track.streamURL, delivery: planned)) {
             planned.seeksByTime = false
         }
@@ -477,6 +493,19 @@ final class PlayerEngine {
 
     // MARK: Failure
 
+    /// The network / server failed under the current song: hold on it (paused, the error kept, Retry
+    /// starts it again where it was) instead of failing the whole queue one song at a time.
+    private func holdAfterFailure(_ message: String) {
+        guard let track = currentTrack else { return }
+        progress.positionSec = max(progress.positionSec, output.currentTimeSec + timeBaseSec)
+        output.pause()
+        isPlaying = false
+        isBuffering = false
+        failure = PlaybackFailure(track: track, message: message, network: true)
+        onEvent?(.failed(track: track, message: message))
+        onStateChange?()
+    }
+
     private func skipAfterFailure(_ message: String) {
         guard let track = currentTrack else { return }
         consecutiveFailures += 1
@@ -486,6 +515,7 @@ final class PlayerEngine {
             isPlaying = false
             isBuffering = false
             ended = true
+            failure = PlaybackFailure(track: track, message: message, network: false)
             onEvent?(.queueFailed)
             onStateChange?()
             return
@@ -561,8 +591,8 @@ extension PlayerEngine: AudioOutputEvents {
         reachEnd()
     }
 
-    func outputDidFail(_ message: String) {
-        skipAfterFailure(message)
+    func outputDidFail(_ message: String, network: Bool) {
+        if network { holdAfterFailure(message) } else { skipAfterFailure(message) }
     }
 
     func outputPlayingDidChangeExternally(_ playing: Bool) {

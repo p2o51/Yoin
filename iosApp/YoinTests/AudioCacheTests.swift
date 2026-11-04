@@ -188,6 +188,40 @@ final class AudioCacheLoaderTests: XCTestCase {
         onQueue { l2.close() }
     }
 
+    /// Codex C06: a full or unwritable disk never costs the audio, ranged or transcode.
+    func test_should_play_from_memory_when_the_cache_cannot_write() {
+        onQueue { cache.failWrites = true }
+        let l = loader()
+        let req = FakeRequest(info: true, offset: 0, length: Int64(body.count))
+        onQueue { l.add(req) }
+        let f = upstream.fetches[0]
+        ranged(f)
+        for start in stride(from: 0, to: body.count, by: 100_000) { send(f, start..<min(start + 100_000, body.count)) }
+        onQueue { f.onComplete(nil) }
+        XCTAssertTrue(req.finished)
+        XCTAssertEqual(req.data, body)
+        XCTAssertEqual(upstream.fetches.count, 1, "no refetch loop")
+        onQueue { l.close() }
+        XCTAssertFalse(cache.isComplete(key))
+
+        let seq = FakeUpstream()
+        let t = loader(sequential: true, upstream: seq)
+        let whole = FakeRequest(info: true, offset: 0, length: Int64(body.count))
+        onQueue { t.add(whole) }
+        let g = seq.fetches[0]
+        onQueue {
+            g.onResponse(UpstreamResponse(status: 200, contentLength: Int64(body.count), rangeStart: nil,
+                                          totalLength: nil, mimeType: "audio/mpeg"))
+        }
+        for start in stride(from: 0, to: body.count, by: 250_000) {
+            onQueue { g.onData(body.subdata(in: start..<min(start + 250_000, body.count))) }
+        }
+        onQueue { g.onComplete(nil) }
+        XCTAssertTrue(whole.finished)
+        XCTAssertEqual(whole.data, body)
+        onQueue { t.close() }
+    }
+
     func test_should_fetch_from_the_gap_when_a_seek_lands_past_the_held_bytes() {
         let l = loader()
         let head = FakeRequest(info: true, offset: 0, length: 200_000)
@@ -416,6 +450,7 @@ final class CachedTranscodeSeekTests: XCTestCase {
         let output = FakeAudioOutput()
         let engine = PlayerEngine(output: output)
         engine.streamQuality = { .kbps128 }
+        engine.timeOffsetSupported = { true }
         engine.isStoredWhole = { url in
             URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.value == "t1" } == true
         }

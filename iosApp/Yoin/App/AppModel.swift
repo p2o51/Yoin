@@ -194,6 +194,24 @@ final class AppModel {
         padSelection = library.albums()[0]
         let store = store
         let engine = player
+        // Codex A39: what the engine did on its own reaches the shell (the toast); a held failure stays
+        // on `player.failure` until Retry / play.
+        player.onEvent = { event in
+            switch event {
+            case .skippedAfterError(let track, _): PlaylistActions.shared.show("Couldn't play \(track.title)")
+            case .failed(let track, _): PlaylistActions.shared.show("Couldn't reach the server for \(track.title)")
+            case .queueFailed: PlaylistActions.shared.show("Couldn't play this queue")
+            case .queueEnded: break
+            }
+        }
+        // Codex A38: timeOffset only where the server lists transcodeOffset.
+        let session = session
+        player.timeOffsetSupported = { session.supportsTimeOffset }
+        // Codex C04: another server or user replaces the signed-in one: its queue (signed URLs, scrobble
+        // and history callbacks) ends with it.
+        session.onAccountReplaced = { [weak engine] in
+            if sources.active == .subsonic { engine?.stop() }
+        }
         player.onScrobble = { [weak engine] track, submission in
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts.

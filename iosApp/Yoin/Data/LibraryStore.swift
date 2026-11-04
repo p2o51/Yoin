@@ -168,7 +168,10 @@ final class LibraryStore {
         searchPhase = .idle
         starredOverride = [:]
         hearts.reset()
+        // Old-source loads stop here (Codex C01); one that answers anyway fails `ensureLive`.
+        for task in inFlight.values { task.cancel() }
         inFlight = [:]
+        albumsNextOffset = nil
     }
 
     func phase(_ key: String) -> Phase { phases[key] ?? .idle }
@@ -400,7 +403,8 @@ final class LibraryStore {
         phases[key] = .loading
         let task = Task { @MainActor in
             do {
-                try await body()
+                // The body (and any task it starts) reads its generation through `ensureLive`.
+                try await Self.$loadGeneration.withValue(gen) { try await body() }
                 if gen == self.generation { self.phases[key] = .loaded }
             } catch {
                 let message = self.apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
@@ -411,6 +415,16 @@ final class LibraryStore {
         inFlight[key] = task
         await task.value
         if inFlight[key] == task { inFlight[key] = nil }
+    }
+
+    /// The generation the running load began in (set by `once` for its body and the tasks it starts).
+    @TaskLocal static var loadGeneration: Int?
+
+    /// Throws when the running load began under another source / account: a load publishes nothing after
+    /// a reset (Codex C01). Every fetch calls it after its last await, before assigning what it read.
+    func ensureLive() throws {
+        if let gen = Self.loadGeneration, gen != generation { throw CancellationError() }
+        try Task.checkCancellation()
     }
 
     // MARK: Disk cache
@@ -505,23 +519,51 @@ final class LibraryStore {
         }
     }
 
+    /// Where the next page of Subsonic albums starts after a read that failed part-way (nil: from 0).
+    @ObservationIgnored private var albumsNextOffset: Int32?
+    static let albumPage: Int32 = 500
+
+    /// Albums (A12): the first page shows at once, every page after it as it comes, to the end of the
+    /// library (no ceiling; Android LibraryViewModel publishes batches too). A read that fails part-way
+    /// keeps the albums so far and the retry continues from the next page.
     func loadAlbums(force: Bool = false) async {
         await cachedLoad("albums", kind: .list, id: "albums", force: force, inMemory: { !self.albums.isEmpty },
                          restore: { (d: [DetailCacheDTO.Album], c) in self.albums = d.map(c.album) }) { [self] in
             if let apple {
-                albums = try await apple.libraryAlbums()
+                let all = try await apple.libraryAlbums()
+                try ensureLive()
+                albums = all
                 return codec?.dtoAlbums(albums)
             }
             guard let client, let mapping else { return nil }
-            var all: [Album] = []
+            // Nothing on screen yet: each page shows as it comes. Over a stored copy: the whole list at the end.
+            let progressive = albums.isEmpty
             var offset: Int32 = 0
+            var all: [Album] = []
+            if !force, let resume = albumsNextOffset, Int(resume) == albums.count {
+                offset = resume
+                all = albums
+            }
             while true {
-                let page = try await client.getAlbumList2(type: .alphabeticalByName, size: 500, offset: offset)
+                let page: [AlbumInfo]
+                do {
+                    page = try await client.getAlbumList2(type: .alphabeticalByName, size: Self.albumPage, offset: offset)
+                } catch {
+                    try ensureLive()
+                    if offset > 0 {
+                        albums = all
+                        albumsNextOffset = offset
+                    }
+                    throw error
+                }
+                try ensureLive()
                 all += page.map(mapping.album)
-                if page.count < 500 || all.count >= 5000 { break }
-                offset += 500
+                offset += Int32(page.count)
+                if progressive { albums = all }
+                if page.count < Int(Self.albumPage) { break }
             }
             albums = all
+            albumsNextOffset = nil
             return codec?.dtoAlbums(all)
         }
     }
@@ -530,10 +572,14 @@ final class LibraryStore {
         await cachedLoad("artists", kind: .list, id: "artists", force: force, inMemory: { !self.artists.isEmpty },
                          restore: { (d: [DetailCacheDTO.Item], c) in self.artists = d.map(c.item) }) { [self] in
             if let apple {
-                artists = try await apple.libraryArtists()
+                let read = try await apple.libraryArtists()
+                try ensureLive()
+                artists = read
             } else {
                 guard let client, let mapping else { return nil }
-                artists = try await client.getArtists().flatMap { $0.artists.map(mapping.artistItem) }
+                let read = try await client.getArtists().flatMap { $0.artists.map(mapping.artistItem) }
+                try ensureLive()
+                artists = read
             }
             return codec.map { c in artists.map(c.dto) }
         }
@@ -543,10 +589,14 @@ final class LibraryStore {
         await cachedLoad("playlists", kind: .list, id: "playlists", force: force, inMemory: { !self.playlists.isEmpty },
                          restore: { (d: [DetailCacheDTO.Item], c) in self.playlists = d.map(c.item) }) { [self] in
             if let apple {
-                playlists = try await apple.libraryPlaylists()
+                let read = try await apple.libraryPlaylists()
+                try ensureLive()
+                playlists = read
             } else {
                 guard let client, let mapping else { return nil }
-                playlists = try await client.getPlaylists().map(mapping.playlistItem)
+                let read = try await client.getPlaylists().map(mapping.playlistItem)
+                try ensureLive()
+                playlists = read
             }
             return codec.map { c in playlists.map(c.dto) }
         }
@@ -570,7 +620,9 @@ final class LibraryStore {
         await cachedLoad("songs", kind: .list, id: "songs", force: force, inMemory: { !self.songs.isEmpty },
                          restore: { (d: [DetailCacheDTO.Entry], c) in self.songs = d.map(c.entry) }) { [self] in
             if let apple {
-                songs = try await apple.librarySongs()
+                let read = try await apple.librarySongs()
+                try ensureLive()
+                songs = read
                 songsMore = .none
             } else {
                 guard let client, let mapping else { return nil }
@@ -629,6 +681,7 @@ final class LibraryStore {
             if apple != nil { return nil }
             guard let client, let mapping else { return nil }
             let starred = try await client.getStarred2()
+            try ensureLive()
             // Android FavoritesTabContent: starred artists, albums, then songs.
             favoriteArtists = starred.artists.map(mapping.artistItem)
             favoriteAlbums = starred.albums.map(mapping.album)
@@ -686,6 +739,7 @@ final class LibraryStore {
             } else if let client, let mapping {
                 album = try await client.getAlbum(id: id).map(mapping.album)
             }
+            try ensureLive()
             guard let album else { return nil }
             albumDetails[id] = album
             return codec?.dto(album)
@@ -699,13 +753,18 @@ final class LibraryStore {
                          inMemory: { self.artistPages[id] != nil },
                          restore: { (d: DetailCacheDTO.ArtistPage, c) in self.artistPages[id] = c.artistPage(d) }) { [self] in
             if let apple {
-                guard let page = try await apple.artist(id) else { return nil }
+                let read = try await apple.artist(id)
+                try ensureLive()
+                guard let page = read else { return nil }
                 artistPages[id] = page
                 return codec?.dto(page)
             }
             guard let client, let mapping else { return nil }
-            guard let info = try await client.getArtist(id: id) else { return nil }
-            let gen = generation, epoch = diskEpoch
+            // The load's own generation (captured before any await), not whatever is current now.
+            let gen = Self.loadGeneration ?? generation, epoch = diskEpoch
+            let read = try await client.getArtist(id: id)
+            try ensureLive()
+            guard let info = read else { return nil }
             artistPages[id] = mapping.artistPage(info, loadedAlbums: info.albums.compactMap { albumDetails[$0.id] })
             // Most Played needs the songs: fetch the releases (up to 12).
             var loaded: [Album] = []
@@ -718,6 +777,7 @@ final class LibraryStore {
                     loaded.append(album)
                 }
             }
+            try ensureLive()
             let page = mapping.artistPage(info, loadedAlbums: loaded)
             artistPages[id] = page
             return codec?.dto(page)
@@ -740,6 +800,7 @@ final class LibraryStore {
             } else if let client, let mapping {
                 detail = try await client.getPlaylist(id: id).map(mapping.playlist)
             }
+            try ensureLive()
             guard let detail else { return nil }
             playlistDetails[id] = detail
             return codec?.dto(detail)

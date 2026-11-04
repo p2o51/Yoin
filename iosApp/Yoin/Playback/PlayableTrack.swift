@@ -51,10 +51,20 @@ enum RepeatMode: String, Sendable, CaseIterable {
     }
 }
 
+/// Why the current song isn't playing (`PlayerEngine.failure`).
+struct PlaybackFailure: Sendable, Equatable {
+    var track: PlayableTrack
+    var message: String
+    /// The network or server failed (Retry may work); false = the queue's songs themselves failed.
+    var network: Bool
+}
+
 /// Things the engine did on its own that the UI may want to surface.
 enum PlayerEvent: Sendable, Equatable {
     /// [track] failed to load or play and was skipped.
     case skippedAfterError(track: PlayableTrack, message: String)
+    /// [track] couldn't be reached (network / server): playback is held on it (`PlayerEngine.failure`).
+    case failed(track: PlayableTrack, message: String)
     /// Every track in the queue failed in a row; playback stopped.
     case queueFailed
     /// Repeat off reached the end of the queue.
@@ -138,10 +148,16 @@ struct StreamDelivery: Hashable, Sendable {
     /// The file when [quality] is Original, when the song isn't a Subsonic
     /// stream, or when the file is already at or under the cap ([sourceKbps]):
     /// the server would send it as it is, and the file seeks by byte.
-    static func plan(_ quality: StreamQuality, track: PlayableTrack) -> StreamDelivery {
+    ///
+    /// A transcode seeks by reopening at `timeOffset` only when the server
+    /// lists OpenSubsonic `transcodeOffset` ([timeOffset], Android
+    /// `SubsonicServerTraits`, Codex A38): a server that ignores the parameter
+    /// would answer from 0 while the clock counted from the target. Otherwise
+    /// the transcode seeks in its own bytes, from 0.
+    static func plan(_ quality: StreamQuality, track: PlayableTrack, timeOffset: Bool) -> StreamDelivery {
         guard let cap = quality.maxBitRateKbps, SubsonicStreamURLs.isStream(track.streamURL) else { return .original }
         if let source = track.sourceKbps, source <= cap { return .original }
-        return StreamDelivery(maxBitRateKbps: cap, seeksByTime: track.sourceKbps != nil)
+        return StreamDelivery(maxBitRateKbps: cap, seeksByTime: timeOffset && track.sourceKbps != nil)
     }
 }
 

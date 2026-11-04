@@ -47,50 +47,68 @@ final class FavoritesStore {
         if overwrite || reported[k] == nil { reported[k] = starred }
     }
 
+    /// Bumps on every reset (sign-in / sign-out / another source): a write that answers after it touches
+    /// nothing (Codex C10).
+    @ObservationIgnored private var generation = 0
+    /// Per song, the newest tap's number: only that tap's failure may roll the heart back.
+    @ObservationIgnored private var revisions: [String: Int] = [:]
+
     /// Flips the heart. Subsonic stars / unstars; Apple Music only adds to
     /// the library (an added song stays added). Without a client (mock) the
     /// heart is local only.
     func toggle(provider: String, songId: String, known: Bool? = nil,
                 client: SubsonicClient?, apple: AppleMusicSource?) {
-        let k = Self.key(provider: provider, songId: songId)
         let was = isFavorite(provider: provider, songId: songId, known: known)
-        let target = !was
         if provider == AppleMusicMapping.provider {
             guard !was, let apple else { return }
-            chosen[k] = true
-            onWrite?(provider, songId)
-            Task {
-                do {
-                    try await apple.addToLibrary(songId)
-                    reported[k] = true
-                } catch {
-                    log.error("add to library failed")
-                    if chosen[k] == true { withAnimation(Yoin.effects) { chosen[k] = false } }
-                }
+            write(provider: provider, songId: songId, target: true, was: was) {
+                try await apple.addToLibrary(songId)
             }
             return
         }
-        chosen[k] = target
-        onWrite?(provider, songId)
-        guard let client, provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
-        Task {
-            do {
-                if target {
-                    try await client.star(id: songId, albumId: nil, artistId: nil)
-                } else {
-                    try await client.unstar(id: songId, albumId: nil, artistId: nil)
-                }
-                reported[k] = target
-            } catch {
-                log.error("star failed: \(ServerSession.message(for: error), privacy: .public)")
-                // Only undo our own write: a newer tap owns the heart now.
-                if chosen[k] == target { withAnimation(Yoin.effects) { chosen[k] = was } }
+        guard let client, provider == MediaRef.companion.PROVIDER_SUBSONIC else {
+            write(provider: provider, songId: songId, target: !was, was: was, send: nil)
+            return
+        }
+        let target = !was
+        write(provider: provider, songId: songId, target: target, was: was) {
+            if target {
+                try await client.star(id: songId, albumId: nil, artistId: nil)
+            } else {
+                try await client.unstar(id: songId, albumId: nil, artistId: nil)
             }
         }
     }
 
-    /// Sign-in / sign-out / another source: the user's taps belong to the old one.
+    /// The heart flips at once; [send] tells the source. Success records the source's new answer, failure
+    /// rolls back, each only for the same account generation and the newest tap on the song.
+    func write(provider: String, songId: String, target: Bool, was: Bool,
+               send: (@MainActor () async throws -> Void)?) {
+        let k = Self.key(provider: provider, songId: songId)
+        let gen = generation
+        let rev = (revisions[k] ?? 0) + 1
+        revisions[k] = rev
+        chosen[k] = target
+        onWrite?(provider, songId)
+        guard let send else { return }
+        Task {
+            do {
+                try await send()
+                guard gen == generation else { return }
+                reported[k] = target
+            } catch {
+                log.error("heart write failed: \(ServerSession.message(for: error), privacy: .public)")
+                guard gen == generation, revisions[k] == rev else { return }
+                withAnimation(Yoin.effects) { chosen[k] = was }
+            }
+        }
+    }
+
+    /// Sign-in / sign-out / another source: the user's taps and the source's answers belong to the old one.
     func reset() {
+        generation += 1
         chosen = [:]
+        reported = [:]
+        revisions = [:]
     }
 }

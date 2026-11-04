@@ -33,9 +33,33 @@ protocol AudioOutputEvents: AnyObject {
     func outputDidAdvanceToPreloaded()
     /// The current item finished with nothing preloaded.
     func outputDidReachEnd()
-    /// The current item could not be loaded or stopped with an error.
-    func outputDidFail(_ message: String)
+    /// The current item could not be loaded or stopped with an error. [network]: the connection or the
+    /// server failed (not the song), so the next song would fail the same way.
+    func outputDidFail(_ message: String, network: Bool)
     /// Paused or played from outside the app's own controls (the lock
     /// screen of a player that owns its remote commands, e.g. MusicKit).
     func outputPlayingDidChangeExternally(_ playing: Bool)
+}
+
+extension AudioOutputEvents {
+    /// A failure of the song itself.
+    func outputDidFail(_ message: String) { outputDidFail(message, network: false) }
+}
+
+/// Errors that mean "can't reach the server", not "this song is broken": offline, timeouts, DNS, TLS,
+/// lost connections, and the server refusing the sign-in (401 / 403).
+enum PlaybackFailureKind {
+    static func isNetwork(_ error: Error?) -> Bool {
+        guard let error else { return false }
+        if let cache = error as? AudioCacheError, case .http(let status) = cache { return status == 401 || status == 403 }
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain {
+            return [NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut, NSURLErrorCannotFindHost,
+                    NSURLErrorCannotConnectToHost, NSURLErrorNetworkConnectionLost, NSURLErrorDNSLookupFailed,
+                    NSURLErrorInternationalRoamingOff, NSURLErrorDataNotAllowed, NSURLErrorSecureConnectionFailed,
+                    NSURLErrorUserAuthenticationRequired].contains(ns.code)
+        }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error { return isNetwork(underlying) }
+        return false
+    }
 }
