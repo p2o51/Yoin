@@ -194,6 +194,12 @@ struct AlbumDetailView: View {
                         .opacity(1 - white * (1 - f))
                     header(white: true, w: w)
                         .opacity(white * (1 - f))
+                    // One ← over both twins: crossfading two glass circles
+                    // left ~50 % grey ink on half-faded glass mid pull-up.
+                    backButton(white: white * (1 - f))
+                        .frame(height: 52)
+                        .padding(.leading, 8)
+                        .padding(.top, 4)
                 }
                 .zIndex(3)
             }
@@ -280,6 +286,29 @@ struct AlbumDetailView: View {
             .ignoresSafeArea()
     }
 
+    /// The ← on its glass circle, legible the whole pull-up: the glass takes
+    /// the white twin's tint continuously, the ink flips to white once the
+    /// spectrum is mostly under it (an effects-spring color change).
+    private func backButton(white mix: CGFloat) -> some View {
+        let tinted = playlist != nil
+        let dark = colorScheme == .dark
+        let base: Color = !tinted ? app.onSurface : dark ? s.primary : s.onPrimaryContainer
+        let onSpectrum = mix > 0.5
+        let glass: Glass = tinted
+            ? .regular.tint(dark ? s.surfaceContainerHighest.opacity(0.7) : s.primaryContainer.opacity(0.6)).interactive()
+            : .regular.tint(.white.opacity(0.18 * mix)).interactive()
+        return Button { model.back() } label: {
+            YoinIcon("back", size: 22)
+                .foregroundStyle(onSpectrum ? .white : base)
+                .animation(Yoin.effects, value: onSpectrum)
+                .frame(width: 40, height: 40)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(glass, in: .circle)
+        .accessibilityLabel("Back")
+    }
+
     private func header(white: Bool, w: CGFloat) -> some View {
         // Playlists: the header glass takes the playlist's own container color,
         // so it reads clean over the colorful page instead of a grey film.
@@ -293,15 +322,8 @@ struct AlbumDetailView: View {
             : .regular.tint(dark ? s.surfaceContainerHighest.opacity(0.7) : s.primaryContainer.opacity(0.6)).interactive()
         return VStack(spacing: 0) {
             HStack(spacing: Tokens.detail.HEADER_TITLE_GAP.cg) {
-                Button { model.back() } label: {
-                    YoinIcon("back", size: 22)
-                        .foregroundStyle(ink)
-                        .frame(width: 40, height: 40)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(glass, in: .circle)
-                .accessibilityLabel("Back")
+                // The ← itself is drawn once above both twins (backButton).
+                Color.clear.frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(album.title)
                         .lineLimit(1)

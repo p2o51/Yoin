@@ -30,7 +30,7 @@ struct LandingGuideView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            GuideWebView(html: Self.placeholderHTML)
+            GuideWebView(url: Self.dashboardURL)
                 .ignoresSafeArea()
             card
                 .padding(.horizontal, 12)
@@ -124,25 +124,8 @@ struct LandingGuideView: View {
         .opacity(enabled ? 1 : 0.4)
     }
 
-    static let placeholderHTML = """
-    <html><head><meta name=viewport content="width=device-width,initial-scale=1">
-    <style>
-    body{margin:0;font-family:-apple-system,sans-serif;background:#121212;color:#fff}
-    header{padding:66px 20px 16px 76px;background:#1e1e1e;font-weight:700;font-size:20px}
-    .row{margin:16px 20px;padding:16px;border-radius:12px;background:#1e1e1e}
-    .label{color:#9a9a9a;font-size:13px;margin-bottom:8px}
-    .field{background:#2a2a2a;border-radius:8px;height:40px}
-    .btn{display:inline-block;margin:8px 20px;padding:12px 22px;border-radius:24px;background:#1ed760;color:#000;font-weight:700}
-    </style></head><body>
-    <header>Developer Dashboard (placeholder)</header>
-    <div class=row><div class=label>App name</div><div class=field></div></div>
-    <div class=row><div class=label>App description</div><div class=field></div></div>
-    <div class=row><div class=label>Redirect URIs</div><div class=field></div></div>
-    <div class=row><div class=label>Which API/SDKs are you planning to use?</div><div class=field></div></div>
-    <div class=row><div class=label>Bundle IDs</div><div class=field></div></div>
-    <span class=btn>Save</span>
-    </body></html>
-    """
+    /// Android SpotifyDashboardUrl: the guide opens the real dashboard, as Android's PiP guide does.
+    static let dashboardURL = URL(string: "https://developer.spotify.com/dashboard")!
 }
 
 /// The Yoin mark: three arms (pink / violet / navy).
@@ -170,14 +153,14 @@ struct YoinMark: View {
 }
 
 private struct GuideWebView: UIViewRepresentable {
-    var html: String
+    var url: URL
 
     func makeUIView(context: Context) -> WKWebView {
         let view = WKWebView()
         view.isOpaque = false
         view.backgroundColor = .black
         view.scrollView.contentInsetAdjustmentBehavior = .never
-        view.loadHTMLString(html, baseURL: nil)
+        view.load(URLRequest(url: url))
         return view
     }
 

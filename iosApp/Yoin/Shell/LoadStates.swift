@@ -25,18 +25,29 @@ struct RetryRow: View {
     }
 }
 
-/// A placeholder block that breathes on the effects spring.
+/// A placeholder block that breathes: an alpha change, so an effects spring
+/// (critically damped, no overshoot), slowed to a breath and repeated. Still
+/// under Reduce Motion.
 struct SkeletonBlock: View {
     var color: Color
     var cornerRadius: CGFloat = Tokens.shape.THUMB.cg
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dim = false
+
+    /// Effects-family spring (damping 1) at a breathing tempo, repeated both ways.
+    @MainActor static var breath: Animation {
+        .spring(response: 0.9, dampingFraction: 1)
+            .speed(LaunchConfig.animationSpeed)
+            .repeatForever(autoreverses: true)
+    }
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(color)
             .opacity(dim ? 0.55 : 1)
             .onAppear {
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true }
+                guard !reduceMotion else { return }
+                withAnimation(Self.breath) { dim = true }
             }
     }
 }

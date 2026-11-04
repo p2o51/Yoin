@@ -9,7 +9,7 @@ import YoinShared
 /// - Thumb: 24 × 48 half-pill (round inner side, 4 pt edge corners) in a
 ///   32 × 64 touch box, hugging the end edge; secondaryContainer idle,
 ///   primary held; up / down chevrons. Drag follows the finger 1:1.
-/// - While held: the tick column (surfaceContainerHigh, 28 corners,
+/// - While held: the tick column (opaque surfaceContainerHigh, 28 corners,
 ///   labelMedium, current tick SemiBold primary, ≥ 18 pt apart) 4 pt
 ///   inside the thumb, and the bubble (primaryContainer, ≥ 56, titleLarge)
 ///   8 pt inside the column, centred on the thumb.
@@ -45,11 +45,12 @@ struct LibraryFastScroller: View {
                     HStack(alignment: .top, spacing: 8) {
                         Text(current?.label ?? "")
                             .font(.gsf(22)).monospacedDigit()
-                            .foregroundStyle(scheme.primary)
+                            .foregroundStyle(scheme.onPrimaryContainer)
                             .lineLimit(1)
                             .padding(.horizontal, 16)
                             .frame(minWidth: 56, minHeight: 56)
-                            .glassEffect(.regular, in: .rect(cornerRadius: 28))
+                            // Android: a filled primaryContainer bubble, not glass.
+                            .background(scheme.primaryContainer, in: .rect(cornerRadius: 28))
                             .offset(y: min(max(0, thumbY + 32 - 28), g.size.height - 56))
                             .transition(.scale(scale: 0.6, anchor: .trailing).combined(with: .opacity))
                         ZStack(alignment: .top) {
@@ -57,14 +58,16 @@ struct LibraryFastScroller: View {
                                 let on = t.0 == current?.label
                                 Text(t.0)
                                     .font(.gsf(12, on ? .semibold : .medium)).monospacedDigit()
-                                    .foregroundStyle(on ? AnyShapeStyle(scheme.primary) : AnyShapeStyle(.secondary))
+                                    .foregroundStyle(on ? scheme.primary : scheme.onSurfaceVariant)
                                     .lineLimit(1)
                                     .fixedSize()
                                     .position(x: tickWidth / 2, y: t.1)
                             }
                         }
                         .frame(width: tickWidth, height: g.size.height)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 28))
+                        // Android: an opaque surfaceContainerHigh column, so the
+                        // grid's titles never read through under the ticks.
+                        .background(scheme.surfaceContainerHigh, in: .rect(cornerRadius: 28))
                         .transition(.scale(scale: 0.92, anchor: .trailing).combined(with: .opacity))
                     }
                     .padding(.trailing, 24 + 4)

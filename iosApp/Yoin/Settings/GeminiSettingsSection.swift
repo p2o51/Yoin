@@ -72,8 +72,7 @@ struct GeminiSettingsSection: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 16)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .semibold))
+                YoinIcon("chevron_down", size: 20)
                     .foregroundStyle(app.onSurfaceVariant)
                     .rotationEffect(.degrees(open ? 180 : 0))
             }
@@ -116,7 +115,7 @@ struct GeminiSettingsSection: View {
                     settings.saveLanguage(language)
                 } label: {
                     if language == settings.targetLanguage {
-                        Label(language, systemImage: "checkmark")
+                        Label { Text(language) } icon: { Image("yoin.check") }
                     } else {
                         Text(language)
                     }
@@ -129,8 +128,7 @@ struct GeminiSettingsSection: View {
                     .foregroundStyle(app.onSurface)
                     .contentTransition(.opacity)
                 Spacer(minLength: 16)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 13, weight: .semibold))
+                YoinIcon("unfold_more", size: 20)
                     .foregroundStyle(app.onSurfaceVariant)
             }
             .padding(.horizontal, 16)
@@ -145,10 +143,10 @@ struct GeminiSettingsSection: View {
         Button(action: save) {
             Text("Save key")
                 .yoinRole(Tokens.type.titleMedium)
-                .foregroundStyle(app.onPrimary)
+                // MD3 disabled filled button: onSurface 38% on onSurface 12%.
+                .foregroundStyle(canSave ? app.onPrimary : app.onSurface.opacity(0.38))
                 .frame(maxWidth: .infinity, minHeight: 56)
-                .background(app.primary, in: .capsule)
-                .opacity(canSave ? 1 : 0.38)
+                .background(canSave ? app.primary : app.onSurface.opacity(0.12), in: .capsule)
                 .contentShape(.capsule)
         }
         .buttonStyle(PressScale())

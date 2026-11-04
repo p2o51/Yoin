@@ -44,6 +44,18 @@ final class AppModel {
     var showLanding = false
     /// Search surface open (from the bar's search circle).
     var searchActive = false
+    /// What search grew out of: the bar's circle morphs into the field;
+    /// Library's header pill already is the field (same rect), so from there
+    /// the field stays put and only what's around it changes.
+    var searchOrigin: SearchOrigin = .bar
+    /// Where the bar's search circle rests (global), for Search's morph.
+    var searchCircleFrame: CGRect = .zero
+    enum SearchOrigin { case bar, library }
+
+    func openSearch(from origin: SearchOrigin) {
+        searchOrigin = origin
+        withAnimation(Yoin.spatial) { searchActive = true }
+    }
     /// Nothing playing: the bar folds the pill away (Android idle bar).
     /// Signed in, that is whenever the engine has no song (the mock song is
     /// only for the signed-out screenshots).
@@ -150,13 +162,23 @@ final class AppModel {
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
         case "search", "search-results", "search-catalog", "search-albums", "search-songs", "search-artists",
              "search-playlists", "search-empty-results", "search-scrolled": searchActive = true
+        case "home-search":
+            // The bar's search circle, from Home: the field grows out of it.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(900))
+                self?.openSearch(from: .bar)
+                // `-searchAutoClose YES`: folds back after a beat (QA clip).
+                guard UserDefaults.standard.bool(forKey: "searchAutoClose") else { return }
+                try? await Task.sleep(for: .milliseconds(Int(2000 / LaunchConfig.animationSpeed)))
+                withAnimation(Yoin.spatial) { self?.searchActive = false }
+            }
         case "search-longpress":
             // The bar's Library long-press (ShellBar.openLibrarySearch), a
             // beat after launch so the shot shows where it lands.
             section = .library
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(900))
-                withAnimation(Yoin.spatial) { self?.searchActive = true }
+                self?.openSearch(from: .library)
             }
         case "song-menu":
             // Home with a song's sheet up (the depth cue under a sheet).

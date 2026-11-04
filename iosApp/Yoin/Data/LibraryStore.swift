@@ -99,6 +99,8 @@ final class LibraryStore {
             // Wherever the heart was set: the stored pages that show it go.
             self?.dropAlbums(containing: songId)
             self?.dropFromDisk(.list, "favorites")
+            // The starred list is the source's: read it again on the next visit.
+            self?.favoritesStale = true
         }
         Task { await disk.purgeExpired() }
     }
@@ -553,7 +555,12 @@ final class LibraryStore {
         }
     }
 
+    /// A heart changed since the starred list was read.
+    @ObservationIgnored private var favoritesStale = false
+
     func loadFavorites(force: Bool = false) async {
+        let force = force || favoritesStale
+        favoritesStale = false
         await cachedLoad("favorites", kind: .list, id: "favorites", force: force, inMemory: { !self.favorites.isEmpty },
                          restore: { (d: [DetailCacheDTO.Entry], c) in self.favorites = d.map(c.entry) }) { [self] in
             // Apple Music has no favorites read (loved songs aren't listable,

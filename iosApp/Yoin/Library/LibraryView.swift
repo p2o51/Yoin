@@ -127,11 +127,15 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if filter == .songs || filter == .favorites {
+                if filter == .songs {
                     // Android SongsTabContent: Random mix header, then the
                     // list's 8 top padding.
                     randomMixHeader
                     songList.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+                } else if filter == .favorites {
+                    // Android FavoritesTabContent: 8 top padding, then the
+                    // starred songs under their "Songs" section header.
+                    favoritesList.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
                 } else {
                     // Grid contentPadding top 8 (LibraryScreen.kt AllTabContent).
                     grid.padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
@@ -158,6 +162,11 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: LibraryFilterRow.Style.current.isTrack ? 0 : -4) {
                 header
                 chips
+                    // Search's own chips come up in this band: Library's
+                    // leave at once and Search's arrive a beat later (fade
+                    // through), never both at half.
+                    .opacity(model.searchActive ? 0 : 1)
+                    .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
             }
         }
         .scrollPosition($position)
@@ -219,7 +228,7 @@ struct LibraryView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Button { withAnimation(Yoin.spatial) { model.searchActive = true } } label: {
+            Button { model.openSearch(from: .library) } label: {
                 HStack(spacing: 12) {
                     // Adaptive label colors: they flip with the glass over dark content.
                     YoinIcon("search", size: 24).foregroundStyle(.secondary)
@@ -227,11 +236,16 @@ struct LibraryView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 16)
-                .frame(height: 56)
+                .frame(height: SearchView.fieldHeight)
                 .contentShape(.capsule)
             }
             .buttonStyle(.plain)
             .labSearchGlass(scheme: scheme, in: .capsule)
+            // Search's field takes this exact rect. Opened from here the two
+            // coincide and the pill simply stays under it; grown from the
+            // bar's circle, the pill steps aside so no second field waits here.
+            .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
+            .animation(Yoin.effects, value: model.searchActive)
             Button { model.openSettings() } label: {
                 Text("5")
                     .font(.gsf(14, .semibold))
@@ -246,7 +260,7 @@ struct LibraryView: View {
             .accessibilityLabel("Account")
         }
         .padding(.horizontal, 16)
-        .padding(.top, 4)
+        .padding(.top, SearchView.headerTop)
         .padding(.bottom, 4)
     }
 
@@ -372,12 +386,58 @@ struct LibraryView: View {
         .padding(.trailing, 8)
     }
 
-    /// Songs: the server's random mix / starred songs; mock: three per album.
+    /// Songs: the server's random mix; mock: three per album.
+    /// Favorites: the source's starred songs (mock: the starred tracks),
+    /// minus any heart taken off here since (FavoritesStore, shared with NP).
     private var songEntries: [PlaylistEntry] {
+        if filter == .favorites { return favoriteEntries }
         guard model.store.isReal else {
             return model.library.albums().flatMap { a in a.tracks.prefix(3).map { PlaylistEntry(album: a, track: $0) } }
         }
-        return filter == .favorites ? model.store.favorites : model.store.songs
+        return model.store.songs
+    }
+
+    private var favoriteEntries: [PlaylistEntry] {
+        let hearts = FavoritesStore.shared
+        let all = model.store.isReal
+            ? model.store.favorites
+            : model.library.albums().flatMap { a in a.tracks.map { PlaylistEntry(album: a, track: $0) } }
+        return all.filter { e in
+            hearts.isFavorite(provider: e.track.id.provider, songId: e.track.id.rawId,
+                              known: model.store.isReal ? true : e.track.starred)
+        }
+    }
+
+    /// Android FavoritesTabContent (songs): SectionHeader "Songs" (labelLarge
+    /// onSurfaceVariant, 16 sides, 18 top, 6 bottom) over the rows; nothing
+    /// starred = the "No favorites yet" panel.
+    @ViewBuilder
+    private var favoritesList: some View {
+        let loaded = !model.store.isReal || model.store.phase("favorites") == .loaded
+        if favoriteEntries.isEmpty && loaded {
+            Text("No favorites yet")
+                .yoinRole(Tokens.type.bodyLarge)
+                .foregroundStyle(scheme.onSurfaceVariant)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(scheme.surfaceContainerHighest.opacity(0.72),
+                            in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.top, 48)
+                .transition(.opacity)
+        } else {
+            if !favoriteEntries.isEmpty {
+                Text("Songs")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
+                    .padding(.bottom, 6)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            songList
+        }
     }
 
     @ViewBuilder

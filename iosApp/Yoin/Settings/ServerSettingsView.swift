@@ -55,9 +55,9 @@ struct ServerSettingsView: View {
                     qualityGroup
                 }
                 group("Account") {
-                    [AnyView(field("Server address", text: $address, field: .address, keyboard: .URL)),
-                     AnyView(field("Username", text: $username, field: .username)),
-                     AnyView(field("Password", text: $password, field: .password, secure: true))]
+                    [AnyView(field("Server address", placeholder: "https://music.example.com", text: $address, field: .address, keyboard: .URL)),
+                     AnyView(field("Username", placeholder: "Your username", text: $username, field: .username)),
+                     AnyView(field("Password", placeholder: "Password", text: $password, field: .password, secure: true))]
                 }
                 if case .failed(let message) = session.state, edited || !session.isSignedIn {
                     Text(message)
@@ -151,8 +151,7 @@ struct ServerSettingsView: View {
                         .contentTransition(.opacity)
                 }
                 Spacer(minLength: 16)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .semibold))
+                YoinIcon("chevron_down", size: 20)
                     .foregroundStyle(app.onSurfaceVariant)
                     .rotationEffect(.degrees(qualityOpen ? 180 : 0))
             }
@@ -235,18 +234,20 @@ struct ServerSettingsView: View {
                                       bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
     }
 
-    private func field(_ label: String, text: Binding<String>, field: Field, keyboard: UIKeyboardType = .default,
-                       secure: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    /// Android SettingsTextField: label above, placeholder (settings_setup_*_placeholder) while empty.
+    private func field(_ label: String, placeholder: String, text: Binding<String>, field: Field,
+                       keyboard: UIKeyboardType = .default, secure: Bool = false) -> some View {
+        let prompt = Text(placeholder).foregroundStyle(app.onSurfaceVariant.opacity(0.6))
+        return VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .yoinRole(Tokens.type.labelMedium)
                 .foregroundStyle(focus == field ? app.primary : app.onSurfaceVariant)
                 .animation(Yoin.effects, value: focus)
             Group {
                 if secure {
-                    SecureField("", text: text)
+                    SecureField("", text: text, prompt: prompt)
                 } else {
-                    TextField("", text: text)
+                    TextField("", text: text, prompt: prompt)
                         .keyboardType(keyboard)
                 }
             }
@@ -388,10 +389,10 @@ struct ServerSettingsView: View {
         Button(action: submit) {
             Text(session.isSignedIn ? "Save" : "Sign in")
                 .yoinRole(Tokens.type.titleMedium)
-                .foregroundStyle(app.onPrimary)
+                // MD3 disabled filled button: onSurface 38% on onSurface 12%, legible in dark too.
+                .foregroundStyle(canSubmit ? app.onPrimary : app.onSurface.opacity(0.38))
                 .frame(maxWidth: .infinity, minHeight: 56)
-                .background(app.primary, in: .capsule)
-                .opacity(canSubmit ? 1 : 0.38)
+                .background(canSubmit ? app.primary : app.onSurface.opacity(0.12), in: .capsule)
                 .contentShape(.capsule)
         }
         .buttonStyle(PressScale())

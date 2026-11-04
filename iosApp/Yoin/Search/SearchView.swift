@@ -32,6 +32,22 @@ struct SearchView: View {
     @State private var scrollPosition = ScrollPosition()
     /// Results have scrolled under the pinned header (scrollLitTrack).
     @State private var scrolledUnder = false
+    /// The open staging: false on the first frame, then true on the effects
+    /// spring. The field never waits on it (it is the object that moves); the
+    /// surface fades in over the page, the rest a beat behind it, so the
+    /// page's own header and chips never read through Search's (fade-through).
+    @State private var staged = false
+    /// The field has grown out of the bar's circle (false: the circle
+    /// stand-in shows where the bar's circle rests). Library's pill is the
+    /// field already, so from there it starts grown.
+    @State private var grown = false
+    @Namespace private var morph
+    private var showsField: Bool { grown || model.searchOrigin != .bar }
+
+    /// Search's own content arrives a beat after its surface (fade through).
+    @MainActor static var fadeThrough: Animation {
+        Yoin.effects.delay(0.08 / LaunchConfig.animationSpeed)
+    }
 
     private var scheme: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -51,6 +67,8 @@ struct SearchView: View {
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 1 } action: { _, under in
             scrolledUnder = under
         }
+        .opacity(staged ? 1 : 0)
+        .animation(Self.fadeThrough, value: staged)
         .overlay { if showsNoResults { noResults.transition(.opacity.animation(Yoin.effects)) } }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.soft, for: .top)
@@ -58,9 +76,38 @@ struct SearchView: View {
         .safeAreaBar(edge: .top) { header }
         // Android ExpandedFullScreenSearchBar: SearchBarDefaults.colors()
         // container = surfaceContainerHigh of the playing scheme.
-        .background(scheme.surfaceContainerHigh.ignoresSafeArea())
+        .background(scheme.surfaceContainerHigh.opacity(staged ? 1 : 0).ignoresSafeArea())
+        .animation(Yoin.effects, value: staged)
+        .overlay { circleStandIn }
+        // However Search closes, the field folds back into the circle as it fades.
+        .onChange(of: model.searchActive) { _, active in
+            guard !active else { return }
+            focused = false
+            withAnimation(Yoin.spatial) { grown = false }
+        }
         // `-searchFocused YES`: screenshots of typing, the keyboard up over results.
-        .onAppear { focused = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused") }
+        .task {
+            // After the first frame: from there everything animates in.
+            staged = true
+            let focus = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused")
+            guard model.searchOrigin == .bar, !grown else {
+                // From Library's pill: nothing travels, but let the surface
+                // come in before the keyboard's first-load stall.
+                guard focus else { return }
+                try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / 2 / LaunchConfig.animationSpeed)))
+                if model.searchActive { focused = true }
+                return
+            }
+            // The keyboard comes up once the field has landed: bringing it up
+            // stalls the main thread for a few frames, and mid-morph that froze
+            // the field half-way up the screen, then it jumped to the header.
+            // (A fixed beat, the spatial spring's settle: a completion
+            // callback fired before the morph had even started.)
+            withAnimation(Yoin.spatial) { grown = true }
+            guard focus else { return }
+            try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / LaunchConfig.animationSpeed)))
+            if model.searchActive { focused = true }
+        }
         .task {
             // Screenshots: `-screen search-scrolled` runs the results under the chips.
             guard LaunchConfig.searchScrolled else { return }
@@ -119,43 +166,55 @@ struct SearchView: View {
     private var header: some View {
         // Android LibrarySearchFilterRow sits 8 under the field (its vertical 8).
         VStack(spacing: Tokens.search.FILTER_ROW_PADDING_V.cg) {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
-                    HStack(spacing: 8) {
-                        YoinIcon("search", size: 20).foregroundStyle(Yoin.inkVariant)
-                        TextField(scope == .library ? "Search library" : "Search Apple Music", text: $query)
-                            .font(.gsf(17))
-                            .focused($focused)
-                            .submitLabel(.search)
-                        // Android InputField trailingIcon: Close (clear) once
-                        // there is text, nothing before. No mic: Android has
-                        // no voice search.
-                        if !query.isEmpty {
-                            Button { query = "" } label: {
-                                YoinIcon("close", size: 16).foregroundStyle(Yoin.inkVariant)
-                                    .frame(width: 32, height: 32)
-                                    .contentShape(.circle)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Clear search")
-                            .transition(.opacity.animation(Yoin.effects))
+            // No GlassEffectContainer: inside one, a child's opacity doesn't
+            // reach its glass, and the ✕ has to fade in on its own.
+            HStack(spacing: 8) {
+                // Same field as Library's header pill (icon 24, 12 gap,
+                // 16 type, 56 tall, 16 in), so from there nothing moves.
+                HStack(spacing: 12) {
+                    YoinIcon("search", size: 24).foregroundStyle(Yoin.inkVariant)
+                    TextField(scope == .library ? "Search library" : "Search Apple Music", text: $query)
+                        .font(.gsf(16))
+                        .focused($focused)
+                        .submitLabel(.search)
+                    // Android InputField trailingIcon: Close (clear) once
+                    // there is text, nothing before. No mic: Android has
+                    // no voice search.
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            YoinIcon("close", size: 16).foregroundStyle(Yoin.inkVariant)
+                                .frame(width: 32, height: 32)
+                                .contentShape(.circle)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear search")
+                        .transition(.opacity.animation(Yoin.effects))
                     }
-                    .padding(.horizontal, 16)
-                    .frame(height: 48)
-                    .labSearchGlass(scheme: scheme, in: .capsule)
-                    .matchedGeometryEffect(id: "search.surface", in: npNamespace)
-
-                    Button { close() } label: {
-                        YoinIcon("close", size: 20)
-                            .foregroundStyle(Yoin.ink)
-                            .frame(width: 48, height: 48)
-                            .contentShape(.circle)
-                    }
-                    .buttonStyle(.plain)
-                    .labSearchGlass(scheme: scheme, in: .circle)
-                    .accessibilityLabel("Close search")
                 }
+                .padding(.horizontal, 16)
+                .frame(height: Self.fieldHeight)
+                .labSearchGlass(scheme: scheme, in: .capsule)
+                // Until it has grown, it rides on the circle stand-in.
+                // Swapped with the stand-in in one frame, at the circle's size,
+                // where the magnifier sits at the same centre: one object.
+                // Closing, the field itself folds back (the stand-in stays out).
+                // (Inside the matched effect: a nil animation outside it would
+                // cancel the morph too.)
+                .opacity(showsField || !model.searchActive ? 1 : 0)
+                .animation(nil, value: showsField)
+                .matchedGeometryEffect(id: "search.field", in: morph, isSource: showsField)
+
+                Button { close() } label: {
+                    YoinIcon("close", size: 20)
+                        .foregroundStyle(Yoin.ink)
+                        .frame(width: 48, height: 48)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .labSearchGlass(scheme: scheme, in: .circle)
+                .opacity(staged ? 1 : 0)
+                .animation(Self.fadeThrough, value: staged)
+                .accessibilityLabel("Close search")
             }
             // A Subsonic server has no catalog apart from the library, so
             // no scope pair there.
@@ -164,10 +223,23 @@ struct SearchView: View {
                 // scale; Android's row sits exactly 8 under the field and 8
                 // over the results, so give those 4s back here.
                 .padding(.vertical, -4)
+                .opacity(staged ? 1 : 0)
+                .animation(Self.fadeThrough, value: staged)
         }
         .padding(.horizontal, 16)
+        // Library's header: 4 over the field (its 64 app bar), so the two
+        // fields share one rect.
+        .padding(.top, Self.headerTop)
         .padding(.bottom, Tokens.search.FILTER_ROW_PADDING_V.cg)
     }
+
+    /// About when Yoin.spatial (response 0.42, damping 0.78) has settled.
+    static let morphSettleMs = 520.0
+
+    /// Android SearchBarDefaults.InputFieldHeight, for Library's pill and this field alike.
+    static let fieldHeight: CGFloat = 56
+    /// The 4 over the field in the 64 app bar (Library header, this header).
+    static let headerTop: CGFloat = 4
 
     /// Android LibrarySearchFilterRow: one full-bleed row of segment chips,
     /// the scope pair (catalog | library, only where the provider searches a
@@ -509,6 +581,37 @@ struct SearchView: View {
 
     private func close() {
         focused = false
-        withAnimation(Yoin.spatial) { model.searchActive = false }
+        // The field folds back into the circle as Search fades out.
+        withAnimation(Yoin.spatial) {
+            grown = false
+            model.searchActive = false
+        }
+    }
+
+    /// The bar's search circle, drawn where it rests, while the field hasn't
+    /// grown out of it yet (and again as it folds back). Same glyph and size,
+    /// matched with the field: one object changes shape.
+    /// Always mounted, the source role handed back and forth: a removed
+    /// source stays a source through its fade, and the field stopped
+    /// mid-way until it was gone (the 11-04 "ghost field").
+    @ViewBuilder
+    private var circleStandIn: some View {
+        let r = model.searchCircleFrame
+        if r.width > 0 {
+            GeometryReader { g in
+                let o = g.frame(in: .global).origin
+                YoinIcon("search", size: 24)
+                    .foregroundStyle(Yoin.ink)
+                    .frame(width: r.width, height: r.height)
+                    .labSearchGlass(scheme: scheme, in: .capsule)
+                    .opacity(!showsField && model.searchActive ? 1 : 0)
+                    .animation(nil, value: showsField)
+                    .matchedGeometryEffect(id: "search.field", in: morph, isSource: !showsField)
+                    .padding(.leading, r.minX - o.x)
+                    .padding(.top, r.minY - o.y)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
     }
 }
