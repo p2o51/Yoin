@@ -187,9 +187,10 @@ class YoinRepositoryLibraryTabsTest {
         coVerify(exactly = 0) { spotify.warmLibraryCaches() }
         verify(exactly = 0) { spotify.library() }
 
-        // The tab's first load still checks freshness, which is what starts one.
-        repository.getLibrarySongs(size = 500)
-        coVerify(exactly = 1) { spotify.warmLibraryCaches() }
+        // The tab's first load still checks freshness, which is what starts one:
+        // behind the stale rows it returns at once, so the sync is waited for here.
+        assertEquals(listOf("a"), repository.getLibrarySongs(size = 500).map { it.id.rawId })
+        coVerify(exactly = 1, timeout = 5_000L) { spotify.warmLibraryCaches() }
     }
 
     @Test
