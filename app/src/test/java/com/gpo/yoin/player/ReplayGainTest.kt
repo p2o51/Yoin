@@ -93,8 +93,8 @@ class ReplayGainTest {
     }
 
     @Test
-    fun should_defaultToOffWithFourDbPreamp_when_nothingIsStored() {
-        assertEquals(ReplayGainMode.Off, ReplayGainSettings().mode)
+    fun should_defaultToAlbumWithFourDbPreamp_when_nothingIsStored() {
+        assertEquals(ReplayGainMode.Album, ReplayGainSettings().mode)
         assertEquals(4f, ReplayGainSettings().preampDb, 0f)
     }
 }

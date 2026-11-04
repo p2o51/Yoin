@@ -39,9 +39,9 @@ data class ReplayGainSettings(
     val preampDb: Float = DefaultPreampDb,
 ) {
     companion object {
-        // Off until the rest of the library is tagged (owner to decide):
-        // leveling one album alone leaves it ~9 dB under the untagged ones.
-        val DefaultMode = ReplayGainMode.Off
+        // By album (owner, 2026-11-04): keeps each album's own dynamics, and an album
+        // without album gain (《再生（全景声）》) falls back to track gain.
+        val DefaultMode = ReplayGainMode.Album
 
         // About −14 LUFS, where streaming services sit; the peak guard keeps it from clipping.
         const val DefaultPreampDb = 4f
