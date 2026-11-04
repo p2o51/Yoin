@@ -59,7 +59,7 @@ struct ShellBar: View {
     /// keyboard up (Search focuses its field as it opens).
     private func openLibrarySearch() {
         model.select(.library)
-        withAnimation(Yoin.spatial) { model.searchActive = true }
+        model.openSearch(from: .library)
     }
 
     /// Android onNowPlayingLongClick (owner 2026-11-03, as Apple Music's mini
@@ -164,7 +164,7 @@ struct ShellBar: View {
     }
 
     private var searchButton: some View {
-        Button { withAnimation(Yoin.spatial) { model.searchActive = true } } label: {
+        Button { model.openSearch(from: .bar) } label: {
             YoinIcon("search", size: 24)
                 .foregroundStyle(Yoin.ink)
                 .labContrast("barUnselected")
@@ -174,11 +174,15 @@ struct ShellBar: View {
         .buttonStyle(.plain)
         .labGlass("barUnselected", scheme: scheme, brand: brand, auto: scheme.tertiary, in: Circle())
         .glassEffectID("search", in: glassNS)
-        .background {
-            // The search field grows out of this circle.
-            if !model.searchActive {
-                Circle().fill(.clear).matchedGeometryEffect(id: "search.surface", in: npNamespace)
-            }
+        // The search field grows out of this circle: Search draws a stand-in
+        // here (where the circle last rested, frozen at the tap) and morphs it
+        // into the field, so this one steps out at once. A matched source
+        // inside the bar moved with the bar (keyboard, slide-away) and the
+        // field chased it mid-screen.
+        .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
+        .animation(model.searchActive ? nil : SearchView.fadeThrough, value: model.searchActive)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            if !model.searchActive && model.searchCircleFrame != frame { model.searchCircleFrame = frame }
         }
         .accessibilityLabel("Search")
     }
