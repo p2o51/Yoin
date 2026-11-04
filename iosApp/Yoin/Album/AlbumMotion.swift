@@ -110,6 +110,7 @@ struct AlbumAxisPan: UIGestureRecognizerRepresentable {
 
         /// The scroll views inside (scrapbook, track list) wait for the lock:
         /// they move only once the page let the drag go.
+
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
             guard let scroll = other.view as? UIScrollView, other === scroll.panGestureRecognizer,
                   let mine = g.view else { return false }
@@ -155,12 +156,16 @@ struct AlbumAxisPan: UIGestureRecognizerRepresentable {
 
 /// Whether the visible album page is off its first page: there the edge
 /// swipe turns the page back instead of popping the album (the navigation
-/// controller's interactive pop asks this). Owned by the album page that
-/// appeared last, so a page popping out of sight can't clear a newer one's.
+/// controller's back swipes ask this). Owned by the album page that appeared
+/// last, so a page popping out of sight can't clear a newer one's.
 @MainActor
 enum AlbumPopGate {
     private(set) static var blocksPop = false
     private static var owner: UUID?
+    /// The owning page's pager, for the navigation controller's edge pan
+    /// (state, translation x, velocity x).
+    static var edgeDrag: ((UIGestureRecognizer.State, CGFloat, CGFloat) -> Void)?
+    static var edgeOrigin: CGFloat = 0
 
     static func set(_ blocks: Bool, by id: UUID) {
         owner = id
@@ -171,5 +176,6 @@ enum AlbumPopGate {
         guard owner == id else { return }
         owner = nil
         blocksPop = false
+        edgeDrag = nil
     }
 }

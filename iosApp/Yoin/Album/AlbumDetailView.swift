@@ -60,6 +60,11 @@ struct AlbumDetailView: View {
     @State private var pullSpring = AlbumSpring()
     /// The pager's spring is running (the scrapbook isn't settled yet).
     @State private var pageMoving = false
+    /// The page the pager is on or settling to (a drag counts as off page 1).
+    /// The edge swipe follows this, not the live progress, so a spring's
+    /// bounce around page 1 never flips the back swipe mid-gesture.
+    @State private var pageTarget: CGFloat = LaunchConfig.screen.hasPrefix("album-scrapbook") ? 1 : 0
+    private var offFirstPage: Bool { pageBase != nil || pageTarget > 0 }
     /// The pulled-up list sits at its top (a pull-down there collapses it).
     @State private var listAtTop = true
     /// This page's claim on the edge swipe (AlbumPopGate).
@@ -186,14 +191,21 @@ struct AlbumDetailView: View {
                     pageBase = hold.from
                     page = hold.to
                 }
-                AlbumPopGate.set(page > 0, by: gateID)
+                AlbumPopGate.set(offFirstPage, by: gateID)
+                AlbumPopGate.edgeDrag = { state, dx, vx in
+                    switch state {
+                    case .began, .changed: pagerDragged(dx, width: pageWidth)
+                    case .ended: pagerReleased(vx, cancelled: false, width: pageWidth)
+                    default: pagerReleased(0, cancelled: true, width: pageWidth)
+                    }
+                }
             }
             .onDisappear {
                 pageSpring.stop()
                 pullSpring.stop()
                 AlbumPopGate.release(by: gateID)
             }
-            .onChange(of: page > 0) { _, off in AlbumPopGate.set(off, by: gateID) }
+            .onChange(of: offFirstPage) { _, off in AlbumPopGate.set(off, by: gateID) }
             .onChange(of: w) { _, now in pageWidth = now }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -841,12 +853,7 @@ struct AlbumDetailView: View {
             changed: { axis, t in
                 switch axis {
                 case .horizontal:
-                    if pageBase == nil {
-                        pageSpring.stop()
-                        pageMoving = false
-                        pageBase = page
-                    }
-                    page = min(1, max(0, (pageBase ?? 0) - t.x / max(width, 1)))
+                    pagerDragged(t.x, width: width)
                 case .vertical:
                     if dragBase == nil {
                         pullSpring.stop()
@@ -858,13 +865,7 @@ struct AlbumDetailView: View {
             ended: { axis, v, cancelled in
                 switch axis {
                 case .horizontal:
-                    guard pageBase != nil else { return }
-                    pageBase = nil
-                    // Pages per second; a fling (Compose pager: > 400 dp/s) turns
-                    // the page its way, a slow release snaps to the nearer one.
-                    let velocity = cancelled ? 0 : -v.x / max(width, 1)
-                    let target: CGFloat = abs(v.x) > 400 && !cancelled ? (v.x < 0 ? 1 : 0) : (page > 0.5 ? 1 : 0)
-                    settlePage(to: target, velocity: velocity)
+                    pagerReleased(v.x, cancelled: cancelled, width: width)
                 case .vertical:
                     guard dragBase != nil else { return }
                     dragBase = nil
@@ -875,10 +876,31 @@ struct AlbumDetailView: View {
             })
     }
 
+    /// The pager follows the finger 1:1 (from the page pan or the edge swipe).
+    private func pagerDragged(_ dx: CGFloat, width: CGFloat) {
+        if pageBase == nil {
+            pageSpring.stop()
+            pageMoving = false
+            pageBase = page
+        }
+        page = min(1, max(0, (pageBase ?? 0) - dx / max(width, 1)))
+    }
+
+    private func pagerReleased(_ vx: CGFloat, cancelled: Bool, width: CGFloat) {
+        guard pageBase != nil else { return }
+        pageBase = nil
+        // Pages per second; a fling (Compose pager: > 400 dp/s) turns the
+        // page its way, a slow release snaps to the nearer one.
+        let velocity = cancelled ? 0 : -vx / max(width, 1)
+        let target: CGFloat = abs(vx) > 400 && !cancelled ? (vx < 0 ? 1 : 0) : (page > 0.5 ? 1 : 0)
+        settlePage(to: target, velocity: velocity)
+    }
+
     /// The pager's release (and the page dots): Yoin's spatial spring from
     /// here, the drag's velocity carried in, on the same progress the drag moved.
     private func settlePage(to target: CGFloat, velocity: CGFloat) {
         pageMoving = true
+        pageTarget = target
         pageSpring.run(from: page, to: target, velocity: velocity, apply: { v in
             page = min(1, max(0, v))
         }, completion: { pageMoving = false })
@@ -909,21 +931,46 @@ struct AlbumDetailView: View {
 /// bar, and always wins: the page's own drags (the album pager, SwiftUI drag
 /// gestures, scroll views) wait for it to fail, which it does at once for any
 /// touch that doesn't start at the edge. Except off the album's first page
-/// (AlbumPopGate): there it never begins, so a right swipe from the edge
-/// turns the album back to page 1 instead of popping it.
+/// (AlbumPopGate): there the back swipes never begin, and a twin edge pan on
+/// the navigation controller's view (the same place as its own, so the very
+/// edge reaches it as it reaches the back swipe) drives the album's pager
+/// instead: a right swipe from the edge turns the album back to page 1.
 extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
+    private static let albumEdgeName = "yoin.albumEdgePager"
+
     override open func viewDidLoad() {
         super.viewDidLoad()
         interactivePopGestureRecognizer?.delegate = self
+        interactiveContentPopGestureRecognizer?.delegate = self
+        let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(albumEdgePan(_:)))
+        edge.edges = .left
+        edge.name = Self.albumEdgeName
+        edge.delegate = self
+        view.addGestureRecognizer(edge)
     }
 
+    @objc private func albumEdgePan(_ g: UIScreenEdgePanGestureRecognizer) {
+        // Measured from where it was recognised, as the page's own pan is, so
+        // a drag from the edge and one from mid-screen map to the same progress.
+        let x = g.translation(in: view).x
+        if g.state == .began { AlbumPopGate.edgeOrigin = x }
+        AlbumPopGate.edgeDrag?(g.state, x - AlbumPopGate.edgeOrigin, g.velocity(in: view).x)
+    }
+
+    private func isAlbumEdge(_ g: UIGestureRecognizer) -> Bool { g.name == Self.albumEdgeName }
+
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        viewControllers.count > 1 && !(gestureRecognizer === interactivePopGestureRecognizer && AlbumPopGate.blocksPop)
+        if isAlbumEdge(gestureRecognizer) {
+            return viewControllers.count > 1 && AlbumPopGate.blocksPop && AlbumPopGate.edgeDrag != nil
+        }
+        return viewControllers.count > 1 && !AlbumPopGate.blocksPop
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                   shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-        gestureRecognizer === interactivePopGestureRecognizer && viewControllers.count > 1
-            && !AlbumPopGate.blocksPop && other.view?.isDescendant(of: view) == true
+        // Whichever edge swipe is live wins over the page's own drags.
+        let live = isAlbumEdge(gestureRecognizer) ? AlbumPopGate.blocksPop
+            : gestureRecognizer === interactivePopGestureRecognizer && !AlbumPopGate.blocksPop
+        return live && viewControllers.count > 1 && other.view?.isDescendant(of: view) == true
     }
 }
