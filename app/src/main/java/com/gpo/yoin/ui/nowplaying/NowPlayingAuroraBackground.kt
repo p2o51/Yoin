@@ -33,10 +33,12 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.luminance
@@ -48,6 +50,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import com.gpo.yoin.ui.experience.voteHighFrameRate
@@ -420,6 +423,7 @@ fun Modifier.nowPlayingAuroraBackground(
     var originRoot by remember { mutableStateOf(Offset.Zero) }
     val focusCanvas = remember { FocusCanvas() }
     val dots = remember { DotBatch() }
+    val washRaster = remember { RestWashRaster() }
 
     // Pulses run in this scope, not the keyed effects: the next commit must
     // not cancel one mid-sweep and leave it frozen on screen.
@@ -550,14 +554,23 @@ fun Modifier.nowPlayingAuroraBackground(
             val shown = wash.shown
             val previousWash = wash.previous
             if (e >= 1f || previousWash == null) {
-                drawRestWash(shown, 0f, 0f, 1f, isDark, blend)
+                drawRestWash(washRaster, shown, 0f, 0f, 1f, isDark, blend)
             } else if (wash.dir == Offset.Zero) {
-                drawRestWash(previousWash, 0f, 0f, 1f - e, isDark, blend)
-                drawRestWash(shown, 0f, 0f, e, isDark, blend)
+                drawRestWash(washRaster, previousWash, 0f, 0f, 1f - e, isDark, blend)
+                drawRestWash(washRaster, shown, 0f, 0f, e, isDark, blend)
             } else {
                 val travel = (if (wash.dir.x != 0f) w else h) * 0.9f
-                drawRestWash(previousWash, -wash.dir.x * travel * e, -wash.dir.y * travel * e, 1f - e, isDark, blend)
                 drawRestWash(
+                    washRaster,
+                    previousWash,
+                    -wash.dir.x * travel * e,
+                    -wash.dir.y * travel * e,
+                    1f - e,
+                    isDark,
+                    blend,
+                )
+                drawRestWash(
+                    washRaster,
                     shown,
                     wash.dir.x * travel * (1f - e),
                     wash.dir.y * travel * (1f - e),
@@ -730,7 +743,16 @@ private fun DrawScope.drawBloom(center: Offset, radius: Float, color: Color, alp
     )
 }
 
+/**
+ * The rest wash: four soft radial blooms of the cover's colours. Drawn from a
+ * quarter-size raster ([RestWashRaster]) rather than as live gradients: a
+ * song change slides two washes across the panel for [WASH_FLOW_MS], and as
+ * eight window-sized gradients per frame that kept the tablet's GPU at
+ * ~20 ms a frame for the whole flow. The blooms are soft, so upscaling with
+ * bilinear filtering looks the same.
+ */
 private fun DrawScope.drawRestWash(
+    raster: RestWashRaster,
     colors: WashColors,
     dx: Float,
     dy: Float,
@@ -739,12 +761,22 @@ private fun DrawScope.drawRestWash(
     blend: BlendMode,
 ) {
     if (alpha <= 0.001f) return
-    val w = size.width
-    val h = size.height
-    val a = (if (dark) 0.42f else 0.34f) * alpha.coerceIn(0f, 1f)
-    fun point(color: Color, x: Float, y: Float, r: Float) {
-        val center = Offset(x * w + dx, y * h + dy)
-        val radius = r * w
+    val slot = raster.slotFor(this, colors, dark, blend)
+    drawImage(
+        image = slot.image,
+        srcSize = IntSize(slot.image.width, slot.image.height),
+        dstOffset = IntOffset((slot.bounds.left + dx).roundToInt(), (slot.bounds.top + dy).roundToInt()),
+        dstSize = IntSize(slot.bounds.width.roundToInt(), slot.bounds.height.roundToInt()),
+        alpha = alpha.coerceIn(0f, 1f),
+        blendMode = blend,
+        filterQuality = FilterQuality.Low,
+    )
+}
+
+/** The four blooms, in the panel's pixel space. */
+private fun DrawScope.drawRestWashBlooms(colors: WashColors, w: Float, h: Float, dark: Boolean, blend: BlendMode) {
+    val a = if (dark) 0.42f else 0.34f
+    restWashBlooms(colors, w, h).forEach { (color, center, radius) ->
         drawCircle(
             brush = Brush.radialGradient(
                 0f to color.copy(alpha = a),
@@ -758,11 +790,65 @@ private fun DrawScope.drawRestWash(
             blendMode = blend,
         )
     }
-    point(colors.k1, 0.12f, 0.06f, 0.85f)
-    point(colors.k3, 0.86f, 0.10f, 0.70f)
-    point(colors.k2, 0.52f, 0.30f, 0.75f)
-    point(colors.k1, 0.95f, 0.42f, 0.50f)
 }
+
+private data class Bloom(val color: Color, val center: Offset, val radius: Float)
+
+private fun restWashBlooms(colors: WashColors, w: Float, h: Float): List<Bloom> = listOf(
+    Bloom(colors.k1, Offset(0.12f * w, 0.06f * h), 0.85f * w),
+    Bloom(colors.k3, Offset(0.86f * w, 0.10f * h), 0.70f * w),
+    Bloom(colors.k2, Offset(0.52f * w, 0.30f * h), 0.75f * w),
+    Bloom(colors.k1, Offset(0.95f * w, 0.42f * h), 0.50f * w),
+)
+
+/**
+ * Quarter-size rasters of the last two rest washes (the one shown and the
+ * one a song change slides out), each covering its blooms' full extent so a
+ * sliding wash brings its off-panel parts in. Rebuilt only when the colours,
+ * the panel size or the theme change.
+ */
+private class RestWashRaster {
+    class Slot(val key: List<Any>, val image: ImageBitmap, val bounds: Rect)
+
+    private var recent: Slot? = null
+    private var older: Slot? = null
+
+    fun slotFor(scope: DrawScope, colors: WashColors, dark: Boolean, blend: BlendMode): Slot {
+        val w = scope.size.width
+        val h = scope.size.height
+        val key = listOf(colors, w, h, dark, blend)
+        recent?.takeIf { it.key == key }?.let { return it }
+        older?.takeIf { it.key == key }?.let { found ->
+            older = recent
+            recent = found
+            return found
+        }
+        val blooms = restWashBlooms(colors, w, h)
+        val bounds = Rect(
+            left = blooms.minOf { it.center.x - it.radius },
+            top = blooms.minOf { it.center.y - it.radius },
+            right = blooms.maxOf { it.center.x + it.radius },
+            bottom = blooms.maxOf { it.center.y + it.radius },
+        )
+        val iw = (bounds.width / REST_WASH_RASTER_SCALE).roundToInt().coerceAtLeast(1)
+        val ih = (bounds.height / REST_WASH_RASTER_SCALE).roundToInt().coerceAtLeast(1)
+        val image = ImageBitmap(iw, ih)
+        CanvasDrawScope().draw(scope, LayoutDirection.Ltr, Canvas(image), Size(iw.toFloat(), ih.toFloat())) {
+            withTransform({
+                scale(1f / REST_WASH_RASTER_SCALE, 1f / REST_WASH_RASTER_SCALE, pivot = Offset.Zero)
+                translate(-bounds.left, -bounds.top)
+            }) {
+                drawRestWashBlooms(colors, w, h, dark, blend)
+            }
+        }
+        return Slot(key, image, bounds).also {
+            older = recent
+            recent = it
+        }
+    }
+}
+
+private const val REST_WASH_RASTER_SCALE = 4f
 
 /** Two wide, faint ellipses of the cover's colours at the tapped line. */
 private fun DrawScope.drawLineBand(colors: WashColors, y: Float, b: Float, dark: Boolean, blend: BlendMode) {
