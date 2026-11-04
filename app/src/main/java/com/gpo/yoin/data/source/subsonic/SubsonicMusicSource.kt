@@ -38,6 +38,8 @@ class SubsonicMusicSource(
     private val apiFactory: (() -> ServerCredentials) -> SubsonicApi = { provider ->
         SubsonicApiFactory.create(credentialsProvider = provider, loggingEnabled = false)
     },
+    /** The profile this source was built for; null outside ProfileManager (probes, tests). Plays go only to it. */
+    val profileId: String? = null,
 ) : MusicSource {
 
     private val api: SubsonicApi = apiFactory { credentials }
@@ -234,6 +236,47 @@ class SubsonicMusicSource(
         SubsonicApiFactory.buildStreamUrl(credentials, songRawId)
 
     val rawCredentials: ServerCredentials get() = credentials
+
+    // ── Play reporting (see player/scrobble) ──────────────────────────
+
+    /** Plays ([submission] true, dated by [timesMs]) or "now playing" (false, no times). */
+    suspend fun scrobble(songIds: List<String>, timesMs: List<Long>?, submission: Boolean) {
+        unwrap(api.scrobble(id = songIds, time = timesMs, submission = submission))
+    }
+
+    @Volatile private var playbackReportSupported: Boolean? = null
+
+    /**
+     * Whether this server has OpenSubsonic `playbackReport`, asked once per source. A
+     * server that answers without it (plain Subsonic: an error or a 404) is remembered
+     * as without; no answer at all (offline) is asked again next time.
+     */
+    suspend fun supportsPlaybackReport(): Boolean {
+        playbackReportSupported?.let { return it }
+        val supported = try {
+            unwrap(api.getOpenSubsonicExtensions()).openSubsonicExtensions.orEmpty()
+                .any { it.name == "playbackReport" }
+        } catch (error: SubsonicException) {
+            false
+        } catch (error: retrofit2.HttpException) {
+            false
+        }
+        playbackReportSupported = supported
+        return supported
+    }
+
+    /** Now playing only (ignoreScrobble=true): plays are counted through [scrobble]. */
+    suspend fun reportPlayback(songId: String, state: String, positionMs: Long) {
+        unwrap(
+            api.reportPlayback(
+                mediaId = songId,
+                mediaType = "song",
+                positionMs = positionMs.coerceAtLeast(0L),
+                state = state,
+                ignoreScrobble = true,
+            ),
+        )
+    }
 
     /**
      * Rough proxy for "can this source hit its server right now". We derive it

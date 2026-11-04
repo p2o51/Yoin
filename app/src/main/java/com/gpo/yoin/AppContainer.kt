@@ -1,6 +1,8 @@
 package com.gpo.yoin
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -38,6 +40,8 @@ import com.gpo.yoin.data.repository.RoomLibraryRecentsSource
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
+import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
+import com.gpo.yoin.data.source.subsonic.SubsonicScrobbleTarget
 import com.gpo.yoin.data.sync.CloudSyncManager
 import com.gpo.yoin.perf.YoinPerfHttp
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
@@ -46,6 +50,8 @@ import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.SpotifyConnectFailure
+import com.gpo.yoin.player.scrobble.FilePendingScrobbleStore
+import com.gpo.yoin.player.scrobble.ScrobbleReporter
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.library.LibraryOpenStore
@@ -463,7 +469,30 @@ class AppContainer(private val context: Context) {
             castManager = castManager,
             dlnaManager = dlnaManager,
             spotifyClientIdProvider = { spotifyClientIdFlow.value },
+            scrobbleReporter = scrobbleReporter,
         )
+    }
+
+    /**
+     * Reports Subsonic plays to the server (scrobble), queueing those it can't send
+     * yet in noBackupFilesDir: the queue is this device's, never restored elsewhere.
+     */
+    val scrobbleReporter: ScrobbleReporter by lazy {
+        ScrobbleReporter(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            store = FilePendingScrobbleStore(File(context.noBackupFilesDir, "scrobble-queue.json")),
+            target = {
+                // The source's own profile, never activeProfileId: during a switch the two disagree for a beat.
+                val source = profileManager.activeSource.value as? SubsonicMusicSource
+                source?.profileId?.let { profileId -> SubsonicScrobbleTarget(profileId, source) }
+            },
+            monotonicMs = SystemClock::elapsedRealtime,
+            wallMs = System::currentTimeMillis,
+            log = { message, error -> Log.i("YoinScrobble", message, error) },
+        ).also { reporter ->
+            // Each account that becomes active (and the first at launch) sends what it missed.
+            applicationScope.launch { profileManager.activeSource.collect { reporter.flush() } }
+        }
     }
 
     val audioVisualizerManager: AudioVisualizerManager by lazy {
