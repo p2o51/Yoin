@@ -23,6 +23,19 @@ class AlbumHeroCoverYieldTest {
     }
 
     @Test
+    fun should_yieldCover_when_shortHeroBesideLandscapePanel() {
+        // A landscape tablet's album column (~440dp) beside the panel takes the
+        // short hero: cover at the start, meta beside it.
+        assertTrue(
+            albumHeroYieldsCover(
+                layout = AlbumBarLayout.Short,
+                panelBeside = true,
+                playingThisAlbum = true,
+            ),
+        )
+    }
+
+    @Test
     fun should_keepCover_when_panelPlaysAnotherAlbum() {
         assertFalse(
             albumHeroYieldsCover(
@@ -46,8 +59,8 @@ class AlbumHeroCoverYieldTest {
     }
 
     @Test
-    fun should_keepCover_when_layoutIsNotThePortraitHero() {
-        for (layout in listOf(AlbumBarLayout.Short, AlbumBarLayout.Landscape, AlbumBarLayout.Medium, null)) {
+    fun should_keepCover_when_layoutHasNoPhoneHero() {
+        for (layout in listOf(AlbumBarLayout.Landscape, AlbumBarLayout.Medium, null)) {
             assertFalse(
                 "layout $layout keeps its cover",
                 albumHeroYieldsCover(layout = layout, panelBeside = true, playingThisAlbum = true),

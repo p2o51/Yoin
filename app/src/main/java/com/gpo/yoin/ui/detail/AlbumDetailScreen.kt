@@ -526,6 +526,7 @@ private fun AlbumDetailContent(
         // Beside the Now Playing side panel that is playing THIS album, the
         // panel already shows its cover: the phone-layout hero drops its own
         // (cover + blocks fade, the slot closes, the meta and titles move up)
+        // — the portrait hero and the short one beside a landscape panel.
         // so the two columns never show the same cover twice (owner
         // 2026-11-03). Only the hero at rest yields — the pulled-up stamp, the
         // scrapbook page and every other layout and state are unchanged.
@@ -534,9 +535,14 @@ private fun AlbumDetailContent(
             panelBeside = LocalNowPlayingPanelBeside.current,
             playingThisAlbum = currentTrackId != null && content.songs.any { it.id == currentTrackId },
         )
-        // Opened already yielded ("Go to album" from the panel): start there,
-        // so the cover never shows for a beat and fades.
-        val coverYield = remember(content.albumId) { Animatable(if (coverYielded) 1f else 0f) }
+        // Start where the hero is: opened already yielded ("Go to album" from
+        // the panel), or switched INTO a yielding layout because the panel just
+        // opened (Medium → Compact, its width at rest flips with the spring's
+        // first frame). Keyed on the layout so that switch never starts at 0
+        // and flashes the full cover for a few frames before fading it; only a
+        // change inside one layout (the panel moves to or off this album)
+        // animates.
+        val coverYield = remember(content.albumId, barLayout) { Animatable(if (coverYielded) 1f else 0f) }
         val coverYieldSpec = YoinMotion.defaultSpatialSpec<Float>()
         LaunchedEffect(coverYield, coverYielded) {
             coverYield.animateTo(if (coverYielded) 1f else 0f, coverYieldSpec)
@@ -844,6 +850,7 @@ private fun AlbumDetailContent(
                                     stagedReveal = stagedReveal,
                                     accent = primaryBlock,
                                     revealState = reveal,
+                                    coverYield = coverYieldNow,
                                     expanded = expanded,
                                     onExpandedCommit = { expanded = it },
                                     notedSongIds = notedSongIds,
@@ -927,7 +934,8 @@ private fun AlbumDetailContent(
 /**
  * The hero gives its cover up to the Now Playing side panel beside it: the two
  * columns would otherwise show the same cover twice (owner 2026-11-03). Only
- * the portrait hero yields, and only while the panel is the one playing a song
+ * the portrait hero and the short one (cover beside the meta — a ~440dp column
+ * beside a landscape tablet's panel) yield, and only while the panel is playing a song
  * off THIS album — a panel playing anything else, a full-window player, a
  * closed player and every other layout keep the hero as it is.
  */
@@ -935,7 +943,9 @@ internal fun albumHeroYieldsCover(
     layout: AlbumBarLayout?,
     panelBeside: Boolean,
     playingThisAlbum: Boolean,
-): Boolean = layout == AlbumBarLayout.Compact && panelBeside && playingThisAlbum
+): Boolean = (layout == AlbumBarLayout.Compact || layout == AlbumBarLayout.Short) &&
+    panelBeside &&
+    playingThisAlbum
 
 private val AlbumHeaderTopPadding = 4.dp
 
@@ -1903,6 +1913,9 @@ private fun AlbumShortOverview(
     onToggleStar: (songId: String) -> Unit,
     trackMenu: TrackMenuHost?,
     onEditComment: () -> Unit,
+    // As AlbumOverviewPage: 1 = the cover went to the Now Playing panel beside,
+    // so its place beside the meta closes and the meta moves to the start.
+    coverYield: () -> Float = { 0f },
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -1964,10 +1977,12 @@ private fun AlbumShortOverview(
                     .stagedBeat(progress = { stagedReveal.meta }, rise = 14.dp)
                     .padding(start = AlbumShortCoverStart, end = 16.dp, top = 4.dp),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(AlbumShortHeroGap)) {
+                val coverRoom = 1f - coverYield()
+                Row {
                     // The cover and its two blocks are drawn by the bar layer above the
                     // pager (they fly into the header on the pull-up); this keeps their place.
-                    Spacer(modifier = Modifier.size(coverSide))
+                    Spacer(modifier = Modifier.size(coverSide * coverRoom))
+                    Spacer(modifier = Modifier.width(AlbumShortHeroGap * coverRoom))
                     AlbumHeroMetaBlocks(
                         content = content,
                         interactive = expand < 0.5f,
