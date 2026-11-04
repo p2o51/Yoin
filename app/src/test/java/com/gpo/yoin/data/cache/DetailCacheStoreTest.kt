@@ -6,6 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -103,6 +104,84 @@ class DetailCacheStoreTest {
         assertEquals("Album 1", served?.name)
     }
 
+    @Test
+    fun should_serveKeptRow_when_pastMaxAge() = runTest {
+        val dao = FakeDetailCacheDao()
+        val kept = id(1)
+        val store = DetailCacheStore(
+            dao = dao,
+            clock = { now },
+            scope = backgroundScope,
+            keeps = { _, _, id -> id == kept },
+        )
+        write(store, 1)
+        write(store, 2)
+        now += DetailCacheStore.DEFAULT_MAX_AGE_MS + 1
+
+        // A downloaded album's page still opens; the other row ages out as before.
+        assertEquals("Album 1", store.readAlbum(PROFILE, id(1))?.value()?.name)
+        assertNull(store.readAlbum(PROFILE, id(2)))
+        assertEquals(setOf(id(1)), dao.entityIds)
+    }
+
+    @Test
+    fun should_spareKeptRows_when_purgingExpired() = runTest {
+        val dao = FakeDetailCacheDao()
+        val kept = id(2)
+        val store = DetailCacheStore(
+            dao = dao,
+            clock = { now },
+            scope = backgroundScope,
+            keeps = { _, kind, id -> kind == DetailCacheStore.KIND_ALBUM && id == kept },
+        )
+        (1..3).forEach { n -> write(store, n) }
+        now += DetailCacheStore.DEFAULT_MAX_AGE_MS + 10_000L
+
+        store.purgeExpired()
+
+        assertEquals(setOf(id(2)), dao.entityIds)
+    }
+
+    @Test
+    fun should_skipKeptRows_when_trimming() = runTest {
+        val row = rowLength()
+        val dao = FakeDetailCacheDao()
+        val kept = id(1)
+        val store = DetailCacheStore(
+            dao = dao,
+            clock = { now },
+            maxBytes = 3 * row + row / 2,
+            trimTargetBytes = 2 * row,
+            scope = backgroundScope,
+            keeps = { _, _, id -> id == kept },
+        )
+
+        (1..4).forEach { n -> write(store, n) }
+
+        // Row 1 is the oldest but downloaded: the trim takes rows 2 and 3 instead.
+        assertEquals(setOf(id(1), id(4)), dao.entityIds)
+    }
+
+    @Test
+    fun should_keepOnlyTheHoldingProfilesRow_when_keepsNamesAProfile() = runTest {
+        val dao = FakeDetailCacheDao()
+        val store = DetailCacheStore(
+            dao = dao,
+            clock = { now },
+            scope = backgroundScope,
+            keeps = { profileId, _, _ -> profileId == PROFILE },
+        )
+        now += 1_000L
+        store.writeAlbum(PROFILE, id(1), album(1))
+        store.writeAlbum(OTHER_PROFILE, id(1), album(1))
+        now += DetailCacheStore.DEFAULT_MAX_AGE_MS + 1
+
+        store.purgeExpired()
+
+        assertEquals("Album 1", store.readAlbum(PROFILE, id(1))?.value()?.name)
+        assertNull(store.readAlbum(OTHER_PROFILE, id(1)))
+    }
+
     /** One album row's stored JSON length (every test album encodes to the same length). */
     private suspend fun TestScope.rowLength(): Long {
         val dao = FakeDetailCacheDao()
@@ -148,5 +227,6 @@ class DetailCacheStoreTest {
 
     private companion object {
         const val PROFILE = "profile-1"
+        const val OTHER_PROFILE = "profile-2"
     }
 }

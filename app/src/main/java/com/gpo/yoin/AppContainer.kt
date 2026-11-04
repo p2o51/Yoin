@@ -17,6 +17,9 @@ import com.gpo.yoin.data.migration.spotoolfy.IcuWordSegmenter
 import com.gpo.yoin.data.migration.spotoolfy.SpotoolfyImporter
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.offline.DownloadSettingsStore
+import com.gpo.yoin.data.offline.OfflineCollection
+import com.gpo.yoin.data.offline.OfflineDownloads
 import com.gpo.yoin.data.profile.AndroidKeyStoreCredentialsCipher
 import com.gpo.yoin.data.profile.EncryptedProfileCredentialsCodec
 import com.gpo.yoin.data.profile.FileBackedProfileCredentialsStore
@@ -457,10 +460,10 @@ class AppContainer(private val context: Context) {
     }
 
     /** The stream cache and the listener's downloads (Subsonic); brought up on first use. */
-    val offlineDownloads: com.gpo.yoin.data.offline.OfflineDownloads by lazy {
-        com.gpo.yoin.data.offline.OfflineDownloads(
+    val offlineDownloads: OfflineDownloads by lazy {
+        OfflineDownloads(
             context = context,
-            settingsStore = com.gpo.yoin.data.offline.DownloadSettingsStore(context),
+            settingsStore = DownloadSettingsStore(context),
             activeProfileId = profileManager.activeProfileId,
             activeSubsonic = {
                 profileManager.activeSource.value as? com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
@@ -588,7 +591,19 @@ class AppContainer(private val context: Context) {
     val lyricsProviderRegistry: LyricsProviderRegistry by lazy { LyricsProviderRegistry() }
 
     private val detailCacheStore: DetailCacheStore by lazy {
-        DetailCacheStore(database.detailCacheDao(), scope = applicationScope)
+        DetailCacheStore(
+            database.detailCacheDao(),
+            scope = applicationScope,
+            // A downloaded album or playlist keeps its page: it must open offline however long ago it was visited.
+            keeps = { profileId, kind, id ->
+                val offlineKind = when (kind) {
+                    DetailCacheStore.KIND_ALBUM -> OfflineCollection.Kind.Album
+                    DetailCacheStore.KIND_PLAYLIST -> OfflineCollection.Kind.Playlist
+                    else -> null
+                }
+                offlineKind != null && offlineDownloads.holds(profileId, offlineKind, id)
+            },
+        )
     }
 
     val albumScrapbookSource: AlbumScrapbookSource by lazy { AlbumScrapbookSource.from(database, profileManager.activeProfileId) }

@@ -15,7 +15,9 @@ import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadIndex
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
@@ -98,6 +100,9 @@ class OfflineDownloads(
     }
 
     private val allSongs = MutableStateFlow<List<Pair<Download, OfflinePayload>>>(emptyList())
+
+    /** Whether [allSongs] has been read from the index yet (until then [holds] reads the index itself). */
+    @Volatile private var loaded = false
 
     /** The active profile's downloads, as albums, playlists and songs. */
     val library: StateFlow<OfflineLibrary> = combine(allSongs, activeProfileId) { songs, profileId ->
@@ -205,7 +210,11 @@ class OfflineDownloads(
 
     /** Removes [collectionKey]: its songs go unless another download still holds them. */
     suspend fun remove(collectionKey: String) = withContext(Dispatchers.IO) {
-        val held = allSongs.value.filter { (_, payload) -> payload.collections.any { it.key == collectionKey } }
+        // The active account's only: another account may hold the same album id.
+        val profileId = activeProfileId.value ?: return@withContext
+        val held = allSongs.value.filter { (_, payload) ->
+            payload.profileId == profileId && payload.collections.any { it.key == collectionKey }
+        }
         withContext(Dispatchers.Main) {
             held.forEach { (download, payload) ->
                 val rest = payload.withoutCollection(collectionKey)
@@ -228,6 +237,25 @@ class OfflineDownloads(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Whether [profileId] keeps [kind] [id] downloaded, so its page must open
+     * with no network: the detail cache spares such rows from aging out and
+     * from its trim. Asked off the main thread; before the first [refresh] it
+     * reads the download index itself, so a purge at startup can't drop them.
+     */
+    suspend fun holds(profileId: String, kind: OfflineCollection.Kind, id: String): Boolean {
+        val songs = if (loaded) {
+            allSongs.value
+        } else {
+            withContext(Dispatchers.IO) { runCatching { readIndex(DefaultDownloadIndex(databaseProvider)) }.getOrNull() }
+                // Unreadable: keep the row, an extra cached page costs less than a downloaded album that won't open.
+                ?: return true
+        }
+        return songs.any { (_, payload) ->
+            payload.profileId == profileId && payload.collections.any { it.kind == kind && it.id == id }
         }
     }
 
@@ -269,25 +297,26 @@ class OfflineDownloads(
 
     private fun refresh() {
         scope.launch {
-            val songs = runCatching {
-                buildList {
-                    manager.downloadIndex.getDownloads().use { cursor ->
-                        while (cursor.moveToNext()) {
-                            val download = cursor.download
-                            val payload = OfflinePayload.decode(download.request.data) ?: continue
-                            add(download to payload)
-                        }
-                    }
-                }.sortedBy { it.first.startTimeMs }
-            }.getOrElse { return@launch }
+            val songs = runCatching { readIndex(manager.downloadIndex) }.getOrElse { return@launch }
             qualities.clear()
             songs.forEach { (download, payload) ->
                 if (download.state == Download.STATE_COMPLETED) qualities[download.request.id] = payload.downloadQuality
             }
             allSongs.value = songs
+            loaded = true
             applyProfileStops()
         }
     }
+
+    private fun readIndex(index: DownloadIndex): List<Pair<Download, OfflinePayload>> = buildList {
+        index.getDownloads().use { cursor ->
+            while (cursor.moveToNext()) {
+                val download = cursor.download
+                val payload = OfflinePayload.decode(download.request.data) ?: continue
+                add(download to payload)
+            }
+        }
+    }.sortedBy { it.first.startTimeMs }
 
     /** Download progress isn't an event: read it again each second while something downloads. */
     private suspend fun pollWhileDownloading() {
