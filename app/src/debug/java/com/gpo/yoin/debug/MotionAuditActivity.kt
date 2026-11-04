@@ -121,8 +121,27 @@ class MotionAuditActivity : ComponentActivity() {
                         // With no account, repository cover resolution returns null.
                         // Decorate only this QA view-model's read-only projection.
                         val cover = (track.coverArt as CoverRef.Url).url
+                        // `--ez lyricsDemo true`: timed lyrics for the focus / lyric-window QA.
+                        val demoLyrics = if (intent.getBooleanExtra("lyricsDemo", false)) {
+                            (0 until 40).map { i ->
+                                com.gpo.yoin.ui.nowplaying.LyricLine(
+                                    startMs = 60_000L + i * 6_000L,
+                                    text = DemoLyricLines[i % DemoLyricLines.size],
+                                )
+                            }
+                        } else {
+                            null
+                        }
                         val illustrated = player.uiState.map { state ->
-                            if (state is NowPlayingUiState.Playing) state.copy(coverArtUrl = cover) else state
+                            if (state is NowPlayingUiState.Playing) {
+                                state.copy(
+                                    coverArtUrl = cover,
+                                    lyrics = demoLyrics ?: state.lyrics,
+                                    lyricsLoading = if (demoLyrics != null) false else state.lyricsLoading,
+                                )
+                            } else {
+                                state
+                            }
                         }.stateIn(player.viewModelScope, SharingStarted.Eagerly, NowPlayingUiState.Idle)
                         NowPlayingViewModel::class.java.getDeclaredField("uiState")
                             .apply { isAccessible = true }.set(player, illustrated)
@@ -178,3 +197,14 @@ class MotionAuditActivity : ComponentActivity() {
         }
     }
 }
+
+/** Plain QA lines of mixed length (the focus lyric window keeps three of them). */
+private val DemoLyricLines = listOf(
+    "The streetlights hum a quiet tune",
+    "We count the windows, one by one",
+    "A longer line that runs across the width of the column and wraps",
+    "Stay a while",
+    "The night is soft and still and slow",
+    "Every word we never said out loud",
+)
+
