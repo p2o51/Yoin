@@ -69,7 +69,7 @@
 
     <string name="settings_gemini_title">AI features</string>
     <string name="settings_gemini_title_page">AI features</string>
-    <string name="settings_gemini_summary_empty">Song info, Ask Gemini and translation</string>
+    <string name="settings_gemini_summary_empty">Song info, Ask Gemini, translation and Memory titles</string>
     <string name="settings_gemini_summary_set">%1$s</string>
     <string name="settings_gemini_key_label">Gemini API key</string>
     <string name="settings_gemini_key_placeholder" translatable="false">AIza…</string>
