@@ -98,6 +98,8 @@ fun YoinEdgeSplitGroup(
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
     onLibraryLongClick: () -> Unit = onLibraryClick,
+    // The playing song's menu (owner 2026-11-03); null: the pill has no long-press.
+    onNowPlayingLongClick: (() -> Unit)? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     // Explicit geometry for previews/tests; the live window otherwise.
@@ -174,6 +176,7 @@ fun YoinEdgeSplitGroup(
                         playbackProgress = playbackProgress,
                         isPlaying = isPlaying,
                         onClick = onNowPlayingClick,
+                        onLongClick = onNowPlayingLongClick,
                         // Stepping out but still composed on the way into
                         // edit: no press, click or haptic.
                         enabled = !editing,

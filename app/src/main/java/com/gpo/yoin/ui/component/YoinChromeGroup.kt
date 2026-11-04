@@ -61,6 +61,8 @@ fun YoinChromeGroup(
     editing: Boolean = false,
     playSplitActions: BarPlaySplitActions? = null,
     onLibraryLongClick: () -> Unit = onLibraryClick,
+    // The playing song's menu (owner 2026-11-03); null: the pill has no long-press.
+    onNowPlayingLongClick: (() -> Unit)? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
@@ -110,6 +112,7 @@ fun YoinChromeGroup(
             onNowPlayingClick = onNowPlayingClick,
             onLibraryClick = onLibraryClick,
             onLibraryLongClick = onLibraryLongClick,
+            onNowPlayingLongClick = onNowPlayingLongClick,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
             modifier = modifier
@@ -140,6 +143,7 @@ fun YoinChromeGroup(
             onNowPlayingClick = onNowPlayingClick,
             onLibraryClick = onLibraryClick,
             onLibraryLongClick = onLibraryLongClick,
+            onNowPlayingLongClick = onNowPlayingLongClick,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
             centered = form == ShellChromeForm.CenteredBar,
