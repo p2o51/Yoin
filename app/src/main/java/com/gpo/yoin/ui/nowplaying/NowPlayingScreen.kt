@@ -1857,6 +1857,13 @@ private fun CompactPlayingContent(
                                     } else {
                                         { 0f }
                                     },
+                                    // Focus prints the lines a size up, in proportion
+                                    // with the title and transport (owner 2026-11-04).
+                                    lyricScale = if (focusKeepsList) {
+                                        1f + (FocusLyricScale - 1f) * immersiveProgress
+                                    } else {
+                                        1f
+                                    },
                                     upNext = if (focusKeepsList && stageMode == NowPlayingStageMode.Immersive) {
                                         state.upNextLyrics
                                     } else {
@@ -4334,6 +4341,8 @@ private fun CompactDetailPage(
     // dots and the outro plays here (last line held, next song's first line);
     // read in draw. 0 = the resting page.
     listFocus: () -> Float = { 0f },
+    // The lyric list's type scale (focus: up to [FocusLyricScale]).
+    lyricScale: Float = 1f,
     upNext: UpNextLyrics? = null,
     // The page's end padding up to the screen edge: the held last line may
     // run on into it (the lines still wrap at the page edge).
@@ -4359,6 +4368,7 @@ private fun CompactDetailPage(
                 trackKey = state.songId,
                 queueIndex = state.currentQueueIndex,
                 focus = listFocus,
+                fontScale = lyricScale,
                 durationMs = state.durationMs,
                 upNext = upNext,
                 endOverflow = endOverflow,

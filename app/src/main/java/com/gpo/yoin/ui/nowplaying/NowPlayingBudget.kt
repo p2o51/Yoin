@@ -286,23 +286,21 @@ fun resolveStageColumnBudget(
     val focusUpper = listOf(coverGap)
     val focusNominal = nominalSum(focusLower) + nominalSum(focusUpper)
     val focusFixedMin = focusNominal - slackOf(focusLower) - slackOf(focusUpper)
-    val focusListMin = metrics.lyric.cleanLines(FocusCleanLines)
+    // Focus prints the lyrics a size up ([FocusLyricScale]), so the current
+    // line sits in proportion with the title and the transport.
+    val focusLyric = LyricWindowMetrics(
+        activeLine = metrics.lyric.activeLine * FocusLyricScale,
+        inactiveLine = metrics.lyric.inactiveLine * FocusLyricScale,
+    )
     fun focusMargin(cover: Dp): Dp = (width - cover) / 2f
-
-    // Equal margins: the top margin grows as the cover shrinks, m + c = (W + c) / 2.
-    val equalCover = minOf(focusCoverCap, (height - focusFixedMin - focusListMin) * 2f - width)
-        .coerceAtLeast(0.dp)
-    // Where equal margins would leave focus nothing to show for it (a wide,
-    // short window: the fold's inner screen), the top margin gives way first.
-    val freeCover = minOf(focusCoverCap, (height - focusFixedMin - focusListMin - FocusTopMin).coerceAtLeast(0.dp))
     fun worthIt(cover: Dp): Boolean =
         coverFocusOffered(rest.cover, cover) || (compactFocus && cover >= rest.cover * CompactFocusCoverKeep)
 
-    fun focusPose(cover: Dp): StageColumnPose {
-        val top = minOf(focusMargin(cover), height - cover - focusFixedMin - focusListMin)
+    fun focusPose(cover: Dp, listMin: Dp): StageColumnPose {
+        val top = minOf(focusMargin(cover), height - cover - focusFixedMin - listMin)
             .coerceAtLeast(FocusTopMin)
         val squeeze = squeezeGaps(
-            (top + cover + focusNominal + focusListMin - height).coerceAtLeast(0.dp),
+            (top + cover + focusNominal + listMin - height).coerceAtLeast(0.dp),
             focusLower,
             focusUpper,
         )
@@ -319,17 +317,24 @@ fun resolveStageColumnBudget(
         )
     }
 
-    // A short window's focus is worth the tap for the lyrics alone (one line
-    // opens to three), so there the cover only has to keep (about) its
-    // resting size.
+    // Owner 2026-11-04: equal margins first; three lyric lines where they
+    // fit, else two (「位置不够就显示两行」). The column narrows to the cover, so
+    // the cover must also keep [EqualMarginCoverKeep] of its resting size and
+    // the transport's narrowest designed width. Only where even two lines
+    // can't keep equal margins does the top margin give way.
+    val equalFloor = maxOf(rest.cover * EqualMarginCoverKeep, FocusMinColumn)
+    fun equalCover(lines: Int): Dp =
+        minOf(focusCoverCap, (height - focusFixedMin - focusLyric.cleanLines(lines)) * 2f - width)
+            .coerceAtLeast(0.dp)
+    val freeMin = focusLyric.cleanLines(FocusMinCleanLines)
+    val freeCover = minOf(focusCoverCap, (height - focusFixedMin - freeMin - FocusTopMin).coerceAtLeast(0.dp))
     val focus = when {
         rest.cover <= 0.dp -> null
-        // Equal margins win over cover size (owner 2026-11-04), down to
-        // [EqualMarginCoverKeep] of the resting cover.
-        // The column narrows to the cover, so the cover also has to leave the
-        // transport its narrowest designed width.
-        equalCover >= maxOf(rest.cover * EqualMarginCoverKeep, FocusMinColumn) -> focusPose(equalCover)
-        worthIt(freeCover) -> focusPose(freeCover)
+        equalCover(FocusCleanLines) >= equalFloor ->
+            focusPose(equalCover(FocusCleanLines), focusLyric.cleanLines(FocusCleanLines))
+        equalCover(FocusMinCleanLines) >= equalFloor ->
+            focusPose(equalCover(FocusMinCleanLines), freeMin)
+        worthIt(freeCover) -> focusPose(freeCover, freeMin)
         else -> null
     }
     return StageColumnBudget(
@@ -589,8 +594,14 @@ private val FocusTopMin = 12.dp
 private val FocusBottomNominal = 20.dp
 private val FocusBottomMin = 8.dp
 
-/** Focus keeps the current line and two more, clean of the bottom fade. */
+/** Focus keeps the current line and two more, clean of the bottom fade… */
 internal const val FocusCleanLines = 3
+
+/** …or, where that costs the equal margins, the current line and one more. */
+internal const val FocusMinCleanLines = 2
+
+/** Focus prints the lyric list this much larger (16 → ~21sp current line). */
+const val FocusLyricScale = 1.3f
 
 /** A short window's focus may give up this little of the resting cover for its three lines. */
 private const val CompactFocusCoverKeep = 0.9f
