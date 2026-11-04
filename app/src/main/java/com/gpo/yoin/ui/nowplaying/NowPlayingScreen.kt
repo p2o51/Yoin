@@ -753,6 +753,16 @@ private fun PlayingContent(
     onClaimLyricIdleHint: () -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
+    // Entering focus answers with a confirm tick (owner 2026-11-04), however
+    // it was entered (the cover, the docked cover in the top bar).
+    val focusHaptics = rememberYoinHaptics()
+    val lastStageMode = remember { arrayOf(stageMode) }
+    LaunchedEffect(stageMode) {
+        if (stageMode == NowPlayingStageMode.Immersive && lastStageMode[0] != NowPlayingStageMode.Immersive) {
+            focusHaptics.performConfirm()
+        }
+        lastStageMode[0] = stageMode
+    }
     // Animate posture/size swaps (fold ↔ unfold, enter/leave tabletop). Official
     // adaptive guidance: a posture change is just a state change — animate it with
     // AnimatedContent (fade + slight scale, spring). Deliberately NO shared elements
@@ -1357,6 +1367,7 @@ private fun CompactPlayingContent(
         // (owner 2026-11-02, device screenshot). The budget sizes that focus
         // (compact transport, three lyric lines; owner 2026-11-04).
         var shortFocus by remember { mutableStateOf(false) }
+        val shortFocusHaptics = rememberYoinHaptics()
         val shortArrangement = shortFocus || (lyricOneLine && stageMode == NowPlayingStageMode.Immersive)
         val shortFocusProgress by animateFloatAsState(
             targetValue = if (shortArrangement) 1f else 0f,
@@ -1669,7 +1680,10 @@ private fun CompactPlayingContent(
                                                     }
                                                 }
                                             } else if (shortFocusAvailable) {
-                                                { shortFocus = !shortFocus }
+                                                {
+                                                    if (!shortFocus) shortFocusHaptics.performConfirm()
+                                                    shortFocus = !shortFocus
+                                                }
                                             } else {
                                                 null
                                             },
