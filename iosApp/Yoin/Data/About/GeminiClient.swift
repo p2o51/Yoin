@@ -47,6 +47,51 @@ struct GeminiClient: Sendable {
         return try Self.parseAbout(status: status, body: data)
     }
 
+    /// Ask Gemini's reply: a short heading and the answer (Android `AskAnswer`).
+    struct AskAnswer: Equatable, Sendable {
+        var title: String
+        var answer: String
+    }
+
+    /// Android `askAboutSong`: one grounded call, a `[TITLE]` and an `[ANSWER]`.
+    func ask(apiKey: String, title: String, artist: String, album: String, question: String,
+             targetLanguage: String) async throws -> AskAnswer {
+        let prompt = Self.askPrompt(title: title, artist: artist, album: album, question: question,
+                                    targetLanguage: targetLanguage)
+        let request = try Self.request(baseURL: baseURL, apiKey: apiKey,
+                                       body: RequestBody(contents: [.init(parts: [.init(text: prompt)])],
+                                                         tools: [.init(googleSearch: .init())]))
+        let (status, data) = try await send(request)
+        return Self.parseAsk(try Self.text(status: status, body: data, requireNonEmpty: true), fallbackQuestion: question)
+    }
+
+    /// Android `generateAskTitle`: the heading shown while the answer is on
+    /// the way. No search, temperature 0.2.
+    func askTitle(apiKey: String, title: String, artist: String, album: String, question: String,
+                  targetLanguage: String) async throws -> String {
+        let prompt = Self.askTitlePrompt(title: title, artist: artist, album: album, question: question,
+                                         targetLanguage: targetLanguage)
+        let request = try Self.request(baseURL: baseURL, apiKey: apiKey,
+                                       body: RequestBody(contents: [.init(parts: [.init(text: prompt)])], tools: nil,
+                                                         generationConfig: .init(temperature: 0.2)))
+        let (status, data) = try await send(request)
+        return Self.cleanAskTitle(try Self.text(status: status, body: data, requireNonEmpty: true),
+                                  fallbackQuestion: question)
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Int, Data) {
+        do {
+            let (data, response) = try await session.data(for: request)
+            return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch let error as URLError {
+            throw Failure(message: Self.networkMessage(error))
+        }
+    }
+
     // MARK: Request
 
     /// POST `<base><model>:generateContent`, JSON body as Android's encoder
@@ -73,6 +118,22 @@ struct GeminiClient: Sendable {
         return request
     }
 
+    /// POST `<base><model>:generateContent` with [body].
+    static func request(baseURL: URL, apiKey: String, body: RequestBody) throws -> URLRequest {
+        var base = baseURL.absoluteString
+        if !base.hasSuffix("/") { base += "/" }
+        guard let url = URL(string: base + model + ":generateContent") else {
+            throw Failure(message: "Invalid Gemini URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 45
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        request.httpBody = try JSONEncoder().encode(body)
+        return request
+    }
+
     struct RequestBody: Codable, Equatable {
         struct Content: Codable, Equatable { var parts: [Part] }
         struct Part: Codable, Equatable { var text: String }
@@ -80,8 +141,10 @@ struct GeminiClient: Sendable {
             struct GoogleSearch: Codable, Equatable {}
             var googleSearch: GoogleSearch
         }
+        struct GenerationConfig: Codable, Equatable { var temperature: Double }
         var contents: [Content]
         var tools: [Tool]?
+        var generationConfig: GenerationConfig?
     }
 
     /// Android `buildPrompt`, word for word.
@@ -125,6 +188,45 @@ struct GeminiClient: Sendable {
         """
     }
 
+    /// Android `buildAskPrompt`, word for word.
+    static func askPrompt(title: String, artist: String, album: String, question: String,
+                          targetLanguage: String) -> String {
+        """
+        Answer the following question about the song "\(title)" from the album "\(album)" by \(artist).
+        Use the search tool to find accurate, up-to-date information.
+        Write the title and answer in \(targetLanguage).
+
+        Respond strictly in the following tagged format:
+
+        [TITLE]
+        A concise headline that summarises the question — no more than 8 words, no trailing punctuation. This is shown as the visual heading above your answer, so it should feel like a title, not a full sentence.
+        [/TITLE]
+
+        [ANSWER]
+        The detailed answer. No more than 120 words. Plain prose only — no citation markers, headers, or bullet points.
+        [/ANSWER]
+
+        Question: \(question)
+        """
+    }
+
+    /// Android `buildAskTitlePrompt`, word for word.
+    static func askTitlePrompt(title: String, artist: String, album: String, question: String,
+                               targetLanguage: String) -> String {
+        """
+        Write a concise visual heading for an in-progress Gemini answer about this song.
+        Write the heading in \(targetLanguage).
+
+        Song: \(title)
+        Artist: \(artist)
+        Album: \(album)
+        Question: \(question)
+
+        Return only the heading. No more than 8 words. No trailing punctuation. Do not
+        answer the question.
+        """
+    }
+
     // MARK: Response
 
     private struct Response: Decodable {
@@ -150,6 +252,48 @@ struct GeminiClient: Sendable {
               let text = response.candidates?.first?.content?.parts?.first?.text
         else { throw Failure(message: "No content in Gemini response") }
         return parseTagged(text)
+    }
+
+    /// The reply's first text part (Android's ask calls also refuse an empty one).
+    static func text(status: Int, body: Data, requireNonEmpty: Bool) throws -> String {
+        guard (200..<300).contains(status) else {
+            throw Failure(message: "Gemini API error (\(status)): \(errorMessage(body))")
+        }
+        guard let response = try? JSONDecoder().decode(Response.self, from: body),
+              let text = response.candidates?.first?.content?.parts?.first?.text,
+              !(requireNonEmpty && text.isEmpty)
+        else { throw Failure(message: "No content in Gemini response") }
+        return text
+    }
+
+    /// Android `parseAskResponse`: both tags, else the question as the
+    /// heading, else the whole reply with its tag markers stripped.
+    static func parseAsk(_ raw: String, fallbackQuestion: String) -> AskAnswer {
+        let title = tagContent(raw, "TITLE")
+        let answer = tagContent(raw, "ANSWER")
+        let question = fallbackQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch (title, answer) {
+        case let (t?, a?): return AskAnswer(title: t, answer: a)
+        case let (nil, a?): return AskAnswer(title: question, answer: a)
+        case let (t?, nil): return AskAnswer(title: t, answer: stripTags(raw))
+        case (nil, nil): return AskAnswer(title: question, answer: stripTags(raw))
+        }
+    }
+
+    /// Android `cleanAskTitle`: the first non-blank line, quotes trimmed, one
+    /// of each trailing mark dropped in Android's order; else the question.
+    static func cleanAskTitle(_ raw: String, fallbackQuestion: String) -> String {
+        let ws = CharacterSet.whitespacesAndNewlines
+        guard var line = stripTags(raw).components(separatedBy: .newlines)
+            .first(where: { !$0.trimmingCharacters(in: ws).isEmpty }) else {
+            return fallbackQuestion.trimmingCharacters(in: ws)
+        }
+        line = line.trimmingCharacters(in: ws).trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’"))
+        for suffix in [".", "?", "!", "。", "？", "！"] where line.hasSuffix(suffix) {
+            line.removeLast(suffix.count)
+        }
+        line = line.trimmingCharacters(in: ws)
+        return line.isEmpty ? fallbackQuestion.trimmingCharacters(in: ws) : line
     }
 
     static func errorMessage(_ body: Data) -> String {

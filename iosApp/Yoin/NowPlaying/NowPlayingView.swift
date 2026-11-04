@@ -60,6 +60,9 @@ struct NowPlayingView: View {
     @State private var parkedDraft: (words: String, anchorMs: Int64?)?
     @State private var notesSaved = 0
     @FocusState private var composerFocused: Bool
+    /// The Ask Gemini bar's question (Android `AskGeminiBar` draft) and its field.
+    @State private var askDraft = ""
+    @FocusState private var askFieldFocused: Bool
     /// The page's geometry before the keyboard came up (see `page`).
     @State private var frozenGeometry: PageGeometry?
     @State private var keyboardHeight: CGFloat = 0
@@ -67,6 +70,11 @@ struct NowPlayingView: View {
     /// The engine's song; nil = the mock snapshot (screenshots) as before.
     private var engineTrack: PlayableTrack? { model.player.currentTrack }
     private var data: NowPlayingData { .shared }
+    private var about: SongAboutLoader { .shared }
+    /// The Ask bar is open (its field over the keyboard).
+    private var asking: Bool { about.askState == .focused }
+    /// The keyboard is up for the composer or the Ask bar: the page keeps its geometry.
+    private var keyboardOwned: Bool { composing || asking }
 
     private var palette: CoverPalette { model.playback.album.palette }
     private var scheme: CoverScheme { CoverScheme(album: model.playback.album, dark: colorScheme == .dark) }
@@ -162,6 +170,18 @@ struct NowPlayingView: View {
             // Android: short focus belongs to the resting player.
             if s != .compact { shortFocus = false }
         }
+        .onChange(of: engineTrack.map(NowPlayingData.key)) {
+            // Android: another song, the Ask bar starts over.
+            about.resetAsk()
+        }
+        .onChange(of: about.askState) { _, s in
+            // Android: back to idle (answered, or put away) empties the draft.
+            if s == .idle { askDraft = "" }
+        }
+        .onChange(of: askFieldFocused) { _, focused in
+            // Keyboard down unsent: the bar folds back (Android onCollapseRequest).
+            if !focused, asking { withAnimation(Yoin.spatial) { about.askCollapse() } }
+        }
         .onChange(of: composerFocused) { _, focused in
             // Keyboard down over an empty draft: back to the pills.
             if !focused && draft.isEmpty && editingNoteId == nil { withAnimation(Yoin.spatial) { composing = false } }
@@ -189,12 +209,17 @@ struct NowPlayingView: View {
                 // geometry it had before the keyboard, pinned to the screen.
                 let live = PageGeometry(size: geo.size, top: geo.safeAreaInsets.top,
                                         bottom: geo.safeAreaInsets.bottom, minY: geo.frame(in: .global).minY)
-                let g = composing ? (frozenGeometry ?? live) : live
+                let g = keyboardOwned ? (frozenGeometry ?? live) : live
                 content(size: g.size, bottomInset: g.bottom)
                     .frame(maxWidth: model.isPad ? 520 : .infinity)
                     .frame(width: g.size.width, height: g.size.height)
                     .overlay(alignment: .bottom) {
-                        if composing {
+                        if asking {
+                            askLayer
+                                .padding(.bottom, max(0, keyboardHeight - g.bottom))
+                                .ignoresSafeArea(.keyboard)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        } else if composing {
                             composerLayer
                                 // The frame ends `g.bottom` above the screen's
                                 // edge; the keyboard's top is `keyboardHeight` up.
@@ -205,7 +230,7 @@ struct NowPlayingView: View {
                     }
                     .offset(y: g.minY - live.minY)
                     .onChange(of: live, initial: true) { _, now in
-                        if !composing { frozenGeometry = now }
+                        if !keyboardOwned { frozenGeometry = now }
                     }
             }
         }
@@ -312,7 +337,8 @@ struct NowPlayingView: View {
         let tabGap = expanded ? NowPlayingExpanded.tabGap : pose.tabGap
         let transportH = expanded ? 0 : (short?.transport ?? pose.transport)
         let accessory = expanded
-            ? (page == .note ? NowPlayingExpanded.writeBar + NowPlayingExpanded.writeBarGap : NowPlayingExpanded.bareAccessory)
+            ? (page == .note || page == .about ? NowPlayingExpanded.writeBar + NowPlayingExpanded.writeBarGap
+                : NowPlayingExpanded.bareAccessory)
             : pose.pills
         let slack = expanded ? 0 : (short?.slack ?? pose.slack)
         let coverH = short?.cover ?? pose.cover
@@ -349,7 +375,9 @@ struct NowPlayingView: View {
                               // OneLineLyricRow: the 32 pt line centered in its slot.
                               ? (clear - Tokens.type.bodyLarge.lineHeight.cg - 8) / 2 + 4
                               : clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: !oneLine)
-                if !expanded && !unsyncedLyricsShown(page, stage: stage) {
+                // The small About window takes its own taps (its Settings /
+                // Retry buttons first, Android SongInfoDisplay in a tap-to-open box).
+                if !expanded && !unsyncedLyricsShown(page, stage: stage) && !(page == .about && stage == .compact) {
                     // The small window (and the focused line) open the page.
                     Color.clear
                         .frame(height: clear)
@@ -592,6 +620,12 @@ struct NowPlayingView: View {
                     .opacity(composing ? 0 : 1)
                     .transition(.opacity.combined(with: .offset(y: 12)))
             }
+            if expanded && page == .about {
+                AskGeminiBar(state: about.askState, scheme: scheme, onFocus: startAsking,
+                             onDismissError: { about.dismissAskError() })
+                    .opacity(asking ? 0 : 1)
+                    .transition(.opacity.combined(with: .offset(y: 12)))
+            }
         }
     }
 
@@ -633,8 +667,41 @@ struct NowPlayingView: View {
         }
     }
 
+    /// The Ask bar opens over the keyboard (Android onAskBarFocused, then the
+    /// field takes focus once it is in the tree).
+    private func startAsking() {
+        withAnimation(Yoin.spatial) { about.askFocused() }
+        guard asking else { return }
+        Task { @MainActor in askFieldFocused = true }
+    }
+
+    /// The open Ask bar over the page's foot, above the keyboard. A tap
+    /// above it puts the keyboard away (and the bar folds back).
+    private var askLayer: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .contentShape(.rect)
+                .onTapGesture {
+                    askFieldFocused = false
+                    withAnimation(Yoin.spatial) { about.askCollapse() }
+                }
+            AskGeminiField(scheme: scheme, text: $askDraft, focus: $askFieldFocused) { question in
+                guard let t = engineTrack else { return }
+                withAnimation(Yoin.spatial) {
+                    about.ask(title: t.title, artist: t.artist, album: t.album, question: question)
+                }
+            }
+            .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg)
+            .padding(.bottom, 8)
+        }
+    }
+
     /// The chevron: back to the resting player, or (at rest) collapse.
     private func stageBack() {
+        if asking {
+            askFieldFocused = false
+            withAnimation(Yoin.spatial) { about.askCollapse() }
+        }
         guard stage != .compact else { return collapse() }
         if editingNoteId != nil { endEditing() }
         composerFocused = false
@@ -696,7 +763,9 @@ struct NowPlayingView: View {
             // Android SongInfoDisplay: the facts, read-only, fading out at the foot.
             NowPlayingAboutView(state: aboutState(p), expanded: false, scheme: scheme)
                 .frame(height: clear, alignment: .top)
-                .allowsHitTesting(false)
+                .contentShape(.rect)
+                .onTapGesture { openPage(.about) }
+                .accessibilityAction(named: "About") { openPage(.about) }
         case .note:
             noteWindow(clear: clear)
         }

@@ -71,6 +71,83 @@ final class SongAboutLoader {
         }
     }
 
+    // MARK: Ask Gemini
+
+    /// The Ask Gemini bar (Android `AskBarState`): transient, never stored.
+    /// While loading nothing is written; the answer lands as one Ask row.
+    enum AskBarState: Equatable {
+        case idle
+        case focused
+        case loading(title: String, requestId: Int)
+        case error(String)
+    }
+
+    private(set) var askState: AskBarState = .idle
+    @ObservationIgnored private var askRequestId = 0
+
+    /// Android `onAskBarFocused`.
+    func askFocused() {
+        if case .loading = askState { return }
+        askState = .focused
+    }
+
+    /// Android `onAskBarCollapseRequested`: the keyboard went away unsent.
+    func askCollapse() {
+        if askState == .focused { askState = .idle }
+    }
+
+    /// Android `dismissAskError`.
+    func dismissAskError() {
+        if case .error = askState { askState = .idle }
+    }
+
+    /// Another song: the bar starts over (an answer still on the way is
+    /// still saved to its own song, it just no longer drives the bar).
+    func resetAsk() {
+        askRequestId += 1
+        askState = .idle
+    }
+
+    /// Android `NowPlayingViewModel.askQuestion`: the bar shows the question,
+    /// then Gemini's short heading for it, while the grounded answer comes;
+    /// the answer is saved as an Ask row (`SongAboutStore.saveAsk`).
+    func ask(title: String, artist: String, album: String, question: String) {
+        let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !asked.isEmpty else { return }
+        askRequestId += 1
+        let id = askRequestId
+        let apiKey = settings.requestKey
+        guard !apiKey.isEmpty else {
+            askState = .error("Gemini API key missing")
+            return
+        }
+        let language = settings.targetLanguage
+        askState = .loading(title: asked, requestId: id)
+        let call = client()
+        // Their own tasks: leaving the page mustn't throw away a paid call.
+        Task {
+            guard let heading = try? await call.askTitle(apiKey: apiKey, title: title, artist: artist, album: album,
+                                                         question: asked, targetLanguage: language),
+                  case .loading(_, id) = askState else { return }
+            askState = .loading(title: heading, requestId: id)
+        }
+        Task {
+            let next: AskBarState
+            do {
+                let reply = try await call.ask(apiKey: apiKey, title: title, artist: artist, album: album,
+                                               question: asked, targetLanguage: language)
+                store.saveAsk(title: title, artist: artist, album: album, question: asked, reply: reply)
+                next = .idle
+            } catch is CancellationError {
+                next = .idle
+            } catch {
+                next = .error((error as? GeminiClient.Failure)?.message ?? "Failed to ask Gemini")
+            }
+            guard id == askRequestId else { return }
+            askState = next
+        }
+    }
+
     /// A key was just saved: songs that said "no key" may ask now.
     func keyChanged() {
         for (k, p) in phases where p == .noKey { phases[k] = .idle }

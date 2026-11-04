@@ -140,6 +140,21 @@ final class SongAboutStore {
         })
     }
 
+    /// Android `askAboutSong`'s row: keyed by the normalized question, so
+    /// asking it again replaces the answer and keeps the first `createdAt`.
+    func saveAsk(title: String, artist: String, album: String, question: String,
+                 reply: GeminiClient.AskAnswer, now: Date = Date()) {
+        let key = Self.key(title: title, artist: artist, album: album)
+        let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let questionKey = Self.normalize(asked)
+        let ms = Int64((now.timeIntervalSince1970 * 1000).rounded())
+        let existing = all.first { $0.songKey == key && $0.kind == Kind.ask && $0.entryKey == questionKey }
+        upsert([Entry(titleKey: key.title, artistKey: key.artist, albumKey: key.album, titleDisplay: title,
+                      artistDisplay: artist, albumDisplay: album, kind: Kind.ask, entryKey: questionKey,
+                      promptText: asked, titleText: reply.title, answerText: reply.answer,
+                      createdAt: existing?.createdAt ?? ms, updatedAt: ms, language: nil)])
+    }
+
     private func save() {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),

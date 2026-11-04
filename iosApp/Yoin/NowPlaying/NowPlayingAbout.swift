@@ -345,3 +345,117 @@ struct NowPlayingAboutView: View {
         }
     }
 }
+
+/// Android `AskGeminiBar` (the expanded About page's accessory): a 56 pt
+/// primaryContainer pill, the 28 pt primary dot then "Ask Gemini" in
+/// titleMedium. Tap → the open bar (`AskGeminiField`, over the keyboard).
+/// Loading: Gemini's heading beside a spinner, the pill lightened 45 %
+/// toward the page. Error: the message in error; a tap clears it.
+struct AskGeminiBar: View {
+    var state: SongAboutLoader.AskBarState
+    var scheme: CoverScheme
+    var onFocus: () -> Void
+    var onDismissError: () -> Void
+
+    static let height: CGFloat = 56
+    static let corner: CGFloat = 28
+
+    private var loading: Bool { if case .loading = state { true } else { false } }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            switch state {
+            case .loading(let title, _):
+                ProgressView()
+                    .controlSize(.regular)
+                    .tint(scheme.primary)
+                    .frame(width: 28, height: 28)
+                label(title.isEmpty ? "Ask Gemini" : title, color: scheme.onPrimaryContainer)
+            case .error(let message):
+                AskGeminiBar.dot(scheme)
+                label(message, color: scheme.error)
+            case .idle, .focused:
+                AskGeminiBar.dot(scheme)
+                label("Ask Gemini", color: scheme.onPrimaryContainer)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
+        .background(loading ? scheme.primaryContainer.mix(with: scheme.background, by: 0.45, in: .device)
+                        : scheme.primaryContainer,
+                    in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+        .onTapGesture {
+            switch state {
+            case .error: onDismissError()
+            case .loading: break
+            default: onFocus()
+            }
+        }
+        .animation(Yoin.effects, value: state)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(loading ? [] : .isButton)
+    }
+
+    private func label(_ text: String, color: Color) -> some View {
+        Text(text)
+            .yoinRole(Tokens.type.titleMedium)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .contentTransition(.opacity)
+    }
+
+    /// Android `StaticIndicator`: a 28 pt primary dot.
+    static func dot(_ scheme: CoverScheme) -> some View {
+        Circle().fill(scheme.primary).frame(width: 28, height: 28)
+    }
+}
+
+/// Android `AskGeminiBar` focused: the 252 pt card (28 corners), the dot,
+/// then the question field (titleMedium, "Ask Gemini" placeholder at 60 %).
+/// Return sends (Android ImeAction.Send); an empty question isn't sent.
+struct AskGeminiField: View {
+    var scheme: CoverScheme
+    @Binding var text: String
+    var focus: FocusState<Bool>.Binding
+    var onSubmit: (String) -> Void
+
+    static let height: CGFloat = 252
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AskGeminiBar.dot(scheme)
+            TextField(text: $text, prompt: Text("Ask Gemini")
+                .foregroundStyle(scheme.onPrimaryContainer.opacity(0.6)), axis: .vertical) {
+                Text("Ask Gemini")
+            }
+            .yoinRole(Tokens.type.titleMedium)
+            .foregroundStyle(scheme.onPrimaryContainer)
+            .tint(scheme.onPrimaryContainer)
+            .submitLabel(.send)
+            .focused(focus)
+            .onChange(of: text) { _, now in
+                // A vertical field types the return key in: send instead.
+                guard now.contains("\n") else { return }
+                text = now.replacingOccurrences(of: "\n", with: "")
+                submit()
+            }
+            .onSubmit(submit)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .topLeading)
+        .background(scheme.primaryContainer,
+                    in: RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous))
+    }
+
+    private func submit() {
+        let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        focus.wrappedValue = false
+        onSubmit(q)
+    }
+}

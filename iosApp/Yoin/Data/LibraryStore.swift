@@ -79,8 +79,10 @@ final class LibraryStore {
     private(set) var search: SearchHits?
     private(set) var searchPhase: Phase = .idle
 
-    /// Hearts set here, ahead of the server (reverted when the write fails).
+    /// Artist hearts set here, ahead of the server (reverted when the write
+    /// fails). Song hearts live in `FavoritesStore`, shared with Now Playing.
     private(set) var starredOverride: [String: Bool] = [:]
+    @ObservationIgnored private let hearts: FavoritesStore = .shared
 
     init(session: ServerSession, sources: SourceSelection, appleMusic: AppleMusicSource,
          history: HistoryStore = .shared, notes: NotesStore = .shared, ratings: LocalRatings = .shared,
@@ -93,6 +95,11 @@ final class LibraryStore {
         self.ratings = ratings
         self.disk = disk
         observeSession()
+        hearts.onWrite = { [weak self] _, songId in
+            // Wherever the heart was set: the stored pages that show it go.
+            self?.dropAlbums(containing: songId)
+            self?.dropFromDisk(.list, "favorites")
+        }
         Task { await disk.purgeExpired() }
     }
 
@@ -148,6 +155,7 @@ final class LibraryStore {
         search = nil
         searchPhase = .idle
         starredOverride = [:]
+        hearts.reset()
         inFlight = [:]
     }
 
@@ -701,7 +709,9 @@ final class LibraryStore {
 
     // MARK: Hearts and ratings
 
-    func isStarred(_ track: Track) -> Bool { starredOverride[track.id.rawId] ?? track.starred }
+    func isStarred(_ track: Track) -> Bool {
+        hearts.isFavorite(provider: track.id.provider, songId: track.id.rawId, known: track.starred)
+    }
 
     func isStarred(artist page: ArtistPage) -> Bool { starredOverride["artist:\(page.id.rawId)"] ?? page.starred }
 
@@ -709,14 +719,10 @@ final class LibraryStore {
     func toggleStar(_ track: Track) {
         // Apple Music has no heart to write (library membership is Now Playing's add button).
         guard track.id.provider != AppleMusicMapping.provider else { return }
-        let key = track.id.rawId
-        let now = !isStarred(track)
-        write(key: key, on: now) { client, on in
-            on ? try await client.star(id: key, albumId: nil, artistId: nil)
-                : try await client.unstar(id: key, albumId: nil, artistId: nil)
-        }
-        dropAlbums(containing: key)
-        dropFromDisk(.list, "favorites")
+        // The shared heart: Now Playing and the song sheet see it at once
+        // (its onWrite drops the stored pages that show it).
+        hearts.toggle(provider: track.id.provider, songId: track.id.rawId, known: track.starred,
+                      client: client, apple: nil)
     }
 
     func toggleStar(artist page: ArtistPage) {

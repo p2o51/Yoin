@@ -41,10 +41,9 @@ final class NowPlayingData {
     }
 
     private(set) var lyrics: [String: LyricsState] = [:]
-    /// The heart as the user last set it (optimistic; reverted on failure).
-    private(set) var favorites: [String: Bool] = [:]
-    /// What the server said (from the queue entry or a fetched album).
-    private(set) var serverStarred: [String: Bool] = [:]
+    /// The heart lives in `FavoritesStore` (shared with the album rows);
+    /// this side reports what the server says about the song.
+    @ObservationIgnored private let hearts: FavoritesStore
     private(set) var serverRating: [String: Int] = [:]
     /// The rating under the finger, until it is committed on release.
     private(set) var draftRating: [String: Double] = [:]
@@ -57,8 +56,9 @@ final class NowPlayingData {
     @ObservationIgnored private var lyricsRetry: Set<String> = []
     @ObservationIgnored private var infoRequested: Set<String> = []
 
-    init(ratings: LocalRatings? = nil) {
+    init(ratings: LocalRatings? = nil, hearts: FavoritesStore? = nil) {
         self.ratings = ratings ?? .shared
+        self.hearts = hearts ?? .shared
     }
 
     static func key(_ t: PlayableTrack) -> String { LocalRatings.key(provider: t.provider, songId: t.id) }
@@ -68,15 +68,19 @@ final class NowPlayingData {
     /// Fetches what this song needs and hasn't got yet.
     func prepare(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil) async {
         let k = Self.key(t)
-        if let s = t.starred, serverStarred[k] == nil { serverStarred[k] = s }
+        if let s = t.starred { hearts.report(s, provider: t.provider, songId: t.id) }
         if let r = t.userRating, serverRating[k] == nil { serverRating[k] = r }
         if t.provider == AppleMusicMapping.provider {
             // No lyrics through MusicKit; the "heart" is library membership
             // (Android's add-to-library button), the rating stays local.
             if lyrics[k] == nil { lyrics[k] = LyricsState.none }
-            if let apple, serverStarred[k] == nil, !infoRequested.contains(k) {
+            if let apple, !hearts.hasReport(provider: t.provider, songId: t.id), !infoRequested.contains(k) {
                 infoRequested.insert(k)
-                if let added = await apple.isInLibrary(t.id) { serverStarred[k] = added } else { infoRequested.remove(k) }
+                if let added = await apple.isInLibrary(t.id) {
+                    hearts.report(added, provider: t.provider, songId: t.id)
+                } else {
+                    infoRequested.remove(k)
+                }
             }
             return
         }
@@ -117,7 +121,7 @@ final class NowPlayingData {
             infoRequested.remove(k)
             return
         }
-        if t.starred == nil { serverStarred[k] = song.starred }
+        if t.starred == nil { hearts.report(song.starred, provider: t.provider, songId: t.id) }
         if t.userRating == nil, let r = song.userRating { serverRating[k] = Int(r.int32Value) }
     }
 
@@ -152,7 +156,7 @@ final class NowPlayingData {
         do {
             if let song = try await client.getSong(id: t.id) {
                 about[k] = .ready(SongFacts(song, fallback: t))
-                if t.starred == nil, serverStarred[k] == nil { serverStarred[k] = song.starred }
+                if t.starred == nil { hearts.report(song.starred, provider: t.provider, songId: t.id) }
                 if t.userRating == nil, serverRating[k] == nil, let r = song.userRating { serverRating[k] = Int(r.int32Value) }
             } else {
                 about[k] = .ready(SongFacts(t))
@@ -165,46 +169,13 @@ final class NowPlayingData {
     // MARK: Heart
 
     func isFavorite(_ t: PlayableTrack) -> Bool {
-        let k = Self.key(t)
-        // Then the flag the song was resolved with (the song sheet favorites
-        // songs Now Playing hasn't prepared).
-        return favorites[k] ?? serverStarred[k] ?? t.starred ?? false
+        hearts.isFavorite(provider: t.provider, songId: t.id, known: t.starred)
     }
 
-    /// Optimistic: the heart flips at once and flips back if the server says no.
+    /// Optimistic: the heart flips at once and flips back if the server says
+    /// no (`FavoritesStore`; Apple Music adds to the library only).
     func toggleFavorite(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil) {
-        let k = Self.key(t)
-        let was = isFavorite(t)
-        let target = !was
-        if t.provider == AppleMusicMapping.provider {
-            // Add to library only: Apple has no remove, so an added song stays added.
-            guard !was, let apple else { return }
-            favorites[k] = true
-            Task {
-                do {
-                    try await apple.addToLibrary(t.id)
-                    serverStarred[k] = true
-                } catch {
-                    if favorites[k] == true { favorites[k] = false }
-                }
-            }
-            return
-        }
-        favorites[k] = target
-        guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
-        Task {
-            do {
-                if target {
-                    try await client.star(id: t.id, albumId: nil, artistId: nil)
-                } else {
-                    try await client.unstar(id: t.id, albumId: nil, artistId: nil)
-                }
-                serverStarred[k] = target
-            } catch {
-                // Only undo our own write: a newer tap owns the heart now.
-                if favorites[k] == target { favorites[k] = was }
-            }
-        }
+        hearts.toggle(provider: t.provider, songId: t.id, known: t.starred, client: client, apple: apple)
     }
 
     // MARK: Rating
