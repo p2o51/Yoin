@@ -44,6 +44,9 @@ struct AlbumScrapbookView: View {
         Rectangle().fill(.white.opacity(0.01)).frame(height: height).allowsHitTesting(false)
     }
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(AppModel.self) private var model
+    /// The ticket whose score sheet is open (Android AlbumScrapbookTrackSheet's score row).
+    @State private var scoring: Track?
     /// The stamp (Android CoverWithEmblem, D3 §8): once per album page, the
     /// emblem's award plays when the pager comes to rest here; until then it
     /// waits uncut. No haptics on the album page (D3 §11.12).
@@ -147,6 +150,11 @@ struct AlbumScrapbookView: View {
             stampIfSettled()
         }
         .onChange(of: settled) { _, _ in stampIfSettled() }
+        .sheet(item: $scoring) { t in
+            ScrapScoreSheet(track: t, scheme: s, store: model.store)
+                .presentationDetents([.height(220)])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: Stamp
@@ -393,6 +401,10 @@ struct AlbumScrapbookView: View {
                     .offset(x: -9, y: -10)
             }
         }
+        .contentShape(TicketShape())
+        // A server album's ticket opens its score (the mock's are hand-set).
+        .onTapGesture { if !isMock { scoring = t } }
+        .accessibilityAddTraits(isMock ? [] : .isButton)
         .modifier(layer(tilt("\(t.number)/tk", Tilt.ticket), depth: 0.5))
     }
 
@@ -623,5 +635,144 @@ struct ProgressiveEdgeBlur: View {
                            startPoint: .top, endPoint: .bottom)
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// A ticket's score (Android AlbumScrapbookTrackSheet, score row, minimal):
+/// the number pill ("—" unrated), a horizontal bar that rates where the
+/// finger lands and commits on release, and Clear, the one place a song goes
+/// back to never rated (51, 2026-11-04). Clear offers Undo in a dark pill.
+struct ScrapScoreSheet: View {
+    var track: Track
+    var scheme: CoverScheme
+    var store: LibraryStore
+
+    @State private var draft: Double?
+    @State private var undo: (value: Double, id: UUID)?
+
+    private var ratings: LocalRatings { .shared }
+    private var stored: Double? { ratings.rating(provider: track.id.provider, songId: track.id.rawId) }
+    private var live: Double? { draft ?? stored }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Text(String(format: "%02d", track.number))
+                    .font(.gsf(14, .medium)).monospacedDigit()
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                Text(track.title)
+                    .font(.gsf(22, .semibold)).lineLimit(1)
+                    .foregroundStyle(scheme.onSurface)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(RatingBar.label(live) ?? "—")
+                    .font(.gsf(16, .semibold)).monospacedDigit()
+                    .foregroundStyle(scheme.onPrimaryContainer)
+                    .padding(.horizontal, 16)
+                    .frame(minWidth: 60, minHeight: 40)
+                    .background(scheme.primaryContainer, in: .capsule)
+                    .contentTransition(.numericText())
+                    .accessibilityLabel(live == nil ? "Not rated" : "Score \(RatingBar.label(live) ?? "")")
+            }
+            HStack(spacing: 8) {
+                ScrapScoreBar(value: live, scheme: scheme, onChange: { draft = $0 }, onCommit: commit)
+                // Its width is held when it fades, so clearing doesn't shift the bar.
+                Button("Clear", action: clear)
+                    .font(.gsf(15, .medium))
+                    .foregroundStyle(scheme.primary)
+                    .frame(width: 64)
+                    .opacity(live == nil ? 0 : 1)
+                    .disabled(live == nil)
+                    .animation(Yoin.effects, value: live == nil)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 28)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) {
+            if let u = undo {
+                HStack(spacing: 16) {
+                    Text("Rating cleared").font(.gsf(15, .medium))
+                    Button("Undo") { restore(u.value) }
+                        .font(.gsf(15, .semibold))
+                        .foregroundStyle(scheme.inversePrimary)
+                }
+                .foregroundStyle(scheme.inverseOnSurface)
+                .padding(.horizontal, 20)
+                .frame(height: 48)
+                .background(scheme.inverseSurface, in: .capsule)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .id(u.id)
+            }
+        }
+        .background(scheme.surfaceContainerLow)
+        .animation(Yoin.spatial, value: undo?.id)
+    }
+
+    private func commit() {
+        guard let v = draft else { return }
+        ratings.set(v, provider: track.id.provider, songId: track.id.rawId)
+        draft = nil
+        Task { _ = await store.setRating(track, rating: v) }
+    }
+
+    private func clear() {
+        guard let was = stored else { return }
+        draft = nil
+        withAnimation(Yoin.spatial) {
+            ratings.clear(provider: track.id.provider, songId: track.id.rawId)
+        }
+        // Subsonic: 0 stars removes the server's rating.
+        Task { _ = await store.setRating(track, rating: nil) }
+        let id = UUID()
+        undo = (was, id)
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            if undo?.id == id { undo = nil }
+        }
+    }
+
+    private func restore(_ v: Double) {
+        undo = nil
+        withAnimation(Yoin.spatial) {
+            ratings.set(v, provider: track.id.provider, songId: track.id.rawId)
+        }
+        Task { _ = await store.setRating(track, rating: v) }
+    }
+}
+
+/// The sheet's horizontal score bar (Android RatingSlider, horizontal): the
+/// primary fill from the leading edge, empty while unrated; touch-down rates
+/// where the finger lands, release commits.
+private struct ScrapScoreBar: View {
+    var value: Double?
+    var scheme: CoverScheme
+    var onChange: (Double) -> Void
+    var onCommit: () -> Void
+
+    var body: some View {
+        GeometryReader { g in
+            let w = g.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(scheme.surfaceContainerHighest)
+                Capsule().fill(scheme.primary)
+                    .frame(width: value == nil ? 0 : max(48, w * (value ?? 0) / 10))
+                    .animation(Yoin.spatial, value: value == nil)
+            }
+            .animation(Yoin.spatialFast, value: value)
+            .contentShape(.capsule)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        let raw = Double(v.location.x / max(w, 1) * 10)
+                        onChange((min(10, max(0, raw)) * 10).rounded() / 10)
+                    }
+                    .onEnded { _ in onCommit() }
+            )
+        }
+        .frame(height: 48)
+        .accessibilityElement()
+        .accessibilityLabel("Score")
+        .accessibilityValue(RatingBar.label(value) ?? "Not rated")
     }
 }

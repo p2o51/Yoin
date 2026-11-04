@@ -197,16 +197,18 @@ final class NowPlayingData {
 
     // MARK: Rating
 
-    /// 0–10: the finger's value while held, else this device's rating, else
-    /// the server's stars × 2, else 0.
-    func rating(_ t: PlayableTrack) -> Double {
+    /// 0–10: the finger's value while held, else this device's (or a synced)
+    /// rating; nil = never rated. The server's stars alone don't count: Android
+    /// NP reads local_ratings only, so a song is unrated until it is rated here
+    /// (or on a synced device). 0 is a rating, distinct from nil.
+    func rating(_ t: PlayableTrack) -> Double? {
         let k = Self.key(t)
         if let d = draftRating[k] { return d }
-        if let local = ratings.rating(provider: t.provider, songId: t.id) { return local }
-        return RatingScale.local(fromServer: serverRating[k]) ?? 0
+        return ratings.rating(provider: t.provider, songId: t.id)
     }
 
-    func dragRating(_ value: Double, _ t: PlayableTrack) {
+    func dragRating(_ value: Double?, _ t: PlayableTrack) {
+        guard let value else { return }
         draftRating[Self.key(t)] = value
     }
 

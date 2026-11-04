@@ -102,8 +102,9 @@ enum HomeHistory {
         }
         // Android AlbumMemoryCandidateBuilder: local_ratings and album_ratings only, never the server's stars
         // (the album page's Bun reads the same: AlbumBun).
+        // A stored 0 is a rating (nil = never rated).
         func rating(_ song: String) -> Double? {
-            x.localRating(song).flatMap { $0 > 0 ? $0 : nil }
+            x.localRating(song)
         }
         var ids = Set(stats.keys).union(notesOf.keys).union(x.ratedAlbumIds)
         for (id, songs) in songsOf where songs.contains(where: { rating($0) != nil }) { ids.insert(id) }
@@ -194,7 +195,7 @@ enum HomeHistory {
         guard let note = words.max(by: { ($0.updatedAt, $0.createdAt) < ($1.updatedAt, $1.createdAt) }) else { return nil }
         let play = x.plays.filter { $0.songId == note.trackId }.max { $0.startedAt < $1.startedAt }
         let album = play?.albumId.flatMap { x.details[$0] ?? x.resolve($0, play) } ?? placeholder(note)
-        let rating = x.localRating(note.trackId).flatMap { $0 > 0 ? $0 : nil }
+        let rating = x.localRating(note.trackId)
         var track = album.tracks.first { $0.id.rawId == note.trackId }
             ?? Track(id: MediaId(provider: note.provider, rawId: note.trackId), number: 1, title: note.title,
                      durationSec: max(1, Int((play?.durationSec ?? 0).rounded())), rating: rating,
@@ -323,9 +324,9 @@ enum HomeHistory {
         return m == 1 ? "1 month away" : "\(m) months away"
     }
 
-    /// The seal's "%.1f", "N/A" without a score.
+    /// The seal's "%.1f", "N/A" without a score (0 is a score: "0.0").
     static func scoreText(_ r: Double?) -> String {
-        guard let r, r > 0 else { return "N/A" }
+        guard let r else { return "N/A" }
         return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), r)
     }
 

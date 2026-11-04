@@ -38,7 +38,7 @@ struct NowPlayingView: View {
     @State private var shortFocus = false
     /// The expanded Note page's order (Android NoteSortMode).
     @State private var noteSort: NotesStore.SortMode = .timeline
-    @State private var rating: Double = 6.3
+    @State private var rating: Double? = 6.3
     @State private var favorite = true
     /// One "hands on the controls" state for rating, heart, transport and
     /// the progress bar: while it is on, the progress bar sits in glass.
@@ -534,6 +534,17 @@ struct NowPlayingView: View {
                 heart
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
+            // World: pressing the rating lifts the heart with it; their glass
+            // shares one container, so the two shapes reach for each other.
+            .background(alignment: .top) {
+                if heartLifts {
+                    RatingHeartLift(lifted: ratingHeld, scheme: scheme,
+                                    bar: CGSize(width: Tokens.np.RATING_BAR_WIDTH.cg,
+                                                height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg)),
+                                    gap: Tokens.np.RATING_TO_HEART_GAP.cg, heart: Tokens.np.HEART_SIZE.cg,
+                                    heartTint: heartSurfaceTint)
+                }
+            }
             .frame(width: Tokens.np.PHONE_RATING_COLUMN.cg)
             .offset(x: retreat ? 72 : 0)
             .opacity(retreat ? 0 : 1)
@@ -547,9 +558,10 @@ struct NowPlayingView: View {
         }
     }
 
-    /// The engine's song: its rating (local, else the server's stars × 2);
+    /// The engine's song: this device's (or a synced) rating, nil = never
+    /// rated (Android reads local_ratings only, never the server's stars);
     /// the mock: the screenshot value.
-    private var ratingBinding: Binding<Double> {
+    private var ratingBinding: Binding<Double?> {
         guard let t = engineTrack else { return $rating }
         return Binding(get: { data.rating(t) }, set: { data.dragRating($0, t) })
     }
@@ -590,10 +602,28 @@ struct NowPlayingView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(PressReport { touch("heart", $0) })
-        .labGlass(surface, scheme: scheme, brand: brand,
-                  auto: favorite ? scheme.tertiary : scheme.tertiaryContainer, in: Circle())
+        .modifier(HeartSurface(world: heartLifts, lifted: ratingHeld, rest: heartSurfaceTint,
+                               surface: surface, scheme: scheme, brand: brand,
+                               auto: favorite ? scheme.tertiary : scheme.tertiaryContainer))
+        .scaleEffect(heartLifts && ratingHeld ? RatingLift.scale : 1)
         .animation(Yoin.effects, value: favorite)
         .accessibilityLabel(heartLabel(favorite))
+    }
+
+    /// World (liftInFlow, tonal heart): the heart rises into glass with the
+    /// rating bar while the bar is held. Pressing the heart alone only toggles.
+    private var heartLifts: Bool {
+        lab.extra("liftInFlow") > 0.5 && lab.style("heart").variant == .none
+            && !(isFavorite && lab.extra("heartLikedAccent") > 0.5)
+    }
+
+    /// The heart's own surface colour (liked: tertiary), kept in the glass.
+    private var heartSurfaceTint: Color {
+        let favorite = isFavorite
+        let st = lab.style("heart")
+        let o = st.tintOn ? lab.tintOpacity("heart", dark: colorScheme == .dark) : 0
+        return st.role.color(in: scheme, brand: brand, auto: favorite ? scheme.tertiary : scheme.tertiaryContainer)
+            .opacity(o)
     }
 
     /// Apple Music's button is add to library (Android TrackLibraryButton): + / ✓.
@@ -1542,32 +1572,37 @@ struct NowPlayingView: View {
 /// it sits inside the glass capsule. World (`liftInFlow`): a tonal slot at
 /// rest that physically lifts off the stage while held (RatingLift).
 ///
-/// The drag is relative: touching down keeps the score, moving the finger
-/// changes it (no jump to the finger at touch-down while the bar lifts). A
-/// tap without movement still sets the score where it lands.
+/// Touch-down sets the score at the finger at once (Android RatingSlider)
+/// and the drag carries on from there. nil is "never rated": an empty bar
+/// with no number; the first touch rates it, the number fading / scaling in
+/// (effects) as the fill grows from nothing (spatial). There is no gesture
+/// back to unrated.
 struct RatingBar: View {
-    @Binding var value: Double
+    @Binding var value: Double?
     var scheme: CoverScheme
     var held = false
     /// Finger down / up.
     var onHold: (Bool) -> Void = { _ in }
 
-    /// The score at touch-down; nil while not touched.
-    @State private var dragStart: Double?
+    @State private var down = false
 
-    /// Below this many points a touch is a tap.
-    private static let tapSlop: CGFloat = 4
+    /// The bar's number: none while unrated, "10" at the top, else one decimal.
+    static func label(_ value: Double?) -> String? {
+        guard let value else { return nil }
+        return value >= 10 ? "10" : String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+    }
 
     var body: some View {
         GeometryReader { geo in
             let h = geo.size.height
-            let fraction = value / 10
+            let fraction = (value ?? 0) / 10
             let crossover = Tokens.np.RATING_LABEL_CROSSOVER
             let inset: CGFloat = held ? 4 : 0
             ZStack(alignment: .top) {
                 // Track: glass tinted with the container role, so the
                 // background shows through; the fill (the score) stays solid.
                 if GlassLab.shared.extra("liftInFlow") > 0.5 {
+                    // The glass and shadow live in the column (RatingHeartLift).
                     RatingLift(lifted: held, scheme: scheme)
                 } else {
                     Capsule().fill(.clear)
@@ -1576,35 +1611,37 @@ struct RatingBar: View {
                 Capsule()
                     // Held, the fill goes full strength (World rests it lower).
                     .fill(scheme.primary.opacity(held ? 1 : GlassLab.shared.extra("ratingFill")))
-                    .frame(height: max(48 - inset * 2, (h - inset * 2) * fraction))
+                    // Unrated: no fill at all; rated, at least the 48 pt cap.
+                    .frame(height: value == nil ? 0 : max(48 - inset * 2, (h - inset * 2) * fraction))
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .padding(inset)
+                    .animation(Yoin.spatial, value: value == nil)
                 // titleLarge (22/28) tabular; the color crosses from
                 // onSurfaceVariant to onPrimary as the fill goes 80 → 100 %.
-                Text(value >= 10 ? "10" : String(format: "%.1f", value))
-                    .yoinRole(Tokens.type.titleLarge)
-                    .monospacedDigit()
-                    .foregroundStyle(scheme.onSurfaceVariant.mix(with: scheme.onPrimary,
-                                                                 by: min(1, max(0, (fraction - crossover) / (1 - crossover)))))
-                    .frame(minWidth: 36)
-                    .padding(.top, 8)
+                if let label = Self.label(value) {
+                    Text(label)
+                        .yoinRole(Tokens.type.titleLarge)
+                        .monospacedDigit()
+                        .foregroundStyle(scheme.onSurfaceVariant.mix(with: scheme.onPrimary,
+                                                                     by: min(1, max(0, (fraction - crossover) / (1 - crossover)))))
+                        .frame(minWidth: 36)
+                        .padding(.top, 8)
+                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .top)).animation(Yoin.effects))
+                }
             }
             .contentShape(.capsule)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        if dragStart == nil {
-                            dragStart = value
+                        if !down {
+                            down = true
                             onHold(true)
                         }
-                        guard let start = dragStart, abs(v.translation.height) >= Self.tapSlop else { return }
-                        set(start - Double(v.translation.height / h * 10))
+                        let raw = Double((1 - v.location.y / h) * 10)
+                        value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
                     }
-                    .onEnded { v in
-                        if abs(v.translation.height) < Self.tapSlop {
-                            set(Double((1 - v.location.y / h) * 10))
-                        }
-                        dragStart = nil
+                    .onEnded { _ in
+                        down = false
                         onHold(false)
                     }
             )
@@ -1613,22 +1650,14 @@ struct RatingBar: View {
         .scaleEffect(held ? RatingLift.scale : 1)
         .accessibilityElement()
         .accessibilityLabel("Rating")
-        .accessibilityValue(String(format: "%.1f", value))
-    }
-
-    private func set(_ raw: Double) {
-        value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
+        .accessibilityValue(Self.label(value) ?? "Not rated")
     }
 }
 
-/// World's rating track (Glass Lab "ratingTrack" + liftInFlow): a tonal
-/// slot at rest that lifts off the stage while held. The rest fill fades
-/// out as the glass materializes in its own container (and dematerializes
-/// back on release: the glass is inserted and removed, never switched to
-/// `.identity`, which snapped off in one frame); the shadow, from the one
-/// light straight above (R4), exists only while lifted. The caller scales
-/// the bar by `scale` under the same spring, so lift and settle are one
-/// motion.
+/// World's rating track (Glass Lab "ratingTrack" + liftInFlow): the tonal
+/// slot at rest. While held it fades out and RatingHeartLift's glass, behind
+/// it in the rating column, carries the bar. The caller scales the bar by
+/// `scale` under the same spring, so lift and settle are one motion.
 struct RatingLift: View {
     var lifted: Bool
     var scheme: CoverScheme
@@ -1638,28 +1667,106 @@ struct RatingLift: View {
 
     var body: some View {
         let lab = GlassLab.shared
+        let tint = lab.style("ratingTrack").role.color(in: scheme, brand: .brand(dark: false), auto: scheme.surfaceVariant)
+        Capsule()
+            .fill(tint.opacity(lab.extra("liftRestOpacity")))
+            .opacity(lifted ? 0 : 1)
+            .animation(Yoin.effects, value: lifted)
+    }
+}
+
+/// World: the rating bar and the heart lift off the stage together (51,
+/// 2026-11-04). Both glass shapes sit in ONE GlassEffectContainer whose
+/// spacing reaches across the 8 pt gap, so while lifted they bulge toward
+/// each other and blend at the near edges (Liquid Glass's two glasses
+/// interacting), then part and settle back on release. The glass is
+/// inserted / removed (materialize), never switched to `.identity`, which
+/// snapped off in one frame; the shadows, from the one light straight above
+/// (R4), exist only while lifted. Scale and glass ride the caller's spring.
+struct RatingHeartLift: View {
+    var lifted: Bool
+    var scheme: CoverScheme
+    var bar: CGSize
+    var gap: CGFloat
+    var heart: CGFloat
+    /// The heart's surface colour (liked: tertiary), kept inside its glass.
+    var heartTint: Color
+
+    /// Wider than the gap, so the two glasses merge while lifted.
+    static let spacing: CGFloat = 24
+
+    var body: some View {
+        let lab = GlassLab.shared
         let st = lab.style("ratingTrack")
         let tint = st.role.color(in: scheme, brand: .brand(dark: false), auto: scheme.surfaceVariant)
-        ZStack {
-            // The shadow sits under the glass, a blurred capsule straight
-            // down, so it fades in and out with the lift and never pops.
-            Capsule()
-                .fill(.black.opacity(st.shadowOpacity))
-                .blur(radius: st.shadowRadius / 2)
-                .offset(y: st.shadowY)
-                .opacity(lifted ? 1 : 0)
-            GlassEffectContainer {
-                if lifted {
-                    Capsule().fill(.clear)
-                        .glassEffect(.regular.tint(tint.opacity(st.tintOpacity)).interactive(), in: .capsule)
-                        .glassEffectTransition(.materialize)
+        let s = lifted ? RatingLift.scale : 1
+        ZStack(alignment: .top) {
+            // Shadows under the glass: blurred shapes straight down.
+            VStack(spacing: gap) {
+                Capsule().frame(width: bar.width, height: bar.height).scaleEffect(s)
+                Circle().frame(width: heart, height: heart).scaleEffect(s)
+            }
+            .foregroundStyle(.black.opacity(st.shadowOpacity))
+            .blur(radius: st.shadowRadius / 2)
+            .offset(y: st.shadowY)
+            .opacity(lifted ? 1 : 0)
+            // Lifting, the shadow waits for the glass to materialize over it
+            // (else it greys the bar for a frame or two); settling, it goes at once.
+            .animation(lifted ? Yoin.effects.delay(0.12) : Yoin.effects, value: lifted)
+            GlassEffectContainer(spacing: Self.spacing) {
+                VStack(spacing: gap) {
+                    ZStack {
+                        if lifted {
+                            Capsule().fill(.clear)
+                                .glassEffect(.regular.tint(tint.opacity(st.tintOpacity)).interactive(), in: .capsule)
+                                .glassEffectTransition(.materialize)
+                        }
+                    }
+                    .frame(width: bar.width, height: bar.height)
+                    .scaleEffect(s)
+                    ZStack {
+                        if lifted {
+                            Circle().fill(.clear)
+                                .glassEffect(.regular.tint(heartTint.opacity(0.8)).interactive(), in: .circle)
+                                .glassEffectTransition(.materialize)
+                        }
+                    }
+                    .frame(width: heart, height: heart)
+                    .scaleEffect(s)
                 }
             }
-            Capsule()
-                .fill(tint.opacity(lab.extra("liftRestOpacity")))
-                .opacity(lifted ? 0 : 1)
         }
-        .animation(Yoin.effects, value: lifted)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The NP heart's surface: World's tonal circle at rest, faded out while the
+/// rating lift carries the heart in glass (RatingHeartLift); elsewhere the
+/// plain Glass Lab surface.
+private struct HeartSurface: ViewModifier {
+    var world: Bool
+    var lifted: Bool
+    var rest: Color
+    var surface: String
+    var scheme: CoverScheme
+    var brand: CoverScheme
+    var auto: Color
+
+    func body(content: Content) -> some View {
+        if world {
+            content.background {
+                // Lifted, half the tonal circle stays over the glass (same
+                // tint), so the glass reads through it yet the heart keeps its
+                // colour and brightness: no pale frame while the glass
+                // dematerializes, no dark-mode jump on release.
+                Circle().fill(rest)
+                    .opacity(lifted ? 0.5 : 1)
+                    .animation(Yoin.effects, value: lifted)
+            }
+        } else {
+            content.labGlass(surface, scheme: scheme, brand: brand, auto: auto, in: Circle())
+        }
     }
 }
 

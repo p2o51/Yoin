@@ -42,6 +42,51 @@ final class CloudSyncStoresTests: XCTestCase {
         XCTAssertEqual(bun.score, 8.7)
     }
 
+    func test_should_showNoLabel_when_songIsUnrated() {
+        XCTAssertNil(RatingBar.label(nil))
+        XCTAssertEqual(RatingBar.label(0), "0.0")
+        XCTAssertEqual(RatingBar.label(7.4), "7.4")
+        XCTAssertEqual(RatingBar.label(10), "10")
+    }
+
+    /// 51, 2026-11-04: nil (never rated) and 0 (rated at the bottom) are different everywhere a rating shows.
+    func test_should_keepZeroApartFromUnrated_when_storedAndReloaded() {
+        let url = dir.appendingPathComponent("ratings.json")
+        let ratings = LocalRatings(fileURL: url)
+        XCTAssertNil(ratings.rating(provider: "subsonic", songId: "t1"))
+        ratings.set(0, provider: "subsonic", songId: "t1")
+        XCTAssertEqual(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "t1"), 0)
+        XCTAssertNil(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "t2"))
+
+        let memories = AlbumMemoryStore(fileURL: dir.appendingPathComponent("album-memories.json"))
+        let tracks = (1...2).map { Track(id: MediaId(provider: "subsonic", rawId: "t\($0)"), number: $0, title: "T\($0)",
+                                         durationSec: 200) }
+        let album = Album(id: MediaId(provider: "subsonic", rawId: "al"), title: "A", artist: "B", year: 2020,
+                          palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: tracks)
+        let bun = AlbumBun.of(album, ratings: ratings, memories: memories)
+        XCTAssertEqual(bun.rated, [true, false])
+        XCTAssertEqual(bun.kind, .average)
+        XCTAssertEqual(bun.score, 0)
+        XCTAssertEqual(HomeHistory.scoreText(0), "0.0")
+        XCTAssertEqual(HomeHistory.scoreText(nil), "N/A")
+    }
+
+    /// The scrapbook's Clear: back to nil (not 0), counted as a local edit for sync.
+    func test_should_forgetRating_when_cleared() {
+        var local = 0
+        LocalRatings.onLocalChange = { local += 1 }
+        let url = dir.appendingPathComponent("ratings.json")
+        let ratings = LocalRatings(fileURL: url)
+        ratings.set(6.4, provider: "subsonic", songId: "s1")
+        ratings.clear(provider: "subsonic", songId: "s1")
+        XCTAssertNil(ratings.rating(provider: "subsonic", songId: "s1"))
+        XCTAssertNil(ratings.updatedAt["subsonic:s1"])
+        XCTAssertNil(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "s1"))
+        XCTAssertEqual(local, 2)
+        ratings.clear(provider: "subsonic", songId: "s1")
+        XCTAssertEqual(local, 2, "nothing to clear: no edit")
+    }
+
     func test_should_readLegacyRatings_when_noTimesFileExists() throws {
         let url = dir.appendingPathComponent("ratings.json")
         try JSONEncoder().encode(["subsonic:s1": 7.5]).write(to: url)

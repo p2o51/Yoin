@@ -216,7 +216,7 @@ struct HomeView: View {
     private static func mockSignal(_ album: Album, _ kind: JBISignal.Kind) -> JBISignal {
         kind == .ratedAlbum
             ? JBISignal(kind: kind, album: album, title: album.title, subtitle: album.artist,
-                        score: String(format: "%.1f", album.rating ?? 0), basis: "Oct 28",
+                        score: HomeHistory.scoreText(album.rating), basis: "Oct 28",
                         comment: "A field that stays bright after dark")
             : JBISignal(kind: kind, album: album, title: album.tracks[0].title, subtitle: album.artist,
                         score: "8.0", basis: "Nov 1", comment: "The bridge at 2:10 sounds like summer ending")

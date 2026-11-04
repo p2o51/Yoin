@@ -75,6 +75,16 @@ final class LocalRatings {
         Self.onLocalChange?()
     }
 
+    /// Back to never rated (the scrapbook's Clear; nowhere else offers it).
+    func clear(provider: String, songId: String) {
+        let key = Self.key(provider: provider, songId: songId)
+        guard ratings[key] != nil else { return }
+        ratings[key] = nil
+        updatedAt[key] = nil
+        persist()
+        Self.onLocalChange?()
+    }
+
     // MARK: Cloud sync (Data/Sync): writes that came from another device
 
     func syncPut(_ rating: Double, provider: String, songId: String, updatedAt time: Int64) {

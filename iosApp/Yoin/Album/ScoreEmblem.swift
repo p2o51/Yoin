@@ -344,7 +344,9 @@ extension CoverSeed {
 struct AlbumBun: Equatable {
     /// The album's own rating (> 0), else nil.
     var albumRating: Double?
-    /// Each track's score (> 0), in track order; nil = not rated.
+    /// Each track's score, in track order; nil = not rated (0 is a rating).
+    /// The album's own rating keeps > 0: album_ratings holds 0 for a review
+    /// without a score.
     var trackScores: [Double?]
 
     var rated: [Bool] { trackScores.map { $0 != nil } }
@@ -366,7 +368,7 @@ struct AlbumBun: Equatable {
         return AlbumBun(
             albumRating: own.flatMap { $0 > 0 ? $0 : nil },
             trackScores: album.tracks.map { t in
-                ratings.rating(provider: t.id.provider, songId: t.id.rawId).flatMap { $0 > 0 ? $0 : nil }
+                ratings.rating(provider: t.id.provider, songId: t.id.rawId)
             })
     }
 }

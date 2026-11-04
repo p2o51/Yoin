@@ -167,7 +167,8 @@ final class RatingScaleTests: XCTestCase {
         XCTAssertNil(reloaded.rating(provider: "spotify", songId: "s1"))
     }
 
-    func test_should_preferLocalThenServerStars_when_readingNowPlayingRating() async throws {
+    /// 51, 2026-11-04: the server's stars alone leave the song unrated (Android NP reads local_ratings only).
+    func test_should_readLocalRatingOnly_when_readingNowPlayingRating() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString).appendingPathComponent("ratings.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -175,10 +176,12 @@ final class RatingScaleTests: XCTestCase {
         let track = PlayableTrack(id: "s1", provider: "subsonic", title: "T", artist: "A", album: "Al", albumId: nil,
                                   durationSec: 200, streamURL: URL(string: "http://x/s1")!, coverURL: nil,
                                   starred: true, userRating: 3)
-        XCTAssertEqual(data.rating(track), 0, "nothing known before prepare")
+        XCTAssertNil(data.rating(track), "nothing known before prepare")
         await data.prepare(track, client: nil)
-        XCTAssertEqual(data.rating(track), 6)
+        XCTAssertNil(data.rating(track), "server stars alone: unrated")
         XCTAssertTrue(data.isFavorite(track))
+        data.dragRating(0, track)
+        XCTAssertEqual(data.rating(track), 0, "0 is a rating")
         data.dragRating(8.2, track)
         XCTAssertEqual(data.rating(track), 8.2)
         data.commitRating(track, client: nil)
