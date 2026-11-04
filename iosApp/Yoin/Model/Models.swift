@@ -58,6 +58,8 @@ struct Track: Identifiable, Hashable, Sendable {
     var starred: Bool = false
     var playCount: Int? = nil
     var disc: Int? = nil
+    /// The file's bit rate as the server lists it (Subsonic), for the stream quality.
+    var bitRateKbps: Int? = nil
 }
 
 enum ReleaseKind: String, Hashable, Sendable {
@@ -221,8 +223,14 @@ struct HomeFeed: Hashable, Sendable {
     var recentTracks: [PlaylistEntry]
     var recentAlbums: [Album]
     var rediscover: [RediscoverEntry]
+    /// Jump Back In's 1×2s from local history (server layout): the rated
+    /// album, then the noted track. The mock layout places its own.
+    var signals: [JBISignal] = []
+    /// Raw album id → its cover's memory mark (server layout).
+    var memoryMarks: [String: AlbumMemoryMark] = [:]
 
     var isEmpty: Bool {
         activities.isEmpty && jumpBackIn.isEmpty && recentTracks.isEmpty && recentAlbums.isEmpty && rediscover.isEmpty
+            && signals.isEmpty
     }
 }

@@ -122,19 +122,59 @@ struct HomeView: View {
 
     @ViewBuilder
     private func jumpBackIn(_ feed: HomeFeed) -> some View {
-        if feed.layout == .mock { mockJumpBackIn(feed.jumpBackIn) } else { serverJumpBackIn(feed.jumpBackIn) }
+        if feed.layout == .mock { mockJumpBackIn(feed.jumpBackIn) } else { serverJumpBackIn(feed) }
     }
 
-    /// A server's shelf: plain cells, three to a row.
-    private func serverJumpBackIn(_ a: [Album]) -> some View {
+    /// One Jump Back In row of a server's shelf.
+    private enum JBIRow: Hashable {
+        /// A 1×2 then a cover, or a cover then a 1×2 (the mock's two rows).
+        case signal(JBISignal, Album?, leading: Bool)
+        case covers([Album])
+    }
+
+    /// The 3 × 4 cells (a 1×2 takes two): the rated album's row, then the
+    /// noted track's, then plain covers three to a row.
+    private func serverRows(_ feed: HomeFeed) -> [JBIRow] {
+        var covers = feed.jumpBackIn[...]
+        var rows: [JBIRow] = []
+        for (i, s) in feed.signals.prefix(2).enumerated() {
+            rows.append(.signal(s, covers.popFirst(), leading: i == 0))
+        }
+        while !covers.isEmpty && rows.count < 4 {
+            let n = min(3, covers.count)
+            rows.append(.covers(Array(covers.prefix(n))))
+            covers.removeFirst(n)
+        }
+        return rows
+    }
+
+    /// A server's shelf: the history's 1×2s, then plain cells, three to a row;
+    /// covers wear their memory marks.
+    private func serverJumpBackIn(_ feed: HomeFeed) -> some View {
         let colGap = Tokens.home.JBI_COLUMN_GAP.cg
         let col = (contentWidth - 2 * colGap) / 3
+        let pairUnit = (contentWidth - colGap) / 3
+        let rows = serverRows(feed)
         return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
             HomeSectionTitle("Jump Back In")
-            ForEach(Array(stride(from: 0, to: a.count, by: 3)), id: \.self) { i in
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: colGap) {
-                    ForEach(a[i..<min(i + 3, a.count)]) { album in
-                        JBICell(album: album, mark: nil).frame(width: col, alignment: .leading)
+                    switch row {
+                    case let .signal(signal, cover, leading):
+                        if !leading, let cover {
+                            JBICell(album: cover, mark: feed.memoryMarks[cover.id.rawId])
+                                .frame(width: pairUnit, alignment: .leading)
+                        }
+                        SignalCard(signal: signal).frame(width: pairUnit * 2, alignment: .leading)
+                        if leading, let cover {
+                            JBICell(album: cover, mark: feed.memoryMarks[cover.id.rawId])
+                                .frame(width: pairUnit, alignment: .leading)
+                        }
+                    case let .covers(albums):
+                        ForEach(albums) { album in
+                            JBICell(album: album, mark: feed.memoryMarks[album.id.rawId])
+                                .frame(width: col, alignment: .leading)
+                        }
                     }
                 }
             }
@@ -152,12 +192,12 @@ struct HomeView: View {
             HomeSectionTitle("Jump Back In")
             VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
                 HStack(alignment: .top, spacing: colGap) {
-                    SignalCard(album: a[0], kind: .ratedAlbum).frame(width: pairUnit * 2, alignment: .leading)
+                    SignalCard(signal: Self.mockSignal(a[0], .ratedAlbum)).frame(width: pairUnit * 2, alignment: .leading)
                     JBICell(album: a[1], mark: .solid).frame(width: pairUnit, alignment: .leading)
                 }
                 HStack(alignment: .top, spacing: colGap) {
                     JBICell(album: a[2], mark: nil).frame(width: pairUnit, alignment: .leading)
-                    SignalCard(album: a[5], kind: .notedTrack).frame(width: pairUnit * 2, alignment: .leading)
+                    SignalCard(signal: Self.mockSignal(a[5], .notedTrack)).frame(width: pairUnit * 2, alignment: .leading)
                 }
                 ForEach(0..<2, id: \.self) { row in
                     HStack(alignment: .top, spacing: colGap) {
@@ -170,6 +210,16 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    /// The screenshots' hand-set 1×2 copy.
+    private static func mockSignal(_ album: Album, _ kind: JBISignal.Kind) -> JBISignal {
+        kind == .ratedAlbum
+            ? JBISignal(kind: kind, album: album, title: album.title, subtitle: album.artist,
+                        score: String(format: "%.1f", album.rating ?? 0), basis: "Oct 28",
+                        comment: "A field that stays bright after dark")
+            : JBISignal(kind: kind, album: album, title: album.tracks[0].title, subtitle: album.artist,
+                        score: "8.0", basis: "Nov 1", comment: "The bridge at 2:10 sounds like summer ending")
     }
 
     // MARK: Recently Added (2×2 track grid, then album cards)
@@ -197,7 +247,7 @@ struct HomeView: View {
                         .frame(width: gridWidth, alignment: .topLeading)
                     }
                     ForEach(Array(feed.recentAlbums.enumerated()), id: \.offset) { _, album in
-                        AlbumMini(album: album)
+                        AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId])
                     }
                 }
                 .padding(.horizontal, 16)
@@ -433,7 +483,7 @@ private struct StripCard: View {
 // MARK: - Jump Back In cells
 
 /// Memory mark on a plain album cover: 16 dp disc + 12 dp Cookie12Sided.
-private enum MemoryMark { case solid, outline, dashed }
+private typealias MemoryMark = AlbumMemoryMark
 
 private struct JBICell: View {
     @Environment(AppModel.self) private var model
@@ -448,16 +498,23 @@ private struct JBICell: View {
         Button { model.open(album) } label: {
             AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg) {
                 // albumMemoryMarkInk: palette base, accent in dark mode.
-                if let mark { markView(mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
+                if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
             }
             .zoomSource(album.id, zoomNS)
         }
         .buttonStyle(PressScale())
     }
+}
 
-    /// Memory mark: 16 dp disc + 12 dp Cookie12Sided, on the cover's top-trailing corner.
-    private func markView(_ m: MemoryMark, ink: Color, bg: Color) -> some View {
-        ZStack {
+/// Memory mark: 16 dp disc + 12 dp Cookie12Sided, on the cover's top-trailing corner.
+private struct MemoryMarkView: View {
+    var mark: MemoryMark
+    var ink: Color
+    var bg: Color
+
+    var body: some View {
+        let m = mark
+        return ZStack {
             Circle().fill(bg).frame(width: 16, height: 16)
             switch m {
             case .solid: CookieShape(lobes: 12, depth: 0.12).fill(ink).frame(width: 12, height: 12)
@@ -514,29 +571,33 @@ extension AlbumItem where Mark == EmptyView {
     }
 }
 
+/// A Jump Back In 1×2 (Figma Widget 1×2): the cover and its caption, then
+/// the score over its basis and the words. A noted track plays its song.
 private struct SignalCard: View {
-    enum Kind { case ratedAlbum, notedTrack }
     @Environment(AppModel.self) private var model
     @Environment(\.homeScheme) private var scheme
-    var album: Album
-    var kind: Kind
+    var signal: JBISignal
 
     @Environment(\.colorScheme) private var colorScheme
+
+    private var album: Album { signal.album }
 
     var body: some View {
         let s = scheme!
         let ink = cardInk(album.palette, dark: colorScheme == .dark)
-        Button { model.open(album) } label: {
+        Button {
+            if let song = signal.song { model.play([song]) } else { model.open(album) }
+        } label: {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
                     EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: Tokens.home.JBI_COVER.cg,
                                    stroke: s.primary)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(kind == .ratedAlbum ? album.title : album.tracks[0].title)
+                        Text(signal.title)
                             .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
                             .homeLine(16, 22)
                             .foregroundStyle(s.onSurface)
-                        Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+                        Text(signal.subtitle).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
                     }
                     .lineLimit(1)
                     .frame(width: Tokens.home.JBI_COVER.cg, alignment: .leading)
@@ -544,24 +605,29 @@ private struct SignalCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     // Row(verticalAlignment = Bottom): the basis sits 3 dp off the score's line-box bottom.
                     HStack(alignment: .bottom, spacing: 6) {
-                        Text(kind == .ratedAlbum ? String(format: "%.1f", album.rating ?? 0) : "8.0")
+                        Text(signal.score)
                             .homeType(Tokens.type.headlineSmall, .bold, digits: true)
-                        Text(kind == .ratedAlbum ? "Oct 28" : "Nov 1")
-                            .homeType(Tokens.type.labelSmall, digits: true)
-                            .opacity(0.85)
-                            .padding(.bottom, 3)
+                        if let basis = signal.basis {
+                            Text(basis)
+                                .homeType(Tokens.type.labelSmall, digits: true)
+                                .opacity(0.85)
+                                .padding(.bottom, 3)
+                        }
                     }
                     .foregroundStyle(ink)
-                    if kind == .ratedAlbum {
-                        Text("A field that stays bright after dark")
-                            .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 24)
-                            .foregroundStyle(s.onSurface)
-                            .lineLimit(3)
-                    } else {
-                        Text("The bridge at 2:10 sounds like summer ending")
-                            .homeType(Tokens.type.bodyMedium)
-                            .foregroundStyle(s.onSurface)
-                            .lineLimit(3)
+                    if let comment = signal.comment {
+                        // A memory's title in the headline face; a note is body text.
+                        if signal.kind == .ratedAlbum {
+                            Text(comment)
+                                .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 24)
+                                .foregroundStyle(s.onSurface)
+                                .lineLimit(3)
+                        } else {
+                            Text(comment)
+                                .homeType(Tokens.type.bodyMedium)
+                                .foregroundStyle(s.onSurface)
+                                .lineLimit(3)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -595,13 +661,20 @@ private struct TrackTile: View {
 
 private struct AlbumMini: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeScheme) private var scheme
+    @Environment(\.colorScheme) private var colorScheme
     var album: Album
+    var mark: MemoryMark? = nil
 
     var body: some View {
         Button { model.open(album) } label: {
             // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
             AlbumItem(album: album, size: Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg, titleSize: 12, titleLineHeight: 16,
-                      artistStyle: Tokens.type.labelSmall, gap: 6)
+                      artistStyle: Tokens.type.labelSmall, gap: 6) {
+                if let mark, let s = scheme {
+                    MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background)
+                }
+            }
         }
         .buttonStyle(PressScale())
     }
@@ -640,15 +713,21 @@ private struct RediscoverCard: View {
                         }
                     }
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(reason).homeType(Tokens.type.labelMedium).foregroundStyle(ink)
-                    Text(away).homeType(Tokens.type.labelMedium).foregroundStyle(ink)
+                    // A scored card has no reason line; a note card no away line.
+                    if !reason.isEmpty { Text(reason).homeType(Tokens.type.labelMedium).foregroundStyle(ink) }
+                    if !away.isEmpty { Text(away).homeType(Tokens.type.labelMedium).foregroundStyle(ink) }
                     Text(album.title)
                         .homeType(Tokens.type.titleLarge, .semibold, size: 20, lineHeight: 26)
                         .foregroundStyle(s.onSurface)
                         .padding(.top, 2)
                     Text(album.artist).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurfaceVariant)
-                    MetaLine(groups: [(footnote.0, nil), (footnote.1, "plays")], color: s.onSurfaceVariant)
-                        .padding(.top, 4)
+                    // First-play month and plays in Yoin; either half drops when unknown.
+                    let groups: [(String, String?)] = (footnote.0.isEmpty ? [] : [(footnote.0, nil)])
+                        + (footnote.1.isEmpty ? [] : [(footnote.1, footnote.1 == "1" ? "play" : "plays")])
+                    if !groups.isEmpty {
+                        MetaLine(groups: groups, color: s.onSurfaceVariant)
+                            .padding(.top, 4)
+                    }
                 }
                 .lineLimit(1)
                 Spacer(minLength: 0)

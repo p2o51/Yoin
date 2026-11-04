@@ -143,7 +143,12 @@ final class AppModel {
         }
         padSelection = library.albums()[0]
         let store = store
-        player.onScrobble = { track, submission in store.scrobble(track, submission: submission) }
+        let engine = player
+        player.onScrobble = { [weak engine] track, submission in
+            store.scrobble(track, submission: submission)
+            // Local play history (Data/History): a row when the song starts, marked once it counts.
+            store.recordHistory(track, submission: submission, positionSec: engine?.progress.positionSec ?? 0)
+        }
         #if DEBUG
         signInFromLaunchArguments()
         #endif
@@ -164,6 +169,8 @@ final class AppModel {
         Task {
             guard await session.signIn(baseUrl: url, username: user, password: pass) else { return }
             sources.use(.subsonic)
+            // `-historySeed demo`: backdated plays, ratings and a note (Data/History/HistoryDebugSeed.swift).
+            if let seed = d.string(forKey: "historySeed") { await store.seedHistory(seed) }
             // Screenshots of server pages: `-serverRoute album:<id>` (artist:, playlist:),
             // `-serverPlay album:<id>` starts that album (pair with -silentAudio YES).
             try? await Task.sleep(for: .milliseconds(300))

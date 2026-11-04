@@ -21,6 +21,11 @@ import os
 ///   songs `getRandomSongs(50)` (Android's Random mix), Favorites
 ///   `getStarred2` songs.
 /// - Search: `search3`, playlists matched by name locally.
+///
+/// Local history (`HistoryStore`, with `NotesStore` and `LocalRatings`) lays
+/// over the server's shelves the way Android's Room history does: Activities
+/// by the activity log ("2h ago"), Jump Back In's rated-album and noted-track
+/// 1×2s and memory marks, Rediscover's 90-day rule ("7 months away").
 @MainActor
 @Observable
 final class LibraryStore {
@@ -37,13 +42,26 @@ final class LibraryStore {
     @ObservationIgnored let session: ServerSession
     @ObservationIgnored let sources: SourceSelection
     @ObservationIgnored let appleMusic: AppleMusicSource
+    @ObservationIgnored let history: HistoryStore
+    @ObservationIgnored let notes: NotesStore
+    @ObservationIgnored let ratings: LocalRatings
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
 
     /// Bumps on every sign-in / sign-out; views key their load tasks on it.
     private(set) var generation = 0
 
-    private(set) var home: HomeFeed?
+    /// The server's lists behind Home (history lays over them in `home`).
+    private(set) var homeLists: HomeLists?
     private(set) var homePhase: Phase = .idle
+
+    struct HomeLists: Sendable {
+        var recent: [Album]
+        var frequent: [Album]
+        var newest: [Album]
+        var highest: [Album]
+        var random: [Album]
+        var recentTracks: [PlaylistEntry]
+    }
 
     private(set) var albums: [Album] = []
     private(set) var artists: [LibraryItem] = []
@@ -62,10 +80,14 @@ final class LibraryStore {
     /// Hearts set here, ahead of the server (reverted when the write fails).
     private(set) var starredOverride: [String: Bool] = [:]
 
-    init(session: ServerSession, sources: SourceSelection, appleMusic: AppleMusicSource) {
+    init(session: ServerSession, sources: SourceSelection, appleMusic: AppleMusicSource,
+         history: HistoryStore = .shared, notes: NotesStore = .shared, ratings: LocalRatings = .shared) {
         self.session = session
         self.sources = sources
         self.appleMusic = appleMusic
+        self.history = history
+        self.notes = notes
+        self.ratings = ratings
         observeSession()
     }
 
@@ -105,7 +127,9 @@ final class LibraryStore {
     /// Drops everything loaded (sign-in / sign-out).
     func reset() {
         generation += 1
-        home = nil
+        homeLists = nil
+        lastRecordedSong = nil
+        openPlayId = nil
         homePhase = .idle
         albums = []
         artists = []
@@ -150,7 +174,7 @@ final class LibraryStore {
                 }
             }
             guard gen == generation else { return }
-            home = Self.buildHome(recent: recentAlbums, frequent: f.map(mapping.album), newest: newestAlbums,
+            homeLists = HomeLists(recent: recentAlbums, frequent: f.map(mapping.album), newest: newestAlbums,
                                   highest: h.map(mapping.album), random: x.map(mapping.album), recentTracks: tracks)
             homePhase = .loaded
         } catch {
@@ -171,7 +195,7 @@ final class LibraryStore {
         do {
             let l = try await apple.homeLists()
             guard gen == generation else { return }
-            home = Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
+            homeLists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
                                   random: l.older, recentTracks: l.recentTracks)
             homePhase = .loaded
         } catch {
@@ -181,20 +205,77 @@ final class LibraryStore {
         }
     }
 
+    /// Home: the server's shelves with the local history laid over them.
+    /// Reads the history, notes and ratings, so a new play or note redraws it.
+    var home: HomeFeed? {
+        guard let l = homeLists else { return nil }
+        return Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: l.highest,
+                              random: l.random, recentTracks: l.recentTracks, history: homeHistory(l))
+    }
+
+    /// What the local stores add to Home (nil with no history, notes or
+    /// ratings: the server's shelves alone, as before).
+    struct HomeOverlay {
+        /// Newest activity first, with when.
+        var activities: [(album: Album, at: Int64)] = []
+        var signals: [JBISignal] = []
+        var rediscover: [RediscoverEntry] = []
+        var marks: [String: AlbumMemoryMark] = [:]
+        /// History exists: Rediscover follows its rules (empty = no section).
+        var hasHistory = false
+        var now: Int64 = 0
+    }
+
+    private func homeHistory(_ l: HomeLists) -> HomeOverlay? {
+        guard isReal else { return nil }
+        let inputs = historyInputs(extra: l.recent + l.frequent + l.newest + l.highest + l.random
+            + l.recentTracks.map(\.album))
+        let records = history.recentActivities(scope: historyScope, provider: provider, limit: 40)
+        if inputs.plays.isEmpty && records.isEmpty && inputs.notes.isEmpty && ratings.ratings.isEmpty { return nil }
+        let memories = HomeHistory.memories(inputs)
+        var o = HomeOverlay(hasHistory: !inputs.plays.isEmpty, now: inputs.now)
+        o.activities = HomeHistory.activityAlbums(records, resolve: inputs.resolve)
+        if let rated = HomeHistory.ratedAlbumSignal(memories) { o.signals.append(rated) }
+        if let noted = HomeHistory.notedTrackSignal(inputs, placeholder: { [weak self] note in
+            self?.placeholderAlbum(note) ?? Album(id: MediaId(provider: note.provider, rawId: note.trackId),
+                                                    title: note.title, artist: note.artist, year: 0,
+                                                    palette: AppleMusicMapping.palette(nil, key: note.trackId),
+                                                    tracks: [])
+        }) { o.signals.append(noted) }
+        o.marks = HomeHistory.marks(memories)
+        // Albums shown elsewhere on the page stay off the shelf: the memory
+        // 1×2, and Recently Added's albums added within the last 30 days
+        // (Android's window; the server's "newest" list has no window of its own).
+        let monthAgo = inputs.now - 30 * HomeHistory.dayMs
+        let added = l.newest.filter { a in Self.epochMs(a.created).map { $0 >= monthAgo } ?? false }
+        let exclude = Set(o.signals.filter { $0.kind == .ratedAlbum }.map(\.album.id.rawId))
+            .union(added.map(\.id.rawId))
+        o.rediscover = HomeHistory.rediscover(memories, now: inputs.now, exclude: exclude)
+        return o
+    }
+
     /// Pure: the shelves from the lists (unit-tested).
     nonisolated static func buildHome(recent: [Album], frequent: [Album], newest: [Album], highest: [Album],
-                                      random: [Album], recentTracks: [PlaylistEntry]) -> HomeFeed {
+                                      random: [Album], recentTracks: [PlaylistEntry],
+                                      history: HomeOverlay? = nil) -> HomeFeed {
         func plays(_ a: Album) -> String {
             guard let n = a.playCount, n > 0 else { return "Recently active" }
             return n == 1 ? "1 play" : "\(n) plays"
         }
         let activityIds = ["hero", "artist", "wide", "strip"]
-        // The artist card already says "Artist" over a narrow column: no eyebrow there.
-        let activities = zip(activityIds, recent.prefix(4)).map {
-            ActivityEntry(id: $0, eyebrow: $0 == "artist" ? "" : plays($1), album: $1)
+        // The activity log first ("2h ago"), then the server's recent albums.
+        var picked: [(Album, String?)] = (history?.activities ?? []).map {
+            ($0.album, HomeHistory.timeAgo($0.at, now: history?.now ?? 0))
+        }
+        for a in recent where picked.count < 4 && !picked.contains(where: { $0.0.id == a.id }) { picked.append((a, nil)) }
+        // The artist card already says "Artist" over a narrow column: only a time there, never plays.
+        let activities = zip(activityIds, picked.prefix(4)).map { slot, p in
+            ActivityEntry(id: slot, eyebrow: p.1 ?? (slot == "artist" ? "" : plays(p.0)), album: p.0)
         }
 
+        let signals = history?.signals ?? []
         var seen = Set(activities.map(\.album.id))
+        for s in signals where s.kind == .ratedAlbum { seen.insert(s.album.id) }
         var jbi: [Album] = []
         let rest = Array(recent.dropFirst(4))
         var mixed: [Album] = []
@@ -209,15 +290,34 @@ final class LibraryStore {
         let recentAlbums = newest.filter { !gridAlbums.contains($0.id) || recentTracks.isEmpty }
 
         var rediscover: [RediscoverEntry] = []
-        let rated = highest.filter { $0.rating != nil }
-        for a in (rated + random.reversed()) where rediscover.count < 2 && !rediscover.contains(where: { $0.album.id == a.id }) {
-            rediscover.append(RediscoverEntry(album: a, reason: a.rating != nil ? "Rated" : "From your library",
-                                              away: a.genre ?? (a.year > 0 ? String(a.year) : ""),
-                                              score: a.rating, footnoteDate: Self.yearMonth(a.created),
-                                              footnotePlays: "\(a.playCount ?? 0)"))
+        if let history, history.hasHistory {
+            // Android's rule once there is history: kept something, 90+ days away.
+            rediscover = history.rediscover
+        } else {
+            // No plays recorded yet: the server's rated albums stand in.
+            let rated = highest.filter { $0.rating != nil }
+            for a in (rated + random.reversed()) where rediscover.count < 2 && !rediscover.contains(where: { $0.album.id == a.id }) {
+                rediscover.append(RediscoverEntry(album: a, reason: a.rating != nil ? "Rated" : "From your library",
+                                                  away: a.genre ?? (a.year > 0 ? String(a.year) : ""),
+                                                  score: a.rating, footnoteDate: Self.yearMonth(a.created),
+                                                  footnotePlays: "\(a.playCount ?? 0)"))
+            }
         }
         return HomeFeed(layout: .server, activities: activities, jumpBackIn: jbi, recentTracks: recentTracks,
-                        recentAlbums: recentAlbums, rediscover: rediscover)
+                        recentAlbums: recentAlbums, rediscover: rediscover, signals: signals,
+                        memoryMarks: history?.marks ?? [:])
+    }
+
+    /// An ISO-8601 date (the server's `created`) in epoch ms.
+    nonisolated static func epochMs(_ iso: String?) -> Int64? {
+        guard let iso else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = f.date(from: iso) ?? {
+            f.formatOptions = [.withInternetDateTime]
+            return f.date(from: iso)
+        }()
+        return date.map { Int64($0.timeIntervalSince1970 * 1000) }
     }
 
     /// "2024-03-17T…" → "2024.03" (Android's Rediscover footnote).
@@ -526,6 +626,121 @@ final class LibraryStore {
                 log.info("scrobble failed: \(ServerSession.message(for: error), privacy: .public)")
             }
         }
+    }
+
+    // MARK: Local history
+
+    /// Whose history this is (Android's profile id): the Subsonic server and
+    /// user, or Apple Music. Paired with `provider` on every row.
+    var historyScope: String {
+        if apple != nil { return AppleMusicMapping.provider }
+        guard let a = session.account else { return "" }
+        return "\(a.baseUrl)|\(a.username)"
+    }
+
+    /// The song the last play row was written for (Android
+    /// `lastRecordedTrackId`: the same song again right after is not a new play).
+    @ObservationIgnored private var lastRecordedSong: String?
+    @ObservationIgnored private var openPlayId: String?
+
+    /// The engine's scrobble hook: a song that starts (`submission == false`)
+    /// is a play row; one heard long enough marks it completed.
+    func recordHistory(_ t: PlayableTrack, submission: Bool, positionSec: Double) {
+        guard isReal, t.provider == provider else { return }
+        let key = "\(t.provider):\(t.id)"
+        if submission {
+            if let id = openPlayId, lastRecordedSong == key {
+                history.markListened(playId: id, listenedSec: positionSec, completed: true)
+            }
+            return
+        }
+        guard key != lastRecordedSong else { return }
+        lastRecordedSong = key
+        let albumId = t.albumId.flatMap { $0.isEmpty ? nil : $0 }
+        openPlayId = history.recordPlay(scope: historyScope, provider: t.provider, songId: t.id, albumId: albumId,
+                                        artistId: albumId.flatMap { albumDetails[$0]?.artistId },
+                                        title: t.title, album: t.album, artist: t.artist,
+                                        coverKey: Self.coverKey(t.coverURL, provider: t.provider),
+                                        durationSec: t.durationSec)
+    }
+
+    /// An album page opened (Android `recordAlbumVisit`).
+    func recordAlbumVisit(_ album: Album) {
+        guard isReal, album.id.provider == provider, !album.id.rawId.hasPrefix("song:") else { return }
+        history.recordAlbumVisit(scope: historyScope, provider: provider, albumId: album.id.rawId, title: album.title,
+                                 artist: album.artist, artistId: album.artistId,
+                                 coverKey: Self.coverKey(album.coverURL, provider: provider))
+    }
+
+    /// What the album page shows of its plays in Yoin.
+    struct AlbumHistory: Equatable, Sendable {
+        var playCount: Int
+        var firstPlayedAt: Int64?
+        var lastPlayedAt: Int64?
+        /// Plays per song id.
+        var songPlays: [String: Int]
+        /// "Yesterday" / "16:04" (nil = never played here).
+        var lastPlay: (day: String, time: String)? {
+            lastPlayedAt.map { HomeHistory.lastPlayLabels($0, now: Int64(Date().timeIntervalSince1970 * 1000)) }
+        }
+
+    }
+
+    /// The album's plays in Yoin; nil signed out (the mock pages keep their copy).
+    func albumHistory(_ album: Album) -> AlbumHistory? {
+        guard isReal, album.id.provider == provider else { return nil }
+        let id = album.id.rawId
+        let stats = history.albumStats(scope: historyScope, provider: provider, albumId: id)
+        return AlbumHistory(playCount: stats?.playCount ?? 0, firstPlayedAt: stats?.firstPlayedAt,
+                            lastPlayedAt: stats?.lastPlayedAt,
+                            songPlays: history.songPlayCounts(scope: historyScope, provider: provider, albumId: id))
+    }
+
+    /// The local stores as HomeHistory reads them, for the active account.
+    func historyInputs(extra: [Album] = []) -> HomeHistory.Inputs {
+        let provider = provider
+        var known: [String: Album] = [:]
+        for a in albums + extra where known[a.id.rawId] == nil { known[a.id.rawId] = a }
+        let details = albumDetails
+        let ratings = ratings
+        return HomeHistory.Inputs(
+            now: history.nowMs,
+            plays: history.plays(scope: historyScope, provider: provider),
+            notes: notes.notes.filter { $0.provider == provider },
+            details: details, known: known,
+            localRating: { ratings.rating(provider: provider, songId: $0) },
+            resolve: { [weak self] id, snap in
+                details[id] ?? known[id] ?? self?.snapshotAlbum(id, snap)
+            })
+    }
+
+    /// An album made from a play's snapshot, for one the app has no copy of.
+    private func snapshotAlbum(_ id: String, _ snap: PlayEvent?) -> Album? {
+        guard let snap, !snap.album.isEmpty || !snap.title.isEmpty else { return nil }
+        let palette: CoverPalette
+        if let mapping, snap.provider == MediaRef.companion.PROVIDER_SUBSONIC {
+            palette = mapping.palette(coverId: snap.coverKey ?? id)
+        } else {
+            palette = AppleMusicMapping.palette(snap.coverKey.flatMap(URL.init(string:)), key: id)
+        }
+        return Album(id: MediaId(provider: snap.provider, rawId: id), title: snap.album.isEmpty ? snap.title : snap.album,
+                     artist: snap.artist, year: 0, palette: palette, tracks: [], artistId: snap.artistId)
+    }
+
+    /// A noted song's cover when it never played here: a quiet placeholder.
+    private func placeholderAlbum(_ note: SongNote) -> Album {
+        Album(id: MediaId(provider: note.provider, rawId: "song:\(note.trackId)"), title: note.title,
+              artist: note.artist, year: 0, palette: placeholderPalette(coverId: nil), tracks: [])
+    }
+
+    /// What a history row keeps of a cover: Subsonic's cover id (its URL
+    /// carries the credentials), else the artwork URL.
+    static func coverKey(_ url: URL?, provider: String) -> String? {
+        guard let url else { return nil }
+        if provider == MediaRef.companion.PROVIDER_SUBSONIC {
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value
+        }
+        return url.absoluteString
     }
 
     /// The engine's song as the UI's Album: the fetched album when known
