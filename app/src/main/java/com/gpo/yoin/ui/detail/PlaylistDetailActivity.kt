@@ -185,6 +185,25 @@ class PlaylistDetailActivity : ComponentActivity() {
                     }
                 }
 
+                // A song row's long-press sheet: songs come from many albums, so it opens each one's
+                // album and artist over this page.
+                val trackMenu = remember(app.container, nowPlayingViewModel) {
+                    TrackMenuHost(
+                        container = app.container,
+                        trackFor = { id -> viewModel.getPlaylistSongs().firstOrNull { it.id.toString() == id } },
+                        onMessage = nowPlayingViewModel::postMessage,
+                        onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
+                        onGoToAlbum = { id ->
+                            YoinPerf.detailClick("album", id, via = "push")
+                            launchChildDetail(AlbumDetailActivity.intent(this@PlaylistDetailActivity, id))
+                        },
+                        onGoToArtist = { id ->
+                            YoinPerf.detailClick("artist", id, via = "push")
+                            launchChildDetail(ArtistDetailActivity.intent(this@PlaylistDetailActivity, id))
+                        },
+                    )
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                         PlaylistDetailScreen(
@@ -238,6 +257,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                             miniPlayerState = miniPlayerState,
                             playbackProgress = miniPlayerProgress,
                             notedSongIds = notedSongIds,
+                            trackMenu = trackMenu,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .pageBesideNowPlayingPanel(nowPlayingPanel),

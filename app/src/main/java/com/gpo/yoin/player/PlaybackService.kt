@@ -3,6 +3,7 @@ package com.gpo.yoin.player
 import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -87,10 +88,12 @@ class PlaybackService : MediaSessionService() {
         val upstreamFactory = OkHttpDataSource.Factory(httpClient)
         val cacheDataSourceFactory = mediaCacheDataSourceFactory(simpleCache, upstreamFactory)
         val connectivity = getSystemService(ConnectivityManager::class.java)
+        val audioManager = getSystemService(AudioManager::class.java)
         val traits = SubsonicServerTraitsCache(httpClient)
         val resolver = SubsonicStreamResolver(
             settings = { StreamQualityPreference.current(this) },
             isUnmetered = { connectivity?.activeNetworkUnmetered() ?: false },
+            outputKind = { audioManager?.currentOutputKind() ?: AudioOutputKind.Speaker },
             traitsFor = traits::traitsFor,
             sourceKbpsFor = SubsonicSourceBitrates::of,
         )

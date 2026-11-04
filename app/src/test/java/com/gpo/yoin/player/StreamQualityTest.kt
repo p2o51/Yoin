@@ -1,5 +1,6 @@
 package com.gpo.yoin.player
 
+import android.media.AudioDeviceInfo
 import android.net.Uri
 import androidx.media3.datasource.DataSpec
 import com.gpo.yoin.data.remote.OpenSubsonicExtension
@@ -40,10 +41,57 @@ class StreamQualityTest {
     }
 
     @Test
-    fun should_keepTodaysBehaviour_when_nothingChosen() {
+    fun should_streamFileOnWifiAndFollowOutputOnMobile_when_nothingChosen() {
         val defaults = StreamQualitySettings()
         assertEquals(StreamQuality.Original, defaults.forNetwork(unmetered = true))
-        assertEquals(StreamQuality.Original, defaults.forNetwork(unmetered = false))
+        assertEquals(StreamQuality.Auto, defaults.forNetwork(unmetered = false))
+    }
+
+    @Test
+    fun should_followOutput_when_qualityAuto() {
+        assertEquals(StreamQuality.Original, StreamQuality.Auto.forOutput(AudioOutputKind.Wired))
+        assertEquals(StreamQuality.Kbps320, StreamQuality.Auto.forOutput(AudioOutputKind.Bluetooth))
+        assertEquals(StreamQuality.Kbps192, StreamQuality.Auto.forOutput(AudioOutputKind.Speaker))
+    }
+
+    @Test
+    fun should_keepFixedChoice_when_qualityNotAuto() {
+        assertEquals(StreamQuality.Kbps128, StreamQuality.Kbps128.forOutput(AudioOutputKind.Wired))
+    }
+
+    @Test
+    fun should_preferWired_when_wiredAndBluetoothConnected() {
+        val both = listOf(
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+        )
+        assertEquals(AudioOutputKind.Wired, outputKindOf(both))
+    }
+
+    @Test
+    fun should_readBluetooth_when_onlyBluetoothHeadphones() {
+        val types = listOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_BLE_HEADSET)
+        assertEquals(AudioOutputKind.Bluetooth, outputKindOf(types))
+    }
+
+    @Test
+    fun should_readSpeaker_when_onlySpeakerOrDock() {
+        val types = listOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_DOCK)
+        assertEquals(AudioOutputKind.Speaker, outputKindOf(types))
+    }
+
+    @Test
+    fun should_transcodeAt320_when_autoOnBluetoothOverMobile() {
+        val auto = StreamQualitySettings(wifi = StreamQuality.Original, mobile = StreamQuality.Auto)
+        val resolver = SubsonicStreamResolver(
+            settings = { auto },
+            isUnmetered = { false },
+            traitsFor = { navidrome },
+            outputKind = { AudioOutputKind.Bluetooth },
+        )
+        val url = resolver.resolveDataSpec(spec("s1")).uri.toString().toHttpUrl()
+        assertEquals("320", url.queryParameter("maxBitRate"))
     }
 
     @Test

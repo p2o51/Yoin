@@ -90,6 +90,8 @@ internal class SubsonicStreamResolver(
     private val traitsFor: (streamUrl: String) -> SubsonicServerTraits,
     /** The file's own bit rate as the server lists it, by Subsonic song id; null when unknown. */
     private val sourceKbpsFor: (songRawId: String) -> Int? = { null },
+    /** What the sound goes out through, for [StreamQuality.Auto]. */
+    private val outputKind: () -> AudioOutputKind = { AudioOutputKind.Speaker },
 ) : ResolvingDataSource.Resolver {
 
     private val pinned = ConcurrentHashMap<String, StreamDelivery>()
@@ -107,7 +109,9 @@ internal class SubsonicStreamResolver(
         val songId = SubsonicStreamUrls.songIdOf(url) ?: return dataSpec
         val sourceKbps = sourceKbpsFor(songId)
         val delivery = pinned.getOrPut(songId) {
-            StreamDelivery.plan(settings().forNetwork(isUnmetered()), sourceKbps) { traitsFor(url) }
+            StreamDelivery.plan(settings().forNetwork(isUnmetered()).forOutput(outputKind()), sourceKbps) {
+                traitsFor(url)
+            }
         }
         if (!delivery.transcoded) return dataSpec
         // A byte is a time only when the server is known to encode at the cap:

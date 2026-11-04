@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.player.AudioOutputKind
 import com.gpo.yoin.player.StreamQuality
 import com.gpo.yoin.player.StreamQualityPreference
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -69,6 +70,7 @@ private fun QualityGroup(
             item(key = quality) {
                 QualityRow(
                     label = streamQualityLabel(quality),
+                    detail = if (quality == StreamQuality.Auto) autoQualityDetail() else null,
                     selected = quality == selected,
                     onClick = { if (quality != selected) onSelect(quality) },
                 )
@@ -78,7 +80,7 @@ private fun QualityGroup(
 }
 
 @Composable
-private fun QualityRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun QualityRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -89,19 +91,38 @@ private fun QualityRow(label: String, selected: Boolean, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (detail != null) {
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
+/** What Auto asks for on each output: "Wired Original   Bluetooth 320 kbps   Speaker 192 kbps". */
 @Composable
-internal fun streamQualityLabel(quality: StreamQuality): String =
-    quality.maxBitRateKbps?.let { stringResource(R.string.settings_stream_quality_kbps, it) }
-        ?: stringResource(R.string.settings_stream_quality_original)
+private fun autoQualityDetail(): String = stringResource(
+    R.string.settings_stream_quality_auto_detail,
+    streamQualityLabel(AudioOutputKind.Wired.autoQuality),
+    streamQualityLabel(AudioOutputKind.Bluetooth.autoQuality),
+    streamQualityLabel(AudioOutputKind.Speaker.autoQuality),
+)
+
+@Composable
+internal fun streamQualityLabel(quality: StreamQuality): String = when {
+    quality == StreamQuality.Auto -> stringResource(R.string.settings_stream_quality_auto)
+    quality.maxBitRateKbps != null -> stringResource(R.string.settings_stream_quality_kbps, quality.maxBitRateKbps)
+    else -> stringResource(R.string.settings_stream_quality_original)
+}
 
 @Preview(showBackground = true)
 @Composable

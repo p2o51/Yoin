@@ -247,7 +247,10 @@ fun DetailPaneHost(
                         playback = playback,
                         registry = registry,
                         onBack = onPopEntry,
+                        onOpenAlbum = { id -> onPush(DetailPaneRoute.Album(id)) },
+                        onOpenArtist = { id -> onPush(DetailPaneRoute.Artist(id)) },
                         onMessage = onMessage,
+                        onAddToPlaylist = onAddToPlaylist,
                     )
                 }
             },

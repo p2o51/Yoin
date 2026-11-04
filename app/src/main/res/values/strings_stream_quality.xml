@@ -4,6 +4,8 @@
     <string name="settings_stream_quality_title">Streaming quality</string>
     <string name="settings_stream_quality_wifi">Wi‑Fi</string>
     <string name="settings_stream_quality_mobile">Mobile data</string>
+    <string name="settings_stream_quality_auto">Auto</string>
+    <string name="settings_stream_quality_auto_detail">Wired %1$s   Bluetooth %2$s   Speaker %3$s</string>
     <string name="settings_stream_quality_original">Original</string>
     <string name="settings_stream_quality_kbps">%1$d kbps</string>
     <string name="settings_stream_quality_summary">Wi‑Fi %1$s, mobile data %2$s</string>

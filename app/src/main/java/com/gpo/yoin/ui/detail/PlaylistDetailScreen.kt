@@ -7,6 +7,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -190,8 +191,17 @@ fun PlaylistDetailScreen(
     // The rows' songs that carry a note (MediaId strings, PlaylistSong.id's
     // form): those rows wear the album row's note marker.
     notedSongIds: Set<String> = emptySet(),
+    // A song row's long-press sheet (album rows have the same); null leaves rows tap-only.
+    trackMenu: TrackMenuHost? = null,
     modifier: Modifier = Modifier,
 ) {
+    var menuSongId by remember { mutableStateOf<String?>(null) }
+    if (trackMenu != null) {
+        menuSongId?.let { songId ->
+            TrackMenuSheet(songId = songId, onDismissRequest = { menuSongId = null }, host = trackMenu)
+        }
+    }
+    val onSongLongClick: ((String) -> Unit)? = trackMenu?.let { { songId -> menuSongId = songId } }
     // Dialog states lifted here so they survive child recomposition (e.g.
     // after a rename refreshes the Content).
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -544,7 +554,11 @@ fun PlaylistDetailScreen(
                                         PlaylistDetailContent(
                                             content = state,
                                             stackColors = stackColors,
-                                            rowMarks = PlaylistRowMarks(notedSongIds, accent = rowAccent),
+                                            rowMarks = PlaylistRowMarks(
+                                                notedSongIds,
+                                                accent = rowAccent,
+                                                onLongClick = onSongLongClick,
+                                            ),
                                             onSongClick = onSongClick,
                                             revealState = revealState,
                                             expanded = expanded,
@@ -1327,6 +1341,7 @@ internal fun PlaylistTrackList(
                 hasNote = song.id in rowMarks.notedSongIds,
                 accent = rowMarks.accent,
                 onClick = { onSongClick(song.id) },
+                onLongClick = rowMarks.onLongClick?.let { open -> { open(song.id) } },
             )
         }
         if (footer != null) {
@@ -1356,7 +1371,9 @@ private fun PlaylistTrackCredit(artist: String, album: String) {
 @Immutable
 internal data class PlaylistRowMarks(
     val notedSongIds: Set<String>,
-    val accent: () -> Color
+    val accent: () -> Color,
+    /** Opens the song's long-press sheet; null where the page has none. */
+    val onLongClick: ((songId: String) -> Unit)? = null,
 )
 
 /**
@@ -1371,16 +1388,25 @@ private fun PlaylistTrackRow(
     accent: () -> Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
-            .clickable {
-                haptics.performClick()
-                onClick()
-            }
+            .combinedClickable(
+                onClick = {
+                    haptics.performClick()
+                    onClick()
+                },
+                onLongClick = onLongClick?.let { open ->
+                    {
+                        haptics.performLongPress()
+                        open()
+                    }
+                },
+            )
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
