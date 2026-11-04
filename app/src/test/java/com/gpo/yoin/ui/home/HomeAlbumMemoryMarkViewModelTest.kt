@@ -152,7 +152,7 @@ class HomeAlbumMemoryMarkViewModelTest {
     }
 
     @Test
-    fun should_markSpotifyCovers_when_theirRawIdsAreMarked() = runTest {
+    fun should_leaveSpotifyCoversBare_when_theirRawIdsAreMarked() = runTest {
         val spotify = MediaId.PROVIDER_SPOTIFY
         val repository = repository(provider = spotify)
         coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
@@ -168,7 +168,7 @@ class HomeAlbumMemoryMarkViewModelTest {
 
         val content = viewModel.uiState.value as HomeUiState.Content
         assertEquals(
-            listOf(HomeAlbumMemoryMark(MemoryScoreKind.AVERAGE_TRACK_RATING, "7.5", 0), null),
+            listOf(null, null),
             content.recentlyPlayed.map { album -> album.albumMemoryMark(content.albumMemoryMarks) }
         )
     }

@@ -21,10 +21,13 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.player.dlna.DlnaDevice
 import com.gpo.yoin.player.dlna.DlnaManager
+import com.gpo.yoin.player.scrobble.ScrobbleReporter
+import com.gpo.yoin.player.scrobble.ScrobbleSnapshot
 import com.gpo.yoin.perf.YoinPerf
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
@@ -61,6 +64,8 @@ class PlaybackManager(
     spotifyClientIdProvider: () -> String,
     /** What [SpotifyContextSync] times an unconfirmed Spotify start by (a test passes its virtual clock). */
     spotifyContextClock: () -> Long = SystemClock::elapsedRealtime,
+    /** Tells the Subsonic server what plays (null in tests that don't care). */
+    private val scrobbleReporter: ScrobbleReporter? = null,
 ) {
     private enum class ActiveBackend {
         NONE,
@@ -90,6 +95,8 @@ class PlaybackManager(
     private var loadingStart: Job? = null
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
     private var lastRecordedTrackId: MediaId? = null
+    // Bumped by each repeat-one replay, so the scrobble rule sees a new play of the same entry.
+    private var repeatPlays = 0
     private val _currentActivityContext = MutableStateFlow<ActivityContext>(ActivityContext.None)
     val currentActivityContext: StateFlow<ActivityContext> = _currentActivityContext.asStateFlow()
 
@@ -939,6 +946,7 @@ class PlaybackManager(
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) repeatPlays++
             syncState()
         }
 
@@ -1291,6 +1299,28 @@ class PlaybackManager(
             stopPositionUpdates()
         }
         recordPlayIfDue(state)
+        scrobbleReporter?.onState(scrobbleSnapshotOf(state))
+    }
+
+    /**
+     * What the scrobble rule follows: only songs this device plays itself from a
+     * service that takes play reports (Subsonic; Spotify and Apple Music count their own).
+     */
+    private fun scrobbleSnapshotOf(state: PlaybackState): ScrobbleSnapshot? {
+        if (activeBackend != ActiveBackend.LOCAL) return null
+        val track = state.currentTrack ?: return null
+        if (track.id.provider != repository.currentProviderId()) return null
+        if (Capability.PLAY_REPORTING !in repository.currentCapabilities()) return null
+        val profileId = repository.currentProfileId() ?: return null
+        val entry = state.queueEntryIds.getOrNull(state.currentIndex) ?: "i${state.currentIndex}"
+        return ScrobbleSnapshot(
+            profileId = profileId,
+            songId = track.id.rawId,
+            playKey = "$entry#$repeatPlays",
+            isPlaying = state.isPlaying,
+            positionMs = state.position,
+            durationMs = state.duration.takeIf { it > 0L } ?: ((track.durationSec ?: 0) * 1_000L),
+        )
     }
 
     /**

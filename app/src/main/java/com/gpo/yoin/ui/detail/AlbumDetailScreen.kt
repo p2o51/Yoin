@@ -180,7 +180,6 @@ fun AlbumDetailScreen(
     menu: DetailMenu = DetailMenu(),
     onOpenArtist: (() -> Unit)? = null,
     isPlaying: Boolean = false,
-    playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
 
@@ -246,8 +245,6 @@ fun AlbumDetailScreen(
                 DetailEnterPageMountEffect(enterIntro)
                 ExpressivePageBackground(
                     accentColor = pageAccent,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
                     modifier = Modifier
                         .fillMaxSize()
                         .detailBackCollapseTransform(backCollapse)

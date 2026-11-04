@@ -306,6 +306,10 @@ private fun SectionGlyph(section: HomeSection, color: Color, modifier: Modifier 
                 box(5f, 8f + r * 7.5f, 6f, 6f, 0.9f - r * 0.2f, 1.5f)
                 box(14f, 9.8f + r * 7.5f, 16f - r * 3f, 2.4f, 0.4f, 1.2f)
             }
+            HomeSection.OtherProfiles -> {
+                box(4f, 10f, 12f, 12f, 0.9f, 3f); box(19f, 10f, 12f, 12f, 0.55f, 3f)
+                box(4f, 25f, 8f, 2.4f, 0.35f, 1.2f); box(19f, 25f, 8f, 2.4f, 0.35f, 1.2f)
+            }
         }
     }
 }

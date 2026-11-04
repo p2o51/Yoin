@@ -43,15 +43,13 @@ class AuroraPreviewActivity : ComponentActivity() {
                                 .nowPlayingAuroraBackground(
                                     baseTop = scheme.surfaceContainer,
                                     baseBottom = scheme.background,
-                                    auroraColors = listOf(
+                                    accentColors = listOf(
                                         scheme.primary,
                                         scheme.tertiary,
                                         scheme.secondary,
                                         scheme.primaryContainer,
                                     ),
                                     auroraActive = true,
-                                    playColor = scheme.primary,
-                                    pauseColor = scheme.tertiary,
                                     pulseTrigger = null,
                                     isPlaying = false,
                                     pressActive = false,

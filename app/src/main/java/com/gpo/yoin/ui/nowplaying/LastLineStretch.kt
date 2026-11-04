@@ -6,19 +6,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlin.math.min
 
 /**
  * I-2 · the last line held like a long note (owner pick, 2026-10-05): while the
@@ -27,33 +22,12 @@ import kotlin.math.min
  * (1.08) and titles (1.03–1.05) — and lets go at the hand-over.
  *
  * Always a draw-time scaleX of the whole line, for every script: no relayout,
- * so nothing jumps between frames. (A nearly full Latin line used to widen by
- * letter-spacing, laid out again at each quantized step — the owner saw it
- * judder frame to frame, while CJK, scaled whole, stayed smooth.) A line that
- * already fills its row may still widen by [LastLineStretchGutterRoom] into
- * the page gutter: wider, never cut.
+ * so nothing jumps between frames and the line never re-wraps. It widens by
+ * the full [LastLineStretchMax] however full its row is (owner 2026-11-03:
+ * "空间不够…它就直接可以延伸到屏幕外面去"): past the row's end it runs on
+ * toward, and off, the screen edge.
  */
-internal fun lastLineStretchScale(progress: Float, widthUsage: Float): Float {
-    if (widthUsage <= 0f) return 1f
-    val room = maxOf(1f / widthUsage - 1f, LastLineStretchGutterRoom)
-    return 1f + min(LastLineStretchMax, room) * progress
-}
-
-/** Longest laid-out line ÷ the width the text may use; 0 when unbounded or empty. */
-internal fun TextLayoutResult.widthUsage(): Float {
-    val available = layoutInput.constraints.maxWidth
-    if (!layoutInput.constraints.hasBoundedWidth || available <= 0 || lineCount == 0) return 0f
-    return longestLineWidth() / available
-}
-
-/** The widest laid-out line, in px. */
-internal fun TextLayoutResult.longestLineWidth(): Float {
-    var longest = 0f
-    for (line in 0 until lineCount) {
-        longest = maxOf(longest, getLineRight(line) - getLineLeft(line))
-    }
-    return longest
-}
+internal fun lastLineStretchScale(progress: Float): Float = 1f + LastLineStretchMax * progress
 
 /**
  * The held line's one motion: [progress] (0 = rest) springs to each quantized
@@ -83,7 +57,6 @@ internal fun HeldLastLineText(
     modifier: Modifier = Modifier,
 ) {
     val motion = remember { HeldLineMotion() }
-    var usage by remember { mutableFloatStateOf(0f) }
     val widen = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
     val release = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
     LaunchedEffect(motion, stretch) {
@@ -93,9 +66,8 @@ internal fun HeldLastLineText(
         text = text,
         style = style,
         color = color,
-        onTextLayout = { layout -> usage = layout.widthUsage() },
         modifier = modifier.graphicsLayer {
-            scaleX = lastLineStretchScale(motion.progress.value, usage)
+            scaleX = lastLineStretchScale(motion.progress.value)
             transformOrigin = TransformOrigin(0f, 0.5f)
         },
     )
@@ -103,9 +75,6 @@ internal fun HeldLastLineText(
 
 /** Peak widening of the held last line. */
 internal const val LastLineStretchMax = 0.08f
-
-/** How far a line that already fills its row may still widen, into the gutter. */
-internal const val LastLineStretchGutterRoom = 0.03f
 
 /** [HeldLineMotion.progress]'s settle threshold. */
 internal const val HeldLineVisibilityThreshold = 0.001f

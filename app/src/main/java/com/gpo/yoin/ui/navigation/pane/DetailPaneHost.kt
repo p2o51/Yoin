@@ -147,7 +147,6 @@ fun DetailPaneHost(
     app: YoinApplication,
     isPlaying: Boolean,
     currentTrackId: String?,
-    playbackSignal: Float,
     registry: PaneBarRegistry,
     onPopEntry: () -> Unit,
     onPush: (DetailPaneRoute) -> Unit,
@@ -159,7 +158,6 @@ fun DetailPaneHost(
     val playback = PanePlaybackFacts(
         isPlaying = isPlaying,
         currentTrackId = currentTrackId,
-        playbackSignal = playbackSignal,
     )
     val top = backStack.lastOrNull()
     val enterOffsetPx = with(LocalDensity.current) { BackMotionTokens.EnteringStartOffset.roundToPx() }

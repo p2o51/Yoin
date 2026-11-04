@@ -1,17 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
-import androidx.compose.material3.MotionScheme
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.TestMonotonicFrameClock
-import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -78,10 +67,10 @@ class TransportPulseTest {
     }
 
     @Test
-    fun should_ringFromTheTappedButton_when_theCoverLeadsAFreshSkip() {
+    fun should_flowTheNewColoursInFromTheTappedSide_when_theCoverLeadsAFreshSkip() {
         val decision = resolve(playing, nextSong, tap(TransportTapKind.SkipNext, nextButton))
 
-        assertEquals(TransportPulse.Burst(isPlay = true, focalRoot = nextButton), decision.pulse)
+        assertEquals(TransportPulse.SideFlow(fromEnd = true), decision.pulse)
         assertTrue(decision.tapUsed)
     }
 
@@ -100,7 +89,7 @@ class TransportPulseTest {
     fun should_treatItAsASkip_when_songAndPlayStateChangeTogether() {
         val decision = resolve(playing, nextSong.copy(isPlaying = false), tap(TransportTapKind.SkipNext, nextButton))
 
-        assertEquals(TransportPulse.Burst(isPlay = false, focalRoot = nextButton), decision.pulse)
+        assertEquals(TransportPulse.SideFlow(fromEnd = true), decision.pulse)
     }
 
     @Test
@@ -138,7 +127,7 @@ class TransportPulseTest {
         val justInTime = resolve(playing, nextSong, tap(TransportTapKind.SkipNext, nextButton, agoMs = 3_000L))
         val tooLate = resolve(playing, nextSong, tap(TransportTapKind.SkipNext, nextButton, agoMs = 3_001L))
 
-        assertEquals(TransportPulse.Burst(isPlay = true, focalRoot = nextButton), justInTime.pulse)
+        assertEquals(TransportPulse.SideFlow(fromEnd = true), justInTime.pulse)
         assertEquals(TransportPulse.None, tooLate.pulse)
     }
 
@@ -147,34 +136,6 @@ class TransportPulseTest {
         assertTrue(lyricFlowForward(previousQueueIndex = 3, queueIndex = 4))
         assertTrue(lyricFlowForward(previousQueueIndex = 3, queueIndex = 3))
         assertFalse(lyricFlowForward(previousQueueIndex = 3, queueIndex = 2))
-    }
-
-    @Test
-    fun should_riseFromBelowOntoTheTitle_when_theLightRunsForward() {
-        val column = Rect(left = 400f, top = 100f, right = 1200f, bottom = 900f)
-        val landingY = column.top + 150f
-
-        val start = flowLightFrame(column, landingY, forward = true, travel = 0f)
-        assertEquals(Offset(800f, 900f + 0.25f * 800f), start.center)
-        assertEquals(0.25f * 800f, start.radiusY, 1e-3f)
-        assertEquals(0.62f * 800f, start.radiusX, 1e-3f)
-
-        val end = flowLightFrame(column, landingY, forward = true, travel = 1f)
-        assertEquals(landingY, end.center.y, 1e-3f)
-        assertEquals(0.09f * 800f, end.radiusY, 1e-3f)
-    }
-
-    @Test
-    fun should_sinkFromAbove_when_theLightRunsBackward() {
-        val column = Rect(left = 0f, top = 100f, right = 800f, bottom = 900f)
-
-        val start = flowLightFrame(column, landingY = 250f, forward = false, travel = 0f)
-        assertEquals(100f - 0.25f * 800f, start.center.y, 1e-3f)
-        // The spring's overshoot moves the centre past the title but never
-        // squeezes the band thinner than its resting height.
-        val overshoot = flowLightFrame(column, landingY = 250f, forward = false, travel = 1.015f)
-        assertTrue(overshoot.center.y > 250f)
-        assertEquals(0.09f * 800f, overshoot.radiusY, 1e-3f)
     }
 
     // ── Wave-2 gate fix: a PREVIOUS that only restarts the song ─────────────
@@ -250,7 +211,7 @@ class TransportPulseTest {
     }
 
     @Test
-    fun should_keepThePreviousTapForItsRing_when_thePreviousSongArrives() {
+    fun should_keepThePreviousTapForItsFlow_when_thePreviousSongArrives() {
         val signal = signalAfterPreviousTap()
         val tapped = signal.lastTap!!
         // The screen moves to the previous song; its playhead starts near zero.
@@ -266,7 +227,8 @@ class TransportPulseTest {
             lyricsPrimary = false,
             handover = null,
         )
-        assertEquals(TransportPulse.Burst(isPlay = true, focalRoot = prevButton), decision.pulse)
+        // PREVIOUS: the previous song's colours come in from the start side.
+        assertEquals(TransportPulse.SideFlow(fromEnd = false), decision.pulse)
         assertTrue(decision.tapUsed)
     }
 
@@ -424,59 +386,5 @@ class TransportPulseTest {
         signal.recordSeek()
 
         assertEquals(owed, signal.playSettle)
-    }
-
-    // ── Wave-2 gate fix: the light votes a high frame rate for its sweep ────
-
-    private val scheme = MotionScheme.expressive()
-    private val role = YoinMotionRole.Expressive
-    private val travelSpec = YoinMotion.slowSpatialSpec<Float>(role = role, expressiveScheme = scheme)
-    private val inSpec = YoinMotion.fastEffectsSpec<Float>(role = role, expressiveScheme = scheme)
-    private val outSpec = YoinMotion.slowEffectsSpec<Float>(role = role, expressiveScheme = scheme)
-
-    private data class LightFrame(val travel: Float, val alpha: Float, val moving: Boolean)
-
-    @OptIn(ExperimentalTestApi::class, ExperimentalCoroutinesApi::class)
-    private fun sweep(run: FlowLightRun): List<LightFrame> {
-        val frames = mutableListOf<LightFrame>()
-        runTest {
-            withContext(TestMonotonicFrameClock(this)) {
-                val play = launch { run.play(travelSpec, inSpec, outSpec) }
-                val sampler = launch {
-                    while (true) {
-                        withFrameNanos { frames += LightFrame(run.travel.value, run.alpha.value, run.moving) }
-                    }
-                }
-                play.join()
-                sampler.cancel()
-            }
-        }
-        return frames
-    }
-
-    @Test
-    fun should_voteForTheWholeSweep_when_theFlowLightRuns() {
-        val run = FlowLightRun()
-        assertFalse(run.moving)
-
-        val frames = sweep(run)
-
-        // Every frame the light is on screen or still travelling votes High…
-        val visible = frames.filter { it.alpha > 0.001f || it.travel < 0.999f }
-        assertTrue(visible.size > 10)
-        assertTrue(visible.all { it.moving })
-        // …and the vote ends with the sweep.
-        assertFalse(run.moving)
-        assertEquals(0f, run.alpha.value, 0f)
-        assertEquals(1f, run.travel.value, 1e-3f)
-    }
-
-    @Test
-    fun should_letTheLightGoOnlyPastEightyFivePercent_when_itTravels() {
-        val frames = sweep(FlowLightRun())
-
-        val firstFade = frames.zipWithNext().first { (a, b) -> b.alpha < a.alpha - 1e-4f }
-        assertTrue(firstFade.first.travel >= FlowLightFadeOutAt)
-        assertEquals(1f, frames.maxOf { it.alpha }, 0.02f)
     }
 }

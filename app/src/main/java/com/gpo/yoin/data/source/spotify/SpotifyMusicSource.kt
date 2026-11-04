@@ -62,7 +62,7 @@ class SpotifyMusicSource(
     onCredentialsRevoked: suspend () -> Unit = {},
     httpClient: OkHttpClient = defaultHttpClient(),
     authService: SpotifyAuthService = SpotifyAuthService(httpClient),
-    val profileId: String? = null,
+    override val profileId: String? = null,
     rateLimitGate: SpotifyRateLimitGate? = null,
     apiBaseUrl: HttpUrl = "https://${SpotifyAuthConfig.API_HOST}/".toHttpUrl(),
     private val clock: () -> Long = System::currentTimeMillis,

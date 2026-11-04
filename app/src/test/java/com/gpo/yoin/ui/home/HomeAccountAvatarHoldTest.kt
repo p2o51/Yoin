@@ -71,7 +71,6 @@ class HomeAccountAvatarHoldTest {
                         HomeContent(
                             uiState = uiState,
                             isPlaying = false,
-                            playbackSignal = 0f,
                             onNavigateToSettings = {},
                             onNavigateToMemories = {},
                             onAlbumClick = { _, _ -> },

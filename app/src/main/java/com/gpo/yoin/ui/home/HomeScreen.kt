@@ -62,10 +62,14 @@ import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.animateFloatAsPacedState
 import com.gpo.yoin.ui.theme.withPacedFrames
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
 private const val HomeLoadingIndicatorDelayMillis = 180L
+
+private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
+private val NoticeAlreadySeen = MutableStateFlow(true)
 
 /** How Home's hold on the header avatar ends ([HomeAccountHold]). */
 private enum class HomeHoldEnd { HandBack, FadeAway, Release }
@@ -84,7 +88,6 @@ private val HomeInitialEntranceOffset = 16.dp
 fun HomeScreen(
     viewModel: HomeViewModel,
     isPlaying: Boolean,
-    playbackSignal: Float,
     activeSongId: String? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
     // the Memories bubble keeps quiet and the edit wiggle stops.
@@ -106,6 +109,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     // The account switcher behind the header avatar (null = the plain Settings gear).
     accountSwitcher: AccountSwitcherViewModel? = null,
+    // On Your Other Accounts: its items, and playing one once switched (null = no shelf).
+    otherProfiles: OtherProfilesViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val loadingReportsPressure by viewModel.loadingReportsPressure.collectAsState()
@@ -114,6 +119,28 @@ fun HomeScreen(
     val unseenNewSections by viewModel.unseenNewSections.collectAsState()
     // A new instance per source: covers resolved before it was up resolve again.
     val buildCoverArtUrl by viewModel.coverArtUrlBuilder.collectAsState()
+    val otherProfileItems by (otherProfiles?.items ?: NoOtherProfileItems).collectAsState()
+    val otherProfilesNoticeSeen by (otherProfiles?.noticeSeen ?: NoticeAlreadySeen).collectAsState()
+    // The item whose first tap asks before switching (the one-off notice).
+    var confirmingItem by remember { mutableStateOf<OtherProfileItem?>(null) }
+    val switchAndPlay: (OtherProfileItem) -> Unit = remember(accountSwitcher, otherProfiles) {
+        { item ->
+            if (accountSwitcher != null && otherProfiles != null) {
+                accountSwitcher.switchTo(item.profileId, onLanded = { otherProfiles.play(item) })
+            }
+        }
+    }
+    confirmingItem?.let { item ->
+        OtherProfileSwitchSheet(
+            item = item,
+            onConfirm = {
+                confirmingItem = null
+                otherProfiles?.markNoticeSeen()
+                switchAndPlay(item)
+            },
+            onDismiss = { confirmingItem = null },
+        )
+    }
 
     HomeAccountSwitcherHost(
         accountSwitcher = accountSwitcher,
@@ -127,7 +154,6 @@ fun HomeScreen(
             editController = editController,
             footerNewBadge = unseenNewSections.isNotEmpty(),
             isPlaying = isPlaying,
-            playbackSignal = playbackSignal,
             activeSongId = activeSongId,
             onNavigateToSettings = onNavigateToSettings,
             activeAccount = account.account,
@@ -155,6 +181,14 @@ fun HomeScreen(
             onActivityArtistsShown = viewModel::onActivityArtistsShown,
             onFeedAtRestChanged = viewModel::onFeedAtRestChanged,
             onHideJbiCard = viewModel::hideJbiCard,
+            otherProfileItems = otherProfileItems,
+            onOtherProfileItemClick = { item ->
+                if (otherProfilesNoticeSeen) {
+                    switchAndPlay(item)
+                } else {
+                    confirmingItem = item
+                }
+            },
         )
     }
 }
@@ -169,7 +203,6 @@ fun HomeContent(
     // The feed's "Edit Home" footer is badged "New" (D5).
     footerNewBadge: Boolean = false,
     isPlaying: Boolean,
-    playbackSignal: Float,
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     // The account in use (null = none yet) and opening the account switcher.
@@ -206,7 +239,10 @@ fun HomeContent(
     accountHandedUp: Boolean = true,
     // The account in use needs its owner: the header avatar wears a dot.
     accountNeedsReconnect: Boolean = false,
-    loadingReportsPressure: Boolean = true
+    loadingReportsPressure: Boolean = true,
+    // On Your Other Accounts' items, and a tap on one.
+    otherProfileItems: List<OtherProfileItem> = emptyList(),
+    onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -379,6 +415,8 @@ fun HomeContent(
                                 albumMemoryMarks = feed.albumMemoryMarks,
                                 playlists = feed.playlists,
                                 recentlyPlayed = feed.recentlyPlayed,
+                                otherProfileItems = otherProfileItems,
+                                onOtherProfileItemClick = onOtherProfileItemClick,
                                 memoryPill = feed.memoryPill,
                                 homeCovered = homeCovered,
                                 sections = sections,
@@ -500,7 +538,6 @@ private fun HomeContentLoadingPreview() {
         HomeContent(
             uiState = HomeUiState.Loading,
             isPlaying = false,
-            playbackSignal = 0f,
             activeSongId = null,
             onNavigateToSettings = {},
             onNavigateToMemories = {},
@@ -521,7 +558,6 @@ private fun HomeContentErrorPreview() {
         HomeContent(
             uiState = HomeUiState.Error("Failed to connect to server"),
             isPlaying = false,
-            playbackSignal = 0f,
             activeSongId = null,
             onNavigateToSettings = {},
             onNavigateToMemories = {},
@@ -627,7 +663,6 @@ private fun HomeContentPreview() {
                 ),
             ),
             isPlaying = true,
-            playbackSignal = 0.35f,
             activeSongId = "js1",
             onNavigateToSettings = {},
             onNavigateToMemories = {},
