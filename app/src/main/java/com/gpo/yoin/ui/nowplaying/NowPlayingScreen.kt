@@ -1,4 +1,5 @@
 package com.gpo.yoin.ui.nowplaying
+import android.os.SystemClock
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -87,6 +88,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -399,17 +401,29 @@ fun NowPlayingScreen(
     val revealLyrics = remember(transportSignal) {
         { transportSignal.glow(ActionGlowKind.LyricsReveal, null, areaRoot = transportSignal.lyricsAreaRoot) }
     }
-    val glowApplySearchResult: (LyricsSearchResultUi) -> Unit = remember(revealLyrics) {
+    // Applying lyrics (a search result, the editor) is asynchronous and can
+    // fail: the reveal waits for the new lines to arrive on this song.
+    var lyricsRevealOwedAt by remember { mutableLongStateOf(0L) }
+    val glowApplySearchResult: (LyricsSearchResultUi) -> Unit = remember {
         { result ->
+            lyricsRevealOwedAt = SystemClock.uptimeMillis()
             latestOnApplySearchResult(result)
-            revealLyrics()
         }
     }
-    val glowApplyLyrics: (String) -> Unit = remember(revealLyrics) {
+    val glowApplyLyrics: (String) -> Unit = remember {
         { text ->
+            lyricsRevealOwedAt = SystemClock.uptimeMillis()
             latestOnApplyLyrics(text)
-            revealLyrics()
         }
+    }
+    val revealSongId = (uiState as? NowPlayingUiState.Playing)?.songId
+    val revealLines = (uiState as? NowPlayingUiState.Playing)?.lyrics
+    LaunchedEffect(revealSongId) { lyricsRevealOwedAt = 0L }
+    LaunchedEffect(revealLines) {
+        val owed = lyricsRevealOwedAt
+        if (owed == 0L || revealLines.isNullOrEmpty()) return@LaunchedEffect
+        lyricsRevealOwedAt = 0L
+        if (SystemClock.uptimeMillis() - owed <= LyricsRevealWaitMs) revealLyrics()
     }
     // A translation: the slow sweep while it is fetched, each line lights once when it lands.
     val translating = (uiState as? NowPlayingUiState.Playing)?.lyricsActionInFlight == LyricsAction.Translate
@@ -5806,3 +5820,6 @@ private fun NowPlayingFormatTags(state: NowPlayingUiState.Playing) {
         )
     }
 }
+
+/** New lyrics landing this long after an apply still get its reveal. */
+private const val LyricsRevealWaitMs = 15_000L

@@ -83,7 +83,9 @@ internal fun NowPlayingRatingBar(
         },
         modifier = modifier.trackGlowBounds(glowBounds)
     )
-    DisposableEffect(glowSignal) {
+    // A new song cancels the press without a lift (RatingSlider's gestureKey):
+    // drop its light too, or the background would never come to rest.
+    DisposableEffect(glowSignal, songId) {
         onDispose { glowSignal?.glowHold = null }
     }
 }
