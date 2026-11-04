@@ -392,6 +392,8 @@ private fun DeckAurora(palettes: List<MemoryPalette>, pagerState: PagerState, vi
                     deckAuroraColors(current, pagerState.currentPage + pagerState.currentPageOffsetFraction)
                 },
                 visible = visible,
+                // The field turns with the swipe, and rests when the deck does.
+                drift = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
             ),
     )
 }

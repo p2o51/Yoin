@@ -123,4 +123,26 @@ interface SubsonicApi {
     suspend fun deletePlaylist(
         @Query("id") id: String,
     ): SubsonicResponse
+
+    /**
+     * Report plays: [submission] false is "now playing", true counts plays. [id]
+     * and [time] (epoch ms the song was heard) repeat in step, so one call sends
+     * several plays.
+     */
+    @GET("rest/scrobble.view")
+    suspend fun scrobble(
+        @Query("id") id: List<String>,
+        @Query("time") time: List<Long>? = null,
+        @Query("submission") submission: Boolean,
+    ): SubsonicResponse
+
+    /** OpenSubsonic `playbackReport` extension. */
+    @GET("rest/reportPlayback.view")
+    suspend fun reportPlayback(
+        @Query("mediaId") mediaId: String,
+        @Query("mediaType") mediaType: String,
+        @Query("positionMs") positionMs: Long,
+        @Query("state") state: String,
+        @Query("ignoreScrobble") ignoreScrobble: Boolean,
+    ): SubsonicResponse
 }

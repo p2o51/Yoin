@@ -1170,6 +1170,20 @@ class YoinRepository(
         )
     }
 
+    /**
+     * Bumps each time a Spotify library sync rewrites the active profile's
+     * mirror. Reads take a stale mirror at once and its sync lands later
+     * ([SpotifyLibrarySyncCoordinator.refreshLibrary]); this says when, so a
+     * page on screen can take the fresh lists in place. Constant for other
+     * services.
+     */
+    val spotifyLibrarySynced: Flow<Long> =
+        (spotifyLibrarySyncCoordinator?.syncedRevisions ?: MutableStateFlow<Map<String, Long>>(emptyMap()))
+            .let { revisions ->
+                combine(activeProfileId, revisions) { profileId, synced -> synced[profileId] ?: 0L }
+            }
+            .distinctUntilChanged()
+
     /** True when the active Spotify profile has any cached library data. */
     suspend fun hasSpotifyCachedData(): Boolean {
         if (!isSpotifyActive()) return false

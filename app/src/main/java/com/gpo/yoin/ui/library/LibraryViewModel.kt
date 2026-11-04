@@ -234,11 +234,20 @@ class LibraryViewModel(
         observeProfileChanges()
         observeLibraryRevision()
         observeLibraryAlbumsRevision()
+        observeSpotifyLibrarySynced()
     }
 
-    fun refresh() = reloadLibrary(forceSpotifyRefresh = true)
+    /**
+     * The music configuration changed (a profile switch, an account edit):
+     * Library loads again from what the account has on hand. Not a forced
+     * Spotify sync — that paged the whole library (and threw away the lists
+     * the switch had just warmed) before Library could show anything; a
+     * stale mirror now shows at once and its sync lands behind it
+     * ([observeSpotifyLibrarySynced]).
+     */
+    fun refresh() = reloadLibrary()
 
-    private fun reloadLibrary(forceSpotifyRefresh: Boolean = false) {
+    private fun reloadLibrary() {
         cancelDataLoads()
         libraryDataGeneration += 1
         _uiState.value = LibraryUiState.Loading
@@ -259,10 +268,10 @@ class LibraryViewModel(
             LibrarySearchScope.CurrentLibrary,
             searchAttemptCounter,
         )
-        loadInitialData(forceSpotifyRefresh)
+        loadInitialData()
     }
 
-    private fun loadInitialData(forceSpotifyRefresh: Boolean = false) {
+    private fun loadInitialData() {
         initialLoadJob?.cancel()
         val generation = libraryDataGeneration
         initialLoadJob = viewModelScope.launch {
@@ -277,7 +286,7 @@ class LibraryViewModel(
             val profileId = repository.currentProfileId()
             try {
                 if (isSpotifyProvider()) {
-                    repository.refreshSpotifyLibrary(force = forceSpotifyRefresh)
+                    repository.refreshSpotifyLibrary()
                 }
                 // The cold start reads what it always has (the artists, which
                 // also tell a dead server from a live one). All's albums and
@@ -1742,6 +1751,58 @@ class LibraryViewModel(
                     if (seen == null || rose) seen = revision
                     if (!rose || profileId != repository.currentProfileId()) return@collectLatest
                     rereadForLibraryRevision()
+                }
+            }
+        }
+    }
+
+    /**
+     * A Spotify sync landed behind the lists on screen: Library opened on the
+     * mirror as it was (no spinner, no wait on Spotify's paging) and now
+     * takes the fresh lists in place — artists, albums, songs, and here also
+     * playlists and favorites, which [rereadAfterLibraryChange] leaves alone.
+     * A Library still loading reads the fresh mirror on its own.
+     *
+     * Watched per profile like [observeLibraryRevision]: the first count is
+     * the baseline, only a rise past it counts.
+     */
+    private fun observeSpotifyLibrarySynced() {
+        viewModelScope.launch {
+            repository.currentProfileIdFlow.distinctUntilChanged().collectLatest { profileId ->
+                var seen: Long? = null
+                repository.spotifyLibrarySynced.collectLatest { revision ->
+                    val rose = seen?.let { revision > it } == true
+                    if (seen == null || rose) seen = revision
+                    if (!rose || profileId != repository.currentProfileId()) return@collectLatest
+                    val current = _uiState.value as? LibraryUiState.Content ?: return@collectLatest
+                    rereadAfterSpotifySync(current)
+                }
+            }
+        }
+    }
+
+    private fun rereadAfterSpotifySync(current: LibraryUiState.Content) {
+        cancelDataLoads()
+        libraryDataGeneration += 1
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        val rereadsPlaylists = cachedPlaylists != null
+        val rereadsFavorites = cachedFavorites != null
+        rereadAfterLibraryChange(current)
+        if (!rereadsPlaylists && !rereadsFavorites) return
+        viewModelScope.launch {
+            if (rereadsPlaylists) {
+                attempt { loadPlaylists() }.onSuccess { playlists ->
+                    if (!isDataLoadCurrent(generation, profileId)) return@onSuccess
+                    cachedPlaylists = playlists
+                    publishLists()
+                }
+            }
+            if (rereadsFavorites) {
+                attempt { repository.getStarred() }.onSuccess { favorites ->
+                    if (!isDataLoadCurrent(generation, profileId)) return@onSuccess
+                    cachedFavorites = favorites.applyFavoriteOverrides(repository.favoriteOverrides.value)
+                    updateContent { copy(favorites = cachedFavorites) }
                 }
             }
         }

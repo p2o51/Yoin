@@ -56,7 +56,6 @@ fun SongListItem(
     // Keep the current track marked on pause; only its equalizer stops moving.
     isCurrentTrack: Boolean = false,
     isPlaying: Boolean = false,
-    playbackSignal: Float = 0f,
     extractBackdropColors: Boolean = true,
     hasNote: Boolean = false,
     modifier: Modifier = Modifier,
@@ -117,7 +116,6 @@ fun SongListItem(
                     fallbackIcon = YoinSymbols.MusicNote,
                     interactionSource = interactionSource,
                     isPlaybackActive = isCurrentTrack && isPlaying,
-                    playbackSignal = playbackSignal,
                     fillFraction = 1f,
                     tonalElevation = 0.dp,
                     extractBackdropColors = extractBackdropColors,

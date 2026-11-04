@@ -133,6 +133,7 @@ import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
+import com.gpo.yoin.ui.home.OtherProfilesViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
 import com.gpo.yoin.ui.home.rememberMemoryBubbleShell
@@ -405,19 +406,6 @@ private fun YoinShell(
     val playbackConnectionError by remember(playbackManager) {
         playbackManager.playbackState.map { it.connectionErrorMessage }.distinctUntilChanged()
     }.collectAsState(initial = playbackSeed.connectionErrorMessage)
-    // playbackSignal is a heavily-throttled Float (≤3% change to emit); safe
-    // to collect at the shell level without recomposing at ~30Hz.
-    // The full VisualizerData stream stays out of composition entirely — the
-    // Now Playing overlay only derives a Boolean spectrum-presence from it.
-    // Held while a detail window covers the shell (nothing of Home is seen).
-    val shellCovered = LocalWindowCovered.current
-    val playbackSignal by remember(app, shellCovered) {
-        app.container.audioVisualizerManager.playbackSignal
-            .combine(snapshotFlow { shellCovered.value }) { signal, covered -> signal to covered }
-            .filter { (_, covered) -> !covered }
-            .map { (signal, _) -> signal }
-            .distinctUntilChanged()
-    }.collectAsState(initial = app.container.audioVisualizerManager.playbackSignal.value)
     val windowInfo = LocalYoinWindowInfo.current
     // One Button Group, three forms (断点交接 §1): portrait bar, edge-split
     // capsules for short windows, centred capped bar from Medium up. The old
@@ -883,6 +871,8 @@ private fun YoinShell(
     // Home's account switcher. A switch begun there that fails puts Home's
     // feed back on its own (HomeViewModel) and says so here, once.
     val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
+    // Home's On Your Other Accounts shelf: a tap switches here, then plays.
+    val otherProfiles: OtherProfilesViewModel = viewModel(factory = OtherProfilesViewModel.Factory(app.container, app))
     val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
     LaunchedEffect(accountSwitcher) {
         accountSwitcher.switchFailures.collect {
@@ -1031,8 +1021,8 @@ private fun YoinShell(
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,
+                                otherProfiles = otherProfiles,
                                 isPlaying = isPlaying,
-                                playbackSignal = if (isPlaying) playbackSignal else 0f,
                                 activeSongId = currentTrack?.id?.toString(),
                                 // Something above Home owns the screen (Now
                                 // Playing, the detail column): Home keeps quiet
@@ -1184,7 +1174,6 @@ private fun YoinShell(
                             collapseSearchOnOpen = hasDetailPane,
                             activeSongId = currentTrack?.id?.toString(),
                             isPlaying = isPlaying,
-                            playbackSignal = if (isPlaying) playbackSignal else 0f,
                             onNavigateToSettings = { navigateToSettingsFromShell(null) },
                             onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
                             onAlbumClick = { albumId -> navigateToAlbumFromShell(albumId, null) },
@@ -1278,7 +1267,6 @@ private fun YoinShell(
                                     app = app,
                                     isPlaying = isPlaying,
                                     currentTrackId = currentTrack?.id?.toString(),
-                                    playbackSignal = if (isPlaying) playbackSignal else 0f,
                                     registry = paneRegistry,
                                     onPopEntry = { popPaneEntry() },
                                     onPush = pushPane,

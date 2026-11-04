@@ -2105,7 +2105,7 @@ class HomeViewModelTest {
             switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Preparing)
             assertEquals(HomeUiState.Loading, awaitItem())
             assertFalse(viewModel.loadingReportsPressure.value)
-            switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Priming)
+            switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Connecting)
             advanceTimeBy(2_000)
             expectNoEvents()
 
@@ -2177,7 +2177,7 @@ class HomeViewModelTest {
 
             switching.value = ProfileManager.SwitchState.Switching(
                 "spotify-switch-acknowledged-b",
-                ProfileManager.SwitchState.Stage.Priming
+                ProfileManager.SwitchState.Stage.Connecting
             )
             assertEquals(HomeUiState.Loading, awaitItem())
 
@@ -2210,7 +2210,7 @@ class HomeViewModelTest {
             assertTrue((awaitItem() as HomeUiState.Content).playlists.isEmpty())
 
             val target = "spotify-switch-late-splice-b"
-            switching.value = ProfileManager.SwitchState.Switching(target, ProfileManager.SwitchState.Stage.Priming)
+            switching.value = ProfileManager.SwitchState.Switching(target, ProfileManager.SwitchState.Stage.Connecting)
             assertEquals(HomeUiState.Loading, awaitItem())
 
             playlists.complete(listOf(playlist("late-list")))
@@ -2259,7 +2259,7 @@ class HomeViewModelTest {
         }
         advanceUntilIdle()
 
-        switching.value = ProfileManager.SwitchState.Switching(second, ProfileManager.SwitchState.Stage.Priming)
+        switching.value = ProfileManager.SwitchState.Switching(second, ProfileManager.SwitchState.Stage.Connecting)
         runCurrent()
         profileId.value = second
         switching.value = ProfileManager.SwitchState.Idle
@@ -2267,7 +2267,7 @@ class HomeViewModelTest {
         assertEquals(second, painted.last().first.ownerProfileId)
 
         painted.clear()
-        switching.value = ProfileManager.SwitchState.Switching(first, ProfileManager.SwitchState.Stage.Priming)
+        switching.value = ProfileManager.SwitchState.Switching(first, ProfileManager.SwitchState.Stage.Connecting)
         runCurrent()
         profileId.value = first
         switching.value = ProfileManager.SwitchState.Idle

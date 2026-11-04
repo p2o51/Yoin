@@ -18,6 +18,15 @@ interface SpotifyLibraryCacheDao {
     @Upsert
     suspend fun upsertSyncMeta(meta: SpotifyLibrarySyncMeta)
 
+    /** Whether [profileId]'s mirror holds any row at all, without reading the lists. */
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM spotify_library_track_cache WHERE profileId = :profileId) " +
+            "OR EXISTS(SELECT 1 FROM spotify_library_album_cache WHERE profileId = :profileId) " +
+            "OR EXISTS(SELECT 1 FROM spotify_library_artist_cache WHERE profileId = :profileId) " +
+            "OR EXISTS(SELECT 1 FROM spotify_library_playlist_cache WHERE profileId = :profileId)",
+    )
+    suspend fun hasAnyRows(profileId: String): Boolean
+
     /**
      * Liked Songs' own order: newest like first, and likes in the same second
      * as Spotify lists them. A sync inserts the saved tracks in the order

@@ -83,6 +83,17 @@ enum class HomeSection(
         defaultEnabled = true,
         appendEnabled = true,
     ),
+
+    // Owner 2026-11-04 (「在你的其他资料里」): what the other accounts play
+    // most; a tap switches account and plays. Empty with one account, so
+    // shown by default and to customized layouts too.
+    OtherProfiles(
+        id = "other_profiles",
+        title = "On Your Other Accounts",
+        supportingText = "Albums and playlists your other accounts play most",
+        defaultEnabled = true,
+        appendEnabled = true,
+    ),
     ;
 
     /**
@@ -109,6 +120,7 @@ internal val HomeSection.titleRes: Int
         HomeSection.Rediscover -> R.string.home_section_rediscover
         HomeSection.RecentlyPlayed -> R.string.home_section_recently_played
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists
+        HomeSection.OtherProfiles -> R.string.home_section_other_profiles
     }
 
 @get:StringRes
@@ -120,6 +132,7 @@ internal val HomeSection.supportingRes: Int
         HomeSection.Rediscover -> R.string.home_section_rediscover_supporting
         HomeSection.RecentlyPlayed -> R.string.home_section_recently_played_supporting
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists_supporting
+        HomeSection.OtherProfiles -> R.string.home_section_other_profiles_supporting
     }
 
 @get:StringRes
@@ -131,6 +144,7 @@ internal val HomeSection.placeholderRes: Int
         HomeSection.Rediscover -> R.string.home_placeholder_rediscover
         HomeSection.RecentlyPlayed -> R.string.home_placeholder_recently_played
         HomeSection.YourPlaylists -> R.string.home_placeholder_your_playlists
+        HomeSection.OtherProfiles -> R.string.home_placeholder_other_profiles
     }
 
 /**

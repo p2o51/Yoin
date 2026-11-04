@@ -81,7 +81,6 @@ class ArtistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val isPlaying by rememberDetailIsPlaying(app.container)
-                val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
 
                 // A "Most Played" row plays the user's own most-played songs
                 // from that row on (the list the page shows, in its order).
@@ -192,7 +191,6 @@ class ArtistDetailActivity : ComponentActivity() {
                         context.startActivity(Intent.createChooser(send, null))
                     },
                     isPlaying = isPlaying,
-                    playbackSignal = if (isPlaying) playbackSignal else 0f,
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     nowPlayingOpen = nowPlayingOpen,
 

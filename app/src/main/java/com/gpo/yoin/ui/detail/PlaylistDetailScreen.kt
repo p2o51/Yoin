@@ -166,7 +166,6 @@ fun PlaylistDetailScreen(
     onBackUp: (() -> Unit)? = null,
     backingUp: Boolean = false,
     isPlaying: Boolean = false,
-    playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
 
@@ -319,8 +318,6 @@ fun PlaylistDetailScreen(
                 DetailEnterPageMountEffect(enterIntro)
                 ExpressivePageBackground(
                     accentColor = accentColor,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
                     modifier = Modifier
                         .fillMaxSize()
                         .detailBackCollapseTransform(backCollapse)

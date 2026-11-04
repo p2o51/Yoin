@@ -227,6 +227,45 @@ class SpotifyLibrarySyncCoordinatorTest {
     }
 
     @Test
+    fun should_serveTheStaleMirrorAtOnceAndSyncBehindIt_when_ttlExpired() = runTest {
+        seedRemoteLibrary()
+        coordinator.refreshLibrary(profileId = "profile-a", source = source, force = true)
+        assertEquals(1L, coordinator.syncedRevisions.value["profile-a"])
+        now += SpotifyLibrarySyncCoordinator.DEFAULT_TTL_MS + 1L
+        val release = CompletableDeferred<Unit>()
+        coEvery { library.getArtists() } coAnswers {
+            release.await()
+            listOf(ArtistIndex(name = "T", artists = emptyList()))
+        }
+
+        withContext(Dispatchers.IO) {
+            // The sync is held, yet the read comes back: what the mirror had stays readable.
+            val result = withTimeout(5_000L) {
+                coordinator.refreshLibrary(profileId = "profile-a", source = source, force = false)
+            }
+            assertTrue(result.isSuccess)
+            assertEquals(1, coordinator.readArtists("profile-a").size)
+            assertEquals(1L, coordinator.syncedRevisions.value["profile-a"])
+
+            release.complete(Unit)
+            withTimeout(5_000L) {
+                while (coordinator.syncedRevisions.value["profile-a"] != 2L) delay(10)
+            }
+        }
+        assertTrue(coordinator.isCacheFresh("profile-a"))
+    }
+
+    @Test
+    fun should_waitForTheSync_when_theMirrorIsEmpty() = runTest {
+        seedRemoteLibrary()
+
+        val result = coordinator.refreshLibrary(profileId = "profile-a", source = source, force = false)
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, coordinator.readArtists("profile-a").size)
+    }
+
+    @Test
     fun should_share_single_sync_across_concurrent_refreshes() = runTest {
         var getArtistsCalls = 0
         val firstCallEntered = CompletableDeferred<Unit>()
