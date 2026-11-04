@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /// Server sign-in, a pushed page (PushPage): Home's account avatar → here,
 /// back (button or edge swipe) → Home.
@@ -15,11 +16,23 @@ struct ServerSettingsView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var working = false
-    @State private var quality = StreamQualityChoice.current
-    @State private var qualityOpen = false
+    @State private var quality = StreamQualityStore.load()
+    /// The quality row whose choices are open under it, if any.
+    @State private var qualityOpen: QualityNetwork?
     @FocusState private var focus: Field?
 
     private enum Field: Hashable { case address, username, password }
+
+    /// Android Settings › Playback quality: one choice per network.
+    private enum QualityNetwork: Hashable {
+        case wifi, mobile
+        var title: String {
+            switch self {
+            case .wifi: "Wi\u{2011}Fi"
+            case .mobile: "Mobile data"
+            }
+        }
+    }
 
     private var session: ServerSession { model.session }
     private var apple: AppleMusicSource { model.appleMusic }
@@ -130,22 +143,34 @@ struct ServerSettingsView: View {
 
     private var qualityGroup: some View {
         group("Playback") {
-            [AnyView(qualityRow)] + (qualityOpen ? StreamQualityChoice.allCases.map { AnyView(qualityChoice($0)) } : [])
+            var rows: [AnyView] = []
+            for network in [QualityNetwork.wifi, .mobile] {
+                rows.append(AnyView(qualityRow(network)))
+                if qualityOpen == network {
+                    rows += StreamQuality.companion.all.map { AnyView(qualityChoice($0, for: network)) }
+                }
+            }
+            return rows
         }
     }
 
-    /// Playback quality: the row shows the choice; a tap opens the four
-    /// choices right under it (Android Settings › Playback quality).
-    /// Automatic: the original file over a wire, 128 kbps otherwise. The
-    /// next song opened plays at the new choice.
-    private var qualityRow: some View {
-        Button { qualityOpen.toggle() } label: {
+    private func selected(_ network: QualityNetwork) -> StreamQuality {
+        network == .wifi ? quality.wifi : quality.mobile
+    }
+
+    /// Android Settings › Playback quality, as two rows (Wi‑Fi, Mobile data):
+    /// each shows its choice; a tap opens Android's five choices right under
+    /// it. Auto follows the output (wired Original, Bluetooth 320 kbps,
+    /// speaker 192 kbps). The next song opened plays at the new choice.
+    private func qualityRow(_ network: QualityNetwork) -> some View {
+        let open = qualityOpen == network
+        return Button { qualityOpen = open ? nil : network } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Playback quality")
+                    Text(network.title)
                         .yoinRole(Tokens.type.bodyLarge)
                         .foregroundStyle(app.onSurface)
-                    Text(quality.label)
+                    Text(selected(network).label)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurfaceVariant)
                         .contentTransition(.opacity)
@@ -153,7 +178,7 @@ struct ServerSettingsView: View {
                 Spacer(minLength: 16)
                 YoinIcon("chevron_down", size: 20)
                     .foregroundStyle(app.onSurfaceVariant)
-                    .rotationEffect(.degrees(qualityOpen ? 180 : 0))
+                    .rotationEffect(.degrees(open ? 180 : 0))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -161,27 +186,38 @@ struct ServerSettingsView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityValue(quality.label)
+        .accessibilityLabel(network.title)
+        .accessibilityValue(selected(network).label)
     }
 
-    private func qualityChoice(_ choice: StreamQualityChoice) -> some View {
-        let selected = choice == quality
+    private func qualityChoice(_ choice: StreamQuality, for network: QualityNetwork) -> some View {
+        let isSelected = choice == selected(network)
         return Button {
-            guard !selected else { return }
-            quality = choice
-            StreamQualityChoice.current = choice
+            guard !isSelected else { return }
+            switch network {
+            case .wifi: StreamQualityStore.setWifi(choice)
+            case .mobile: StreamQualityStore.setMobile(choice)
+            }
+            quality = StreamQualityStore.load()
             model.player.streamQualityDidChange()
         } label: {
             HStack(spacing: 16) {
                 ZStack {
-                    Circle().strokeBorder(selected ? app.primary : app.onSurfaceVariant, lineWidth: 2)
-                    Circle().fill(app.primary).padding(5).scaleEffect(selected ? 1 : 0.01).opacity(selected ? 1 : 0)
+                    Circle().strokeBorder(isSelected ? app.primary : app.onSurfaceVariant, lineWidth: 2)
+                    Circle().fill(app.primary).padding(5).scaleEffect(isSelected ? 1 : 0.01).opacity(isSelected ? 1 : 0)
                 }
                 .frame(width: 20, height: 20)
                 .padding(.horizontal, 2)
-                Text(choice.label)
-                    .yoinRole(Tokens.type.titleMedium)
-                    .foregroundStyle(app.onSurface)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(choice.label)
+                        .yoinRole(Tokens.type.titleMedium)
+                        .foregroundStyle(app.onSurface)
+                    if choice == .auto_ {
+                        Text(AudioOutputKind.companion.autoDetail)
+                            .yoinRole(Tokens.type.bodyMedium)
+                            .foregroundStyle(app.onSurfaceVariant)
+                    }
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -190,7 +226,7 @@ struct ServerSettingsView: View {
         }
         .buttonStyle(.plain)
         .transition(.opacity.combined(with: .move(edge: .top)))
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     private var statusText: String {

@@ -1,4 +1,5 @@
 import XCTest
+import YoinShared
 @testable import Yoin
 
 /// Data/Cache: the cache key, the byte ranges, LRU eviction, and the

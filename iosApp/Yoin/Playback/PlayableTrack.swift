@@ -1,4 +1,5 @@
 import AVFoundation
+import YoinShared
 
 /// One streamable song, already resolved by its provider (a Subsonic
 /// `stream` URL, a cover URL). The engine never talks to a provider itself.
@@ -73,62 +74,70 @@ enum PlayerEvent: Sendable, Equatable {
 
 // MARK: - Stream quality (Subsonic)
 
-/// How much of a Subsonic song the player asks for: the file as it is, or an
-/// mp3 transcode at no more than [maxBitRateKbps] (Android `StreamQuality`).
-enum StreamQuality: String, CaseIterable, Sendable {
-    case original, kbps320 = "320", kbps192 = "192", kbps128 = "128"
+/// The rule is the shared one (YoinShared `StreamQualityPolicy`, Android's
+/// player/StreamQuality.kt; owner decision O01): one choice for Wi‑Fi, one
+/// for mobile data, Auto following the output. This file maps iOS's network
+/// and route onto its inputs and keeps the two choices on this device.
+enum StreamConditions {
+    /// Android `outputKindOf` over AVAudioSession ports: a wire (headphones,
+    /// USB, line out, HDMI) wins, then Bluetooth media (A2DP, LE Audio), else
+    /// the speaker. Hands-free Bluetooth (HFP, Android's SCO), AirPlay,
+    /// CarPlay, the earpiece and anything new count as the speaker, as every
+    /// other Android output type does.
+    static func outputKind(_ ports: [AVAudioSession.Port]) -> AudioOutputKind {
+        AudioOutputKind.companion.strongest(kinds: ports.map(kind(of:)))
+    }
 
-    /// Android's low preset.
-    static let low: StreamQuality = .kbps128
-
-    var maxBitRateKbps: Int? {
-        switch self {
-        case .original: nil
-        case .kbps320: 320
-        case .kbps192: 192
-        case .kbps128: 128
+    static func kind(of port: AVAudioSession.Port) -> AudioOutputKind {
+        switch port {
+        case .headphones, .usbAudio, .lineOut, .HDMI: .wired
+        case .bluetoothA2DP, .bluetoothLE: .bluetooth
+        default: .speaker
         }
     }
 
-    var label: String { maxBitRateKbps.map { "\($0) kbps" } ?? "Original" }
-
-    /// Outputs that carry the file as it is: a wire (owner rule 2026-11-04).
-    static let wiredPorts: Set<AVAudioSession.Port> = [.headphones, .usbAudio, .lineOut, .HDMI]
-
-    /// Automatic's rule: the original file when the route ends in a wire,
-    /// the low preset for Bluetooth / AirPods, the speaker, AirPlay and the rest.
-    static func forRoute(_ outputs: [AVAudioSession.Port]) -> StreamQuality {
-        outputs.contains(where: wiredPorts.contains) ? .original : .low
+    /// Android's NET_CAPABILITY_NOT_METERED: a satisfied path that is
+    /// neither expensive (cellular, a phone's hotspot) nor constrained (Low
+    /// Data Mode). No network counts as metered.
+    static func isUnmetered(satisfied: Bool, expensive: Bool, constrained: Bool) -> Bool {
+        satisfied && !expensive && !constrained
     }
 }
 
-/// Settings › Server › Playback quality: Automatic (by route) or a fixed
-/// quality. One choice on iOS, no Wi‑Fi / mobile split; device-local.
-enum StreamQualityChoice: String, CaseIterable, Sendable {
-    case automatic
-    case original, kbps320 = "320", kbps192 = "192", kbps128 = "128"
+/// Settings › Server › Playback: the two choices, per device (Android
+/// `StreamQualityPreference`, same keys as values: auto / original / 320 / 192 / 128).
+enum StreamQualityStore {
+    static let wifiKey = "streamQualityWifi"
+    static let mobileKey = "streamQualityMobile"
+    /// The single choice iOS had before O01 ("automatic", "original", "320", …).
+    static let legacyKey = "streamQuality"
 
-    static let `default`: StreamQualityChoice = .automatic
-    static let defaultsKey = "streamQuality"
-
-    var label: String { fixed?.label ?? "Automatic" }
-
-    var fixed: StreamQuality? { StreamQuality(rawValue: rawValue) }
-
-    func resolve(routeOutputs: [AVAudioSession.Port]) -> StreamQuality {
-        fixed ?? StreamQuality.forRoute(routeOutputs)
-    }
-
-    static var current: StreamQualityChoice {
-        get {
-            UserDefaults.standard.string(forKey: defaultsKey).flatMap(StreamQualityChoice.init(rawValue:)) ?? .default
+    /// The stored choices. The first read after the update moves the old
+    /// single choice over: Automatic (or nothing) becomes the defaults
+    /// (Wi‑Fi Original, mobile Auto), an explicit quality applies to both.
+    static func load(_ defaults: UserDefaults = .standard) -> StreamQualitySettings {
+        let wifi = defaults.string(forKey: wifiKey)
+        let mobile = defaults.string(forKey: mobileKey)
+        let legacy = defaults.string(forKey: legacyKey)
+        let settings = StreamQualitySettings.companion.fromStored(wifiKey: wifi, mobileKey: mobile, legacyKey: legacy)
+        if legacy != nil {
+            if wifi == nil, mobile == nil { save(settings, defaults) }
+            defaults.removeObject(forKey: legacyKey)
         }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey) }
+        return settings
     }
 
-    /// What a song opened now plays at.
-    static func resolvedNow() -> StreamQuality {
-        current.resolve(routeOutputs: AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType))
+    static func setWifi(_ quality: StreamQuality, _ defaults: UserDefaults = .standard) {
+        save(StreamQualitySettings(wifi: quality, mobile: load(defaults).mobile), defaults)
+    }
+
+    static func setMobile(_ quality: StreamQuality, _ defaults: UserDefaults = .standard) {
+        save(StreamQualitySettings(wifi: load(defaults).wifi, mobile: quality), defaults)
+    }
+
+    private static func save(_ settings: StreamQualitySettings, _ defaults: UserDefaults) {
+        defaults.set(settings.wifi.key, forKey: wifiKey)
+        defaults.set(settings.mobile.key, forKey: mobileKey)
     }
 }
 
@@ -155,9 +164,11 @@ struct StreamDelivery: Hashable, Sendable {
     /// would answer from 0 while the clock counted from the target. Otherwise
     /// the transcode seeks in its own bytes, from 0.
     static func plan(_ quality: StreamQuality, track: PlayableTrack, timeOffset: Bool) -> StreamDelivery {
-        guard let cap = quality.maxBitRateKbps, SubsonicStreamURLs.isStream(track.streamURL) else { return .original }
-        if let source = track.sourceKbps, source <= cap { return .original }
-        return StreamDelivery(maxBitRateKbps: cap, seeksByTime: timeOffset && track.sourceKbps != nil)
+        guard SubsonicStreamURLs.isStream(track.streamURL) else { return .original }
+        let source = track.sourceKbps.flatMap { $0 > 0 ? $0 : nil }
+        let plan = StreamQualityPolicy.shared.planKbps(quality: quality, sourceKbps: Int32(clamping: source ?? 0))
+        guard plan.transcoded else { return .original }
+        return StreamDelivery(maxBitRateKbps: Int(plan.capKbps), seeksByTime: timeOffset && source != nil)
     }
 }
 
@@ -165,7 +176,7 @@ struct StreamDelivery: Hashable, Sendable {
 /// `SubsonicStreamUrls`). The token signs the password, not the query, so the
 /// signature stays valid.
 enum SubsonicStreamURLs {
-    static let transcodeFormat = "mp3"
+    static let transcodeFormat = StreamQualityPolicy.shared.TRANSCODE_FORMAT
     private static let transcodeParameters: Set<String> = ["maxBitRate", "format", "timeOffset", "estimateContentLength"]
 
     static func isStream(_ url: URL) -> Bool {

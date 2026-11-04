@@ -1,6 +1,7 @@
 import AVFoundation
 import MusicKit
 import XCTest
+import YoinShared
 @testable import Yoin
 
 /// Records what the engine asks of its output; tests fire the output's events by hand.
@@ -508,29 +509,85 @@ final class StreamQualityTests: XCTestCase {
         XCTAssertEqual(engine.progress.positionSec, 76, accuracy: 0.001, "no invented time base")
     }
 
-    func test_should_default_to_automatic_with_labels() {
-        XCTAssertEqual(StreamQualityChoice.default, .automatic)
-        XCTAssertEqual(StreamQualityChoice.allCases.map(\.label),
-                       ["Automatic", "Original", "320 kbps", "192 kbps", "128 kbps"])
+    // MARK: Rule (shared StreamQualityPolicy, Android StreamQuality.kt; O01)
+
+    func test_should_offer_androids_choices_and_labels() {
+        XCTAssertEqual(StreamQuality.companion.all.map(\.label), ["Auto", "Original", "320 kbps", "192 kbps", "128 kbps"])
+        XCTAssertEqual(StreamQuality.companion.all.map(\.key), ["auto", "original", "320", "192", "128"])
+        XCTAssertEqual(AudioOutputKind.companion.autoDetail, "Wired Original   Bluetooth 320 kbps   Speaker 192 kbps")
     }
 
-    func test_should_play_original_over_a_wire_and_128_otherwise() {
+    func test_should_map_route_ports_to_androids_output_kinds() {
         for wired in [AVAudioSession.Port.headphones, .usbAudio, .lineOut, .HDMI] {
-            XCTAssertEqual(StreamQuality.forRoute([wired]), .original, wired.rawValue)
+            XCTAssertEqual(StreamConditions.outputKind([wired]), .wired, wired.rawValue)
         }
-        for other in [AVAudioSession.Port.bluetoothA2DP, .bluetoothLE, .bluetoothHFP, .builtInSpeaker,
-                      .builtInReceiver, .airPlay, .carAudio] {
-            XCTAssertEqual(StreamQuality.forRoute([other]), .kbps128, other.rawValue)
+        for bluetooth in [AVAudioSession.Port.bluetoothA2DP, .bluetoothLE] {
+            XCTAssertEqual(StreamConditions.outputKind([bluetooth]), .bluetooth, bluetooth.rawValue)
         }
-        XCTAssertEqual(StreamQuality.forRoute([]), .kbps128)
-        XCTAssertEqual(StreamQuality.forRoute([.airPlay, .headphones]), .original)
+        for other in [AVAudioSession.Port.bluetoothHFP, .builtInSpeaker, .builtInReceiver, .airPlay, .carAudio,
+                      AVAudioSession.Port(rawValue: "SomethingNew")] {
+            XCTAssertEqual(StreamConditions.outputKind([other]), .speaker, other.rawValue)
+        }
+        XCTAssertEqual(StreamConditions.outputKind([]), .speaker)
+        // A wire wins over Bluetooth, Bluetooth over the speaker.
+        XCTAssertEqual(StreamConditions.outputKind([.airPlay, .bluetoothA2DP, .headphones]), .wired)
+        XCTAssertEqual(StreamConditions.outputKind([.builtInSpeaker, .bluetoothLE]), .bluetooth)
     }
 
-    func test_should_resolve_automatic_by_route_and_fixed_choices_as_set() {
-        XCTAssertEqual(StreamQualityChoice.automatic.resolve(routeOutputs: [.headphones]), .original)
-        XCTAssertEqual(StreamQualityChoice.automatic.resolve(routeOutputs: [.bluetoothA2DP]), .kbps128)
-        XCTAssertEqual(StreamQualityChoice.kbps192.resolve(routeOutputs: [.headphones]), .kbps192)
-        XCTAssertEqual(StreamQualityChoice.original.resolve(routeOutputs: [.builtInSpeaker]), .original)
+    func test_should_count_only_a_cheap_unconstrained_path_as_unmetered() {
+        XCTAssertTrue(StreamConditions.isUnmetered(satisfied: true, expensive: false, constrained: false))
+        XCTAssertFalse(StreamConditions.isUnmetered(satisfied: true, expensive: true, constrained: false), "cellular / hotspot")
+        XCTAssertFalse(StreamConditions.isUnmetered(satisfied: true, expensive: false, constrained: true), "Low Data Mode")
+        XCTAssertFalse(StreamConditions.isUnmetered(satisfied: false, expensive: false, constrained: false), "no network")
+    }
+
+    func test_should_resolve_the_defaults_by_network_then_route() {
+        let d = StreamQualitySettings.companion.Defaults
+        func resolve(_ unmetered: Bool, _ ports: [AVAudioSession.Port]) -> StreamQuality {
+            StreamQualityPolicy.shared.resolve(settings: d, unmetered: unmetered, output: StreamConditions.outputKind(ports))
+        }
+        for ports: [AVAudioSession.Port] in [[.headphones], [.bluetoothA2DP], [.builtInSpeaker], [.airPlay]] {
+            XCTAssertEqual(resolve(true, ports), .original, "Wi‑Fi plays the file: \(ports)")
+        }
+        XCTAssertEqual(resolve(false, [.headphones]), .original)
+        XCTAssertEqual(resolve(false, [.usbAudio]), .original)
+        XCTAssertEqual(resolve(false, [.bluetoothA2DP]), .kbps320)
+        XCTAssertEqual(resolve(false, [.bluetoothLE]), .kbps320)
+        XCTAssertEqual(resolve(false, [.builtInSpeaker]), .kbps192)
+        XCTAssertEqual(resolve(false, [.airPlay]), .kbps192)
+        // A fixed choice ignores the route.
+        let fixed = StreamQualitySettings(wifi: .kbps320, mobile: .kbps128)
+        XCTAssertEqual(StreamQualityPolicy.shared.resolve(settings: fixed, unmetered: false, output: .wired), .kbps128)
+        XCTAssertEqual(StreamQualityPolicy.shared.resolve(settings: fixed, unmetered: true, output: .speaker), .kbps320)
+    }
+
+    func test_should_plan_through_the_shared_rule() {
+        XCTAssertEqual(StreamDelivery.plan(.auto_, track: track(1, kbps: 1411), timeOffset: true), .original)
+        XCTAssertEqual(StreamDelivery.plan(.kbps320, track: track(1, kbps: 0), timeOffset: true),
+                       StreamDelivery(maxBitRateKbps: 320, seeksByTime: false), "0 kbps is unknown")
+    }
+
+    func test_should_migrate_the_old_single_choice_once() {
+        let defaults = UserDefaults(suiteName: "StreamQualityStoreTests")!
+        defer { defaults.removePersistentDomain(forName: "StreamQualityStoreTests") }
+        func fresh(_ legacy: String?) -> StreamQualitySettings {
+            defaults.removePersistentDomain(forName: "StreamQualityStoreTests")
+            if let legacy { defaults.set(legacy, forKey: StreamQualityStore.legacyKey) }
+            return StreamQualityStore.load(defaults)
+        }
+        XCTAssertEqual(fresh(nil), StreamQualitySettings(wifi: .original, mobile: .auto_))
+        XCTAssertEqual(fresh("automatic"), StreamQualitySettings(wifi: .original, mobile: .auto_))
+        XCTAssertNil(defaults.string(forKey: StreamQualityStore.legacyKey))
+        XCTAssertEqual(fresh("192"), StreamQualitySettings(wifi: .kbps192, mobile: .kbps192))
+        XCTAssertNil(defaults.string(forKey: StreamQualityStore.legacyKey))
+        XCTAssertEqual(defaults.string(forKey: StreamQualityStore.wifiKey), "192")
+        XCTAssertEqual(fresh("original"), StreamQualitySettings(wifi: .original, mobile: .original))
+
+        StreamQualityStore.setMobile(.kbps128, defaults)
+        XCTAssertEqual(StreamQualityStore.load(defaults), StreamQualitySettings(wifi: .original, mobile: .kbps128))
+        StreamQualityStore.setWifi(.auto_, defaults)
+        XCTAssertEqual(defaults.string(forKey: StreamQualityStore.wifiKey), "auto")
+        XCTAssertEqual(defaults.string(forKey: StreamQualityStore.mobileKey), "128")
     }
 
     // MARK: Engine

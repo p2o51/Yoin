@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import YoinShared
 
 /// The playing position, split off the engine so only progress UI (scrubber,
 /// time labels, lock screen) reads it. Android rule: a per-tick field must
@@ -70,7 +71,7 @@ final class PlayerEngine {
     @ObservationIgnored var onWillPlay: (() -> Void)?
     /// Track, play state, duration or a seek changed (refresh the lock screen).
     @ObservationIgnored var onStateChange: (() -> Void)?
-    /// The Subsonic stream quality, read when a song opens (Settings › Server, the route).
+    /// The Subsonic stream quality, read when a song opens (Settings › Server, the network, the route).
     @ObservationIgnored var streamQuality: () -> StreamQuality = { .original }
     /// The whole stream behind a URL is in the audio cache (Data/Cache): a
     /// stored transcode seeks in its own bytes instead of reopening at `timeOffset`.
@@ -420,7 +421,7 @@ final class PlayerEngine {
 
     // MARK: Stream quality
 
-    /// The quality changed (Settings, or the route under Automatic): every
+    /// The quality changed (Settings, the network, or the route under Auto): every
     /// song not yet playing chooses again when it opens (the preloaded one included); the current song
     /// keeps its stream.
     func streamQualityDidChange() {

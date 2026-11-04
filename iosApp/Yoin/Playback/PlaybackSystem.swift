@@ -1,7 +1,9 @@
 import AVFoundation
 import MediaPlayer
+import Network
 import UIKit
 import os
+import YoinShared
 
 /// The engine's ties to the OS: the audio session (category, interruptions,
 /// headphones unplugged), the lock screen / Control Center card and the
@@ -17,6 +19,9 @@ final class PlaybackSystem {
     private var pausedByInterruption = false
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
 
+    /// The network and route behind the stream quality (set when built by `live()`).
+    private(set) var streamConditions: StreamQualityConditions?
+
     /// Apple Music songs play through MusicKit (set when built by `live()`).
     private(set) var appleOutput: AppleMusicAudioOutput?
     /// MusicKit owns the lock screen card and remote commands while it plays.
@@ -27,7 +32,13 @@ final class PlaybackSystem {
     static func live() -> PlaybackSystem {
         let apple = AppleMusicAudioOutput()
         let system = PlaybackSystem(engine: PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: apple)))
-        system.engine.streamQuality = { StreamQualityChoice.resolvedNow() }
+        let conditions = StreamQualityConditions()
+        system.streamConditions = conditions
+        system.engine.streamQuality = { conditions.resolvedNow() }
+        // The network decides Wi‑Fi or mobile from the next song on (Android
+        // SubsonicStreamResolver: chosen when a song opens, never mid-song).
+        conditions.onNetworkChange = { [weak engine = system.engine] in engine?.streamQualityDidChange() }
+        conditions.start()
         system.engine.isStoredWhole = { AudioCache.shared.isComplete(url: $0) }
         AudioCache.shared.warmUp()
         system.appleOutput = apple
@@ -89,7 +100,7 @@ final class PlaybackSystem {
             MainActor.assumeIsolated {
                 // Headphones out: pause, never blast the speaker (Android AUDIO_BECOMING_NOISY).
                 if reason == .oldDeviceUnavailable { self?.engine.pause() }
-                // Automatic quality follows the route from the next song on.
+                // Auto quality follows the route from the next song on.
                 self?.engine.streamQualityDidChange()
             }
         })
@@ -248,5 +259,50 @@ final class NowPlayingInfoController {
     /// main thread, and a main-actor closure would trap there.
     nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
+    }
+}
+
+// MARK: - Stream quality conditions
+
+/// What the shared stream-quality rule reads on iOS: whether the network is
+/// unmetered (NWPathMonitor) and what the sound goes out through (the audio
+/// session's current route), plus the two stored choices.
+@MainActor
+final class StreamQualityConditions {
+    private let monitor = NWPathMonitor()
+    /// No path yet counts as metered, as no network does on Android.
+    private(set) var unmetered = false
+    var onNetworkChange: (() -> Void)?
+    private static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
+
+    func start() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            let unmetered = StreamConditions.isUnmetered(satisfied: path.status == .satisfied,
+                                                         expensive: path.isExpensive,
+                                                         constrained: path.isConstrained)
+            Task { @MainActor in self?.networkChanged(unmetered: unmetered) }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.gpo.yoin.stream-path"))
+    }
+
+    private func networkChanged(unmetered: Bool) {
+        guard unmetered != self.unmetered else { return }
+        self.unmetered = unmetered
+        Self.log.info("stream network unmetered=\(unmetered, privacy: .public)")
+        onNetworkChange?()
+    }
+
+    /// The fixed quality a song opened now plays at.
+    func resolvedNow() -> StreamQuality {
+        let ports = AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType)
+        let output = StreamConditions.outputKind(ports)
+        let settings = StreamQualityStore.load()
+        let quality = StreamQualityPolicy.shared.resolve(settings: settings, unmetered: unmetered, output: output)
+        Self.log.info("""
+            stream quality wifi=\(settings.wifi.key, privacy: .public) mobile=\(settings.mobile.key, privacy: .public) \
+            unmetered=\(self.unmetered, privacy: .public) route=\(ports.map(\.rawValue).joined(separator: ","), privacy: .public) \
+            output=\(output.name, privacy: .public) -> \(quality.key, privacy: .public)
+            """)
+        return quality
     }
 }
