@@ -444,14 +444,34 @@ struct LibraryView: View {
 
 /// Android ui/library/LibraryFilterRow.kt: one chip per view, none on = All.
 /// With a chip on, a ✕ (44, the page margin from the edge) unfolds in front
-/// of the row and turns it off again, as does tapping the chip that is on; it
-/// stays put while the chips scroll. The chips' start inset gives way from 16
-/// to the 8 gap after the ✕. The row fades only at an edge it has been
-/// scrolled past (Android horizontalEdgeFadeOnScroll, 24), and a chip turned
-/// on scrolls itself into view. Playlists' By You sub-chip has no iOS data
-/// yet, so it is not here.
-///
-/// Three looks, Glass Lab › Library filter (`-libraryFilterStyle 0|1|2`):
+/// of the row and turns it off again, as does tapping the chip that is on.
+/// Playlists' By You sub-chip has no iOS data yet, so it is not here.
+struct LibraryFilterRow: View {
+    typealias Style = SegmentChipStyle
+
+    @Binding var filter: LibraryKind?
+    var scheme: CoverScheme
+    var style: Style
+
+    private static let kinds: [LibraryKind] = [.playlists, .artists, .albums, .songs, .favorites]
+
+    var body: some View {
+        SegmentChipRow(
+            groups: [Self.kinds],
+            selected: filter.map { [$0] } ?? [],
+            label: \.rawValue,
+            onTap: { kind in withAnimation(Yoin.spatial) { filter = filter == kind ? nil : kind } },
+            onClear: filter == nil ? nil : { withAnimation(Yoin.spatial) { filter = nil } },
+            scheme: scheme,
+            style: style
+        )
+    }
+}
+
+// MARK: Shared with Search
+
+/// The look Glass Lab › Library filter picks (`-libraryFilterStyle 0|1|2`)
+/// for every segment chip row (Library's filters, Search's scopes and types):
 /// - glassTrack: one glass capsule holds plain labels; the chip that is on is
 ///   a secondaryContainer pill that slides between them, as a segmented
 ///   control does.
@@ -461,50 +481,67 @@ struct LibraryView: View {
 ///   No glass on the chips: the header bar's soft edge is the only glass.
 /// - slidingTonal: the android chips, but the secondaryContainer fill slides
 ///   from chip to chip instead of cross-fading in place.
-struct LibraryFilterRow: View {
-    enum Style: Int {
-        case glassTrack = 0, android = 1, slidingTonal = 2
+enum SegmentChipStyle: Int {
+    case glassTrack = 0, android = 1, slidingTonal = 2
 
-        /// Glass Lab's choice; Android-faithful when unset.
-        @MainActor static var current: Style {
-            Style(rawValue: Int((GlassLab.shared.extras["libraryFilterStyle"] ?? 1).rounded())) ?? .android
-        }
+    /// Glass Lab's choice; Android-faithful when unset.
+    @MainActor static var current: SegmentChipStyle {
+        SegmentChipStyle(rawValue: Int((GlassLab.shared.extras["libraryFilterStyle"] ?? 1).rounded())) ?? .android
     }
+}
 
-    @Binding var filter: LibraryKind?
+/// Android ExpressiveSegmentRow of ExpressiveSegmentChips: single-choice
+/// groups of chips, 8 apart, a 1 × 24 outlineVariant hairline between groups
+/// (Search's scope pair | result types). An optional ✕ ([onClear]) unfolds
+/// in front and stays put while the chips scroll; the chips' start inset
+/// gives way from 16 to the 8 gap after it. The row fades only at an edge it
+/// has been scrolled past (Android horizontalEdgeFadeOnScroll, 24), and a
+/// chip turned on scrolls itself into view (rememberRevealOnArrival).
+struct SegmentChipRow<ID: Hashable>: View {
+    var groups: [[ID]]
+    /// The chips that are on, at most one per group.
+    var selected: [ID]
+    var label: (ID) -> String
+    var onTap: (ID) -> Void
+    var onClear: (() -> Void)?
     var scheme: CoverScheme
-    var style: Style
+    var style: SegmentChipStyle
 
     @State private var fadeLeading = false
     @State private var fadeTrailing = false
     /// Each chip's frame in the row's content, for the sliding pill and the
     /// reveal; the scroll view's offset, width and content width.
-    @State private var frames: [LibraryKind: CGRect] = [:]
+    @State private var frames: [ID: CGRect] = [:]
     @State private var view = CGSize.zero
     @State private var offset: CGFloat = 0
     @State private var contentWidth: CGFloat = 0
     @State private var position = ScrollPosition()
+    /// The chips on at launch are brought into view once, without motion.
+    @State private var arrived = false
 
-    private static let kinds: [LibraryKind] = [.playlists, .artists, .albums, .songs, .favorites]
     private var height: CGFloat { Tokens.library.CHIP_HEIGHT.cg }
     private var corner: CGFloat { Tokens.library.CHIP_CORNER.cg }
+    private var gap: CGFloat { Tokens.library.CHIP_GAP.cg }
     /// Android ChipRevealMargin / the edge fade's width.
     private let fade: CGFloat = 24
+    /// Android SearchFilterDividerHeight.
+    private let hairline: CGFloat = 24
+    private var showsClear: Bool { onClear != nil }
 
     var body: some View {
         Group {
             if style == .glassTrack {
-                GlassEffectContainer(spacing: Tokens.library.CHIP_GAP.cg) { row }
+                GlassEffectContainer(spacing: gap) { row }
             } else {
                 row
             }
         }
-        .sensoryFeedback(.selection, trigger: filter)
+        .sensoryFeedback(.selection, trigger: selected)
     }
 
     private var row: some View {
         HStack(spacing: 0) {
-            if filter != nil {
+            if showsClear {
                 clearButton
                     .padding(.leading, 16)
                     .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
@@ -513,7 +550,7 @@ struct LibraryFilterRow: View {
                 scroller
                     .padding(.horizontal, 4)
                     .glassEffect(.regular, in: .capsule)
-                    .padding(.leading, filter == nil ? 16 : Tokens.library.CHIP_GAP.cg)
+                    .padding(.leading, showsClear ? gap : 16)
                     .padding(.trailing, 16)
             } else {
                 scroller
@@ -523,7 +560,7 @@ struct LibraryFilterRow: View {
     }
 
     private var clearButton: some View {
-        Button { withAnimation(Yoin.spatial) { filter = nil } } label: {
+        Button { onClear?() } label: {
             YoinIcon("close", size: Tokens.library.CLEAR_ICON.cg)
                 .foregroundStyle(style == .glassTrack ? AnyShapeStyle(.primary) : AnyShapeStyle(scheme.onSurfaceVariant))
                 .frame(width: height, height: height)
@@ -539,12 +576,21 @@ struct LibraryFilterRow: View {
 
     private var scroller: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: style == .glassTrack ? 0 : Tokens.library.CHIP_GAP.cg) {
-                ForEach(Self.kinds, id: \.self) { kind in
-                    chip(kind)
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
-                            frames[kind] = $0
-                        }
+            HStack(spacing: style == .glassTrack ? 0 : gap) {
+                ForEach(Array(groups.enumerated()), id: \.offset) { i, group in
+                    if i > 0 {
+                        Rectangle()
+                            .fill(scheme.outlineVariant)
+                            .frame(width: 1, height: hairline)
+                            .padding(.horizontal, style == .glassTrack ? 4 : 0)
+                    }
+                    ForEach(group, id: \.self) { id in
+                        chip(id)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                                frames[id] = $0
+                                revealOnArrival()
+                            }
+                    }
                 }
             }
             // The sliding styles draw every fill in one layer under all the
@@ -566,6 +612,7 @@ struct LibraryFilterRow: View {
             if edges != (fadeLeading, fadeTrailing) {
                 withAnimation(Yoin.effects) { fadeLeading = edges.0; fadeTrailing = edges.1 }
             }
+            revealOnArrival()
         }
         .mask {
             HStack(spacing: 0) {
@@ -577,21 +624,22 @@ struct LibraryFilterRow: View {
             }
             .padding(.vertical, -8)
         }
-        .onChange(of: filter) { _, new in
-            guard let new else { return }
-            reveal(new)
-            // Again as the ✕ lands: unfolding in front of the row, it narrows it.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(380))
-                if filter == new { reveal(new) }
+        .onChange(of: selected) { old, new in
+            for id in new where !old.contains(id) {
+                reveal(id)
+                // Again as a ✕ lands: unfolding in front of the row, it narrows it.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(380))
+                    if selected.contains(id) { reveal(id) }
+                }
             }
         }
     }
 
-    /// Android rememberRevealOnArrival: scrolls only as far as it takes to
-    /// bring the chip whole into view, the fade's width clear of either end.
-    private func reveal(_ kind: LibraryKind) {
-        guard let r = frames[kind], view.width > 0 else { return }
+    /// Scrolls only as far as it takes to bring the chip whole into view,
+    /// the fade's width clear of either end.
+    private func reveal(_ id: ID, animated: Bool = true) {
+        guard let r = frames[id], view.width > 0 else { return }
         let f = r.offsetBy(dx: leadingInset, dy: 0)
         let maxOffset = max(contentWidth - view.width, 0)
         var target = offset
@@ -599,20 +647,33 @@ struct LibraryFilterRow: View {
         else if f.maxX > offset + view.width - fade { target = f.maxX + fade - view.width }
         target = min(max(target, 0), maxOffset)
         guard abs(target - offset) > 0.5 else { return }
-        withAnimation(Yoin.spatial) { position.scrollTo(x: target) }
+        if animated {
+            withAnimation(Yoin.spatial) { position.scrollTo(x: target) }
+        } else {
+            position.scrollTo(x: target)
+        }
     }
 
-    private static let space = "libraryFilterChips"
+    /// Opening on a chip that is on past the edge (Search's type, say)
+    /// starts scrolled to it.
+    private func revealOnArrival() {
+        guard !arrived, view.width > 0, contentWidth > 0,
+              selected.allSatisfy({ frames[$0] != nil }) else { return }
+        arrived = true
+        if let last = selected.last { reveal(last, animated: false) }
+    }
+
+    private static var space: String { "segmentChips" }
 
     /// 16 at rest; the 8 gap after the ✕ while it shows. None in the track.
     private var leadingInset: CGFloat {
-        style == .glassTrack ? 0 : (filter == nil ? 16 : Tokens.library.CHIP_GAP.cg)
+        style == .glassTrack ? 0 : (showsClear ? gap : 16)
     }
 
-    private func chip(_ kind: LibraryKind) -> some View {
-        let on = filter == kind
-        return Button { withAnimation(Yoin.spatial) { filter = on ? nil : kind } } label: {
-            Text(kind.rawValue)
+    private func chip(_ id: ID) -> some View {
+        let on = selected.contains(id)
+        return Button { onTap(id) } label: {
+            Text(label(id))
                 .lineLimit(1)
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(on ? scheme.onSecondaryContainer : labelOff)
@@ -638,19 +699,21 @@ struct LibraryFilterRow: View {
         style == .glassTrack ? scheme.onSurface : scheme.onSurfaceVariant
     }
 
-    /// slidingTonal: a surfaceContainerHigh fill on every chip, then the
-    /// pill; glassTrack: the pill alone. The pill moves to the chip that is
-    /// on with the selection's spatial spring, its color on the effects one.
+    /// slidingTonal: a surfaceContainerHigh fill on every chip, then one
+    /// pill per group; glassTrack: the pills alone. A group's pill moves to
+    /// its chip that is on with the selection's spatial spring.
     private var slidingFills: some View {
         ZStack(alignment: .topLeading) {
             if style == .slidingTonal {
-                ForEach(Self.kinds, id: \.self) { kind in
-                    if let f = frames[kind] { fill(scheme.surfaceContainerHigh, f) }
+                ForEach(groups.flatMap { $0 }, id: \.self) { id in
+                    if let f = frames[id] { fill(scheme.surfaceContainerHigh, f) }
                 }
             }
-            if let filter, let f = frames[filter] {
-                fill(scheme.secondaryContainer, f)
-                    .transition(.opacity.animation(Yoin.effects))
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                if let on = group.first(where: selected.contains), let f = frames[on] {
+                    fill(scheme.secondaryContainer, f)
+                        .transition(.opacity.animation(Yoin.effects))
+                }
             }
         }
     }
@@ -669,37 +732,6 @@ private struct GlassIf: ViewModifier {
     var on: Bool
     func body(content: Content) -> some View {
         if on { content.glassEffect(.regular.interactive(), in: .circle) } else { content }
-    }
-}
-
-// MARK: Shared with Search
-
-extension View {
-    /// A segment chip's glass. Off: plain glass. On: the accent in the glass
-    /// (tinted, 85 %), the iOS form of Android's filled secondaryContainer.
-    func libraryChipGlass(on: Bool, accent: Color) -> some View {
-        glassEffect(on ? .regular.tint(accent.opacity(0.85)).interactive() : .regular.interactive(),
-                    in: .rect(cornerRadius: Tokens.library.CHIP_CORNER.cg, style: .circular))
-    }
-}
-
-/// Android ExpressiveSegmentChip's label: labelLarge (14 Medium, 20 line) in
-/// a 44-high chip, padding 16 × 10. On: the accent's on-color.
-struct LibraryChipLabel: View {
-    var text: String
-    var on: Bool
-    var onAccent: Color
-
-    var body: some View {
-        Text(text)
-            .lineLimit(1)
-            .yoinRole(Tokens.type.labelLarge)
-            .foregroundStyle(on ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
-            .padding(.horizontal, Tokens.library.CHIP_PADDING_H.cg)
-            .padding(.vertical, Tokens.library.CHIP_PADDING_V.cg)
-            .frame(minHeight: Tokens.library.CHIP_HEIGHT.cg)
-            .contentShape(.rect(cornerRadius: Tokens.library.CHIP_CORNER.cg))
-            .animation(Yoin.effects, value: on)
     }
 }
 

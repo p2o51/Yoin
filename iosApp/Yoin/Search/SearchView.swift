@@ -3,9 +3,9 @@ import SwiftUI
 /// Search, the Apple Music iOS 26 way, with Android's content.
 ///
 /// iOS form: the bar's search circle grows into a glass search field at the
-/// top (magnifier, field, mic) with a separate glass close circle, a
-/// full-width glass segmented control for the scopes below it, the keyboard
-/// up at once, and the bottom bar hidden under the keyboard.
+/// top (magnifier, field, mic) with a separate glass close circle, the keyboard
+/// up at once, and the bottom bar hidden under the keyboard. Under it,
+/// Android's one filter row (scopes | types) in Library's segment chips.
 ///
 /// Android content (library/LibrarySearchFilter.kt, LibraryScreen.kt
 /// SearchResultsContent): scopes Library and the provider's catalog (here
@@ -24,7 +24,6 @@ struct SearchView: View {
     @State private var query = LaunchConfig.searchQuery
     @State private var scope: Scope = LaunchConfig.screen == "search-catalog" ? .catalog : .library
     @State private var filter: Filter = LaunchConfig.searchFilter
-    @Namespace private var segNS
     /// The results column's width (inside the 16 margins), for the 3-column cells.
     @State private var width: CGFloat = 370
 
@@ -98,68 +97,56 @@ struct SearchView: View {
                     .accessibilityLabel("Close search")
                 }
             }
-            // A Subsonic server has no catalog apart from the library.
-            if !model.store.isReal { scopes }
-            if !query.isEmpty { filters }
+            // A Subsonic server has no catalog apart from the library, so
+            // no scope pair there.
+            filterRow
         }
         .padding(.horizontal, 16)
         .padding(.bottom, Tokens.search.FILTER_ROW_PADDING_V.cg)
     }
 
-    /// Full-width glass segmented control; the selected scope carries the
-    /// accent in the glass (Search = primary role; owner, 2026-11-04).
-    private var scopes: some View {
-        GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 0) {
-                ForEach(Scope.allCases, id: \.self) { s in
-                    let on = scope == s
-                    Button { withAnimation(Yoin.spatial) { scope = s } } label: {
-                        Text(s.rawValue)
-                            .lineLimit(1)
-                            .yoinRole(Tokens.type.labelLarge)
-                            .foregroundStyle(on ? scheme.onPrimary : scheme.onSurface)
-                            .frame(maxWidth: .infinity, minHeight: 40)
-                            .contentShape(.capsule)
-                            .animation(Yoin.effects, value: on)
-                    }
-                    .buttonStyle(.plain)
-                    .background {
-                        if on {
-                            Capsule().fill(.clear)
-                                .glassEffect(.regular.tint(scheme.primary.opacity(0.85)).interactive(), in: .capsule)
-                                .glassEffectID("scope", in: segNS)
-                        }
+    /// Android LibrarySearchFilterRow: one full-bleed row of segment chips,
+    /// the scope pair (catalog | library, only where the provider searches a
+    /// catalog), a hairline, then the result types. Same chips as Library's
+    /// filters (SegmentChipRow, in the style Glass Lab picks): the chip that
+    /// is on is secondaryContainer, as ExpressiveSegmentChip is everywhere.
+    private var filterRow: some View {
+        SegmentChipRow(
+            groups: (model.store.isReal ? [] : [Scope.allCases.map(SearchChip.scope)])
+                + [availableFilters.map(SearchChip.filter)],
+            selected: [.scope(scope), .filter(filter)],
+            label: \.label,
+            onTap: { chip in
+                withAnimation(Yoin.spatial) {
+                    switch chip {
+                    case .scope(let s): scope = s
+                    case .filter(let f): filter = f
                     }
                 }
-            }
-            .padding(4)
-            .glassEffect(.regular, in: .capsule)
-        }
+            },
+            scheme: scheme,
+            style: .current
+        )
+        // Full bleed: the resting first chip sits on the results' 16 edge,
+        // scrolled chips run out under the screen's edges.
+        .padding(.horizontal, -16)
     }
 
-    /// Android's type chips (ExpressiveSegmentChip: 44 high, 18 corners,
-    /// labelLarge, 16 × 10), shown once there is a query; the one on carries
-    /// primary in the glass.
-    private var filters: some View {
-        ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 4) {
-                HStack(spacing: Tokens.library.CHIP_GAP.cg) {
-                    ForEach(Filter.allCases, id: \.self) { f in
-                        let on = filter == f
-                        Button { withAnimation(Yoin.spatial) { filter = f } } label: {
-                            LibraryChipLabel(text: f.rawValue, on: on, onAccent: scheme.onPrimary)
-                        }
-                        .buttonStyle(.plain)
-                        .libraryChipGlass(on: on, accent: scheme.primary)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
+    /// Android searchFiltersFor: Playlists only where search returns them
+    /// (not Subsonic's search3).
+    private var availableFilters: [Filter] {
+        model.store.isReal ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
+    }
+
+    private enum SearchChip: Hashable {
+        case scope(Scope), filter(Filter)
+
+        var label: String {
+            switch self {
+            case .scope(let s): s.rawValue
+            case .filter(let f): f.rawValue
             }
         }
-        .scrollIndicators(.hidden)
-        // Full bleed like Android's row: chips scroll out under the edges.
-        .padding(.horizontal, -16)
     }
 
     // MARK: Content
