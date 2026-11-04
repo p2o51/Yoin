@@ -229,9 +229,7 @@
     <string name="detail_scrap_gemini_nothing">Gemini had nothing new</string>
     <string name="detail_scrap_expand_lyrics">All lyrics</string>
     <string name="detail_scrap_collapse_lyrics">Notes only</string>
-    <string name="detail_scrap_notes_hint">Tap a note to edit it, a lyric line to add one; both play from there</string>
-    <string name="detail_scrap_notes_empty">No notes yet. Open all lyrics and tap a line to write one.</string>
-    <string name="detail_scrap_notes_empty_untimed">No notes yet.</string>
+    <string name="detail_scrap_notes_empty">No notes yet.</string>
     <string name="detail_scrap_lyrics_loading">Loading lyrics…</string>
     <string name="detail_scrap_new_note">New note</string>
     <string name="detail_scrap_edit_note">Edit</string>

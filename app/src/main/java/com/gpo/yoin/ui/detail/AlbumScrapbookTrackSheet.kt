@@ -497,7 +497,8 @@ private fun AboutTab(
         pending.filter { SongAboutEntry.normalize(it.question) !in shownKeys }.forEach { asking ->
             key("asking:${asking.question}") { PendingAsk(question = asking.question, colors = colors) }
         }
-        val asked = remember(about) { about?.asks.orEmpty().filterNot { it.own }.map { it.question } }
+        // A heading the listener wrote counts as asked too: the same chip would only repeat it.
+        val asked = remember(about) { about?.asks.orEmpty().map { it.question } }
         NewEntry(
             colors = colors,
             prompts = quickPromptsFor(asked + pending.map { it.question }),
@@ -1036,9 +1037,6 @@ private fun NotesTab(
                     )
                 }
             }
-            if (notes.isNotEmpty() && !expanded) {
-                SheetHint(stringResource(R.string.detail_scrap_notes_hint), Modifier.padding(top = 6.dp, bottom = 8.dp))
-            }
         } else if (lyrics.loading && notes.isEmpty()) {
             SheetHint(stringResource(R.string.detail_scrap_lyrics_loading), Modifier.padding(vertical = 8.dp))
         }
@@ -1121,12 +1119,8 @@ private fun NotesTab(
             }
         }
         if (notes.isEmpty() && draft == null && !lyrics.loading) {
-            SheetHint(
-                stringResource(
-                    if (timed) R.string.detail_scrap_notes_empty else R.string.detail_scrap_notes_empty_untimed,
-                ),
-                Modifier.padding(top = 12.dp),
-            )
+            // Only the label: no how-to line (owner 2026-10-08, the same as Now Playing's Note page).
+            SheetHint(stringResource(R.string.detail_scrap_notes_empty), Modifier.padding(top = 12.dp))
         }
         // Without timed lyrics there is no line to start from: a note without a moment.
         if (!timed && !lyrics.loading && draft == null && editingNote == null) {

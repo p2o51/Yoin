@@ -1550,9 +1550,14 @@ internal fun ScrapTicketMetaLine(
         },
         modifier = modifier,
     ) { measurables, constraints ->
-        val oneLine = measurables[0]
-        val fits = oneLine.maxIntrinsicWidth(constraints.maxHeight) <= constraints.maxWidth
-        val placeable = (if (fits) oneLine else measurables[1]).measure(constraints.copy(minWidth = 0, minHeight = 0))
+        // The one-line form measured at its natural width says whether it fits (not its intrinsic width,
+        // which re-measured without end once the line stopped being measured: ANR under Now Playing).
+        val oneLine = measurables[0].measure(Constraints(maxHeight = constraints.maxHeight))
+        val placeable = if (oneLine.width <= constraints.maxWidth) {
+            oneLine
+        } else {
+            measurables[1].measure(constraints.copy(minWidth = 0, minHeight = 0))
+        }
         layout(constraints.constrainWidth(placeable.width), constraints.constrainHeight(placeable.height)) {
             placeable.placeRelative(0, 0)
         }

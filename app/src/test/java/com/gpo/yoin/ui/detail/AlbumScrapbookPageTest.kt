@@ -7,6 +7,7 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -287,6 +288,28 @@ class AlbumScrapbookPageTest {
         rule.onAllNodes(hasContentDescription("Track 4, Song 4")).assertCountEquals(0)
     }
 
+    @Test
+    fun should_leaveOutAQuickQuestion_when_theListenerWroteAnEntryUnderIt() {
+        show(
+            extraAsks = listOf(
+                AlbumScrapbookAsk(
+                    question = "What does this song sample?",
+                    title = null,
+                    answer = "A drum break from 1971.",
+                    own = true,
+                ),
+            ),
+        )
+
+        openSong3()
+        rule.onNode(emptyField()).performScrollTo().performClick()
+        rule.waitForIdle()
+
+        val chip = hasAnyAncestor(hasContentDescription("Quick questions"))
+        rule.onNode(chip and hasText("Who sampled this song?")).assertExists()
+        rule.onAllNodes(chip and hasText("What does this song sample?")).assertCountEquals(0)
+    }
+
     private fun openSong3() {
         rule.onNode(hasContentDescription("Asked about Song 3", substring = true)).performScrollTo().performClick()
         rule.waitForIdle()
@@ -315,7 +338,11 @@ class AlbumScrapbookPageTest {
         events = emptyFlow(),
     )
 
-    private fun show(albumNote: AlbumScrapbookAlbumNote? = null, feeds: ScrapSheetFeeds = ScrapSheetFeeds.None) {
+    private fun show(
+        albumNote: AlbumScrapbookAlbumNote? = null,
+        feeds: ScrapSheetFeeds = ScrapSheetFeeds.None,
+        extraAsks: List<AlbumScrapbookAsk> = emptyList(),
+    ) {
         val content = AlbumDetailUiState.Content(
             albumId = "subsonic:al-1",
             albumName = "Album",
@@ -342,7 +369,7 @@ class AlbumScrapbookPageTest {
                             answer = "First sentence. Second sentence. Third sentence.",
                             ref = askRef,
                         ),
-                    ),
+                    ) + extraAsks,
                 ),
             ),
             albumNote = albumNote,

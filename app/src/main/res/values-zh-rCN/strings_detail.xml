@@ -207,9 +207,7 @@
     <string name="detail_scrap_gemini_nothing">Gemini 没有新的内容</string>
     <string name="detail_scrap_expand_lyrics">展开全部歌词</string>
     <string name="detail_scrap_collapse_lyrics">只看笔记</string>
-    <string name="detail_scrap_notes_hint">点笔记可以修改，点歌词可以新建；都能从那里播放</string>
-    <string name="detail_scrap_notes_empty">还没有笔记。展开全部歌词，点一句就能记。</string>
-    <string name="detail_scrap_notes_empty_untimed">还没有笔记。</string>
+    <string name="detail_scrap_notes_empty">还没有笔记。</string>
     <string name="detail_scrap_lyrics_loading">正在加载歌词…</string>
     <string name="detail_scrap_new_note">新建笔记</string>
     <string name="detail_scrap_edit_note">修改</string>
