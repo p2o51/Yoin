@@ -92,6 +92,14 @@ struct MacCommands: Commands {
             .keyboardShortcut("m", modifiers: [.command, .option])
             .disabled(!model.session.isSignedIn)
             Toggle("Float Mini Player on Top", isOn: $miniFloats)
+            if model.session.profiles.count > 1 {
+                Menu("Switch Account") {
+                    ForEach(model.session.profiles) { p in
+                        Button(p.title) { model.switchAccount(p.id) }
+                            .disabled(p.id == model.session.activeId && model.session.isSignedIn)
+                    }
+                }
+            }
             Divider()
             Button("Search") { withAnimation(Yoin.effects) { model.searchOpen = true } }
                 .keyboardShortcut("k", modifiers: .command)

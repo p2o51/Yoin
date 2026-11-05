@@ -6,7 +6,7 @@ struct MacGate: View {
 
     var body: some View {
         Group {
-            if model.session.isSignedIn {
+            if model.session.isSignedIn && !model.addingAccount {
                 MacShell()
             } else {
                 MacSignInView()

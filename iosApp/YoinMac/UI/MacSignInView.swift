@@ -55,6 +55,12 @@ struct MacSignInView: View {
                 .buttonStyle(.plain)
                 .disabled(busy)
                 .padding(.top, 10)
+                if model.addingAccount {
+                    Button("Cancel") { withAnimation(Yoin.spatial) { model.addingAccount = false } }
+                        .font(.gsf(14)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
+                        .frame(maxWidth: .infinity).padding(.top, 4)
+                        .keyboardShortcut(.cancelAction)
+                }
             }
             .frame(width: 360)
             .padding(32)
@@ -81,7 +87,11 @@ struct MacSignInView: View {
         error = nil
         Task {
             defer { busy = false }
-            do { try await model.session.useAppleMusic() } catch {
+            do {
+                let adding = model.addingAccount
+                try await model.session.useAppleMusic()
+                if adding { model.signedOut(); model.addingAccount = false }
+            } catch {
                 self.error = AppleMusicSource.message(for: error)
             }
         }
@@ -93,7 +103,11 @@ struct MacSignInView: View {
         error = nil
         Task {
             defer { busy = false }
-            do { try await model.session.signIn(url: url, username: username, password: password) } catch {
+            do {
+                let adding = model.addingAccount
+                try await model.session.signIn(url: url, username: username, password: password)
+                if adding { model.signedOut(); model.addingAccount = false }
+            } catch {
                 self.error = MacSession.message(for: error)
             }
         }
@@ -106,24 +120,32 @@ struct MacSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Account") {
-                if let a = model.session.account {
-                    LabeledContent("Server", value: a.baseUrl)
-                    LabeledContent("Username", value: a.username)
-                    LabeledContent("Status", value: status)
-                    Button("Sign Out", role: .destructive) {
-                        model.signedOut()
-                        model.session.signOut()
+            Section("Accounts") {
+                ForEach(model.session.profiles) { p in
+                    let active = p.id == model.session.activeId
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(p.title)
+                            if active { Text(status).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        Spacer()
+                        if active {
+                            Text("In Use").foregroundStyle(.secondary)
+                        } else {
+                            Button("Switch") { model.switchAccount(p.id) }
+                        }
+                        Button("Remove", role: .destructive) {
+                            if active { model.signedOut() }
+                            model.session.remove(p.id)
+                        }
                     }
-                } else if model.session.isAppleMusic {
-                    LabeledContent("Service", value: "Apple Music")
-                    LabeledContent("Status", value: status)
-                    Button("Sign Out", role: .destructive) {
-                        model.signedOut()
-                        model.session.signOut()
-                    }
-                } else {
+                }
+                if model.session.profiles.isEmpty {
                     Text("Not signed in").foregroundStyle(.secondary)
+                }
+                Button("Add Account…") {
+                    withAnimation(Yoin.spatial) { model.addingAccount = true }
+                    NSApp.mainWindow?.makeKeyAndOrderFront(nil)
                 }
             }
             if model.session.client != nil {

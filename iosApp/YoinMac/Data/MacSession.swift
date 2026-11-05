@@ -14,8 +14,9 @@ extension LyricLine: @retroactive @unchecked Sendable {}
 extension ServerInfo: @retroactive @unchecked Sendable {}
 extension LyricsResult: @retroactive @unchecked Sendable {}
 
-/// The one Subsonic / Navidrome account the Mac app uses (P0: no account list).
-/// The sign-in lives in the Keychain; the client is YoinShared's `SubsonicClient`.
+/// The Mac's accounts (iOS profiles, simplified): any number of Subsonic / Navidrome servers and Apple
+/// Music, one in use. The list and its sign-ins live in one Keychain item; the client is YoinShared's
+/// `SubsonicClient`.
 @MainActor
 @Observable
 final class MacSession {
@@ -25,6 +26,27 @@ final class MacSession {
         var password: String
     }
 
+    /// One account in the list.
+    struct Profile: Codable, Equatable, Identifiable, Sendable {
+        enum Service: String, Codable, Sendable { case subsonic, appleMusic }
+        var id: String
+        var service: Service
+        /// The Subsonic sign-in (nil for Apple Music).
+        var account: Account?
+
+        var title: String {
+            switch service {
+            case .appleMusic: "Apple Music"
+            case .subsonic: account.map { "\($0.username) · \(MacSession.host($0.baseUrl))" } ?? "Server"
+            }
+        }
+    }
+
+    private struct Stored: Codable {
+        var profiles: [Profile]
+        var activeId: String?
+    }
+
     enum State: Equatable {
         case signedOut
         case connecting
@@ -32,6 +54,8 @@ final class MacSession {
         case failed(String)
     }
 
+    private(set) var profiles: [Profile] = []
+    private(set) var activeId: String?
     private(set) var account: Account?
     private(set) var client: SubsonicClient?
     private(set) var state: State = .signedOut
@@ -49,16 +73,76 @@ final class MacSession {
     private static let sourceKey = "activeSource"
 
     init() {
-        if UserDefaults.standard.string(forKey: Self.sourceKey) == AppleMusicMapping.provider {
-            let a = AppleMusicSource()
-            if a.isAuthorized {
-                apple = a
-                state = .ready(server: "Apple Music")
-                return
+        if let stored = Keychain.loadProfiles() {
+            profiles = stored.profiles
+            activeId = stored.activeId
+        } else {
+            // First run with profiles: the single sign-in and the Apple Music choice become the list (the old
+            // item stays, so an older build still finds it).
+            if let saved = Keychain.load() {
+                profiles.append(Profile(id: UUID().uuidString, service: .subsonic, account: saved))
             }
+            if UserDefaults.standard.string(forKey: Self.sourceKey) == AppleMusicMapping.provider {
+                profiles.append(Profile(id: UUID().uuidString, service: .appleMusic, account: nil))
+                activeId = profiles.last?.id
+            } else {
+                activeId = profiles.first?.id
+            }
+            if !profiles.isEmpty { persist() }
         }
-        if let saved = Keychain.load() { restore(saved) }
+        if let p = profiles.first(where: { $0.id == activeId }) { activate(p) }
     }
+
+    var activeProfile: Profile? { profiles.first { $0.id == activeId } }
+
+    /// Makes [p] the account in use (the caller resets what was shown for the previous one).
+    func switchTo(_ id: String) {
+        guard let p = profiles.first(where: { $0.id == id }), id != activeId || !isSignedIn else { return }
+        activeId = id
+        persist()
+        activate(p)
+    }
+
+    /// Takes [id] out of the list; the one in use leaves the app signed out.
+    func remove(_ id: String) {
+        // The pre-list single sign-in goes too when it is this account.
+        if let a = profiles.first(where: { $0.id == id })?.account, Keychain.load() == a { Keychain.delete() }
+        let wasActive = id == activeId
+        profiles.removeAll { $0.id == id }
+        if wasActive {
+            activeId = nil
+            deactivate()
+        }
+        persist()
+    }
+
+    private func activate(_ p: Profile) {
+        deactivate()
+        switch p.service {
+        case .subsonic:
+            if let a = p.account { restore(a) }
+        case .appleMusic:
+            let a = AppleMusicSource()
+            // Access is the system's: without it the account waits for "Use Apple Music" again.
+            guard a.isAuthorized else { state = .failed("Apple Music access is off"); return }
+            apple = a
+            state = .ready(server: "Apple Music")
+        }
+    }
+
+    private func deactivate() {
+        client?.close()
+        client = nil
+        account = nil
+        apple = nil
+        state = .signedOut
+    }
+
+    private func persist() {
+        Keychain.saveProfiles(Stored(profiles: profiles, activeId: activeId))
+    }
+
+    nonisolated static func host(_ baseUrl: String) -> String { URL(string: baseUrl)?.host ?? baseUrl }
 
     /// Asks the system for Apple Music access (its own dialog, the listener answers it) and switches to
     /// it when allowed. The Subsonic sign-in stays in the Keychain.
@@ -70,12 +154,14 @@ final class MacSession {
                 ? "Apple Music access is off for Yoin in System Settings › Privacy & Security › Media & Apple Music"
                 : "Apple Music isn't available")
         }
-        client?.close()
-        client = nil
-        account = nil
+        deactivate()
         apple = a
         state = .ready(server: "Apple Music")
-        UserDefaults.standard.set(AppleMusicMapping.provider, forKey: Self.sourceKey)
+        let p = profiles.first { $0.service == .appleMusic }
+            ?? Profile(id: UUID().uuidString, service: .appleMusic, account: nil)
+        if !profiles.contains(where: { $0.id == p.id }) { profiles.append(p) }
+        activeId = p.id
+        persist()
     }
 
     /// Asks the server once; on success the account is saved and becomes the one in use.
@@ -86,31 +172,30 @@ final class MacSession {
         do {
             let info = try await candidate.ping()
             client?.close()
+            deactivate()
             client = candidate
             self.account = account
-            apple = nil
-            UserDefaults.standard.removeObject(forKey: Self.sourceKey)
             state = .ready(server: Self.serverName(info))
-            Keychain.save(account)
+            // The same server and user again updates that entry (a new password), else it's a new account.
+            if let i = profiles.firstIndex(where: { $0.account?.baseUrl == account.baseUrl
+                && $0.account?.username == account.username }) {
+                profiles[i].account = account
+                activeId = profiles[i].id
+            } else {
+                let p = Profile(id: UUID().uuidString, service: .subsonic, account: account)
+                profiles.append(p)
+                activeId = p.id
+            }
+            persist()
         } catch {
             candidate.close()
             throw error
         }
     }
 
-    /// Signs out of whatever is in use (Apple Music: back to the sign-in page; the system keeps access).
+    /// Signs out of the account in use: it leaves the list (Apple Music: the system keeps its access).
     func signOut() {
-        if apple != nil {
-            apple = nil
-            state = .signedOut
-            UserDefaults.standard.removeObject(forKey: Self.sourceKey)
-            return
-        }
-        client?.close()
-        client = nil
-        account = nil
-        state = .signedOut
-        Keychain.delete()
+        if let id = activeId { remove(id) } else { deactivate() }
     }
 
     private func restore(_ account: Account) {
@@ -175,5 +260,28 @@ final class MacSession {
         }
 
         static func delete() { SecItemDelete(query as CFDictionary) }
+
+        /// The account list: its own item, so the single-account one above stays readable.
+        nonisolated(unsafe) static let profilesQuery: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                                   kSecAttrService as String: "com.gpo.yoin.mac.subsonic",
+                                                   kSecAttrAccount as String: "profiles"]
+
+        static func loadProfiles() -> Stored? {
+            var q = profilesQuery
+            q[kSecReturnData as String] = true
+            q[kSecMatchLimit as String] = kSecMatchLimitOne
+            var out: CFTypeRef?
+            guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+            return try? JSONDecoder().decode(Stored.self, from: data)
+        }
+
+        static func saveProfiles(_ stored: Stored) {
+            guard let data = try? JSONEncoder().encode(stored) else { return }
+            let update: [String: Any] = [kSecValueData as String: data,
+                                         kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+            if SecItemUpdate(profilesQuery as CFDictionary, update as CFDictionary) == errSecItemNotFound {
+                SecItemAdd(profilesQuery.merging(update) { $1 } as CFDictionary, nil)
+            }
+        }
     }
 }

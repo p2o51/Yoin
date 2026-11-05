@@ -45,6 +45,8 @@ final class MacModel {
     var npMode: NowPlayingMode = .closed
     var focus = false
     var searchOpen = false
+    /// The sign-in page is up to add another account (the current one stays until that works).
+    var addingAccount = false
     /// The mini player window is showing.
     var miniOpen = false
     var selectedTrack: String?
@@ -313,6 +315,13 @@ final class MacModel {
     func isLikedCurrent() -> Bool {
         guard let t = player.currentTrack else { return false }
         return library.isStarred(songId: t.id, fallback: currentEntry?.track.starred ?? t.starred ?? false)
+    }
+
+    /// Fast switch: what the previous account showed goes, the other one comes in.
+    func switchAccount(_ id: String) {
+        guard id != session.activeId || !session.isSignedIn else { return }
+        signedOut()
+        session.switchTo(id)
     }
 
     func signedOut() {
