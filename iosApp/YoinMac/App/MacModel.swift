@@ -29,7 +29,8 @@ final class MacModel {
 
     let session = MacSession()
     let library: MacLibrary
-    let player = PlayerEngine(output: AVAudioOutput())
+    /// Streams through AVQueuePlayer, Apple Music through MusicKit's ApplicationMusicPlayer (as on iOS).
+    let player = PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: AppleMusicAudioOutput()))
     let lyrics = MacLyrics()
     @ObservationIgnored private var system: MacPlaybackSystem?
 

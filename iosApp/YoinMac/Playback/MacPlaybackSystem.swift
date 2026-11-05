@@ -46,6 +46,8 @@ final class MacPlaybackSystem {
 
     /// Track, play state, duration or a seek changed.
     func refresh() {
+        // MusicKit's player owns the Now Playing card while an Apple Music song plays (as on iOS).
+        if player.currentTrack?.provider == AppleMusicMapping.provider { return }
         let info = MPNowPlayingInfoCenter.default()
         guard let t = player.currentTrack else {
             info.nowPlayingInfo = nil

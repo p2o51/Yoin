@@ -313,6 +313,7 @@ final class AppleMusicSource {
         return AppleMusicMapping.playlist(p, songs: songs(tracks))
     }
 
+#if os(iOS)
     /// [rawId] read whole for a cloud backup (Android `readPlaylist`): the playlist, then every page of its
     /// entries in order — repeats kept, and what isn't a song (a music video, an entry it can't read) kept
     /// at its place as unreadable. Nil when the service doesn't have the playlist; any failed page throws,
@@ -338,6 +339,8 @@ final class AppleMusicSource {
         for e in entries { if let s = AppleMusicMapping.song(e) { remember(s, resource: e) } }
         return AppleMusicMapping.playlistRead(p, entries: entries)
     }
+
+#endif
 
     // MARK: Search
 
@@ -393,6 +396,7 @@ final class AppleMusicSource {
         return self.songs(songs)
     }
 
+#if os(iOS)
     // MARK: Playlist writes (a restore)
 
     /// A new playlist in the user's library holding [trackIds] (`applemusic:` ids, at most a batch) in
@@ -419,6 +423,7 @@ final class AppleMusicSource {
         guard !refs.isEmpty else { return }
         _ = try await send("/v1/me/library/playlists/\(id)/tracks", body: ["data": refs])
     }
+#endif
 
     /// A POST to the Apple Music API with a JSON body; the answer's JSON (empty for a 204).
     private func send(_ path: String, body: [String: Any]) async throws -> AppleMusicJSON.Object {
@@ -476,7 +481,12 @@ final class AppleMusicSource {
     func addToLibrary(_ rawId: String) async throws {
         guard !AppleMusicMapping.isLibraryId(rawId) else { return }
         guard let song = await song(rawId) else { throw RequestError(message: "Song unavailable") }
+        #if os(iOS)
         try await MusicKit.MusicLibrary.shared.add(song)
+        #else
+        // macOS has no MusicLibrary.add: the Apple Music API's library add.
+        _ = try await send("/v1/me/library?ids[songs]=\(song.id.rawValue)", body: [:])
+        #endif
         inLibrary.insert(rawId)
     }
 }

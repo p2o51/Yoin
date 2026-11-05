@@ -48,6 +48,8 @@ final class MacLibrary {
     }
 
     var client: SubsonicClient? { session.client }
+    /// Apple Music in use (then `client` is nil).
+    private var apple: AppleMusicSource? { session.apple }
     private var mapping: SubsonicMapping? { client.map(SubsonicMapping.init(client:)) }
 
     func phase(_ key: String) -> Phase { phases[key] ?? .idle }
@@ -76,6 +78,18 @@ final class MacLibrary {
     private func run(_ key: String, force: Bool = false,
                      _ body: @escaping @MainActor (SubsonicClient, SubsonicMapping, _ live: @escaping @MainActor @Sendable () -> Bool) async throws -> Void) async {
         guard let client, let mapping else { return }
+        await runCore(key, force: force) { live in try await body(client, mapping, live) }
+    }
+
+    /// The same for Apple Music (MusicKit requests).
+    private func runApple(_ key: String, force: Bool = false,
+                          _ body: @escaping @MainActor (AppleMusicSource, _ live: @escaping @MainActor @Sendable () -> Bool) async throws -> Void) async {
+        guard let apple else { return }
+        await runCore(key, force: force) { live in try await body(apple, live) }
+    }
+
+    private func runCore(_ key: String, force: Bool,
+                         _ body: @escaping @MainActor (_ live: @escaping @MainActor @Sendable () -> Bool) async throws -> Void) async {
         if !force, let running = inflight[key] { await running.value; return }
         if !force, phase(key) == .loaded { return }
         let gen = generation
@@ -83,12 +97,12 @@ final class MacLibrary {
         let task = Task { @MainActor in
             let live: @MainActor @Sendable () -> Bool = { gen == self.generation }
             do {
-                try await body(client, mapping, live)
+                try await body(live)
                 guard live() else { return }
                 self.phases[key] = .loaded
             } catch {
                 guard live() else { return }
-                let message = MacSession.message(for: error)
+                let message = self.apple != nil ? AppleMusicSource.message(for: error) : MacSession.message(for: error)
                 Self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
                 self.phases[key] = .failed(message)
             }
@@ -102,6 +116,15 @@ final class MacLibrary {
     var accountGeneration: Int { generation }
 
     func loadHome(force: Bool = false) async {
+        if apple != nil {
+            await runApple("home", force: force) { a, live in
+                let h = try await a.homeLists()
+                guard live() else { return }
+                self.home = Home(recentlyPlayed: h.recent, recentlyAdded: h.newest, random: h.frequent + h.older,
+                                 randomSongs: h.recentTracks)
+            }
+            return
+        }
         await run("home", force: force) { client, m, live in
             async let recent = client.getAlbumList2(type: .recent, size: 16, offset: 0)
             async let newest = client.getAlbumList2(type: .newest, size: 18, offset: 0)
@@ -115,6 +138,14 @@ final class MacLibrary {
     }
 
     func loadAlbums(force: Bool = false) async {
+        if apple != nil {
+            await runApple("albums", force: force) { a, live in
+                let list = try await a.libraryAlbums()
+                guard live() else { return }
+                self.albums = list
+            }
+            return
+        }
         await run("albums", force: force) { client, m, live in
             var all: [Album] = []
             var offset: Int32 = 0
@@ -130,6 +161,14 @@ final class MacLibrary {
     }
 
     func loadArtists(force: Bool = false) async {
+        if apple != nil {
+            await runApple("artists", force: force) { a, live in
+                let list = try await a.libraryArtists()
+                guard live() else { return }
+                self.artists = list
+            }
+            return
+        }
         await run("artists", force: force) { client, m, live in
             let index = try await client.getArtists()
             guard live() else { return }
@@ -138,6 +177,14 @@ final class MacLibrary {
     }
 
     func loadSongs(force: Bool = false) async {
+        if apple != nil {
+            await runApple("songs", force: force) { a, live in
+                let list = try await a.librarySongs()
+                guard live() else { return }
+                self.songs = list
+            }
+            return
+        }
         await run("songs", force: force) { client, m, live in
             // Navidrome / OpenSubsonic answer an empty search3 with the whole library, a page at a time.
             var found: [SongInfo] = []
@@ -158,6 +205,13 @@ final class MacLibrary {
     func album(_ id: String) -> Album? { albumDetails[id] }
 
     func loadAlbum(_ id: String, force: Bool = false) async {
+        if apple != nil {
+            await runApple("album:\(id)", force: force) { a, live in
+                guard let album = try await a.album(id), live() else { return }
+                self.albumDetails[id] = album
+            }
+            return
+        }
         await run("album:\(id)", force: force) { client, m, live in
             guard let a = try await client.getAlbum(id: id), live() else { return }
             self.albumDetails[id] = m.album(a)
@@ -167,6 +221,13 @@ final class MacLibrary {
     func artistPage(_ id: String) -> ArtistPage? { artistPages[id] }
 
     func loadArtist(_ id: String, force: Bool = false) async {
+        if apple != nil {
+            await runApple("artist:\(id)", force: force) { a, live in
+                guard let page = try await a.artist(id), live() else { return }
+                self.artistPages[id] = page
+            }
+            return
+        }
         await run("artist:\(id)", force: force) { client, m, live in
             guard let a = try await client.getArtist(id: id) else { return }
             // Most Played needs the songs: the first releases' track lists, at once.
@@ -194,6 +255,10 @@ final class MacLibrary {
 
     func search(_ query: String) async throws -> SearchHits {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let apple, !q.isEmpty {
+            let r = try await apple.search(q)
+            return SearchHits(albums: r.albums, artists: r.artists, songs: r.songs)
+        }
         guard let client, let m = mapping, !q.isEmpty else { return SearchHits() }
         let r = try await client.search3(query: q, artistCount: 6, albumCount: 12, songCount: 20)
         return SearchHits(albums: r.albums.map(m.album), artists: r.artists.map(m.artistItem),
@@ -209,6 +274,17 @@ final class MacLibrary {
         let key = "song:\(songId)"
         let on = !(starredOverride[key] ?? current)
         starredOverride[key] = on
+        if let apple {
+            // Apple Music's heart is "in your library": it can be added, not taken out.
+            guard on else { starredOverride[key] = true; return }
+            Task {
+                do { try await apple.addToLibrary(songId) } catch {
+                    self.starredOverride[key] = false
+                    Self.log.error("library add failed: \(AppleMusicSource.message(for: error), privacy: .public)")
+                }
+            }
+            return
+        }
         guard let client else { return }
         Task {
             do {
@@ -234,6 +310,8 @@ final class MacLibrary {
 
     /// Yoin 0–10 (nil clears); the server keeps 0–5 stars.
     func setRating(songId: String, _ rating: Double?) {
+        // Apple Music keeps no rating Yoin can write.
+        guard apple == nil else { return }
         let before = ratingOverride[songId]
         ratingOverride[songId] = .some(rating)
         guard let client else { return }
@@ -301,6 +379,14 @@ final class MacLibrary {
     // MARK: Playback
 
     func playable(_ e: PlaylistEntry) -> PlayableTrack? {
+        if apple != nil, e.track.id.provider == AppleMusicMapping.provider {
+            return PlayableTrack(id: e.track.id.rawId, provider: AppleMusicMapping.provider, title: e.track.title,
+                                 artist: e.track.artist ?? e.album.artist, album: e.album.title,
+                                 albumId: e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId,
+                                 durationSec: Double(e.track.durationSec),
+                                 streamURL: AppleMusicMapping.streamURL(rawId: e.track.id.rawId),
+                                 coverURL: e.album.coverURL)
+        }
         guard let client else { return nil }
         guard let url = URL(string: client.streamUrl(id: e.track.id.rawId, maxBitRate: nil, format: nil)) else { return nil }
         return PlayableTrack(id: e.track.id.rawId, provider: e.track.id.provider, title: e.track.title,

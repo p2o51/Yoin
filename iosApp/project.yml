@@ -153,6 +153,9 @@ targets:
       - path: Yoin/Theme/PlatformBridge.swift
       - path: Yoin/NowPlaying/WavyProgress.swift
       - path: Yoin/NowPlaying/SongFacts.swift
+      - path: Yoin/Data/AppleMusicSource.swift
+      - path: Yoin/Data/AppleMusicMapping.swift
+      - path: Yoin/Playback/AppleMusicAudioOutput.swift
       - path: Yoin/YoinSymbols.xcassets
       - path: Yoin/Resources/Fonts/google_sans_flex_400.ttf
         buildPhase: resources
@@ -188,6 +191,7 @@ targets:
     info:
       path: YoinMac/Info.plist
       properties:
+        NSAppleMusicUsageDescription: Yoin plays and shows your Apple Music library.
         CFBundleDisplayName: Yoin
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"

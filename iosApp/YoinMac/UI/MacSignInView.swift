@@ -46,6 +46,15 @@ struct MacSignInView: View {
                 .disabled(busy || url.isEmpty || username.isEmpty)
                 .opacity(url.isEmpty || username.isEmpty ? 0.6 : 1)
                 .padding(.top, 22)
+                // The other source: the system asks for Apple Music access (the listener answers).
+                Button(action: useAppleMusic) {
+                    Text("Use Apple Music instead").font(.gsf(14, .medium)).foregroundStyle(Yoin.violet)
+                        .frame(maxWidth: .infinity).frame(height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .padding(.top, 10)
             }
             .frame(width: 360)
             .padding(32)
@@ -63,6 +72,18 @@ struct MacSignInView: View {
                 .padding(.horizontal, 14).frame(height: 40)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Yoin.surfaceContainerHigh))
                 .onSubmit(submit)
+        }
+    }
+
+    private func useAppleMusic() {
+        guard !busy else { return }
+        busy = true
+        error = nil
+        Task {
+            defer { busy = false }
+            do { try await model.session.useAppleMusic() } catch {
+                self.error = AppleMusicSource.message(for: error)
+            }
         }
     }
 
@@ -89,6 +110,13 @@ struct MacSettingsView: View {
                 if let a = model.session.account {
                     LabeledContent("Server", value: a.baseUrl)
                     LabeledContent("Username", value: a.username)
+                    LabeledContent("Status", value: status)
+                    Button("Sign Out", role: .destructive) {
+                        model.signedOut()
+                        model.session.signOut()
+                    }
+                } else if model.session.isAppleMusic {
+                    LabeledContent("Service", value: "Apple Music")
                     LabeledContent("Status", value: status)
                     Button("Sign Out", role: .destructive) {
                         model.signedOut()

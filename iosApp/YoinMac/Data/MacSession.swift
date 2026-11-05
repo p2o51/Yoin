@@ -35,13 +35,47 @@ final class MacSession {
     private(set) var account: Account?
     private(set) var client: SubsonicClient?
     private(set) var state: State = .signedOut
+    /// Apple Music in use instead of the Subsonic account (MusicKit; the system holds its sign-in).
+    private(set) var apple: AppleMusicSource?
 
-    var isSignedIn: Bool { client != nil }
+    var isSignedIn: Bool { client != nil || apple?.isAuthorized == true }
+    var isAppleMusic: Bool { apple != nil }
     /// The account's key for per-account local state (server and user, never the password).
-    var accountKey: String { account.map { "\($0.baseUrl)|\($0.username)" } ?? "" }
+    var accountKey: String {
+        if apple != nil { return AppleMusicMapping.provider }
+        return account.map { "\($0.baseUrl)|\($0.username)" } ?? ""
+    }
+
+    private static let sourceKey = "activeSource"
 
     init() {
+        if UserDefaults.standard.string(forKey: Self.sourceKey) == AppleMusicMapping.provider {
+            let a = AppleMusicSource()
+            if a.isAuthorized {
+                apple = a
+                state = .ready(server: "Apple Music")
+                return
+            }
+        }
         if let saved = Keychain.load() { restore(saved) }
+    }
+
+    /// Asks the system for Apple Music access (its own dialog, the listener answers it) and switches to
+    /// it when allowed. The Subsonic sign-in stays in the Keychain.
+    func useAppleMusic() async throws {
+        let a = AppleMusicSource()
+        await a.requestAuthorization()
+        guard a.isAuthorized else {
+            throw AppleMusicSource.RequestError(message: a.authorization == .denied
+                ? "Apple Music access is off for Yoin in System Settings › Privacy & Security › Media & Apple Music"
+                : "Apple Music isn't available")
+        }
+        client?.close()
+        client = nil
+        account = nil
+        apple = a
+        state = .ready(server: "Apple Music")
+        UserDefaults.standard.set(AppleMusicMapping.provider, forKey: Self.sourceKey)
     }
 
     /// Asks the server once; on success the account is saved and becomes the one in use.
@@ -54,6 +88,8 @@ final class MacSession {
             client?.close()
             client = candidate
             self.account = account
+            apple = nil
+            UserDefaults.standard.removeObject(forKey: Self.sourceKey)
             state = .ready(server: Self.serverName(info))
             Keychain.save(account)
         } catch {
@@ -62,7 +98,14 @@ final class MacSession {
         }
     }
 
+    /// Signs out of whatever is in use (Apple Music: back to the sign-in page; the system keeps access).
     func signOut() {
+        if apple != nil {
+            apple = nil
+            state = .signedOut
+            UserDefaults.standard.removeObject(forKey: Self.sourceKey)
+            return
+        }
         client?.close()
         client = nil
         account = nil

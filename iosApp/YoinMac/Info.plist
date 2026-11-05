@@ -29,6 +29,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Yoin plays and shows your Apple Music library.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Yoin streams music from servers on your local network.</string>
 </dict>
