@@ -1248,6 +1248,9 @@ internal class SpotifyAppRemotePlayer(
     }
 
     private fun publishError(failure: SpotifyConnectFailure, message: String) {
+        // The error is the answer; the watch must not replace it with an "asleep" hint.
+        unreachableWatch?.cancel()
+        unreachableWatch = null
         // If the user had already been watching something play (observed
         // at least one real PlayerState), preserve `currentTrack` and let
         // UI render an "interrupted" state. If we never observed a frame,
@@ -1300,7 +1303,11 @@ internal class SpotifyAppRemotePlayer(
         unreachableWatch = scope.launch {
             delay(SPOTIFY_UNREACHABLE_AFTER_MS)
             unreachableWatch = null
-            if (remote?.isConnected != true && pendingOperations.isNotEmpty()) {
+            // Only a start still waiting: a typed failure (no Client ID, auth, …) already said what's wrong.
+            if (remote?.isConnected != true &&
+                pendingOperations.isNotEmpty() &&
+                lastSnapshot.connectionPhase != ConnectionPhase.Error
+            ) {
                 Log.d(tag, "unreachableWatch: no connection after ${SPOTIFY_UNREACHABLE_AFTER_MS}ms")
                 reportUnreachable()
             }
@@ -1367,11 +1374,10 @@ internal class SpotifyAppRemotePlayer(
      * user picked something there), unless they asked for "Play here".
      */
     private suspend fun settleHeldStart(connected: SpotifyAppRemote) {
+        // The flags stay set through the look: a host stop that cancels it leaves the start
+        // held, and the next connect looks again instead of playing it unchecked.
         val opened = openedForStart
         val force = playHere
-        parked = false
-        openedForStart = false
-        playHere = false
         val keep = when {
             !opened -> false
             force -> true
@@ -1387,6 +1393,14 @@ internal class SpotifyAppRemotePlayer(
                 state?.isPaused == true
             }
         }
+        // A new tap during the look replaced the held start (and cleared [parked]): it is the user's own.
+        if (!parked) {
+            Log.d(tag, "settleHeldStart: a new start came in meanwhile, leaving it alone")
+            return
+        }
+        parked = false
+        openedForStart = false
+        playHere = false
         Log.d(tag, "settleHeldStart: opened=$opened force=$force keep=$keep")
         if (!keep) dropHeldStart()
     }

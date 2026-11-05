@@ -10,6 +10,7 @@ import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.PlayerApi
 import com.spotify.android.appremote.api.SpotifyAppRemote
+import com.spotify.android.appremote.api.error.NotLoggedInException
 import com.spotify.android.appremote.api.error.SpotifyDisconnectedException
 import com.spotify.protocol.client.CallResult
 import com.spotify.protocol.client.ErrorCallback
@@ -160,6 +161,61 @@ class SpotifyUnreachableTest {
         assertEquals(1, webStarts)
     }
 
+    @Test
+    fun should_keepTheTypedFailure_when_theConnectSaysWhatIsWrong() = runTest {
+        appRemote.failWith = NotLoggedInException()
+        val player = hostedPlayer()
+
+        tap(player)
+        advanceTimeBy(SPOTIFY_UNREACHABLE_AFTER_MS * 2)
+        runCurrent()
+
+        assertTrue(snapshots.last().connectionFailure is SpotifyConnectFailure.AuthFailure)
+        assertEquals(0, elsewhereReads)
+    }
+
+    @Test
+    fun should_playTheNewTap_when_itComesInWhileTheHeldStartIsLookedAt() = runTest {
+        val player = hintShown()
+        player.openSpotify(playHere = false)
+        player.onHostStop()
+        runCurrent()
+        appRemote.answers = true
+        appRemote.failWith = null
+        appRemote.holdStateRead = true
+        appRemote.initialState = state(uri = "spotify:track:theirs", paused = false)
+        player.onHostStart(context)
+        runCurrent()
+
+        // The look at Spotify's state is still out when the user taps again.
+        tap(player)
+        appRemote.answerStateRead()
+        advanceTimeBy(SPOTIFY_START_HEARD_TIMEOUT_MS + 2_000)
+        runCurrent()
+
+        assertEquals(1, webStarts)
+    }
+
+    @Test
+    fun should_lookAgain_when_yoinLeavesDuringTheLook() = runTest {
+        val player = hintShown()
+        player.openSpotify(playHere = false)
+        player.onHostStop()
+        runCurrent()
+        appRemote.answers = true
+        appRemote.failWith = null
+        appRemote.holdStateRead = true
+        appRemote.initialState = state(uri = "spotify:track:theirs", paused = false)
+        player.onHostStart(context)
+        runCurrent()
+
+        // Gone again before Spotify answers the look; back with Spotify still playing its own song.
+        appRemote.holdStateRead = false
+        comeBack(player, spotifyState = state(uri = "spotify:track:theirs", paused = false))
+
+        assertEquals(0, webStarts)
+    }
+
     /** Taps [song] with the Spotify app asleep, and lets the hint come up. */
     private fun TestScope.hintShown(): SpotifyAppRemotePlayer {
         val player = hostedPlayer()
@@ -254,6 +310,10 @@ class SpotifyUnreachableTest {
         var failWith: Throwable? = null
         var connects = 0
         var initialState: PlayerState? = null
+
+        /** A direct state read waits for [answerStateRead] instead of answering at once. */
+        var holdStateRead = false
+        private var heldRead: (() -> Unit)? = null
         private val playerStates = mutableListOf<Subscription.EventCallback<PlayerState>>()
         private val remote = mockk<SpotifyAppRemote>(relaxed = true)
         private val playerApi = mockk<PlayerApi>(relaxed = true)
@@ -263,7 +323,7 @@ class SpotifyUnreachableTest {
             every { remote.playerApi } returns playerApi
             every { playerApi.subscribeToPlayerState() } answers { subscription(playerStates, initialState) }
             every { playerApi.subscribeToPlayerContext() } answers { subscription(mutableListOf<Subscription.EventCallback<PlayerContext>>()) }
-            every { playerApi.playerState } answers { answered(initialState) }
+            every { playerApi.playerState } answers { stateRead() }
             every { playerApi.play(any<String>()) } answers { answered(Empty()) }
         }
 
@@ -279,6 +339,23 @@ class SpotifyUnreachableTest {
         override fun disconnect(remote: SpotifyAppRemote) = Unit
 
         fun report(state: PlayerState) = playerStates.last().onEvent(state)
+
+        fun answerStateRead() {
+            heldRead?.invoke()
+            heldRead = null
+        }
+
+        private fun stateRead(): CallResult<PlayerState> {
+            if (!holdStateRead) return answered(initialState)
+            val result = mockk<CallResult<PlayerState>>(relaxed = true)
+            every { result.setResultCallback(any()) } answers {
+                val callback = firstArg<CallResult.ResultCallback<PlayerState>>()
+                heldRead = { callback.onResult(initialState) }
+                result
+            }
+            every { result.setErrorCallback(any<ErrorCallback>()) } returns result
+            return result
+        }
 
         private fun <T> answered(data: T?): CallResult<T> {
             val result = mockk<CallResult<T>>(relaxed = true)
