@@ -138,12 +138,12 @@ fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int): RoomPalette {
     val between = midHue(p.hue, t.hue)
     return RoomPalette(
         colors = intArrayOf(
-            at(p.hue, max(p.chroma, DarkRoomMinChroma), 33.0),
-            at(s.hue, max(s.chroma, DarkRoomMinChroma * 0.8), 23.0),
-            at(t.hue, max(t.chroma, DarkRoomMinChroma), 33.0),
-            at(between, DarkRoomMinChroma, 12.0),
+            at(p.hue, max(p.chroma, DarkRoomMinChroma), 32.0),
+            at(s.hue, max(s.chroma, DarkRoomMinChroma * 0.8), 24.0),
+            at(t.hue, max(t.chroma, DarkRoomMinChroma), 32.0),
+            at(between, DarkRoomMinChroma, 14.0),
         ),
-        accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 49.0),
+        accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 46.0),
     )
 }
 
@@ -153,10 +153,10 @@ private fun midHue(a: Double, b: Double): Double {
     return (a + d / 2.0 + 360.0) % 360.0
 }
 
-// Focus tuned 2026-11-05 (owner, prototype "Yoin 聚焦新意"): tones a step
-// apart (33 / 23 / 12, wanderer 49) and more chroma, still ≥ 8:1 under
-// white (≥ 4.5:1 for the wanderer).
-private const val DarkRoomMinChroma = 48.0
+// 2026-11-05: the prototype's deeper, more chromatic room (33 / 23 / 12,
+// wanderer 49, chroma 48) hurt the lyrics on device (owner: 「渐变有点太夸张
+// 导致歌词可读性不是很好」); back to the PR #128 tones with a little more chroma.
+private const val DarkRoomMinChroma = 44.0
 
 /**
  * A ready-made room palette: the theme's own colours (ARGB), used as they
@@ -234,7 +234,7 @@ fun focusFieldPoints(
             x = px(fx * width + dx),
             y = py(fy * height + dy),
             color = room?.colors?.get(RoomHueOrder[i])
-                ?: toneForRoom(mix(hue, near, 0.3f), dark, if (i % 2 == 1) -0.07f else 0.05f),
+                ?: toneForRoom(mix(hue, near, 0.3f), dark, if (i % 2 == 1) -0.04f else 0.03f),
             reach = coverSize * 0.69f * open,
             weight = 0.9f,
         )
@@ -376,7 +376,7 @@ fun journeyFieldColors(
 }
 
 /** How much of the second hue the room holds at the song's end. */
-internal const val JourneyMaxMix = 0.85f
+internal const val JourneyMaxMix = 0.6f
 
 /** The wanderer's colour (the last point), for the dots around the room's edge. */
 fun List<FieldPoint>.wandererColor(): Int = last().color
@@ -445,7 +445,7 @@ fun renderFocusField(
 fun toneForRoom(color: Int, dark: Boolean, bias: Float = 0f): Int {
     val hsl = FloatArray(3)
     argbToHsl(color, hsl)
-    val s = min(1f, hsl[1] * 1.6f + 0.12f)
+    val s = min(1f, hsl[1] * 1.5f + 0.1f)
     var l = ((if (dark) DarkRoomFloor + hsl[2] * DarkRoomSpan else LightRoomFloor + hsl[2] * LightRoomSpan) + bias)
         .coerceIn(0f, 1f)
     // HSL lightness flatters yellows and greens: in the dark room, step them
@@ -515,8 +515,11 @@ private const val BaseWeight = 0.02f
 // Dark room: deeper than the lab's (owner 2026-11-03: "深色全屏播放页面有点亮").
 internal const val DarkRoomFloor = 0.10f
 
-/** Light room's lightness band (owner 2026-11-05: a step deeper than the old 0.70–0.94). */
-internal const val LightRoomFloor = 0.64f
+/**
+ * Light room's lightness band. The prototype's deeper 0.64 hurt the lyrics on
+ * device (owner 2026-11-05), so it stays at the pale 0.70–0.94 the dark text reads on.
+ */
+internal const val LightRoomFloor = 0.70f
 internal const val LightRoomSpan = 0.24f
 
 /** Focus motion (owner 2026-11-05, 「明显」): paths this many times faster… */
