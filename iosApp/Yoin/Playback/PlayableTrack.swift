@@ -74,6 +74,7 @@ enum PlayerEvent: Sendable, Equatable {
 
 // MARK: - Stream quality (Subsonic)
 
+#if os(iOS)
 /// The rule is the shared one (YoinShared `StreamQualityPolicy`, Android's
 /// player/StreamQuality.kt; owner decision O01): one choice for Wi‑Fi, one
 /// for mobile data, Auto following the output. This file maps iOS's network
@@ -103,6 +104,7 @@ enum StreamConditions {
         satisfied && !expensive && !constrained
     }
 }
+#endif
 
 /// Settings › Server › Playback: the two choices, per device (Android
 /// `StreamQualityPreference`, same keys as values: auto / original / 320 / 192 / 128).

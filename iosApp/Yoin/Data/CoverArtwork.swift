@@ -1,7 +1,6 @@
 import CryptoKit
 import ImageIO
 import SwiftUI
-import UIKit
 import os
 
 /// A server cover image. `key` names the image without the auth query
@@ -38,7 +37,7 @@ final class CoverArtwork: @unchecked Sendable {
 
     @Observable
     final class Slot: @unchecked Sendable {
-        var image: UIImage?
+        var image: PlatformImage?
         var colors: Colors?
         @ObservationIgnored var lastUse = Date.distantPast
     }
@@ -62,7 +61,7 @@ final class CoverArtwork: @unchecked Sendable {
     func colors(_ ref: CoverRef) -> Colors? { slot(ref).colors }
 
     /// The cover's image once loaded (tracked).
-    func image(_ ref: CoverRef) -> UIImage? { slot(ref).image }
+    func image(_ ref: CoverRef) -> PlatformImage? { slot(ref).image }
 
     /// Loads the image (disk, else network) and its colors; no-op when it is in memory.
     @MainActor
@@ -107,7 +106,7 @@ final class CoverArtwork: @unchecked Sendable {
         return directory.appendingPathComponent(hash)
     }
 
-    private static func fetch(_ ref: CoverRef) async -> (UIImage, Colors?)? {
+    private static func fetch(_ ref: CoverRef) async -> (PlatformImage, Colors?)? {
         let file = file(for: ref.key)
         var data = try? Data(contentsOf: file)
         if data == nil {
@@ -126,7 +125,7 @@ final class CoverArtwork: @unchecked Sendable {
     }
 
     /// Downsampled decode (ImageIO thumbnail, orientation applied).
-    static func decode(_ data: Data, maxPixel: Int) -> UIImage? {
+    static func decode(_ data: Data, maxPixel: Int) -> PlatformImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -135,11 +134,11 @@ final class CoverArtwork: @unchecked Sendable {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
         ]
         guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-        return UIImage(cgImage: cg)
+        return PlatformImage(cgImage: cg)
     }
 
     /// The image drawn at Android's 200 px, through `CoverSeed.swatches`.
-    static func colors(of image: UIImage) -> Colors? {
+    static func colors(of image: PlatformImage) -> Colors? {
         guard let cg = image.cgImage else { return nil }
         let side = CoverSeed.bitmapSizePx
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
@@ -174,7 +173,7 @@ struct RemoteCover: View {
         Rectangle().fill(placeholder)
             .overlay {
                 if let image {
-                    Image(uiImage: image)
+                    Image(platformImage: image)
                         .resizable()
                         .scaledToFill()
                         .transition(.opacity)

@@ -1,4 +1,3 @@
-import UIKit
 import SwiftUI
 
 /// MD3 Expressive "cookie": a scalloped circle (Cookie12Sided on Android).
@@ -80,8 +79,7 @@ struct BackdropColors {
 
     init(_ palette: CoverPalette) {
         func hsl(_ c: Color) -> (CGFloat, CGFloat, CGFloat) {
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            UIColor(c).getRed(&r, green: &g, blue: &b, alpha: &a)
+            let (r, g, b, _) = rgbaComponents(c)
             let mx = max(r, g, b), mn = min(r, g, b), l = (mx + mn) / 2
             guard mx != mn else { return (0, 0, l) }
             let d = mx - mn

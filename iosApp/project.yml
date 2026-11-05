@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.gpo
   deploymentTarget:
     iOS: "26.0"
+    macOS: "26.0"
   createIntermediateGroups: true
 packages:
   # Google Sign-In for Cloud sync (scope drive.appdata only). Client ID: Config/GoogleSignIn.xcconfig.
@@ -122,6 +123,100 @@ targets:
             mkdir -p "$SRCROOT/build"
             # Release / Archive link the release framework, everything else the
             # debug one; Xcode always links XCFrameworks/current (a symlink).
+            if [ "$CONFIGURATION" = "Release" ]; then FLAVOR=release; TASK=assembleYoinSharedReleaseXCFramework
+            else FLAVOR=debug; TASK=assembleYoinSharedDebugXCFramework; fi
+            cd "$SRCROOT/.." && ./gradlew --quiet ":shared:$TASK" > "$SRCROOT/build/yoin-shared-gradle.log" 2>&1
+            ln -sfn "$FLAVOR" "$SRCROOT/../shared/build/XCFrameworks/current"
+  # Yoin for Mac (P0, Subsonic only). Its own UI in YoinMac/, plus the
+  # platform-neutral iOS files listed below (models, mapping, covers, colour,
+  # player engine, audio cache, tokens, wavy progress).
+  YoinMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: YoinMac
+      - path: Yoin/Model/Models.swift
+      - path: Yoin/Data/SubsonicMapping.swift
+      - path: Yoin/Data/CoverArtwork.swift
+      - path: Yoin/Data/Cache/AudioCache.swift
+      - path: Yoin/Data/Cache/AudioCacheLoader.swift
+      - path: Yoin/Data/Cache/SubsonicCacheKey.swift
+      - path: Yoin/Playback/PlayerEngine.swift
+      - path: Yoin/Playback/AudioOutput.swift
+      - path: Yoin/Playback/AVAudioOutput.swift
+      - path: Yoin/Playback/PlayableTrack.swift
+      - path: Yoin/Theme/Tokens.swift
+      - path: Yoin/Theme/TypeRoles.swift
+      - path: Yoin/Theme/CoverScheme.swift
+      - path: Yoin/Theme/Shapes.swift
+      - path: Yoin/Theme/PlatformBridge.swift
+      - path: Yoin/NowPlaying/WavyProgress.swift
+      - path: Yoin/YoinSymbols.xcassets
+      - path: Yoin/Resources/Fonts/google_sans_flex_400.ttf
+        buildPhase: resources
+      - path: Yoin/Resources/Fonts/google_sans_flex_500.ttf
+        buildPhase: resources
+      - path: Yoin/Resources/Fonts/google_sans_flex_600.ttf
+        buildPhase: resources
+      - path: Yoin/Resources/Fonts/google_sans_flex_700.ttf
+        buildPhase: resources
+    dependencies:
+      - framework: ../shared/build/XCFrameworks/current/YoinShared.xcframework
+        embed: false
+    preBuildScripts:
+      - name: Check YoinShared (Kotlin) is current
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "${YOIN_SKIP_SHARED_BUILD:-0}" = "1" ]; then exit 0; fi
+          FW="$SRCROOT/../shared/build/XCFrameworks/current/YoinShared.xcframework/Info.plist"
+          if [ ! -f "$FW" ]; then
+            echo "error: YoinShared.xcframework is missing. Build once from Xcode (the scheme pre-action runs Gradle), or see iosApp/docs/shared-kmp.md."
+            exit 1
+          fi
+          NEWER=$(find "$SRCROOT/../shared/src" "$SRCROOT/../shared/build.gradle.kts" -newer "$FW" -type f | head -1)
+          if [ -n "$NEWER" ]; then
+            echo "error: YoinShared.xcframework is older than $NEWER. Build again (the scheme pre-action runs Gradle), or see iosApp/docs/shared-kmp.md."
+            exit 1
+          fi
+    entitlements:
+      path: YoinMac/YoinMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+    info:
+      path: YoinMac/Info.plist
+      properties:
+        CFBundleDisplayName: Yoin
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.music
+        NSAppTransportSecurity:
+          # Self-hosted Subsonic / Navidrome servers are often plain http on a LAN.
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.mac
+        PRODUCT_NAME: Yoin
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        # YoinShared has a macos-arm64 slice only.
+        EXCLUDED_ARCHS: x86_64
+    scheme:
+      preActions:
+        - name: Build YoinShared (Kotlin)
+          settingsTarget: YoinMac
+          script: |
+            if [ "${YOIN_SKIP_SHARED_BUILD:-0}" = "1" ]; then exit 0; fi
+            if [ -z "$JAVA_HOME" ] && [ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]; then
+              export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+            fi
+            mkdir -p "$SRCROOT/build"
             if [ "$CONFIGURATION" = "Release" ]; then FLAVOR=release; TASK=assembleYoinSharedReleaseXCFramework
             else FLAVOR=debug; TASK=assembleYoinSharedDebugXCFramework; fi
             cd "$SRCROOT/.." && ./gradlew --quiet ":shared:$TASK" > "$SRCROOT/build/yoin-shared-gradle.log" 2>&1

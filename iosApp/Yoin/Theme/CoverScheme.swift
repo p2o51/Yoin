@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import YoinShared
 import os
 
@@ -151,8 +150,7 @@ struct CoverScheme: Sendable {
 
     /// Opaque sRGB ARGB of a `Color` (components clamped to sRGB).
     static func argb(of color: Color) -> Int {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        let (r, g, b, _) = rgbaComponents(color)
         // MCU ColorUtils.argbFromRgb of Kotlin's roundToInt (Java Math.round: halves round up).
         func byte(_ v: CGFloat) -> Int {
             let x = Double(min(max(v, 0), 1)) * 255, f = x.rounded(.down)
@@ -181,7 +179,7 @@ enum CoverSeed {
     static let maxColors = 16
 
     /// The seed of a cover image, or nil when the Palette pass finds no swatch.
-    static func extract(from image: UIImage) -> Color? {
+    static func extract(from image: PlatformImage) -> Color? {
         guard let cgImage = image.cgImage, let pick = pick(from: cgImage) else { return nil }
         return CoverScheme.color(pick.argb)
     }
