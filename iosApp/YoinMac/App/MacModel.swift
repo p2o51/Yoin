@@ -30,7 +30,9 @@ final class MacModel {
     let session = MacSession()
     let library: MacLibrary
     /// Streams through AVQueuePlayer, Apple Music through MusicKit's ApplicationMusicPlayer (as on iOS).
-    let player = PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: AppleMusicAudioOutput()))
+    let player: PlayerEngine
+    @ObservationIgnored private let appleOutput = AppleMusicAudioOutput()
+    @ObservationIgnored private var membershipCheckedFor: String?
     let lyrics = MacLyrics()
     @ObservationIgnored private var system: MacPlaybackSystem?
 
@@ -56,6 +58,7 @@ final class MacModel {
     @ObservationIgnored private var known: [String: PlaylistEntry] = [:]
 
     init() {
+        player = PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: appleOutput))
         library = MacLibrary(session: session)
         system = MacPlaybackSystem(player: player)
         player.onScrobble = { [weak self] track, submission in self?.library.scrobble(track, submission: submission) }
@@ -63,7 +66,14 @@ final class MacModel {
             guard let self else { return }
             self.system?.refresh()
             self.lyrics.load(self.player.currentTrack, client: self.session.client)
+            if let t = self.player.currentTrack, t.id != self.membershipCheckedFor,
+               t.provider == AppleMusicMapping.provider {
+                self.membershipCheckedFor = t.id
+                self.library.refreshLibraryMembership(t.id)
+            }
         }
+        // Apple Music songs resolve through whichever Apple Music source is in use now.
+        appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }
     }
 
     // MARK: Layout

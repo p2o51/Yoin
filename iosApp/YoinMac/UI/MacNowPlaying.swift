@@ -107,7 +107,8 @@ struct MacNowPlaying: View {
             .onTapGesture { model.toggleFocus() }
             .help(model.focus ? "Leave Focus" : "Focus")
             VStack(spacing: 12) {
-                RatingBar(height: barHeight)
+                // Apple Music has no rating Yoin can write: no bar.
+                if !model.session.isAppleMusic { RatingBar(height: barHeight) }
                 HeartButton()
             }
             .frame(width: model.focus ? 0 : 56)

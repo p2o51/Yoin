@@ -483,10 +483,11 @@ final class AppleMusicSource {
         guard let song = await song(rawId) else { throw RequestError(message: "Song unavailable") }
         #if os(iOS)
         try await MusicKit.MusicLibrary.shared.add(song)
+        inLibrary.insert(rawId)
         #else
-        // macOS has no MusicLibrary.add: the Apple Music API's library add.
+        // macOS has no MusicLibrary.add: the Apple Music API's library add. Its 202 only means accepted, so
+        // membership waits for `isInLibrary` to confirm it.
         _ = try await send("/v1/me/library?ids[songs]=\(song.id.rawValue)", body: [:])
         #endif
-        inLibrary.insert(rawId)
     }
 }

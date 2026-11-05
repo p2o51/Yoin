@@ -180,7 +180,24 @@ struct SongMenu: View {
         Button("Play Next") { model.playNext(entry) }
         Button("Add to Queue") { model.addToQueue(entry) }
         Divider()
-        Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: id, current: starred) }
+        if model.session.isAppleMusic {
+            // Apple Music's heart is the library, which a song can join but not leave from here.
+            Button(starred ? "In Library" : "Add to Library") { model.library.toggleStar(songId: id, current: starred) }
+                .disabled(starred)
+        } else {
+            Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: id, current: starred) }
+        }
+        if !model.session.isAppleMusic { rateMenu(id: id, rating: rating) }
+        Divider()
+        if !entry.album.id.rawId.hasPrefix("song:") {
+            Button("Go to Album") { model.open(.album(entry.album)) }
+        }
+        if let id = entry.album.artistId {
+            Button("Go to Artist") { model.open(.artist(id: id, name: entry.album.artist)) }
+        }
+    }
+
+    @ViewBuilder private func rateMenu(id: String, rating: Double) -> some View {
         Menu("Rate") {
             ForEach((1...5).reversed(), id: \.self) { stars in
                 Toggle(String(format: "%.1f", Double(stars * 2)), isOn: Binding(
@@ -190,13 +207,6 @@ struct SongMenu: View {
             Divider()
             Button("Clear Rating") { model.library.setRating(songId: id, nil) }
                 .disabled(rating == 0)
-        }
-        Divider()
-        if !entry.album.id.rawId.hasPrefix("song:") {
-            Button("Go to Album") { model.open(.album(entry.album)) }
-        }
-        if let id = entry.album.artistId {
-            Button("Go to Artist") { model.open(.artist(id: id, name: entry.album.artist)) }
         }
     }
 }

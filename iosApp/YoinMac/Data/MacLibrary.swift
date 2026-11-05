@@ -59,6 +59,7 @@ final class MacLibrary {
         generation += 1
         inflight.values.forEach { $0.cancel() }
         inflight = [:]
+        inLibrary = [:]
         home = Home()
         albums = []
         artists = []
@@ -267,31 +268,64 @@ final class MacLibrary {
 
     // MARK: Writes
 
-    func isStarred(_ track: Track) -> Bool { starredOverride["song:\(track.id.rawId)"] ?? track.starred }
-    func isStarred(songId: String, fallback: Bool) -> Bool { starredOverride["song:\(songId)"] ?? fallback }
+    func isStarred(_ track: Track) -> Bool { isStarred(songId: track.id.rawId, fallback: track.starred) }
+    func isStarred(songId: String, fallback: Bool) -> Bool {
+        if let o = starredOverride["song:\(songId)"] { return o }
+        // Apple Music's heart is library membership: a library song is in it; a catalog song as last read.
+        if apple != nil { return AppleMusicMapping.isLibraryId(songId) || inLibrary[songId] == true }
+        return fallback
+    }
+
+    /// Apple Music: catalog songs known to be in (or out of) the library, by raw id.
+    private(set) var inLibrary: [String: Bool] = [:]
+
+    /// Asks Apple Music whether the song is in the library (the current song's heart).
+    func refreshLibraryMembership(_ songId: String) {
+        guard let apple, !AppleMusicMapping.isLibraryId(songId) else { return }
+        let gen = generation
+        Task {
+            let found = await apple.isInLibrary(songId)
+            guard gen == self.generation, let found else { return }
+            self.inLibrary[songId] = found
+            if found { self.starredOverride["song:\(songId)"] = nil }
+        }
+    }
 
     func toggleStar(songId: String, current: Bool) {
         let key = "song:\(songId)"
-        let on = !(starredOverride[key] ?? current)
-        starredOverride[key] = on
+        let gen = generation
         if let apple {
-            // Apple Music's heart is "in your library": it can be added, not taken out.
-            guard on else { starredOverride[key] = true; return }
+            // Apple Music's heart is "in your library": it can be added, not taken out. The add is only
+            // accepted at first; the heart stays on while Apple confirms, and goes back if it doesn't.
+            guard !isStarred(songId: songId, fallback: current) else { return }
+            starredOverride[key] = true
             Task {
-                do { try await apple.addToLibrary(songId) } catch {
-                    self.starredOverride[key] = false
+                do {
+                    try await apple.addToLibrary(songId)
+                    try? await Task.sleep(for: .seconds(3))
+                    guard gen == self.generation else { return }
+                    let found = await apple.isInLibrary(songId)
+                    guard gen == self.generation else { return }
+                    if let found { self.inLibrary[songId] = found }
+                    if found != true { self.starredOverride[key] = nil }
+                } catch {
+                    guard gen == self.generation else { return }
+                    self.starredOverride[key] = nil
                     Self.log.error("library add failed: \(AppleMusicSource.message(for: error), privacy: .public)")
                 }
             }
             return
         }
+        let on = !(starredOverride[key] ?? current)
+        starredOverride[key] = on
         guard let client else { return }
         Task {
             do {
                 if on { try await client.star(id: songId, albumId: nil, artistId: nil) }
                 else { try await client.unstar(id: songId, albumId: nil, artistId: nil) }
             } catch {
-                // The write failed: the heart goes back.
+                // The write failed: the heart goes back (unless the account changed meanwhile).
+                guard gen == self.generation else { return }
                 self.starredOverride[key] = !on
                 Self.log.error("star failed: \(MacSession.message(for: error), privacy: .public)")
             }
@@ -315,8 +349,10 @@ final class MacLibrary {
         let before = ratingOverride[songId]
         ratingOverride[songId] = .some(rating)
         guard let client else { return }
+        let gen = generation
         Task {
             do { try await client.setRating(id: songId, rating: Int32(SubsonicMapping.serverRating(rating))) } catch {
+                guard gen == self.generation else { return }
                 self.ratingOverride[songId] = before
                 Self.log.error("rating failed: \(MacSession.message(for: error), privacy: .public)")
             }

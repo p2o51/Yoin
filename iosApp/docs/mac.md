@@ -1,6 +1,6 @@
-# Yoin for Mac (P0)
+# Yoin for Mac
 
-SwiftUI, macOS 26, Subsonic / Navidrome only. Target `YoinMac` in `iosApp/project.yml`, bundle id `com.gpo.yoin.mac`, App Sandbox (network client).
+SwiftUI, macOS 26, Subsonic / Navidrome or Apple Music. Target `YoinMac` in `iosApp/project.yml`, bundle id `com.gpo.yoin.mac`, App Sandbox (network client).
 
 ```bash
 cd iosApp && xcodegen generate
@@ -41,6 +41,12 @@ Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P No
 
 `-silentAudio YES` (muted), `-ApplePersistenceIgnoreState YES`, `-qaServer URL -qaUser U -qaPassword P` (signs in when signed out), `-macScreen library|album|artist|np-panel|np-full|np-focus|search`, `-macAppearance light|dark`, `-macWindowSize 1280x820`. Fake server: `python3 ~/Developer/Yoin-archive/promo-demo-2026-11-02/demo_subsonic.py 4977`.
 
+## Apple Music
+
+The iOS `AppleMusicSource`, `AppleMusicMapping` and `AppleMusicAudioOutput` compile into the Mac as they are, except playlist backup / restore (iOS-only, `#if os(iOS)`) and `MusicLibrary.add`, which macOS lacks: the Mac adds a song with the API's `POST /v1/me/library` (202 = accepted only; the heart waits for `isInLibrary`). Sign-in: "Use Apple Music instead" asks the system for access; `activeSource` in the defaults remembers it. Player output is the iOS `RoutingAudioOutput` (AVQueuePlayer / ApplicationMusicPlayer); MusicKit owns the Now Playing card while it plays. Heart = in the library (add only); no rating.
+
+Needs, once, in the developer portal: an explicit App ID `com.gpo.yoin.mac` with the MusicKit App Service, and a signing profile for it (the wildcard `M75T74PTC4.*` can't carry MusicKit).
+
 ## Not in P0
 
-Apple Music, Spotify, cloud sync, NeoDB, Gemini, Memories, Write / notes, Devices, playlists, offline downloads, stream-quality settings.
+Spotify, cloud sync, NeoDB, Gemini, Memories, Write / notes, Devices, playlists, offline downloads, stream-quality settings.
