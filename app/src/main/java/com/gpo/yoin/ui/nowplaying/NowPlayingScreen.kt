@@ -1879,6 +1879,16 @@ private fun CompactPlayingContent(
                                     } else {
                                         { 0f }
                                     },
+                                    // Shown only in focus (one resting line): it
+                                    // opens pinned, so it never glides up a line
+                                    // as the anchor would move mid-focus.
+                                    listAnchorFocus = if (focusOpensList) {
+                                        { 1f }
+                                    } else if (focusKeepsList) {
+                                        { resolvedStageProgress.immersive }
+                                    } else {
+                                        { 0f }
+                                    },
                                     // Focus prints the lines a size up, in proportion
                                     // with the title and transport (owner 2026-11-04).
                                     lyricScale = if (focusKeepsList) {
@@ -4375,6 +4385,8 @@ private fun CompactDetailPage(
     endOverflow: Dp = 0.dp,
     // Extra inset on both sides (short-window focus: the cover's edges).
     pageInset: Dp = 0.dp,
+    // The current line's anchor (LyricsDisplay.anchorFocus); follows [listFocus].
+    listAnchorFocus: () -> Float = listFocus,
 ) {
     val insetModifier = modifier.padding(horizontal = pageInset)
     when (page) {
@@ -4397,6 +4409,7 @@ private fun CompactDetailPage(
                 trackKey = state.songId,
                 queueIndex = state.currentQueueIndex,
                 focus = listFocus,
+                anchorFocus = listAnchorFocus,
                 fontScale = lyricScale,
                 durationMs = state.durationMs,
                 upNext = upNext,

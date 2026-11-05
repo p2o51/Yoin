@@ -117,6 +117,10 @@ fun LyricsDisplay(
     // Extra room past the end edge the held last line may draw into (the
     // caller widened this box by as much); the lines still wrap without it.
     endOverflow: Dp = 0.dp,
+    // How far the current line's anchor has moved to the top (0 = the
+    // resting 22%, 1 = pinned). Follows [focus] unless the caller pins it: a
+    // list that only shows in focus opens pinned, with no line above it.
+    anchorFocus: () -> Float = focus,
 ) {
     val liveTrackKey by rememberUpdatedState(trackKey)
     // Song change = the stream carries on (see LyricsTrackTransition);
@@ -156,6 +160,7 @@ fun LyricsDisplay(
                 loading = shown.loading,
                 fontScale = fontScale,
                 focus = focus,
+                anchorFocus = anchorFocus,
                 durationMs = shown.durationMs,
                 upNext = shown.upNext,
                 endOverflow = endOverflow,
@@ -183,6 +188,7 @@ private fun LyricsDisplayContent(
     loading: Boolean,
     fontScale: Float,
     focus: () -> Float,
+    anchorFocus: () -> Float,
     durationMs: Long,
     upNext: UpNextLyrics?,
     endOverflow: Dp,
@@ -322,7 +328,7 @@ private fun LyricsDisplayContent(
         // Focus pins the current line to the top (the budget's
         // FocusLyricsAnchorFraction = 0): only the current line and what
         // follows show, no half-cut line above it (owner 2026-11-04).
-        snapshotFlow { listState.layoutInfo.viewportSize.height to focus().coerceIn(0f, 1f) }
+        snapshotFlow { listState.layoutInfo.viewportSize.height to anchorFocus().coerceIn(0f, 1f) }
             .filter { it.first > 0 }
             .collect { (viewportPx, focusNow) ->
                 val anchor = 0.22f * (1f - focusNow)
