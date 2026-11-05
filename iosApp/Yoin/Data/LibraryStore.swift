@@ -38,6 +38,9 @@ final class LibraryStore {
         var albums: [Album] = []
         var songs: [PlaylistEntry] = []
         var playlists: [LibraryItem] = []
+        /// Catalog search: the kinds with a next page, and each kind's next offset (Spotify).
+        var more: Set<SearchKind> = []
+        var offsets: [SearchKind: Int] = [:]
     }
 
     @ObservationIgnored let session: ServerSession
@@ -85,8 +88,13 @@ final class LibraryStore {
     private(set) var artistPages: [String: ArtistPage] = [:]
     private(set) var playlistDetails: [String: PlaylistInfo] = [:]
 
-    private(set) var search: SearchHits?
+    var search: SearchHits?
     private(set) var searchPhase: Phase = .idle
+    /// A search kind's next page being read, or failed (Android searchPaging); a kind not here
+    /// has more exactly when `search.more` says so.
+    var searchPaging: [SearchKind: SongsMore] = [:]
+    /// Where Liked Songs' next read starts (Spotify; nil: the list is whole).
+    @ObservationIgnored var spotifySongsNext: Int?
 
     /// Artist hearts set here, ahead of the server (reverted when the write
     /// fails). Song hearts live in `FavoritesStore`, shared with Now Playing.
@@ -819,11 +827,12 @@ final class LibraryStore {
                 songs = read
                 songsMore = .none
             } else if let spotify {
-                // Liked Songs (Android: Spotify's Songs is the saved tracks).
-                let read = try await spotify.librarySongs()
+                // Liked Songs (Android: Spotify's Songs is the saved tracks), the first read then more as the list ends.
+                let read = try await spotify.librarySongs(offset: 0)
                 try ensureLive()
-                songs = read
-                songsMore = .none
+                songs = read.songs
+                spotifySongsNext = read.next
+                songsMore = read.next == nil ? .none : .available
             } else {
                 guard let client, let mapping else { return nil }
                 // A refresh starts again from the newest album.
@@ -855,6 +864,7 @@ final class LibraryStore {
     /// Songs' next page (Android `loadMoreSongs`): as the list nears its
     /// end, or from the foot's retry after a failed read. One at a time.
     func loadMoreSongs() async {
+        if spotify != nil { return await loadMoreSpotifySongs() }
         guard let pager = songsPager, songsMore == .available || songsMore == .failed else { return }
         let gen = generation
         songsMore = .loading
@@ -868,6 +878,26 @@ final class LibraryStore {
             guard gen == generation, songsPager === pager else { return }
             log.error("songs page failed: \(ServerSession.message(for: error), privacy: .public)")
             // The rows stay; the foot's retry reads the same page again.
+            songsMore = .failed
+        }
+    }
+
+    /// Spotify's Liked Songs beyond the first read (SpotifySource+Search librarySongs(offset:)).
+    private func loadMoreSpotifySongs() async {
+        guard let spotify, let from = spotifySongsNext, songsMore == .available || songsMore == .failed else { return }
+        let gen = generation
+        songsMore = .loading
+        do {
+            let more = try await spotify.librarySongs(offset: from)
+            guard gen == generation, self.spotify === spotify else { return }
+            let have = Set(songs.map(\.track.id))
+            songs += more.songs.filter { !have.contains($0.track.id) }
+            spotifySongsNext = more.next
+            songsMore = more.next == nil ? .none : .available
+            persist(codec.map { c in songs.map(c.dto) }, kind: .list, id: "songs", epoch: diskEpoch)
+        } catch {
+            guard gen == generation, self.spotify === spotify else { return }
+            log.error("liked songs page failed: \(SpotifySource.message(for: error), privacy: .public)")
             songsMore = .failed
         }
     }
@@ -1084,10 +1114,10 @@ final class LibraryStore {
         var scope: SearchScope
     }
 
-    private(set) var searchRequest: SearchRequest?
+    var searchRequest: SearchRequest?
 
     /// Whether this source searches a catalog apart from its library.
-    var searchesCatalog: Bool { apple != nil }
+    var searchesCatalog: Bool { apple != nil || spotify != nil }
 
     func runSearch(_ query: String, scope: SearchScope = .library) async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1095,6 +1125,7 @@ final class LibraryStore {
         let request = SearchRequest(query: q, scope: searchesCatalog ? scope : .library)
         searchRequest = request
         searchPhase = .loading
+        searchPaging = [:]
         do {
             let hits: SearchHits
             if let apple {
@@ -1103,9 +1134,11 @@ final class LibraryStore {
                 hits = SearchHits(query: q, scope: request.scope, artists: r.artists, albums: r.albums,
                                   songs: r.songs, playlists: r.playlists)
             } else if let spotify {
-                let r = try await spotify.search(q)
+                // Android searchWithScope: the catalog, or what the account has saved.
+                let r = request.scope == .catalog ? try await spotify.search(q) : try await spotifyLibrarySearch(q, spotify)
                 hits = SearchHits(query: q, scope: request.scope, artists: r.artists, albums: r.albums,
-                                  songs: r.songs, playlists: r.playlists)
+                                  songs: r.songs, playlists: r.playlists, more: r.more,
+                                  offsets: r.counts)
             } else if let client, let mapping {
                 let r = try await client.search3(query: q, artistCount: 20, albumCount: 30, songCount: 40)
                 // Android SubsonicMusicSource.search: search3 alone, which has no

@@ -16,7 +16,7 @@ final class SpotifySource {
     let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
 
     /// Track ids known to be in Liked Songs (library reads, saves, contains answers).
-    private var liked: Set<String> = []
+    private(set) var liked: Set<String> = []
     /// Playlist raw id → the raw offset of each row the page shows, for `resolvePlaylistContextOffset`.
     private var playlistOffsets: [String: [Int]] = [:]
 
@@ -107,6 +107,8 @@ final class SpotifySource {
 
     /// Liked Songs, newest like first (the API's order), the first few hundred.
     func librarySongs(cap: Int = 300) async throws -> [PlaylistEntry] {
+    func noteLiked(_ ids: [String]) { liked.formUnion(ids) }
+
         let r = try await api.all("me/tracks", ["limit": "50"], of: SpotifyDTO.SavedTrack.self, cap: cap)
         let tracks = r.compactMap(\.track)
         liked.formUnion(tracks.compactMap(\.id))
@@ -206,17 +208,9 @@ final class SpotifySource {
         var albums: [Album]
         var songs: [PlaylistEntry]
         var playlists: [LibraryItem]
-    }
-
-    /// Spotify's whole catalog: ten of each kind (the Development Mode maximum).
-    func search(_ term: String) async throws -> SearchResults {
-        let r = try await api.get("search", ["q": term, "type": "track,album,artist,playlist", "limit": "10"],
-                                  as: SpotifyDTO.Search.self)
-        return SearchResults(
-            artists: (r.artists?.items ?? []).compactMap { $0.flatMap(SpotifyMapping.artistItem) },
-            albums: SpotifyMapping.uniqueById((r.albums?.items ?? []).compactMap { $0.flatMap { SpotifyMapping.album($0) } }),
-            songs: SpotifyMapping.entries((r.tracks?.items ?? []).compactMap { $0 }, saved: liked),
-            playlists: (r.playlists?.items ?? []).compactMap { $0 }.map(SpotifyMapping.playlistItem))
+        /// Catalog search (SpotifySource+Search): the kinds with a next page, and the items each page held.
+        var more: Set<SearchKind> = []
+        var counts: [SearchKind: Int] = [:]
     }
 
     // MARK: Playback (Android SpotifyStartPlan: Web API play with a context and offset.uri)
