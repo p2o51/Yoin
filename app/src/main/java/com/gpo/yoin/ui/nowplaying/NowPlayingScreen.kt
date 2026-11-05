@@ -110,6 +110,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -324,20 +325,37 @@ fun NowPlayingScreen(
         { id -> latestNotes.firstOrNull { it.id == id }?.let { noteDeletion.delete(it, latestDeleteNote) } }
     }
     val scheme = MaterialTheme.colorScheme
-    val surfaceContainer = scheme.surfaceContainer
     // Dark focus: the room in this screen's own dark scheme (owner
     // 2026-11-03), with the same field motion and dots. From the cover's
     // resolved scheme, so a song change crosses the room over on the field's
     // own fade, not in the theme wash's few steps.
     val roomScheme = LocalCoverDarkScheme.current ?: scheme
-    val darkRoom = remember(roomScheme) {
+    // Its other hues are the cover's own swatches where it has them.
+    val roomSwatches = LocalCoverField.current?.swatches
+    val darkRoom = remember(roomScheme, roomSwatches) {
         darkRoomOf(
             primary = roomScheme.primary.toArgb(),
             secondary = roomScheme.secondary.toArgb(),
             tertiary = roomScheme.tertiary.toArgb(),
+            coverSwatches = roomSwatches ?: IntArray(0),
+        )
+    }
+    // Light focus: the same seeds, toned pale (owner 2026-11-05).
+    val lightRoom = remember(roomScheme, roomSwatches) {
+        lightRoomOf(
+            primary = roomScheme.primary.toArgb(),
+            secondary = roomScheme.secondary.toArgb(),
+            tertiary = roomScheme.tertiary.toArgb(),
+            coverSwatches = roomSwatches ?: IntArray(0),
         )
     }
     val background = scheme.background
+    // The room's frame: the songs before / after this one, or (none there)
+    // this cover's own secondary / tertiary container, never a grey edge.
+    val neighbours = LocalCoverNeighbours.current
+    val roomDark = background.luminance() < 0.5f
+    val neighbourTop = neighbours.previous?.of(roomDark) ?: scheme.secondaryContainer
+    val neighbourBottom = neighbours.next?.of(roomDark) ?: scheme.tertiaryContainer
 
     // Reactions for the Now Playing background (see nowPlayingAuroraBackground):
     //  • Gemini thinking (long wait) → a slow aurora wash blooms while Loading
@@ -396,6 +414,9 @@ fun NowPlayingScreen(
     // Focus's edge band swells once per lyric line (EdgeDotBand.kt).
     val bandLyrics = playingState?.lyrics
     val latestPositionMs by rememberUpdatedState(positionMs)
+    // Focus's colour journey enters from the side the song came from, latched
+    // per song: skipDirection is −1 while a skip back's new song composes.
+    val journeyFromRight = remember(playingState?.songId) { skipDirection > 0 }
     val bandLine by remember(bandLyrics) {
         derivedStateOf { bandLyrics?.currentLyricLine(latestPositionMs(), showTranslation = false)?.first ?: -1 }
     }
@@ -420,9 +441,11 @@ fun NowPlayingScreen(
             modifier = modifier
                 .fillMaxSize()
                 .nowPlayingAuroraBackground(
-                    baseTop = surfaceContainer,
-                    baseBottom = background,
+                    background = background,
+                    darkTop = scheme.surfaceContainer,
                     accentColors = listOf(scheme.primary, scheme.secondary, scheme.tertiary),
+                    neighbourTop = neighbourTop,
+                    neighbourBottom = neighbourBottom,
                     auroraActive = auroraActive,
                     pulseTrigger = pulseTrigger,
                     isPlaying = isPlayingNow,
@@ -434,7 +457,15 @@ fun NowPlayingScreen(
                     // Focus = the immersive stage (tap the cover); read in draw.
                     focusProgress = { stageProgress?.immersive ?: 0f },
                     darkRoom = darkRoom,
+                    lightRoom = lightRoom,
+                    songProgress = {
+                        val d = playingState?.durationMs ?: 0L
+                        if (d > 0L) (latestPositionMs().toFloat() / d).coerceIn(0f, 1f) else 0f
+                    },
+                    journeyFromRight = journeyFromRight,
                     keyHintActive = keyHintActive,
+                    // The current lyric line is drawn in primary.
+                    lyricColor = scheme.primary,
                 ),
         ) {
             when (uiState) {

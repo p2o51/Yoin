@@ -41,14 +41,16 @@ class AuroraPreviewActivity : ComponentActivity() {
                                 .fillMaxWidth()
                                 .weight(1f)
                                 .nowPlayingAuroraBackground(
-                                    baseTop = scheme.surfaceContainer,
-                                    baseBottom = scheme.background,
+                                    background = scheme.background,
+                                    darkTop = scheme.surfaceContainer,
                                     accentColors = listOf(
                                         scheme.primary,
                                         scheme.tertiary,
                                         scheme.secondary,
                                         scheme.primaryContainer,
                                     ),
+                                    neighbourTop = scheme.secondaryContainer,
+                                    neighbourBottom = scheme.tertiaryContainer,
                                     auroraActive = true,
                                     pulseTrigger = null,
                                     isPlaying = false,

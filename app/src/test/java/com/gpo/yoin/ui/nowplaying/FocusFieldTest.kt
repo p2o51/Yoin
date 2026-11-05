@@ -45,7 +45,7 @@ class FocusFieldTest {
         val hsl = FloatArray(3)
         argbToHsl(toneForRoom(red, dark = false), hsl)
         assertEquals(0f, hsl[0], 2f)
-        assertTrue(hsl[2] in 0.70f..0.94f)
+        assertTrue(hsl[2] in LightRoomFloor..(LightRoomFloor + LightRoomSpan))
 
         argbToHsl(toneForRoom(argb(250, 250, 250), dark = true), hsl)
         assertTrue(hsl[2] <= DarkRoomFloor + DarkRoomSpan + 0.001f)
@@ -166,6 +166,157 @@ class FocusFieldTest {
             argbToHsl(c, hsl)
             assertTrue("saturation of ${Integer.toHexString(c)}", hsl[1] > 0.3f)
         }
+    }
+
+    @Test
+    fun should_startEverywhereAtNothingAndEndEverywhereFull_when_theSongPlaysThrough() {
+        for (x in listOf(0f, 100f, 200f, 300f, 400f)) {
+            assertEquals(0f, journeyAt(x, 400f, 0f, fromRight = true), 0f)
+            assertEquals(1f, journeyAt(x, 400f, 1f, fromRight = true), 0f)
+            assertEquals(1f, journeyAt(x, 400f, 1f, fromRight = false), 0f)
+        }
+    }
+
+    @Test
+    fun should_enterFromTheSideTheSongCameFrom_when_halfwayThrough() {
+        // Skip forward / auto-advance: right first. Skip back: left first.
+        assertTrue(journeyAt(380f, 400f, 0.4f, fromRight = true) > journeyAt(20f, 400f, 0.4f, fromRight = true))
+        assertTrue(journeyAt(20f, 400f, 0.4f, fromRight = false) > journeyAt(380f, 400f, 0.4f, fromRight = false))
+        assertEquals(
+            journeyAt(380f, 400f, 0.4f, fromRight = true),
+            journeyAt(20f, 400f, 0.4f, fromRight = false),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun should_moveTheColoursOnlyTowardTheSecondHue_when_journeying() {
+        val base = listOf(
+            FieldPoint(x = 0f, y = 0f, color = red, reach = 5f, weight = 1f),
+            FieldPoint(x = 400f, y = 0f, color = red, reach = 5f, weight = 1f),
+        )
+        val toward = base.map { it.copy(x = it.x + 1f, color = blue) }
+
+        assertEquals(base, journeyFieldColors(base, toward, 400f, 0f, fromRight = true))
+        val mid = journeyFieldColors(base, toward, 400f, 0.5f, fromRight = true)
+        // Geometry stays the base's; the right point has gone further than the left.
+        assertEquals(base.map { it.x }, mid.map { it.x })
+        assertTrue((mid[1].color and 0xFF) > (mid[0].color and 0xFF))
+        // At the end the room holds JourneyMaxMix of the second hue, everywhere.
+        val end = journeyFieldColors(base, toward, 400f, 1f, fromRight = true)
+        end.forEach { assertEquals(40f + (220f - 40f) * JourneyMaxMix, (it.color and 0xFF).toFloat(), 1f) }
+    }
+
+    @Test
+    fun should_journeyToTheMostDifferentHue_when_journeyed() {
+        val peach = argb(240, 170, 120)
+        val apricot = argb(245, 185, 130)
+        val teal = argb(40, 160, 160)
+        val order = journeyOrder(intArrayOf(peach, apricot, teal, argb(90, 90, 90)), candidates = 3)
+        // Teal, not the peach's near twin, leads; nothing is lost.
+        assertEquals(teal, order[0])
+        assertEquals(listOf(peach, apricot, argb(90, 90, 90)), order.drop(1))
+
+        val room = RoomPalette(intArrayOf(peach, teal, apricot, argb(20, 20, 30)), accent = red)
+        val j = room.journeyed()
+        assertEquals(teal, j.colors[0])
+        assertEquals(argb(20, 20, 30), j.colors[3])
+        assertEquals(red, j.accent)
+    }
+
+    @Test
+    fun should_sweepInFromTheSideTheSongCameFrom_when_theCoverChangesInFocus() {
+        val from = listOf(0f, 400f).map { FieldPoint(x = it, y = 0f, color = red, reach = 5f, weight = 1f) }
+        val to = from.map { it.copy(color = blue) }
+
+        // Uniform without a side, as before.
+        val even = crossFieldColors(from, to, 0.5f)
+        assertEquals(even[0].color, even[1].color)
+        // Forward: the right point has turned while the left still holds the old colour.
+        val fwd = crossFieldColors(from, to, 0.5f, fromRight = true, width = 400f)
+        assertEquals(red, fwd[0].color)
+        assertEquals(blue, fwd[1].color)
+        // Back: the other way round.
+        val back = crossFieldColors(from, to, 0.5f, fromRight = false, width = 400f)
+        assertEquals(blue, back[0].color)
+        assertEquals(red, back[1].color)
+        // Done at the end either way.
+        assertEquals(to, crossFieldColors(from, to, 1f, fromRight = true, width = 400f))
+    }
+
+    @Test
+    fun should_keepTheLyricReadable_when_theRoomIsTooDeep() {
+        val accent = argb(103, 80, 164) // a tone-40 purple, like a light scheme's primary
+        val deep = FieldPoint(x = 0f, y = 0f, color = argb(230, 120, 170), reach = 5f, weight = 1f)
+        val pale = deep.copy(color = argb(250, 240, 245))
+        val out = listOf(deep, pale).readableUnder(accent)
+
+        val contrast = (luminance(out[0].color) + 0.05f) / (luminance(accent) + 0.05f)
+        assertTrue("contrast $contrast", contrast >= FocusLyricContrast - 0.01f)
+        // Lifted, not greyed: the hue survives.
+        val hsl = FloatArray(3)
+        argbToHsl(out[0].color, hsl)
+        val before = FloatArray(3)
+        argbToHsl(deep.color, before)
+        assertEquals(before[0], hsl[0], 3f)
+        // Already readable colours are left alone.
+        assertEquals(pale, out[1])
+    }
+
+    @Test
+    fun should_keepTheDarkRoomNearThePrimaryHue_when_theSchemeTurnsItsAccentsAway() {
+        // A purple cover's expressive dark scheme: secondary and tertiary turned ~160° to green.
+        val room = darkRoomOf(
+            primary = argb(200, 170, 255),
+            secondary = argb(150, 210, 160),
+            tertiary = argb(140, 220, 150),
+        )
+        val primaryHue = hct.Hct.fromInt(argb(200, 170, 255)).hue
+        (room.colors.toList() + room.accent).forEach { c ->
+            val d = kotlin.math.abs(((hct.Hct.fromInt(c).hue - primaryHue + 540.0) % 360.0) - 180.0)
+            assertTrue("hue of ${Integer.toHexString(c)} is $d° from the primary", d <= DarkRoomMaxHueTurn + 8.0)
+        }
+        assertEquals(90.0, nearHue(0.0, 90.0, 120.0), 0.001)
+        assertEquals(50.0, nearHue(0.0, 160.0, 50.0), 0.001)
+        assertEquals(310.0, nearHue(0.0, 200.0, 50.0), 0.001)
+    }
+
+    @Test
+    fun should_takeTheDarkRoomsOtherHuesFromTheCover_when_itHasThem() {
+        // Magenta primary; the cover also holds a real cyan, and a grey.
+        val magenta = argb(255, 160, 220)
+        val cyan = argb(40, 180, 200)
+        val grey = argb(120, 120, 120)
+        val room = darkRoomOf(
+            primary = magenta,
+            secondary = argb(150, 210, 160), // the scheme's turned-away green
+            tertiary = argb(140, 220, 150),
+            coverSwatches = intArrayOf(magenta, grey, cyan),
+        )
+        val cyanHue = hct.Hct.fromInt(cyan).hue
+        // The cover's cyan is kept (not pulled toward magenta), the grey lends nothing.
+        val secondHue = hct.Hct.fromInt(room.colors[1]).hue
+        assertEquals(cyanHue, secondHue, 10.0)
+
+        val (a, b) = coverSeedHues(hct.Hct.fromInt(magenta).hue, intArrayOf(magenta, grey, cyan))
+        assertEquals(cyanHue, a!!, 0.5)
+        assertNull(b)
+    }
+
+    @Test
+    fun should_paintTheLightRoomPaleInTheCoversOwnHues_when_lightFocus() {
+        val magenta = argb(180, 40, 120)
+        val cyan = argb(40, 180, 200)
+        val room = lightRoomOf(
+            primary = magenta,
+            secondary = argb(60, 140, 80),
+            tertiary = argb(50, 150, 90),
+            coverSwatches = intArrayOf(magenta, cyan),
+        )
+        // Pale: dark lyrics read on every room colour.
+        room.colors.forEach { c -> assertTrue("luminance of ${Integer.toHexString(c)}", luminance(c) > 0.55f) }
+        // The cover's cyan, not the scheme's green.
+        assertEquals(hct.Hct.fromInt(cyan).hue, hct.Hct.fromInt(room.colors[1]).hue, 10.0)
     }
 
     private fun luminance(c: Int): Float {
