@@ -56,11 +56,18 @@ struct MacCommands: Commands {
             }
             Divider()
             Button(model.isLikedCurrent() ? "Unlike" : "Like") { model.toggleLikeCurrent() }
-                .keyboardShortcut("l", modifiers: .command)
+                .keyboardShortcut("d", modifiers: .command)
                 .disabled(p.currentTrack == nil)
+            Divider()
             Button("Now Playing") { model.toggleNowPlaying() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(p.currentTrack == nil)
+            Button(model.npMode == .full ? "Leave Full Window" : "Full Window Lyrics") { model.toggleFullNowPlaying() }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(p.currentTrack == nil)
+            Button(model.focus ? "Leave Focus" : "Focus") { model.toggleFocusFromAnywhere() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(typing || p.currentTrack == nil)
             Divider()
             Button("Search") { withAnimation(Yoin.effects) { model.searchOpen = true } }
                 .keyboardShortcut("k", modifiers: .command)

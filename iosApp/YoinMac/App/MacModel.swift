@@ -134,6 +134,21 @@ final class MacModel {
         }
     }
 
+    /// ⌘L: into the full window, or back out of it (to the panel it came from, else closed).
+    func toggleFullNowPlaying() {
+        if npMode == .full { focus = false; back() } else { expandNowPlaying() }
+    }
+
+    /// ⌘F: focus wherever Now Playing is; from closed it opens the full window in focus.
+    func toggleFocusFromAnywhere() {
+        if npMode == .closed {
+            panelSqueezedToFull = false
+            withAnimation(Yoin.spatial) { fullCameFromPanel = false; npMode = .full; focus = true }
+        } else {
+            toggleFocus()
+        }
+    }
+
     func toggleFocus() {
         withAnimation(Yoin.spatial) { focus.toggle() }
     }
