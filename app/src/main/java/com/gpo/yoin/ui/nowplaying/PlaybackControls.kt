@@ -564,13 +564,16 @@ internal fun PlaybackControls(
                 }
                 // PREVIOUS: at the start of the progress row at rest, gliding up to the
                 // start of the top row in short focus (one button, so one press state).
+                // Offset first, then the fade's layer: a layer outside the offset
+                // keeps the button's un-moved bounds and cut it off at the PAUSE
+                // row's bottom as it slid down, popping back once settled.
                 Box(
-                    modifier = awayModifier.offset {
+                    modifier = Modifier.offset {
                         val secondRowTop = (controlSize + TransportRowGap).toPx()
                         val secondRowHeight = lerp(controlSize, ShortFocusProgressRowHeight, prevToTopRow).toPx()
                         val restTop = secondRowTop + (secondRowHeight - controlSize.toPx()) / 2f
                         IntOffset(0, (restTop * (1f - prevToTopRow)).roundToInt())
-                    },
+                    }.then(awayModifier),
                 ) {
                     prevButton()
                 }
