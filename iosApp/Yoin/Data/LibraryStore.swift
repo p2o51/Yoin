@@ -325,9 +325,7 @@ final class LibraryStore {
                 if let t = memoryStore.userTitle(provider: provider, albumId: id) { return (t, true) }
                 return memoryStore.memoryTitle(provider: provider, albumId: id).map { ($0, false) }
             },
-            rating: { ratings.rating(provider: provider, songId: $0) },
-            yoinTitle: { memoryStore.memory(provider: provider, entityId: $0)?.title },
-            copy: { memoryStore.memory(provider: provider, entityId: $0)?.copy })
+            rating: { ratings.rating(provider: provider, songId: $0) })
     }
 
     /// Whose Home this is (Android `homeScopeKey` provider|profile): the
