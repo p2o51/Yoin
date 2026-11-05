@@ -57,6 +57,7 @@ import com.gpo.yoin.ui.nowplaying.UpNextLyrics
 import com.gpo.yoin.ui.nowplaying.lastLineOutroFor
 import com.gpo.yoin.ui.nowplaying.lastLineStretchScale
 import com.gpo.yoin.ui.nowplaying.lyricDotRadius
+import com.gpo.yoin.ui.nowplaying.LyricDotsReadableLines
 import com.gpo.yoin.ui.nowplaying.lyricDotsRest
 import com.gpo.yoin.ui.nowplaying.lyricHalftone
 import com.gpo.yoin.ui.nowplaying.outroProgress
@@ -319,20 +320,41 @@ private fun LyricsDisplayContent(
     // next song's own list opens (scroll 0), so the swap is in place.
     val windowCovered = LocalWindowCovered.current
     val handOverTarget = handingOver && upNextLineIndex >= 0
+    // Focus: the line just sung, whole, above the current one (owner
+    // 2026-11-05 「歌词应该上面也漏出来一行」). Until that line has been laid
+    // out its height is estimated from one inactive line.
+    val density = LocalDensity.current
+    val inactiveStyle = MaterialTheme.typography.bodyMedium
+    val lineAbovePxEstimate = with(density) {
+        (inactiveStyle.lineHeight * fontScale).toPx() + LyricItemPadV.toPx() * 2 + LyricItemGap.toPx()
+    }
+    val lineGapPx = with(density) { LyricItemGap.toPx() }
     LaunchedEffect(lyrics, currentIndex, listState, handOverTarget) {
         if (currentIndex < 0 && !handOverTarget) return@LaunchedEffect
         val target = if (handOverTarget) upNextLineIndex else currentIndex.coerceIn(0, lyrics.lastIndex)
         var firstAnchor = true
         // filter { it > 0 }: during an expand the height is ~0 for a frame, and a 0
         // offset would slip the anchoring by a line.
-        // Focus pins the current line to the top (the budget's
-        // FocusLyricsAnchorFraction = 0): only the current line and what
-        // follows show, no half-cut line above it (owner 2026-11-04).
-        snapshotFlow { listState.layoutInfo.viewportSize.height to anchorFocus().coerceIn(0f, 1f) }
+        // Focus pins the current line right under the line just sung (the
+        // budget's FocusLyricsAnchorFraction = 0, FocusLinesAbove = 1): no
+        // half-cut line above it (owner 2026-11-04 / 11-05).
+        snapshotFlow {
+            val above = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target - 1 }?.size ?: -1
+            Triple(listState.layoutInfo.viewportSize.height, anchorFocus().coerceIn(0f, 1f), above)
+        }
             .filter { it.first > 0 }
-            .collect { (viewportPx, focusNow) ->
+            .collect { (viewportPx, focusNow, abovePx) ->
                 val anchor = 0.22f * (1f - focusNow)
-                val offsetPx = if (handOverTarget) 0 else -(viewportPx * anchor).toInt()
+                val lineAbovePx = when {
+                    target <= 0 -> 0f
+                    abovePx >= 0 -> abovePx + lineGapPx
+                    else -> lineAbovePxEstimate
+                }
+                val offsetPx = if (handOverTarget) {
+                    0
+                } else {
+                    -(viewportPx * anchor + lineAbovePx * focusNow).toInt()
+                }
                 when {
                     // Very first centre of the song: instant, no animation.
                     !hasCentered -> {
@@ -365,7 +387,7 @@ private fun LyricsDisplayContent(
             // Synced lyrics are playhead-driven (ONE scroll owner: the anchor
             // effect above); untimed lyrics scroll by hand.
             userScrollEnabled = isUnsynced,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(LyricItemGap),
             contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp, end = endOverflow),
         ) {
             itemsIndexed(lyrics, key = { i, _ -> i }) { index, line ->
@@ -374,6 +396,8 @@ private fun LyricsDisplayContent(
                     text = line.text,
                     isActive = active,
                     distance = if (currentIndex >= 0) abs(index - currentIndex) else 99,
+                    upcoming = currentIndex >= 0 && index > currentIndex &&
+                        index - currentIndex <= LyricDotsReadableLines,
                     fontScale = fontScale,
                     focus = focus,
                     // Held while it is the current line; the hand-over lets go.
@@ -432,6 +456,9 @@ private fun LyricLineItem(
     isActive: Boolean,
     modifier: Modifier = Modifier,
     distance: Int = 0,
+    // One of the next LyricDotsReadableLines: in focus its dots stay full
+    // enough to read (owner 2026-11-05).
+    upcoming: Boolean = false,
     fontScale: Float = 1f,
     focus: () -> Float = { 0f },
     stretch: Float = 0f,
@@ -470,10 +497,10 @@ private fun LyricLineItem(
     // Focus's halftone: the line's own dot radius. The current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
     // fine dots. Lines that are current when they first show start solid.
-    val restDots = lyricDotsRest()
+    val restDots = lyricDotsRest(upcoming)
     val dots = remember { Animatable(if (isActive) LyricDotsSolid else restDots) }
     val shownBefore = remember { booleanArrayOf(false) }
-    LaunchedEffect(isActive) {
+    LaunchedEffect(isActive, restDots) {
         if (!shownBefore[0]) {
             shownBefore[0] = true
             return@LaunchedEffect
@@ -481,7 +508,7 @@ private fun LyricLineItem(
         if (isActive) {
             dots.snapTo(minOf(dots.value, LyricDotsDevelopFrom))
             dots.animateTo(LyricDotsSolid, tween(LyricDotsDevelopMs, easing = EaseOutCubic))
-        } else if (dots.value > restDots) {
+        } else if (dots.value != restDots) {
             dots.animateTo(restDots, tween(LyricDotsBreakMs, easing = EaseOutCubic))
         }
     }
@@ -525,7 +552,7 @@ private fun LyricLineItem(
                 transformOrigin = TransformOrigin(0f, 0.5f)
             }
             .lyricHalftone { lyricDotRadius(dots.value, focus()) }
-            .padding(vertical = 4.dp),
+            .padding(vertical = LyricItemPadV),
     )
 }
 
@@ -616,3 +643,9 @@ private val UpNextRise = 24.dp
 
 /** Air between the song's last line and the up-next label. */
 private val UpNextLabelGap = 20.dp
+
+/** Gap between lyric lines (NowPlayingBudget's LyricsListLineGap). */
+private val LyricItemGap = 2.dp
+
+/** Each line's own vertical pad (NowPlayingBudget's LyricLinePads, halved). */
+private val LyricItemPadV = 4.dp

@@ -96,9 +96,19 @@ internal const val LyricDotsRest = 1.3f
  */
 internal const val LyricDotsRestLarge = 1.8f
 
-/** The other lines' resting dot radius for this window. */
+/**
+ * The next lines after the current one (owner 2026-11-05: 「下面两行粒子应该能
+ * 看清文字」): their dots are full enough to read, everywhere.
+ */
+internal const val LyricDotsReadable = 2.2f
+
+/** How many lines after the current one print as [LyricDotsReadable]. */
+internal const val LyricDotsReadableLines = 2
+
+/** The other lines' resting dot radius for this window ([upcoming]: one of the next lines). */
 @Composable
-internal fun lyricDotsRest(): Float {
+internal fun lyricDotsRest(upcoming: Boolean = false): Float {
+    if (upcoming) return LyricDotsReadable
     val window = LocalWindowChromeInfo.current ?: LocalYoinWindowInfo.current
     return if (window.isWidthAtLeastMedium && window.isHeightAtLeastMedium) LyricDotsRestLarge else LyricDotsRest
 }

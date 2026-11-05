@@ -17,6 +17,7 @@ class NowPlayingBudgetTest {
         activeLine = 32.dp * FocusLyricScale,
         inactiveLine = 28.dp * FocusLyricScale,
         anchorFraction = FocusLyricsAnchorFraction,
+        linesAbove = FocusLinesAbove,
     )
     private fun column(transport: Dp = 116.dp, pills: Dp = 44.dp) = StageColumnMetrics(
         tabText = 20.dp,
@@ -257,7 +258,10 @@ class NowPlayingBudgetTest {
             assertDp(budget.rest.cover, focus.cover)
             assertDp(16.dp, focus.topBar)
             assertDp(96.dp, focus.controls)
-            assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
+            // The sung line above, the current line, and the next where it fits
+            // beside the resting cover.
+            val lines = if (h >= 684) 2 else 1
+            assertTrue(focus.lyricSlot >= focusLyric.cleanLines(lines) - 0.5.dp)
             assertDp(w.dp, budget.focusStageWidth)
             assertDp((w.dp - 48.dp - focus.cover) / 2f, budget.focusLyricInset)
             assertTrue(budget.focusLyricOverflow >= focusLyric.inactiveLine * 2f)
@@ -292,11 +296,14 @@ class NowPlayingBudgetTest {
     }
 
     @Test
-    fun should_pinTheCurrentLineToTheTop_when_focused() {
-        // No line above the current one: two clean focus lines cost less
-        // than the resting window's anchor would.
-        val anchored = LyricWindowMetrics(focusLyric.activeLine, focusLyric.inactiveLine)
-        assertTrue(focusLyric.cleanLines(2) < anchored.cleanLines(2) - 20.dp)
+    fun should_keepOneSungLineAboveTheCurrent_when_focused() {
+        // Owner 2026-11-05: the line just sung shows whole above the current
+        // one; the current line itself is anchored right under it.
+        val noneAbove = focusLyric.copy(linesAbove = 0)
+        assertDp(
+            noneAbove.cleanLines(2) + focusLyric.inactiveLine + 2.dp,
+            focusLyric.cleanLines(2),
+        )
     }
 
     @Test

@@ -1309,6 +1309,10 @@ private fun CompactPlayingContent(
     // A touch, a manual lyrics scroll (recenter lit), a pause or select mode
     // brings them straight back.
     val lyricToolsIdle = rememberLyricToolsIdleState()
+    // Focus at ease (owner 2026-11-05): FocusIdleMs without a touch while the
+    // lyrics play, the transport and its times step away and the lyrics
+    // spread down into their place; a touch brings them back.
+    val focusIdle = rememberLyricToolsIdleState()
     val lyricsSelection = rememberLyricsSelectionState(state.songId, state.lyrics)
 
     BoxWithConstraints(
@@ -1316,6 +1320,7 @@ private fun CompactPlayingContent(
             .fillMaxSize()
             .voteHighFrameRate(stageMoving)
             .lyricToolsTouchTracker(lyricToolsIdle)
+            .lyricToolsTouchTracker(focusIdle)
             .padding(stageColumnInsets()),
     ) {
         val horizontalPadding = 24.dp
@@ -1382,9 +1387,24 @@ private fun CompactPlayingContent(
         } else {
             0f
         }
+        val focusIdleEligible = stageMode == NowPlayingStageMode.Immersive && focusKeepsList &&
+            state.isPlaying && hasSyncedLyrics
+        LaunchedEffect(focusIdleEligible) { focusIdle.track(focusIdleEligible, FocusIdleMs) }
+        val focusIdleProgress by animateFloatAsState(
+            targetValue = if (focusIdleEligible && focusIdle.idle) 1f else 0f,
+            animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
+            label = "npFocusIdle",
+        )
+        val focusIdleShown = (focusIdleProgress * (1f - detailProgress)).coerceIn(0f, 1f)
         val focusLyricInset = budget.focusLyricInset * compactFocusProgress
-        val focusLyricOverflow = budget.focusLyricOverflow * compactFocusProgress
+        // At ease the run-on reaches down through the whole transport slot.
+        val focusLyricOverflow = lerpDp(
+            budget.focusLyricOverflow * compactFocusProgress,
+            focusPose.controls,
+            focusIdleShown,
+        )
         val focusLyricOverflowPx = with(LocalDensity.current) { focusLyricOverflow.roundToPx() }
+        val focusRunOnFade = RunOnFadeShare + (RunOnFadeShareAtEase - RunOnFadeShare) * focusIdleShown
         // Enlarged tablet: the lyric tools ride at the end of the tab row even
         // at rest (TabletPortraitNP).
         val toolsInCompactTabs = enlarged != null && !lyricOneLine
@@ -1859,7 +1879,7 @@ private fun CompactPlayingContent(
                                 clipLight = false,
                             )
                             .edgeFade(start = pagerEdgeFade, end = pagerEdgeFade)
-                            .fadeRunOn(focusLyricOverflowPx),
+                            .fadeRunOn(focusLyricOverflowPx, focusRunOnFade),
                     ) {
                         HorizontalPager(
                             state = pagerState,
@@ -2028,7 +2048,7 @@ private fun CompactPlayingContent(
 
                     StageHeightSlot(
                         height = controlsHeight,
-                        alpha = compactProgress,
+                        alpha = compactProgress * (1f - focusIdleShown),
                     ) {
                         TickingPlaybackControls(
                             noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
@@ -2049,6 +2069,9 @@ private fun CompactPlayingContent(
                             live = stageControlsLive,
                             prevToTopRow = maxOf(shortFocusProgress, compactFocusProgress),
                             modifier = Modifier
+                                // At ease, the first tap on the hidden
+                                // transport only brings it back.
+                                .lyricToolsInPlaceWakeGuard(focusIdle)
                                 .padding(horizontal = horizontalPadding)
                                 .graphicsLayer {
                                     translationY = 48.dp.toPx() * detailProgress
@@ -5844,15 +5867,15 @@ private fun Modifier.runOnBelow(runOnPx: Int): Modifier = if (runOnPx <= 0) {
 }
 
 /**
- * Fades the [runOnBelow] extra out (its last [RunOnFadeShare]), on the
- * content's own alpha. Sits inside an offscreen layer (edgeFade's).
+ * Fades the [runOnBelow] extra out (its last [share]), on the content's own
+ * alpha. Sits inside an offscreen layer (edgeFade's).
  */
-private fun Modifier.fadeRunOn(runOnPx: Int): Modifier = if (runOnPx <= 0) {
+private fun Modifier.fadeRunOn(runOnPx: Int, share: Float = RunOnFadeShare): Modifier = if (runOnPx <= 0) {
     this
 } else {
     drawWithContent {
         drawContent()
-        val fade = runOnPx * RunOnFadeShare
+        val fade = runOnPx * share
         val top = size.height - fade
         drawRect(
             brush = Brush.verticalGradient(
@@ -5869,6 +5892,12 @@ private fun Modifier.fadeRunOn(runOnPx: Int): Modifier = if (runOnPx <= 0) {
 
 // Short enough that the dotted lines still read behind the buttons.
 private const val RunOnFadeShare = 0.45f
+
+// At ease the lines are the content there: only the last stretch fades.
+private const val RunOnFadeShareAtEase = 0.3f
+
+/** Focus at ease: this long without a touch, the transport steps away. */
+private const val FocusIdleMs = 4_000L
 
 // Smoothstep from opaque to clear: no visible onset line.
 private val RunOnFadeStops = listOf(1f, 0.896f, 0.648f, 0.352f, 0.104f, 0f).map { Color.Black.copy(alpha = it) }
