@@ -345,11 +345,13 @@ private fun LyricsDisplayContent(
             .filter { it.first > 0 }
             .collect { (viewportPx, focusNow, abovePx) ->
                 val anchor = 0.22f * (1f - focusNow)
+                // A long sung line that wraps never pushes the current one
+                // down past LyricLineAboveMaxFraction: its top clips instead.
                 val lineAbovePx = when {
                     target <= 0 -> 0f
                     abovePx >= 0 -> abovePx + lineGapPx
                     else -> lineAbovePxEstimate
-                }
+                }.coerceAtMost(viewportPx * LyricLineAboveMaxFraction)
                 val offsetPx = if (handOverTarget) {
                     0
                 } else {
@@ -649,3 +651,6 @@ private val LyricItemGap = 2.dp
 
 /** Each line's own vertical pad (NowPlayingBudget's LyricLinePads, halved). */
 private val LyricItemPadV = 4.dp
+
+/** Focus: at most this share of the window goes to the line above the current one. */
+private const val LyricLineAboveMaxFraction = 0.3f
