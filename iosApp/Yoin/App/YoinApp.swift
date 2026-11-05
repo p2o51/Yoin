@@ -39,9 +39,11 @@ struct RootView: View {
         .environment(model)
         .environment(\.glassFlavor, model.glassFlavor)
         .tint(model.accent)
-        .fontDesign(.default)
-        // Text without its own font (sheets, menus, fields) is Google Sans
-        // Flex too, not SF.
+        // No .fontDesign here: on iOS 27 a design in the environment replaces a
+        // custom font with the system face of that design, so every Google Sans
+        // Flex text in the app drew in SF on the iPhone (the iOS 26 simulator
+        // ignored it). Text without its own font (sheets, menus, fields) is
+        // Google Sans Flex too.
         .font(.gsf(17))
         .onChange(of: hsc, initial: true) { _, new in model.isPad = new == .regular }
         // Cloud sync (Data/Sync): Google's sign-in redirect, and the start (no network unless sync is on).
