@@ -263,12 +263,41 @@ fun focusFieldPoints(
  * [to]'s points with each colour [t] of the way from [from]'s matching point:
  * a song change in focus keeps the geometry and crosses the colours over.
  * Both must come from [focusFieldPoints] with the same layout arguments.
+ *
+ * With [fromRight] set, the new colours sweep in from that side instead of
+ * landing everywhere at once (owner 2026-11-05: a skip forward reads right
+ * to left, a skip back left to right); [width] is the field's width.
  */
-fun crossFieldColors(from: List<FieldPoint>, to: List<FieldPoint>, t: Float): List<FieldPoint> {
+fun crossFieldColors(
+    from: List<FieldPoint>,
+    to: List<FieldPoint>,
+    t: Float,
+    fromRight: Boolean? = null,
+    width: Float = 0f,
+): List<FieldPoint> {
     if (from.size != to.size) return to
     val k = t.coerceIn(0f, 1f)
-    return to.mapIndexed { i, p -> p.copy(color = mix(from[i].color, p.color, k)) }
+    return to.mapIndexed { i, p ->
+        val local = if (fromRight == null) k else sweepAt(p.x, width, k, fromRight)
+        p.copy(color = mix(from[i].color, p.color, local))
+    }
 }
+
+/**
+ * A front sweeping across a field [width] wide as [t] goes 0 → 1, entering
+ * from the right ([fromRight]) or the left: how far it has passed a point at
+ * [x]. 0 everywhere at the start, 1 everywhere at the end; the front itself
+ * is [front] of the width, smoothstepped.
+ */
+fun sweepAt(x: Float, width: Float, t: Float, fromRight: Boolean, front: Float = SweepFront): Float {
+    val xn = if (width > 0f) (x / width).coerceIn(0f, 1f) else 0.5f
+    val fromEntry = if (fromRight) 1f - xn else xn
+    val u = ((t.coerceIn(0f, 1f) * (1f + front) - fromEntry) / front).coerceIn(0f, 1f)
+    return u * u * (3f - 2f * u)
+}
+
+/** A sweep's soft front, as a share of the field's width: narrow enough to read as moving. */
+internal const val SweepFront = 0.3f
 
 /**
  * A song's colour journey (owner 2026-11-05, 「一首歌一段色程」): over the
@@ -277,12 +306,43 @@ fun crossFieldColors(from: List<FieldPoint>, to: List<FieldPoint>, t: Float): Li
  * auto-advance), the left after a skip back — and covering the room by the
  * end. This is the field the room travels to: main hues turned one step.
  */
-fun CoverField.journeyed(): CoverField =
-    CoverField(grid, intArrayOf(palette[1], palette[2], palette[0], palette[3]), accent)
+fun CoverField.journeyed(): CoverField = CoverField(grid, journeyOrder(palette, candidates = 3), accent)
 
-/** [CoverField.journeyed] for a ready-made room palette. */
-fun RoomPalette.journeyed(): RoomPalette =
-    RoomPalette(intArrayOf(colors[1], colors[2], colors[0], colors[3]), accent)
+/** [CoverField.journeyed] for a ready-made room palette (its fourth, the deep blend, stays put). */
+fun RoomPalette.journeyed(): RoomPalette = RoomPalette(journeyOrder(colors, candidates = 2), accent)
+
+/**
+ * [colors] with the one of its next [candidates] whose hue lies furthest from
+ * the first moved to the front, the rest in order behind it: the journey's
+ * "second colour" is the one that reads as a change, not a near twin of the
+ * first (owner's prototype: a peach cover journeying to peach showed nothing).
+ */
+internal fun journeyOrder(colors: IntArray, candidates: Int): IntArray {
+    val hsl = FloatArray(3)
+    argbToHsl(colors[0], hsl)
+    val firstHue = hsl[0]
+    var best = 1
+    var bestDistance = -1f
+    for (i in 1..candidates.coerceAtMost(colors.size - 1)) {
+        argbToHsl(colors[i], hsl)
+        // A grey has no hue to travel to: weigh the distance by saturation.
+        val d = hueDistance(firstHue, hsl[0]) * hsl[1]
+        if (d > bestDistance) {
+            bestDistance = d
+            best = i
+        }
+    }
+    val out = IntArray(colors.size)
+    out[0] = colors[best]
+    var j = 1
+    for (i in colors.indices) if (i != best) out[j++] = colors[i]
+    return out
+}
+
+private fun hueDistance(a: Float, b: Float): Float {
+    val d = abs(a - b) % 360f
+    return if (d > 180f) 360f - d else d
+}
 
 /**
  * How far the journey has reached a point at [x] of [width] when the song is
@@ -292,7 +352,7 @@ fun RoomPalette.journeyed(): RoomPalette =
 fun journeyAt(x: Float, width: Float, progress: Float, fromRight: Boolean): Float {
     val xn = if (width > 0f) (x / width).coerceIn(0f, 1f) else 0.5f
     val fromEntry = if (fromRight) 1f - xn else xn
-    val t = ((progress.coerceIn(0f, 1f) * 1.5f - fromEntry) / 0.5f).coerceIn(0f, 1f)
+    val t = ((progress.coerceIn(0f, 1f) * (1f + SweepFront) - fromEntry) / SweepFront).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
 

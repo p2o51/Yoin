@@ -451,6 +451,8 @@ fun Modifier.nowPlayingAuroraBackground(
     var fieldFrom by remember { mutableStateOf<CoverField?>(null) }
     var roomShown by remember { mutableStateOf(room) }
     var roomFrom by remember { mutableStateOf<RoomPalette?>(null) }
+    // The side a focused song change sweeps in from, latched with the change.
+    var crossFromRight by remember { mutableStateOf(true) }
     val fieldFade = remember { Animatable(1f) }
     // Room-sized colour change: as long as the song-change flow, not the
     // ~0.35 s slow effects spring (on device that read as a quick blink).
@@ -469,6 +471,7 @@ fun Modifier.nowPlayingAuroraBackground(
         }
         fieldFrom = outgoing
         roomFrom = outgoingRoom
+        crossFromRight = latestJourneyFromRight
         fieldFade.snapTo(0f)
         fieldFade.animateTo(1f, fieldFadeSpec)
         fieldFrom = null
@@ -752,7 +755,7 @@ fun Modifier.nowPlayingAuroraBackground(
                 val outgoing = fieldFrom
                 val fade = fieldFade.value
                 val points = if (outgoing != null && fade < 1f) {
-                    crossFieldColors(pointsOf(outgoing, roomFrom ?: roomShown), incoming, fade)
+                    crossFieldColors(pointsOf(outgoing, roomFrom ?: roomShown), incoming, fade, crossFromRight, w)
                 } else {
                     incoming
                 }

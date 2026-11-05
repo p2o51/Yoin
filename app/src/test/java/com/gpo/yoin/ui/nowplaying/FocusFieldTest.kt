@@ -208,13 +208,40 @@ class FocusFieldTest {
     }
 
     @Test
-    fun should_turnTheMainHuesOneStep_when_journeyed() {
-        val field = buildCoverField(splitCover(), 48, 48)!!
-        val j = field.journeyed()
-        assertEquals(field.palette[1], j.palette[0])
-        assertEquals(field.palette[2], j.palette[1])
-        assertEquals(field.palette[0], j.palette[2])
-        assertEquals(field.accent, j.accent)
+    fun should_journeyToTheMostDifferentHue_when_journeyed() {
+        val peach = argb(240, 170, 120)
+        val apricot = argb(245, 185, 130)
+        val teal = argb(40, 160, 160)
+        val order = journeyOrder(intArrayOf(peach, apricot, teal, argb(90, 90, 90)), candidates = 3)
+        // Teal, not the peach's near twin, leads; nothing is lost.
+        assertEquals(teal, order[0])
+        assertEquals(listOf(peach, apricot, argb(90, 90, 90)), order.drop(1))
+
+        val room = RoomPalette(intArrayOf(peach, teal, apricot, argb(20, 20, 30)), accent = red)
+        val j = room.journeyed()
+        assertEquals(teal, j.colors[0])
+        assertEquals(argb(20, 20, 30), j.colors[3])
+        assertEquals(red, j.accent)
+    }
+
+    @Test
+    fun should_sweepInFromTheSideTheSongCameFrom_when_theCoverChangesInFocus() {
+        val from = listOf(0f, 400f).map { FieldPoint(x = it, y = 0f, color = red, reach = 5f, weight = 1f) }
+        val to = from.map { it.copy(color = blue) }
+
+        // Uniform without a side, as before.
+        val even = crossFieldColors(from, to, 0.5f)
+        assertEquals(even[0].color, even[1].color)
+        // Forward: the right point has turned while the left still holds the old colour.
+        val fwd = crossFieldColors(from, to, 0.5f, fromRight = true, width = 400f)
+        assertEquals(red, fwd[0].color)
+        assertEquals(blue, fwd[1].color)
+        // Back: the other way round.
+        val back = crossFieldColors(from, to, 0.5f, fromRight = false, width = 400f)
+        assertEquals(blue, back[0].color)
+        assertEquals(red, back[1].color)
+        // Done at the end either way.
+        assertEquals(to, crossFieldColors(from, to, 1f, fromRight = true, width = 400f))
     }
 
     private fun luminance(c: Int): Float {
