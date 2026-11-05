@@ -608,33 +608,49 @@ private struct LyricLineFont: ViewModifier, @MainActor Animatable {
 /// About: the song's facts.
 struct MacAboutView: View {
     @Environment(MacModel.self) private var model
-
-    private var rows: [(String, String)] {
-        let e = model.currentEntry
-        let t = model.player.currentTrack
-        var out: [(String, String)] = []
-        out.append(("Album", e?.album.title ?? t?.album ?? ""))
-        out.append(("Artist", t?.artist ?? ""))
-        if let y = e?.album.year, y > 0 { out.append(("Year", String(y))) }
-        out.append(("Genre", e?.album.genre ?? ""))
-        if let k = t?.sourceKbps { out.append(("Bit rate", "\(k) kbps")) }
-        if let n = e?.track.playCount { out.append(("Plays", String(n))) }
-        if case .loaded(_, _, let source) = model.lyrics.state { out.append(("Lyrics", source)) }
-        return out.filter { !$0.1.isEmpty }
-    }
+    @Environment(\.macTint) private var tint
+    @State private var facts: SongFacts?
 
     var body: some View {
+        let t = model.player.currentTrack
+        // iOS About: the server's record of the song, label over value, the label in the tint.
+        let rows = (facts?.facts ?? t.map { SongFacts($0).facts } ?? []) + lyricsRow
         ScrollView {
-            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
-                ForEach(rows, id: \.0) { r in
-                    GridRow {
-                        Text(r.0).font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
-                        Text(r.1).font(.gsf(15)).foregroundStyle(Yoin.ink)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(rows) { f in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(f.label).font(.gsf(12.5, .medium)).foregroundStyle(tint.primary)
+                        Text(f.value).font(.gsf(15)).foregroundStyle(Yoin.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 10)
+            .padding(.top, 8)
+            .padding(.bottom, 48)
         }
+        .scrollIndicators(.never)
+        .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85),
+                                     .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+        .task(id: t?.id) { facts = await load(t) }
+    }
+
+    /// Where the lyrics came from (the lyric credit).
+    private var lyricsRow: [SongFacts.Fact] {
+        if case .loaded(_, _, let source) = model.lyrics.state, !source.isEmpty {
+            return [SongFacts.Fact(label: "Lyrics", value: source)]
+        }
+        return []
+    }
+
+    private func load(_ t: PlayableTrack?) async -> SongFacts? {
+        guard let t else { return nil }
+        guard let client = model.session.client else { return SongFacts(t) }
+        do {
+            if let song = try await client.getSong(id: t.id) { return SongFacts(song, fallback: t) }
+        } catch {}
+        return SongFacts(t, complete: false)
     }
 }
