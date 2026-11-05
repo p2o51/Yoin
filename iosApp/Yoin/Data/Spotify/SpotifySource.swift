@@ -107,10 +107,10 @@ final class SpotifySource {
         return r.compactMap { $0 }.map(SpotifyMapping.playlistItem)
     }
 
-    /// Liked Songs, newest like first (the API's order), the first few hundred.
-    func librarySongs(cap: Int = 300) async throws -> [PlaylistEntry] {
     func noteLiked(_ ids: [String]) { liked.formUnion(ids) }
 
+    /// Liked Songs, newest like first (the API's order), the first few hundred.
+    func librarySongs(cap: Int = 300) async throws -> [PlaylistEntry] {
         let r = try await api.all("me/tracks", ["limit": "50"], of: SpotifyDTO.SavedTrack.self, cap: cap)
         let tracks = r.compactMap(\.track)
         liked.formUnion(tracks.compactMap(\.id))
@@ -273,9 +273,10 @@ final class SpotifySource {
 
     // MARK: Following an artist (Android SpotifyMusicSource.setArtistFollowed)
 
-    /// Follows or unfollows the artist on Spotify (PUT / DELETE me/following, user-follow-modify).
+    /// Follows or unfollows the artist on Spotify: PUT / DELETE me/library with the artist's URI
+    /// (the Feb 2026 Development Mode change removed PUT / DELETE me/following).
     func setFollowed(_ on: Bool, artist rawId: String) async throws {
-        try await api.send(on ? "PUT" : "DELETE", "me/following", ["type": "artist", "ids": rawId])
+        try await api.send(on ? "PUT" : "DELETE", "me/library", ["uris": "spotify:artist:\(rawId)"])
     }
 
     /// Whether the track is in Liked Songs (nil: unknown, the read failed).
