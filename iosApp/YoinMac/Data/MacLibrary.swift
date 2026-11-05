@@ -139,8 +139,16 @@ final class MacLibrary {
 
     func loadSongs(force: Bool = false) async {
         await run("songs", force: force) { client, m, live in
-            // Navidrome / OpenSubsonic answer an empty search3 with the whole library.
-            var found = try await client.search3(query: "", artistCount: 0, albumCount: 0, songCount: 500).songs
+            // Navidrome / OpenSubsonic answer an empty search3 with the whole library, a page at a time.
+            var found: [SongInfo] = []
+            var offset: Int32 = 0
+            while offset < 20_000 {
+                let page = try await client.search3(query: "", artistCount: 0, albumCount: 0, songCount: 500,
+                                                    songOffset: offset).songs
+                found += page
+                if page.count < 500 { break }
+                offset += 500
+            }
             if found.isEmpty { found = try await client.getRandomSongs(size: 200) }
             guard live() else { return }
             self.songs = found.enumerated().map { m.entry($1, index: $0) }

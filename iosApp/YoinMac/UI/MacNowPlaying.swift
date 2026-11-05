@@ -614,24 +614,55 @@ struct MacAboutView: View {
     @Environment(\.macTint) private var tint
     @State private var song: SongInfo?
     @State private var loadedFor: String?
+    @State private var showOthers = false
 
     var body: some View {
         let t = model.player.currentTrack
-        let rows = MacReceipt.rows(song: loadedFor == t?.id ? song : nil, track: t) + lyricsRow
+        let credits = model.lyrics.credits
+        let rows = MacReceipt.rows(song: loadedFor == t?.id ? song : nil, track: t, credits: credits) + lyricsRow
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
                     if i > 0 { DashedRule() }
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(r.label).font(.gsf(12.5, .medium)).foregroundStyle(Yoin.inkVariant)
-                            .frame(width: 96, alignment: .leading)
-                        Text(r.value).font(.gsf(14)).foregroundStyle(Yoin.ink)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
+                    ReceiptLine(label: r.label, value: r.value)
+                }
+                // The lyrics' other credits behind "More"; the notices small at the foot.
+                if !credits.others.isEmpty {
+                    if !rows.isEmpty { DashedRule() }
+                    if showOthers {
+                        ForEach(Array(credits.others.enumerated()), id: \.offset) { _, c in
+                            if c.role.isEmpty {
+                                Text(c.names).font(.gsf(13)).foregroundStyle(Yoin.ink)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.vertical, 8)
+                            } else {
+                                ReceiptLine(label: c.role, value: c.names)
+                            }
+                            DashedRule()
+                        }
                     }
-                    .padding(.vertical, 8)
+                    Button {
+                        withAnimation(Yoin.spatial) { showOthers.toggle() }
+                    } label: {
+                        Text(showOthers ? "Less" : "\(credits.others.count) more: "
+                             + credits.others.prefix(3).map { $0.role.isEmpty ? "Note" : $0.role }.joined(separator: ", ") + "…")
+                            .font(.gsf(12.5, .medium)).foregroundStyle(tint.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                if !credits.notices.isEmpty {
+                    DashedRule()
+                    VStack(spacing: 2) {
+                        ForEach(credits.notices, id: \.self) { n in
+                            Text(n).font(.gsf(11)).foregroundStyle(Yoin.inkVariant)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(.vertical, 10)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 6)
@@ -643,6 +674,7 @@ struct MacAboutView: View {
         .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85),
                                      .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
         .task(id: t?.id) {
+            showOthers = false
             let result = await load(t)
             guard !Task.isCancelled, t?.id == model.player.currentTrack?.id else { return }
             song = result
@@ -670,12 +702,15 @@ enum MacReceipt {
         var value: String
     }
 
-    static func rows(song s: SongInfo?, track t: PlayableTrack?) -> [Row] {
+    static func rows(song s: SongInfo?, track t: PlayableTrack?, credits: MacLyrics.Credits = .init()) -> [Row] {
         var rows: [Row] = []
         func add(_ label: String, _ value: String?) {
             guard let v = value?.split(whereSeparator: \.isWhitespace).joined(separator: " "), !v.isEmpty else { return }
             rows.append(Row(label: label, value: v))
         }
+        // Who wrote it: the lyrics' credits first, the server's composer when the lyrics name none.
+        for c in credits.headline { add(c.role, c.names) }
+        if !credits.headline.contains(where: { $0.role == "Composer" }) { add("Composer", s?.composer) }
         guard let s else {
             if let t, t.durationSec > 0 { add("Duration", SongFacts.duration(Int(t.durationSec.rounded()))) }
             if let k = t?.sourceKbps { add("Quality", "\(k) kbps") }
@@ -694,15 +729,42 @@ enum MacReceipt {
             ?? s.contentType.flatMap { $0.split(separator: "/").last.map { $0.uppercased() } }
         let quality = [kind, s.bitRate.flatMap { $0.intValue > 0 ? "\($0.intValue) kbps" : nil }].compactMap { $0 }
         if !quality.isEmpty { rows.append(Row(label: "Quality", value: quality.joined(separator: "  "))) }
+        let bitsAndRate = [s.bitDepth.map { "\($0.intValue)-bit" },
+                           s.samplingRate.map { String(format: "%g kHz", Double($0.intValue) / 1000) }].compactMap { $0 }
+        if !bitsAndRate.isEmpty { add("Resolution", bitsAndRate.joined(separator: "  ")) }
+        if let ch = s.channelCount?.intValue {
+            add("Channels", ch == 1 ? "Mono" : ch == 2 ? "Stereo" : "\(ch) channels")
+        }
         if let bytes = s.size?.int64Value, bytes > 0 {
             add("Size", String(format: "%.1f MB", Double(bytes) / 1_048_576))
         }
+        if let bpm = s.bpm?.intValue { add("BPM", String(bpm)) }
         if let n = s.playCount?.intValue { add("Plays", String(n)) }
         add("Last played", s.played.flatMap(SongFacts.date))
         if let r = s.userRating?.intValue, r > 0 { add("Server rating", String(format: "%.1f", Double(r * 2))) }
         add("Liked", s.starredAt.flatMap(SongFacts.date))
+        add("Added", s.created.map { String($0.prefix(10)) })
+        add("Comment", s.comment)
         add("File", s.path)
         return rows
+    }
+}
+
+private struct ReceiptLine: View {
+    var label: String
+    var value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label).font(.gsf(12.5, .medium)).foregroundStyle(Yoin.inkVariant)
+                .frame(width: 96, alignment: .leading)
+            Text(value).font(.gsf(14)).foregroundStyle(Yoin.ink)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 8)
     }
 }
 
