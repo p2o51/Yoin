@@ -56,7 +56,7 @@ enum QAProbe {
         case "search":
             if open { model.openSearch(from: .bar) } else {
                 AppModel.dismissKeyboard()
-                DispatchQueue.main.async { withAnimation(Yoin.spatial) { model.searchActive = false } }
+                withAnimation(Yoin.spatial) { model.searchActive = false }
             }
         case "searchtap":
             if open {
@@ -67,7 +67,7 @@ enum QAProbe {
                 }
             } else {
                 AppModel.dismissKeyboard()
-                DispatchQueue.main.async { withAnimation(Yoin.spatial) { model.searchActive = false } }
+                withAnimation(Yoin.spatial) { model.searchActive = false }
             }
         case "sheet":
             if open {
