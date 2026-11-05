@@ -193,6 +193,12 @@ final class GlassLab {
             extras["detailTopBar"] = mode
             suppressSave = false
         }
+        // Screenshots: `-emblemGlass 0…3` (EmblemGlass).
+        if let mode = UserDefaults.standard.string(forKey: "emblemGlass").flatMap(Double.init) {
+            suppressSave = true
+            extras["emblemGlass"] = mode
+            suppressSave = false
+        }
         // Screenshots: `-libraryFilterStyle 0…4` (SegmentChipStyle).
         if let mode = UserDefaults.standard.string(forKey: "libraryFilterStyle").flatMap(Double.init) {
             suppressSave = true
@@ -235,6 +241,7 @@ final class GlassLab {
         ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
         ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
         ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
+        ("emblemGlass", Double(EmblemGlass.lens.rawValue)),
     ]
 
     private func resetValues() {
@@ -707,6 +714,15 @@ struct GlassLabPanel: View {
                     get: { Int(lab.extra("detailTopBar").rounded()) },
                     set: { lab.extras["detailTopBar"] = Double($0) })) {
                     Text("Spectrum").tag(0); Text("Hard edge").tag(3); Text("Glass").tag(1); Text("Blur").tag(2)
+                }
+                .pickerStyle(.segmented)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Rating emblem").font(.gsf(13)).foregroundStyle(.secondary)
+                Picker("Rating emblem", selection: Binding(
+                    get: { EmblemGlass.current },
+                    set: { v in withAnimation(Yoin.effects) { lab.extras["emblemGlass"] = Double(v.rawValue) } })) {
+                    ForEach(EmblemGlass.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
             }
