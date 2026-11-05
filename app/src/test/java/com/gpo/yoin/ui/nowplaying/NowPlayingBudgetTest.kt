@@ -261,7 +261,8 @@ class NowPlayingBudgetTest {
             assertDp(w.dp, budget.focusStageWidth)
             assertDp((w.dp - 48.dp - focus.cover) / 2f, budget.focusLyricInset)
             assertTrue(budget.focusLyricOverflow >= focusLyric.inactiveLine * 2f)
-            assertTrue(budget.focusLyricOverflow <= focus.controls + 0.5.dp)
+            assertTrue(budget.focusLyricOverflow > focus.controls)
+            assertTrue(budget.focusLyricOverflow <= focus.controls + focus.hero / 2f + 0.5.dp)
             assertDp(h.dp, focus.total)
         }
         // The labels' row doesn't apply: the progress bar has its own full-width row.

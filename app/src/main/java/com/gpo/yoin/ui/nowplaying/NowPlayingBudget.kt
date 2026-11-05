@@ -447,10 +447,15 @@ fun resolveStageColumnBudget(
         } else {
             0.dp
         },
-        // 2–3 dotted lines (owner 2026-11-05 「多铺个 2-3 行就行」), never
-        // past the transport itself.
+        // 2–3 dotted lines (owner 2026-11-05 「多铺个 2-3 行就行」) past the
+        // list's own bottom pad and fade, through the progress row and into
+        // the top of the title's slot at most.
         focusLyricOverflow = if (compactFocus) {
-            minOf(metrics.lyric.inactiveLine * FocusLyricScale * FocusLyricOverflowLines, focus!!.controls)
+            minOf(
+                metrics.lyric.inactiveLine * FocusLyricScale * FocusLyricOverflowLines +
+                    LyricsListPadding + LyricsFadeBottom,
+                focus!!.controls + focus.hero / 2f,
+            )
         } else {
             0.dp
         },
