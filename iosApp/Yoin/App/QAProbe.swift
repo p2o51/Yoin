@@ -38,6 +38,7 @@ enum QAProbe {
 
     private static func set(_ cycle: String, _ open: Bool, _ model: AppModel) {
         HitchMonitor.shared.phase = "\(cycle) \(open ? "open" : "close")"
+        HitchMonitor.shared.phaseStart = CACurrentMediaTime()
         print("[hitch] phase \(HitchMonitor.shared.phase)")
         switch cycle {
         case "np": model.setNowPlaying(expanded: open)
@@ -86,6 +87,8 @@ enum QAProbe {
 final class HitchMonitor: NSObject {
     static let shared = HitchMonitor()
     var phase = "idle"
+    /// When the current phase began (media time): each late frame logs how far into it it fell.
+    var phaseStart: CFTimeInterval = 0
     private var link: CADisplayLink?
     private var last: CFTimeInterval = 0
     private weak var model: AppModel?
@@ -110,6 +113,7 @@ final class HitchMonitor: NSObject {
         QAProbe.log.log("late \(ms, privacy: .public)ms phase=\(self.phase, privacy: .public) np=\(np, format: .fixed(precision: 2), privacy: .public) rise=\(rise, format: .fixed(precision: 2), privacy: .public)")
         QAProbe.signposter.emitEvent("late", "\(ms)ms \(self.phase)")
         // Also on stdout: `devicectl device process launch --console` shows it.
-        print(String(format: "[hitch] late %dms phase=%@ np=%.2f rise=%.2f", ms, phase, np, rise))
+        let at = phaseStart > 0 ? Int(((l.timestamp - phaseStart) * 1000).rounded()) : -1
+        print(String(format: "[hitch] late %dms at=%dms phase=%@ np=%.2f rise=%.2f", ms, at, phase, np, rise))
     }
 }
