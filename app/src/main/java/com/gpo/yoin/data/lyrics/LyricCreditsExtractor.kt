@@ -63,7 +63,14 @@ object LyricCreditsExtractor {
     /** Positions in [texts] to drop, and the credits they held; null when nothing is taken. */
     internal fun scan(texts: List<String>): Found? {
         if (texts.isEmpty()) return null
-        val kinds = texts.map(::classify)
+        val kinds = texts.map(::classify).toMutableList()
+        // A parenthesised line only continues the credit right above it; anywhere else it is sung.
+        kinds.indices.forEach { index ->
+            if (kinds[index] is Kind.Continuation) {
+                val above = kinds.getOrNull(index - 1)
+                if (above !is Kind.Credit && above !is Kind.Continuation) kinds[index] = Kind.Lyric
+            }
+        }
         val removed = sortedSetOf<Int>()
 
         val head = block(kinds, texts.indices, head = true)
@@ -152,7 +159,7 @@ object LyricCreditsExtractor {
             DASH_CREDIT.matchEntire(text)?.let { dash ->
                 val key = dash.groupValues[1].trim()
                 if (!HAS_CJK.containsMatchIn(key) && isLatinRole(key)) {
-                    return Kind.Credit(key, dash.groupValues[2].trim())
+                    return Kind.Credit(key, dash.groupValues[2].trim(), headline = headlineOf(key))
                 }
             }
             if (PROSE.containsMatchIn(text)) return Kind.Credit(role = "", names = text)
@@ -163,9 +170,7 @@ object LyricCreditsExtractor {
         val names = match.groupValues[2].trim()
         if (names.isNotEmpty() && SENTENCE_END.containsMatchIn(names)) return Kind.Lyric
 
-        HEADLINES.forEach { (role, pattern) ->
-            if (pattern.matches(key)) return Kind.Credit(key, names, headline = role)
-        }
+        headlineOf(key)?.let { return Kind.Credit(key, names, headline = it) }
         if (NOTICE_ROLE.containsMatchIn(key)) return Kind.Notice("$key：$names")
         val isRole = if (HAS_CJK.containsMatchIn(key)) {
             key.length <= MAX_CJK_ROLE && CJK_ROLE.containsMatchIn(key)
@@ -174,6 +179,9 @@ object LyricCreditsExtractor {
         }
         return if (isRole) Kind.Credit(key, names) else Kind.Lyric
     }
+
+    private fun headlineOf(key: String): LyricCreditRole? =
+        HEADLINES.firstOrNull { (_, pattern) -> pattern.matches(key) }?.first
 
     private fun isLatinRole(key: String): Boolean {
         val words = key.lowercase().split(NON_WORD).filter(String::isNotEmpty)

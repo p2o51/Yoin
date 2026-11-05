@@ -113,6 +113,8 @@ fun AboutFullscreenPane(
             AboutUiState.ApiKeyMissing -> Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    // The credits card can expand past the viewport.
+                    .verticalScroll(rememberScrollState())
                     .padding(vertical = 12.dp),
             ) {
                 CreditsHeader(credits)
@@ -128,6 +130,7 @@ fun AboutFullscreenPane(
             is AboutUiState.Error -> Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(vertical = 12.dp),
             ) {
                 CreditsHeader(credits)

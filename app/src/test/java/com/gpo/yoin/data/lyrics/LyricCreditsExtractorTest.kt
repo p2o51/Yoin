@@ -194,4 +194,26 @@ class LyricCreditsExtractorTest {
 
         assertEquals(4, (LrcParser.parse(raw, extractCredits = false) as Lyrics.Synced).lines.size)
     }
+
+    @Test
+    fun should_readHeadlineRoles_when_creditsUseADash() {
+        val raw = "[00:00.00]Lyrics by - Alice\n[00:01.00]Composed by - Bob\n[00:05.00]One\n[00:06.00]Two"
+
+        assertEquals(listOf("One", "Two"), texts(raw))
+        assertEquals("Alice", synced(raw).credits!!.namesFor(LyricCreditRole.Lyricist))
+        assertEquals("Bob", synced(raw).credits!!.namesFor(LyricCreditRole.Composer))
+    }
+
+    @Test
+    fun should_keepAParenthesisedSungLine_when_noCreditSitsRightAboveIt() {
+        val raw = """
+            [00:00.00]作词：A
+            [00:05.00]One
+            [00:06.00]Two
+            [00:07.00](Never gonna give you up)
+        """.trimIndent()
+
+        assertEquals(listOf("One", "Two", "(Never gonna give you up)"), texts(raw))
+        assertEquals("A", synced(raw).credits!!.namesFor(LyricCreditRole.Lyricist))
+    }
 }

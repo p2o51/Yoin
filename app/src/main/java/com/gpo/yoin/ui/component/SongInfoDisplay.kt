@@ -97,7 +97,8 @@ fun SongInfoDisplay(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    Column {
+                    // The credits card can expand past the viewport.
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         if (credits != null) {
                             LyricCreditsCard(credits = credits, modifier = Modifier.padding(bottom = 8.dp))
                         }
