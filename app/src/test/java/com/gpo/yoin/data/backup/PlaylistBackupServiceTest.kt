@@ -267,6 +267,8 @@ class PlaylistBackupServiceTest {
 
         service.backUp(id)
         profiles.active = "work"
+        // A later clock, so the new backup gets its own id ("b" + now).
+        now = 2_000L
         service.backUp(id)
 
         assertEquals(setOf("home", "work"), store.getAll().mapTo(HashSet()) { it.sourceProfileId })
