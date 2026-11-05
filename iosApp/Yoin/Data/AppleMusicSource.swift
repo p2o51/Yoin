@@ -110,7 +110,13 @@ final class AppleMusicSource {
         }
         guard let url = c.url else { throw RequestError(message: "Bad request") }
         let response = try await MusicDataRequest(urlRequest: URLRequest(url: url)).response()
-        guard let root = AppleMusicJSON.object(response.data) else { throw RequestError(message: "Unreadable answer") }
+        guard let root = AppleMusicJSON.object(response.data) else {
+            if QAProbe.diag {
+                print("[diag] unreadable \(url.absoluteString) status=\(response.urlResponse.statusCode) bytes=\(response.data.count) "
+                      + "body=\(String(decoding: response.data.prefix(400), as: UTF8.self))")
+            }
+            throw RequestError(message: "Unreadable answer")
+        }
         return root
     }
 
