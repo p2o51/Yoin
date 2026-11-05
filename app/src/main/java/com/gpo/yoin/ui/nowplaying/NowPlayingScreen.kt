@@ -118,6 +118,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -334,13 +335,30 @@ fun NowPlayingScreen(
     val neighbourBottom = neighbours.next?.of(roomDark) ?: scheme.tertiaryContainer
 
     // Reactions for the Now Playing background (see nowPlayingAuroraBackground):
-    //  • Gemini thinking (long wait) → a slow aurora wash blooms while Loading.
+    //  • Gemini thinking (long wait) → a slow aurora wash blooms while Loading
+    //    (an Ask Gemini question, or About's automatic first fetch).
     //  • play/pause + skip → a brief one-shot pulse; the trigger reads only the
     //    playing flag, song id and queue position so position ticks don't fire
     //    it. Which pulse (breath, ring, the light along the lyrics, or none) is
     //    resolveTransportPulse's call. Skip also crossfades the whole palette
     //    via the theme.
-    val auroraActive = askState is AskBarState.Loading
+    // The About page's own first fetch is Gemini thinking too (owner
+    // 2026-11-04), so it gets the same wash as a typed question.
+    val auroraActive = askState is AskBarState.Loading || aboutUiState is AboutUiState.Loading
+    // Gemini not set up: About keeps its own "no key" text; the background
+    // adds a soft pink glow as a gentle nudge, at most every three days.
+    val hintContext = LocalContext.current
+    val keyMissing = aboutUiState is AboutUiState.ApiKeyMissing
+    var keyHintActive by remember { mutableStateOf(false) }
+    LaunchedEffect(keyMissing) {
+        if (!keyMissing || !GeminiKeyHint.claim(hintContext)) return@LaunchedEffect
+        keyHintActive = true
+        try {
+            delay(GEMINI_KEY_HINT_HOLD_MS)
+        } finally {
+            keyHintActive = false
+        }
+    }
     val playingState = uiState as? NowPlayingUiState.Playing
     val pulseTrigger = playingState?.let { TransportPulseKey(it.songId, it.isPlaying, it.currentQueueIndex) }
     val isPlayingNow = playingState?.isPlaying == true
@@ -421,6 +439,7 @@ fun NowPlayingScreen(
                         if (d > 0L) (latestPositionMs().toFloat() / d).coerceIn(0f, 1f) else 0f
                     },
                     journeyFromRight = journeyFromRight,
+                    keyHintActive = keyHintActive,
                 ),
         ) {
             when (uiState) {
