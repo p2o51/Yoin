@@ -76,6 +76,8 @@ final class LibraryStore {
     private(set) var favoriteArtists: [LibraryItem] = []
     private(set) var favoriteAlbums: [Album] = []
     private(set) var phases: [String: Phase] = [:]
+    /// The last failed load's message per key (shown with its Retry); cleared when the key loads.
+    private(set) var failures: [String: String] = [:]
 
     private(set) var albumDetails: [String: Album] = [:]
     private(set) var artistPages: [String: ArtistPage] = [:]
@@ -160,6 +162,7 @@ final class LibraryStore {
         favoriteArtists = []
         favoriteAlbums = []
         phases = [:]
+        failures = [:]
         albumDetails = [:]
         artistPages = [:]
         playlistDetails = [:]
@@ -518,12 +521,18 @@ final class LibraryStore {
             do {
                 // The body (and any task it starts) reads its generation through `ensureLive`.
                 try await Self.$loadGeneration.withValue(gen) { try await body() }
-                if gen == self.generation { self.phases[key] = .loaded }
+                if gen == self.generation {
+                    self.phases[key] = .loaded
+                    self.failures[key] = nil
+                }
             } catch {
                 let message = self.apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
                 self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
                 if QAProbe.diag { print("[diag] \(key) failed: \(message) — \(error)") }
-                if gen == self.generation { self.phases[key] = .failed }
+                if gen == self.generation {
+                    self.phases[key] = .failed
+                    self.failures[key] = message
+                }
             }
         }
         inFlight[key] = task

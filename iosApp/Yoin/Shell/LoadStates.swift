@@ -7,19 +7,30 @@ import SwiftUI
 /// A failed load: one tonal Retry label.
 struct RetryRow: View {
     var scheme: CoverScheme
+    /// What went wrong, above the button (a failed load's message).
+    var message: String? = nil
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Text("Retry")
-                .yoinRole(Tokens.type.labelLarge)
-                .foregroundStyle(scheme.onSecondaryContainer)
-                .padding(.horizontal, 20)
-                .frame(minHeight: 40)
-                .background(scheme.secondaryContainer, in: .capsule)
-                .contentShape(.capsule)
+        VStack(spacing: 12) {
+            if let message {
+                Text(message)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            Button(action: action) {
+                Text("Retry")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.onSecondaryContainer)
+                    .padding(.horizontal, 20)
+                    .frame(minHeight: 40)
+                    .background(scheme.secondaryContainer, in: .capsule)
+                    .contentShape(.capsule)
+            }
+            .buttonStyle(PressScale())
         }
-        .buttonStyle(PressScale())
         .frame(maxWidth: .infinity)
         .padding(.top, 48)
     }

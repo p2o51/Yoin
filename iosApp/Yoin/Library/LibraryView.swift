@@ -614,7 +614,7 @@ struct LibraryView: View {
         if entries.isEmpty && model.store.isReal {
             let key = filter == .favorites ? "favorites" : "songs"
             if model.store.phase(key) == .failed {
-                RetryRow(scheme: scheme) { Task { await reload(force: true) } }
+                RetryRow(scheme: scheme, message: model.store.failures[key]) { Task { await reload(force: true) } }
             } else if model.store.phase(key) != .loaded {
                 RowSkeleton(scheme: scheme)
             } else if filter == .songs {
@@ -677,7 +677,9 @@ struct LibraryView: View {
     private func loadState(empty: Bool) -> some View {
         let phases = phaseKeys.map { model.store.phase($0) }
         if phases.contains(.failed) {
-            RetryRow(scheme: scheme) { Task { await reload(force: false) } }
+            RetryRow(scheme: scheme, message: phaseKeys.lazy.compactMap { model.store.failures[$0] }.first) {
+                Task { await reload(force: false) }
+            }
                 .padding(.top, empty ? 0 : 12)
                 .transition(.opacity.animation(Yoin.effects))
         } else if empty && phases.contains(where: { $0 != .loaded }) {

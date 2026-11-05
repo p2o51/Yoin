@@ -126,7 +126,9 @@ final class AppleMusicSource {
         var root = try await get(path, query)
         out += AppleMusicJSON.resources(root)
         while out.count < cap, let next = AppleMusicJSON.next(root) {
-            root = try await get(next)
+            // Apple's `next` link carries the offset only; asked bare, page 2 answered 401 with no body
+            // (iPhone, 2026-11-05: Albums and Artists past 100 never loaded). The options go back on.
+            root = try await get(next, Self.missing(query, in: next))
             out += AppleMusicJSON.resources(root)
         }
         return Array(out.prefix(cap))
