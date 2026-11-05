@@ -5825,8 +5825,8 @@ private fun Modifier.runOnBelow(runOnPx: Int): Modifier = if (runOnPx <= 0) {
 }
 
 /**
- * Fades the [runOnBelow] extra out (its last ~two-thirds), on the content's
- * own alpha. Sits inside an offscreen layer (edgeFade's).
+ * Fades the [runOnBelow] extra out (its last [RunOnFadeShare]), on the
+ * content's own alpha. Sits inside an offscreen layer (edgeFade's).
  */
 private fun Modifier.fadeRunOn(runOnPx: Int): Modifier = if (runOnPx <= 0) {
     this
@@ -5848,7 +5848,8 @@ private fun Modifier.fadeRunOn(runOnPx: Int): Modifier = if (runOnPx <= 0) {
     }
 }
 
-private const val RunOnFadeShare = 0.7f
+// Short enough that about two dotted lines still read under the buttons.
+private const val RunOnFadeShare = 0.45f
 
 // Smoothstep from opaque to clear: no visible onset line.
 private val RunOnFadeStops = listOf(1f, 0.896f, 0.648f, 0.352f, 0.104f, 0f).map { Color.Black.copy(alpha = it) }
