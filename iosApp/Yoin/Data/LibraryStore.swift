@@ -522,6 +522,7 @@ final class LibraryStore {
             } catch {
                 let message = self.apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
                 self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
+                if QAProbe.diag { print("[diag] \(key) failed: \(message) — \(error)") }
                 if gen == self.generation { self.phases[key] = .failed }
             }
         }

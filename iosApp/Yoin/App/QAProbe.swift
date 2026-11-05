@@ -14,12 +14,46 @@ enum QAProbe {
     static let log = Logger(subsystem: "com.gpo.yoin", category: "hitch")
     static let signposter = OSSignposter(subsystem: "com.gpo.yoin", category: .pointsOfInterest)
 
+    /// `-qaDiag YES`: device diagnostics on stdout (devicectl --console): the account, the source,
+    /// Apple Music access and what the library loads did; then a window snapshot in Documents
+    /// (`qa-shot.png`, copied off with `devicectl device copy from`).
+    static var diag: Bool { UserDefaults.standard.bool(forKey: "qaDiag") }
+
     static func start(_ model: AppModel) {
         let d = UserDefaults.standard
+        if diag { Task { await runDiag(model) } }
         if d.bool(forKey: "qaHitches") { HitchMonitor.shared.start(model) }
         if let cycle = d.string(forKey: "qaCycle") {
             Task { await run(cycle, model) }
         }
+    }
+
+    private static func runDiag(_ model: AppModel) async {
+        func report(_ when: String) {
+            let p = model.profiles.active
+            let store = model.store
+            print("[diag] \(when) profile=\(p.map { "\($0.service) \($0.id)" } ?? "none") source=\(model.sources.active)"
+                  + " appleAuthorized=\(model.appleMusic.isAuthorized) isReal=\(store.isReal)"
+                  + " albums=\(store.albums.count) artists=\(store.artists.count) playlists=\(store.playlists.count)"
+                  + " phases=\(store.phases.map { "\($0.key):\($0.value)" }.sorted())")
+        }
+        report("launch")
+        try? await Task.sleep(for: .seconds(8))
+        report("8s")
+        snapshot("qa-shot.png")
+        try? await Task.sleep(for: .seconds(8))
+        report("16s")
+        snapshot("qa-shot2.png")
+    }
+
+    static func snapshot(_ name: String) {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first
+        else { return print("[diag] no window") }
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
+        do { try image.pngData()?.write(to: url); print("[diag] snapshot \(url.path)") } catch { print("[diag] snapshot failed \(error)") }
     }
 
     private static func run(_ cycle: String, _ model: AppModel) async {
