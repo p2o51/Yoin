@@ -28,4 +28,38 @@ final class SpotifyPlaybackTests: XCTestCase {
         t.scope = "user-read-private"
         XCTAssertTrue(t.missingRequiredScopes)
     }
+
+    // MARK: Play modes (Codex N03)
+
+    private func item(_ id: String) -> SpotifyAudioOutput.Item {
+        SpotifyAudioOutput.Item(SpotifyAudioOutput.streamURL(trackId: id))!
+    }
+
+    func test_should_rehand_when_spotifyWouldCarryOnToAStaleSong() {
+        XCTAssertTrue(SpotifyAudioOutput.needsRehand(handed: item("a"), next: item("b"), remainingSec: 120))
+        XCTAssertTrue(SpotifyAudioOutput.needsRehand(handed: item("a"), next: nil, remainingSec: nil))
+    }
+
+    func test_should_notRehand_when_theHandedSongIsStillNext() {
+        XCTAssertFalse(SpotifyAudioOutput.needsRehand(handed: item("a"), next: item("a"), remainingSec: 120))
+    }
+
+    func test_should_notRehand_when_nothingWasHanded() {
+        // The list runs out after the current song: its end starts the engine's next.
+        XCTAssertFalse(SpotifyAudioOutput.needsRehand(handed: nil, next: item("b"), remainingSec: 120))
+    }
+
+    func test_should_notRehand_when_theSongIsAboutToEnd() {
+        XCTAssertFalse(SpotifyAudioOutput.needsRehand(handed: item("a"), next: item("b"), remainingSec: 2))
+    }
+
+    func test_should_takeOverRepeatAndShuffle_when_turnedOnInSpotify() {
+        XCTAssertNil(SpotifyAudioOutput.externalModes(shuffling: false, repeatRaw: 0))
+        let one = SpotifyAudioOutput.externalModes(shuffling: false, repeatRaw: 1)
+        XCTAssertNil(one?.shuffle)
+        XCTAssertEqual(one?.repeatMode, .one)
+        let both = SpotifyAudioOutput.externalModes(shuffling: true, repeatRaw: 2)
+        XCTAssertEqual(both?.shuffle, true)
+        XCTAssertEqual(both?.repeatMode, .all)
+    }
 }

@@ -319,5 +319,8 @@ final class RoutingAudioOutput: AudioOutput {
         func outputDidReachEnd() { target?.outputDidReachEnd() }
         func outputDidFail(_ message: String, network: Bool) { target?.outputDidFail(message, network: network) }
         func outputPlayingDidChangeExternally(_ playing: Bool) { target?.outputPlayingDidChangeExternally(playing) }
+        func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {
+            target?.outputPlayModesDidChangeExternally(shuffle: shuffle, repeatMode: repeatMode)
+        }
     }
 }

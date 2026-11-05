@@ -173,6 +173,15 @@ final class PlayerEngineTests: XCTestCase {
 
     // MARK: Shuffle
 
+    func test_should_applyModes_when_thePlayerChangesThemExternally() {
+        engine.play(queue: tracks(3), startAt: 0)
+        output.events?.outputPlayModesDidChangeExternally(shuffle: true, repeatMode: .one)
+        XCTAssertTrue(engine.shuffle)
+        XCTAssertEqual(engine.repeatMode, .one)
+        // Repeat one: the preloaded next is the current song again.
+        XCTAssertEqual(output.preloaded?.absoluteString, "http://x/stream?id=t1")
+    }
+
     func test_should_keep_current_first_when_shuffle_turns_on() {
         engine.play(queue: tracks(4), startAt: 1)
         engine.setShuffle(true)

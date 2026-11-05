@@ -39,9 +39,13 @@ protocol AudioOutputEvents: AnyObject {
     /// Paused or played from outside the app's own controls (the lock
     /// screen of a player that owns its remote commands, e.g. MusicKit).
     func outputPlayingDidChangeExternally(_ playing: Bool)
+    /// Shuffle or repeat changed in the player that owns the sound (the Spotify app); nil: unchanged.
+    func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?)
 }
 
 extension AudioOutputEvents {
+    func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {}
+
     /// A failure of the song itself.
     func outputDidFail(_ message: String) { outputDidFail(message, network: false) }
 }

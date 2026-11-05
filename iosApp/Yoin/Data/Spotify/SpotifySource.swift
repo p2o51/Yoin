@@ -218,8 +218,10 @@ final class SpotifySource {
     /// Starts [uris] (the current song and the engine's next) in the Spotify app. Yoin's queue stays
     /// the truth: an album context let Spotify carry on through the album while Yoin played a playlist
     /// (Codex N02). No device id: the Spotify app App Remote just connected to is the active device.
-    func startPlayback(uris: [String]) async throws {
-        let json = try JSONSerialization.data(withJSONObject: ["uris": uris])
+    func startPlayback(uris: [String], positionMs: Int = 0) async throws {
+        var body: [String: Any] = ["uris": uris]
+        if positionMs > 0 { body["position_ms"] = positionMs }
+        let json = try JSONSerialization.data(withJSONObject: body)
         try await api.send("PUT", "me/player/play", json: json)
     }
 

@@ -633,8 +633,8 @@ extension AppModel {
         store.spotifyAccount = (source, scope)
         AccountScope.shared.spotify = scope
         SpotifyRemote.shared.token = { try await provider.accessToken() }
-        playbackSystem.spotifyOutput?.startPlayback = { [weak source] uris in
-            try await source?.startPlayback(uris: uris)
+        playbackSystem.spotifyOutput?.startPlayback = { [weak source] uris, positionMs in
+            try await source?.startPlayback(uris: uris, positionMs: positionMs)
         }
     }
 }

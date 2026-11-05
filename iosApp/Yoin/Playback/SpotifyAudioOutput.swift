@@ -136,13 +136,19 @@ extension SpotifyRemote: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegate {
 /// end of the current song and the engine starts its next. App Remote reports the app's state back;
 /// pause, resume and seek go through it.
 ///
+/// Play modes (Codex N03): a mode change or a queue edit that changes the engine's next song hands
+/// Spotify the new pair from the current position (paused: on the next play), so Spotify never carries
+/// on to a stale song. Shuffle or repeat turned on in the Spotify app is taken over by the engine and
+/// switched back off in Spotify. Repeat one hands [song, song]; the wrap to the second copy is an
+/// advance.
+///
 /// `-silentAudio YES`: nothing is started (the Spotify app can't be muted from here); the engine still
 /// moves through its queue.
 @MainActor
 final class SpotifyAudioOutput: AudioOutput {
     weak var events: AudioOutputEvents?
     /// Starts songs in the Spotify app (Web API PUT /me/player/play with these uris); set by the app.
-    var startPlayback: ((_ uris: [String]) async throws -> Void)?
+    var startPlayback: ((_ uris: [String], _ positionMs: Int) async throws -> Void)?
 
     private let remote = SpotifyRemote.shared
     private let silent = UserDefaults.standard.bool(forKey: "silentAudio")
@@ -165,10 +171,14 @@ final class SpotifyAudioOutput: AudioOutput {
     /// The position the last report gave (a song ended when Spotify stops at 0 right after its end).
     private var reportedTime: Double = 0
     private var timer: Timer?
+    /// A coalesced re-hand of [current, next] after the engine's next changed.
+    private var rehandTask: Task<Void, Never>?
+    /// Mode reports right after a start still show Spotify's old modes; they're not the listener's.
+    private var modesQuietUntil = Date.distantPast
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
 
     /// A song as the engine names it: spotify-yoin://track/<id>.
-    struct Item: Equatable {
+    struct Item: Equatable, Sendable {
         var trackId: String
         var trackURI: String { "spotify:track:\(trackId)" }
 
@@ -209,6 +219,7 @@ final class SpotifyAudioOutput: AudioOutput {
 
     func load(_ current: URL, next: URL?, startSec: Double) {
         generation += 1
+        rehandTask?.cancel()
         let item = Item(current)
         self.current = item
         self.next = Item(next)
@@ -243,14 +254,17 @@ final class SpotifyAudioOutput: AudioOutput {
     private func send(_ item: Item, gen: Int) async {
         let next = self.next
         do {
-            try await startPlayback?([item.trackURI] + (next.map { [$0.trackURI] } ?? []))
+            let at = pendingStart > 1 ? Int(pendingStart * 1000) : 0
+            try await startPlayback?([item.trackURI] + (next.map { [$0.trackURI] } ?? []), at)
             guard gen == generation else { return }
             handedNext = next
             starting = false
+            modesQuietUntil = Date().addingTimeInterval(Self.modesQuietSec)
             remote.player?.setShuffle(false, callback: nil)
             remote.player?.setRepeatMode(.off, callback: nil)
-            if pendingStart > 1 { remote.player?.seek(toPosition: Int(pendingStart * 1000), callback: nil) }
             if !wantsPlay { remote.player?.pause(nil) }
+            // The engine's next changed while this start was on its way.
+            scheduleRehand()
         } catch {
             guard gen == generation else { return }
             starting = false
@@ -273,12 +287,59 @@ final class SpotifyAudioOutput: AudioOutput {
         events?.outputTimeDidChange(lastTime)
     }
 
-    func preload(_ next: URL?) { self.next = Item(next) }
+    func preload(_ next: URL?) {
+        self.next = Item(next)
+        scheduleRehand()
+    }
+
+    /// Spotify was handed a next song the engine no longer has next: hand it the new pair from here,
+    /// after a short pause so a run of taps on the mode button makes one start.
+    private func scheduleRehand() {
+        rehandTask?.cancel()
+        guard !silent, !starting, playing, current != nil,
+              Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - currentTimeSec : nil)
+        else { return }
+        rehandTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.rehandDelayMs))
+            guard !Task.isCancelled else { return }
+            self?.rehand()
+        }
+    }
+
+    private func rehand() {
+        guard !starting, let current,
+              Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - currentTimeSec : nil)
+        else { return }
+        pendingStart = currentTimeSec
+        starting = true
+        let gen = generation
+        Task { await send(current, gen: gen) }
+    }
+
+    /// Spotify carries on to [handed] by itself; re-hand when that's a song the engine no longer has
+    /// next. Nothing handed (the list runs out after the current song) needs nothing: the end starts the
+    /// engine's next. Near the end a restart would cut the song's last seconds; the end handles it.
+    nonisolated static func needsRehand(handed: Item?, next: Item?, remainingSec: Double?) -> Bool {
+        guard let handed, handed != next else { return false }
+        return (remainingSec ?? .infinity) > rehandMinRemainingSec
+    }
+
+    nonisolated static let rehandMinRemainingSec: Double = 4
+    nonisolated static let rehandDelayMs = 600
+    nonisolated static let modesQuietSec: Double = 3
 
     func play() {
         wantsPlay = true
         // A start on its way plays when it lands; resuming now would sound the previous song.
         guard !silent, !starting else { return }
+        // Paused with a stale next: start the new pair here instead of resuming the old one.
+        if let current, Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - lastTime : nil) {
+            pendingStart = lastTime
+            starting = true
+            let gen = generation
+            Task { await send(current, gen: gen) }
+            return
+        }
         command { $0.resume(nil) }
     }
 
@@ -311,6 +372,7 @@ final class SpotifyAudioOutput: AudioOutput {
 
     func stop() {
         generation += 1
+        rehandTask?.cancel()
         if !silent, wantsPlay, remote.isConnected { remote.player?.pause(nil) }
         wantsPlay = false
         starting = false
@@ -332,12 +394,21 @@ final class SpotifyAudioOutput: AudioOutput {
         lastTick = Date()
         playing = !s.isPaused
         guard !starting else { return }
+        takeOverModes(s.playbackOptions)
         if let current, uri == current.trackURI {
             sawCurrent = true
             let d = Double(s.track.duration) / 1000
             if d > 0, d != duration {
                 duration = d
                 events?.outputDurationDidChange(d)
+            }
+            // Repeat one: Spotify moved from the first copy of the song to the second.
+            if !s.isPaused, d > 0, handedNext == current, lastTime < 1, before >= d - Self.endSlackSec - 1.5 {
+                handedNext = nil
+                next = nil
+                events?.outputDidAdvanceToPreloaded()
+                events?.outputTimeDidChange(lastTime)
+                return
             }
             events?.outputTimeDidChange(lastTime)
             // The list ran out: Spotify stops at the song's end, or back at its start right after it.
@@ -370,6 +441,31 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     nonisolated static let endSlackSec: Double = 1.5
+
+    /// Shuffle or repeat turned on in the Spotify app (Yoin keeps both off there): the engine takes the
+    /// mode over and Spotify's goes back off. Off can't be told apart from Yoin's own setting.
+    private func takeOverModes(_ options: SPTAppRemotePlaybackOptions?) {
+        guard let options, Date() >= modesQuietUntil,
+              let modes = Self.externalModes(shuffling: options.isShuffling, repeatRaw: options.repeatMode.rawValue)
+        else { return }
+        modesQuietUntil = Date().addingTimeInterval(Self.modesQuietSec)
+        remote.player?.setShuffle(false, callback: nil)
+        remote.player?.setRepeatMode(.off, callback: nil)
+        events?.outputPlayModesDidChangeExternally(shuffle: modes.shuffle, repeatMode: modes.repeatMode)
+    }
+
+    /// What the Spotify app's modes ask of the engine; nil when both are off (Yoin's own state there).
+    nonisolated static func externalModes(
+        shuffling: Bool, repeatRaw: UInt
+    ) -> (shuffle: Bool?, repeatMode: RepeatMode?)? {
+        let repeatMode: RepeatMode? = switch repeatRaw {
+        case SPTAppRemotePlaybackOptionsRepeatMode.track.rawValue: .one
+        case SPTAppRemotePlaybackOptionsRepeatMode.context.rawValue: .all
+        default: nil
+        }
+        guard shuffling || repeatMode != nil else { return nil }
+        return (shuffling ? true : nil, repeatMode)
+    }
 
     private func startTicking() {
         timer?.invalidate()
