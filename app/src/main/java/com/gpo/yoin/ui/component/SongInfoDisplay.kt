@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.LyricCredits
+import com.gpo.yoin.ui.nowplaying.AboutCarousel
 import com.gpo.yoin.ui.nowplaying.AboutUiState
 import com.gpo.yoin.ui.nowplaying.SpineSourceFacts
 import com.gpo.yoin.ui.nowplaying.aboutCarouselPages
