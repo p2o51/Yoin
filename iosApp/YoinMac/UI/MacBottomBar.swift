@@ -102,9 +102,10 @@ struct NowPlayingPill: View {
         let track = model.player.currentTrack
         Button { if track != nil { model.toggleNowPlaying() } } label: {
             HStack(spacing: 10) {
+                // A song's cover is a rounded square: in Yoin a circle means an artist.
                 Group {
-                    if let entry { MacCover(palette: entry.album.palette, circle: true) }
-                    else { Circle().fill(tint.primary.opacity(0.25)) }
+                    if let entry { MacCover(palette: entry.album.palette, corner: 6) }
+                    else { RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tint.primary.opacity(0.25)) }
                 }
                 .frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 1) {
