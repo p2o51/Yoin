@@ -262,9 +262,30 @@ class LyricsAndSettingAdaptersTest {
     fun should_declineSettingsIosDoesNotHave_when_applying() = runTest {
         val domain = FakeSyncDomain("English")
         val adapter = SettingsSyncAdapter(domain)
-        for (key in listOf(SyncSettingKeys.SEAM_TOP_STYLE, SyncSettingKeys.SPOTIFY_CLIENT_ID)) {
-            assertEquals(ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null), adapter.apply(null, key, setting("x"), 1L, null))
-        }
+        assertEquals(ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null),
+            adapter.apply(null, SyncSettingKeys.SEAM_TOP_STYLE, setting("x"), 1L, null))
         assertEquals("English", domain.language)
+    }
+
+    @Test
+    fun should_bootstrapTheSpotifyClientId_when_thisDeviceHasNoneAndNoSpotifyAccount() = runTest {
+        val domain = FakeSyncDomain("English")
+        val adapter = SettingsSyncAdapter(domain)
+        val outcome = adapter.apply(null, SyncSettingKeys.SPOTIFY_CLIENT_ID, setting("abc123"), 1L, null)
+        assertTrue(outcome is ApplyOutcome.Applied)
+        assertEquals("abc123", domain.spotifyClientId)
+        assertEquals(listOf(SyncSettingKeys.SPOTIFY_CLIENT_ID), adapter.readAll(null).map { it.key })
+    }
+
+    @Test
+    fun should_keepTheLocalSpotifyClientId_when_oneIsSetOrASpotifyAccountExists() = runTest {
+        val own = FakeSyncDomain("English").apply { spotifyClientId = "mine" }
+        assertTrue(SettingsSyncAdapter(own).apply(null, SyncSettingKeys.SPOTIFY_CLIENT_ID, setting("theirs"), 1L, null)
+            is ApplyOutcome.Skipped)
+        assertEquals("mine", own.spotifyClientId)
+        val signedIn = FakeSyncDomain("English").apply { spotifyProfiles = 1 }
+        assertTrue(SettingsSyncAdapter(signedIn).apply(null, SyncSettingKeys.SPOTIFY_CLIENT_ID, setting("theirs"), 1L, null)
+            is ApplyOutcome.Skipped)
+        assertEquals(null, signedIn.spotifyClientId)
     }
 }

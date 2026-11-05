@@ -190,6 +190,15 @@ interface SyncDomain {
      */
     fun putTranslationLanguage(language: String): Boolean
 
+    /** The Spotify Client ID set on this device (Android `spotify_config.clientId`); null or blank = none. */
+    fun spotifyClientId(): String? = null
+
+    /** Spotify accounts configured on this device (Android `profileCount(PROVIDER_SPOTIFY)`). */
+    fun spotifyProfileCount(): Int = 0
+
+    /** Sets the Spotify Client ID (the bootstrap from another device: no override here, no Spotify account). */
+    fun putSpotifyClientId(clientId: String): Boolean = false
+
     /** Every Gemini (paid) translation: rows whose model doesn't start "provider:" (Android `paidTranslations`). */
     fun paidLyricsTranslations(): List<LyricsTranslationRow>
 

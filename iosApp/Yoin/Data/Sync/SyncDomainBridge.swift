@@ -374,10 +374,26 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         main { Int32(SongAboutStore.shared.all.count) }
     }
 
-    // MARK: Settings (Android `setting`: iOS has translation_language only)
+    // MARK: Settings (Android `setting`: translation_language and spotify_client_id)
 
     func putTranslationLanguage(language: String) -> Bool {
         main { GeminiSettings.shared.syncSetLanguage(language) }
+    }
+
+    /// The Client ID set in Settings › Spotify (not the dev build's seed: that is no setting).
+    func spotifyClientId() -> String? {
+        main { UserDefaults.standard.string(forKey: SpotifyConfig.clientIdKey) }
+    }
+
+    func spotifyProfileCount() -> Int32 {
+        main { Int32(AppModel.shared.profiles.profiles.filter { $0.service == .spotify }.count) }
+    }
+
+    func putSpotifyClientId(clientId: String) -> Bool {
+        main {
+            SpotifyConfig.setClientId(clientId)
+            return true
+        }
     }
 
     // MARK: Lyric translations (Data/Lyrics LyricsUserStore, Android lyrics_translation_cache)

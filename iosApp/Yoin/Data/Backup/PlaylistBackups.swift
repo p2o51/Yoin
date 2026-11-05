@@ -82,6 +82,8 @@ final class PlaylistBackups {
         switch profile.service {
         case .subsonic: guard library.client != nil else { return nil }
         case .appleMusic: guard library.apple != nil else { return nil }
+        // Spotify playlists aren't backed up from iOS yet (Android SpotifyBackupSource).
+        case .spotify: return nil
         }
         return accounts.source(id)
     }
@@ -305,6 +307,7 @@ final class PlaylistBackups {
         switch p.service {
         case .subsonic: AccountScope.subsonicProvider
         case .appleMusic: AppleMusicMapping.provider
+        case .spotify: "spotify"
         }
     }
 
@@ -401,6 +404,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id) != nil
         case .appleMusic: return apple.isAuthorized
+        case .spotify: return false
         }
     }
 
@@ -409,6 +413,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id).map { PlaylistBackups.subsonicSource(p, account: $0) }
         case .appleMusic: return PlaylistBackups.appleSource(apple, profileId: p.id)
+        case .spotify: return nil
         }
     }
 
@@ -417,6 +422,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id).map { SubsonicRestoreDestination(account: $0) }
         case .appleMusic: return AppleMusicRestoreDestination(apple: apple)
+        case .spotify: return nil
         }
     }
 }

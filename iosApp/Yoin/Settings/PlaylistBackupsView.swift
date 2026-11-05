@@ -676,6 +676,10 @@ enum BackupTexts {
             case .appleMusic:
                 return RestoreTarget(id: p.id, label: "Apple Music", provider: AppleMusicMapping.provider,
                                      available: usable, note: usable ? nil : "Apple Music access is off for Yoin")
+            case .spotify:
+                // Restoring into Spotify (a new playlist through the Web API) isn't on iOS yet.
+                return RestoreTarget(id: p.id, label: p.title, provider: "spotify", available: false,
+                                     note: "Not on iPhone yet")
             }
         }
     }

@@ -17,6 +17,16 @@ import com.gpo.yoin.shared.sync.identity.SyncProfile
 class FakeSyncDomain(var language: String = "English") : SyncDomain {
     /** true: every write fails to persist (and changes nothing), as a full or unwritable disk would. */
     var failWrites = false
+    var spotifyClientId: String? = null
+    var spotifyProfiles = 0
+
+    override fun spotifyClientId(): String? = spotifyClientId
+    override fun spotifyProfileCount(): Int = spotifyProfiles
+    override fun putSpotifyClientId(clientId: String): Boolean {
+        if (failWrites) return false
+        spotifyClientId = clientId
+        return true
+    }
     val profileList = mutableListOf<SyncProfile>()
     val trackRatings = LinkedHashMap<Triple<String, String, String>, TrackRatingRow>()
     val albumRatings = LinkedHashMap<Triple<String, String, String>, AlbumRatingRow>()

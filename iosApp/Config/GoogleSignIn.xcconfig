@@ -8,3 +8,9 @@
 // sync page shows "Not configured" with sign-in disabled.
 YOIN_GOOGLE_IOS_CLIENT_ID = 747031130557-i0s8qtqf65u29nabsbsnfls42a10mncr.apps.googleusercontent.com
 YOIN_GOOGLE_IOS_REVERSED_CLIENT_ID = com.googleusercontent.apps.747031130557-i0s8qtqf65u29nabsbsnfls42a10mncr
+
+// Spotify's Client ID for dev builds, kept out of git like Android's local.properties
+// (spotifyClientId): Config/Spotify.local.xcconfig, `YOIN_SPOTIFY_CLIENT_ID = …`. Empty without it;
+// Settings › Spotify sets one at runtime either way.
+YOIN_SPOTIFY_CLIENT_ID =
+#include? "Spotify.local.xcconfig"

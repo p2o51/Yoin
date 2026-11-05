@@ -9,6 +9,10 @@ packages:
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
     from: 9.2.0
+  # Spotify App Remote (playback through the Spotify app), pinned: a binary SDK.
+  SpotifyiOS:
+    url: https://github.com/spotify/ios-sdk
+    exactVersion: 5.0.1
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -33,6 +37,8 @@ targets:
         embed: false
       - package: GoogleSignIn
         product: GoogleSignIn
+      - package: SpotifyiOS
+        product: SpotifyiOS
     configFiles:
       Debug: Config/GoogleSignIn.xcconfig
       Release: Config/GoogleSignIn.xcconfig
@@ -93,6 +99,16 @@ targets:
           - CFBundleURLName: google-sign-in
             CFBundleURLSchemes:
               - $(YOIN_GOOGLE_IOS_REVERSED_CLIENT_ID)
+          # Spotify's sign-in and App Remote return here (yoin://auth/spotify/…, as on Android).
+          - CFBundleURLName: com.gpo.yoin.auth
+            CFBundleURLSchemes:
+              - yoin
+        # App Remote checks for (and opens) the Spotify app.
+        LSApplicationQueriesSchemes:
+          - spotify
+        # The dev build's Spotify Client ID (Config/Spotify.local.xcconfig, not in git, as
+        # Android's local.properties); Settings › Spotify overrides it at runtime.
+        YoinSpotifyClientID: $(YOIN_SPOTIFY_CLIENT_ID)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin

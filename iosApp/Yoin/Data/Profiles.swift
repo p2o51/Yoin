@@ -4,19 +4,19 @@ import SwiftUI
 import YoinShared
 
 /// One configured account (Android `data/local/Profile`): a Subsonic server +
-/// user, or this device's Apple Music. Kept in UserDefaults without its
+/// user, this device's Apple Music, or a Spotify account. Kept in UserDefaults without its
 /// password; a Subsonic account's sign-in is its own Keychain item
-/// (`ProfileCredentialStore`).
+/// (`ProfileCredentialStore`), a Spotify account's tokens too (`SpotifyTokenStore`).
 struct Profile: Codable, Equatable, Identifiable, Sendable {
-    /// The services iOS can add. Spotify (Android) would be one more case with
-    /// its own credentials and source; iOS has no Spotify SDK yet.
+    /// The services iOS can add.
     enum Service: String, Codable, Sendable, CaseIterable {
-        case subsonic, appleMusic
+        case subsonic, appleMusic, spotify
 
         var source: ActiveSource {
             switch self {
             case .subsonic: .subsonic
             case .appleMusic: .appleMusic
+            case .spotify: .spotify
             }
         }
 
@@ -24,6 +24,7 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
             switch self {
             case .subsonic: "Subsonic"
             case .appleMusic: "Apple Music"
+            case .spotify: "Spotify"
             }
         }
     }
@@ -38,6 +39,9 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
     /// The scope its rows were first kept under, when an edit changed only how the address is written
     /// (case, scheme, a trailing slash: the same account fingerprint). Nil: "baseUrl|username".
     var scopeKey: String? = nil
+    /// Spotify only: whose account it is (its rows' scope), and the name it shows.
+    var spotifyUserId: String? = nil
+    var spotifyName: String? = nil
 
     /// `AccountScope`'s key for this account's rows ("baseUrl|username" as first saved); nil for Apple Music.
     var subsonicScope: String? {
@@ -54,6 +58,7 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
     /// The card's name: the Subsonic username, or the service.
     var title: String {
         if service == .subsonic, let username, !username.isEmpty { return username }
+        if service == .spotify, let spotifyName, !spotifyName.isEmpty { return spotifyName }
         return service.name
     }
 
@@ -91,6 +96,7 @@ final class ProfileStore {
     /// Sign-ins read or saved this run. An unsigned simulator build has no Keychain: a sign-in it
     /// couldn't store lasts the run, as before.
     private var signIns: [String: ServerSession.Account] = [:]
+    private var spotifyTokens: [String: SpotifyTokens] = [:]
     /// The legacy Keychain item couldn't be read at the migration (locked): looked for again before every
     /// write and on later launches, until the Keychain answers found or missing (Codex #7).
     private var legacyPending = false
@@ -152,7 +158,8 @@ final class ProfileStore {
         switch saved {
         case .subsonic: activeId = hasSubsonic ? Self.legacySubsonicId : nil
         case .appleMusic: activeId = Self.appleMusicId
-        case .mock: activeId = nil
+        // The single-server build had no Spotify.
+        case .mock, .spotify: activeId = nil
         case nil: activeId = hasSubsonic ? Self.legacySubsonicId : nil
         }
         if !legacyPending { persist() }
@@ -201,6 +208,30 @@ final class ProfileStore {
         return .success(updated)
     }
 
+    /// Saves a Spotify sign-in: into the account already added for that Spotify user, else a new
+    /// one. The Keychain first, as for Subsonic.
+    func saveSpotify(_ tokens: SpotifyTokens, now: Int64 = ProfileStore.nowMs) -> Result<Profile, SaveFailure> {
+        let existing = profiles.first { $0.service == .spotify && $0.spotifyUserId == tokens.userId }
+        if existing == nil, !canAdd { return .failure(.full) }
+        let profileId = existing?.id ?? "spotify-\(tokens.userId)"
+        let status = SpotifyTokenStore.save(tokens, for: profileId)
+        guard status == errSecSuccess || status == errSecMissingEntitlement else { return .failure(.keychain(status)) }
+        spotifyTokens[profileId] = tokens
+        let updated = Profile(id: profileId, service: .spotify, createdAt: existing?.createdAt ?? now,
+                              spotifyUserId: tokens.userId, spotifyName: tokens.displayName)
+        if let i = profiles.firstIndex(where: { $0.id == profileId }) { profiles[i] = updated } else { profiles.append(updated) }
+        persist()
+        return .success(updated)
+    }
+
+    /// A Spotify account's tokens (read once a run; an unsigned build keeps them for the run).
+    func spotify(_ id: String) -> SpotifyTokens? {
+        if let t = spotifyTokens[id] { return t }
+        let t = SpotifyTokenStore.load(id)
+        spotifyTokens[id] = t
+        return t
+    }
+
     /// The Apple Music account (one per device), added if it isn't yet.
     func addAppleMusic(now: Int64 = ProfileStore.nowMs) -> Profile? {
         if let p = profile(Self.appleMusicId) { return p }
@@ -225,6 +256,10 @@ final class ProfileStore {
         profiles.removeAll { $0.id == id }
         signIns[id] = nil
         if p.service == .subsonic { credentials.delete(id) }
+        if p.service == .spotify {
+            SpotifyTokenStore.delete(id)
+            spotifyTokens[id] = nil
+        }
         let wasActive = activeId == id
         if wasActive { activeId = profiles.first?.id }
         persist()
@@ -311,7 +346,14 @@ final class ProfileManager {
     var canAdd: Bool { store.canAdd }
 
     /// The account can't be used until its owner signs in again (no readable sign-in).
-    func needsSignIn(_ p: Profile) -> Bool { p.service == .subsonic && store.signIn(p.id) == nil }
+    func needsSignIn(_ p: Profile) -> Bool {
+        switch p.service {
+        case .subsonic: store.signIn(p.id) == nil
+        case .appleMusic: false
+        // No tokens, or signed in before a required scope (Android ProfileState.NeedsReconnect).
+        case .spotify: store.spotify(p.id).map(\.missingRequiredScopes) ?? true
+        }
+    }
 
     func signIn(_ id: String) -> ServerSession.Account? { store.signIn(id) }
 
@@ -364,6 +406,12 @@ final class ProfileManager {
         case .appleMusic:
             guard appleAuthorized() else {
                 failure = Failure(profileId: id, message: "Apple Music access is off for Yoin")
+                return
+            }
+            commit(target, probe: nil, account: nil)
+        case .spotify:
+            guard !needsSignIn(target) else {
+                failure = Failure(profileId: id, message: "Sign in again")
                 return
             }
             commit(target, probe: nil, account: nil)
@@ -430,6 +478,37 @@ final class ProfileManager {
         }
     }
 
+    /// Signs in to Spotify (its consent page) and saves the account; it becomes the account in use
+    /// with [activate] or when there is none. Returns the error to show, nil when it is saved (or
+    /// the sign-in was cancelled: nothing to say).
+    func connectSpotify(activate: Bool) async -> String? {
+        generation += 1
+        let gen = generation
+        failure = nil
+        let tokens: SpotifyTokens
+        do {
+            tokens = try await SpotifyAuth.signIn()
+        } catch SpotifyAuthError.cancelled {
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+        guard gen == generation else { return "Cancelled" }
+        switch store.saveSpotify(tokens) {
+        case .failure(.full):
+            return "Up to \(ProfileStore.maxProfiles) accounts"
+        case .failure(.keychain(let status)):
+            return "Couldn't save the sign-in (Keychain error \(status))"
+        case .success(let saved):
+            if activate || saved.id == activeId || activeId == nil {
+                commit(saved, probe: nil, account: nil)
+            } else {
+                withAnimation(Yoin.spatial) { refresh() }
+            }
+            return nil
+        }
+    }
+
     /// Adds this device's Apple Music (authorized already) and, with [activate] or no account in use,
     /// uses it. False when the list is full.
     @discardableResult
@@ -488,6 +567,9 @@ final class ProfileManager {
         case .appleMusic:
             session.signOut()
             use(.appleMusic)
+        case .spotify:
+            session.signOut()
+            use(.spotify)
         case nil:
             session.signOut()
             use(.mock)
