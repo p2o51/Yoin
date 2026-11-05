@@ -72,7 +72,7 @@ internal fun NowPlayingRatingBar(
         onInteractionChange = { active ->
             held = active
             if (active) {
-                if (glowSignal != null && !glowBounds.rootBounds.isEmpty) glowSignal.glowHold = holdAt(draft ?: rating)
+                if (glowSignal != null && !glowBounds.rootBounds.isEmpty) glowSignal.glowHold = holdAt(draft ?: rating ?: 0f)
             } else {
                 glowSignal?.glowHold = null
                 draft?.let { value ->

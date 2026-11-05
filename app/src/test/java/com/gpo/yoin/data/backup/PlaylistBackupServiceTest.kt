@@ -267,6 +267,7 @@ class PlaylistBackupServiceTest {
 
         service.backUp(id)
         profiles.active = "work"
+        now = 2_000L
         service.backUp(id)
 
         assertEquals(setOf("home", "work"), store.getAll().mapTo(HashSet()) { it.sourceProfileId })
