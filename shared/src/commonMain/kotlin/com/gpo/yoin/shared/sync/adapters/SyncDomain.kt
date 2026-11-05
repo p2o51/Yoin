@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.sync.adapters
 
+import com.gpo.yoin.shared.backup.PlaylistBackupRow
 import com.gpo.yoin.shared.sync.identity.SyncProfile
 
 /*
@@ -224,6 +225,16 @@ interface SyncDomain {
 
     /** Back to the default layout. */
     fun deleteHomeLayout(profileId: String): Boolean
+
+    /** Every playlist backup on this device (global, not per account; [PlaylistBackupRow]). */
+    fun playlistBackups(): List<PlaylistBackupRow>
+
+    fun playlistBackup(id: String): PlaylistBackupRow?
+
+    /** Adds or replaces the backup with [row]'s id, its JSON text kept exactly as given. */
+    fun putPlaylistBackup(row: PlaylistBackupRow): Boolean
+
+    fun deletePlaylistBackup(id: String): Boolean
 }
 
 /** A [SyncDomain] write that did not reach storage; the record stays unapplied and is retried. */

@@ -217,19 +217,16 @@ struct HomeView: View {
             Spacer(minLength: 0)
             HeaderActions(edit: edit, scheme: scheme) {
                 Button { model.openSettings() } label: {
-                    // 32 dp avatar in a 48 dp target; profile 0 = Cookie6Sided.
-                    Text("5")
-                        .font(.gsf(14, .semibold))
-                        .foregroundStyle(scheme.onPrimary)
-                        .frame(width: 32, height: 32)
-                        .background(BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
-                                    in: CookieShape(lobes: 6, depth: 0.16))
-                        .padding(1.5)
-                        .background(scheme.surfaceContainer, in: CookieShape(lobes: 6, depth: 0.16))
-                        .frame(width: 48, height: 48)
+                    // 32 dp avatar in a 48 dp target: the account in use (its shape, service colour and
+                    // letter); with none, the mock's (profile 0 = Cookie6Sided).
+                    HeaderAccountAvatar(profile: model.profiles.active,
+                                        shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
+                                        fallback: BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
+                                        onFallback: scheme.onPrimary, ring: scheme.surfaceContainer)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Account")
+                .accessibilityValue(model.profiles.active?.title ?? "")
             }
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { bubble.freeEnd = $0 }
         }

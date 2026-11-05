@@ -2,23 +2,25 @@ import Foundation
 import Security
 import YoinShared
 
-/// The signed-in Subsonic / Navidrome server: credentials in the Keychain,
-/// one shared `SubsonicClient` (Kotlin, YoinShared) for every screen.
+/// The Subsonic / Navidrome server in use: one shared `SubsonicClient`
+/// (Kotlin, YoinShared) for every screen.
 ///
-/// Android keeps profiles in Room with encrypted credential blobs; iOS has
-/// one server for now and stores it as a single Keychain item
-/// (kSecClassGenericPassword, this device only).
+/// Which server that is belongs to the account list (`ProfileManager`, Android
+/// ProfileManager): each Subsonic account keeps its sign-in in its own
+/// Keychain item (`ProfileCredentials`), and the account in use is handed here
+/// on launch (`restore`, no wait for the server) or on a switch (`install`,
+/// after the server answered `probe`).
 @MainActor
 @Observable
 final class ServerSession {
-    struct Account: Codable, Equatable {
+    struct Account: Codable, Equatable, Sendable {
         var baseUrl: String
         var username: String
         var password: String
     }
 
     enum State: Equatable {
-        /// No server configured: the app shows the mock library.
+        /// No server in use: the app shows the active account's other source, or the mock library.
         case signedOut
         case connecting
         case ready(ServerName)
@@ -28,6 +30,13 @@ final class ServerSession {
     struct ServerName: Equatable {
         var type: String?
         var version: String?
+    }
+
+    /// A server that answered its ping, with the client that asked: installed on a switch, or closed.
+    struct Probe {
+        let client: SubsonicClient
+        let server: ServerName
+        let openSubsonic: Bool
     }
 
     private(set) var account: Account? {
@@ -41,69 +50,56 @@ final class ServerSession {
 
     var isSignedIn: Bool { client != nil }
 
-    /// A different server or user is about to replace the signed-in one (not a password change):
-    /// the old account's playback, queue and callbacks must end before its client goes (AppModel).
-    @ObservationIgnored var onAccountReplaced: (() -> Void)?
-
-    /// Bumps on every sign-in attempt and sign-out: an answer from an older attempt (a ping still in
-    /// flight when the user signed out or tried again) never installs its client, account or Keychain item.
+    /// Bumps on every install, restore and sign-out: an answer for an older client (a ping still in
+    /// flight when the account changed) never changes the state.
     @ObservationIgnored private var authGeneration = 0
 
-    init() {
-        if let saved = Keychain.load() {
-            account = saved
-            AccountScope.shared.subsonic = AccountScope.subsonicScope(saved)
-            client = Self.makeClient(saved)
-            state = .connecting
-            Task { await verify() }
-        }
-    }
+    init() {}
 
-    /// Ping first; only a server that answers is saved.
-    func signIn(baseUrl: String, username: String, password: String) async -> Bool {
-        authGeneration += 1
-        let gen = authGeneration
-        let account = Account(baseUrl: Self.normalized(baseUrl), username: username, password: password)
-        let candidate = Self.makeClient(account)
-        state = .connecting
+    /// Asks [account]'s server once with a client of its own; nothing here changes until `install`.
+    static func probe(_ account: Account) async throws -> Probe {
+        let candidate = makeClient(account)
         do {
             let info = try await candidate.ping()
-            guard gen == authGeneration else {
-                // Signed out, or another attempt started, while this one was asking.
-                candidate.close()
-                return false
-            }
-            let status = Keychain.save(account)
-            // An unsigned simulator build has no Keychain: the sign-in lasts this run only, as before.
-            guard status == errSecSuccess || status == errSecMissingEntitlement else {
-                candidate.close()
-                // The previous sign-in (client and Keychain item) stays as it was.
-                state = .failed("Couldn't save the sign-in (Keychain error \(status))")
-                return false
-            }
-            if let old = self.account, Self.identity(old) != Self.identity(account) { onAccountReplaced?() }
-            client?.close()
-            client = candidate
-            self.account = account
-            supportsTimeOffset = false
-            state = .ready(ServerName(type: info.type, version: info.serverVersion))
-            Task { await loadTraits(candidate, gen: gen, openSubsonic: info.openSubsonic) }
-            return true
+            return Probe(client: candidate, server: ServerName(type: info.type, version: info.serverVersion),
+                         openSubsonic: info.openSubsonic)
         } catch {
             candidate.close()
-            guard gen == authGeneration else { return false }
-            state = .failed(Self.message(for: error))
-            return false
+            throw error
         }
     }
 
+    /// The account in use becomes [account], on the client that just answered (a switch, a sign-in).
+    func install(_ probe: Probe, account: Account) {
+        authGeneration += 1
+        let gen = authGeneration
+        if client !== probe.client { client?.close() }
+        client = probe.client
+        self.account = account
+        supportsTimeOffset = false
+        state = .ready(probe.server)
+        Task { await loadTraits(probe.client, gen: gen, openSubsonic: probe.openSubsonic) }
+    }
+
+    /// The account in use at launch (or after the one in use was removed): its client at once, the
+    /// ping behind it. An offline launch keeps the client, so cached pages still play.
+    func restore(_ account: Account) {
+        authGeneration += 1
+        client?.close()
+        self.account = account
+        client = Self.makeClient(account)
+        supportsTimeOffset = false
+        state = .connecting
+        Task { await verify() }
+    }
+
+    /// No Subsonic server in use (another source, or no account). The account's sign-in stays saved.
     func signOut() {
         authGeneration += 1
         client?.close()
         client = nil
         account = nil
         supportsTimeOffset = false
-        Keychain.delete()
         state = .signedOut
     }
 
@@ -130,9 +126,6 @@ final class ServerSession {
         supportsTimeOffset = names.contains("transcodeOffset")
     }
 
-    /// Server + user: the account a client signs in as (a new password is the same account).
-    private static func identity(_ a: Account) -> String { AccountScope.subsonicScope(a) }
-
     private static func makeClient(_ a: Account) -> SubsonicClient {
         SubsonicClient(baseUrl: a.baseUrl, username: a.username, password: a.password)
     }
@@ -155,32 +148,61 @@ final class ServerSession {
     }
 }
 
-private enum Keychain {
-    private static let service = "com.gpo.yoin.subsonic"
+/// Each Subsonic account's sign-in, one Keychain item apiece (kSecClassGenericPassword, this device
+/// only, kSecAttrAccount = the profile id). The account from before the account list keeps the item
+/// it always had (kSecAttrAccount "default"): moving it would be one more write that could fail.
+protocol ProfileCredentialStore {
+    func load(_ profileId: String) -> CredentialRead
+    func save(_ account: ServerSession.Account, for profileId: String) -> OSStatus
+    func delete(_ profileId: String)
+}
 
-    private static var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: "default"]
+enum CredentialRead: Equatable {
+    case found(ServerSession.Account)
+    case missing
+    /// The Keychain couldn't be read just now (locked, no entitlement): not proof there is none.
+    case unavailable(OSStatus)
+}
+
+struct KeychainCredentials: ProfileCredentialStore {
+    static let service = "com.gpo.yoin.subsonic"
+    /// The single-server build's item; the migrated account reads it in place.
+    static let legacyAccount = "default"
+
+    static func keychainAccount(_ profileId: String) -> String {
+        profileId == ProfileStore.legacySubsonicId ? legacyAccount : profileId
     }
 
-    static func load() -> ServerSession.Account? {
-        var q = query
+    private static func query(_ profileId: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: keychainAccount(profileId)]
+    }
+
+    func load(_ profileId: String) -> CredentialRead {
+        var q = Self.query(profileId)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return try? JSONDecoder().decode(ServerSession.Account.self, from: data)
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        switch status {
+        case errSecSuccess:
+            guard let data = out as? Data, let a = try? JSONDecoder().decode(ServerSession.Account.self, from: data)
+            else { return .missing }
+            return .found(a)
+        case errSecItemNotFound: return .missing
+        default: return .unavailable(status)
+        }
     }
 
     /// Updates the item in place (Add only when there is none), so a failure never loses the old one.
-    static func save(_ account: ServerSession.Account) -> OSStatus {
+    func save(_ account: ServerSession.Account, for profileId: String) -> OSStatus {
         guard let data = try? JSONEncoder().encode(account) else { return errSecParam }
-        return KeychainItem.upsert(query: query, data: data)
+        return KeychainItem.upsert(query: Self.query(profileId), data: data)
     }
 
-    static func delete() {
-        SecItemDelete(query as CFDictionary)
+    func delete(_ profileId: String) {
+        SecItemDelete(Self.query(profileId) as CFDictionary)
     }
 }
 
@@ -198,9 +220,10 @@ enum KeychainItem {
 }
 
 /// Which account local rows (notes, ratings, album memories) belong to, per provider: Android keeps them
-/// per profile; iOS has one Subsonic server at a time, so a Subsonic row carries the server + user it was
-/// written under ("baseUrl|username", the same scope as the play history) and is shown, synced and edited
-/// only while that account is signed in (Codex C03). Apple Music has one account per device: no scope.
+/// per profile; iOS reads one Subsonic server at a time, so a Subsonic row carries the server + user it was
+/// written under ("baseUrl|username", the same scope as the play history) and is shown and edited only
+/// while that account is in use (Codex C03). Cloud sync reads another account's rows through `reading`.
+/// Apple Music has one account per device: no scope.
 @MainActor
 @Observable
 final class AccountScope {
@@ -218,7 +241,21 @@ final class AccountScope {
     static func subsonicScope(_ a: ServerSession.Account) -> String { "\(a.baseUrl)|\(a.username)" }
 
     /// The scope a row of [provider] is written under and read back in.
-    func scope(for provider: String) -> String? { provider == Self.subsonicProvider ? subsonic : nil }
+    func scope(for provider: String) -> String? { provider == Self.subsonicProvider ? (pinned ?? subsonic) : nil }
+
+    /// Set only inside `reading`: the Subsonic account the stores read and write for the moment.
+    @ObservationIgnored private var pinned: String?
+
+    /// Runs [body] (synchronously, on the main actor) as if [subsonicScope] were the account in use, without
+    /// switching: cloud sync reads and writes each account's rows, not just the one in use. Nothing
+    /// observes the change (no downloads, no legacy adoption).
+    func reading<T>(asSubsonic subsonicScope: String?, _ body: () -> T) -> T {
+        guard let subsonicScope else { return body() }
+        let before = pinned
+        pinned = subsonicScope
+        defer { pinned = before }
+        return body()
+    }
 
     func isVisible(provider: String, scope: String?) -> Bool { scope == self.scope(for: provider) }
 

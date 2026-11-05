@@ -78,9 +78,11 @@ final class AppModel {
     /// Native playback (AVQueuePlayer, lock screen, remote commands).
     let playbackSystem: PlaybackSystem
     var player: PlayerEngine { playbackSystem.engine }
-    /// The signed-in Subsonic server (shared Kotlin client); signed out =
-    /// the mock library, as the screenshots use.
+    /// The Subsonic server in use (shared Kotlin client); none = the mock
+    /// library, as the screenshots use.
     let session = ServerSession()
+    /// The accounts (several Subsonic servers, Apple Music) and the one in use (Data/Profiles.swift).
+    let profiles: ProfileManager
     /// Apple Music through MusicKit (authorization, catalog and library reads).
     let appleMusic = AppleMusicSource()
     /// Mock, Subsonic or Apple Music: what the screens read from.
@@ -148,10 +150,16 @@ final class AppModel {
         SongAboutDemo.launch(album: mock.album, track: mock.track)
         #endif
         self.playbackSystem = PlaybackSystem.live()
-        let sources = SourceSelection(subsonicSignedIn: session.isSignedIn)
+        let sources = SourceSelection(subsonicSignedIn: false)
         self.sources = sources
-        self.store = LibraryStore(session: session, sources: sources, appleMusic: appleMusic)
         let apple = appleMusic
+        // The account list (migrated once from the single-server build), and the account in use.
+        let forced = (UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)[SourceSelection.key]
+            as? String).flatMap(ActiveSource.init(rawValue:))
+        self.profiles = ProfileManager(store: ProfileStore(appleMusicAuthorized: apple.isAuthorized),
+                                       session: session, sources: sources,
+                                       appleAuthorized: { apple.isAuthorized }, forcedSource: forced)
+        self.store = LibraryStore(session: session, sources: sources, appleMusic: appleMusic)
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
@@ -217,11 +225,9 @@ final class AppModel {
         // Codex A38: timeOffset only where the server lists transcodeOffset.
         let session = session
         player.timeOffsetSupported = { session.supportsTimeOffset }
-        // Codex C04: another server or user replaces the signed-in one: its queue (signed URLs, scrobble
-        // and history callbacks) ends with it.
-        session.onAccountReplaced = { [weak engine] in
-            if sources.active == .subsonic { engine?.stop() }
-        }
+        // Codex C04: another account replaces the one in use: its queue (signed URLs, scrobble and
+        // history callbacks) ends with it.
+        profiles.endPlayback = { [weak engine] in engine?.stop() }
         // Offline downloads are signed by the signed-in account only when they open.
         OfflineDownloads.shared.sign = { [weak session] id, quality in
             guard let client = session?.client else { return nil }
@@ -237,12 +243,13 @@ final class AppModel {
         }
         #if DEBUG
         signInFromLaunchArguments()
+        runProfilesScript()
         // `-landingReset YES`: forget that the landing was seen (QA of the first-run gate).
         if UserDefaults.standard.bool(forKey: "landingReset") { DefaultsLandingStore().reset() }
         #endif
         // First launch with no account: the landing (an install with an account never sees it).
         landing = LandingGate.atLaunch(store: DefaultsLandingStore(),
-                                       hasAccount: session.account != nil || appleMusic.isAuthorized,
+                                       hasAccount: !profiles.profiles.isEmpty || appleMusic.isAuthorized,
                                        launch: LaunchConfig.landingLaunch)
     }
 
@@ -253,12 +260,41 @@ final class AppModel {
     }
 
     #if DEBUG
+    /// Debug builds, account QA without typing: `-profilesScript "add:http://127.0.0.1:4995;wait:2000;
+    /// switch:0;remove:1;open:settings"`. `add:<url>` connects demo/demo there (Settings › Add account's
+    /// path, made the account in use); `switch:<n>` / `remove:<n>` act on the n-th card as a tap / a
+    /// confirmed Remove do; `open:` settings, home or library. Never in release builds.
+    private func runProfilesScript() {
+        guard let script = UserDefaults.standard.string(forKey: "profilesScript") else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            for token in script.split(separator: ";") {
+                let colon = token.firstIndex(of: ":") ?? token.endIndex
+                let verb = token[..<colon], arg = colon == token.endIndex ? "" : String(token[token.index(after: colon)...])
+                let card = Int(arg).flatMap { $0 < profiles.profiles.count ? profiles.profiles[$0] : nil }
+                switch verb {
+                case "add": _ = await profiles.connectSubsonic(baseUrl: arg, username: "demo", password: "demo", activate: true)
+                case "switch": if let card { await profiles.switchTo(card.id) }
+                case "remove": if let card { profiles.remove(card.id) }
+                case "wait": try? await Task.sleep(for: .milliseconds(Int(arg) ?? 1000))
+                case "open":
+                    switch arg {
+                    case "settings": if !path.contains(.settings) { openSettings() }
+                    case "library": path = []; select(.library)
+                    default: path = []; select(.home)
+                    }
+                default: break
+                }
+            }
+        }
+    }
+
     /// Debug builds: `-subsonicURL http://127.0.0.1:4979 -subsonicUser demo
     /// -subsonicPass demo` signs in on launch (the screen's own path, minus
     /// typing). `-subsonicSignOut YES` signs out. Never in release builds.
     private func signInFromLaunchArguments() {
         let d = UserDefaults.standard
-        if d.bool(forKey: "subsonicSignOut") { session.signOut() }
+        if d.bool(forKey: "subsonicSignOut") { profiles.removeAllSubsonic() }
         let url = d.string(forKey: "subsonicURL")
         let user = d.string(forKey: "subsonicUser") ?? ""
         let pass = d.string(forKey: "subsonicPass") ?? ""
@@ -269,9 +305,9 @@ final class AppModel {
         guard url != nil || (session.isSignedIn && (route != nil || play != nil)) else { return }
         Task {
             if let url {
-                guard await session.signIn(baseUrl: url, username: user, password: pass) else { return }
+                guard await profiles.connectSubsonic(baseUrl: url, username: user, password: pass,
+                                                     activate: true) == nil else { return }
             }
-            sources.use(.subsonic)
             // `-historySeed demo`: backdated plays, ratings and a note (Data/History/HistoryDebugSeed.swift).
             if let seed = d.string(forKey: "historySeed") { await store.seedHistory(seed) }
             // Screenshots of server pages: `-serverRoute album:<id>` (artist:, playlist:),

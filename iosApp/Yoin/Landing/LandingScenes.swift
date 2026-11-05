@@ -412,7 +412,7 @@ private struct LandingField: View {
 // MARK: Subsonic
 
 /// Connect = reach the server, then save: an unreachable server never becomes an account
-/// (ServerSession.signIn pings first).
+/// (ProfileManager.connectSubsonic pings first; Settings › Add account takes the same path).
 struct LandingSubsonicScene: View {
     @Binding var form: LandingSubsonicForm
     var connected: Bool
@@ -470,17 +470,14 @@ struct LandingSubsonicScene: View {
         }
         working = true
         Task {
-            let ok = await model.session.signIn(baseUrl: form.address, username: form.username, password: form.password)
+            // The first account connected becomes the account in use; another one is added beside it.
+            let failure = await model.profiles.connectSubsonic(baseUrl: form.address, username: form.username,
+                                                               password: form.password, activate: !model.store.isReal)
             working = false
-            if ok {
-                // The first account connected becomes the source the shell reads.
-                if !model.store.isReal { model.sources.use(.subsonic) }
-                reactions.connected(.subsonic)
-            } else if case .failed(let message) = model.session.state {
-                // A transport error arrives as the whole NSError dump: one line is enough here.
-                refuse(message.contains("Domain=") || message.count > 90 ? "Couldn't reach the server" : message)
+            if let failure {
+                refuse(failure)
             } else {
-                refuse("Couldn't reach the server")
+                reactions.connected(.subsonic)
             }
         }
     }
@@ -536,8 +533,7 @@ struct LandingAppleScene: View {
         Task {
             await apple.requestAuthorization()
             working = false
-            if apple.isAuthorized {
-                if !model.store.isReal { model.sources.use(.appleMusic) }
+            if apple.isAuthorized, model.profiles.addAppleMusic(activate: !model.store.isReal) {
                 reactions.connected(.appleMusic)
             } else {
                 shakes += 1

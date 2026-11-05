@@ -10,7 +10,7 @@ import YoinShared
 ///     -npPlaylist pl-drive -npStart 0 -npSeek 40
 ///
 /// Nothing is compiled into release builds; the credentials come from the
-/// launch arguments only (ServerSession keeps them in the Keychain).
+/// launch arguments only (the account list keeps them in the Keychain).
 @MainActor
 enum NowPlayingDebugQueue {
     private static var started = false
@@ -19,9 +19,10 @@ enum NowPlayingDebugQueue {
         let d = UserDefaults.standard
         guard !started, let server = d.string(forKey: "npServer") else { return }
         started = true
-        let signedIn = await model.session.signIn(baseUrl: server, username: d.string(forKey: "npUser") ?? "demo",
-                                                  password: d.string(forKey: "npPassword") ?? "demo")
-        guard signedIn, let client = model.session.client,
+        let failure = await model.profiles.connectSubsonic(baseUrl: server, username: d.string(forKey: "npUser") ?? "demo",
+                                                           password: d.string(forKey: "npPassword") ?? "demo",
+                                                           activate: true)
+        guard failure == nil, let client = model.session.client,
               let playlist = try? await client.getPlaylist(id: d.string(forKey: "npPlaylist") ?? "pl-drive")
         else { return }
         let tracks = playlist.entries.compactMap { playable($0, client) }

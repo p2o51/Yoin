@@ -47,11 +47,10 @@ struct RootView: View {
         // Cloud sync (Data/Sync): Google's sign-in redirect, and the start (no network unless sync is on).
         .onOpenURL { _ = CloudSync.handle(url: $0) }
         .task {
-            let session = model.session, apple = model.appleMusic
-            CloudSync.shared.start {
-                SyncDomainBridge.Accounts(subsonic: session.account.map { ($0.baseUrl, $0.username) },
-                                          appleMusic: apple.isAuthorized, storefront: nil)
-            }
+            let profiles = model.profiles
+            CloudSync.shared.start { profiles.syncAccounts }
+            // Playlist cloud backups follow their playlists on each return to the app (Data/Backup).
+            PlaylistBackups.shared.start(library: model.store)
         }
         .preferredColorScheme(GlassLab.shared.colorScheme)
         .overlay {

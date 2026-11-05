@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.sync.testing
 
+import com.gpo.yoin.shared.backup.PlaylistBackupRow
 import com.gpo.yoin.shared.sync.adapters.AlbumRatingRow
 import com.gpo.yoin.shared.sync.adapters.AlbumTitleRow
 import com.gpo.yoin.shared.sync.adapters.HomeLayoutRow
@@ -26,6 +27,7 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     val translations = LinkedHashMap<List<String>, LyricsTranslationRow>()
     val lyrics = LinkedHashMap<Pair<String, String>, LyricsCacheRow>()
     val homeLayouts = LinkedHashMap<String, HomeLayoutRow>()
+    val playlistBackups = LinkedHashMap<String, PlaylistBackupRow>()
 
     override fun profiles() = profileList.toList()
 
@@ -177,6 +179,22 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun deleteHomeLayout(profileId: String): Boolean {
         if (failWrites) return false
         homeLayouts.remove(profileId)
+        return true
+    }
+
+    override fun playlistBackups() = playlistBackups.values.toList()
+
+    override fun playlistBackup(id: String) = playlistBackups[id]
+
+    override fun putPlaylistBackup(row: PlaylistBackupRow): Boolean {
+        if (failWrites) return false
+        playlistBackups[row.id] = row
+        return true
+    }
+
+    override fun deletePlaylistBackup(id: String): Boolean {
+        if (failWrites) return false
+        playlistBackups.remove(id)
         return true
     }
 }

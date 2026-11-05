@@ -94,6 +94,8 @@ final class CloudSync {
         LyricsUserStore.onLocalChange = { CloudSync.shared.localChanged() }
         GeminiSettings.onLocalChange = { CloudSync.shared.localChanged() }
         HomeLayoutStore.onLocalChange = { CloudSync.shared.localChanged() }
+        // Playlist cloud backups (Android playlist_backup): a backup, a follow-up, a restore, a delete.
+        PlaylistBackupStore.onLocalChange = { CloudSync.shared.localChanged() }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                             queue: .main) { _ in

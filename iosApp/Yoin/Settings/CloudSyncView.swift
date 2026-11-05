@@ -118,6 +118,10 @@ struct CloudSyncView: View {
                         .padding(.horizontal, 8)
                         .transition(.opacity)
                 }
+                // Android keeps this in Settings › Storage after Cloud sync; here until the Settings rework lands.
+                group("Playlist cloud backup") {
+                    [AnyView(PlaylistBackupsEntryRow(app: app, row: row, shape: Self.segment(0, 1)))]
+                }
                 whatSyncs
             }
             .padding(.horizontal, 16)
@@ -272,7 +276,7 @@ struct CloudSyncView: View {
 
     private var whatSyncs: some View {
         group("What syncs") {
-            [AnyView(info("Syncs", "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask")),
+            [AnyView(info("Syncs", "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups")),
              AnyView(info("Stays on this device", "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads"))]
         }
     }

@@ -242,6 +242,8 @@ struct AlbumDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        // Cloud backup's View (the toast): this playlist's backup, pushed on this page's stack.
+        .navigationDestination(item: backupRequest) { PlaylistBackupView(backupId: $0.backupId) }
         // Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): page 2; the
         // scrapbook takes the request there. The tracks may land after the push.
         .onChange(of: ScrapbookFocusRequest.shared.pending, initial: true) { _, _ in followScrapFocus() }
@@ -252,6 +254,15 @@ struct AlbumDetailView: View {
             // The activity log's visit (Android recordAlbumVisit).
             model.store.recordAlbumVisit(model.store.album(routeAlbum.id.rawId) ?? routeAlbum)
         }
+    }
+
+    /// The backup page the toast's View asked for, when it was this playlist's.
+    private var backupRequest: Binding<PlaylistBackups.ViewRequest?> {
+        let id = playlist?.id.rawId
+        return Binding(
+            get: { PlaylistBackups.shared.viewRequest.flatMap { $0.playlistId == id ? $0 : nil } },
+            set: { if $0 == nil, PlaylistBackups.shared.viewRequest?.playlistId == id { PlaylistBackups.shared.viewRequest = nil } }
+        )
     }
 
     private func followScrapFocus() {
@@ -391,12 +402,21 @@ struct AlbumDetailView: View {
                                      + (playlist != nil ? Tokens.detail.PLAYLIST_MENU_GAP.cg : 0)) * smooth(p))
                 Spacer(minLength: 0)
                 let editable = playlist.map { model.store.isReal ? PlaylistActions.shared.canEdit($0, store: model.store) : true } ?? false
-                if let playlist, editable || model.detailOfflineCollection != nil {
-                    // ⋮: Cloud backup (mock only: no Drive backup on iOS yet), then Rename and
-                    // Delete when the user can write it (Android canWrite; followed playlists
-                    // and Apple Music show no ⋮).
+                // Any playlist of the account in use can be backed up, followed or not (Android onBackUp).
+                let canBackUp = playlist != nil && (!model.store.isReal || PlaylistBackups.shared.source(model.store) != nil)
+                if let playlist, editable || canBackUp || model.detailOfflineCollection != nil {
+                    // ⋮: Cloud backup (Data/Backup: read whole and saved; the toast's View opens the
+                    // backup), then Rename and Delete when the user can write it (Android canWrite;
+                    // followed playlists and Apple Music show only Cloud backup).
                     Menu {
-                        if !model.store.isReal { Button("Cloud backup") {} }
+                        if canBackUp {
+                            Button {
+                                if model.store.isReal { PlaylistBackups.shared.backUp(playlist, library: model.store) }
+                            } label: {
+                                Label { Text("Cloud backup") } icon: { Image("yoin.cloud") }
+                            }
+                            .disabled(PlaylistBackups.shared.backingUp.contains(playlist.id.rawId))
+                        }
                         if let c = model.detailOfflineCollection { OfflineMenuButton(collection: c) }
                         // A followed playlist can still be downloaded, not renamed or deleted.
                         if editable {

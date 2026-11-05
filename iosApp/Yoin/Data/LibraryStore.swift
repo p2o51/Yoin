@@ -250,11 +250,30 @@ final class LibraryStore {
 
     /// Home: the server's shelves with the local history laid over them.
     /// Reads the history, notes and ratings, so a new play or note redraws it.
+    ///
+    /// Built once and kept until something it read changes (Home's body runs
+    /// again whenever Now Playing or a sheet moves over it; rebuilding the
+    /// history each time cost ~20 ms a pass on an iPhone Air). The build runs
+    /// under observation tracking; the first change it saw bumps
+    /// [homeRevision], which Home reads, so Home asks again and gets a new one.
     var home: HomeFeed? {
-        guard let l = homeLists else { return nil }
-        return Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: l.highest,
-                              random: l.random, recentTracks: l.recentTracks, history: homeHistory(l))
+        let revision = homeRevision
+        if let cached = homeCache, cached.revision == revision { return cached.feed }
+        let feed = withObservationTracking {
+            homeLists.map { l in
+                Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: l.highest,
+                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l))
+            }
+        } onChange: { [weak self] in
+            // Called before the change lands: rebuild on the next turn.
+            DispatchQueue.main.async { self?.homeRevision &+= 1 }
+        }
+        homeCache = (revision, feed)
+        return feed
     }
+
+    private var homeRevision = 0
+    @ObservationIgnored private var homeCache: (revision: Int, feed: HomeFeed?)?
 
     /// The account's album memories (the Home lists' albums known too), for
     /// the Memories bubble and deck. Signed out: none (the mock deck stands in).
@@ -306,7 +325,9 @@ final class LibraryStore {
                 if let t = memoryStore.userTitle(provider: provider, albumId: id) { return (t, true) }
                 return memoryStore.memoryTitle(provider: provider, albumId: id).map { ($0, false) }
             },
-            rating: { ratings.rating(provider: provider, songId: $0) })
+            rating: { ratings.rating(provider: provider, songId: $0) },
+            yoinTitle: { memoryStore.memory(provider: provider, entityId: $0)?.title },
+            copy: { memoryStore.memory(provider: provider, entityId: $0)?.copy })
     }
 
     /// Whose Home this is (Android `homeScopeKey` provider|profile): the

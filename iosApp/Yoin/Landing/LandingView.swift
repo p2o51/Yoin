@@ -448,16 +448,11 @@ struct LandingView: View {
     // MARK: Accounts
 
     private var accounts: [LandingAccount] {
-        var list: [LandingAccount] = []
-        let active = model.sources.active
-        if let a = model.session.account {
-            let host = URL(string: a.baseUrl)?.host() ?? a.baseUrl
-            list.append(LandingAccount(id: "subsonic", name: a.username, detail: host, service: .subsonic,
-                                       inUse: active == .subsonic))
-        }
-        if model.appleMusic.isAuthorized {
-            list.append(LandingAccount(id: "apple", name: "Apple Music", detail: "Authorized", service: .appleMusic,
-                                       inUse: active == .appleMusic))
+        // The account list (Data/Profiles.swift), the one in use first.
+        let list = model.profiles.profiles.map { p in
+            LandingAccount(id: p.id, name: p.title, detail: p.host ?? "Authorized",
+                           service: p.service == .subsonic ? .subsonic : .appleMusic,
+                           inUse: p.id == model.profiles.activeId)
         }
         return list.sorted { $0.inUse && !$1.inUse }
     }

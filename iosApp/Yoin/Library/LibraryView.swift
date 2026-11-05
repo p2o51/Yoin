@@ -280,18 +280,16 @@ struct LibraryView: View {
             // bar's circle, the pill steps aside so no second field waits here.
             .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
             .animation(Yoin.effects, value: model.searchActive)
+            // The account Library is reading, as on Home (Android: 资料库也要显示当前的账号).
             Button { model.openSettings() } label: {
-                Text("5")
-                    .font(.gsf(14, .semibold))
-                    .foregroundStyle(scheme.onPrimary)
-                    .frame(width: 32, height: 32)
-                    .background(scheme.primary, in: CookieShape(lobes: 6, depth: 0.16))
-                    .padding(1.5)
-                    .background(scheme.surfaceContainer, in: CookieShape(lobes: 6, depth: 0.16))
-                    .frame(width: 48, height: 48)
+                HeaderAccountAvatar(profile: model.profiles.active,
+                                    shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
+                                    fallback: scheme.primary, onFallback: scheme.onPrimary,
+                                    ring: scheme.surfaceContainer)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Account")
+            .accessibilityValue(model.profiles.active?.title ?? "")
         }
         .padding(.horizontal, 16)
         .padding(.top, SearchView.headerTop)

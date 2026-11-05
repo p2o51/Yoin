@@ -16,14 +16,16 @@ extension LyricsCacheRow: @retroactive @unchecked Sendable {}
 /// `com.gpo.yoin.shared.sync.adapters.SyncDomain`): the shared adapters read
 /// and write exactly the fields Android's adapters do, through here.
 ///
-/// iOS has one account per provider at a time (ServerSession's Subsonic
-/// server, Apple Music), so a local profile id names a provider. The stores
-/// keep each Subsonic row under the server + user it was written for
-/// (`AccountScope`) and show only the signed-in account's, so what this bridge
-/// reads and writes is that account's alone. A different Subsonic server under
-/// the same id changes the fingerprint, which pauses its binding (Android's
-/// "Account changed": keep as before, or start fresh) while the old server's
-/// rows stay on disk, out of sight, under their own scope.
+/// A local profile id is an account in the account list (Data/Profiles.swift):
+/// each Subsonic account its own id (the one migrated from the single-server
+/// build keeps `subsonicProfileId`, so what it synced stays matched), and
+/// Apple Music `appleMusicProfileId`. The stores keep each Subsonic row under
+/// the server + user it was written for (`AccountScope`) and show only the
+/// account in use's, so a profile's reads and writes run inside
+/// `AccountScope.reading` as that account. An account edited to another server
+/// under the same id changes the fingerprint, which pauses its binding
+/// (Android's "Account changed": keep as before, or start fresh) while the old
+/// server's rows stay on disk, out of sight, under their own scope.
 ///
 /// Writes return true only once the store has them on disk (Codex C15).
 ///
@@ -33,7 +35,15 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     static let appleMusicProfileId = "ios-applemusic"
 
     struct Accounts: Sendable {
-        var subsonic: (url: String, username: String)?
+        struct Subsonic: Sendable {
+            var profileId: String
+            var url: String
+            var username: String
+            /// `AccountScope`'s key for its rows.
+            var scope: String { "\(url)|\(username)" }
+        }
+
+        var subsonic: [Subsonic]
         var appleMusic: Bool
         var storefront: String?
     }
@@ -44,20 +54,34 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         self.accounts = accounts
     }
 
-    static func provider(of profileId: String) -> String? {
-        switch profileId {
-        case subsonicProfileId: "subsonic"
-        case appleMusicProfileId: AppleMusicMapping.provider
-        default: nil
+    /// The provider of [profileId]'s account; nil when it isn't on this device.
+    @MainActor
+    private func provider(of profileId: String) -> String? {
+        if profileId == Self.appleMusicProfileId { return AppleMusicMapping.provider }
+        return subsonicAccount(profileId) == nil ? nil : AccountScope.subsonicProvider
+    }
+
+    @MainActor
+    private func subsonicAccount(_ profileId: String) -> Accounts.Subsonic? {
+        accounts().subsonic.first { $0.profileId == profileId }
+    }
+
+    /// The account a row of [provider] under [scope] belongs to (a note carries both).
+    @MainActor
+    private func profileId(provider: String, scope: String?) -> String? {
+        switch provider {
+        case AccountScope.subsonicProvider:
+            guard let scope else { return nil }
+            return accounts().subsonic.first { $0.scope == scope }?.profileId
+        case AppleMusicMapping.provider: return Self.appleMusicProfileId
+        default: return nil
         }
     }
 
-    static func profileId(of provider: String) -> String? {
-        switch provider {
-        case "subsonic": subsonicProfileId
-        case AppleMusicMapping.provider: appleMusicProfileId
-        default: nil
-        }
+    /// [body] as [profileId]'s account: the stores read and write its rows, whichever account is in use.
+    @MainActor
+    private func reading<T>(_ profileId: String, _ body: () -> T) -> T {
+        AccountScope.shared.reading(asSubsonic: subsonicAccount(profileId)?.scope, body)
     }
 
     /// Kotlin calls in on the main thread (Dispatchers.Main); Kotlin values aren't Sendable, so the
@@ -83,9 +107,9 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         main {
             let a = accounts()
             var out: [SyncProfile] = []
-            if let s = a.subsonic {
-                out.append(SyncProfile(id: Self.subsonicProfileId, provider: "subsonic", displayName: s.username,
-                                       createdAt: Self.createdAt(Self.subsonicProfileId), credentialsReadable: true,
+            for s in a.subsonic {
+                out.append(SyncProfile(id: s.profileId, provider: "subsonic", displayName: s.username,
+                                       createdAt: Self.createdAt(s.profileId), credentialsReadable: true,
                                        subsonicServerUrl: s.url, subsonicUsername: s.username, spotifyUserId: nil,
                                        storefront: nil))
             }
@@ -103,15 +127,15 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func trackRatings(profileId: String) -> [TrackRatingRow] {
         main {
-            guard let provider = Self.provider(of: profileId) else { return [] }
+            guard let provider = self.provider(of: profileId) else { return [] }
             let store = LocalRatings.shared
             // Cleared rows go too (rating nil → the wire's bare `rating: 0`).
-            return store.ratings.keys.compactMap { key in
+            return reading(profileId) { store.ratings.keys.compactMap { key in
                 guard let p = LocalRatings.parts(of: key), p.provider == provider else { return nil }
                 return TrackRatingRow(provider: p.provider, songId: p.songId,
                                       rating: store.rating(key: key).map { KotlinDouble(value: $0) },
                                       updatedAt: store.updatedAt[key] ?? 0)
-            }
+            } }
         }
     }
 
@@ -119,10 +143,13 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
         main {
             let store = LocalRatings.shared
             let key = LocalRatings.key(provider: provider, songId: songId)
-            guard Self.provider(of: profileId) == provider, store.hasRow(key: key) else { return nil }
-            return TrackRatingRow(provider: provider, songId: songId,
-                                  rating: store.rating(key: key).map { KotlinDouble(value: $0) },
-                                  updatedAt: store.updatedAt[key] ?? 0)
+            guard self.provider(of: profileId) == provider else { return nil }
+            return reading(profileId) {
+                guard store.hasRow(key: key) else { return nil }
+                return TrackRatingRow(provider: provider, songId: songId,
+                                      rating: store.rating(key: key).map { KotlinDouble(value: $0) },
+                                      updatedAt: store.updatedAt[key] ?? 0)
+            }
         }
     }
 
@@ -130,13 +157,15 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func putTrackRating(profileId: String, row: TrackRatingRow) -> Bool {
         main {
-            LocalRatings.shared.syncPut(row.rating?.doubleValue, provider: row.provider, songId: row.songId,
-                                        updatedAt: row.updatedAt)
+            reading(profileId) {
+                LocalRatings.shared.syncPut(row.rating?.doubleValue, provider: row.provider, songId: row.songId,
+                                            updatedAt: row.updatedAt)
+            }
         }
     }
 
     func deleteTrackRating(profileId: String, provider: String, songId: String) -> Bool {
-        main { LocalRatings.shared.syncRemove(provider: provider, songId: songId) }
+        main { reading(profileId) { LocalRatings.shared.syncRemove(provider: provider, songId: songId) } }
     }
 
     // MARK: Album rating + review
@@ -148,59 +177,66 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func albumRatings(profileId: String) -> [AlbumRatingRow] {
         main {
-            guard let provider = Self.provider(of: profileId) else { return [] }
-            return AlbumMemoryStore.shared.albums.values.filter { $0.provider == provider }.map(Self.row)
+            guard let provider = self.provider(of: profileId) else { return [] }
+            return reading(profileId) { AlbumMemoryStore.shared.albums.values.filter { $0.provider == provider }.map(Self.row) }
         }
     }
 
     func albumRating(profileId: String, provider: String, albumId: String) -> AlbumRatingRow? {
         main {
-            guard Self.provider(of: profileId) == provider else { return nil }
-            return AlbumMemoryStore.shared.album(provider: provider, albumId: albumId).map(Self.row)
+            guard self.provider(of: profileId) == provider else { return nil }
+            return reading(profileId) { AlbumMemoryStore.shared.album(provider: provider, albumId: albumId).map(Self.row) }
         }
     }
 
     func putAlbumRating(profileId: String, row: AlbumRatingRow) -> Bool {
         main {
-            AlbumMemoryStore.shared.putAlbum(.init(provider: row.provider, albumId: row.albumId, rating: row.rating,
-                                                   review: row.review, reviewUpdatedAt: row.reviewUpdatedAt?.int64Value,
-                                                   updatedAt: row.updatedAt))
+            reading(profileId) {
+                AlbumMemoryStore.shared.putAlbum(.init(provider: row.provider, albumId: row.albumId, rating: row.rating,
+                                                       review: row.review, reviewUpdatedAt: row.reviewUpdatedAt?.int64Value,
+                                                       updatedAt: row.updatedAt))
+            }
         }
     }
 
     func deleteAlbumRating(profileId: String, provider: String, albumId: String) -> Bool {
-        main { AlbumMemoryStore.shared.removeAlbum(provider: provider, albumId: albumId) }
+        main { reading(profileId) { AlbumMemoryStore.shared.removeAlbum(provider: provider, albumId: albumId) } }
     }
 
     // MARK: Notes
 
-    private static func row(_ n: SongNote) -> SongNoteRow? {
-        guard let profile = profileId(of: n.provider) else { return nil }
+    @MainActor
+    private func row(_ n: SongNote) -> SongNoteRow? {
+        guard let profile = profileId(provider: n.provider, scope: n.scope) else { return nil }
         return SongNoteRow(id: n.id, profileId: profile, trackId: n.trackId, provider: n.provider, content: n.content,
                            createdAt: n.createdAt, updatedAt: n.updatedAt, title: n.title, artist: n.artist,
                            positionMs: n.positionMs.map { KotlinLong(value: $0) })
     }
 
     func notes(profileId: String) -> [SongNoteRow] {
-        main { NotesStore.shared.notes.compactMap(Self.row).filter { $0.profileId == profileId } }
+        main { reading(profileId) { NotesStore.shared.notes.compactMap { self.row($0) }.filter { $0.profileId == profileId } } }
     }
 
     func note(id: String) -> SongNoteRow? {
-        main { NotesStore.shared.note(id: id).flatMap(Self.row) }
+        main { NotesStore.shared.note(id: id).flatMap { self.row($0) } }
     }
 
     func putNote(row: SongNoteRow) -> Bool {
         main {
-            NotesStore.shared.syncPut(SongNote(id: row.id, provider: row.provider, trackId: row.trackId,
-                                               content: row.content, createdAt: row.createdAt, updatedAt: row.updatedAt,
-                                               title: row.title, artist: row.artist,
-                                               positionMs: row.positionMs?.int64Value))
+            // Written under the row's account (syncPut stamps the scope in use).
+            reading(row.profileId) {
+                NotesStore.shared.syncPut(SongNote(id: row.id, provider: row.provider, trackId: row.trackId,
+                                                   content: row.content, createdAt: row.createdAt,
+                                                   updatedAt: row.updatedAt, title: row.title, artist: row.artist,
+                                                   positionMs: row.positionMs?.int64Value))
+            }
         }
     }
 
     func deleteNote(id: String, profileId: String) -> Bool {
         main {
-            guard let n = NotesStore.shared.note(id: id), Self.profileId(of: n.provider) == profileId else { return true }
+            guard let n = NotesStore.shared.note(id: id),
+                  self.profileId(provider: n.provider, scope: n.scope) == profileId else { return true }
             return NotesStore.shared.syncRemove(id: id)
         }
     }
@@ -209,29 +245,34 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func albumTitles(profileId: String) -> [AlbumTitleRow] {
         main {
-            guard let provider = Self.provider(of: profileId) else { return [] }
-            return AlbumMemoryStore.shared.titles.values.filter { $0.provider == provider }
-                .map { AlbumTitleRow(provider: $0.provider, albumId: $0.albumId, title: $0.title, updatedAt: $0.updatedAt) }
+            guard let provider = self.provider(of: profileId) else { return [] }
+            return reading(profileId) {
+                AlbumMemoryStore.shared.titles.values.filter { $0.provider == provider }
+                    .map { AlbumTitleRow(provider: $0.provider, albumId: $0.albumId, title: $0.title, updatedAt: $0.updatedAt) }
+            }
         }
     }
 
     func albumTitle(profileId: String, provider: String, albumId: String) -> AlbumTitleRow? {
         main {
-            guard Self.provider(of: profileId) == provider,
-                  let t = AlbumMemoryStore.shared.title(provider: provider, albumId: albumId) else { return nil }
+            guard self.provider(of: profileId) == provider,
+                  let t = reading(profileId, { AlbumMemoryStore.shared.title(provider: provider, albumId: albumId) })
+            else { return nil }
             return AlbumTitleRow(provider: t.provider, albumId: t.albumId, title: t.title, updatedAt: t.updatedAt)
         }
     }
 
     func putAlbumTitle(profileId: String, row: AlbumTitleRow) -> Bool {
         main {
-            AlbumMemoryStore.shared.putTitle(.init(provider: row.provider, albumId: row.albumId, title: row.title,
-                                                   updatedAt: row.updatedAt))
+            reading(profileId) {
+                AlbumMemoryStore.shared.putTitle(.init(provider: row.provider, albumId: row.albumId, title: row.title,
+                                                       updatedAt: row.updatedAt))
+            }
         }
     }
 
     func deleteAlbumTitle(profileId: String, provider: String, albumId: String) -> Bool {
-        main { AlbumMemoryStore.shared.removeTitle(provider: provider, albumId: albumId) }
+        main { reading(profileId) { AlbumMemoryStore.shared.removeTitle(provider: provider, albumId: albumId) } }
     }
 
     // MARK: Memory copy / AI title
@@ -244,24 +285,28 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func memoryCopies(profileId: String) -> [MemoryCopyRow] {
         main {
-            guard let provider = Self.provider(of: profileId) else { return [] }
-            return AlbumMemoryStore.shared.memories.values.filter { $0.provider == provider }.map(Self.row)
+            guard let provider = self.provider(of: profileId) else { return [] }
+            return reading(profileId) { AlbumMemoryStore.shared.memories.values.filter { $0.provider == provider }.map(Self.row) }
         }
     }
 
     func memoryCopy(profileId: String, provider: String, entityType: String, entityId: String) -> MemoryCopyRow? {
         main {
-            guard Self.provider(of: profileId) == provider else { return nil }
-            return AlbumMemoryStore.shared.memory(provider: provider, entityType: entityType, entityId: entityId).map(Self.row)
+            guard self.provider(of: profileId) == provider else { return nil }
+            return reading(profileId) {
+                AlbumMemoryStore.shared.memory(provider: provider, entityType: entityType, entityId: entityId).map(Self.row)
+            }
         }
     }
 
     func putMemoryCopy(profileId: String, row: MemoryCopyRow) -> Bool {
         main {
-            AlbumMemoryStore.shared.putMemory(.init(provider: row.provider, entityType: row.entityType,
-                                                    entityId: row.entityId, copy: row.copyText, promptHash: row.promptHash,
-                                                    generatedAt: row.generatedAt, title: row.title,
-                                                    titlePromptHash: row.titlePromptHash))
+            reading(profileId) {
+                AlbumMemoryStore.shared.putMemory(.init(provider: row.provider, entityType: row.entityType,
+                                                        entityId: row.entityId, copy: row.copyText,
+                                                        promptHash: row.promptHash, generatedAt: row.generatedAt,
+                                                        title: row.title, titlePromptHash: row.titlePromptHash))
+            }
         }
     }
 
@@ -392,12 +437,10 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     /// that account isn't signed in on this device.
     @MainActor
     private func homeScope(of profileId: String) -> String? {
-        let a = accounts()
-        switch profileId {
-        case Self.subsonicProfileId: return a.subsonic.map { "subsonic|\($0.url)|\($0.username)" }
-        case Self.appleMusicProfileId: return a.appleMusic ? "\(AppleMusicMapping.provider)|\(AppleMusicMapping.provider)" : nil
-        default: return nil
+        if profileId == Self.appleMusicProfileId {
+            return accounts().appleMusic ? "\(AppleMusicMapping.provider)|\(AppleMusicMapping.provider)" : nil
         }
+        return subsonicAccount(profileId).map { "subsonic|\($0.scope)" }
     }
 
     func homeLayout(profileId: String) -> HomeLayoutRow? {
