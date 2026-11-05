@@ -38,7 +38,7 @@ struct MacShell: View {
                     let wide = model.detailAsColumn
                     let pill = model.npMode != .panel
                     MacBottomBar(wide: wide, showsPill: pill)
-                        .frame(width: pill ? min(wide ? 720 : 560, contentW - 48) : nil)
+                        .frame(width: pill ? min(wide ? 820 : 640, contentW - 48) : nil)
                         .fixedSize(horizontal: !pill, vertical: false)
                         .frame(width: contentW, height: geo.size.height, alignment: .bottom)
                         .padding(.bottom, 22)
