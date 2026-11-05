@@ -87,3 +87,7 @@ Pass of 2026-11-04. Checked on the iPhone 17 Pro Max simulator, light and dark, 
 - Track row artist credit (`showArtist`, bodySmall) is not built: the mock album has no per-track artists.
 - `Opening` with a review short enough to sit beside the cover (no title) is not built; the mock always has a title, so the review is full width (AlbumScrapbookPage.kt:794-795).
 - Dark mode `primaryContainer` (review card) reads light: it is what `CoverScheme` gives; not changed here.
+
+## iOS-only: the emblem is a glass lens (51, 2026-11-05)
+
+51 asked for a glass emblem on iOS ("这个徽章也重做一个 有玻璃质感的") and picked **Lens** over Tinted and Frosted: a clear Liquid Glass disc (`glassEffect(.clear)`) with the cover colour seen through it, the solid ground at 24 %, a rim lit from the top-left and an inner highlight. The label and score stay solid; an average's open ring gets the ground under it. This supersedes "评分徽章保持实色" on iOS only; Android keeps the solid emblem. Code: `ScoreEmblem.swift` (`glassGround`, `glassLight`).

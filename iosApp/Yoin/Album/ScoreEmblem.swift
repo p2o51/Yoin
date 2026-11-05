@@ -1,47 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// The rating emblem's material (Glass Lab › Rating emblem; 51 2026-11-05: "这个徽章也重做一个
-/// 有玻璃质感的", superseding the earlier solid-only rule). Every glass kind stays a solid object on
-/// the content plane, never a translucent control: the label and its score keep their solid
-/// ink, the light comes from the one source (top-left), and the grooves read as cut glass.
-enum EmblemGlass: Int, CaseIterable, Sendable {
-    /// The Android emblem as it was: an opaque coloured disc.
-    case solid
-    /// A clear Liquid Glass lens (the default): the cover's colour behind it, refracted; the
-    /// grooves inside. The most glass of the four in dark too, where the tinted disc reads solid.
-    case lens
-    /// A tinted glass disc: the album's colour as glass, a rim light and an inner
-    /// highlight from the light source, the grooves embossed.
-    case tinted
-    /// A frosted glass coin: a satin ground, and a specular sweep across it as it appears and
-    /// while the grooves are cut.
-    case frosted
-
-    var title: String {
-        switch self {
-        case .solid: "Solid"
-        case .lens: "Lens"
-        case .tinted: "Tinted"
-        case .frosted: "Frosted"
-        }
-    }
-
-    /// How much of the solid ground still shows through the glass.
-    var groundAlpha: Double {
-        switch self {
-        case .solid: 1
-        case .lens: 0.24
-        case .tinted: 0.5
-        case .frosted: 0.42
-        }
-    }
-
-    @MainActor static var current: EmblemGlass {
-        EmblemGlass(rawValue: Int((GlassLab.shared.extras["emblemGlass"] ?? Double(lens.rawValue)).rounded())) ?? .lens
-    }
-}
-
 /// Port of Android component/ScoreEmblem.kt (Memories "groove" emblem) for
 /// the Page surface, light and dark Album/Average kinds.
 ///
@@ -87,11 +46,9 @@ struct ScoreEmblem: View {
     var onCover = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The frosted kind's specular sweep: −1 before the disc, 1 past it.
-    @State private var sweep: CGFloat = -1.2
 
-    @Environment(\.emblemGlassOverride) private var glassOverride
-    private var glass: EmblemGlass { glassOverride ?? EmblemGlass.current }
+    /// How much of the solid ground still shows through the glass lens.
+    private static let groundAlpha = 0.24
 
     private struct Colors {
         var ground, cut, dots, rim, label, labelRing, ink: Color
@@ -164,8 +121,6 @@ struct ScoreEmblem: View {
         .frame(width: size, height: size)
         .background { glassGround }
         .overlay { glassLight }
-        .onAppear { playSweep() }
-        .onChange(of: award?.isAnimating ?? false) { _, on in if on { playSweep() } }
         .onChange(of: reduceMotion, initial: true) { _, reduced in award?.reducedMotion = reduced }
         .onAppear { if tiltOn { GrooveTilt.shared.acquire() } }
         .onDisappear { if tiltOn { GrooveTilt.shared.release() } }
@@ -208,11 +163,9 @@ struct ScoreEmblem: View {
                         .font(YoinFont.score(label, size: scoreSize, albumRating: true))
                         .foregroundStyle(c.ink)
                 } else {
-                    // On glass the average's open ring gets the disc's own ground under it, so its
-                    // score stays readable over a cover seen through the glass.
-                    if glass != .solid {
-                        Circle().fill(c.ground).frame(width: size * 0.61, height: size * 0.61)
-                    }
+                    // The average's open ring gets the disc's own ground under it, so its score
+                    // stays readable over a cover seen through the lens.
+                    Circle().fill(c.ground).frame(width: size * 0.61, height: size * 0.61)
                     Circle()
                         .stroke(c.label, lineWidth: max(1.2, size * 0.017))
                         .frame(width: size * 0.61, height: size * 0.61)
@@ -226,68 +179,37 @@ struct ScoreEmblem: View {
         }
     }
 
-    /// The glass under the grooves (nothing for the solid kind).
-    @ViewBuilder
+    /// The glass under the grooves (51 2026-11-05, "这个徽章也重做一个 有玻璃质感的"; Lens picked over
+    /// Tinted and Frosted): a clear Liquid Glass lens, the cover's colour seen through it, refracted.
+    /// Still a solid object on the content plane: the label and score keep their solid ink.
     private var glassGround: some View {
-        let dark = colorScheme == .dark
-        switch glass {
-        case .solid:
-            EmptyView()
-        case .lens:
-            Circle().fill(.clear).glassEffect(.clear, in: .circle)
-        case .tinted:
-            Circle().fill(.clear)
-                .glassEffect(.regular.tint(colors.ground.opacity(dark ? 0.55 : 0.45)), in: .circle)
-        case .frosted:
-            Circle().fill(.ultraThinMaterial)
-                .overlay(Circle().fill(colors.ground.opacity(dark ? 0.3 : 0.22)))
-        }
+        Circle().fill(.clear).glassEffect(.clear, in: .circle)
     }
 
-    /// The light on the glass: a rim lit from the top-left, an inner highlight, and (frosted)
-    /// the specular sweep. Over the grooves but under nothing that has to be read: thin, soft.
-    @ViewBuilder
+    /// The light on the lens, from the one source (top-left): a lit rim and an inner highlight.
+    /// Over the grooves, thin and soft, under nothing that has to be read.
     private var glassLight: some View {
-        if glass != .solid {
-            let dark = colorScheme == .dark
-            let rimW = max(0.8, size * 0.014)
-            ZStack {
-                Circle()
-                    .strokeBorder(LinearGradient(stops: [
-                        .init(color: .white.opacity(dark ? 0.55 : 0.85), location: 0),
-                        .init(color: .white.opacity(0), location: 0.45),
-                        .init(color: .white.opacity(dark ? 0.12 : 0.25), location: 1),
-                    ], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: rimW)
-                // The inner highlight: a soft crescent of light on the upper-left of the disc.
-                Ellipse()
-                    .fill(RadialGradient(colors: [.white.opacity(glass == .lens ? 0.32 : dark ? 0.16 : 0.26), .clear],
-                                         center: .center, startRadius: 0, endRadius: size * 0.28))
-                    .frame(width: size * 0.62, height: size * 0.34)
-                    .offset(x: -size * 0.12, y: -size * 0.24)
-                    .rotationEffect(.degrees(-28))
-                    .blendMode(.plusLighter)
-                if glass == .frosted {
-                    LinearGradient(stops: [
-                        .init(color: .white.opacity(0), location: 0.35),
-                        .init(color: .white.opacity(dark ? 0.32 : 0.5), location: 0.5),
-                        .init(color: .white.opacity(0), location: 0.65),
-                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .frame(width: size * 2, height: size * 2)
-                    .offset(x: sweep * size, y: sweep * size)
-                    .blendMode(.plusLighter)
-                }
-            }
-            .frame(width: size, height: size)
-            .clipShape(.circle)
-            .allowsHitTesting(false)
+        let dark = colorScheme == .dark
+        let rimW = max(0.8, size * 0.014)
+        return ZStack {
+            Circle()
+                .strokeBorder(LinearGradient(stops: [
+                    .init(color: .white.opacity(dark ? 0.55 : 0.85), location: 0),
+                    .init(color: .white.opacity(0), location: 0.45),
+                    .init(color: .white.opacity(dark ? 0.12 : 0.25), location: 1),
+                ], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: rimW)
+            // The inner highlight: a soft crescent of light on the upper-left of the disc.
+            Ellipse()
+                .fill(RadialGradient(colors: [.white.opacity(0.32), .clear],
+                                     center: .center, startRadius: 0, endRadius: size * 0.28))
+                .frame(width: size * 0.62, height: size * 0.34)
+                .offset(x: -size * 0.12, y: -size * 0.24)
+                .rotationEffect(.degrees(-28))
+                .blendMode(.plusLighter)
         }
-    }
-
-    /// One pass of the frosted sweep (as the emblem appears, and as an award cuts its grooves).
-    private func playSweep() {
-        guard glass == .frosted, !reduceMotion else { return }
-        sweep = -1.2
-        withAnimation(.spring(duration: 1.4, bounce: 0).delay(0.15)) { sweep = 1.2 }
+        .frame(width: size, height: size)
+        .clipShape(.circle)
+        .allowsHitTesting(false)
     }
 
     /// The unrated label (GrooveEmblem drawLabel/drawType, Unrated): a dashed
@@ -371,7 +293,7 @@ struct ScoreEmblem: View {
             }
         }
 
-        gc.fill(circle(rimR), with: .color(c.ground.opacity(glass.groundAlpha)))
+        gc.fill(circle(rimR), with: .color(c.ground.opacity(Self.groundAlpha)))
         if rimW > 0 {
             let rimPath = circle(rimR)
             gc.stroke(rimPath, with: .color(c.rim), lineWidth: rimW)
