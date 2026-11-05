@@ -334,7 +334,8 @@ final class MacModel {
         let coverKey = t.provider == AppleMusicMapping.provider
             ? t.coverURL?.absoluteString
             : OfflineDownloads.coverId(e?.album.palette.cover)
-        let id = history.recordPlay(scope: scope, provider: t.provider, songId: t.id, albumId: t.albumId,
+        let albumId = t.albumId.flatMap { $0.hasPrefix("song:") ? nil : $0 }
+        let id = history.recordPlay(scope: scope, provider: t.provider, songId: t.id, albumId: albumId,
                                     artistId: e?.album.artistId, title: t.title, album: t.album, artist: t.artist,
                                     coverKey: coverKey, durationSec: t.durationSec)
         openPlay = (t.id, id)
@@ -423,7 +424,13 @@ final class MacModel {
         session.switchTo(id)
     }
 
+    /// Bumps when an Add Account is cancelled or the account changes: a sign-in still running then doesn't land.
+    @ObservationIgnored private(set) var authToken = 0
+    func supersedeSignIn() { authToken += 1 }
+
     func signedOut() {
+        searchOpen = false
+        authToken += 1
         playRequest += 1
         player.stop()
         library.reset()

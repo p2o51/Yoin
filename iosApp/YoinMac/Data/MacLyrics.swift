@@ -68,6 +68,8 @@ final class MacLyrics {
     /// The account the per-song lyrics choices belong to (set by MacModel).
     @ObservationIgnored var choiceScope = ""
     @ObservationIgnored private var track: PlayableTrack?
+    /// Every writer (a load, a pick, a translation) takes a number; only the newest may write.
+    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var originCache: [String: Origin] = [:]
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private let registry = LyricsRegistry()
@@ -75,6 +77,7 @@ final class MacLyrics {
 
     /// Another account: its songs share ids with nothing here.
     func reset() {
+        generation += 1
         task?.cancel()
         cache = [:]
         creditsCache = [:]
@@ -88,6 +91,8 @@ final class MacLyrics {
 
     func load(_ track: PlayableTrack?, client: SubsonicClient?) {
         guard track?.id != songId else { return }
+        generation += 1
+        let gen = generation
         task?.cancel()
         songId = track?.id
         self.track = track
@@ -105,7 +110,7 @@ final class MacLyrics {
         let chosen = Self.savedChoice(scope: choiceScope, songId: track.id)
         task = Task {
             let (result, found, from) = await Self.fetch(track, chosen: chosen, client: client, registry: registry)
-            guard !Task.isCancelled, self.songId == track.id else { return }
+            guard !Task.isCancelled, gen == self.generation, self.songId == track.id else { return }
             self.apply(result, found, from, for: track.id)
         }
     }
@@ -166,10 +171,14 @@ final class MacLyrics {
     }
 
     /// The listener's pick: fetched, shown, and remembered for this song.
-    func choose(_ c: LyricsCandidate) async -> Bool {
-        guard let id = songId,
-              let r = try? await registry.fetchSelected(providerName: c.providerName, songId: c.songId),
-              !r.lyrics.lines.isEmpty, songId == id else { return false }
+    func choose(_ c: LyricsCandidate, for expected: String) async -> Bool {
+        guard let id = songId, id == expected else { return false }
+        generation += 1
+        let gen = generation
+        let scope = choiceScope
+        task?.cancel()
+        guard let r = try? await registry.fetchSelected(providerName: c.providerName, songId: c.songId),
+              !r.lyrics.lines.isEmpty, gen == generation, songId == id, scope == choiceScope else { return false }
         let (s, credits) = Self.lines(r.lyrics, source: r.providerName)
         let from = Origin(provider: c.providerName, songId: c.songId)
         apply(s, credits, from, for: id)
@@ -181,6 +190,9 @@ final class MacLyrics {
     /// come with it, so the lines and translations agree).
     func translate() async {
         guard let id = songId, let t = track, !translating else { return }
+        generation += 1
+        let gen = generation
+        task?.cancel()
         translating = true
         defer { if songId == id { translating = false } }
         let language = Locale.preferredLanguages.first ?? "en"
@@ -196,8 +208,8 @@ final class MacLyrics {
         for name in order {
             let same = origin?.provider == name ? origin?.songId : nil
             guard let r = try? await registry.fetchTranslation(providerName: name, providerSongId: same,
-                                                               title: t.title, artist: t.artist),
-                  songId == id else { continue }
+                                                               title: t.title, artist: t.artist) else { continue }
+            guard gen == generation, songId == id else { return }
             var map: [Int: String] = [:]
             for (k, v) in r.translations { map[k.intValue] = v }
             let (s, credits) = Self.lines(r.lyrics, source: r.providerName, translations: map)

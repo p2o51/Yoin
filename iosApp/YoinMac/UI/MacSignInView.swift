@@ -57,7 +57,11 @@ struct MacSignInView: View {
                 .disabled(busy)
                 .padding(.top, 10)
                 if model.addingAccount {
-                    Button("Cancel") { withAnimation(Yoin.spatial) { model.addingAccount = false } }
+                    Button("Cancel") {
+                        model.supersedeSignIn()
+                        busy = false
+                        withAnimation(Yoin.spatial) { model.addingAccount = false }
+                    }
                         .font(.gsf(14)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
                         .frame(maxWidth: .infinity).padding(.top, 4)
                         .keyboardShortcut(.cancelAction)
@@ -90,8 +94,10 @@ struct MacSignInView: View {
             defer { busy = false }
             do {
                 let adding = model.addingAccount
-                try await model.session.useAppleMusic()
+                let token = model.authToken
+                try await model.session.useAppleMusic { token == model.authToken }
                 if adding { model.signedOut(); model.addingAccount = false }
+            } catch is MacSession.Superseded {
             } catch {
                 self.error = AppleMusicSource.message(for: error)
             }
@@ -106,8 +112,12 @@ struct MacSignInView: View {
             defer { busy = false }
             do {
                 let adding = model.addingAccount
-                try await model.session.signIn(url: url, username: username, password: password)
+                let token = model.authToken
+                try await model.session.signIn(url: url, username: username, password: password) {
+                    token == model.authToken
+                }
                 if adding { model.signedOut(); model.addingAccount = false }
+            } catch is MacSession.Superseded {
             } catch {
                 self.error = MacSession.message(for: error)
             }

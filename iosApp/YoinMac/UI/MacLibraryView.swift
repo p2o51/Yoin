@@ -53,7 +53,7 @@ struct MacLibraryView: View {
                 .padding(.leading, 32)
                 .padding(.top, 108)
         }
-        .task(id: model.libraryKind) {
+        .task(id: "\(model.libraryKind.rawValue)|\(model.session.accountKey)") {
             switch model.libraryKind {
             case .albums: await lib.loadAlbums()
             case .artists: await lib.loadArtists()

@@ -95,7 +95,12 @@ final class MacLibrary {
 
     private func runCore(_ key: String, force: Bool,
                          _ body: @escaping @MainActor (_ live: @escaping @MainActor @Sendable () -> Bool) async throws -> Void) async {
-        if !force, let running = inflight[key] { await running.value; return }
+        // One load per key at a time; a forced one waits for the one running, then reads again (so the
+        // newest answer lands last).
+        if let running = inflight[key] {
+            await running.value
+            if !force { return }
+        }
         if !force, phase(key) == .loaded { return }
         let gen = generation
         phases[key] = .loading

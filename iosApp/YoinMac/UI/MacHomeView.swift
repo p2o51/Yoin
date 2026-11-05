@@ -82,7 +82,7 @@ struct MacHomeView: View {
             .padding(.bottom, 130)
         }
         .scrollIndicators(.automatic)
-        .task {
+        .task(id: model.session.accountKey) {
             await model.library.loadHome()
             // The song menu's Add to Playlist lists them.
             await model.library.loadPlaylists()

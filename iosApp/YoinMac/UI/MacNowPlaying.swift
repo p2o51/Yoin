@@ -842,6 +842,8 @@ private struct MacLyricsSearch: View {
     @State private var sections: [ProviderSection] = []
     @State private var busy = false
     @State private var applying: String?
+    /// The song the search is for: a pick lands on it only.
+    @State private var forSong: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -884,9 +886,11 @@ private struct MacLyricsSearch: View {
         .padding(14)
         .frame(width: 340)
         .onAppear {
+            forSong = model.player.currentTrack?.id
             if let t = model.player.currentTrack { query = "\(t.title) \(t.artist)" }
             run()
         }
+        .onChange(of: model.player.currentTrack?.id) { open = false }
     }
 
     private func label(_ provider: String) -> String {
@@ -912,7 +916,8 @@ private struct MacLyricsSearch: View {
     private func pick(_ c: LyricsCandidate) {
         applying = c.providerName + c.songId
         Task {
-            let ok = await model.lyrics.choose(c)
+            guard let song = forSong else { applying = nil; return }
+            let ok = await model.lyrics.choose(c, for: song)
             applying = nil
             if ok { open = false }
         }

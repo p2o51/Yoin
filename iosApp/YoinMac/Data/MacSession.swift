@@ -148,9 +148,10 @@ final class MacSession {
 
     /// Asks the system for Apple Music access (its own dialog, the listener answers it) and switches to
     /// it when allowed. The Subsonic sign-in stays in the Keychain.
-    func useAppleMusic() async throws {
+    func useAppleMusic(commitIf: @MainActor () -> Bool = { true }) async throws {
         let a = AppleMusicSource()
         await a.requestAuthorization()
+        guard commitIf() else { throw Superseded() }
         guard a.isAuthorized else {
             throw AppleMusicSource.RequestError(message: a.authorization == .denied
                 ? "Apple Music access is off for Yoin in System Settings › Privacy & Security › Media & Apple Music"
@@ -167,12 +168,17 @@ final class MacSession {
     }
 
     /// Asks the server once; on success the account is saved and becomes the one in use.
-    func signIn(url: String, username: String, password: String) async throws {
+    /// A sign-in that ends after [commitIf] turns false (Cancel, another account) changes nothing.
+    struct Superseded: LocalizedError { var errorDescription: String? { "Cancelled" } }
+
+    func signIn(url: String, username: String, password: String,
+                commitIf: @MainActor () -> Bool = { true }) async throws {
         let account = Account(baseUrl: Self.normalized(url), username: username.trimmingCharacters(in: .whitespaces),
                               password: password)
         let candidate = SubsonicClient(baseUrl: account.baseUrl, username: account.username, password: account.password)
         do {
             let info = try await candidate.ping()
+            guard commitIf() else { candidate.close(); throw Superseded() }
             client?.close()
             deactivate()
             client = candidate
