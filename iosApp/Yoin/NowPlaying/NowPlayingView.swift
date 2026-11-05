@@ -30,6 +30,11 @@ struct NowPlayingView: View {
 
     @State private var dragY: CGFloat = 0
     @State private var tab = 0
+    /// Android's detail HorizontalPager: a horizontal drag across the page
+    /// moves Lyrics / About / Note under the finger (points, + = toward the
+    /// previous page); the tabs and the bar under the page follow it.
+    @State private var pagerDrag: CGFloat = 0
+    @State private var pagerWidth: CGFloat = 1
     /// Android NowPlayingStageMode (NowPlayingStage.swift): compact, the
     /// expanded detail page, or the focused cover.
     @State private var stage: NowPlayingStage = .compact
@@ -455,7 +460,9 @@ struct NowPlayingView: View {
         let shortOffer = budget.shortFocus(columnWidth: min(size.width, model.isPad ? 520 : size.width)
                                            - Tokens.np.COLUMN_PADDING.cg * 2)
         let short = shortFocus && stage == .compact ? shortOffer : nil
-        let page = NowPlayingDetailPage(rawValue: tab) ?? .lyrics
+        // The pager's target page (Android targetPage): the tabs and the
+        // bar under the page switch half way through a swipe.
+        let page = NowPlayingDetailPage(rawValue: shownTab) ?? .lyrics
         // Expanded (Android ExpandedTopBarHeight …): the cover docks into the
         // top bar, the transport steps away, the page takes what is left.
         let topBarH = expanded ? NowPlayingExpanded.topBar : pose.topBar
@@ -526,6 +533,12 @@ struct NowPlayingView: View {
                     .allowsHitTesting(!expanded)
             }
             .frame(height: clear + transportH, alignment: .top)
+            // The whole window takes the swipe, empty parts included.
+            .contentShape(.rect)
+            // Not in focus, nor on the one-line row (Android: swipe once the
+            // lyric page has room), nor while selecting, writing or asking.
+            .gesture(pagerPan(enabled: stage != .focus && !(oneLine && stage == .compact)
+                                  && !lyricsSelecting && !composing && !asking))
             .npFade(open, contentFade)
             Spacer().frame(height: slack)
             hero(p, inline: budget.inlineHero)
@@ -535,6 +548,10 @@ struct NowPlayingView: View {
                 // StageHeightSlot: content at the top, air below.
                 .frame(height: short != nil ? 0 : pose.hero, alignment: .top)
             accessorySlot(page: page, expanded: expanded)
+                // The expanded page's bar rides the swipe (Android's
+                // accessory pager, at most half a page either way); the
+                // pills at rest belong to every page and stay.
+                .offset(x: expanded ? -(pagerPosition - CGFloat(shownTab)) * pagerStride : 0)
                 .frame(height: accessory, alignment: .bottomLeading)
                 .overlay(alignment: .bottom) {
                     // Android lyricToolsWakeGuard: while the tools are away,
@@ -762,8 +779,8 @@ struct NowPlayingView: View {
     private var tabs: some View {
         HStack(spacing: Tokens.np.TAB_GAP.cg) {
             ForEach(Array(["Lyrics", "About", "Note"].enumerated()), id: \.offset) { i, title in
-                let on = tab == i
-                Button { withAnimation(Yoin.spatialFast) { tab = i } } label: {
+                let on = shownTab == i
+                Button { settlePager(on: i) } label: {
                     // CompactTextTabs: labelLarge (Bold when selected).
                     Text(title)
                         .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : nil)
@@ -784,8 +801,8 @@ struct NowPlayingView: View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
                 ForEach(NowPlayingDetailPage.allCases, id: \.self) { page in
-                    let on = tab == page.rawValue
-                    Button { withAnimation(Yoin.spatial) { tab = page.rawValue } } label: {
+                    let on = shownTab == page.rawValue
+                    Button { settlePager(on: page.rawValue) } label: {
                         Text(page.title)
                             .yoinRole(Tokens.type.labelLarge, weight: on ? .bold : .medium)
                             // Dark: white on both (the pills' rule; the container
@@ -1122,22 +1139,107 @@ struct NowPlayingView: View {
         return ZStack(alignment: .topLeading) {
             switch stage {
             case .expanded:
-                expandedPage(p, page: page, height: clear)
-                    .id(page)
-                    .transition(.opacity)
+                detailPager { pg in
+                    expandedPage(p, page: pg, height: clear)
+                }
+                .transition(.opacity)
             case .focus where preview && !solo:
                 lyricPreview(p)
                     .frame(height: clear)
                     .transition(.opacity)
-            default:
+            case .focus:
                 compactPage(p, page: page, clear: clear, under: under,
                             anchor: solo ? Self.oneLineAnchor(clear) : anchor,
                             fadeTop: solo ? false : fadeTop, wraps: !oneLine && !solo, solo: solo)
-                    .id(page)
                     .transition(.opacity)
+            case .compact:
+                // The one-line row is not a pager page (Android: swipe only
+                // once the lyric page has room).
+                detailPager { pg in
+                    compactPage(p, page: pg, clear: clear, under: under, anchor: anchor,
+                                fadeTop: fadeTop, wraps: !oneLine, solo: false)
+                }
+                .transition(.opacity)
             }
         }
-        .animation(Yoin.effects, value: page)
+    }
+
+    // MARK: Detail pager (Android HorizontalPager over Lyrics / About / Note)
+
+    /// Where the pager is: the settled tab, less the finger's drag in pages.
+    private var pagerPosition: CGFloat { CGFloat(tab) - pagerDrag / max(pagerWidth, 1) }
+
+    /// The page the pager is heading for: the tabs show it.
+    private var shownTab: Int {
+        min(max(Int(pagerPosition.rounded()), 0), NowPlayingDetailPage.allCases.count - 1)
+    }
+
+    /// One page across: the window plus the column's two margins, so a
+    /// neighbour comes in from the screen's edge, not from inside the margin.
+    private var pagerStride: CGFloat { pagerWidth + Tokens.np.COLUMN_PADDING.cg * 2 }
+
+    /// A tab tap slides to its page on the same spring as a released swipe.
+    private func settlePager(on page: Int) {
+        withAnimation(Yoin.spatial) {
+            tab = page
+            pagerDrag = 0
+        }
+    }
+
+    /// The three pages side by side, moved by the pager's position; the one
+    /// on screen and its neighbours are built (Android beyondViewportPageCount 1).
+    private func detailPager<Page: View>(@ViewBuilder page: @escaping (NowPlayingDetailPage) -> Page) -> some View {
+        let pos = pagerPosition
+        return ZStack(alignment: .topLeading) {
+            ForEach(NowPlayingDetailPage.allCases, id: \.self) { pg in
+                let d = CGFloat(pg.rawValue) - pos
+                if abs(d) < 1.5 {
+                    page(pg)
+                        .offset(x: d * pagerStride)
+                        .allowsHitTesting(pg.rawValue == shownTab)
+                        .accessibilityHidden(pg.rawValue != shownTab)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pagerWidth = max($0, 1) }
+    }
+
+    /// The pager's swipe, on the whole window (its tap-to-open layer and the
+    /// transport over it included): horizontal drags only, so the lyrics'
+    /// own scroll and the page's drag-down keep the vertical ones.
+    private func pagerPan(enabled: Bool) -> AlbumAxisPan {
+        AlbumAxisPan(
+            claims: { axis, _ in axis == .horizontal && enabled },
+            changed: { _, t in pagerDrag = pagerRubberBand(t.x) },
+            ended: { _, v, cancelled in pagerReleased(velocity: cancelled ? 0 : v.x, cancelled: cancelled) }
+        )
+    }
+
+    /// Past the first or last page the drag resists (a rubber band).
+    private func pagerRubberBand(_ dx: CGFloat) -> CGFloat {
+        let last = CGFloat(NowPlayingDetailPage.allCases.count - 1)
+        let raw = CGFloat(tab) - dx / max(pagerWidth, 1)
+        guard raw < 0 || raw > last else { return dx }
+        let edge = raw < 0 ? CGFloat(tab) : CGFloat(tab) - last
+        let past = abs(dx) - abs(edge * pagerWidth)
+        let eased = pow(max(past, 0), 0.7)
+        return (dx < 0 ? -1 : 1) * (abs(edge * pagerWidth) + eased)
+    }
+
+    /// Release: a fling or a drag past a third of a page turns it; the
+    /// pager lands on the spatial spring either way.
+    private func pagerReleased(velocity: CGFloat, cancelled: Bool) {
+        let last = NowPlayingDetailPage.allCases.count - 1
+        var target = tab
+        if !cancelled {
+            let moved = -pagerDrag / max(pagerWidth, 1)
+            if velocity < -400 || moved > 0.35 { target = tab + 1 }
+            if velocity > 400 || moved < -0.35 { target = tab - 1 }
+        }
+        target = min(max(target, 0), last)
+        if target != tab { UISelectionFeedbackGenerator().selectionChanged() }
+        settlePager(on: target)
     }
 
     /// OneLineLyricRow: the 32 pt line (bodyLarge + its pads) centered in

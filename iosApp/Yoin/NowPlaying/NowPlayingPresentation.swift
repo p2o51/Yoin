@@ -242,6 +242,8 @@ let nowPlayingPageSpace = "np.page"
 
 struct NowPlayingMorph: View {
     @Environment(AppModel.self) private var model
+    /// The current drag started sideways (see dismissDrag).
+    @State private var sidewaysDrag = false
     @Environment(\.colorScheme) private var colorScheme
     var npNamespace: Namespace.ID
 
@@ -421,8 +423,20 @@ struct NowPlayingMorph: View {
 
     private func dismissDrag(_ np: NowPlayingPresentation) -> some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
-            .onChanged { v in np.dragChanged(v.translation.height) }
+            .onChanged { v in
+                // A drag that starts sideways is the detail pager's (Lyrics /
+                // About / Note), not a fold: it doesn't move the page at all.
+                if !np.dragging && !sidewaysDrag && abs(v.translation.width) > abs(v.translation.height) {
+                    sidewaysDrag = true
+                }
+                guard !sidewaysDrag else { return }
+                np.dragChanged(v.translation.height)
+            }
             .onEnded { v in
+                guard !sidewaysDrag else {
+                    sidewaysDrag = false
+                    return
+                }
                 if np.dragEnded(v.translation.height, velocity: v.velocity.height,
                                 predicted: v.predictedEndTranslation.height) {
                     model.setNowPlaying(expanded: false)
