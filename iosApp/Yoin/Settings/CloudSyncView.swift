@@ -125,7 +125,7 @@ struct CloudSyncView: View {
                 whatSyncs
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 40)
+            .padding(.bottom, 40 + ShellBarMetrics.clearance)
             .animation(Yoin.spatial, value: enabled)
             .animation(Yoin.effects, value: CloudSyncTexts.summary(sync))
             .animation(Yoin.effects, value: sync.message)

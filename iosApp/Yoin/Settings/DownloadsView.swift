@@ -35,7 +35,7 @@ struct DownloadsView: View {
                 if !offline.entries.isEmpty { list }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 40)
+            .padding(.bottom, 40 + ShellBarMetrics.clearance)
             .animation(Yoin.spatial, value: qualityOpen)
             .animation(Yoin.spatial, value: offline.entries.map(\.id))
             .animation(Yoin.effects, value: offline.entries)

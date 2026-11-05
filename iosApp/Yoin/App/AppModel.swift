@@ -490,7 +490,12 @@ final class AppModel {
     func select(_ s: ShellSection) {
         // Home again while Memories is up: it retreats to Home (its back).
         if s == .home, section == .home, memories.isOpen { return memories.close() }
-        withAnimation(Yoin.spatial) { section = s }
+        // A pushed page with no album to play (Settings) shows only Home in the
+        // bar: it goes back to the root page, like the back button.
+        withAnimation(Yoin.spatial) {
+            if isDetail { path.removeAll() }
+            section = s
+        }
     }
 
     func setNowPlaying(expanded: Bool) {

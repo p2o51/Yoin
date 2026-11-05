@@ -62,7 +62,7 @@ struct ServerSettingsView: View {
                 aboutGroup
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 40)
+            .padding(.bottom, 40 + ShellBarMetrics.clearance)
             .animation(Yoin.spatial, value: active)
             .animation(Yoin.spatial, value: qualityOpen)
             .animation(Yoin.effects, value: quality)

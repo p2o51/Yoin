@@ -87,7 +87,7 @@ struct ServiceSetupView: View {
                 if editing != nil { removeGroup }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 40)
+            .padding(.bottom, 40 + ShellBarMetrics.clearance)
             .animation(Yoin.spatial, value: service)
             .animation(Yoin.spatial, value: edited)
             .animation(Yoin.spatial, value: error)

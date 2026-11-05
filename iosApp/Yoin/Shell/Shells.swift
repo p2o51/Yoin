@@ -20,9 +20,16 @@ struct SectionContent: View {
         // The bar's safeAreaBar doesn't reach the root pages' scroll views
         // inside the stack, so the last row ended under it. Reserve the bar
         // (60 + 2 bottom padding) here, as Android pads its root lists.
-        .safeAreaPadding(.bottom, 62)
+        .safeAreaPadding(.bottom, ShellBarMetrics.clearance)
         .background(Yoin.surface)
     }
+}
+
+/// The phone bar's height plus its bottom padding: what a scroll view under
+/// it must leave free so its last row isn't covered. Pushed pages scroll
+/// under the bar too (the safe-area bar doesn't reach into the stack).
+enum ShellBarMetrics {
+    static let clearance: CGFloat = 62
 }
 
 /// Phone: one NavigationStack, the glass bar floats on top, Now Playing is a

@@ -90,7 +90,7 @@ struct PlaylistBackupsView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 40)
+            .padding(.bottom, 40 + ShellBarMetrics.clearance)
             .animation(Yoin.spatial, value: backups.map(\.id))
         }
         .safeAreaBar(edge: .top) { BackupChrome.topBar(app) { dismiss() } }
@@ -195,7 +195,7 @@ struct PlaylistBackupView: View {
                     songs(backup).padding(.top, 28)
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 40)
+                .padding(.bottom, 40 + ShellBarMetrics.clearance)
                 .animation(Yoin.spatial, value: backup.restores.count)
                 .animation(Yoin.spatial, value: backup.versions.count)
                 .animation(Yoin.effects, value: backup.lastBackedUpAt)
