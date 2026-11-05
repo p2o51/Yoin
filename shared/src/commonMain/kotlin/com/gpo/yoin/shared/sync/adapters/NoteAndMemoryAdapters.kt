@@ -292,7 +292,8 @@ class SongAboutSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
     override suspend fun readAll(localProfileId: String?): List<DomainRow> {
         val language = domain.aboutLanguage()
         return domain.songAbouts().map { row ->
-            DomainRow(key = keyOf(language, row), projection = projection(language, row), rowTs = row.updatedAt)
+            val stamp = stampOf(row, language)
+            DomainRow(key = keyOf(stamp, row), projection = projection(stamp, row), rowTs = row.updatedAt)
         }
     }
 
@@ -313,7 +314,7 @@ class SongAboutSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
         if (language == null || entry == null || key != keyOf(language, entry)) {
             return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null)
         }
-        val local = domain.aboutLanguage()
+        val local = stampOf(entry, domain.aboutLanguage())
         // Another language's answers stay in Drive; "not now" so they apply after a switch to that language.
         if (language != local) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, null)
         val existing = domain.songAbout(entry.titleKey, entry.artistKey, entry.albumKey, entry.kind, entry.entryKey)
@@ -325,6 +326,9 @@ class SongAboutSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
 
     override suspend fun delete(localProfileId: String?, key: String, expectedLocalHash: String?): ApplyOutcome =
         ApplyOutcome.Skipped(SkipReason.POLICY, expectedLocalHash)
+
+    /** The language a row is filed under in Drive (Android stampOf): Gemini's rows the device's, the listener's own none. */
+    private fun stampOf(row: SongAboutRow, language: String) = if (row.kind == KIND_OWN) ANY_LANGUAGE else language
 
     private fun keyOf(language: String, row: SongAboutRow) =
         SyncFormat.compositeKey(language, row.titleKey, row.artistKey, row.albumKey, row.kind, row.entryKey)
@@ -366,5 +370,8 @@ class SongAboutSyncAdapter(private val domain: SyncDomain) : SyncAdapter {
 
     private companion object {
         const val LANGUAGE = "targetLanguage"
+        /** Android SongAboutEntry.KIND_OWN / ANY_LANGUAGE: the listener's own entries belong to no language. */
+        const val KIND_OWN = "own"
+        const val ANY_LANGUAGE = "*"
     }
 }

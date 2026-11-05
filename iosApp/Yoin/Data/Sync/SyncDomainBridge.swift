@@ -277,13 +277,11 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
                      createdAt: e.createdAt, updatedAt: e.updatedAt)
     }
 
-    /// Only rows known to be in this language (every row records it now; unstamped rows from before
-    /// stay out of sync rather than be published under a language they may not be in, Codex C17).
-    /// The listener's own entries stay out too for now: Android files them under "*" (any language),
-    /// and the shared adapter stamps every row with this device's language, which would publish them
-    /// under a key Android never writes.
+    /// Rows in this language, plus the listener's own entries (filed under "*", any language, as
+    /// on Android; the shared adapter stamps them so). Unstamped rows from before stay out of sync
+    /// rather than be published under a language they may not be in (Codex C17).
     private static func current(_ e: SongAboutStore.Entry, _ language: String) -> Bool {
-        e.language == language && e.kind != SongAboutStore.Kind.own
+        e.kind == SongAboutStore.Kind.own || e.language == language
     }
 
     func songAbouts() -> [SongAboutRow] {
