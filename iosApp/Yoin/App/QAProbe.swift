@@ -38,12 +38,28 @@ enum QAProbe {
                   + " phases=\(store.phases.map { "\($0.key):\($0.value)" }.sorted())")
         }
         report("launch")
-        try? await Task.sleep(for: .seconds(8))
-        report("8s")
+        print("[diag] profiles \(model.profiles.profiles.map { "\($0.service) \($0.id)" })")
+        // `-qaDiagApple YES`: try the Apple Music account, then go back to the one in use.
+        let original = model.profiles.activeId
+        let apple = UserDefaults.standard.bool(forKey: "qaDiagApple")
+            ? model.profiles.profiles.first { $0.service == .appleMusic } : nil
+        if let apple {
+            await model.profiles.switchTo(apple.id)
+            report("switched")
+            model.select(.library)
+            await model.store.loadLibrary(nil)
+            report("library loaded")
+        }
+        try? await Task.sleep(for: .seconds(4))
+        report("4s")
         snapshot("qa-shot.png")
-        try? await Task.sleep(for: .seconds(8))
-        report("16s")
+        try? await Task.sleep(for: .seconds(4))
+        report("8s")
         snapshot("qa-shot2.png")
+        if apple != nil, let original, original != model.profiles.activeId {
+            await model.profiles.switchTo(original)
+            report("switched back")
+        }
     }
 
     static func snapshot(_ name: String) {
