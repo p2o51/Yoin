@@ -606,51 +606,118 @@ private struct LyricLineFont: ViewModifier, @MainActor Animatable {
 }
 
 /// About: the song's facts.
+/// About as a receipt (Android AboutReceipt, owner 2026-11-05): one fact per line, the label small on the
+/// left and the value on the right, a dashed rule between lines; every fact the server gives, then where
+/// the lyrics came from.
 struct MacAboutView: View {
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
-    @State private var facts: SongFacts?
+    @State private var song: SongInfo?
+    @State private var loadedFor: String?
 
     var body: some View {
         let t = model.player.currentTrack
-        // iOS About: the server's record of the song, label over value, the label in the tint.
-        let rows = (facts?.facts ?? t.map { SongFacts($0).facts } ?? []) + lyricsRow
+        let rows = MacReceipt.rows(song: loadedFor == t?.id ? song : nil, track: t) + lyricsRow
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(rows) { f in
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(f.label).font(.gsf(12.5, .medium)).foregroundStyle(tint.primary)
-                        Text(f.value).font(.gsf(15)).foregroundStyle(Yoin.ink)
+                ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
+                    if i > 0 { DashedRule() }
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(r.label).font(.gsf(12.5, .medium)).foregroundStyle(Yoin.inkVariant)
+                            .frame(width: 96, alignment: .leading)
+                        Text(r.value).font(.gsf(14)).foregroundStyle(Yoin.ink)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 8)
                 }
             }
+            .padding(.horizontal, 16).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.container.opacity(0.35)))
             .padding(.top, 8)
             .padding(.bottom, 48)
         }
         .scrollIndicators(.never)
         .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85),
                                      .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
-        .task(id: t?.id) { facts = await load(t) }
+        .task(id: t?.id) {
+            song = await load(t)
+            loadedFor = t?.id
+        }
     }
 
-    /// Where the lyrics came from (the lyric credit).
-    private var lyricsRow: [SongFacts.Fact] {
+    private var lyricsRow: [MacReceipt.Row] {
         if case .loaded(_, _, let source) = model.lyrics.state, !source.isEmpty {
-            return [SongFacts.Fact(label: "Lyrics", value: source)]
+            return [MacReceipt.Row(label: "Lyrics", value: source)]
         }
         return []
     }
 
-    private func load(_ t: PlayableTrack?) async -> SongFacts? {
-        guard let t else { return nil }
-        guard let client = model.session.client else { return SongFacts(t) }
-        do {
-            if let song = try await client.getSong(id: t.id) { return SongFacts(song, fallback: t) }
-        } catch {}
-        return SongFacts(t, complete: false)
+    private func load(_ t: PlayableTrack?) async -> SongInfo? {
+        guard let t, t.provider == MediaRef.companion.PROVIDER_SUBSONIC, let client = model.session.client else { return nil }
+        return try? await client.getSong(id: t.id)
+    }
+}
+
+/// The receipt's lines, in Android's order (who wrote it, then everything the server says).
+enum MacReceipt {
+    struct Row: Equatable {
+        var label: String
+        var value: String
+    }
+
+    static func rows(song s: SongInfo?, track t: PlayableTrack?) -> [Row] {
+        var rows: [Row] = []
+        func add(_ label: String, _ value: String?) {
+            guard let v = value?.split(whereSeparator: \.isWhitespace).joined(separator: " "), !v.isEmpty else { return }
+            rows.append(Row(label: label, value: v))
+        }
+        guard let s else {
+            if let t, t.durationSec > 0 { add("Duration", SongFacts.duration(Int(t.durationSec.rounded()))) }
+            if let k = t?.sourceKbps { add("Quality", "\(k) kbps") }
+            return rows
+        }
+        add("Genre", s.genre)
+        if let y = s.year?.intValue, y > 0 { add("Year", String(y)) }
+        if let n = s.track?.intValue, n > 0 {
+            let disc = s.disc?.intValue ?? 1
+            add("Track", disc > 1 ? "Disc \(disc), track \(n)" : String(n))
+        }
+        let sec = s.durationSec?.intValue ?? Int((t?.durationSec ?? 0).rounded())
+        if sec > 0 { add("Duration", SongFacts.duration(sec)) }
+        // Two spaces between parts, as on the spine.
+        let kind = s.suffix.flatMap { $0.isEmpty ? nil : $0.uppercased() }
+            ?? s.contentType.flatMap { $0.split(separator: "/").last.map { $0.uppercased() } }
+        let quality = [kind, s.bitRate.flatMap { $0.intValue > 0 ? "\($0.intValue) kbps" : nil }].compactMap { $0 }
+        if !quality.isEmpty { rows.append(Row(label: "Quality", value: quality.joined(separator: "  "))) }
+        if let bytes = s.size?.int64Value, bytes > 0 {
+            add("Size", String(format: "%.1f MB", Double(bytes) / 1_048_576))
+        }
+        if let n = s.playCount?.intValue { add("Plays", String(n)) }
+        add("Last played", s.played.flatMap(SongFacts.date))
+        if let r = s.userRating?.intValue, r > 0 { add("Server rating", String(format: "%.1f", Double(r * 2))) }
+        add("Liked", s.starredAt.flatMap(SongFacts.date))
+        add("File", s.path)
+        return rows
+    }
+}
+
+/// The receipt's dashed rule between lines.
+private struct DashedRule: View {
+    var body: some View {
+        Line()
+            .stroke(Yoin.ink3.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            .frame(height: 1)
+    }
+
+    private struct Line: Shape {
+        func path(in rect: CGRect) -> Path {
+            Path { p in
+                p.move(to: CGPoint(x: 0, y: rect.midY))
+                p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            }
+        }
     }
 }
