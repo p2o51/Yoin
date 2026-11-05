@@ -241,6 +241,13 @@ struct NowPlayingView: View {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
         }
+        // The next song's lyrics, once this one has settled (a skip cancels it).
+        .task(id: model.player.upNextTrack.map(NowPlayingData.key)) {
+            guard let next = model.player.upNextTrack else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await data.prefetchLyrics(next, client: model.session.client)
+        }
         .task(id: tab == NowPlayingDetailPage.about.rawValue ? engineTrack.map(NowPlayingData.key) : nil) {
             // Android fetches About when its page is first shown.
             guard tab == NowPlayingDetailPage.about.rawValue, let t = engineTrack else { return }
@@ -1362,10 +1369,11 @@ struct NowPlayingView: View {
                 // Only this subtree reads the position; the line index is
                 // derived per tick and the lines re-render when it moves.
                 lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
-                    PlaybackPosition { position, _ in
+                    PlaybackPosition { position, duration in
                         LyricLinesView(lines: loaded.lines, active: loaded.activeIndex(positionSec: position),
                                        anchor: anchor, primary: scheme.primary,
-                                       onSurfaceVariant: scheme.onSurfaceVariant, wraps: wraps, solo: solo)
+                                       onSurfaceVariant: scheme.onSurfaceVariant, wraps: wraps, solo: solo,
+                                       outro: lyricsOutro(loaded, positionSec: position, durationSec: duration))
                             .equatable()
                     }
                 }
@@ -1382,6 +1390,27 @@ struct NowPlayingView: View {
                                wraps: wraps, solo: solo)
             }
         }
+    }
+
+    /// Android LyricsDisplay's outro for the playing song: nil before its
+    /// window. Past the hand-over the next song's list will open exactly
+    /// where its line now sits, so the song change swaps in place.
+    private func lyricsOutro(_ l: NowPlayingData.LoadedLyrics, positionSec: Double,
+                             durationSec: Double) -> LyricLinesView.Outro? {
+        guard l.synced, durationSec > 0 else { return nil }
+        let pos = Int64(positionSec * 1000), dur = Int64(durationSec * 1000)
+        let last = l.lyrics.lines.last.map { Int64($0.timeMs) }
+        let next = data.upNext(model.player.upNextTrack)
+        let timing = next != nil
+            ? UpNextTiming.forUpNext(lastLineStartMs: last, nextTimed: true, durationMs: dur)
+            : UpNextTiming.lastLineOutro(lastLineStartMs: last, durationMs: dur)
+        guard let timing else { return nil }
+        let p = timing.progress(pos)
+        guard p > 0 else { return nil }
+        let handing = timing.handingOver(pos)
+        // The swap check tolerates one 250 ms tick (Android UpNextHandoffTickSlackMs).
+        lyricsDirection.inPlaceNext = pos >= timing.handoffAtMs - 300 ? next?.key : nil
+        return .init(stretch: handing ? 0 : p, reveal: p, handingOver: handing, next: next)
     }
 
     /// Android LyricsTrackTransition + the lyricsLoaded swap: a new song's
@@ -1407,7 +1436,17 @@ struct NowPlayingView: View {
             .id(key)
             .transition(LyricsTrackSlide(direction: lyricsDirection, distance: height / 4))
         }
-        .animation(Yoin.spatial, value: key)
+        // After the outro's hand-over the next song's line already sits where
+        // its list opens: the swap is a cut between two identical frames (an
+        // animated removal showed the old list again on the way out).
+        .animation(lyricsDirection.inPlace ? nil : Yoin.spatial, value: key)
+        // Also when the song change arrives inside another animated update.
+        .transaction(value: key) { t in
+            if lyricsDirection.inPlace {
+                t.animation = nil
+                t.disablesAnimations = true
+            }
+        }
     }
 
     /// A plain label at the window's start (bodyMedium, onSurfaceVariant).

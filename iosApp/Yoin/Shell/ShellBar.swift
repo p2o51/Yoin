@@ -276,6 +276,10 @@ struct ShellBar: View {
                 if PlaylistActions.shared.canAddToPlaylist(model.store) {
                     Button("Add to playlist") { addDetailToPlaylist() }
                 }
+                // Android OfflineToggle: Download, Downloading n/m, Remove download.
+                if let c = model.detailOfflineCollection, case .album = model.path.last {
+                    OfflineMenuButton(collection: c)
+                }
                 // Not on a Subsonic server yet (no catalog link, no share links).
                 if !model.store.isReal { Button("Open in Apple Music") {} }
                 Divider()

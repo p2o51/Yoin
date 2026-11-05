@@ -41,6 +41,11 @@ final class NowPlayingData {
     }
 
     private(set) var lyrics: [String: LyricsState] = [:]
+    /// Where each song's shown lyrics came from (the translate tool asks the
+    /// same provider for its own translation first).
+    private(set) var lyricsSource: [String: LyricsSource] = [:]
+    /// QQ → NetEase → LRCLIB, for songs whose service has no lyrics of its own.
+    @ObservationIgnored let registry = LyricsRegistry()
     /// The heart lives in `FavoritesStore` (shared with the album rows);
     /// this side reports what the server says about the song.
     @ObservationIgnored private let hearts: FavoritesStore
@@ -73,12 +78,16 @@ final class NowPlayingData {
         // Lyrics the user chose (search / editor) win over every provider's.
         if lyrics[k] == nil, let lrc = LyricsUserStore.shared.chosen(k) {
             let parsed = LrcParser.shared.parse(raw: lrc)
-            if !parsed.lines.isEmpty { lyrics[k] = .lines(LoadedLyrics(parsed)) }
+            if !parsed.lines.isEmpty {
+                lyrics[k] = .lines(LoadedLyrics(parsed))
+                lyricsSource[k] = LyricsUserStore.shared.chosenSource(k)
+            }
         }
         if t.provider == AppleMusicMapping.provider {
-            // No lyrics through MusicKit; the "heart" is library membership
-            // (Android's add-to-library button), the rating stays local.
-            if lyrics[k] == nil { lyrics[k] = LyricsState.none }
+            // No lyrics through MusicKit: the providers find them (Android
+            // getLoadedLyrics for a source without lyrics). The "heart" is
+            // library membership (Android's add-to-library button), the
+            // rating stays local.
             if let apple, !hearts.hasReport(provider: t.provider, songId: t.id), !infoRequested.contains(k) {
                 infoRequested.insert(k)
                 if let added = await apple.isInLibrary(t.id) {
@@ -87,6 +96,7 @@ final class NowPlayingData {
                     infoRequested.remove(k)
                 }
             }
+            await loadProviderLyrics(t, k)
             return
         }
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else {
@@ -97,6 +107,38 @@ final class NowPlayingData {
         await loadInfo(t, k, client)
     }
 
+    /// Android `getLoadedLyrics` past the server: a fresh cached hit, else
+    /// QQ → NetEase → LRCLIB by title, artist and length; the hit is kept 30 days.
+    private func loadProviderLyrics(_ t: PlayableTrack, _ k: String) async {
+        guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
+        lyricsRetry.remove(k)
+        if let a = LyricsUserStore.shared.auto(k) {
+            let parsed = LrcParser.shared.parse(raw: a.lrc)
+            if !parsed.lines.isEmpty {
+                lyrics[k] = .lines(LoadedLyrics(parsed))
+                lyricsSource[k] = a.source
+                return
+            }
+        }
+        if lyrics[k] == nil { lyrics[k] = .loading }
+        do {
+            let ms = t.durationSec > 0 ? KotlinLong(value: Int64(t.durationSec * 1000)) : nil
+            let hit = try await registry.autoFetch(title: t.title, artist: t.artist, durationMs: ms)
+            guard lyrics[k] == .loading || lyrics[k] == nil else { return }
+            if let hit, !hit.lyrics.lines.isEmpty {
+                let source = LyricsSource(provider: hit.providerName, songId: hit.providerSongId)
+                LyricsUserStore.shared.saveAuto(hit.lrc, source: source, for: k)
+                lyrics[k] = .lines(LoadedLyrics(hit.lyrics))
+                lyricsSource[k] = source
+            } else {
+                lyrics[k] = LyricsState.none
+            }
+        } catch {
+            lyrics[k] = LyricsState.none
+            lyricsRetry.insert(k)
+        }
+    }
+
     private func loadLyrics(_ t: PlayableTrack, _ k: String, _ client: SubsonicClient) async {
         guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
         lyricsRetry.remove(k)
@@ -105,6 +147,7 @@ final class NowPlayingData {
             let result = try await client.lyricsFor(songId: t.id, artist: t.artist, title: t.title)
             if let result, !result.lines.isEmpty {
                 lyrics[k] = .lines(LoadedLyrics(result))
+                lyricsSource[k] = LyricsSource(provider: LyricsSource.server, songId: t.id)
             } else {
                 lyrics[k] = LyricsState.none
             }
@@ -132,13 +175,60 @@ final class NowPlayingData {
 
     func lyricsState(_ t: PlayableTrack) -> LyricsState { lyrics[Self.key(t)] ?? .loading }
 
+    /// The next song's lyrics ahead of its turn (Android prefetches during the
+    /// outro): its title card and first line can rise under this song's end,
+    /// and they are there the moment it starts.
+    func prefetchLyrics(_ t: PlayableTrack, client: SubsonicClient?) async {
+        let k = Self.key(t)
+        guard lyrics[k] == nil else { return }
+        if let lrc = LyricsUserStore.shared.chosen(k) {
+            let parsed = LrcParser.shared.parse(raw: lrc)
+            if !parsed.lines.isEmpty {
+                lyrics[k] = .lines(LoadedLyrics(parsed))
+                lyricsSource[k] = LyricsUserStore.shared.chosenSource(k)
+                return
+            }
+        }
+        if t.provider == AppleMusicMapping.provider {
+            await loadProviderLyrics(t, k)
+        } else if let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC {
+            await loadLyrics(t, k, client)
+        }
+    }
+
+    /// The outro's next song: its title and first timed line, when its
+    /// lyrics are here and timed.
+    func upNext(_ t: PlayableTrack?) -> UpNextTiming.Next? {
+        guard let t, case .lines(let l)? = lyrics[Self.key(t)], l.synced,
+              let first = l.lyrics.lines.first(where: { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty })
+        else { return nil }
+        return UpNextTiming.Next(key: Self.key(t), title: t.title, firstLine: first.text)
+    }
+
     /// The user applied lyrics (search result or the editor): stored so they
     /// win on every later load, shown at once.
-    func applyUserLyrics(_ lrc: String, for t: PlayableTrack) -> Bool {
+    /// The same provider's lyrics fetched again with its translation (Android
+    /// fetchProviderTranslation persistLyrics): kept as the user's when they
+    /// were, else as the automatic hit.
+    func refreshProviderLyrics(_ lrc: String, source: LyricsSource, for t: PlayableTrack) {
+        let parsed = LrcParser.shared.parse(raw: lrc)
+        guard !parsed.lines.isEmpty else { return }
+        let k = Self.key(t)
+        if LyricsUserStore.shared.chosen(k) != nil {
+            LyricsUserStore.shared.choose(lrc, for: k, source: source)
+        } else {
+            LyricsUserStore.shared.saveAuto(lrc, source: source, for: k)
+        }
+        lyricsSource[k] = source
+        lyrics[k] = .lines(LoadedLyrics(parsed))
+    }
+
+    func applyUserLyrics(_ lrc: String, for t: PlayableTrack, source: LyricsSource? = nil) -> Bool {
         let parsed = LrcParser.shared.parse(raw: lrc)
         guard !parsed.lines.isEmpty else { return false }
         let k = Self.key(t)
-        LyricsUserStore.shared.choose(lrc, for: k)
+        LyricsUserStore.shared.choose(lrc, for: k, source: source)
+        lyricsSource[k] = source
         lyricsRetry.remove(k)
         lyrics[k] = .lines(LoadedLyrics(parsed))
         return true

@@ -189,6 +189,20 @@ struct TrackMenuSheet: View {
                 PlaylistActions.shared.addAfterDismiss([track])
             })
         }
+        // Android #131: the song alone, with the rows under the quick row.
+        if store.isReal, store.client != nil, track.track.id.provider == AccountScope.subsonicProvider {
+            let offline = OfflineDownloads.shared
+            let key = OfflineDownloads.songKey(track.track.id.rawId)
+            let status = offline.status(key)
+            queue.append(Row(label: OfflineDownloads.rowLabel(status), icon: OfflineDownloads.rowIcon(status)) {
+                [model, track] in
+                offline.rowTapped(status, key: key) {
+                    model.download(.init(kind: .song, id: track.track.id.rawId, title: track.track.title,
+                                         subtitle: track.track.artist ?? track.album.artist,
+                                         coverId: OfflineDownloads.coverId(track.album.palette.cover)), [track])
+                }
+            })
+        }
         var go: [Row] = []
         if context.kind != .album && hasAlbum {
             go.append(Row(label: "Go to album", icon: "album") { [model, track] in
@@ -504,17 +518,11 @@ private struct PlaylistActionsHost: ViewModifier {
             .onChange(of: actions.renaming?.id) { _, _ in name = actions.renaming?.title ?? "" }
             .overlay(alignment: .bottom) {
                 if let toast = actions.toast {
-                    Text(toast.text)
-                        .yoinRole(Tokens.type.labelLarge)
-                        .lineLimit(2)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 14)
-                        .glassEffect(.regular, in: .capsule)
+                    ToastPill(toast: toast)
                         .padding(.horizontal, 24)
                         .padding(.bottom, 96)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .id(toast.id)
-                        .allowsHitTesting(false)
                 }
             }
             .sensoryFeedback(.success, trigger: actions.toast?.id)
@@ -524,5 +532,29 @@ private struct PlaylistActionsHost: ViewModifier {
             .onChange(of: model.npExpanded, initial: true) { _, open in
                 UIApplication.shared.isIdleTimerDisabled = keepScreenOn && open
             }
+    }
+}
+
+/// The shell's one-line confirmation on glass; with an action (Undo), its
+/// button sits after the text and only it takes touches.
+struct ToastPill: View {
+    var toast: PlaylistActions.Toast
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(toast.text)
+                .yoinRole(Tokens.type.labelLarge)
+                .lineLimit(2)
+                .allowsHitTesting(false)
+            if let action = toast.action {
+                Button(action.label) { PlaylistActions.shared.runToastAction() }
+                    .yoinRole(Tokens.type.labelLarge, weight: .semibold)
+                    .buttonStyle(PressScale())
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .glassEffect(toast.action == nil ? .regular : .regular.interactive(), in: .capsule)
+        .allowsHitTesting(toast.action != nil)
     }
 }

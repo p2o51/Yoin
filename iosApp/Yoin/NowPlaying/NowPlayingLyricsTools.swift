@@ -238,7 +238,7 @@ struct ExpandedLyricsList: View {
 
 struct LyricsSearchSheet: View {
     var scheme: CoverScheme
-    var onSelect: (LrclibClient.Match) -> Void
+    var onSelect: (LyricsActions.Candidate) -> Void
     var onClose: () -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
@@ -285,18 +285,27 @@ struct LyricsSearchSheet: View {
                         Text(e).yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.error)
                             .padding(.horizontal, 8).padding(.vertical, 4)
                     }
-                    Text(LrclibClient.providerLabel)
-                        .font(.gsf(12, .semibold)).tracking(0.1)
-                        .foregroundStyle(scheme.primary)
-                        .padding(8)
-                    if let e = s.providerError {
-                        status(e, error: true)
-                    } else if s.loading && s.results.isEmpty {
+                    // Android LyricsSearchSheet: a section per provider, in the registry's order.
+                    if s.loading && s.sections.isEmpty {
                         status("Searching...", loading: true)
-                    } else if s.results.isEmpty {
+                    } else if s.sections.isEmpty {
                         status(s.query.isEmpty ? "" : "No results")
-                    } else {
-                        ForEach(s.results) { r in resultRow(r, applying: s.applyingId == r.id, enabled: s.applyingId == nil) }
+                    }
+                    ForEach(s.sections) { section in
+                        Text(section.label)
+                            .font(.gsf(12, .semibold)).tracking(0.1)
+                            .foregroundStyle(scheme.primary)
+                            .padding(8)
+                            .padding(.top, 8)
+                        if let e = section.error {
+                            status(e, error: true)
+                        } else if section.candidates.isEmpty {
+                            status("No results")
+                        } else {
+                            ForEach(section.candidates) { r in
+                                resultRow(r, applying: s.applyingId == r.id, enabled: s.applyingId == nil)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -321,7 +330,7 @@ struct LyricsSearchSheet: View {
         .padding(.vertical, 10)
     }
 
-    private func resultRow(_ r: LrclibClient.Match, applying: Bool, enabled: Bool) -> some View {
+    private func resultRow(_ r: LyricsActions.Candidate, applying: Bool, enabled: Bool) -> some View {
         Button { onSelect(r) } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 0) {

@@ -19,10 +19,22 @@ struct LyricLinesView: View, Equatable {
     var onSurfaceVariant: Color
     var wraps = true
     var solo = false
+    /// The song's outro (UpNextTiming), quantized: nil before its window.
+    var outro: Outro? = nil
+
+    /// Android LyricsDisplay's outro: the last line held wide (`stretch`,
+    /// focus only), the next song's title and first line rising faintly under
+    /// it (`reveal`), and at the hand-over that line taking the stage.
+    struct Outro: Equatable {
+        var stretch: CGFloat
+        var reveal: CGFloat
+        var handingOver: Bool
+        var next: UpNextTiming.Next?
+    }
 
     var body: some View {
         LyricLinesBody(lines: lines, active: active, anchor: anchor, primary: primary,
-                       onSurfaceVariant: onSurfaceVariant, wraps: wraps, solo: solo)
+                       onSurfaceVariant: onSurfaceVariant, wraps: wraps, solo: solo, outro: outro)
     }
 }
 
@@ -35,8 +47,13 @@ private struct LyricLinesBody: View {
     var onSurfaceVariant: Color
     var wraps: Bool
     var solo: Bool
+    var outro: LyricLinesView.Outro?
 
     @State private var heights: [Int: CGFloat] = [:]
+    @State private var labelHeight: CGFloat = 0
+    /// Android UpNextRise / UpNextLabelGap.
+    private static let rise: CGFloat = 24
+    private static let labelGap: CGFloat = 20
 
     /// Before measuring: a one-line inactive row (bodyMedium line + pads).
     private static let nominalRow = Tokens.type.bodyMedium.lineHeight.cg + 8
@@ -44,11 +61,26 @@ private struct LyricLinesBody: View {
 
     var body: some View {
         let shown = max(active, 0)
-        let above = (0..<min(shown, lines.count)).reduce(CGFloat(0)) { $0 + (heights[$1] ?? Self.nominalRow) + Self.spacing }
+        let next = outro?.next
+        let handing = outro?.handingOver == true && next != nil
+        // The hand-over parks the next song's line where its own list opens
+        // (its first line at the anchor), so the song change swaps in place.
+        let aboveCount = handing ? lines.count : min(shown, lines.count)
+        let above = (0..<aboveCount).reduce(CGFloat(0)) { $0 + (heights[$1] ?? Self.nominalRow) + Self.spacing }
+            + (handing ? labelHeight + Self.spacing : 0)
+        // The next song waits out the first half of the window, then surfaces
+        // faintly (FastOutSlowIn); at the hand-over it comes to full strength.
+        let ease = Self.fastOutSlowIn(min(max(((outro?.reveal ?? 0) - 0.5) / 0.5, 0), 1))
+        let nextAlpha = next == nil ? 0 : handing ? 1 : UpNextTiming.revealAlpha * ease
+        let nextRise = handing ? 0 : (1 - ease) * Self.rise
+        let block: Double = handing ? 0 : 1
         VStack(alignment: .leading, spacing: Self.spacing) {
             ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
                 let d = abs(i - shown)
-                let isActive = i == active
+                let isActive = i == active && !handing
+                // I-2: the last line held wide from its left edge, at draw
+                // time (it never re-wraps), in focus only.
+                let held = solo && isActive && i == lines.count - 1 ? (outro?.stretch ?? 0) : 0
                 // LyricLineItem: active bodyLarge (16/24) rounded SemiBold
                 // in primary, else bodyMedium (14/20) onSurfaceVariant;
                 // each line in its role's line box, 4 above and below.
@@ -72,13 +104,56 @@ private struct LyricLinesBody: View {
                                      : isActive ? 1 : (d <= 1 ? 0.55 : d == 2 ? 0.40 : 0.28))
                     }
                     .animation(Yoin.spatial) { $0.scaleEffect(isActive ? 1 : 0.94, anchor: .leading) }
+                    .animation(held > 0 ? Yoin.slowSpatial : Yoin.spatial) {
+                        $0.scaleEffect(x: 1 + UpNextTiming.lastLineStretchMax * held, y: 1, anchor: .leading)
+                    }
+                    .animation(Yoin.slowEffects) { $0.opacity(block) }
+            }
+            if let next {
+                // "Up next · title", then the next song's first line as its own
+                // list shows it before it starts (an inactive line).
+                Text("Up next \u{00B7} \(next.title)")
+                    .yoinRole(Tokens.type.labelMedium)
+                    .foregroundStyle(onSurfaceVariant)
+                    .lineLimit(1)
+                    .padding(.top, Self.labelGap)
+                    .padding(.bottom, 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { labelHeight = $0 }
+                    .animation(Yoin.slowEffects) { $0.opacity(nextAlpha * block) }
+                    .animation(Yoin.slowSpatial) { $0.offset(y: nextRise) }
+                Text(next.firstLine)
+                    .font(.gsf(14))
+                    .tracking(0)
+                    .lineLimit(wraps ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: Tokens.type.bodyMedium.lineHeight.cg)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(onSurfaceVariant)
+                    .scaleEffect(0.94, anchor: .leading)
+                    // Where the next list opens it: the first line at 0.55.
+                    .animation(Yoin.slowEffects) { $0.opacity(nextAlpha * 0.55) }
+                    .animation(Yoin.slowSpatial) { $0.offset(y: nextRise) }
             }
         }
         // Scroll so the active line's box (with its 4 pt pad) sits at
         // `anchor`; keyed on the offset itself, so a row measured a frame
         // late (a wrap) glides too.
         .offset(y: anchor - 4 - above)
-        .animation(Yoin.spatial, value: anchor - 4 - above)
+        .animation(handing ? Yoin.slowSpatial : Yoin.spatial, value: anchor - 4 - above)
+    }
+
+    /// Material FastOutSlowIn (cubic 0.4, 0, 0.2, 1).
+    static func fastOutSlowIn(_ x: CGFloat) -> CGFloat {
+        var lo: CGFloat = 0, hi: CGFloat = 1
+        for _ in 0..<20 {
+            let t = (lo + hi) / 2
+            let bx = 3 * (1 - t) * (1 - t) * t * 0.4 + 3 * (1 - t) * t * t * 0.2 + t * t * t
+            if bx < x { lo = t } else { hi = t }
+        }
+        let t = (lo + hi) / 2
+        return 3 * (1 - t) * t * t * 1 + t * t * t
     }
 }
 
@@ -274,12 +349,19 @@ struct NoteComposer: View {
 /// song's transition (built on its last render) reads the new direction.
 final class LyricsDirection {
     private(set) var forward = true
+    /// The song change swaps in place (no slide): the outro already parked
+    /// the next song's first line where its list opens.
+    private(set) var inPlace = false
+    /// Set by the outro once it has handed over to this song.
+    var inPlaceNext: String?
     private var key: String?
     private var index: Int?
 
     func update(key: String, index: Int?) {
         guard key != self.key else { return }
         if let index, let last = self.index { forward = index >= last }
+        inPlace = self.key != nil && key == inPlaceNext
+        inPlaceNext = nil
         self.key = key
         self.index = index
     }
@@ -293,8 +375,9 @@ struct LyricsTrackSlide: Transition {
 
     func body(content: Content, phase: TransitionPhase) -> some View {
         let sign: CGFloat = direction.forward ? 1 : -1
+        let moves = !direction.inPlace
         content
-            .offset(y: phase == .willAppear ? sign * distance : phase == .didDisappear ? -sign * distance : 0)
-            .opacity(phase.isIdentity ? 1 : 0)
+            .offset(y: !moves ? 0 : phase == .willAppear ? sign * distance : phase == .didDisappear ? -sign * distance : 0)
+            .opacity(phase.isIdentity || !moves ? 1 : 0)
     }
 }

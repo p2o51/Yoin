@@ -25,17 +25,33 @@ final class LyricsActions {
         var isOpen = false
         var query = ""
         var loading = false
-        var results: [LrclibClient.Match] = []
-        var providerError: String?
+        /// One per provider, in the registry's order (Android LyricsSearchState.sections).
+        var sections: [Section] = []
         var errorMessage: String?
         var applyingId: String?
         /// The song the search was opened for: a pick applies to it.
         var target: PlayableTrack?
     }
 
+    struct Section: Equatable, Identifiable {
+        var provider: String
+        var candidates: [Candidate]
+        var error: String?
+        var id: String { provider }
+        var label: String { LyricsSource.label(provider) }
+    }
+
+    struct Candidate: Equatable, Identifiable {
+        var provider: String
+        var songId: String
+        var title: String
+        var artist: String
+        var id: String { provider + "/" + songId }
+    }
+
     var search = Search()
     @ObservationIgnored private var searchTask: Task<Void, Never>?
-    @ObservationIgnored var lrclib = LrclibClient()
+    @ObservationIgnored var registry: LyricsRegistry { NowPlayingData.shared.registry }
     @ObservationIgnored var gemini: () -> GeminiClient = { GeminiClient() }
 
     private func toast(_ text: String) { PlaylistActions.shared.show(text) }
@@ -74,6 +90,68 @@ final class LyricsActions {
         if LyricsRules.alreadyTargetLanguage(source, target: language) {
             return toast("Lyrics already appear to be \(language)")
         }
+        // Android translateLyricsWithProvider: lyrics from a provider that
+        // carries its own translation (QQ, NetEase) take it from there, the
+        // text refetched with it; failing that, another provider's full set
+        // is offered (never mixed line by line); else Gemini.
+        if let from = NowPlayingData.shared.lyricsSource[k],
+           registry.servesNativeTranslation(providerName: from.provider, targetLanguage: language) {
+            inFlight = .translate
+            Task {
+                if await translateWithProvider(t, from: from, language: language) {
+                    inFlight = nil
+                    return
+                }
+                inFlight = nil
+                translateWithGemini(t, rows: rows, source: source, language: language, settings: settings)
+            }
+            return
+        }
+        translateWithGemini(t, rows: rows, source: source, language: language, settings: settings)
+    }
+
+    /// True when a provider's translation was shown or offered.
+    private func translateWithProvider(_ t: PlayableTrack, from: LyricsSource, language: String) async -> Bool {
+        let k = NowPlayingData.key(t)
+        let registry = registry
+        if let r = try? await registry.fetchTranslation(providerName: from.provider, providerSongId: from.songId,
+                                                       title: t.title, artist: t.artist),
+           !r.translations.isEmpty {
+            NowPlayingData.shared.refreshProviderLyrics(r.lrc, source: LyricsSource(provider: r.providerName,
+                                                                                    songId: r.providerSongId), for: t)
+            show(r, key: k)
+            toast("Lyrics translated")
+            return true
+        }
+        for candidate in registry.translationSwitchCandidates(currentProviderName: from.provider, targetLanguage: language) {
+            guard let r = try? await registry.searchAndFetchWithTranslation(providerName: candidate, title: t.title,
+                                                                            artist: t.artist),
+                  !r.translations.isEmpty else { continue }
+            let label = LyricsSource.label(r.providerName)
+            // Android: a snackbar with Switch; the switched set is the user's choice.
+            PlaylistActions.shared.show("\(label) translation is available",
+                                        action: .init(label: "Switch") { [weak self] in
+                let source = LyricsSource(provider: r.providerName, songId: r.providerSongId)
+                guard NowPlayingData.shared.applyUserLyrics(r.lrc, for: t, source: source) else { return }
+                self?.show(r, key: k)
+                self?.toast("Lyrics translated from \(label)")
+            })
+            return true
+        }
+        return false
+    }
+
+    /// A provider's translation over its own lines (indices into `r.lyrics`).
+    private func show(_ r: LyricsTranslationResult, key: String) {
+        var map: [Int: String] = [:]
+        for (i, text) in r.translations where !text.isEmpty { map[Int(i.int32Value)] = text }
+        translations[key] = map
+        showTranslation[key] = true
+    }
+
+    private func translateWithGemini(_ t: PlayableTrack, rows: [Int], source: [String], language: String,
+                                     settings: GeminiSettings) {
+        let k = NowPlayingData.key(t)
         if let cached = LyricsUserStore.shared.translations(k, language: language, lines: source),
            cached.count == source.count {
             apply(cached.enumerated().reduce(into: [:]) { $0[$1.offset] = $1.element }, rows: rows, key: k)
@@ -123,26 +201,31 @@ final class LyricsActions {
         searchTask?.cancel()
         guard !q.isEmpty else {
             search.loading = false
-            search.results = []
+            search.sections = []
             search.errorMessage = nil
             return
         }
         search.query = q
         search.loading = true
-        search.results = []
-        search.providerError = nil
+        search.sections = []
         search.errorMessage = nil
-        let client = lrclib
+        let registry = registry
         searchTask = Task {
             do {
-                let found = try await client.search(q)
+                let found = try await registry.search(query: q)
                 guard !Task.isCancelled, search.isOpen, search.query == q else { return }
-                search.results = found
+                search.sections = found.map { s in
+                    Section(provider: s.providerName,
+                            candidates: s.candidates.map {
+                                Candidate(provider: $0.providerName, songId: $0.songId, title: $0.title, artist: $0.artist)
+                            },
+                            error: s.errorMessage == nil ? nil : "Couldn't search \(LyricsSource.label(s.providerName))")
+                }
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                search.providerError = "Couldn't search lyrics"
+                search.errorMessage = "Couldn't search lyrics"
             }
             search.loading = false
         }
@@ -157,19 +240,21 @@ final class LyricsActions {
 
     /// Android `applyLyricsSearchResult`: fetch the pick, store it as the
     /// user's, close the search.
-    func applySearchResult(_ match: LrclibClient.Match, for t: PlayableTrack) {
+    func applySearchResult(_ match: Candidate, for t: PlayableTrack) {
         guard search.applyingId == nil, inFlight == nil else { return }
         search.applyingId = match.id
         search.errorMessage = nil
         inFlight = .search
-        let client = lrclib
+        let registry = registry
         Task {
             defer { inFlight = nil }
-            let lrc = try? await client.fetch(id: match.id)
-            if let lrc, NowPlayingData.shared.applyUserLyrics(lrc, for: t) {
+            let hit = try? await registry.fetchSelected(providerName: match.provider, songId: match.songId)
+            let source = LyricsSource(provider: hit?.providerName ?? match.provider,
+                                      songId: hit?.providerSongId ?? match.songId)
+            if let hit, NowPlayingData.shared.applyUserLyrics(hit.lrc, for: t, source: source) {
                 reset(NowPlayingData.key(t))
                 search = Search()
-                toast("Lyrics applied from \(LrclibClient.providerLabel)")
+                toast("Lyrics applied from \(LyricsSource.label(source.provider))")
             } else {
                 search.applyingId = nil
                 search.errorMessage = "Couldn't apply lyrics"

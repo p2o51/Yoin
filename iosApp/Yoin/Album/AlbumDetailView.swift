@@ -242,12 +242,22 @@ struct AlbumDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        // Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): page 2; the
+        // scrapbook takes the request there. The tracks may land after the push.
+        .onChange(of: ScrapbookFocusRequest.shared.pending, initial: true) { _, _ in followScrapFocus() }
+        .onChange(of: album.tracks.map(\.id)) { _, _ in followScrapFocus() }
         .task(id: "\(model.store.generation)|\(routeAlbum.id.rawId)") {
             guard !isMock, playlist == nil else { return }
             await model.store.loadAlbum(routeAlbum.id.rawId)
             // The activity log's visit (Android recordAlbumVisit).
             model.store.recordAlbumVisit(model.store.album(routeAlbum.id.rawId) ?? routeAlbum)
         }
+    }
+
+    private func followScrapFocus() {
+        guard playlist == nil, let request = ScrapbookFocusRequest.shared.pending,
+              album.tracks.contains(where: { $0.id == request.songId }), pageTarget < 1 else { return }
+        settlePage(to: 1, velocity: 0)
     }
 
     /// The album's plays in Yoin (Data/History); nil for the mock and playlists.
@@ -380,17 +390,22 @@ struct AlbumDetailView: View {
                 .padding(.trailing, (Tokens.detail.ALBUM_STAMP.cg + Tokens.detail.ALBUM_BAR_TITLE_GAP.cg
                                      + (playlist != nil ? Tokens.detail.PLAYLIST_MENU_GAP.cg : 0)) * smooth(p))
                 Spacer(minLength: 0)
-                if let playlist, model.store.isReal ? PlaylistActions.shared.canEdit(playlist, store: model.store) : true {
+                let editable = playlist.map { model.store.isReal ? PlaylistActions.shared.canEdit($0, store: model.store) : true } ?? false
+                if let playlist, editable || model.detailOfflineCollection != nil {
                     // ⋮: Cloud backup (mock only: no Drive backup on iOS yet), then Rename and
                     // Delete when the user can write it (Android canWrite; followed playlists
                     // and Apple Music show no ⋮).
                     Menu {
                         if !model.store.isReal { Button("Cloud backup") {} }
-                        Button { PlaylistActions.shared.renaming = playlist } label: {
-                            Label { Text("Rename") } icon: { Image("yoin.edit") }
-                        }
-                        Button(role: .destructive) { PlaylistActions.shared.deleting = playlist } label: {
-                            Label { Text("Delete") } icon: { Image("yoin.delete") }
+                        if let c = model.detailOfflineCollection { OfflineMenuButton(collection: c) }
+                        // A followed playlist can still be downloaded, not renamed or deleted.
+                        if editable {
+                            Button { PlaylistActions.shared.renaming = playlist } label: {
+                                Label { Text("Rename") } icon: { Image("yoin.edit") }
+                            }
+                            Button(role: .destructive) { PlaylistActions.shared.deleting = playlist } label: {
+                                Label { Text("Delete") } icon: { Image("yoin.delete") }
+                            }
                         }
                     } label: {
                         YoinIcon("more_vertical", size: 22)

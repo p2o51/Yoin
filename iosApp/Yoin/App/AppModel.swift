@@ -136,6 +136,9 @@ final class AppModel {
         }
         #endif
         self.mockPlayback = mock
+        #if DEBUG
+        SongAboutDemo.launch(album: mock.album, track: mock.track)
+        #endif
         self.playbackSystem = PlaybackSystem.live()
         let sources = SourceSelection(subsonicSignedIn: session.isSignedIn)
         self.sources = sources
@@ -212,6 +215,14 @@ final class AppModel {
         session.onAccountReplaced = { [weak engine] in
             if sources.active == .subsonic { engine?.stop() }
         }
+        // Offline downloads are signed by the signed-in account only when they open.
+        OfflineDownloads.shared.sign = { [weak session] id, quality in
+            guard let client = session?.client else { return nil }
+            let kbps = quality.maxBitRateKbps.map { KotlinInt(int: Int32($0)) }
+            return URL(string: client.streamUrl(id: id, maxBitRate: kbps,
+                                                format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
+        }
+        OfflineDownloads.shared.pump()
         player.onScrobble = { [weak engine] track, submission in
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts.
@@ -254,6 +265,14 @@ final class AppModel {
                 if d.bool(forKey: "serverOpenNowPlaying") {
                     try? await Task.sleep(for: .seconds(1))
                     setNowPlaying(expanded: true)
+                }
+                // `-serverSeekFromEnd 14`: near the song's end, for the lyric outro.
+                let fromEnd = d.double(forKey: "serverSeekFromEnd")
+                if fromEnd > 0 {
+                    for _ in 0..<40 where player.progress.durationSec <= 0 { try? await Task.sleep(for: .milliseconds(250)) }
+                    try? await Task.sleep(for: .seconds(1))
+                    let d = player.progress.durationSec > 0 ? player.progress.durationSec : player.currentTrack?.durationSec ?? 0
+                    player.seek(to: max(0, d - fromEnd))
                 }
             }
             guard let route else { return }

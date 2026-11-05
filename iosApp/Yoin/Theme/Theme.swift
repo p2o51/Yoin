@@ -38,6 +38,15 @@ enum Yoin {
             : .spring(response: 0.35, dampingFraction: 1)).speed(LaunchConfig.animationSpeed)
     }
 
+    /// MD3 Expressive slow springs (Android slowSpatialSpec / slowEffectsSpec):
+    /// the lyric outro's held line and the next song rising into place.
+    @MainActor static var slowSpatial: Animation {
+        shared(Tokens.motion.expressiveSlowSpatial).speed(LaunchConfig.animationSpeed)
+    }
+    @MainActor static var slowEffects: Animation {
+        shared(Tokens.motion.expressiveSlowEffects).speed(LaunchConfig.animationSpeed)
+    }
+
     /// M3 Standard motion scheme's fast / default spatial springs (Android
     /// YoinMotionRole.Standard: damping 0.9 at stiffness 1400 / 700). The
     /// transport's PLAY ⇄ PAUSE pill and its press run on these.

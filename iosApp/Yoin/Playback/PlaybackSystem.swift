@@ -40,6 +40,7 @@ final class PlaybackSystem {
         conditions.onNetworkChange = { [weak engine = system.engine] in engine?.streamQualityDidChange() }
         conditions.start()
         system.engine.isStoredWhole = { AudioCache.shared.isComplete(url: $0) }
+        system.engine.downloadedFile = { OfflineDownloads.shared.localFile(for: $0) }
         AudioCache.shared.warmUp()
         system.appleOutput = apple
         return system

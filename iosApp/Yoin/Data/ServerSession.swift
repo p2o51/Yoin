@@ -208,7 +208,11 @@ final class AccountScope {
 
     /// The signed-in Subsonic account's scope; nil signed out.
     var subsonic: String? {
-        didSet { if let subsonic { adoptLegacyIfNeeded(subsonic) } }
+        didSet {
+            if let subsonic { adoptLegacyIfNeeded(subsonic) }
+            // That account's downloads run (another account's wait).
+            if subsonic != oldValue { OfflineDownloads.shared.accountChanged() }
+        }
     }
 
     static func subsonicScope(_ a: ServerSession.Account) -> String { "\(a.baseUrl)|\(a.username)" }

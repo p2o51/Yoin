@@ -69,10 +69,30 @@ struct LrclibClient: Sendable {
 
 // MARK: - The user's lyrics and translations, on disk
 
+/// Where a song's lyrics came from: a lyrics provider ("qq", "netease",
+/// "huawei", "lrclib") and its song id, or the server ("subsonic").
+struct LyricsSource: Codable, Equatable, Hashable, Sendable {
+    var provider: String
+    var songId: String
+
+    static let server = "subsonic"
+
+    /// Android `toLyricsProviderLabel`.
+    static func label(_ provider: String) -> String {
+        switch provider {
+        case "qq": "QQ Music"
+        case "netease": "NetEase"
+        case "huawei": "Huawei Music"
+        case "lrclib": "LRCLIB"
+        default: provider
+        }
+    }
+}
+
 /// Lyrics the user chose (search result or the editor) win over the server's
 /// on every later load (Android `userChosen` lyrics_cache rows), and Gemini
 /// translations are kept per song, language and source text (Android
-/// `lyrics_translation_cache`).
+/// `lyrics_translation_cache`). A provider's own hit is kept 30 days.
 @MainActor
 final class LyricsUserStore {
     static let shared = LyricsUserStore(fileURL: LyricsUserStore.defaultURL)
@@ -82,7 +102,21 @@ final class LyricsUserStore {
         var chosen: [String: String] = [:]
         /// "trackKey|language|hash" → one translation per source line ("" = none).
         var translations: [String: [String]] = [:]
+        /// Track key → where the chosen lyrics came from (nil for the editor's).
+        var chosenSource: [String: LyricsSource]? = nil
+        /// Lyrics a provider found on its own (Android's lyrics cache, not user-chosen):
+        /// used for `autoDays`, then looked up again.
+        var auto: [String: AutoLyrics]? = nil
     }
+
+    struct AutoLyrics: Codable, Equatable {
+        var lrc: String
+        var source: LyricsSource
+        var savedAt: Date
+    }
+
+    /// Android LyricsCachePolicy: an automatic hit is kept 30 days.
+    static let autoDays: TimeInterval = 30 * 24 * 3600
 
     private(set) var snapshot = Snapshot()
     private let fileURL: URL
@@ -100,9 +134,26 @@ final class LyricsUserStore {
     }
 
     func chosen(_ key: String) -> String? { snapshot.chosen[key] }
+    func chosenSource(_ key: String) -> LyricsSource? { snapshot.chosenSource?[key] }
 
-    func choose(_ lrc: String, for key: String) {
+    /// The provider's own hit for [key], while it is fresh.
+    func auto(_ key: String, now: Date = .now) -> AutoLyrics? {
+        guard let a = snapshot.auto?[key], now.timeIntervalSince(a.savedAt) < Self.autoDays else { return nil }
+        return a
+    }
+
+    func saveAuto(_ lrc: String, source: LyricsSource, for key: String, now: Date = .now) {
+        var all = snapshot.auto ?? [:]
+        all[key] = AutoLyrics(lrc: lrc, source: source, savedAt: now)
+        snapshot.auto = all
+        persist()
+    }
+
+    func choose(_ lrc: String, for key: String, source: LyricsSource? = nil) {
         snapshot.chosen[key] = lrc
+        var sources = snapshot.chosenSource ?? [:]
+        sources[key] = source
+        snapshot.chosenSource = sources
         // A new text makes the old translations stale.
         snapshot.translations = snapshot.translations.filter { !$0.key.hasPrefix(key + "|") }
         persist()

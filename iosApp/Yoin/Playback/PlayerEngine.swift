@@ -76,6 +76,9 @@ final class PlayerEngine {
     /// The whole stream behind a URL is in the audio cache (Data/Cache): a
     /// stored transcode seeks in its own bytes instead of reopening at `timeOffset`.
     @ObservationIgnored var isStoredWhole: (URL) -> Bool = { _ in false }
+    /// The downloaded file a stream url plays when the song is whole on the
+    /// device (OfflineDownloads): played from disk whatever the stream quality.
+    @ObservationIgnored var downloadedFile: (URL) -> URL? = { _ in nil }
     /// The Subsonic server takes `timeOffset` on `stream` (OpenSubsonic `transcodeOffset`).
     @ObservationIgnored var timeOffsetSupported: () -> Bool = { false }
 
@@ -370,6 +373,13 @@ final class PlayerEngine {
         }
     }
 
+    /// The song auto-advance plays next (nil on repeat-one, which plays the
+    /// same song again, and at the end of a queue that doesn't repeat).
+    var upNextTrack: PlayableTrack? {
+        guard repeatMode != .one, let i = autoAdvanceIndex, i != currentIndex, queue.indices.contains(i) else { return nil }
+        return queue[i].track
+    }
+
     /// Plays the failed song again from where it stopped (Retry; play does the same).
     func retry() {
         guard failure != nil, currentIndex != nil else { return }
@@ -432,6 +442,11 @@ final class PlayerEngine {
 
     private func delivery(for item: QueueItem) -> StreamDelivery {
         if let pinned = deliveries[item.id] { return pinned }
+        // A downloaded song plays its file: no transcode, it seeks by byte.
+        if downloadedFile(item.track.streamURL) != nil {
+            deliveries[item.id] = .original
+            return .original
+        }
         var planned = StreamDelivery.plan(streamQuality(), track: item.track, timeOffset: timeOffsetSupported())
         if planned.seeksByTime, isStoredWhole(SubsonicStreamURLs.url(item.track.streamURL, delivery: planned)) {
             planned.seeksByTime = false
@@ -441,6 +456,7 @@ final class PlayerEngine {
     }
 
     private func streamURL(for item: QueueItem, timeOffsetSec: Int = 0) -> URL {
+        if let file = downloadedFile(item.track.streamURL) { return file }
         let delivery = delivery(for: item)
         guard delivery.transcoded else { return item.track.streamURL }
         return SubsonicStreamURLs.url(item.track.streamURL, delivery: delivery, timeOffsetSec: timeOffsetSec)

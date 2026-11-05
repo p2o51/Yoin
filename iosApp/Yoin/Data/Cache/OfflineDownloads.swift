@@ -1,0 +1,496 @@
+import CryptoKit
+import Foundation
+import Observation
+import os
+import SwiftUI
+import YoinShared
+
+/// Offline downloads (Android PR #131, `data/offline`): a song, an album or a
+/// playlist kept on the device until the listener removes it, played with no
+/// network. Subsonic only: Apple Music doesn't let an app store its songs.
+///
+/// What Android keeps in OfflineModel, on the same rules:
+/// - A song is stored under the key of its plain stream url
+///   (SubsonicCacheKey, no transcode, no credential): found whatever the
+///   streaming quality is now, never shared between two accounts.
+/// - The index holds no token and no signed url: a queued song is signed only
+///   when its download opens, by the signed-in account's client.
+/// - Each song lists every album, playlist or lone-song download that holds
+///   it; it goes when the last of them is removed.
+/// - Settings › Downloads: quality 320 by default, nothing over mobile data
+///   until the listener allows it (Spotify's defaults).
+/// - One account's downloads are invisible to another, and wait while it is
+///   signed in.
+@MainActor
+@Observable
+final class OfflineDownloads {
+    static let shared = OfflineDownloads()
+
+    enum Quality: String, CaseIterable, Codable, Sendable {
+        case original, kbps320 = "320", kbps192 = "192", kbps128 = "128"
+
+        var maxBitRateKbps: Int? {
+            switch self {
+            case .original: nil
+            case .kbps320: 320
+            case .kbps192: 192
+            case .kbps128: 128
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .original: "Original"
+            case .kbps320: "320 kbps"
+            case .kbps192: "192 kbps"
+            case .kbps128: "128 kbps"
+            }
+        }
+
+        static let `default` = Quality.kbps320
+    }
+
+    struct Collection: Codable, Hashable, Sendable {
+        enum Kind: String, Codable, Sendable { case album, playlist, song }
+        var kind: Kind
+        /// The album's or playlist's raw id; the song's own for `.song`.
+        var id: String
+        var title: String
+        var subtitle: String?
+        /// The server's cover id (rebuilt into a url by the signed-in client).
+        var coverId: String?
+
+        /// One entry per album, playlist or lone song (Android `OfflineCollection.key`).
+        var key: String { "\(kind.rawValue):\(id)" }
+    }
+
+    struct Song: Codable, Hashable, Sendable {
+        enum State: String, Codable, Sendable { case queued, downloading, done, failed }
+        /// SubsonicCacheKey of the plain stream url.
+        var key: String
+        /// The account it was downloaded under (AccountScope "baseUrl|user").
+        var scope: String
+        var songId: String
+        var title: String
+        var artist: String
+        var album: String
+        var albumId: String?
+        var durationSec: Int
+        var quality: Quality
+        var collections: [Collection]
+        var state: State = .queued
+        var bytes: Int64 = 0
+        /// The file's name in the downloads folder, once whole.
+        var file: String?
+        /// Addition order, for listing newest first.
+        var order: Int = 0
+    }
+
+    /// What a page's Download row shows (Android `OfflineStatus`).
+    enum Status: Equatable {
+        case none
+        case downloading(done: Int, total: Int)
+        case downloaded
+        case failed
+    }
+
+    /// An album, playlist or lone song as the listener downloaded it.
+    struct Entry: Identifiable, Equatable {
+        var collection: Collection
+        var total: Int
+        var done: Int
+        var failed: Int
+        var bytes: Int64
+        var order: Int
+        var id: String { collection.key }
+
+        var status: Status {
+            if total > 0 && done == total { return .downloaded }
+            if failed > 0 && done + failed == total { return .failed }
+            return .downloading(done: done, total: total)
+        }
+    }
+
+    // MARK: Settings
+
+    var quality: Quality {
+        didSet { defaults.set(quality.rawValue, forKey: Self.qualityKey) }
+    }
+    /// Download using mobile data (off: downloads wait for Wi‑Fi).
+    var overMobileData: Bool {
+        didSet {
+            defaults.set(overMobileData, forKey: Self.mobileKey)
+            restartSession()
+        }
+    }
+
+    // MARK: State
+
+    private(set) var songs: [Song] = []
+    /// The account whose downloads are shown and run (nil signed out).
+    @ObservationIgnored var scope: () -> String? = { AccountScope.shared.subsonic }
+    /// Signs a song's stream url for the signed-in account; nil when there is no client.
+    @ObservationIgnored var sign: (_ songId: String, _ quality: Quality) -> URL? = { _, _ in nil }
+
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let directory: URL
+    @ObservationIgnored private var session: URLSession
+    @ObservationIgnored private var running: (key: String, task: Task<Void, Never>)?
+    @ObservationIgnored private var nextOrder = 0
+    @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "offline")
+
+    static let qualityKey = "downloadQuality"
+    static let mobileKey = "downloadOverMobileData"
+
+    init(defaults: UserDefaults = .standard, directory: URL? = nil) {
+        self.defaults = defaults
+        quality = Quality(rawValue: defaults.string(forKey: Self.qualityKey) ?? "") ?? .default
+        overMobileData = defaults.bool(forKey: Self.mobileKey)
+        let base = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("YoinOffline", isDirectory: true)
+        self.directory = base
+        session = Self.makeSession(overMobileData: defaults.bool(forKey: Self.mobileKey))
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        var url = base
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? url.setResourceValues(values)
+        load()
+    }
+
+    // MARK: Reading
+
+    /// This account's songs.
+    var visible: [Song] {
+        guard let s = scope() else { return [] }
+        return songs.filter { $0.scope == s }
+    }
+
+    /// Newest first.
+    var entries: [Entry] {
+        var grouped: [String: (Collection, [Song])] = [:]
+        for song in visible {
+            for c in song.collections {
+                grouped[c.key, default: (c, [])].1.append(song)
+                grouped[c.key]?.0 = c
+            }
+        }
+        return grouped.values.map { c, members in
+            Entry(collection: c, total: members.count,
+                  done: members.filter { $0.state == .done }.count,
+                  failed: members.filter { $0.state == .failed }.count,
+                  bytes: members.reduce(0) { $0 + $1.bytes },
+                  order: members.map(\.order).max() ?? 0)
+        }
+        .sorted { $0.order > $1.order }
+    }
+
+    /// Bytes on disk for this account's downloads.
+    var bytes: Int64 { visible.reduce(0) { $0 + $1.bytes } }
+
+    func status(_ collectionKey: String) -> Status {
+        entries.first { $0.collection.key == collectionKey }?.status ?? .none
+    }
+
+    static func albumKey(_ rawId: String) -> String { "album:\(rawId)" }
+    static func playlistKey(_ rawId: String) -> String { "playlist:\(rawId)" }
+    static func songKey(_ rawId: String) -> String { "song:\(rawId)" }
+
+    /// The downloaded file a signed stream [url] plays, when it is whole on
+    /// the device; nil to stream (a part-downloaded song never mixes its
+    /// bytes with another encoding).
+    func localFile(for url: URL) -> URL? {
+        guard SubsonicStreamURLs.isStream(url),
+              let key = SubsonicCacheKey.of(SubsonicStreamURLs.url(url, delivery: .original)),
+              let song = songs.first(where: { $0.key == key && $0.state == .done }),
+              let file = song.file else { return nil }
+        let f = directory.appendingPathComponent(file)
+        return FileManager.default.fileExists(atPath: f.path) ? f : nil
+    }
+
+    /// Whether this account's song [songId] is whole on the device.
+    func isDownloaded(songId: String) -> Bool {
+        visible.contains { $0.songId == songId && $0.state == .done }
+    }
+
+    // MARK: Writing
+
+    /// Keeps [entries] on the device under [collection]. Songs another
+    /// download already holds are only added to it.
+    func download(_ collection: Collection, entries: [PlaylistEntry], keyOf: (PlaylistEntry) -> String?) {
+        guard let s = scope() else { return }
+        for e in entries where e.track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC {
+            guard let key = keyOf(e) else { continue }
+            if let i = songs.firstIndex(where: { $0.key == key }) {
+                songs[i].collections.removeAll { $0.key == collection.key }
+                songs[i].collections.append(collection)
+                if songs[i].state == .failed { songs[i].state = .queued }
+                continue
+            }
+            nextOrder += 1
+            songs.append(Song(key: key, scope: s, songId: e.track.id.rawId, title: e.track.title,
+                              artist: e.track.artist ?? e.album.artist, album: e.album.title,
+                              albumId: e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId,
+                              durationSec: e.track.durationSec, quality: quality,
+                              collections: [collection], order: nextOrder))
+        }
+        save()
+        pump()
+    }
+
+    /// Drops [collectionKey]: its songs go unless another download holds them.
+    func remove(_ collectionKey: String) {
+        guard let s = scope() else { return }
+        var gone: [Song] = []
+        songs = songs.compactMap { song in
+            guard song.scope == s, song.collections.contains(where: { $0.key == collectionKey }) else { return song }
+            var next = song
+            next.collections.removeAll { $0.key == collectionKey }
+            if next.collections.isEmpty {
+                gone.append(song)
+                return nil
+            }
+            return next
+        }
+        for song in gone { deleteFile(song) }
+        if let r = running, gone.contains(where: { $0.key == r.key }) { r.task.cancel() }
+        save()
+        pump()
+    }
+
+    /// Settings › Downloads › Remove all: this account's downloads.
+    func removeAll() {
+        guard let s = scope() else { return }
+        let gone = songs.filter { $0.scope == s }
+        songs.removeAll { $0.scope == s }
+        for song in gone { deleteFile(song) }
+        if let r = running, gone.contains(where: { $0.key == r.key }) { r.task.cancel() }
+        save()
+    }
+
+    /// Starts the next waiting song of the signed-in account (one at a time).
+    func pump() {
+        guard running == nil, let s = scope(),
+              let next = songs.first(where: { $0.scope == s && ($0.state == .queued || $0.state == .downloading) }),
+              let url = sign(next.songId, next.quality) else { return }
+        let key = next.key
+        set(key) { $0.state = .downloading }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.fetch(url, key: key)
+            self.finish(key, result)
+        }
+        running = (key, task)
+    }
+
+    /// The account changed (sign-in, sign-out, another server): its own downloads run.
+    func accountChanged() {
+        running?.task.cancel()
+        running = nil
+        for i in songs.indices where songs[i].state == .downloading { songs[i].state = .queued }
+        pump()
+    }
+
+    // MARK: Downloading
+
+    private enum Fetched {
+        case file(URL, bytes: Int64)
+        case failed
+        case cancelled
+    }
+
+    private func fetch(_ url: URL, key: String) async -> Fetched {
+        do {
+            let (temp, response) = try await session.download(from: url)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                try? FileManager.default.removeItem(at: temp)
+                return .failed
+            }
+            // A Subsonic error comes back as a 200 with an XML / JSON body.
+            let type = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+            if type.contains("xml") || type.contains("json") || type.hasPrefix("text/") {
+                try? FileManager.default.removeItem(at: temp)
+                return .failed
+            }
+            let name = Self.fileName(key) + "." + Self.fileExtension(type)
+            let dest = directory.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: temp, to: dest)
+            let size = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int64) ?? 0
+            return .file(dest, bytes: size ?? 0)
+        } catch is CancellationError {
+            return .cancelled
+        } catch let e as URLError where e.code == .cancelled {
+            return .cancelled
+        } catch {
+            log.error("download failed: \(error.localizedDescription, privacy: .public)")
+            return .failed
+        }
+    }
+
+    private func finish(_ key: String, _ result: Fetched) {
+        running = nil
+        switch result {
+        case .file(let f, let size):
+            if songs.contains(where: { $0.key == key }) {
+                set(key) {
+                    $0.state = .done
+                    $0.file = f.lastPathComponent
+                    $0.bytes = size
+                }
+            } else {
+                // Removed while it downloaded.
+                try? FileManager.default.removeItem(at: f)
+            }
+        case .failed:
+            set(key) { $0.state = .failed }
+        case .cancelled:
+            set(key) { $0.state = .queued }
+        }
+        save()
+        pump()
+    }
+
+    private func set(_ key: String, _ change: (inout Song) -> Void) {
+        guard let i = songs.firstIndex(where: { $0.key == key }) else { return }
+        change(&songs[i])
+    }
+
+    private func deleteFile(_ song: Song) {
+        guard let file = song.file else { return }
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(file))
+    }
+
+    private func restartSession() {
+        session.invalidateAndCancel()
+        session = Self.makeSession(overMobileData: overMobileData)
+        accountChanged()
+    }
+
+    /// Off mobile data unless allowed: an expensive (cellular, hotspot) or
+    /// Low Data path waits for Wi‑Fi instead of failing.
+    private static func makeSession(overMobileData: Bool) -> URLSession {
+        let c = URLSessionConfiguration.default
+        c.allowsExpensiveNetworkAccess = overMobileData
+        c.allowsConstrainedNetworkAccess = overMobileData
+        c.waitsForConnectivity = true
+        c.timeoutIntervalForResource = 60 * 60
+        return URLSession(configuration: c)
+    }
+
+    static func fileName(_ key: String) -> String {
+        SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func fileExtension(_ contentType: String) -> String {
+        if contentType.contains("mpeg") || contentType.contains("mp3") { return "mp3" }
+        if contentType.contains("flac") { return "flac" }
+        if contentType.contains("mp4") || contentType.contains("m4a") || contentType.contains("aac") { return "m4a" }
+        if contentType.contains("ogg") { return "ogg" }
+        if contentType.contains("wav") { return "wav" }
+        return "audio"
+    }
+
+    // MARK: Index
+
+    private var indexURL: URL { directory.appendingPathComponent("index.json") }
+
+    private func load() {
+        guard let data = try? Data(contentsOf: indexURL),
+              let saved = try? JSONDecoder().decode([Song].self, from: data) else { return }
+        // A download cut off by the app quitting starts again.
+        songs = saved.map { var s = $0; if s.state == .downloading { s.state = .queued }; return s }
+        nextOrder = songs.map(\.order).max() ?? 0
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(songs) else { return }
+        try? data.write(to: indexURL, options: .atomic)
+    }
+}
+
+// MARK: - Download rows (Android OfflineToggle)
+
+extension AppModel {
+    /// The download the visible album or playlist page is held under (nil
+    /// on other pages, signed out, or off Subsonic).
+    var detailOfflineCollection: OfflineDownloads.Collection? {
+        guard store.isReal, store.client != nil else { return nil }
+        switch path.last {
+        case .album(let a) where a.id.provider == MediaRef.companion.PROVIDER_SUBSONIC:
+            return .init(kind: .album, id: a.id.rawId, title: a.title, subtitle: a.artist,
+                         coverId: OfflineDownloads.coverId(a.palette.cover))
+        case .playlist(let id):
+            let p = playlistInfo(id)
+            guard p.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return nil }
+            return .init(kind: .playlist, id: id, title: p.title, subtitle: p.owner,
+                         coverId: OfflineDownloads.coverId(p.palette.cover))
+        default:
+            return nil
+        }
+    }
+
+    /// Starts downloading [entries] under [collection] (keys from the signed-in client).
+    func download(_ collection: OfflineDownloads.Collection, _ entries: [PlaylistEntry]) {
+        OfflineDownloads.shared.download(collection, entries: entries) { e in
+            store.playable(e).flatMap { SubsonicCacheKey.of($0.streamURL) }
+        }
+    }
+}
+
+extension OfflineDownloads {
+    /// The cover's server id (its url is signed, so never stored).
+    static func coverId(_ cover: CoverRef?) -> String? {
+        cover.flatMap { URLComponents(url: $0.url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first { $0.name == "id" }?.value }
+    }
+
+    /// The row's words for [status] (Android strings_offline): Download, Downloading n/m
+    /// (a tap cancels), Remove download; a failed one offers to try again.
+    static func rowLabel(_ status: Status) -> String {
+        switch status {
+        case .none: "Download"
+        case .downloading(let done, let total): "Downloading \(done)/\(total)"
+        case .downloaded: "Remove download"
+        case .failed: "Download again"
+        }
+    }
+
+    static func rowIcon(_ status: Status) -> String {
+        switch status {
+        case .none, .failed: "download"
+        case .downloading: "close"
+        case .downloaded: "delete"
+        }
+    }
+
+    /// The row's tap for [status].
+    func rowTapped(_ status: Status, key: String, start: () -> Void) {
+        switch status {
+        case .none: start()
+        case .failed:
+            remove(key)
+            start()
+        case .downloading, .downloaded: remove(key)
+        }
+    }
+}
+
+/// The Download row in an album's ▾ or a playlist's ⋮ menu.
+struct OfflineMenuButton: View {
+    @Environment(AppModel.self) private var model
+    var collection: OfflineDownloads.Collection
+
+    var body: some View {
+        let offline = OfflineDownloads.shared
+        let status = offline.status(collection.key)
+        Button {
+            offline.rowTapped(status, key: collection.key) {
+                let c = collection
+                Task { model.download(c, await model.detailEntries()) }
+            }
+        } label: {
+            Label { Text(OfflineDownloads.rowLabel(status)) } icon: { Image("yoin." + OfflineDownloads.rowIcon(status)) }
+        }
+    }
+}
