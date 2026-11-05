@@ -30,9 +30,12 @@ struct MacMenuBarCard: View {
             }
             CardProgress()
             HStack(spacing: 10) {
-                control("skip_previous_filled", prominent: false) { p.previous() }
-                control(p.isPlaying ? "pause_filled" : "play_filled", prominent: true) { p.togglePlayPause() }
-                control("skip_next_filled", prominent: false) { p.next() }
+                Group {
+                    control("skip_previous_filled", prominent: false) { p.previous() }
+                    control(p.isPlaying ? "pause_filled" : "play_filled", prominent: true) { p.togglePlayPause() }
+                    control("skip_next_filled", prominent: false) { p.next() }
+                }
+                .disabled(p.currentTrack == nil)
                 Spacer(minLength: 0)
                 Button("Open Yoin") {
                     openWindow(id: "main")
@@ -42,7 +45,6 @@ struct MacMenuBarCard: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(tint.primary)
             }
-            .disabled(p.currentTrack == nil)
         }
         .padding(14)
         .frame(width: 300)

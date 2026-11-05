@@ -70,7 +70,9 @@ final class MacModel {
     var detail: Detail? { details.last }
     var contentWidth: CGFloat { windowWidth - (npMode == .panel ? Self.panelWidth : 0) }
     /// A detail page sits beside the root as a column (else it is pushed full width).
-    var detailAsColumn: Bool { detail != nil && contentWidth >= Self.columnsMinWidth }
+    var detailAsColumn: Bool {
+        detail != nil && contentWidth >= (npMode == .panel ? Self.minColumnsBesidePanel : Self.columnsMinWidth)
+    }
 
     func open(_ d: Detail) {
         panelSqueezedToFull = false
@@ -195,14 +197,22 @@ final class MacModel {
         if let t = library.playable(e) { player.addToQueue(t) }
     }
 
+    /// Play / Shuffle keep the listener's play mode (docs/design.md): Shuffle plays the album in a random
+    /// order. Only the newest request plays, and only for the account it was made in.
     func play(album: Album, shuffle: Bool = false, startAt: Int = 0) {
+        playRequest += 1
+        let token = playRequest
+        let gen = library.accountGeneration
         Task {
             let full = await library.fullAlbum(album)
-            let entries = full.tracks.map { PlaylistEntry(album: full, track: $0) }
-            if player.shuffle != shuffle { player.setShuffle(shuffle) }
-            play(entries, startAt: startAt)
+            guard token == playRequest, gen == library.accountGeneration else { return }
+            var entries = full.tracks.map { PlaylistEntry(album: full, track: $0) }
+            if shuffle { entries.shuffle() }
+            play(entries, startAt: shuffle ? 0 : startAt)
         }
     }
+
+    @ObservationIgnored private var playRequest = 0
 
     /// Empties what's after the current song.
     func clearUpcoming() {
@@ -212,8 +222,10 @@ final class MacModel {
 
     /// An album's songs after the current one (in order) or at the end of the queue.
     func queue(album: Album, next: Bool) {
+        let gen = library.accountGeneration
         Task {
             let full = await library.fullAlbum(album)
+            guard gen == library.accountGeneration else { return }
             let entries = full.tracks.map { PlaylistEntry(album: full, track: $0) }
             if player.currentTrack == nil { play(entries); return }
             if next {
@@ -244,8 +256,10 @@ final class MacModel {
     }
 
     func signedOut() {
+        playRequest += 1
         player.stop()
         library.reset()
+        lyrics.reset()
         details = []
         npMode = .closed
         focus = false

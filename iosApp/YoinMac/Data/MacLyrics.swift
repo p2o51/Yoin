@@ -25,6 +25,14 @@ final class MacLyrics {
     @ObservationIgnored private let registry = LyricsRegistry()
     @ObservationIgnored private var cache: [String: State] = [:]
 
+    /// Another account: its songs share ids with nothing here.
+    func reset() {
+        task?.cancel()
+        cache = [:]
+        songId = nil
+        state = .idle
+    }
+
     func load(_ track: PlayableTrack?, client: SubsonicClient?) {
         guard track?.id != songId else { return }
         task?.cancel()

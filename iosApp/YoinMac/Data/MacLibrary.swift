@@ -40,6 +40,7 @@ final class MacLibrary {
 
     @ObservationIgnored private let session: MacSession
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var inflight: [String: Task<Void, Never>] = [:]
     private static let log = Logger(subsystem: "com.gpo.yoin.mac", category: "library")
 
     init(session: MacSession) {
@@ -54,6 +55,8 @@ final class MacLibrary {
     /// Signed out or a new account: nothing from the old server stays.
     func reset() {
         generation += 1
+        inflight.values.forEach { $0.cancel() }
+        inflight = [:]
         home = Home()
         albums = []
         artists = []
@@ -67,37 +70,52 @@ final class MacLibrary {
 
     // MARK: Loads
 
-    private func run(_ key: String, force: Bool = false, _ body: @escaping @MainActor (SubsonicClient, SubsonicMapping) async throws -> Void) async {
+    /// One load per key at a time: a second caller waits for the one in flight. `body` gets `live`, false once
+    /// the account changed; it checks it right before writing state (a late answer from an old account
+    /// must not land in the new one's library).
+    private func run(_ key: String, force: Bool = false,
+                     _ body: @escaping @MainActor (SubsonicClient, SubsonicMapping, _ live: @escaping @MainActor @Sendable () -> Bool) async throws -> Void) async {
         guard let client, let mapping else { return }
-        if !force, phase(key) == .loading || phase(key) == .loaded { return }
+        if !force, let running = inflight[key] { await running.value; return }
+        if !force, phase(key) == .loaded { return }
         let gen = generation
         phases[key] = .loading
-        do {
-            try await body(client, mapping)
-            guard gen == generation else { return }
-            phases[key] = .loaded
-        } catch {
-            guard gen == generation else { return }
-            let message = MacSession.message(for: error)
-            Self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
-            phases[key] = .failed(message)
+        let task = Task { @MainActor in
+            let live: @MainActor @Sendable () -> Bool = { gen == self.generation }
+            do {
+                try await body(client, mapping, live)
+                guard live() else { return }
+                self.phases[key] = .loaded
+            } catch {
+                guard live() else { return }
+                let message = MacSession.message(for: error)
+                Self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
+                self.phases[key] = .failed(message)
+            }
         }
+        inflight[key] = task
+        await task.value
+        if inflight[key] == task { inflight[key] = nil }
     }
 
+    /// The account's generation: callers that load and then act (play an album) check it is unchanged.
+    var accountGeneration: Int { generation }
+
     func loadHome(force: Bool = false) async {
-        await run("home", force: force) { client, m in
+        await run("home", force: force) { client, m, live in
             async let recent = client.getAlbumList2(type: .recent, size: 16, offset: 0)
             async let newest = client.getAlbumList2(type: .newest, size: 18, offset: 0)
             async let random = client.getAlbumList2(type: .random, size: 18, offset: 0)
             async let randomSongs = client.getRandomSongs(size: 8)
             let (r, n, x, s) = try await (recent, newest, random, randomSongs)
+            guard live() else { return }
             self.home = Home(recentlyPlayed: r.map(m.album), recentlyAdded: n.map(m.album), random: x.map(m.album),
                              randomSongs: s.enumerated().map { m.entry($1, index: $0) })
         }
     }
 
     func loadAlbums(force: Bool = false) async {
-        await run("albums", force: force) { client, m in
+        await run("albums", force: force) { client, m, live in
             var all: [Album] = []
             var offset: Int32 = 0
             while offset < 5000 {
@@ -106,22 +124,25 @@ final class MacLibrary {
                 if page.count < 500 { break }
                 offset += 500
             }
+            guard live() else { return }
             self.albums = all
         }
     }
 
     func loadArtists(force: Bool = false) async {
-        await run("artists", force: force) { client, m in
+        await run("artists", force: force) { client, m, live in
             let index = try await client.getArtists()
+            guard live() else { return }
             self.artists = index.flatMap(\.artists).map(m.artistItem)
         }
     }
 
     func loadSongs(force: Bool = false) async {
-        await run("songs", force: force) { client, m in
+        await run("songs", force: force) { client, m, live in
             // Navidrome / OpenSubsonic answer an empty search3 with the whole library.
             var found = try await client.search3(query: "", artistCount: 0, albumCount: 0, songCount: 500).songs
             if found.isEmpty { found = try await client.getRandomSongs(size: 200) }
+            guard live() else { return }
             self.songs = found.enumerated().map { m.entry($1, index: $0) }
         }
     }
@@ -129,8 +150,8 @@ final class MacLibrary {
     func album(_ id: String) -> Album? { albumDetails[id] }
 
     func loadAlbum(_ id: String, force: Bool = false) async {
-        await run("album:\(id)", force: force) { client, m in
-            guard let a = try await client.getAlbum(id: id) else { return }
+        await run("album:\(id)", force: force) { client, m, live in
+            guard let a = try await client.getAlbum(id: id), live() else { return }
             self.albumDetails[id] = m.album(a)
         }
     }
@@ -138,7 +159,7 @@ final class MacLibrary {
     func artistPage(_ id: String) -> ArtistPage? { artistPages[id] }
 
     func loadArtist(_ id: String, force: Bool = false) async {
-        await run("artist:\(id)", force: force) { client, m in
+        await run("artist:\(id)", force: force) { client, m, live in
             guard let a = try await client.getArtist(id: id) else { return }
             // Most Played needs the songs: the first releases' track lists, at once.
             let ids = a.albums.prefix(8).map(\.id).filter { self.albumDetails[$0] == nil }
@@ -148,6 +169,7 @@ final class MacLibrary {
                 for try await al in group { if let al { out.append(al) } }
                 return out
             }
+            guard live() else { return }
             for info in loaded { self.albumDetails[info.id] = m.album(info) }
             let known = a.albums.compactMap { self.albumDetails[$0.id] }
             self.artistPages[id] = m.artistPage(a, loadedAlbums: known)
@@ -224,10 +246,11 @@ final class MacLibrary {
             Task { try? await client.scrobble(id: track.id, submission: false, timeMs: nil) }
             return
         }
-        var queue = pendingScrobbles
+        let key = pendingKeyForAccount
+        var queue = pending(key)
         queue.append(PendingScrobble(id: track.id, timeMs: Int64(Date().timeIntervalSince1970 * 1000)))
-        pendingScrobbles = Array(queue.suffix(500))
-        flushScrobbles(client)
+        setPending(Array(queue.suffix(500)), key)
+        flushScrobbles(client, key: key)
     }
 
     private struct PendingScrobble: Codable, Equatable {
@@ -238,26 +261,28 @@ final class MacLibrary {
     private static let pendingKey = "pendingScrobbles"
 
     /// Kept per account in the defaults (scope: the server and user).
-    private var pendingScrobbles: [PendingScrobble] {
-        get {
-            guard let d = UserDefaults.standard.data(forKey: pendingKeyForAccount) else { return [] }
-            return (try? JSONDecoder().decode([PendingScrobble].self, from: d)) ?? []
-        }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: pendingKeyForAccount) }
+    private func pending(_ key: String) -> [PendingScrobble] {
+        guard let d = UserDefaults.standard.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([PendingScrobble].self, from: d)) ?? []
+    }
+
+    private func setPending(_ list: [PendingScrobble], _ key: String) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: key)
     }
 
     private var pendingKeyForAccount: String { "\(Self.pendingKey).\(session.accountKey)" }
-    @ObservationIgnored private var flushing = false
+    @ObservationIgnored private var flushing: Set<String> = []
 
-    private func flushScrobbles(_ client: SubsonicClient) {
-        guard !flushing else { return }
-        flushing = true
+    /// Sends the account's waiting plays in order; the account's key is fixed for the whole flush.
+    private func flushScrobbles(_ client: SubsonicClient, key: String) {
+        guard !flushing.contains(key) else { return }
+        flushing.insert(key)
         Task {
-            defer { flushing = false }
-            while let next = pendingScrobbles.first {
+            defer { flushing.remove(key) }
+            while let next = pending(key).first {
                 do {
                     try await client.scrobble(id: next.id, submission: true, timeMs: KotlinLong(value: next.timeMs))
-                    pendingScrobbles.removeAll { $0 == next }
+                    setPending(pending(key).filter { $0 != next }, key)
                 } catch {
                     return
                 }

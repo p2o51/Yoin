@@ -13,14 +13,33 @@ final class MacPlaybackSystem {
     init(player: PlayerEngine) {
         self.player = player
         let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in self?.player.resume(); return .success }
-        center.pauseCommand.addTarget { [weak self] _ in self?.player.pause(); return .success }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.player.togglePlayPause(); return .success }
-        center.nextTrackCommand.addTarget { [weak self] _ in self?.player.next(); return .success }
-        center.previousTrackCommand.addTarget { [weak self] _ in self?.player.previous(); return .success }
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+        // MediaPlayer may call these off the main thread: hop to the player's actor.
+        center.playCommand.addTarget(handler: Self.handler { [weak self] in self?.player.resume() })
+        center.pauseCommand.addTarget(handler: Self.handler { [weak self] in self?.player.pause() })
+        center.togglePlayPauseCommand.addTarget(handler: Self.handler { [weak self] in self?.player.togglePlayPause() })
+        center.nextTrackCommand.addTarget(handler: Self.handler { [weak self] in self?.player.next() })
+        center.previousTrackCommand.addTarget(handler: Self.handler { [weak self] in self?.player.previous() })
+        center.changePlaybackPositionCommand.addTarget(handler: Self.seekHandler { [weak self] sec in
+            self?.player.seek(to: sec)
+        })
+    }
+
+    private nonisolated static func handler(
+        _ action: @escaping @MainActor @Sendable () -> Void
+    ) -> @Sendable (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { _ in
+            Task { @MainActor in action() }
+            return .success
+        }
+    }
+
+    private nonisolated static func seekHandler(
+        _ action: @escaping @MainActor @Sendable (Double) -> Void
+    ) -> @Sendable (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { event in
             guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            self?.player.seek(to: e.positionTime)
+            let sec = e.positionTime
+            Task { @MainActor in action(sec) }
             return .success
         }
     }

@@ -643,7 +643,9 @@ struct MacAboutView: View {
         .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85),
                                      .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
         .task(id: t?.id) {
-            song = await load(t)
+            let result = await load(t)
+            guard !Task.isCancelled, t?.id == model.player.currentTrack?.id else { return }
+            song = result
             loadedFor = t?.id
         }
     }
