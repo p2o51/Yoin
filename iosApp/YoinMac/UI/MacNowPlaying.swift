@@ -241,6 +241,8 @@ struct MacRoom: View {
 
 /// A 64 pt round transport button (solid).
 struct RoundControl: View {
+    /// iOS GlassLab's transportSecondary default tint.
+    static let fill = 0.55
     var icon: String
     var badge: String? = nil
     var dim = false
@@ -252,6 +254,8 @@ struct RoundControl: View {
             YoinIcon(icon, size: 26)
                 .foregroundStyle(Yoin.ink.opacity(dim ? 0.45 : 1))
                 .frame(width: 64, height: 64)
+                // Under the glass, so it stays visibly tinted (macOS glass tints pale, greyer when inactive).
+                .background(Circle().fill(tint.container.opacity(Self.fill)))
                 .overlay(alignment: .topTrailing) {
                     if let badge {
                         Text(badge).font(.gsf(11, .bold)).foregroundStyle(tint.onPrimary)
@@ -469,9 +473,12 @@ private struct LyricsList: View {
                         // iOS LyricLinesView's proportions: regular neighbours, the current line semibold
                         // and ~1.14× larger; row pitch about 2.1× the neighbour size.
                         let lit = on && synced
-                        let size: CGFloat = large ? (lit ? 25 : 22) : (lit ? 17 : 15)
+                        let size: CGFloat = large ? (lit ? 32 : 30) : (lit ? 17 : 15)
                         Text(l.text.isEmpty ? "♪" : l.text)
-                            .modifier(LyricLineFont(size: size, weight: lit || !synced ? .semibold : .regular))
+                            .modifier(LyricLineFont(size: size, weight: lit || !synced ? .semibold : (large ? .medium : .regular)))
+                            // Full window: every line nearly one size, wrapping in the column (Apple Music's scale).
+                            .lineSpacing(large ? size * 0.15 : 0)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundStyle(on ? tint.primary : (synced ? Yoin.ink3 : Yoin.ink))
                             .opacity(model.focus && !on && synced ? 0.35 : 1)
                             .padding(.vertical, large ? 9 : 5)
@@ -485,7 +492,7 @@ private struct LyricsList: View {
                 }
             }
             .scrollIndicators(.never)
-            .mask { LyricsWindowMask(clear: clear, under: under) }
+            .mask { LyricsWindowMask(clear: clear, under: under, scale: (large ? 30 : 15) / 14) }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { total = $0 }
             .onChange(of: current, initial: true) { _, i in
                 guard i >= 0 else { return }
@@ -508,26 +515,28 @@ private struct LyricsList: View {
 private struct LyricsWindowMask: View {
     var clear: CGFloat
     var under: CGFloat
+    /// iOS's distances are for 14 pt lines; they grow with the Mac's neighbour-line size.
+    var scale: CGFloat
     /// iOS World preset's lyricsUnder.
     static let underStrength = 0.55
 
     var body: some View {
         if under <= 0 {
             VStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 16)
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 16 * scale)
                 Color.black
-                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 64)
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 64 * scale)
             }
         } else {
             let total = max(clear + under, 1)
             let u = Self.underStrength
             LinearGradient(stops: [
                 .init(color: .clear, location: 0),
-                .init(color: .black, location: min(0.12, 16 / total)),
-                .init(color: .black, location: max(0, clear - 24) / total),
+                .init(color: .black, location: min(0.12, 16 * scale / total)),
+                .init(color: .black, location: max(0, clear - 24 * scale) / total),
                 .init(color: .black.opacity(min(1, u / 0.7)), location: clear / total),
-                .init(color: .black.opacity(u), location: min(1, (clear + 56) / total)),
-                .init(color: .clear, location: min(1, (clear + 100) / total)),
+                .init(color: .black.opacity(u), location: min(1, (clear + 56 * scale) / total)),
+                .init(color: .clear, location: min(1, (clear + 100 * scale) / total)),
             ], startPoint: .top, endPoint: .bottom)
         }
     }
