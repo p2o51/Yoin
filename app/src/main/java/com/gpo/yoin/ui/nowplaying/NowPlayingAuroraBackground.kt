@@ -346,6 +346,7 @@ fun Modifier.nowPlayingAuroraBackground(
     coverField: CoverField? = null,
     focusProgress: () -> Float = { 0f },
     darkRoom: RoomPalette? = null,
+    keyHintActive: Boolean = false,
 ): Modifier {
     val isDark = baseBottom.luminance() < 0.5f
     val primary = accentColors.getOrElse(0) { baseTop }
@@ -359,7 +360,15 @@ fun Modifier.nowPlayingAuroraBackground(
         animationSpec = YoinMotion.slowEffectsSpec(role = YoinMotionRole.Expressive),
         label = "auroraActiveFraction",
     )
-    val auroraVisible = auroraActive || activeFraction > 0.01f
+    // Gemini not set up yet: the same wash, held to one soft pink (a gentle
+    // warning, not an alarm) while the hint is up.
+    val keyHintFraction by animateFloatAsState(
+        targetValue = if (keyHintActive) 1f else 0f,
+        animationSpec = YoinMotion.slowEffectsSpec(role = YoinMotionRole.Expressive),
+        label = "keyHintFraction",
+    )
+    val auroraVisible = auroraActive || activeFraction > 0.01f ||
+        keyHintActive || keyHintFraction > 0.01f
 
     val latestFocus by rememberUpdatedState(focusProgress)
     val latestField by rememberUpdatedState(coverField)
@@ -691,6 +700,14 @@ fun Modifier.nowPlayingAuroraBackground(
             // Ask Gemini thinking.
             val frac = activeFraction
             if (frac > 0.001f) drawGeminiWash(dots, t, frac, primary, secondary, tertiary, isDark, blend)
+            val hintFrac = keyHintFraction
+            if (hintFrac > 0.001f) {
+                drawGeminiWash(
+                    dots, t, hintFrac, primary, secondary, tertiary, isDark, blend,
+                    fixedHue = KEY_HINT_PINK_HUE,
+                    strength = KEY_HINT_STRENGTH,
+                )
+            }
 
             // A tapped lyric line.
             val b = band.value
@@ -902,6 +919,9 @@ private fun DrawScope.drawGeminiWash(
     tertiary: Color,
     dark: Boolean,
     blend: BlendMode,
+    // Set: one hue throughout (the key hint's pink), no rainbow drift.
+    fixedHue: Float? = null,
+    strength: Float = 1f,
 ) {
     val w = size.width
     val h = size.height
@@ -913,12 +933,12 @@ private fun DrawScope.drawGeminiWash(
     }
     val phase = t / 2600f
     val rainbow = (t / 7000f * 360f + 200f) % 360f
-    val hueA = lerpHue(ringHue(phase), rainbow, GEMINI_RAINBOW_MIX)
-    val hueB = lerpHue(ringHue(phase + 1.3f), rainbow + 70f, GEMINI_RAINBOW_MIX)
-    val hueC = lerpHue(ringHue(phase + 2.6f), rainbow + 150f, GEMINI_RAINBOW_MIX)
+    val hueA = fixedHue ?: lerpHue(ringHue(phase), rainbow, GEMINI_RAINBOW_MIX)
+    val hueB = fixedHue?.let { it - 12f } ?: lerpHue(ringHue(phase + 1.3f), rainbow + 70f, GEMINI_RAINBOW_MIX)
+    val hueC = fixedHue?.let { it + 10f } ?: lerpHue(ringHue(phase + 2.6f), rainbow + 150f, GEMINI_RAINBOW_MIX)
     val s = if (dark) 0.78f else 0.95f
     val l = if (dark) 0.52f else 0.82f
-    val a = (if (dark) 0.62f else 0.92f) * frac.coerceIn(0f, 1f)
+    val a = (if (dark) 0.62f else 0.92f) * frac.coerceIn(0f, 1f) * strength
     fun hsl(hue: Float, alpha: Float, lightness: Float = l) =
         Color.hsl(normHue(hue), s, lightness, alpha.coerceIn(0f, 1f))
 
@@ -1078,3 +1098,5 @@ private const val DotBuckets = 4
 
 private const val GEMINI_BLUE_HUE = 217f
 private const val GEMINI_RAINBOW_MIX = 0.8f
+private const val KEY_HINT_PINK_HUE = 345f
+private const val KEY_HINT_STRENGTH = 0.55f
