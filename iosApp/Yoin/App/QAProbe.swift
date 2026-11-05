@@ -39,6 +39,27 @@ enum QAProbe {
         }
         report("launch")
         typeSpecimen()
+        // `-qaDiagScreens YES`: Home, Library, Settings and Now Playing as they are on this device.
+        if UserDefaults.standard.bool(forKey: "qaDiagScreens") {
+            try? await Task.sleep(for: .seconds(4))
+            snapshot("qa-home.png")
+            model.select(.library)
+            try? await Task.sleep(for: .seconds(3))
+            snapshot("qa-library.png")
+            model.select(.home)
+            model.openSettings()
+            try? await Task.sleep(for: .seconds(3))
+            snapshot("qa-settings.png")
+            model.path.removeAll()
+            try? await Task.sleep(for: .seconds(1))
+            if !model.isIdle {
+                model.setNowPlaying(expanded: true)
+                try? await Task.sleep(for: .seconds(3))
+                snapshot("qa-np.png")
+                model.setNowPlaying(expanded: false)
+            }
+            return report("screens")
+        }
         // `-qaDiagRestore <profile id>`: just make that account the one in use (undo a cut-off diag run).
         if let id = UserDefaults.standard.string(forKey: "qaDiagRestore") {
             await model.profiles.switchTo(id)
