@@ -25,7 +25,7 @@ kotlin {
     }
 
     val xcf = XCFramework("YoinShared")
-    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
+    listOf(iosArm64(), iosSimulatorArm64(), macosArm64()).forEach { target ->
         target.binaries.framework {
             baseName = "YoinShared"
             isStatic = true
@@ -45,7 +45,8 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
         }
-        iosMain.dependencies {
+        // iOS and macOS (YoinMac) share the Darwin engine and the Foundation actuals.
+        appleMain.dependencies {
             implementation(libs.ktor.client.darwin)
         }
         commonTest.dependencies {
