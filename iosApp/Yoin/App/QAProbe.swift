@@ -38,6 +38,11 @@ enum QAProbe {
                   + " phases=\(store.phases.map { "\($0.key):\($0.value)" }.sorted())")
         }
         report("launch")
+        // `-qaDiagRestore <profile id>`: just make that account the one in use (undo a cut-off diag run).
+        if let id = UserDefaults.standard.string(forKey: "qaDiagRestore") {
+            await model.profiles.switchTo(id)
+            return report("restored")
+        }
         print("[diag] profiles \(model.profiles.profiles.map { "\($0.service) \($0.id)" })")
         // `-qaDiagApple YES`: try the Apple Music account, then go back to the one in use.
         let original = model.profiles.activeId
