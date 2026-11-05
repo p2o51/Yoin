@@ -387,13 +387,18 @@ struct PillContent: View {
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
         .background {
             // The engine's position is read inside PlaybackPosition, so
-            // its ticks redraw the wash only, not the bar.
-            PlaybackPosition { position, duration in
-                PillWash(progress: position / duration, playing: p.isPlaying,
-                         color: scheme.primary.opacity(lab.extra("washOpacity")),
-                         amplitude: lab.extra("washAmplitude"))
+            // its ticks redraw the wash only, not the bar. Not while Now
+            // Playing is up: the pill is hidden then, and a wash moving in
+            // the shell redrew the whole blurred world behind the page every
+            // frame.
+            if np?.mounted != true {
+                PlaybackPosition { position, duration in
+                    PillWash(progress: position / duration, playing: p.isPlaying,
+                             color: scheme.primary.opacity(lab.extra("washOpacity")),
+                             amplitude: lab.extra("washAmplitude"))
+                }
+                .clipShape(.capsule)
             }
-            .clipShape(.capsule)
         }
         .onAppear { shown = live }
         .onChange(of: live) { old, new in songChanged(from: old, to: new) }

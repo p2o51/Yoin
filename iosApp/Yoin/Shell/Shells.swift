@@ -115,6 +115,7 @@ struct PhoneShell: View {
             try? await Task.sleep(for: .seconds(1))
             model.setNowPlaying(expanded: !model.npExpanded)
         }
+        .task { QAProbe.start(model) }
         #if DEBUG
         .task { await NowPlayingMorphDebug.run(model) }
         #endif

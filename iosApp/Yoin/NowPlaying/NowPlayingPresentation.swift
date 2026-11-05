@@ -162,6 +162,8 @@ final class NowPlayingPresentation {
 final class NowPlayingSpring: NSObject {
     private var link: CADisplayLink?
     private var start: CFTimeInterval = 0
+    private var elapsed: CFTimeInterval = 0
+    private var lastFrame: CFTimeInterval = 0
     private var from: CGFloat = 0
     private var delta: CGFloat = 0
     private var velocity: CGFloat = 0
@@ -206,8 +208,20 @@ final class NowPlayingSpring: NSObject {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        if start == 0 { start = link.timestamp }
-        let t = link.targetTimestamp - start
+        // The spring's own clock: it advances by the frame's time, but never
+        // by more than a 30 Hz frame. A late frame (the page's first render
+        // on open, a busy main thread) slows the motion for that frame
+        // instead of skipping part of it: the first open jumped from the
+        // pill to the full page in one frame.
+        if start == 0 {
+            start = link.timestamp
+            elapsed = 0
+            lastFrame = link.targetTimestamp
+        } else {
+            elapsed += min(link.targetTimestamp - lastFrame, 1.0 / 30)
+            lastFrame = link.targetTimestamp
+        }
+        let t = elapsed + (link.targetTimestamp - link.timestamp)
         if t >= duration {
             stop()
             currentVelocity = 0
@@ -263,11 +277,14 @@ struct NowPlayingMorph: View {
 
                 // The pill's own content (artist, progress wash) rides the
                 // shape's top edge and fades as the page takes over.
-                PillContent(showCover: false, showTitle: false)
-                    .frame(width: pill.width, height: pill.height)
-                    .offset(x: rect.minX, y: rect.maxY - pill.height)
-                    .opacity(1 - smooth(0, 0.22, q))
-                    .allowsHitTesting(false)
+                // Gone once faded out: its wash keeps a timeline running.
+                if q < 0.22 {
+                    PillContent(showCover: false, showTitle: false)
+                        .frame(width: pill.width, height: pill.height)
+                        .offset(x: rect.minX, y: rect.maxY - pill.height)
+                        .opacity(1 - smooth(0, 0.22, q))
+                        .allowsHitTesting(false)
+                }
 
                 page(screen: screen, rect: rect, shape: shape, q: q, insets: insets)
 

@@ -2154,9 +2154,12 @@ private struct HeartSurface: ViewModifier {
                 // tint), so the glass reads through it yet the heart keeps its
                 // colour and brightness: no pale frame while the glass
                 // dematerializes, no dark-mode jump on release.
+                // Back to whole at once on release: the glass under it goes
+                // in one frame, and a circle still fading in let the dark
+                // page through for ~0.1 s (dark mode read as a dim blink).
                 Circle().fill(rest)
                     .opacity(lifted ? 0.5 : 1)
-                    .animation(Yoin.effects, value: lifted)
+                    .animation(lifted ? Yoin.effects : nil, value: lifted)
             }
         } else {
             content.labGlass(surface, scheme: scheme, brand: brand, auto: auto, in: Circle())
