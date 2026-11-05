@@ -627,16 +627,21 @@ struct SearchView: View {
     }
 
     private func close() {
-        // The keyboard goes down first, on this frame (a ~30 ms stall), so the
-        // fold's first frames don't carry it.
-        if focused { AppModel.dismissKeyboard() }
+        let keyboardUp = focused
+        // The keyboard goes down first and that frame commits (a ~55 ms stall
+        // on an iPhone Air); the fold starts on the next pass, so its first
+        // frame isn't the stalled one (a visible jump).
+        if keyboardUp { AppModel.dismissKeyboard() }
         focused = false
         if let onClose { return onClose() }
-        // The field folds back into the circle as Search fades out.
-        withAnimation(Yoin.spatial) {
-            grown = false
-            model.searchActive = false
+        let fold = {
+            // The field folds back into the circle as Search fades out.
+            withAnimation(Yoin.spatial) {
+                grown = false
+                model.searchActive = false
+            }
         }
+        if keyboardUp { DispatchQueue.main.async(execute: fold) } else { fold() }
     }
 
     /// The bar's search circle, drawn where it rests, while the field hasn't
