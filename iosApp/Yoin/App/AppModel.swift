@@ -630,6 +630,7 @@ extension AppModel {
         let api = SpotifyWebAPI(token: { try await provider.accessToken() },
                                 refresh: { _ = try await provider.accessToken(force: true) })
         let source = SpotifySource(api: api)
+        source.userId = tokens.userId
         store.spotifyAccount = (source, scope)
         AccountScope.shared.spotify = scope
         SpotifyRemote.shared.token = { try await provider.accessToken() }

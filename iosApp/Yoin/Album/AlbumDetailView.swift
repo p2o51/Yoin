@@ -402,8 +402,10 @@ struct AlbumDetailView: View {
                                      + (playlist != nil ? Tokens.detail.PLAYLIST_MENU_GAP.cg : 0)) * smooth(p))
                 Spacer(minLength: 0)
                 let editable = playlist.map { model.store.isReal ? PlaylistActions.shared.canEdit($0, store: model.store) : true } ?? false
-                // Any playlist of the account in use can be backed up, followed or not (Android onBackUp).
-                let canBackUp = playlist != nil && (!model.store.isReal || PlaylistBackups.shared.source(model.store) != nil)
+                // Any playlist of the account in use can be backed up, followed or not (Android onBackUp),
+                // except one whose songs Spotify refused (nothing to back up).
+                let canBackUp = playlist != nil && playlist?.tracksUnavailable != true
+                    && (!model.store.isReal || PlaylistBackups.shared.source(model.store) != nil)
                 if let playlist, editable || canBackUp || model.detailOfflineCollection != nil {
                     // ⋮: Cloud backup (Data/Backup: read whole and saved; the toast's View opens the
                     // backup), then Rename and Delete when the user can write it (Android canWrite;

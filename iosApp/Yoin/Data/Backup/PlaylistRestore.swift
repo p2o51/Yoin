@@ -17,15 +17,22 @@ protocol RestoreDestination: AnyObject {
     func add(_ trackIds: [String], to playlistId: String) async throws
     /// The restore is over: lets go of what it opened.
     func close()
+    /// The provider whose track ids this destination takes as they are (Spotify: its ids are the same in
+    /// every account), so a backup from it goes back without matching; nil for none.
+    var ownProvider: String? { get }
+    /// Songs by ISRC (Android `tracksByIsrc`); a code not found is left out. Empty where the service can't.
+    func tracksByIsrc(_ isrcs: [String]) async -> [String: [MatchTrack]]
 }
 
 extension RestoreDestination {
     func close() {}
+    var ownProvider: String? { nil }
+    func tracksByIsrc(_ isrcs: [String]) async -> [String: [MatchTrack]] { [:] }
 }
 
 /// An account a backup can be restored into: every account configured here
 /// whose service takes a new playlist (Android `restoreTargets`, capability
-/// PLAYLIST_IMPORT) — Subsonic servers and Apple Music. [id] is the account's
+/// PLAYLIST_IMPORT) — Subsonic servers, Apple Music and Spotify. [id] is the account's
 /// profile id; one that can't be used now (no sign-in, Apple Music access off)
 /// is listed but can't be chosen.
 struct RestoreTarget: Identifiable, Hashable, Sendable {
@@ -44,10 +51,11 @@ enum PlaylistRestore {
     /// Android PLAYLIST_ADD_BATCH.
     static let addBatch = 100
 
-    /// Each of [tracks] (the backup's, in order) resolved on [target]: a title + artist search scored by
+    /// Each of [tracks] (the backup's, in order) resolved on [target] (Android PlaylistBackupService.resolve
+    /// + PlaylistTransfer.resolve): a track of the target's own provider (a Spotify backup into Spotify) by
+    /// its id; else by ISRC where the target looks one up, then a title + artist search scored by
     /// TrackMatcher, then the title alone when that found nothing. A search that fails leaves its track
-    /// unmatched rather than failing the restore; cancellation still cancels. (No ISRC lookup: no iOS
-    /// source looks one up; Android's Spotify-by-id path has no iOS target.)
+    /// unmatched rather than failing the restore; cancellation still cancels.
     static func resolve(
         _ tracks: [MatchTrack],
         on target: RestoreDestination,
@@ -64,10 +72,23 @@ enum PlaylistRestore {
         }
         var out: [TrackResolution] = []
         let matcher = TrackMatcher.shared
+        let own = target.ownProvider
+        func isOwn(_ track: MatchTrack) -> Bool {
+            own != nil && PlaylistSnapshots.shared.providerOf(id: track.id) == own
+        }
+        let isrcs = tracks.filter { !isOwn($0) }.compactMap(\.isrc)
+        let byIsrc = isrcs.isEmpty ? [:] : await target.tracksByIsrc(isrcs)
+        try Task.checkCancellation()
         for (i, track) in tracks.enumerated() {
             try Task.checkCancellation()
             var decision: any MatchDecision = MatchDecisionNotFound.shared
-            if let query = matcher.searchQuery(track: track) {
+            if isOwn(track) {
+                decision = MatchDecisionMatched(track: track, method: .sourceid)
+            } else if let isrc = track.isrc?.uppercased(), let found = byIsrc[isrc],
+                      case let chosen = matcher.chooseByIsrc(source: track, candidates: found),
+                      chosen is MatchDecisionMatched {
+                decision = chosen
+            } else if let query = matcher.searchQuery(track: track) {
                 decision = matcher.choose(source: track, candidates: try await search(query))
                 // The artist as the target spells it can sink "title artist" (a romanised name against
                 // the original script): the title alone, then.

@@ -82,8 +82,7 @@ final class PlaylistBackups {
         switch profile.service {
         case .subsonic: guard library.client != nil else { return nil }
         case .appleMusic: guard library.apple != nil else { return nil }
-        // Spotify playlists aren't backed up from iOS yet (Android SpotifyBackupSource).
-        case .spotify: return nil
+        case .spotify: guard library.spotify != nil else { return nil }
         }
         return accounts.source(id)
     }
@@ -392,7 +391,7 @@ protocol BackupAccounts: AnyObject {
     func destination(_ profileId: String) -> RestoreDestination?
 }
 
-/// The app's accounts (ProfileManager) and this device's Apple Music.
+/// The app's accounts (ProfileManager), this device's Apple Music, and each Spotify account's Web API.
 @MainActor
 final class LiveBackupAccounts: BackupAccounts {
     static let shared = LiveBackupAccounts()
@@ -408,7 +407,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id) != nil
         case .appleMusic: return apple.isAuthorized
-        case .spotify: return false
+        case .spotify: return !manager.needsSignIn(p) && manager.store.spotify(p.id) != nil
         }
     }
 
@@ -417,7 +416,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id).map { PlaylistBackups.subsonicSource(p, account: $0) }
         case .appleMusic: return PlaylistBackups.appleSource(apple, profileId: p.id)
-        case .spotify: return nil
+        case .spotify: return AppModel.shared.spotifySource(forProfile: p.id).map { PlaylistBackups.spotifySource($0, profile: p) }
         }
     }
 
@@ -426,7 +425,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id).map { SubsonicRestoreDestination(account: $0) }
         case .appleMusic: return AppleMusicRestoreDestination(apple: apple)
-        case .spotify: return nil
+        case .spotify: return AppModel.shared.spotifySource(forProfile: p.id).map(SpotifyRestoreDestination.init(spotify:))
         }
     }
 }

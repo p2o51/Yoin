@@ -19,6 +19,8 @@ final class SpotifySource {
     private(set) var liked: Set<String> = []
     /// Playlist raw id → the raw offset of each row the page shows, for `resolvePlaylistContextOffset`.
     private var playlistOffsets: [String: [Int]] = [:]
+    /// The signed-in user's id, for playlist ownership (SpotifySource+Playlists); read from `me` when unset.
+    var userId: String?
 
     init(api: SpotifyWebAPI) {
         self.api = api
@@ -187,12 +189,12 @@ final class SpotifySource {
             playlistOffsets[rawId] = []
             var info = SpotifyMapping.playlist(p, tracks: [], saved: liked)
             info.tracksUnavailable = true
-            return info
+            return await withWriteMetadata(info, p, positions: nil)
         }
         let (tracks, offsets) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))
         playlistOffsets[rawId] = offsets
         _ = await savedStates(Array(Set(tracks.compactMap(\.id))))
-        return SpotifyMapping.playlist(p, tracks: tracks, saved: liked)
+        return await withWriteMetadata(SpotifyMapping.playlist(p, tracks: tracks, saved: liked), p, positions: offsets)
     }
 
     /// The raw playlist offset of the [visibleIndex]th row of its page, for a

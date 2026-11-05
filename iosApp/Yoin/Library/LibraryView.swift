@@ -447,9 +447,9 @@ struct LibraryView: View {
         }
     }
 
-    /// Android PlaylistsTabContent's FAB: Subsonic writes playlists here
-    /// (PlaylistActions.create); Apple Music's are made in its own app.
-    private var canCreatePlaylist: Bool { model.store.client != nil }
+    /// Android PlaylistsTabContent's FAB: Subsonic and Spotify write playlists
+    /// here (PlaylistActions.create); Apple Music's are made in its own app.
+    private var canCreatePlaylist: Bool { PlaylistActions.shared.canCreate(model.store) }
 
     /// Android ExtendedFloatingActionButton "New playlist": primaryContainer,
     /// + and the label, bottom-end over the list.

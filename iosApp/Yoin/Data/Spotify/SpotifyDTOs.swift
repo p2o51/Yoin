@@ -75,6 +75,8 @@ enum SpotifyDTO {
         var items: Paging<PlaylistItem>?
         var tracks: Paging<PlaylistItem>?
         var snapshotId: String?
+        /// Its owner lets others add and remove songs.
+        var collaborative: Bool?
         /// The entries under their current name, else the deprecated one. Only
         /// playlists the user owns or collaborates on fill it (2026-02).
         var entries: Paging<PlaylistItem>? { items ?? tracks }

@@ -54,6 +54,11 @@ enum DetailCacheDTO {
         var description: String?
         var cover: String?
         var entries: [Entry]
+        /// Spotify's write metadata (PlaylistInfo); absent in pages stored before it.
+        var ownedByMe: Bool? = nil
+        var collaborative: Bool? = nil
+        var snapshotId: String? = nil
+        var positions: [Int]? = nil
     }
 
     struct ArtistPage: Codable, Sendable, Equatable {
@@ -130,7 +135,9 @@ struct DetailCacheCodec {
 
     func dto(_ p: PlaylistInfo) -> DetailCacheDTO.Playlist {
         .init(provider: p.id.provider, id: p.id.rawId, title: p.title, owner: p.owner, isPublic: p.isPublic,
-              description: p.description, cover: coverKey(p.palette), entries: p.entries.map(dto))
+              description: p.description, cover: coverKey(p.palette), entries: p.entries.map(dto),
+              ownedByMe: p.ownedByMe, collaborative: p.collaborative ? true : nil, snapshotId: p.snapshotId,
+              positions: p.positions)
     }
 
     func dto(_ a: ArtistPage) -> DetailCacheDTO.ArtistPage {
@@ -170,7 +177,8 @@ struct DetailCacheCodec {
     func playlist(_ p: DetailCacheDTO.Playlist) -> PlaylistInfo {
         PlaylistInfo(id: MediaId(provider: p.provider, rawId: p.id), title: p.title, owner: p.owner,
                      isPublic: p.isPublic, description: p.description, palette: palette(p.cover, p.id),
-                     entries: p.entries.map(entry))
+                     entries: p.entries.map(entry), ownedByMe: p.ownedByMe, collaborative: p.collaborative ?? false,
+                     snapshotId: p.snapshotId, positions: p.positions)
     }
 
     func artistPage(_ a: DetailCacheDTO.ArtistPage) -> ArtistPage {
