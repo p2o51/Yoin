@@ -202,6 +202,12 @@ final class MacModel {
         }
     }
 
+    /// Empties what's after the current song.
+    func clearUpcoming() {
+        guard let i = player.currentIndex else { return }
+        for j in stride(from: player.queue.count - 1, to: i, by: -1) { player.remove(at: j) }
+    }
+
     /// An album's songs after the current one (in order) or at the end of the queue.
     func queue(album: Album, next: Bool) {
         Task {

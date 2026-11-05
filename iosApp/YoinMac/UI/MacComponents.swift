@@ -183,7 +183,7 @@ struct SongMenu: View {
         Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: id, current: starred) }
         Menu("Rate") {
             ForEach((1...5).reversed(), id: \.self) { stars in
-                Toggle(String(repeating: "★", count: stars), isOn: Binding(
+                Toggle(String(format: "%.1f", Double(stars * 2)), isOn: Binding(
                     get: { Int((rating / 2).rounded()) == stars },
                     set: { on in model.library.setRating(songId: id, on ? Double(stars * 2) : nil) }))
             }

@@ -381,47 +381,96 @@ struct NPPill: View {
     }
 }
 
-/// Queue: the songs after the current one; click one to play it.
+/// Queue: the songs after the current one. Click one to play it, drag to reorder, ✕ or right-click to
+/// remove, Clear to empty what's left.
 struct QueuePill: View {
     @Environment(MacModel.self) private var model
-    @Environment(\.macTint) private var tint
     @State private var open = false
 
     var body: some View {
         NPPill(icon: "queue", title: "Queue", enabled: true) { open.toggle() }
-            .popover(isPresented: $open, arrowEdge: .top) {
-                let start = (model.player.currentIndex ?? 0) + 1
-                let upcoming = Array(model.player.upcoming.prefix(40))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Up Next").font(.gsf(15, .semibold)).padding(.horizontal, 10).padding(.bottom, 6)
-                    if upcoming.isEmpty {
-                        Text("Nothing after this song").font(.gsf(13)).foregroundStyle(Yoin.inkVariant).padding(10)
-                    }
-                    ScrollView {
-                        VStack(spacing: 2) {
-                            ForEach(Array(upcoming.enumerated()), id: \.element.id) { i, item in
-                                Button { model.player.jump(to: start + i) } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(item.track.title).font(.gsf(13.5)).lineLimit(1)
-                                            Text(item.track.artist).font(.gsf(12)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
-                                        }
-                                        Spacer()
-                                        Text(formatTime(Int(item.track.durationSec))).font(.gsf(12).monospacedDigit())
-                                            .foregroundStyle(Yoin.ink3)
-                                    }
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 360)
-                }
-                .padding(12)
-                .frame(width: 320)
+            .popover(isPresented: $open, arrowEdge: .top) { QueuePopover() }
+    }
+}
+
+private struct QueuePopover: View {
+    @Environment(MacModel.self) private var model
+
+    var body: some View {
+        let p = model.player
+        let start = (p.currentIndex ?? 0) + 1
+        let upcoming = Array(p.upcoming.prefix(80))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Up Next").font(.gsf(15, .semibold))
+                Spacer()
+                Button("Clear") { model.clearUpcoming() }
+                    .font(.gsf(13))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Yoin.inkVariant)
+                    .disabled(upcoming.isEmpty)
             }
+            .padding(.horizontal, 10)
+            if upcoming.isEmpty {
+                Text("Nothing after this song").font(.gsf(13)).foregroundStyle(Yoin.inkVariant).padding(10)
+            } else {
+                List {
+                    ForEach(Array(upcoming.enumerated()), id: \.element.id) { i, item in
+                        QueueRow(item: item) { p.jump(to: start + i) } remove: { p.remove(id: item.id) }
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                    .onMove { from, to in
+                        p.move(fromOffsets: IndexSet(from.map { $0 + start }), toOffset: to + start)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .frame(height: min(400, CGFloat(upcoming.count) * 46 + 8))
+            }
+        }
+        .padding(12)
+        .frame(width: 340)
+    }
+}
+
+private struct QueueRow: View {
+    var item: QueueItem
+    var play: () -> Void
+    var remove: () -> Void
+    @Environment(\.macTint) private var tint
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.track.title).font(.gsf(13.5)).lineLimit(1)
+                Text(item.track.artist).font(.gsf(12)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if hover {
+                Button(action: remove) {
+                    YoinIcon("close", size: 16).foregroundStyle(Yoin.inkVariant).frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Remove")
+            } else {
+                Text(formatTime(Int(item.track.durationSec))).font(.gsf(12).monospacedDigit())
+                    .foregroundStyle(Yoin.ink3)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous)
+            .fill(tint.primary.opacity(hover ? 0.08 : 0)))
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .onTapGesture(perform: play)
+        .contextMenu {
+            Button("Play") { play() }
+            Button("Remove from Queue") { remove() }
+        }
     }
 }
 
