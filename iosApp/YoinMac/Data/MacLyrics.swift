@@ -12,6 +12,14 @@ final class MacLyrics {
         var id: Int
         var timeSec: Double
         var text: String
+        /// The source's own translation of this line (shown under it when translation is on).
+        var translation: String? = nil
+    }
+
+    /// Where the lyrics came from: a lyrics provider and its song id (nil: the server's own).
+    struct Origin: Equatable, Sendable {
+        var provider: String
+        var songId: String
     }
 
     enum State: Equatable {
@@ -50,6 +58,17 @@ final class MacLyrics {
 
     private(set) var state: State = .idle
     private(set) var songId: String?
+    private(set) var origin: Origin?
+    /// The current lyrics carry a translation.
+    var hasTranslation: Bool {
+        if case .loaded(_, let lines, _) = state { return lines.contains { $0.translation != nil } }
+        return false
+    }
+    private(set) var translating = false
+    /// The account the per-song lyrics choices belong to (set by MacModel).
+    @ObservationIgnored var choiceScope = ""
+    @ObservationIgnored private var track: PlayableTrack?
+    @ObservationIgnored private var originCache: [String: Origin] = [:]
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private let registry = LyricsRegistry()
     @ObservationIgnored private var cache: [String: State] = [:]
@@ -59,7 +78,10 @@ final class MacLyrics {
         task?.cancel()
         cache = [:]
         creditsCache = [:]
+        originCache = [:]
         songId = nil
+        origin = nil
+        track = nil
         state = .idle
         credits = Credits()
     }
@@ -68,41 +90,132 @@ final class MacLyrics {
         guard track?.id != songId else { return }
         task?.cancel()
         songId = track?.id
-        guard let track else { state = .idle; credits = Credits(); return }
-        if let hit = cache[track.id] { state = hit; credits = creditsCache[track.id] ?? Credits(); return }
+        self.track = track
+        translating = false
+        guard let track else { state = .idle; credits = Credits(); origin = nil; return }
+        if let hit = cache[track.id] {
+            state = hit
+            credits = creditsCache[track.id] ?? Credits()
+            origin = originCache[track.id]
+            return
+        }
         state = .loading
         credits = Credits()
+        origin = nil
+        let chosen = Self.savedChoice(scope: choiceScope, songId: track.id)
         task = Task {
-            let (result, found) = await Self.fetch(track, client: client, registry: registry)
+            let (result, found, from) = await Self.fetch(track, chosen: chosen, client: client, registry: registry)
             guard !Task.isCancelled, self.songId == track.id else { return }
-            self.cache[track.id] = result
-            self.creditsCache[track.id] = found
-            self.state = result
-            self.credits = found
+            self.apply(result, found, from, for: track.id)
         }
     }
 
-    private static func fetch(_ t: PlayableTrack, client: SubsonicClient?,
-                              registry: LyricsRegistry) async -> (State, Credits) {
+    private func apply(_ result: State, _ found: Credits, _ from: Origin?, for id: String) {
+        cache[id] = result
+        creditsCache[id] = found
+        originCache[id] = from
+        state = result
+        credits = found
+        origin = from
+    }
+
+    private static func fetch(_ t: PlayableTrack, chosen: Origin?, client: SubsonicClient?,
+                              registry: LyricsRegistry) async -> (State, Credits, Origin?) {
+        // A source the listener picked for this song comes first.
+        if let chosen, let r = try? await registry.fetchSelected(providerName: chosen.provider, songId: chosen.songId),
+           !r.lyrics.lines.isEmpty {
+            let (s, c) = lines(r.lyrics, source: r.providerName)
+            return (s, c, chosen)
+        }
         if let client, let l = try? await client.lyricsFor(songId: t.id, artist: t.artist, title: t.title),
            !l.lines.isEmpty, l.lines.contains(where: { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            return lines(l, source: "Server")
+            let (s, c) = lines(l, source: "Server")
+            return (s, c, nil)
         }
         let ms = t.durationSec > 0 ? KotlinLong(value: Int64(t.durationSec * 1000)) : nil
         if let r = try? await registry.autoFetch(title: t.title, artist: t.artist, durationMs: ms), !r.lyrics.lines.isEmpty {
-            return lines(r.lyrics, source: r.providerName)
+            let (s, c) = lines(r.lyrics, source: r.providerName)
+            return (s, c, Origin(provider: r.providerName, songId: r.providerSongId))
         }
-        return (.none, Credits())
+        return (.none, Credits(), nil)
     }
 
-    /// The credit lines come out of the lyrics (Android LyricCreditsExtractor, shared) into `credits`.
-    private static func lines(_ raw: Lyrics, source: String) -> (State, Credits) {
+    /// The credit lines come out of the lyrics (Android LyricCreditsExtractor, shared) into `credits`;
+    /// [translations] (by index into [raw]) follow their lines through that.
+    private static func lines(_ raw: Lyrics, source: String, translations: [Int: String] = [:]) -> (State, Credits) {
+        var byLine: [String: String] = [:]
+        for (i, t) in translations where raw.lines.indices.contains(i) {
+            byLine["\(raw.lines[i].timeMs)|\(raw.lines[i].text)"] = t
+        }
         let split = LyricCreditsExtractor.shared.extract(lyrics: raw)
         let l = split.lyrics
         let state = State.loaded(synced: l.synced,
-                                 lines: l.lines.enumerated().map { Line(id: $0, timeSec: Double($1.timeMs) / 1000, text: $1.text) },
+                                 lines: l.lines.enumerated().map {
+                                     Line(id: $0, timeSec: Double($1.timeMs) / 1000, text: $1.text,
+                                          translation: byLine["\($1.timeMs)|\($1.text)"])
+                                 },
                                  source: source)
         return (state, split.credits.map(Credits.init) ?? Credits())
+    }
+
+    // MARK: Search and translation (Android LyricsActionBar's Search and Translate)
+
+    /// Every provider's hits for [query] (QQ, NetEase, Huawei, LRCLIB).
+    func search(_ query: String) async -> [ProviderSection] {
+        (try? await registry.search(query: query)) ?? []
+    }
+
+    /// The listener's pick: fetched, shown, and remembered for this song.
+    func choose(_ c: LyricsCandidate) async -> Bool {
+        guard let id = songId,
+              let r = try? await registry.fetchSelected(providerName: c.providerName, songId: c.songId),
+              !r.lyrics.lines.isEmpty, songId == id else { return false }
+        let (s, credits) = Self.lines(r.lyrics, source: r.providerName)
+        let from = Origin(provider: c.providerName, songId: c.songId)
+        apply(s, credits, from, for: id)
+        Self.saveChoice(from, scope: choiceScope, songId: id)
+        return true
+    }
+
+    /// The source's own translation: the current source's, else the next source that has one (its lyrics
+    /// come with it, so the lines and translations agree).
+    func translate() async {
+        guard let id = songId, let t = track, !translating else { return }
+        translating = true
+        defer { if songId == id { translating = false } }
+        let language = Locale.preferredLanguages.first ?? "en"
+        var order: [String] = []
+        if let o = origin, registry.servesNativeTranslation(providerName: o.provider, targetLanguage: language) {
+            order.append(o.provider)
+            order += registry.translationSwitchCandidates(currentProviderName: o.provider, targetLanguage: language)
+        } else {
+            order = ["qq", "netease", "huawei"].filter {
+                registry.servesNativeTranslation(providerName: $0, targetLanguage: language)
+            }
+        }
+        for name in order {
+            let same = origin?.provider == name ? origin?.songId : nil
+            guard let r = try? await registry.fetchTranslation(providerName: name, providerSongId: same,
+                                                               title: t.title, artist: t.artist),
+                  songId == id else { continue }
+            var map: [Int: String] = [:]
+            for (k, v) in r.translations { map[k.intValue] = v }
+            let (s, credits) = Self.lines(r.lyrics, source: r.providerName, translations: map)
+            apply(s, credits, Origin(provider: r.providerName, songId: r.providerSongId), for: id)
+            return
+        }
+    }
+
+    private static func choiceKey(_ scope: String, _ songId: String) -> String { "lyricsChoice.\(scope).\(songId)" }
+
+    private static func savedChoice(scope: String, songId: String) -> Origin? {
+        guard let raw = UserDefaults.standard.string(forKey: choiceKey(scope, songId)),
+              let bar = raw.firstIndex(of: "|") else { return nil }
+        return Origin(provider: String(raw[..<bar]), songId: String(raw[raw.index(after: bar)...]))
+    }
+
+    private static func saveChoice(_ o: Origin, scope: String, songId: String) {
+        UserDefaults.standard.set("\(o.provider)|\(o.songId)", forKey: choiceKey(scope, songId))
     }
 
     /// The line playing at [sec] (−1 before the first or unsynced).

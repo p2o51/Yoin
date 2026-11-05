@@ -126,6 +126,8 @@ struct MacNowPlaying: View {
                 }
                 .buttonStyle(.plain)
             }
+            Spacer(minLength: 0)
+            if tab == .lyrics, model.player.currentTrack != nil { MacLyricsTools() }
         }
     }
 
@@ -502,6 +504,7 @@ struct MacLyricsView: View {
 }
 
 private struct LyricsList: View {
+    @AppStorage("lyricsShowTranslation") private var showTranslation = true
     var lines: [MacLyrics.Line]
     var synced: Bool
     var large: Bool
@@ -524,11 +527,19 @@ private struct LyricsList: View {
                         // and ~1.14× larger; row pitch about 2.1× the neighbour size.
                         let lit = on && synced
                         let size: CGFloat = large ? (lit ? 32 : 30) : (lit ? 17 : 15)
-                        Text(l.text.isEmpty ? "♪" : l.text)
-                            .modifier(LyricLineFont(size: size, weight: lit || !synced ? .semibold : (large ? .medium : .regular)))
-                            // Full window: every line nearly one size, wrapping in the column (Apple Music's scale).
-                            .lineSpacing(large ? size * 0.15 : 0)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: large ? 4 : 2) {
+                            Text(l.text.isEmpty ? "♪" : l.text)
+                                .modifier(LyricLineFont(size: size, weight: lit || !synced ? .semibold : (large ? .medium : .regular)))
+                                // Full window: every line nearly one size, wrapping in the column (Apple Music's scale).
+                                .lineSpacing(large ? size * 0.15 : 0)
+                                .fixedSize(horizontal: false, vertical: true)
+                            // The source's translation under its line.
+                            if showTranslation, let tr = l.translation, !tr.isEmpty {
+                                Text(tr).font(.gsf(large ? 20 : 13, .regular))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .opacity(0.75)
+                            }
+                        }
                             .foregroundStyle(on ? tint.primary : (synced ? Yoin.ink3 : Yoin.ink))
                             .opacity(model.focus && !on && synced ? 0.35 : 1)
                             .padding(.vertical, large ? 9 : 5)
@@ -783,6 +794,127 @@ private struct DashedRule: View {
                 p.move(to: CGPoint(x: 0, y: rect.midY))
                 p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
             }
+        }
+    }
+}
+
+/// The lyrics' two tools (Android LyricsActionBar): Translate (the source's own translation, on / off) and
+/// Search (pick another source for this song; remembered).
+private struct MacLyricsTools: View {
+    @Environment(MacModel.self) private var model
+    @Environment(\.macTint) private var tint
+    @AppStorage("lyricsShowTranslation") private var showTranslation = true
+    @State private var searching = false
+
+    var body: some View {
+        let lyrics = model.lyrics
+        HStack(spacing: 6) {
+            Button {
+                if lyrics.hasTranslation { withAnimation(Yoin.effects) { showTranslation.toggle() } }
+                else { showTranslation = true; Task { await lyrics.translate() } }
+            } label: {
+                Group {
+                    if lyrics.translating { ProgressView().controlSize(.small) }
+                    else { YoinIcon("translate", size: 18) }
+                }
+                .foregroundStyle(lyrics.hasTranslation && showTranslation ? tint.primary : Yoin.inkVariant)
+                .frame(width: 30, height: 30).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(lyrics.hasTranslation ? (showTranslation ? "Hide Translation" : "Show Translation") : "Translate")
+            Button { searching = true } label: {
+                YoinIcon("search", size: 18).foregroundStyle(Yoin.inkVariant)
+                    .frame(width: 30, height: 30).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Search Lyrics")
+            .popover(isPresented: $searching, arrowEdge: .bottom) { MacLyricsSearch(open: $searching) }
+        }
+    }
+}
+
+/// Search every lyrics source and pick one for the song playing.
+private struct MacLyricsSearch: View {
+    @Binding var open: Bool
+    @Environment(MacModel.self) private var model
+    @Environment(\.macTint) private var tint
+    @State private var query = ""
+    @State private var sections: [ProviderSection] = []
+    @State private var busy = false
+    @State private var applying: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Song title or artist", text: $query)
+                .textFieldStyle(.plain).font(.gsf(14))
+                .padding(.horizontal, 12).frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Yoin.surfaceContainerHigh))
+                .onSubmit(run)
+            if busy { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(sections, id: \.providerName) { s in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(label(s.providerName)).font(.gsf(12, .medium)).foregroundStyle(tint.primary)
+                            if s.candidates.isEmpty {
+                                Text(s.errorMessage == nil ? "No results" : "Unavailable")
+                                    .font(.gsf(12.5)).foregroundStyle(Yoin.ink3)
+                            }
+                            ForEach(s.candidates, id: \.songId) { c in
+                                Button { pick(c) } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(c.title).font(.gsf(13.5)).foregroundStyle(Yoin.ink).lineLimit(1)
+                                            Text(c.artist).font(.gsf(12)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
+                                        }
+                                        Spacer()
+                                        if applying == c.providerName + c.songId { ProgressView().controlSize(.small) }
+                                    }
+                                    .padding(.vertical, 5).contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(applying != nil)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 360)
+        }
+        .padding(14)
+        .frame(width: 340)
+        .onAppear {
+            if let t = model.player.currentTrack { query = "\(t.title) \(t.artist)" }
+            run()
+        }
+    }
+
+    private func label(_ provider: String) -> String {
+        switch provider {
+        case "qq": "QQ Music"
+        case "netease": "NetEase"
+        case "huawei": "Huawei Music"
+        case "lrclib": "LRCLIB"
+        default: provider
+        }
+    }
+
+    private func run() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty, !busy else { return }
+        busy = true
+        Task {
+            sections = await model.lyrics.search(q)
+            busy = false
+        }
+    }
+
+    private func pick(_ c: LyricsCandidate) {
+        applying = c.providerName + c.songId
+        Task {
+            let ok = await model.lyrics.choose(c)
+            applying = nil
+            if ok { open = false }
         }
     }
 }

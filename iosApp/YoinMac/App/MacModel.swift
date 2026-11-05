@@ -70,6 +70,7 @@ final class MacModel {
         player.onStateChange = { [weak self] in
             guard let self else { return }
             self.system?.refresh()
+            self.lyrics.choiceScope = self.session.accountKey
             self.lyrics.load(self.player.currentTrack, client: self.session.client)
             if let t = self.player.currentTrack, t.id != self.membershipCheckedFor,
                t.provider == AppleMusicMapping.provider {
