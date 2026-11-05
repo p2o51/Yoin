@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -348,6 +349,8 @@ fun Modifier.reportFocusCover(): Modifier {
  *   in draw: focus's colour journey ([journeyFieldColors]).
  * @param journeyFromRight the side the journey enters from: true when the song
  *   came by a skip forward or an auto-advance, false by a skip back.
+ * @param lyricColor the current lyric line's colour: light focus keeps the
+ *   room light enough for it ([readableUnder]). Unspecified = no floor.
  */
 @Composable
 fun Modifier.nowPlayingAuroraBackground(
@@ -369,6 +372,7 @@ fun Modifier.nowPlayingAuroraBackground(
     songProgress: () -> Float = { 0f },
     journeyFromRight: Boolean = true,
     keyHintActive: Boolean = false,
+    lyricColor: Color = Color.Unspecified,
 ): Modifier {
     val baseBottom = background
     val isDark = background.luminance() < 0.5f
@@ -763,11 +767,12 @@ fun Modifier.nowPlayingAuroraBackground(
                 val incoming = pointsOf(field, roomShown)
                 val outgoing = fieldFrom
                 val fade = fieldFade.value
-                val points = if (outgoing != null && fade < 1f) {
+                val mixed = if (outgoing != null && fade < 1f) {
                     crossFieldColors(pointsOf(outgoing, roomFrom ?: roomShown), incoming, fade, crossFromRight, w)
                 } else {
                     incoming
                 }
+                val points = if (!isDark && lyricColor.isSpecified) mixed.readableUnder(lyricColor.toArgb()) else mixed
                 val image = focusCanvas.render(points, baseBottom.toArgb(), w, h)
                 drawImage(
                     image = image,

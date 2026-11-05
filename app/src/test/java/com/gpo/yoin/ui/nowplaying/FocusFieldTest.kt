@@ -244,6 +244,25 @@ class FocusFieldTest {
         assertEquals(to, crossFieldColors(from, to, 1f, fromRight = true, width = 400f))
     }
 
+    @Test
+    fun should_keepTheLyricReadable_when_theRoomIsTooDeep() {
+        val accent = argb(103, 80, 164) // a tone-40 purple, like a light scheme's primary
+        val deep = FieldPoint(x = 0f, y = 0f, color = argb(230, 120, 170), reach = 5f, weight = 1f)
+        val pale = deep.copy(color = argb(250, 240, 245))
+        val out = listOf(deep, pale).readableUnder(accent)
+
+        val contrast = (luminance(out[0].color) + 0.05f) / (luminance(accent) + 0.05f)
+        assertTrue("contrast $contrast", contrast >= FocusLyricContrast - 0.01f)
+        // Lifted, not greyed: the hue survives.
+        val hsl = FloatArray(3)
+        argbToHsl(out[0].color, hsl)
+        val before = FloatArray(3)
+        argbToHsl(deep.color, before)
+        assertEquals(before[0], hsl[0], 3f)
+        // Already readable colours are left alone.
+        assertEquals(pale, out[1])
+    }
+
     private fun luminance(c: Int): Float {
         fun ch(v: Int): Float {
             val x = v / 255f

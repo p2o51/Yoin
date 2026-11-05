@@ -440,6 +440,8 @@ fun NowPlayingScreen(
                     },
                     journeyFromRight = journeyFromRight,
                     keyHintActive = keyHintActive,
+                    // The current lyric line is drawn in primary.
+                    lyricColor = scheme.primary,
                 ),
         ) {
             when (uiState) {

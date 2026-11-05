@@ -458,6 +458,36 @@ fun toneForRoom(color: Int, dark: Boolean, bias: Float = 0f): Int {
     return out
 }
 
+/**
+ * The field's colours, each lifted (light theme) just enough that [text]
+ * keeps [minContrast] over it, hue and saturation kept (owner 2026-11-05:
+ * 「运动完全可以动，但是颜色不应该超过可读的颜色过多」). The colours may be as
+ * rich and move as much as they like inside that line. Mixing in the field
+ * can dip a hair under it between points; the line is set with that slack.
+ */
+fun List<FieldPoint>.readableUnder(text: Int, minContrast: Float = FocusLyricContrast): List<FieldPoint> {
+    val minLum = minContrast * (relativeLuminance(text) + 0.05f) - 0.05f
+    if (minLum <= 0f) return this
+    return map { p -> if (relativeLuminance(p.color) >= minLum) p else p.copy(color = lightenTo(p.color, minLum)) }
+}
+
+/** [color] with its HSL lightness raised until its luminance reaches [minLum] (or white). */
+internal fun lightenTo(color: Int, minLum: Float): Int {
+    val hsl = FloatArray(3)
+    argbToHsl(color, hsl)
+    var lo = hsl[2]
+    var hi = 1f
+    // Luminance rises with HSL lightness at a fixed hue and saturation: bisect.
+    repeat(14) {
+        val mid = (lo + hi) / 2f
+        if (relativeLuminance(hslToArgb(hsl[0], hsl[1], mid)) >= minLum) hi = mid else lo = mid
+    }
+    return hslToArgb(hsl[0], hsl[1], hi)
+}
+
+/** Light focus: the current lyric line (the accent colour) over the room. */
+internal const val FocusLyricContrast = 4f
+
 private fun relativeLuminance(color: Int): Float {
     fun channel(c: Int): Float {
         val v = c / 255f
