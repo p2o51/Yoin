@@ -146,9 +146,10 @@ data class StageColumnBudget(
     /** [compactFocus]: how far the dotted lines run on under the transport before they fade. */
     val focusLyricOverflow: Dp = 0.dp,
     /**
-     * [heroOneLine] at rest, but focus sets the identity as everywhere else:
-     * the artist over the title (owner 2026-11-05). The hero moves between
-     * the two as focus comes and goes.
+     * [heroOneLine] with a focus: while the transport shows, the title and
+     * artist keep their row; once it steps away at ease, the artist lifts
+     * over the title into the transport's room, as everywhere else (owner
+     * 2026-11-05 「显示按键的时候还是要一行」).
      */
     val focusHeroStacked: Boolean = false,
 ) {
@@ -438,16 +439,12 @@ fun resolveStageColumnBudget(
     } else {
         solveFocus(0.dp, hero)
     }
-    // Owner 2026-11-05: a one-row hero goes back to artist over title in
-    // focus, where that still leaves a focus; else it keeps its row.
-    val stackedFocus = if (heroCompact) focusWith(heroStacked) else null
-    val focusHero = if (stackedFocus != null) heroStacked else hero
-    var focus = stackedFocus ?: focusWith(hero)
+    var focus = focusWith(hero)
     val restLabelsInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
     if (!shortWindow && focus != null && restLabelsInline &&
         focus.cover < metrics.labelsInlineMin
     ) {
-        focus = solveFocus(metrics.labelLine, focusHero)
+        focus = solveFocus(metrics.labelLine, hero)
     }
     val compactFocus = shortWindow && focus != null
     return StageColumnBudget(
@@ -462,7 +459,7 @@ fun resolveStageColumnBudget(
             else -> focus.cover + ColumnPadding * 2
         },
         compactFocus = compactFocus,
-        focusHeroStacked = focus != null && stackedFocus != null,
+        focusHeroStacked = focus != null && heroCompact,
         focusLyricInset = if (compactFocus) {
             ((stageWidth - ColumnPadding * 2 - focus!!.cover) / 2f).coerceAtLeast(0.dp)
         } else {

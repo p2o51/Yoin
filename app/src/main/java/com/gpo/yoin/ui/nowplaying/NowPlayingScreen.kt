@@ -1402,10 +1402,21 @@ private fun CompactPlayingContent(
         )
         val focusIdleShown = (focusIdleProgress * (1f - detailProgress)).coerceIn(0f, 1f)
         val focusLyricInset = budget.focusLyricInset * compactFocusProgress
-        // At ease the run-on reaches down through the whole transport slot.
+        // At ease a one-row hero stacks: the artist lifts over the title into
+        // the transport's room, the progress bar moving up with it (owner
+        // 2026-11-05 「显示按键的时候还是要一行」).
+        val heroLiftFull = if (budget.focusHeroStacked) {
+            (metrics.hero - metrics.heroOneLine).coerceAtLeast(0.dp)
+        } else {
+            0.dp
+        }
+        val heroLift = heroLiftFull * focusIdleShown
+        // At ease the run-on reaches down through the transport's first row,
+        // which steps away; the progress bar stays (「按键没了也应该显示进度条」).
         val focusLyricOverflow = lerpDp(
             budget.focusLyricOverflow * compactFocusProgress,
-            focusPose.controls,
+            (minOf(transportTopRowHeight(stageControlSize), focusPose.controls) - heroLiftFull)
+                .coerceAtLeast(0.dp),
             focusIdleShown,
         )
         val focusLyricOverflowPx = with(LocalDensity.current) { focusLyricOverflow.roundToPx() }
@@ -1523,13 +1534,14 @@ private fun CompactPlayingContent(
         )
         val bottomAccessoryHeight = stage(restPose.accessory, focusPose.accessory, expandedAccessoryHeight)
         val controlsHeight =
-            lerpDp(stage(restPose.controls, focusPose.controls, 0.dp), shortFocusControls, shortFocusProgress)
+            lerpDp(stage(restPose.controls, focusPose.controls, 0.dp), shortFocusControls, shortFocusProgress) -
+                heroLift
         val coverSpacerHeight = stage(restPose.coverGap, focusPose.coverGap, ExpandedCoverGap)
         // The title keeps its resting slot in Expanded — unless the Note
         // composer owns the bottom edge (keyboard up).
         val expandedHeroHeight = lerpDp(restPose.hero, 0.dp, noteHeroYield.coerceIn(0f, 1f))
         // The short arrangement keeps the title row exactly as the focus has it.
-        val heroHeight = stage(restPose.hero, focusPose.hero, expandedHeroHeight)
+        val heroHeight = stage(restPose.hero, focusPose.hero, expandedHeroHeight) + heroLift
         // Add back the space the surrounding slots will release at Expanded.
         // Round each slot separately, exactly as their layout modifiers do, so
         // the lazy list receives identical pixel constraints on every frame.
@@ -2057,7 +2069,7 @@ private fun CompactPlayingContent(
 
                     StageHeightSlot(
                         height = controlsHeight,
-                        alpha = compactProgress * (1f - focusIdleShown),
+                        alpha = compactProgress,
                     ) {
                         TickingPlaybackControls(
                             noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
@@ -2077,13 +2089,18 @@ private fun CompactPlayingContent(
                             controlSize = stageControlSize,
                             live = stageControlsLive,
                             prevToTopRow = maxOf(shortFocusProgress, compactFocusProgress),
+                            atEase = focusIdleShown,
                             modifier = Modifier
                                 // At ease, the first tap on the hidden
                                 // transport only brings it back.
                                 .lyricToolsInPlaceWakeGuard(focusIdle)
                                 .padding(horizontal = horizontalPadding)
+                                // At ease the slot gives the hero's artist line
+                                // from its bottom: the progress bar moves up with
+                                // it, the stepped-away first row clipping above.
+                                .wrapContentHeight(align = Alignment.Top, unbounded = true)
                                 .graphicsLayer {
-                                    translationY = 48.dp.toPx() * detailProgress
+                                    translationY = 48.dp.toPx() * detailProgress - heroLift.toPx()
                                 },
                         )
                     }
@@ -2106,13 +2123,14 @@ private fun CompactPlayingContent(
                         // Focus stacks the one-row hero back (owner 2026-11-05).
                         stackable = budget.focusHeroStacked,
                         stacking = if (budget.focusHeroStacked) {
-                            (immersiveProgress * (1f - detailProgress)).coerceIn(0f, 1f)
+                            focusIdleShown
                         } else {
                             0f
                         },
                         // Stacked, it lines up with the cover's edges like the
                         // lyrics (owner 2026-11-05 「跟上面那个封面平齐」).
                         stackInset = budget.focusLyricInset,
+                        stackLift = heroLift,
                         modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
 
@@ -4841,6 +4859,7 @@ private fun TickingPlaybackControls(
     modifier: Modifier = Modifier,
     live: Boolean = true,
     prevToTopRow: Float = 0f,
+    atEase: Float = 0f,
 ) {
     val position = positionMs()
     val progress = if (durationMs > 0) {
@@ -4875,6 +4894,7 @@ private fun TickingPlaybackControls(
         modifier = modifier,
         live = live,
         prevToTopRow = prevToTopRow,
+        atEase = atEase,
     )
 }
 
@@ -4929,6 +4949,9 @@ internal fun CompactBottomHero(
     stacking: Float = 0f,
     // [stackable]: the stack's inset on each side (the cover's edges).
     stackInset: Dp = 0.dp,
+    // [stackable]: how far the slot has grown at its top for the artist's
+    // line; the title stays put under it.
+    stackLift: Dp = 0.dp,
 ) {
     // Reopened before its close finished, Now Playing keeps this composition,
     // and the one-row hero's reused title/artist bounds then settle on the
@@ -5028,6 +5051,7 @@ internal fun CompactBottomHero(
                 HeroRowToStack(
                     stacking = stacking.coerceIn(0f, 1f),
                     stackInset = stackInset,
+                    stackLift = stackLift,
                     // The title's stretch and press scale, which the artist
                     // rides in the row (see the row below).
                     titleGrowth = {
@@ -5171,6 +5195,7 @@ internal fun CompactBottomHero(
 private fun HeroRowToStack(
     stacking: Float,
     stackInset: Dp,
+    stackLift: Dp,
     titleGrowth: () -> Float,
     title: @Composable (Modifier) -> Unit,
     artist: @Composable () -> Unit,
@@ -5247,11 +5272,13 @@ private fun HeroRowToStack(
         // Stack: the artist line (centred with its tags), 2dp, the title.
         val artistLine = maxOf(artistP.height, tagsP.height)
         val stackArtistY = (artistLine - artistP.height) / 2
-        val stackTitleY = artistLine + 2.dp.roundToPx()
+        // The slot grows at its top by [stackLift] as the artist lifts: the
+        // title holds its place on screen.
+        val titleY = stackLift.roundToPx()
         val artistX = lerpPx(rowArtistX, inset, across)
-        val artistY = lerpPx(rowArtistY, stackArtistY, lift)
+        val artistY = lerpPx(titleY + rowArtistY, stackArtistY, lift)
         layout(width, constraints.maxHeight) {
-            titleP.placeRelative(lerpPx(0, inset, lift), lerpPx(0, stackTitleY, lift))
+            titleP.placeRelative(lerpPx(0, inset, lift), titleY)
             artistP.placeRelative(artistX, artistY)
             tagsP.placeRelative(
                 artistX + artistP.width,
