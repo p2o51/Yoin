@@ -66,7 +66,29 @@ final class AppModel {
     func openSearch(from origin: SearchOrigin, catalog: Bool = false) {
         searchStartsOnCatalog = catalog
         searchOrigin = origin
-        withAnimation(Yoin.spatial) { searchActive = true }
+        withAnimation(Yoin.spatial) {
+            searchActive = true
+            searchWarming = false
+        }
+    }
+
+    /// Search is mounted, unseen, under a finger on the bar's search circle:
+    /// its first build (~90 ms on an iPhone Air) runs during the press, not on
+    /// the open's first frame. No tap within a beat: it goes again.
+    private(set) var searchWarming = false
+    @ObservationIgnored private var searchWarmTask: Task<Void, Never>?
+
+    func prewarmSearch() {
+        guard !searchActive, !searchWarming, !isPad else { return }
+        searchStartsOnCatalog = false
+        searchOrigin = .bar
+        searchWarming = true
+        searchWarmTask?.cancel()
+        searchWarmTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(NowPlayingPresentation.warmHoldMs))
+            guard let self, !Task.isCancelled, !searchActive else { return }
+            searchWarming = false
+        }
     }
     /// Nothing playing: the bar folds the pill away (Android idle bar).
     /// Signed in, that is whenever the engine has no song (the mock song is

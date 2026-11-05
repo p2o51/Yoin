@@ -98,33 +98,16 @@ struct SearchView: View {
         .overlay { circleStandIn }
         // However Search closes, the field folds back into the circle as it fades.
         .onChange(of: model.searchActive) { _, active in
-            guard !active else { return }
+            // Built ahead under a finger (prewarm): the open starts on the tap.
+            if active {
+                Task { await start() }
+                return
+            }
             focused = false
             withAnimation(Yoin.spatial) { grown = false }
         }
         // `-searchFocused YES`: screenshots of typing, the keyboard up over results.
-        .task {
-            // After the first frame: from there everything animates in.
-            staged = true
-            let focus = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused")
-            guard model.searchOrigin == .bar, !grown else {
-                // From Library's pill: nothing travels, but let the surface
-                // come in before the keyboard's first-load stall.
-                guard focus else { return }
-                try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / 2 / LaunchConfig.animationSpeed)))
-                if model.searchActive { focused = true }
-                return
-            }
-            // The keyboard comes up once the field has landed: bringing it up
-            // stalls the main thread for a few frames, and mid-morph that froze
-            // the field half-way up the screen, then it jumped to the header.
-            // (A fixed beat, the spatial spring's settle: a completion
-            // callback fired before the morph had even started.)
-            withAnimation(Yoin.spatial) { grown = true }
-            guard focus else { return }
-            try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / LaunchConfig.animationSpeed)))
-            if model.searchActive { focused = true }
-        }
+        .task { if model.searchActive { await start() } }
         .task {
             // Screenshots: `-screen search-scrolled` runs the results under the chips.
             guard LaunchConfig.searchScrolled else { return }
@@ -138,6 +121,33 @@ struct SearchView: View {
             guard !Task.isCancelled else { return }
             await model.store.runSearch(query, scope: scope.store)
         }
+    }
+
+    /// The open: on the first frame Search is shown (on mount, or on the tap
+    /// when it was built ahead), then everything animates in.
+    private func start() async {
+        // Built ahead from the bar: the open may have asked for the catalog since.
+        if model.searchStartsOnCatalog { scope = .catalog }
+        // After the first frame: from there everything animates in.
+        staged = true
+        let focus = LaunchConfig.searchQuery.isEmpty || UserDefaults.standard.bool(forKey: "searchFocused")
+        guard model.searchOrigin == .bar, !grown else {
+            // From Library's pill: nothing travels, but let the surface
+            // come in before the keyboard's first-load stall.
+            guard focus else { return }
+            try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / 2 / LaunchConfig.animationSpeed)))
+            if model.searchActive { focused = true }
+            return
+        }
+        // The keyboard comes up once the field has landed: bringing it up
+        // stalls the main thread for a few frames, and mid-morph that froze
+        // the field half-way up the screen, then it jumped to the header.
+        // (A fixed beat, the spatial spring's settle: a completion
+        // callback fired before the morph had even started.)
+        withAnimation(Yoin.spatial) { grown = true }
+        guard focus else { return }
+        try? await Task.sleep(for: .milliseconds(Int(Self.morphSettleMs / LaunchConfig.animationSpeed)))
+        if model.searchActive { focused = true }
     }
 
     // MARK: No results

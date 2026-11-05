@@ -78,8 +78,12 @@ struct PhoneShell: View {
             // unfolds over it or a sheet comes up, off the same progress.
             .modifier(WorldRecede(layer: .shell))
 
-            if model.searchActive {
+            if model.searchActive || model.searchWarming {
                 SearchView(npNamespace: npNS)
+                    // Warming: built, unseen and untouchable; it shows at once on the tap.
+                    .opacity(model.searchActive ? 1 : 0)
+                    .animation(nil, value: model.searchWarming)
+                    .allowsHitTesting(model.searchActive)
                     .zIndex(0.5)
                     // In: SearchView stages itself (the field grows out of
                     // the bar's circle opaque; surface, then chips, fade in).

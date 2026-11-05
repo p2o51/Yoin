@@ -57,6 +57,17 @@ enum QAProbe {
                 AppModel.dismissKeyboard()
                 withAnimation(Yoin.spatial) { model.searchActive = false }
             }
+        case "searchtap":
+            if open {
+                model.prewarmSearch()
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(110))
+                    model.openSearch(from: .bar)
+                }
+            } else {
+                AppModel.dismissKeyboard()
+                withAnimation(Yoin.spatial) { model.searchActive = false }
+            }
         case "sheet":
             if open {
                 let p = model.playback

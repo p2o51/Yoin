@@ -189,6 +189,8 @@ struct ShellBar: View {
         }
         .buttonStyle(.plain)
         .labGlass("barUnselected", scheme: scheme, brand: brand, auto: scheme.tertiary, in: Circle())
+        // Touch-down: Search builds while the finger is down.
+        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.prewarmSearch() })
         .glassEffectID("search", in: glassNS)
         // The search field grows out of this circle: Search draws a stand-in
         // here (where the circle last rested, frozen at the tap) and morphs it
