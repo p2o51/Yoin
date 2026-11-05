@@ -39,8 +39,8 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
             var profileId: String
             var url: String
             var username: String
-            /// `AccountScope`'s key for its rows.
-            var scope: String { "\(url)|\(username)" }
+            /// `AccountScope`'s key for its rows (`Profile.subsonicScope`).
+            var scope: String
         }
 
         var subsonic: [Subsonic]
@@ -49,9 +49,13 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     }
 
     private let accounts: @MainActor () -> Accounts
+    /// The notes it reads and writes (tests pass their own).
+    private let notesStore: @MainActor () -> NotesStore
 
-    init(accounts: @escaping @MainActor () -> Accounts) {
+    init(accounts: @escaping @MainActor () -> Accounts,
+         notes: @escaping @MainActor () -> NotesStore = { NotesStore.shared }) {
         self.accounts = accounts
+        notesStore = notes
     }
 
     /// The provider of [profileId]'s account; nil when it isn't on this device.
@@ -214,18 +218,19 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     }
 
     func notes(profileId: String) -> [SongNoteRow] {
-        main { reading(profileId) { NotesStore.shared.notes.compactMap { self.row($0) }.filter { $0.profileId == profileId } } }
+        main { reading(profileId) { notesStore().notes.compactMap { self.row($0) }.filter { $0.profileId == profileId } } }
     }
 
+    /// Whichever account holds it (the adapter checks the owner), not just the one in use (Codex #4).
     func note(id: String) -> SongNoteRow? {
-        main { NotesStore.shared.note(id: id).flatMap { self.row($0) } }
+        main { notesStore().syncNote(id: id).flatMap { self.row($0) } }
     }
 
     func putNote(row: SongNoteRow) -> Bool {
         main {
             // Written under the row's account (syncPut stamps the scope in use).
             reading(row.profileId) {
-                NotesStore.shared.syncPut(SongNote(id: row.id, provider: row.provider, trackId: row.trackId,
+                notesStore().syncPut(SongNote(id: row.id, provider: row.provider, trackId: row.trackId,
                                                    content: row.content, createdAt: row.createdAt,
                                                    updatedAt: row.updatedAt, title: row.title, artist: row.artist,
                                                    positionMs: row.positionMs?.int64Value))
@@ -235,9 +240,10 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func deleteNote(id: String, profileId: String) -> Bool {
         main {
-            guard let n = NotesStore.shared.note(id: id),
+            guard let n = notesStore().syncNote(id: id),
                   self.profileId(provider: n.provider, scope: n.scope) == profileId else { return true }
-            return NotesStore.shared.syncRemove(id: id)
+            // Removed from its own account's notes, whichever account is in use.
+            return reading(profileId) { notesStore().syncRemove(id: id) }
         }
     }
 

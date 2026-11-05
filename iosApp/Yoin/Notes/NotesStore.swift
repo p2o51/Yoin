@@ -122,6 +122,10 @@ final class NotesStore {
 
     func note(id: String) -> SongNote? { index(id).map { stored[$0] } }
 
+    /// The note [id] under whichever account it was written (sync reads every account's; Android looks a
+    /// note up by its UUID alone).
+    func syncNote(id: String) -> SongNote? { stored.first { $0.id == id } }
+
     /// Writes a note that came from another device as it is (its own times and moment). False (and
     /// nothing changed) when it couldn't reach the disk: sync retries it rather than count it applied.
     @discardableResult

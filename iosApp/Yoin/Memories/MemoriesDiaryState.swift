@@ -17,6 +17,9 @@ enum MemoriesBackTokens {
     static let diaryCloseThreshold: CGFloat = 0.5
     /// The drag's axis locks after this much travel (Android's touch slop, the deck's DragGesture).
     static let touchSlop: CGFloat = 10
+    /// The retreating page's bottom corners at full (BackMotionTokens.PopPageCornerRadius):
+    /// reached exactly where a release would commit.
+    static let pageCornerRadius: CGFloat = 28
 }
 
 /// One dismiss rule: commit distance (pt of finger travel) and fling speed (pt/s).

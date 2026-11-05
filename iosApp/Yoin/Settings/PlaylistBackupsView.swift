@@ -207,7 +207,7 @@ struct PlaylistBackupView: View {
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: Binding(get: { restore.sheetOpen }, set: { if !$0 { restore.sheetClosed() } })) {
-            PlaylistRestoreSheet(model: restore, targets: BackupTexts.targets(model.store))
+            PlaylistRestoreSheet(model: restore, targets: BackupTexts.targets())
         }
         .alert("Delete this backup?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
@@ -309,7 +309,7 @@ struct PlaylistBackupView: View {
     private func actions(_ b: PlaylistBackupRecord) -> some View {
         let canRestore = b.trackCount > 0
         // Only the device whose account follows the playlist can read it again.
-        let canFollow = b.following && PlaylistBackups.shared.followsHere(b, library: model.store)
+        let canFollow = b.following && PlaylistBackups.shared.followsHere(b)
         return HStack(spacing: 8) {
             Button { restore.open() } label: {
                 HStack(spacing: 8) {
@@ -354,7 +354,7 @@ struct PlaylistBackupView: View {
         backingUp = true
         Task {
             // Left as it was on failure; the page keeps showing the last backup.
-            _ = try? await PlaylistBackups.shared.followNow(b, library: model.store)
+            _ = try? await PlaylistBackups.shared.followNow(b)
             backingUp = false
         }
     }
@@ -500,7 +500,7 @@ struct PlaylistBackupView: View {
               ["restore", "review", "create"].contains(demo) else { return }
         try? await Task.sleep(for: .seconds(1.5))
         restore.open()
-        guard demo != "restore", let target = BackupTexts.targets(model.store).first(where: \.available) else { return }
+        guard demo != "restore", let target = BackupTexts.targets().first(where: \.available) else { return }
         try? await Task.sleep(for: .seconds(1.5))
         restore.restore(to: target)
         guard demo == "create" else { return }
@@ -663,25 +663,27 @@ enum BackupTexts {
         return (after.subtracting(before).count, before.subtracting(after).count)
     }
 
-    /// Where a backup can go on this device: the Subsonic server in use, and Apple Music listed as
-    /// unavailable (the iOS Apple Music source can't create playlists).
-    static func targets(_ store: LibraryStore) -> [RestoreTarget] {
-        var out: [RestoreTarget] = []
-        if let account = store.session.account, store.session.client != nil {
-            out.append(RestoreTarget(id: "subsonic:\(account.baseUrl)|\(account.username)", label: account.username,
-                                     provider: AccountScope.subsonicProvider))
+    /// Where a backup can go on this device (Android `restoreTargets`): every account configured here
+    /// whose service takes a new playlist — each Subsonic server and Apple Music — in the accounts' order,
+    /// whichever is in use. One that can't be used now is listed, not choosable, with why.
+    static func targets(_ accounts: BackupAccounts = LiveBackupAccounts.shared) -> [RestoreTarget] {
+        accounts.profiles.map { p in
+            let usable = accounts.canRead(p.id)
+            switch p.service {
+            case .subsonic:
+                return RestoreTarget(id: p.id, label: p.title, provider: AccountScope.subsonicProvider,
+                                     available: usable, note: usable ? p.host : "Sign in again")
+            case .appleMusic:
+                return RestoreTarget(id: p.id, label: "Apple Music", provider: AppleMusicMapping.provider,
+                                     available: usable, note: usable ? nil : "Apple Music access is off for Yoin")
+            }
         }
-        if store.appleMusic.isAuthorized {
-            out.append(RestoreTarget(id: SyncDomainBridge.appleMusicProfileId, label: "Apple Music",
-                                     provider: AppleMusicMapping.provider, available: false,
-                                     note: "Can't create playlists here yet"))
-        }
-        return out
     }
 
-    static func destination(for target: RestoreTarget) -> RestoreDestination? {
-        guard target.available, target.provider == AccountScope.subsonicProvider,
-              let client = AppModel.shared.store.session.client else { return nil }
-        return SubsonicRestoreDestination(client: client)
+    /// The account [target] names, opened for one restore (by its profile id, never the account in use).
+    static func destination(for target: RestoreTarget,
+                            accounts: BackupAccounts = LiveBackupAccounts.shared) -> RestoreDestination? {
+        guard target.available else { return nil }
+        return accounts.destination(target.id)
     }
 }

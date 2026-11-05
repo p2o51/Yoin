@@ -201,3 +201,134 @@ final class HomeMemoriesTests: XCTestCase {
         XCTAssertEqual(HomeHistory.memories(inputs).first?.lastWrittenAt, 777)
     }
 }
+
+
+/// Home and Memories rules from the 2026-11 review: a review alone makes a
+/// memory, the albums memories need are the written ones, Memories survives a
+/// push over Home, the retreat's bottom corners, the signed-out feed, the
+/// Recently Played / Your Playlists shelves, and Apple Music's held seek.
+@MainActor
+final class HomeMemoriesReviewTests: XCTestCase {
+    private func album(_ id: String, tracks: Int) -> Album {
+        let ts = (0..<tracks).map { Track(id: MediaId(provider: "subsonic", rawId: "\(id)-\($0)"), number: $0 + 1,
+                                          title: "T\($0)", durationSec: 200) }
+        return Album(id: MediaId(provider: "subsonic", rawId: id), title: "Album \(id)", artist: "Artist",
+                     year: 2020, palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: ts)
+    }
+
+    private func inputs(_ details: [Album], reviewed: Set<String> = [], ratings: [String: Double] = [:],
+                        ratedAlbumIds: [String] = []) -> HomeHistory.Inputs {
+        let byId = Dictionary(uniqueKeysWithValues: details.map { ($0.id.rawId, $0) })
+        return HomeHistory.Inputs(now: 0, plays: [], notes: [], details: byId, known: [:],
+                                  localRating: { ratings[$0] }, resolve: { id, _ in byId[id] },
+                                  ratedAlbumIds: ratedAlbumIds, albumReviewed: { reviewed.contains($0) })
+    }
+
+    // MARK: #16 A review alone
+
+    func test_should_beEligible_when_onlyAReviewIsWritten() {
+        let m = HomeHistory.memories(inputs([album("r", tracks: 10)], reviewed: ["r"], ratedAlbumIds: ["r"]))
+        XCTAssertEqual(m.count, 1)
+        XCTAssertTrue(m[0].isMemoryEligible)
+        XCTAssertTrue(m[0].hasAlbumReview)
+        XCTAssertTrue(HomeHistory.hasMemory(m[0]))
+        XCTAssertEqual(MemoryDeck.cards(MemoryDeck.Inputs(memories: m)).map(\.id), ["r"])
+    }
+
+    func test_should_keepTrackCountRule_when_reviewedAlbumIsShort() {
+        let m = HomeHistory.memories(inputs([album("ep", tracks: 3)], reviewed: ["ep"], ratedAlbumIds: ["ep"]))
+        XCTAssertFalse(m[0].isMemoryEligible)
+        // Still something kept (Rediscover may bring it back as an album with no count rule).
+        XCTAssertTrue(HomeHistory.hasMemory(m[0]))
+    }
+
+    // MARK: #14 What hydration loads
+
+    func test_should_listWrittenAlbumsOnly_when_askingWhatMemoriesNeed() {
+        let rated = album("rated", tracks: 4)
+        var x = inputs([rated], ratings: ["rated-0": 8], ratedAlbumIds: ["synced"])
+        x.plays = [PlayEvent(id: "p", scope: "s", provider: "subsonic", songId: "plain-0", albumId: "plain",
+                             artistId: nil, title: "", album: "", artist: "", coverKey: nil, startedAt: 1, durationSec: 1)]
+        // A synced album rating with nothing loaded, a rated song's album; a played-only album is not needed.
+        XCTAssertEqual(HomeHistory.writtenAlbumIds(x), ["synced", "rated"])
+    }
+
+    // MARK: #8 Covered, not left
+
+    func test_should_keepMemories_when_homeIsCoveredByAPush() {
+        XCTAssertTrue(MemoriesPresentation.survivesHomeHidden(onHome: true, pushed: true))
+        XCTAssertFalse(MemoriesPresentation.survivesHomeHidden(onHome: false, pushed: false))
+        XCTAssertFalse(MemoriesPresentation.survivesHomeHidden(onHome: false, pushed: true))
+        XCTAssertFalse(MemoriesPresentation.survivesHomeHidden(onHome: true, pushed: false))
+    }
+
+    func test_should_staySameOpen_when_notSnapped() {
+        let p = MemoriesPresentation()
+        p.open(focus: "a")
+        let open = p.openCount
+        // Covered by a push: nothing happens to q, so the deck finds the same open on the way back.
+        XCTAssertTrue(p.isOpen)
+        XCTAssertEqual(p.openCount, open)
+        p.snapClosed()
+        XCTAssertFalse(p.isOpen)
+        XCTAssertFalse(p.mounted)
+    }
+
+    // MARK: #21 Bottom corners
+
+    func test_should_roundCornersByQ_when_retreating() {
+        let h: CGFloat = 800, commit = MemoriesPresentation.dismissCommit, full = MemoriesBackTokens.pageCornerRadius
+        XCTAssertEqual(MemoriesPresentation.cornerRadius(fraction: 0, threshold: commit, height: h), 0)
+        XCTAssertEqual(MemoriesPresentation.cornerRadius(fraction: commit / h, threshold: commit, height: h), full)
+        XCTAssertEqual(MemoriesPresentation.cornerRadius(fraction: 0.9, threshold: commit, height: h), full)
+        // Smoothstep: half way is half the radius.
+        XCTAssertEqual(MemoriesPresentation.cornerRadius(fraction: commit / h / 2, threshold: commit, height: h),
+                       full / 2, accuracy: 0.001)
+        // The bar's shorter rule rounds sooner.
+        XCTAssertGreaterThan(MemoriesPresentation.cornerRadius(fraction: 0.05, threshold: MemoriesBackTokens.barDismissCommit, height: h),
+                             MemoriesPresentation.cornerRadius(fraction: 0.05, threshold: commit, height: h))
+    }
+
+    func test_should_useDragRule_when_dismissDragStarts() {
+        let p = MemoriesPresentation()
+        p.open()
+        p.dismissDrag(10, rule: .bar)
+        XCTAssertEqual(p.cornerThreshold, MemoriesBackTokens.barDismissCommit)
+        p.dismissEnded(velocity: 0, rule: .bar)
+        p.close()
+        XCTAssertEqual(p.cornerThreshold, MemoriesPresentation.dismissCommit)
+    }
+
+    // MARK: #20 Signed out
+
+    func test_should_showNoMockFeed_when_signedOutOutsideDemo() {
+        XCTAssertNil(HomeView.feed(isReal: false, demo: false) { nil })
+        XCTAssertNotNil(HomeView.feed(isReal: false, demo: true) { nil })
+        XCTAssertNil(HomeView.feed(isReal: true, demo: true) { nil })
+    }
+
+    // MARK: #19 Recently Played, Your Playlists
+
+    func test_should_fillRecentlyPlayedAndPlaylists_when_buildingTheFeed() {
+        let recent = (0..<6).map { album("r\($0)", tracks: 5) }
+        let lists = (0..<25).map {
+            LibraryItem(id: MediaId(provider: "subsonic", rawId: "pl\($0)"), kind: .playlist, title: "P\($0)",
+                        subtitle: "", palette: CoverPalette(a: .red, b: .green, c: .blue), count: 3)
+        }
+        let feed = LibraryStore.buildHome(recent: recent, frequent: [], newest: [], highest: [], random: [],
+                                          recentTracks: [], playlists: lists)
+        // Activities takes the first four; Recently Played shows the rest.
+        XCTAssertEqual(feed.recentlyPlayed.map(\.id.rawId), ["r4", "r5"])
+        XCTAssertEqual(feed.playlists.count, LibraryStore.homePlaylistLimit)
+        XCTAssertTrue(HomeSection.recentlyPlayed.supportedOnIOS)
+        XCTAssertTrue(HomeSection.yourPlaylists.supportedOnIOS)
+        XCTAssertFalse(HomeSection.otherProfiles.supportedOnIOS)
+    }
+
+    // MARK: #15 Apple Music's held seek
+
+    func test_should_startAtHeldSeek_when_seekCameWhilePreparing() {
+        XCTAssertEqual(AppleMusicAudioOutput.startPosition(startSec: 0, pendingSeek: 83.2), 83.2)
+        XCTAssertEqual(AppleMusicAudioOutput.startPosition(startSec: 12, pendingSeek: nil), 12)
+    }
+}

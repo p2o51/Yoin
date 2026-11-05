@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import YoinShared
 
 /// One configured account (Android `data/local/Profile`): a Subsonic server +
 /// user, or this device's Apple Music. Kept in UserDefaults without its
@@ -34,11 +35,20 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
     var username: String?
     /// Epoch ms; the avatar shapes go oldest first.
     var createdAt: Int64
+    /// The scope its rows were first kept under, when an edit changed only how the address is written
+    /// (case, scheme, a trailing slash: the same account fingerprint). Nil: "baseUrl|username".
+    var scopeKey: String? = nil
 
-    /// `AccountScope`'s key for this account's rows ("baseUrl|username"); nil for Apple Music.
+    /// `AccountScope`'s key for this account's rows ("baseUrl|username" as first saved); nil for Apple Music.
     var subsonicScope: String? {
         guard service == .subsonic, let baseUrl, let username else { return nil }
-        return "\(baseUrl)|\(username)"
+        return scopeKey ?? "\(baseUrl)|\(username)"
+    }
+
+    /// The account's cloud identity (shared `AccountFingerprints`, as on Android): one server + user
+    /// however its address is written. Nil when it can't be parsed.
+    static func identity(baseUrl: String, username: String) -> String? {
+        AccountFingerprints.shared.subsonic(serverUrl: baseUrl, username: username)
     }
 
     /// The card's name: the Subsonic username, or the service.
@@ -68,6 +78,8 @@ final class ProfileStore {
     nonisolated static let appleMusicId = "ios-applemusic"
     nonisolated static let profilesKey = "profiles.v1"
     nonisolated static let activeKey = "activeProfileId"
+    /// Set while the legacy Keychain item is still unread (locked) after the list was written anyway.
+    nonisolated static let legacyPendingKey = "profiles.legacyPending"
     /// Android ProfileManager.MAX_PROFILES.
     nonisolated static let maxProfiles = 5
 
@@ -79,8 +91,8 @@ final class ProfileStore {
     /// Sign-ins read or saved this run. An unsigned simulator build has no Keychain: a sign-in it
     /// couldn't store lasts the run, as before.
     private var signIns: [String: ServerSession.Account] = [:]
-    /// The legacy Keychain item couldn't be read at the migration (locked): looked for again before the
-    /// list is first written, so it is never written without it.
+    /// The legacy Keychain item couldn't be read at the migration (locked): looked for again before every
+    /// write and on later launches, until the Keychain answers found or missing (Codex #7).
     private var legacyPending = false
 
     init(defaults: UserDefaults = .standard, credentials: ProfileCredentialStore = KeychainCredentials(),
@@ -91,6 +103,8 @@ final class ProfileStore {
            let saved = try? JSONDecoder().decode([Profile].self, from: data) {
             profiles = saved
             activeId = defaults.string(forKey: Self.activeKey).flatMap { id in saved.contains { $0.id == id } ? id : nil }
+            legacyPending = defaults.bool(forKey: Self.legacyPendingKey)
+            if legacyPending, lookForLegacy() { persist() }
         } else {
             migrate(appleMusicAuthorized: appleMusicAuthorized, now: now)
         }
@@ -157,11 +171,23 @@ final class ProfileStore {
 
     /// Saves a Subsonic sign-in: into [id]'s account when editing, else into the account already
     /// added for that server + user, else a new account. The Keychain first, so a failure keeps the list
-    /// (and the old sign-in) as it was.
+    /// (and the old sign-in) as it was. An edit that keeps the account's identity (only the address's
+    /// spelling changed) keeps its scope, so its rows stay with it (Codex #1).
     func saveSubsonic(_ account: ServerSession.Account, editing id: String? = nil,
                       now: Int64 = ProfileStore.nowMs) -> Result<Profile, SaveFailure> {
-        let scope = "\(account.baseUrl)|\(account.username)"
-        let existing = id.flatMap(profile) ?? profiles.first { $0.subsonicScope == scope }
+        let scope = AccountScope.subsonicScope(account)
+        let identity = Profile.identity(baseUrl: account.baseUrl, username: account.username)
+        let existing = id.flatMap(profile) ?? profiles.first { p in
+            guard p.service == .subsonic else { return false }
+            if p.subsonicScope == scope { return true }
+            guard let identity, let url = p.baseUrl, let user = p.username else { return false }
+            return Profile.identity(baseUrl: url, username: user) == identity
+        }
+        let sameIdentity = existing.map { e in
+            guard e.service == .subsonic, let url = e.baseUrl, let user = e.username else { return false }
+            return identity != nil && Profile.identity(baseUrl: url, username: user) == identity
+        } ?? false
+        let keptScope = sameIdentity ? existing?.subsonicScope.flatMap { $0 == scope ? nil : $0 } : nil
         if existing == nil, !canAdd { return .failure(.full) }
         let profileId = existing?.id ?? "subsonic-\(UUID().uuidString.lowercased())"
         let status = credentials.save(account, for: profileId)
@@ -169,7 +195,7 @@ final class ProfileStore {
         guard status == errSecSuccess || status == errSecMissingEntitlement else { return .failure(.keychain(status)) }
         signIns[profileId] = account
         let updated = Profile(id: profileId, service: .subsonic, baseUrl: account.baseUrl,
-                              username: account.username, createdAt: existing?.createdAt ?? now)
+                              username: account.username, createdAt: existing?.createdAt ?? now, scopeKey: keptScope)
         if let i = profiles.firstIndex(where: { $0.id == profileId }) { profiles[i] = updated } else { profiles.append(updated) }
         persist()
         return .success(updated)
@@ -205,16 +231,29 @@ final class ProfileStore {
         return wasActive
     }
 
-    private func persist() {
-        if legacyPending {
-            legacyPending = false
-            if case .found(let a) = credentials.load(Self.legacySubsonicId), profile(Self.legacySubsonicId) == nil {
+    /// Reads the legacy item again; true once the Keychain answered (found: the account joins the list).
+    /// Locked again: still pending.
+    private func lookForLegacy() -> Bool {
+        switch credentials.load(Self.legacySubsonicId) {
+        case .found(let a):
+            if profile(Self.legacySubsonicId) == nil {
                 profiles.insert(Self.legacyProfile(a, now: Self.nowMs), at: 0)
-                signIns[Self.legacySubsonicId] = a
             }
+            signIns[Self.legacySubsonicId] = a
+        case .missing:
+            break
+        case .unavailable(let status):
+            guard status == errSecMissingEntitlement else { return false }
         }
+        legacyPending = false
+        return true
+    }
+
+    private func persist() {
+        if legacyPending { _ = lookForLegacy() }
         if let data = try? JSONEncoder().encode(profiles) { defaults.set(data, forKey: Self.profilesKey) }
         if let activeId { defaults.set(activeId, forKey: Self.activeKey) } else { defaults.removeObject(forKey: Self.activeKey) }
+        if legacyPending { defaults.set(true, forKey: Self.legacyPendingKey) } else { defaults.removeObject(forKey: Self.legacyPendingKey) }
     }
 }
 
@@ -334,11 +373,11 @@ final class ProfileManager {
     /// The switch itself, in one animated step.
     private func commit(_ target: Profile, probe: ServerSession.Probe?, account: ServerSession.Account?) {
         withAnimation(Yoin.spatial) {
-            if target.id != activeId || session.account.map(AccountScope.subsonicScope) != target.subsonicScope {
+            if target.id != activeId || session.scope != target.subsonicScope {
                 endPlayback()
             }
             if let probe, let account {
-                session.install(probe, account: account)
+                session.install(probe, account: account, scope: target.subsonicScope)
             } else {
                 session.signOut()
             }
@@ -432,7 +471,7 @@ final class ProfileManager {
     var syncAccounts: SyncDomainBridge.Accounts {
         let subsonic = profiles.compactMap { p -> SyncDomainBridge.Accounts.Subsonic? in
             guard p.service == .subsonic, let url = p.baseUrl, let user = p.username else { return nil }
-            return .init(profileId: p.id, url: url, username: user)
+            return .init(profileId: p.id, url: url, username: user, scope: p.subsonicScope ?? "\(url)|\(user)")
         }
         let apple = profiles.contains { $0.service == .appleMusic } && appleAuthorized()
         return SyncDomainBridge.Accounts(subsonic: subsonic, appleMusic: apple, storefront: nil)
@@ -444,7 +483,7 @@ final class ProfileManager {
     private func settle(_ p: Profile?) {
         switch p?.service {
         case .subsonic:
-            if let p, let account = store.signIn(p.id) { session.restore(account) } else { session.signOut() }
+            if let p, let account = store.signIn(p.id) { session.restore(account, scope: p.subsonicScope) } else { session.signOut() }
             use(.subsonic)
         case .appleMusic:
             session.signOut()

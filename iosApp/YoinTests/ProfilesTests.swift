@@ -129,7 +129,74 @@ final class ProfilesTests: XCTestCase {
         XCTAssertEqual(same.profiles.count, 2)
     }
 
+    /// Codex #7: a write while the Keychain is still locked never ends the legacy migration.
+    func test_should_keepLookingForTheLegacyServer_when_theKeychainStaysLockedThroughAWrite() {
+        let credentials = legacyKeychain()
+        credentials.unavailable[ProfileStore.legacySubsonicId] = errSecInteractionNotAllowed
+        let locked = ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+        XCTAssertNotNil(locked.addAppleMusic(), "a write while still locked")
+        XCTAssertNotNil(defaults.data(forKey: ProfileStore.profilesKey))
+        XCTAssertEqual(locked.profiles.map(\.id), [ProfileStore.appleMusicId])
+
+        let stillLocked = ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+        XCTAssertEqual(stillLocked.profiles.map(\.id), [ProfileStore.appleMusicId])
+
+        credentials.unavailable = [:]
+        let unlocked = ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+        XCTAssertEqual(unlocked.profiles.map(\.id), [ProfileStore.legacySubsonicId, ProfileStore.appleMusicId])
+        XCTAssertEqual(unlocked.signIn(ProfileStore.legacySubsonicId), legacy)
+        XCTAssertFalse(defaults.bool(forKey: ProfileStore.legacyPendingKey))
+        XCTAssertEqual(ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+            .profiles.map(\.id), [ProfileStore.legacySubsonicId, ProfileStore.appleMusicId], "written down")
+    }
+
     // MARK: Adding and removing
+
+    /// Codex #1: the address written another way is the same account; its rows stay with it.
+    func test_should_keepTheScope_when_anEditOnlyRewritesTheAddress() async throws {
+        let credentials = FakeCredentials()
+        let store = ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+        let a = try store.saveSubsonic(.init(baseUrl: "https://music.example", username: "me", password: "p")).get()
+        XCTAssertEqual(a.subsonicScope, "https://music.example|me")
+
+        let edited = try store.saveSubsonic(.init(baseUrl: "https://MUSIC.example", username: "me", password: "p2"),
+                                            editing: a.id).get()
+        XCTAssertEqual(edited.baseUrl, "https://MUSIC.example")
+        XCTAssertEqual(edited.subsonicScope, "https://music.example|me")
+        let reloaded = ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+        XCTAssertEqual(reloaded.profile(a.id)?.subsonicScope, "https://music.example|me")
+
+        // Added again, spelled another way: the same account, not a second one.
+        let again = try store.saveSubsonic(.init(baseUrl: "http://music.example:80", username: "Me", password: "p")).get()
+        XCTAssertEqual(again.id, a.id)
+        XCTAssertEqual(store.profiles.count, 1)
+        XCTAssertEqual(again.subsonicScope, "https://music.example|me")
+
+        // Another server under the same account: its own scope (the old server's rows stay out of sight).
+        let moved = try store.saveSubsonic(.init(baseUrl: "https://other.example", username: "me", password: "p"),
+                                           editing: a.id).get()
+        XCTAssertEqual(moved.subsonicScope, "https://other.example|me")
+        let back = try store.saveSubsonic(.init(baseUrl: "https://music.example", username: "me", password: "p"),
+                                          editing: a.id).get()
+        XCTAssertEqual(back.subsonicScope, "https://music.example|me")
+        XCTAssertNil(back.scopeKey)
+
+        // In use: an edit of the spelling keeps the scope (and the playback) of the account in use.
+        let session = ServerSession()
+        let (m, _) = manager(store, session: session)
+        defer { session.signOut() }
+        await m.switchTo(a.id)
+        XCTAssertEqual(AccountScope.shared.subsonic, "https://music.example|me")
+        var ended = 0
+        m.endPlayback = { ended += 1 }
+        let failure = await m.connectSubsonic(baseUrl: "HTTPS://Music.Example/", username: "me", password: "p",
+                                              editing: a.id, activate: false)
+        XCTAssertNil(failure)
+        XCTAssertEqual(session.account?.baseUrl, "HTTPS://Music.Example")
+        XCTAssertEqual(session.scope, "https://music.example|me")
+        XCTAssertEqual(AccountScope.shared.subsonic, "https://music.example|me")
+        XCTAssertEqual(ended, 0)
+    }
 
     func test_should_addAndDedupe_subsonicAccounts() throws {
         let credentials = legacyKeychain()
@@ -288,6 +355,51 @@ final class ProfilesTests: XCTestCase {
     }
 
     // MARK: Cloud sync reads each account
+
+    /// Codex #4: sync finds and deletes another account's note, not only the one in use's.
+    func test_should_findAndDeleteAnInactiveAccountsNote_when_syncing() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        AccountScope.shared.subsonic = "https://b|me"
+        let notes = NotesStore(fileURL: dir.appendingPathComponent("notes.json"), scopes: .shared)
+        let note = SongNote(id: "n1", provider: "subsonic", trackId: "t1", content: "A's", createdAt: 1, updatedAt: 1,
+                            title: "T", artist: "X", positionMs: nil)
+        XCTAssertTrue(AccountScope.shared.reading(asSubsonic: "https://a|me") { notes.syncPut(note) })
+        XCTAssertNil(notes.note(id: "n1"), "hidden from the account in use")
+        let bridge = SyncDomainBridge(accounts: {
+            .init(subsonic: [.init(profileId: "pa", url: "https://a", username: "me", scope: "https://a|me"),
+                             .init(profileId: "pb", url: "https://b", username: "me", scope: "https://b|me")],
+                  appleMusic: false, storefront: nil)
+        }, notes: { notes })
+
+        XCTAssertEqual(bridge.note(id: "n1")?.profileId, "pa")
+        XCTAssertTrue(bridge.deleteNote(id: "n1", profileId: "pb"))
+        XCTAssertNotNil(notes.syncNote(id: "n1"), "not B's to delete")
+        XCTAssertTrue(bridge.deleteNote(id: "n1", profileId: "pa"))
+        XCTAssertNil(notes.syncNote(id: "n1"))
+        XCTAssertNil(NotesStore(fileURL: dir.appendingPathComponent("notes.json"), scopes: .shared).syncNote(id: "n1"),
+                     "gone from disk, so it can't come back")
+        XCTAssertEqual(AccountScope.shared.subsonic, "https://b|me", "no switch")
+    }
+
+    /// Codex #9: another account's song with the same id never shows the old one's lyrics or facts.
+    func test_should_dropNowPlayingsPerSongState_when_theAccountChanges() async {
+        AccountScope.shared.subsonic = "https://a|me"
+        let data = NowPlayingData.shared
+        let track = PlayableTrack(id: "np-\(UUID().uuidString)", provider: "subsonic", title: "T", artist: "A",
+                                  album: "Al", albumId: nil, durationSec: 200,
+                                  streamURL: URL(string: "http://x/s1")!, coverURL: nil, starred: nil, userRating: 4)
+        await data.prepare(track, client: nil)
+        await data.loadAbout(track, client: nil)
+        XCTAssertEqual(data.lyricsState(track), .none)
+        XCTAssertNotNil(data.about[NowPlayingData.key(track)])
+        XCTAssertEqual(data.serverRating[NowPlayingData.key(track)], 4)
+
+        AccountScope.shared.subsonic = "https://b|me"
+        XCTAssertEqual(data.lyricsState(track), .loading, "asked again for this account")
+        XCTAssertNil(data.about[NowPlayingData.key(track)])
+        XCTAssertNil(data.serverRating[NowPlayingData.key(track)])
+    }
 
     func test_should_readAndWriteAnotherAccountsRows_inside_reading() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

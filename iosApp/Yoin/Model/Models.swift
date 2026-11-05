@@ -230,9 +230,14 @@ struct HomeFeed: Hashable, Sendable {
     var signals: [JBISignal] = []
     /// Raw album id → its cover's memory mark (server layout).
     var memoryMarks: [String: AlbumMemoryMark] = [:]
+    /// Recently Played (Android `recentlyPlayed`): the source's own recent
+    /// albums (any device), less the ones Activities already shows.
+    var recentlyPlayed: [Album] = []
+    /// Your Playlists: the library's playlists (Android HOME_PLAYLIST_LIMIT).
+    var playlists: [LibraryItem] = []
 
     var isEmpty: Bool {
         activities.isEmpty && jumpBackIn.isEmpty && recentTracks.isEmpty && recentAlbums.isEmpty && rediscover.isEmpty
-            && signals.isEmpty
+            && signals.isEmpty && recentlyPlayed.isEmpty && playlists.isEmpty
     }
 }

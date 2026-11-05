@@ -59,11 +59,13 @@ final class PlaylistBackupStore {
 
     func record(_ id: String) -> PlaylistBackupRecord? { records[id] }
 
-    /// The backup that follows [playlistId] (`provider:rawId`) on [provider]; the oldest if a sync raced.
-    func findBySource(provider: String, playlistId: String) -> PlaylistBackupRecord? {
+    /// Every backup of [playlistId] (`provider:rawId`) on [provider], oldest first. More than one when two
+    /// accounts of the service each have a playlist with that id (two Subsonic servers' playlist "1"), or a
+    /// sync raced: which one an account keeps is PlaylistBackups.existing's call.
+    func bySource(provider: String, playlistId: String) -> [PlaylistBackupRecord] {
         records.values
             .filter { $0.sourceProvider == provider && $0.sourcePlaylistId == playlistId }
-            .min { ($0.firstBackedUpAt, $0.id) < ($1.firstBackedUpAt, $1.id) }
+            .sorted { ($0.firstBackedUpAt, $0.id) < ($1.firstBackedUpAt, $1.id) }
     }
 
     // MARK: Writes

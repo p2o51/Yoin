@@ -262,7 +262,8 @@ final class LibraryStore {
         let feed = withObservationTracking {
             homeLists.map { l in
                 Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: l.highest,
-                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l))
+                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l),
+                               playlists: playlists)
             }
         } onChange: { [weak self] in
             // Called before the change lands: rebuild on the next turn.
@@ -330,6 +331,34 @@ final class LibraryStore {
             copy: { memoryStore.memory(provider: provider, entityId: $0)?.copy })
     }
 
+    /// Loads the album details the account's memories need and the app has
+    /// no track list for (Android AlbumMemoryCandidateBuilder's `getAlbum`):
+    /// a synced album rating or review never resolved here, an album known
+    /// only from a play's snapshot. Through the account's cached loader, a
+    /// few at a time. True when anything new landed.
+    @discardableResult
+    func hydrateMemoryAlbums() async -> Bool {
+        guard isReal else { return false }
+        let gen = generation
+        let missing = HomeHistory.writtenAlbumIds(historyInputs(extra: homeListAlbums))
+            .filter { albumDetails[$0]?.tracks.isEmpty ?? true }
+            .sorted()
+        guard !missing.isEmpty else { return false }
+        var landed = false
+        var pending = missing[...]
+        while !pending.isEmpty, gen == generation {
+            let batch = pending.prefix(Self.memoryHydrationBatch)
+            pending = pending.dropFirst(batch.count)
+            let loads = batch.map { id in Task { await loadAlbum(id) } }
+            for load in loads { await load.value }
+            if batch.contains(where: { !(albumDetails[$0]?.tracks.isEmpty ?? true) }) { landed = true }
+        }
+        return landed && gen == generation
+    }
+
+    /// Album loads Memories runs at once while hydrating.
+    static let memoryHydrationBatch = 4
+
     /// Whose Home this is (Android `homeScopeKey` provider|profile): the
     /// bubble's "seen" mark and the Home layout are kept per account.
     var homeScope: String { isReal ? "\(provider)|\(historyScope)" : "mock" }
@@ -379,7 +408,7 @@ final class LibraryStore {
     /// Pure: the shelves from the lists (unit-tested).
     nonisolated static func buildHome(recent: [Album], frequent: [Album], newest: [Album], highest: [Album],
                                       random: [Album], recentTracks: [PlaylistEntry],
-                                      history: HomeOverlay? = nil) -> HomeFeed {
+                                      history: HomeOverlay? = nil, playlists: [LibraryItem] = []) -> HomeFeed {
         func plays(_ a: Album) -> String {
             guard let n = a.playCount, n > 0 else { return "Recently active" }
             return n == 1 ? "1 play" : "\(n) plays"
@@ -425,10 +454,16 @@ final class LibraryStore {
                                                   footnotePlays: "\(a.playCount ?? 0)"))
             }
         }
+        let shownInActivities = Set(activities.map(\.album.id))
         return HomeFeed(layout: .server, activities: activities, jumpBackIn: jbi, recentTracks: recentTracks,
                         recentAlbums: recentAlbums, rediscover: rediscover, signals: signals,
-                        memoryMarks: history?.marks ?? [:])
+                        memoryMarks: history?.marks ?? [:],
+                        recentlyPlayed: recent.filter { !shownInActivities.contains($0.id) },
+                        playlists: Array(playlists.prefix(homePlaylistLimit)))
     }
+
+    /// Your Playlists' length (Android HOME_PLAYLIST_LIMIT).
+    nonisolated static let homePlaylistLimit = 20
 
     /// An ISO-8601 date (the server's `created`) in epoch ms.
     nonisolated static func epochMs(_ iso: String?) -> Int64? {
@@ -1073,8 +1108,8 @@ final class LibraryStore {
     /// user, or Apple Music. Paired with `provider` on every row.
     var historyScope: String {
         if apple != nil { return AppleMusicMapping.provider }
-        guard let a = session.account else { return "" }
-        return "\(a.baseUrl)|\(a.username)"
+        // The account's scope (`Profile.subsonicScope`), steady across an edit of how its address is written.
+        return session.scope ?? ""
     }
 
     /// The song the last play row was written for (Android
@@ -1146,6 +1181,8 @@ final class LibraryStore {
         let albumRatings = Dictionary(albumRecords.map { ($0.albumId, $0.rating) }, uniquingKeysWith: { $1 })
         let albumWrites = Dictionary(albumRecords.map { ($0.albumId, max($0.updatedAt, $0.reviewUpdatedAt ?? 0)) },
                                      uniquingKeysWith: { max($0, $1) })
+        let reviewed = Set(albumRecords.filter { !($0.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map(\.albumId))
         let ratingTimes = ratings.updatedAt
         return HomeHistory.Inputs(
             now: history.nowMs,
@@ -1161,7 +1198,8 @@ final class LibraryStore {
                 .filter { $0.rating > 0 || !($0.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 .map(\.albumId),
             ratingWrittenAt: { ratingTimes[LocalRatings.key(provider: provider, songId: $0)] },
-            albumWrittenAt: { albumWrites[$0] })
+            albumWrittenAt: { albumWrites[$0] },
+            albumReviewed: { reviewed.contains($0) })
     }
 
     /// An album made from a play's snapshot, for one the app has no copy of.

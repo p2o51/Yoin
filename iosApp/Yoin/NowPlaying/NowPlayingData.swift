@@ -60,6 +60,9 @@ final class NowPlayingData {
     @ObservationIgnored private let ratings: LocalRatings
     @ObservationIgnored private var lyricsRetry: Set<String> = []
     @ObservationIgnored private var infoRequested: Set<String> = []
+    /// Bumps when the Subsonic account changes: a song id is the server's own, so what was loaded for
+    /// another account's song with the same id goes, and loads begun before land nowhere (Codex #9).
+    @ObservationIgnored private var accountGeneration = 0
 
     init(ratings: LocalRatings? = nil, hearts: FavoritesStore? = nil) {
         self.ratings = ratings ?? .shared
@@ -67,6 +70,18 @@ final class NowPlayingData {
     }
 
     static func key(_ t: PlayableTrack) -> String { LocalRatings.key(provider: t.provider, songId: t.id) }
+
+    /// Another Subsonic account (AccountScope): everything per song starts again.
+    func accountChanged() {
+        accountGeneration += 1
+        lyrics = [:]
+        lyricsSource = [:]
+        serverRating = [:]
+        draftRating = [:]
+        about = [:]
+        lyricsRetry = []
+        infoRequested = []
+    }
 
     // MARK: Loading
 
@@ -90,7 +105,10 @@ final class NowPlayingData {
             // rating stays local.
             if let apple, !hearts.hasReport(provider: t.provider, songId: t.id), !infoRequested.contains(k) {
                 infoRequested.insert(k)
-                if let added = await apple.isInLibrary(t.id) {
+                let gen = accountGeneration
+                let added = await apple.isInLibrary(t.id)
+                guard gen == accountGeneration else { return }
+                if let added {
                     hearts.report(added, provider: t.provider, songId: t.id)
                 } else {
                     infoRequested.remove(k)
@@ -121,10 +139,11 @@ final class NowPlayingData {
             }
         }
         if lyrics[k] == nil { lyrics[k] = .loading }
+        let gen = accountGeneration
         do {
             let ms = t.durationSec > 0 ? KotlinLong(value: Int64(t.durationSec * 1000)) : nil
             let hit = try await registry.autoFetch(title: t.title, artist: t.artist, durationMs: ms)
-            guard lyrics[k] == .loading || lyrics[k] == nil else { return }
+            guard gen == accountGeneration, lyrics[k] == .loading || lyrics[k] == nil else { return }
             if let hit, !hit.lyrics.lines.isEmpty {
                 let source = LyricsSource(provider: hit.providerName, songId: hit.providerSongId)
                 LyricsUserStore.shared.saveAuto(hit.lrc, source: source, for: k)
@@ -134,6 +153,7 @@ final class NowPlayingData {
                 lyrics[k] = LyricsState.none
             }
         } catch {
+            guard gen == accountGeneration else { return }
             lyrics[k] = LyricsState.none
             lyricsRetry.insert(k)
         }
@@ -143,8 +163,10 @@ final class NowPlayingData {
         guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
         lyricsRetry.remove(k)
         if lyrics[k] == nil { lyrics[k] = .loading }
+        let gen = accountGeneration
         do {
             let result = try await client.lyricsFor(songId: t.id, artist: t.artist, title: t.title)
+            guard gen == accountGeneration else { return }
             if let result, !result.lines.isEmpty {
                 lyrics[k] = .lines(LoadedLyrics(result))
                 lyricsSource[k] = LyricsSource(provider: LyricsSource.server, songId: t.id)
@@ -152,6 +174,7 @@ final class NowPlayingData {
                 lyrics[k] = LyricsState.none
             }
         } catch {
+            guard gen == accountGeneration else { return }
             // Offline / server error: show none for now, ask again next time.
             lyrics[k] = LyricsState.none
             lyricsRetry.insert(k)
@@ -164,8 +187,10 @@ final class NowPlayingData {
         guard t.starred == nil || t.userRating == nil, let albumId = t.albumId,
               !infoRequested.contains(k) else { return }
         infoRequested.insert(k)
-        guard let album = try? await client.getAlbum(id: albumId),
-              let song = album.songs.first(where: { $0.id == t.id }) else {
+        let gen = accountGeneration
+        let album = try? await client.getAlbum(id: albumId)
+        guard gen == accountGeneration else { return }
+        guard let album, let song = album.songs.first(where: { $0.id == t.id }) else {
             infoRequested.remove(k)
             return
         }
@@ -260,8 +285,11 @@ final class NowPlayingData {
             return
         }
         if about[k] == nil { about[k] = .loading }
+        let gen = accountGeneration
         do {
-            if let song = try await client.getSong(id: t.id) {
+            let song = try await client.getSong(id: t.id)
+            guard gen == accountGeneration else { return }
+            if let song {
                 about[k] = .ready(SongFacts(song, fallback: t))
                 if t.starred == nil { hearts.report(song.starred, provider: t.provider, songId: t.id) }
                 if t.userRating == nil, serverRating[k] == nil, let r = song.userRating { serverRating[k] = Int(r.int32Value) }
@@ -269,6 +297,7 @@ final class NowPlayingData {
                 about[k] = .ready(SongFacts(t))
             }
         } catch {
+            guard gen == accountGeneration else { return }
             about[k] = .ready(SongFacts(t, complete: false))
         }
     }
@@ -315,9 +344,11 @@ final class NowPlayingData {
         ratings.set(value, provider: t.provider, songId: t.id)
         let stars = RatingScale.serverRating(local: value)
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
+        let gen = accountGeneration
         Task {
             do {
                 try await client.setRating(id: t.id, rating: stars)
+                guard gen == accountGeneration else { return }
                 serverRating[k] = Int(stars)
             } catch {
                 // The local rating stands; the server catches up on the next rating.

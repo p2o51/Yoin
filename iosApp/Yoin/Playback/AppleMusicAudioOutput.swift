@@ -38,6 +38,11 @@ final class AppleMusicAudioOutput: AudioOutput {
     /// The player has been seen playing this song (end detection needs it).
     private var sawPlaying = false
     private var lastTime: Double = 0
+    /// A seek that came while the current song was still resolving or
+    /// preparing (a diary note's moment right after its song was asked
+    /// for): applied once MusicKit has it. Belongs to this load; a new load
+    /// or stop drops it.
+    private var pendingSeek: Double?
     private var duration: Double = 0
     private var timer: Timer?
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
@@ -56,6 +61,7 @@ final class AppleMusicAudioOutput: AudioOutput {
         loaded = false
         sawPlaying = false
         lastTime = startSec
+        pendingSeek = nil
         duration = 0
         startTicking()
         guard let id = currentId else { return fail("Not an Apple Music song") }
@@ -85,7 +91,9 @@ final class AppleMusicAudioOutput: AudioOutput {
             try await player.prepareToPlay()
             guard gen == generation else { return }
             loaded = true
-            if startSec > 0 { player.playbackTime = startSec }
+            let at = Self.startPosition(startSec: startSec, pendingSeek: pendingSeek)
+            pendingSeek = nil
+            if at > 0 { player.playbackTime = at }
             if wantsPlay { try await player.play() }
             guard gen == generation else { return }
             events?.outputIsBufferingDidChange(false)
@@ -119,7 +127,7 @@ final class AppleMusicAudioOutput: AudioOutput {
 
     func seek(to sec: Double) {
         lastTime = sec
-        if loaded { player.playbackTime = sec }
+        if loaded { player.playbackTime = sec } else { pendingSeek = sec }
         events?.outputTimeDidChange(sec)
     }
 
@@ -129,6 +137,7 @@ final class AppleMusicAudioOutput: AudioOutput {
         loaded = false
         wantsPlay = false
         sawPlaying = false
+        pendingSeek = nil
         currentId = nil
         nextId = nil
         timer?.invalidate()
@@ -182,6 +191,11 @@ final class AppleMusicAudioOutput: AudioOutput {
         }
     }
 
+    /// Where a prepared song starts: a seek made while it prepared wins over the load's start.
+    nonisolated static func startPosition(startSec: Double, pendingSeek: Double?) -> Double {
+        pendingSeek ?? startSec
+    }
+
     /// The song ran out by itself (Codex C09): stopped, its entry gone, or paused at / back to the start
     /// after playing into the last [endSlackSec]. An interruption is never an end, and a pause near the end
     /// whose playhead still sits where it was playing is the listener's pause (lock screen, a call).
@@ -208,6 +222,7 @@ final class AppleMusicAudioOutput: AudioOutput {
         loaded = false
         sawPlaying = false
         lastTime = 0
+        pendingSeek = nil
         events?.outputDidAdvanceToPreloaded()
         Task {
             guard let song = await resolve?(next) else {

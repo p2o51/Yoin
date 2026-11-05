@@ -29,6 +29,10 @@ final class MemoriesPresentation {
     private(set) var openCount = 0
     /// The page's height: q's 1:1 scale.
     @ObservationIgnored var containerHeight: CGFloat = 800
+    /// The commit distance (pt) of whatever drives q now: the bottom corners
+    /// are full there. The bar's or the body's rule (less the slop) while
+    /// Memories' own drag holds q; the body's otherwise.
+    @ObservationIgnored private(set) var cornerThreshold: CGFloat = dismissCommit
 
     @ObservationIgnored private let spring = SpringRunner()
     @ObservationIgnored private var dragFrom: CGFloat = 1
@@ -51,6 +55,17 @@ final class MemoriesPresentation {
     nonisolated static let flickBack: CGFloat = 350
 
     // MARK: Pure rules (unit-tested)
+
+    /// The page's bottom corner radius (Android MemoriesBackMath.cornerRadius):
+    /// [maxRadius] · smoothstep(0, threshold / H, q), full exactly when a
+    /// release would commit; square at rest open.
+    nonisolated static func cornerRadius(fraction q: CGFloat, threshold: CGFloat, height: CGFloat,
+                                         maxRadius: CGFloat = MemoriesBackTokens.pageCornerRadius) -> CGFloat {
+        if q <= 0 { return 0 }
+        if height <= 0 || threshold <= 0 { return maxRadius }
+        let t = min(max(q / (threshold / height), 0), 1)
+        return maxRadius * t * t * (3 - 2 * t)
+    }
 
     /// RevealState.applyRubberBand: hard at the open end, soft past closed.
     nonisolated static func rubberBanded(_ raw: CGFloat, c: CGFloat = rubberBand) -> CGFloat {
@@ -83,6 +98,7 @@ final class MemoriesPresentation {
         if !dragging {
             spring.stop()
             dragging = true
+            cornerThreshold = Self.dismissCommit
             dragFrom = min(fraction, 1)
         }
         let raw = dragFrom - pull / max(containerHeight, 1)
@@ -103,11 +119,13 @@ final class MemoriesPresentation {
 
     // MARK: Memories' own drag (up = retreat)
 
-    /// The finger moved [up] pt up from where the drag started.
-    func dismissDrag(_ up: CGFloat) {
+    /// The finger moved [up] pt up from where the drag started, on [rule]
+    /// (the release's: it sets where the corners are full).
+    func dismissDrag(_ up: CGFloat, rule: MemoriesDismissRule = .body) {
         if !dragging {
             spring.stop()
             dragging = true
+            cornerThreshold = rule.commit
             dragFrom = max(fraction, 0)
         }
         fraction = Self.rubberBanded(dragFrom + up / max(containerHeight, 1))
@@ -134,14 +152,21 @@ final class MemoriesPresentation {
         focusAlbumId = albumId
         openCount += 1
         dragging = false
+        cornerThreshold = Self.dismissCommit
         run(to: 0, velocity: nil)
     }
 
     /// Retreat to Home (the ⌃ Home pill, the bar's Home, escape).
     func close() {
         dragging = false
+        cornerThreshold = Self.dismissCommit
         run(to: 1, velocity: nil)
     }
+
+    /// Home went off screen: covered by a pushed page while it is still the
+    /// section (Android keeps the Memories session under Go to album), or
+    /// left (a section switch, anything else), where Memories snaps closed.
+    nonisolated static func survivesHomeHidden(onHome: Bool, pushed: Bool) -> Bool { onHome && pushed }
 
     /// Gone at once, unseen (Home leaves the screen with the section switch).
     func snapClosed() {

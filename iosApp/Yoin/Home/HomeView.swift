@@ -19,8 +19,15 @@ struct HomeView: View {
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
 
     /// Signed in: the server's shelves (nil while the first load runs);
-    /// signed out: the mock shelf the screenshots use.
-    private var feed: HomeFeed? { model.store.isReal ? model.store.home : MockLibrary.shared.homeFeed() }
+    /// signed out: the mock shelf, for screenshots and demos only
+    /// (LaunchConfig.demoContent); a real launch with no account gets nil
+    /// and the connect prompt.
+    private var feed: HomeFeed? { Self.feed(isReal: model.store.isReal, demo: LaunchConfig.demoContent) { model.store.home } }
+
+    static func feed(isReal: Bool, demo: Bool, server: () -> HomeFeed?) -> HomeFeed? {
+        if isReal { return server() }
+        return demo ? MockLibrary.shared.homeFeed() : nil
+    }
 
     private var memories: MemoriesPresentation { model.memories }
 
@@ -57,13 +64,26 @@ struct HomeView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { memories.containerHeight = $0 }
         .environment(\.homeScheme, scheme)
         .environment(\.homeEdit, edit)
-        .task(id: model.store.generation) { await model.store.loadHome() }
+        .task(id: model.store.generation) {
+            await model.store.loadHome()
+            // Your Playlists reads the library's list (the Library tab's own load, once per account).
+            await model.store.loadPlaylists()
+            // The albums memories need (the pill, the marks, the deck), after a relaunch or a sync.
+            await model.store.hydrateMemoryAlbums()
+        }
         .onAppear { edit.load(scope: model.store.homeScope) }
         .onChange(of: model.store.homeScope) { _, scope in edit.load(scope: scope) }
         // Another device's layout landed (cloud sync): reread it unless a draft is open.
         .onChange(of: HomeLayoutStore.shared.remoteRevision) { edit.load(scope: model.store.homeScope) }
-        // Home leaves the screen (Library): Memories and edit mode go with it, unseen.
-        .onDisappear { memories.snapClosed(); edit.snapExit() }
+        // Home leaves the screen (Library): Memories and edit mode go with it,
+        // unseen. A page pushed over Home (Go to album from a memory) only
+        // covers it: Memories stays open underneath and Back returns to it.
+        .onDisappear {
+            if !MemoriesPresentation.survivesHomeHidden(onHome: model.section == .home, pushed: !model.path.isEmpty) {
+                memories.snapClosed()
+            }
+            edit.snapExit()
+        }
         // Something opens over Home: edit mode ends under it.
         .onChange(of: covered) { _, c in if c { edit.exit() } }
         #if DEBUG
@@ -96,6 +116,8 @@ struct HomeView: View {
                         Text("Home is empty").homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(scheme.onSurfaceVariant)
                     }
                     if !edit.isEditing { editFooter }
+                } else if !model.store.isReal {
+                    HomeConnectPrompt(scheme: scheme) { model.openSettings() }
                 } else if model.store.homePhase == .failed {
                     RetryRow(scheme: scheme) { Task { await model.store.loadHome(force: true) } }
                 } else {
@@ -132,7 +154,9 @@ struct HomeView: View {
         case .jumpBackIn: !feed.jumpBackIn.isEmpty
         case .recentlyAdded: !feed.recentTracks.isEmpty || !feed.recentAlbums.isEmpty
         case .rediscover: !feed.rediscover.isEmpty
-        case .recentlyPlayed, .yourPlaylists, .otherProfiles: false
+        case .recentlyPlayed: !feed.recentlyPlayed.isEmpty
+        case .yourPlaylists: !feed.playlists.isEmpty
+        case .otherProfiles: false
         }
     }
 
@@ -151,19 +175,23 @@ struct HomeView: View {
             case .jumpBackIn: jumpBackIn(feed)
             case .recentlyAdded: recentlyAdded(feed)
             case .rediscover: rediscover(feed.rediscover)
-            case .recentlyPlayed, .yourPlaylists, .otherProfiles: EmptyView()
+            case .recentlyPlayed: recentlyPlayed(feed)
+            case .yourPlaylists: yourPlaylists(feed.playlists)
+            case .otherProfiles: EmptyView()
             }
         }
     }
 
     /// A strip's covers: the section's first few.
     private func covers(_ s: HomeSection, _ feed: HomeFeed) -> [CoverPalette] {
+        if s == .yourPlaylists { return Array(feed.playlists.prefix(3).map(\.palette)) }
         let albums: [Album] = switch s {
         case .activities: feed.activities.map(\.album)
         case .jumpBackIn: feed.signals.map(\.album) + feed.jumpBackIn
         case .recentlyAdded: feed.recentAlbums + feed.recentTracks.map(\.album)
         case .rediscover: feed.rediscover.map(\.album)
-        case .recentlyPlayed, .yourPlaylists, .otherProfiles: []
+        case .recentlyPlayed: feed.recentlyPlayed
+        case .yourPlaylists, .otherProfiles: []
         }
         return Array(albums.prefix(3).map(\.palette))
     }
@@ -394,6 +422,36 @@ struct HomeView: View {
         }
     }
 
+    // MARK: Recently Played, Your Playlists (Android AlbumShelfSection, YourPlaylistsSection)
+
+    /// The source's recent albums: Recently Added's album cards, full bleed.
+    private func recentlyPlayed(_ feed: HomeFeed) -> some View {
+        shelf(HomeSection.recentlyPlayed.title) {
+            ForEach(feed.recentlyPlayed) { album in
+                AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId])
+            }
+        }
+    }
+
+    /// The library's playlists: the same card on the playlist shape, its song count under the name.
+    private func yourPlaylists(_ playlists: [LibraryItem]) -> some View {
+        shelf(HomeSection.yourPlaylists.title) {
+            ForEach(playlists) { PlaylistMini(item: $0) }
+        }
+    }
+
+    private func shelf<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HomeSectionTitle(title)
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 14) { content() }
+                    .padding(.horizontal, 16)
+            }
+            .scrollIndicators(.hidden)
+            .padding(.horizontal, -16)
+        }
+    }
+
     // MARK: Rediscover (peeking shelf)
 
     private func rediscover(_ cards: [RediscoverEntry]) -> some View {
@@ -412,6 +470,33 @@ struct HomeView: View {
             .scrollIndicators(.hidden)
             .padding(.horizontal, -16)
         }
+    }
+}
+
+/// Home with no account (a skipped sign-in, the last account removed, Apple
+/// Music's access gone): one line and the way to Settings.
+private struct HomeConnectPrompt: View {
+    var scheme: CoverScheme
+    var action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("No account connected")
+                .homeType(Tokens.type.titleMedium, .semibold)
+                .foregroundStyle(scheme.onSurfaceVariant)
+            Button(action: action) {
+                Text("Connect an account")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.onSecondaryContainer)
+                    .padding(.horizontal, 20)
+                    .frame(minHeight: 40)
+                    .background(scheme.secondaryContainer, in: .capsule)
+                    .contentShape(.capsule)
+            }
+            .buttonStyle(PressScale())
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 48)
     }
 }
 
@@ -841,6 +926,41 @@ private struct AlbumMini: View {
             }
         }
         .buttonStyle(PressScale())
+    }
+}
+
+/// Your Playlists' card (Android YourPlaylistCard): Recently Added's size and
+/// type on the playlist shape, the song count under the name.
+private struct PlaylistMini: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
+    @Environment(\.homeScheme) private var scheme
+    var item: LibraryItem
+
+    var body: some View {
+        let s = scheme!
+        let size = Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg
+        Button { homeTap(edit) { model.openPlaylist(item.id.rawId) } } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                EntityBackdrop(entity: .playlist, palette: item.palette, seed: item.id.rawId.count, size: size,
+                               stroke: s.primary)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(item.title)
+                        .font(YoinFont.font(size: 12, YoinFont.Axes(weight: 600, round: 100)))
+                        .homeLine(12, 16)
+                        .foregroundStyle(s.onSurface)
+                    if let n = item.count {
+                        Text(n == 1 ? "1 song" : "\(n) songs")
+                            .homeType(Tokens.type.labelSmall)
+                            .foregroundStyle(s.onSurfaceVariant)
+                    }
+                }
+                .lineLimit(1)
+            }
+            .frame(width: size, alignment: .leading)
+        }
+        .buttonStyle(PressScale())
+        .accessibilityLabel(item.title)
     }
 }
 

@@ -20,19 +20,41 @@ struct MemoriesHomeBehind: ViewModifier {
     }
 }
 
-/// The page's own pose (Android rememberMemoriesHostPose): −q·H, or a fade
-/// in place under Reduce Motion.
+/// The page's own pose (Android rememberMemoriesHostPose): −q·H with its
+/// bottom corners rounding off the same q (memoriesDismissCorners), or a
+/// fade in place under Reduce Motion (no corners).
 struct MemoriesPagePose: ViewModifier {
     var presentation: MemoriesPresentation
     @Environment(\.accessibilityReduceMotion) private var reduced
+    /// The page draws into the safe area (its aurora): the clip reaches there too.
+    @State private var bleed = EdgeInsets()
 
     func body(content: Content) -> some View {
         // Hard at the open end (feedback: the spring's overshoot must not
         // pull the page down off its top and show Home above it).
         let q = max(presentation.fraction, 0)
+        let radius = reduced ? 0 : MemoriesPresentation.cornerRadius(fraction: q, threshold: presentation.cornerThreshold,
+                                                                    height: presentation.containerHeight)
         content
+            .clipShape(MemoriesPageShape(bottomRadius: radius, bleed: bleed))
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { bleed = $0 }
             .offset(y: reduced ? 0 : -q * presentation.containerHeight)
             .opacity(reduced ? Double(1 - min(max(q, 0), 1)) : 1)
+    }
+}
+
+/// The page's frame grown by the safe area it draws into, its bottom corners
+/// at [bottomRadius] (square when 0).
+private struct MemoriesPageShape: Shape {
+    var bottomRadius: CGFloat
+    var bleed: EdgeInsets
+
+    func path(in rect: CGRect) -> Path {
+        let full = CGRect(x: rect.minX - bleed.leading, y: rect.minY - bleed.top,
+                          width: rect.width + bleed.leading + bleed.trailing,
+                          height: rect.height + bleed.top + bleed.bottom)
+        return UnevenRoundedRectangle(bottomLeadingRadius: bottomRadius, bottomTrailingRadius: bottomRadius,
+                                      style: .continuous).path(in: full)
     }
 }
 

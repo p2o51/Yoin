@@ -131,19 +131,27 @@ final class OfflineDownloads {
     @ObservationIgnored var scope: () -> String? = { AccountScope.shared.subsonic }
     /// Signs a song's stream url for the signed-in account; nil when there is no client.
     @ObservationIgnored var sign: (_ songId: String, _ quality: Quality) -> URL? = { _, _ in nil }
+    /// Fetches a signed url to a temporary file (tests answer without a network); nil: the URLSession.
+    @ObservationIgnored var transfer: (@MainActor (URL) async throws -> (URL, URLResponse))?
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let directory: URL
+    /// The album and playlist pages the downloads keep in the detail cache (Codex #10).
+    @ObservationIgnored private let pins: DetailCachePins
     @ObservationIgnored private var session: URLSession
-    @ObservationIgnored private var running: (key: String, task: Task<Void, Never>)?
+    /// The one transfer that owns the pump; its token tells it from one an account change cancelled
+    /// (Codex #11: only the current transfer clears this and starts the next).
+    @ObservationIgnored private var running: (key: String, token: Int, task: Task<Void, Never>)?
+    @ObservationIgnored private var nextToken = 0
     @ObservationIgnored private var nextOrder = 0
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "offline")
 
     static let qualityKey = "downloadQuality"
     static let mobileKey = "downloadOverMobileData"
 
-    init(defaults: UserDefaults = .standard, directory: URL? = nil) {
+    init(defaults: UserDefaults = .standard, directory: URL? = nil, pins: DetailCachePins = .shared) {
         self.defaults = defaults
+        self.pins = pins
         quality = Quality(rawValue: defaults.string(forKey: Self.qualityKey) ?? "") ?? .default
         overMobileData = defaults.bool(forKey: Self.mobileKey)
         let base = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -270,17 +278,34 @@ final class OfflineDownloads {
 
     /// Starts the next waiting song of the signed-in account (one at a time).
     func pump() {
-        guard running == nil, let s = scope(),
-              let next = songs.first(where: { $0.scope == s && ($0.state == .queued || $0.state == .downloading) }),
-              let url = sign(next.songId, next.quality) else { return }
-        let key = next.key
-        set(key) { $0.state = .downloading }
-        let task = Task { [weak self] in
-            guard let self else { return }
-            let result = await self.fetch(url, key: key)
-            self.finish(key, result)
+        guard running == nil, let s = scope() else { return }
+        while let next = songs.first(where: { $0.scope == s && ($0.state == .queued || $0.state == .downloading) }) {
+            guard let url = sign(next.songId, next.quality) else { return }
+            let key = next.key
+            // Signed by another account's client (a switch between queueing and opening): never stored
+            // under this account's key (Android resolveDownload, Codex #3).
+            guard Self.key(ofSigned: url) == key else {
+                log.error("download skipped: signed for another account")
+                set(key) { $0.state = .failed }
+                save()
+                continue
+            }
+            set(key) { $0.state = .downloading }
+            nextToken += 1
+            let token = nextToken
+            let task = Task { [weak self] in
+                guard let self else { return }
+                let result = await self.fetch(url, key: key)
+                self.finish(key, token: token, result)
+            }
+            running = (key, token, task)
+            return
         }
-        running = (key, task)
+    }
+
+    /// The download key of a signed stream url: its plain stream url's cache key (no transcode, no credential).
+    static func key(ofSigned url: URL) -> String? {
+        SubsonicCacheKey.of(SubsonicStreamURLs.url(url, delivery: .original))
     }
 
     /// The account changed (sign-in, sign-out, another server): its own downloads run.
@@ -301,7 +326,7 @@ final class OfflineDownloads {
 
     private func fetch(_ url: URL, key: String) async -> Fetched {
         do {
-            let (temp, response) = try await session.download(from: url)
+            let (temp, response) = if let transfer { try await transfer(url) } else { try await session.download(from: url) }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 try? FileManager.default.removeItem(at: temp)
                 return .failed
@@ -328,7 +353,23 @@ final class OfflineDownloads {
         }
     }
 
-    private func finish(_ key: String, _ result: Fetched) {
+    private func finish(_ key: String, token: Int, _ result: Fetched) {
+        guard running?.token == token else {
+            // A transfer an account change let go of: a whole file still counts; nothing else is its to change.
+            if case .file(let f, let size) = result {
+                if let song = songs.first(where: { $0.key == key }), song.state != .done {
+                    set(key) {
+                        $0.state = .done
+                        $0.file = f.lastPathComponent
+                        $0.bytes = size
+                    }
+                    save()
+                } else if !songs.contains(where: { $0.key == key }) {
+                    try? FileManager.default.removeItem(at: f)
+                }
+            }
+            return
+        }
         running = nil
         switch result {
         case .file(let f, let size):
@@ -401,11 +442,29 @@ final class OfflineDownloads {
         // A download cut off by the app quitting starts again.
         songs = saved.map { var s = $0; if s.state == .downloading { s.state = .queued }; return s }
         nextOrder = songs.map(\.order).max() ?? 0
+        pinDetails()
     }
 
     private func save() {
+        pinDetails()
         guard let data = try? JSONEncoder().encode(songs) else { return }
         try? data.write(to: indexURL, options: .atomic)
+    }
+
+    /// Every downloaded album's and playlist's page stays in the detail cache while it is downloaded: its
+    /// songs play offline only if the page still lists them.
+    private func pinDetails() {
+        var entries: Set<DetailCachePins.Entry> = []
+        for song in songs {
+            for c in song.collections {
+                switch c.kind {
+                case .album: entries.insert(.init(scope: song.scope, kind: .album, id: c.id))
+                case .playlist: entries.insert(.init(scope: song.scope, kind: .playlist, id: c.id))
+                case .song: break
+                }
+            }
+        }
+        pins.set(entries)
     }
 }
 

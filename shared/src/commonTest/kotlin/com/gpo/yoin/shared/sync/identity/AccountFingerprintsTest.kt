@@ -85,6 +85,52 @@ class AccountFingerprintsTest {
         assertEquals("spotify:v1:alice", AccountFingerprints.spotify("alice"))
     }
 
+    /** Hosts as OkHttp 5's HttpUrl (Android's fingerprint) canonicalises them, read off HttpUrl.host. */
+    @Test
+    fun should_canonicaliseHostsLikeAndroid_when_hostIsInternationalOrIpv6() {
+        val android = listOf(
+            "https://bücher.example" to "xn--bcher-kva.example",
+            "https://BÜCHER.example/" to "xn--bcher-kva.example",
+            "https://%62ücher.example" to "xn--bcher-kva.example",
+            "https://bücher。example" to "xn--bcher-kva.example",
+            "https://xn--BCHER-KVA.example" to "xn--bcher-kva.example",
+            "https://Straße.example" to "xn--strae-oqa.example",
+            "https://例え.テスト" to "xn--r8jz45g.xn--zckzah",
+            "https://ｍｕｓｉｃ.example" to "music.example",
+            "https://Ⅷ.example" to "viii.example",
+            "https://münchen.de." to "xn--mnchen-3ya.de.",
+            "https://MUSIC.Example.COM." to "music.example.com.",
+            "https://a_b.example" to "a_b.example",
+            "https://[2001:DB8:0:0:0:0:0:1]" to "[2001:db8::1]",
+            "https://[0:0:0:0:0:0:0:1]" to "[::1]",
+            "https://[::0:0:1]" to "[::1]",
+            "https://[0:0:0:0:0:0:0:0]" to "[::]",
+            "https://[fe80:0:0:0:0:0:0:0]" to "[fe80::]",
+            "https://[2001:0db8:0000:0000:0001:0000:0000:0001]" to "[2001:db8::1:0:0:1]",
+            "https://[1:0:0:2:0:0:0:3]" to "[1:0:0:2::3]",
+            "https://[1:0:0:2:0:0:3:4]" to "[1::2:0:0:3:4]",
+            "https://[::1:2:3:4:5:6:7]" to "[0:1:2:3:4:5:6:7]",
+            "https://[1:2:3:4:5:6:7::]" to "[1:2:3:4:5:6:7:0]",
+            "https://[1:2:3:4:5:6:1.2.3.4]" to "[1:2:3:4:5:6:102:304]",
+            "https://[::ffff:192.168.1.2]" to "192.168.1.2",
+            "https://[::FFFF:c0a8:0102]" to "192.168.1.2",
+        )
+        for ((url, host) in android) {
+            assertEquals(url, "subsonic:v1:$host\u001Falice", AccountFingerprints.subsonic(url, "alice"))
+        }
+        assertEquals(
+            "subsonic:v1:[2001:db8::1]:4533/x\u001Falice",
+            AccountFingerprints.subsonic("https://[2001:DB8:0:0::1]:4533/x/", "alice"),
+        )
+        // HttpUrl refuses these hosts, so there is no fingerprint.
+        for (url in listOf(
+            "https://bücher..example", "https://xn--zz.example", "https://[1:2:3:4:5:6:7:8:9]",
+            "https://[1:2:3:4:5:6::7:8]", "https://[::ffff:1.2.3.04]", "https://[12345::1]", "https://a b.example",
+        )) {
+            assertNull(url, AccountFingerprints.subsonic(url, "alice"))
+        }
+    }
+
     @Test
     fun should_buildSanitizedHint_when_urlCarriesSecrets() {
         assertEquals(

@@ -4,9 +4,9 @@ import Observation
 /// The Home sections a listener can show, hide and reorder: Android's
 /// catalog (ui/home/HomeSection.kt), in its declaration (= default) order.
 /// The ids are persisted verbatim and are Android's own, so a layout
-/// document reads the same on both apps. iOS renders the first four today;
-/// the other three are kept in the layout (their order and visibility ride
-/// along) and stay out of the feed and the edit tray until iOS has them.
+/// document reads the same on both apps. iOS renders all but On Your Other
+/// Accounts, which is kept in the layout (its order and visibility ride
+/// along) and stays out of the feed and the edit tray until iOS has it.
 enum HomeSection: String, CaseIterable, Hashable, Sendable {
     case activities
     case jumpBackIn = "jump_back_in"
@@ -52,8 +52,9 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
     /// iOS renders it (the rest are carried, not shown).
     var supportedOnIOS: Bool {
         switch self {
-        case .activities, .jumpBackIn, .recentlyAdded, .rediscover: true
-        case .recentlyPlayed, .yourPlaylists, .otherProfiles: false
+        case .activities, .jumpBackIn, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists: true
+        // Other accounts' most played needs their covers and a switch-and-play (not on iOS yet).
+        case .otherProfiles: false
         }
     }
 

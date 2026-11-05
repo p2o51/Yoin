@@ -12,7 +12,8 @@ final class HomeLayoutTests: XCTestCase {
     func test_should_beCatalogDefault_when_neverCustomized() {
         XCTAssertEqual(HomeLayout.reconcile(nil), .default)
         XCTAssertEqual(HomeLayout.reconcile([]), .default)
-        XCTAssertEqual(HomeLayout.default.shownSections, [.activities, .jumpBackIn, .recentlyAdded, .rediscover])
+        XCTAssertEqual(HomeLayout.default.shownSections,
+                       [.activities, .jumpBackIn, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists])
         XCTAssertTrue(HomeLayout.default.isDefault)
     }
 
@@ -49,7 +50,7 @@ final class HomeLayoutTests: XCTestCase {
     func test_should_moveAmongShownKeepingHiddenSlots_when_reordering() {
         let l = HomeLayout.default.withEnabled(.jumpBackIn, false)
         let moved = l.movedShown(.rediscover, to: 0)
-        XCTAssertEqual(moved.shownSections, [.rediscover, .activities, .recentlyAdded])
+        XCTAssertEqual(moved.shownSections, [.rediscover, .activities, .recentlyAdded, .recentlyPlayed, .yourPlaylists])
         // The hidden one keeps its absolute index.
         XCTAssertEqual(moved.sections[1].section, .jumpBackIn)
         XCTAssertFalse(moved.sections[1].enabled)
@@ -162,7 +163,8 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(store.layout("acc").shownSections.first, .rediscover)
         XCTAssertEqual(edit.undoStack.count, 2)
         edit.undo()
-        XCTAssertEqual(store.layout("acc").shownSections, [.activities, .recentlyAdded, .rediscover])
+        XCTAssertEqual(store.layout("acc").shownSections,
+                       [.activities, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists])
         edit.reset()
         XCTAssertNil(store.prefs("acc"))
         XCTAssertTrue(edit.layout.isDefault)

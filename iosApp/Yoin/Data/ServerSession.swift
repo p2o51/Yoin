@@ -39,8 +39,12 @@ final class ServerSession {
         let openSubsonic: Bool
     }
 
-    private(set) var account: Account? {
-        didSet { AccountScope.shared.subsonic = account.map(AccountScope.subsonicScope) }
+    private(set) var account: Account?
+    /// The scope the account's local rows are kept under (`Profile.subsonicScope`: "baseUrl|username" as the
+    /// account was first saved). Set last, after the client: publishing it starts that account's downloads,
+    /// which are signed by the client in place (Codex #3).
+    private(set) var scope: String? {
+        didSet { AccountScope.shared.subsonic = scope }
     }
     private(set) var state: State = .signedOut
     private(set) var client: SubsonicClient?
@@ -70,7 +74,8 @@ final class ServerSession {
     }
 
     /// The account in use becomes [account], on the client that just answered (a switch, a sign-in).
-    func install(_ probe: Probe, account: Account) {
+    /// [scope]: its rows' scope (default "baseUrl|username").
+    func install(_ probe: Probe, account: Account, scope: String? = nil) {
         authGeneration += 1
         let gen = authGeneration
         if client !== probe.client { client?.close() }
@@ -78,18 +83,20 @@ final class ServerSession {
         self.account = account
         supportsTimeOffset = false
         state = .ready(probe.server)
+        self.scope = scope ?? AccountScope.subsonicScope(account)
         Task { await loadTraits(probe.client, gen: gen, openSubsonic: probe.openSubsonic) }
     }
 
     /// The account in use at launch (or after the one in use was removed): its client at once, the
     /// ping behind it. An offline launch keeps the client, so cached pages still play.
-    func restore(_ account: Account) {
+    func restore(_ account: Account, scope: String? = nil) {
         authGeneration += 1
         client?.close()
-        self.account = account
         client = Self.makeClient(account)
+        self.account = account
         supportsTimeOffset = false
         state = .connecting
+        self.scope = scope ?? AccountScope.subsonicScope(account)
         Task { await verify() }
     }
 
@@ -99,6 +106,7 @@ final class ServerSession {
         client?.close()
         client = nil
         account = nil
+        scope = nil
         supportsTimeOffset = false
         state = .signedOut
     }
@@ -234,7 +242,11 @@ final class AccountScope {
         didSet {
             if let subsonic { adoptLegacyIfNeeded(subsonic) }
             // That account's downloads run (another account's wait).
-            if subsonic != oldValue { OfflineDownloads.shared.accountChanged() }
+            if subsonic != oldValue {
+                OfflineDownloads.shared.accountChanged()
+                // Song ids are per server: another account's lyrics and facts never stand in (Codex #9).
+                NowPlayingData.shared.accountChanged()
+            }
         }
     }
 

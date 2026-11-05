@@ -5,19 +5,29 @@ import YoinShared
 
 /// Where a restore writes (Android MusicSource's `library().search` and
 /// `writeActions().createPlaylistWithTracks`): one account's search and a new
-/// playlist. Ids are `provider:rawId`.
+/// playlist. Ids are `provider:rawId`. Each destination is one account, chosen
+/// once: matching, the review's search and the write all go to it, whichever
+/// account is in use meanwhile.
 @MainActor
 protocol RestoreDestination: AnyObject {
     func search(_ query: String) async throws -> [MatchTrack]
-    /// A new, empty playlist; its id on the service.
-    func createPlaylist(name: String, description: String?) async throws -> String
+    /// A new playlist holding [trackIds] (at most `PlaylistRestore.addBatch`, maybe none), in order; its id
+    /// on the service.
+    func createPlaylist(name: String, description: String?, trackIds: [String]) async throws -> String
     func add(_ trackIds: [String], to playlistId: String) async throws
+    /// The restore is over: lets go of what it opened.
+    func close()
 }
 
-/// An account a backup can be restored into. iOS has one account per service
-/// at a time: the Subsonic server in use. Apple Music isn't one here — the
-/// iOS Apple Music source has no playlist create (Android's has; capability
-/// PLAYLIST_IMPORT), so it is listed as unavailable.
+extension RestoreDestination {
+    func close() {}
+}
+
+/// An account a backup can be restored into: every account configured here
+/// whose service takes a new playlist (Android `restoreTargets`, capability
+/// PLAYLIST_IMPORT) — Subsonic servers and Apple Music. [id] is the account's
+/// profile id; one that can't be used now (no sign-in, Apple Music access off)
+/// is listed but can't be chosen.
 struct RestoreTarget: Identifiable, Hashable, Sendable {
     var id: String
     var label: String
@@ -73,15 +83,17 @@ enum PlaylistRestore {
     }
 
     /// A playlist named [name] on [target] holding [trackIds] in order (Android createPlaylistWithTracks:
-    /// create, then append in batches; a failure after the create keeps what was added). None: nothing made.
+    /// the create carries the first batch, the rest are appended in batches; a failure after the create
+    /// keeps what was added). None: nothing made.
     static func write(name: String, description: String?, trackIds: [String], to target: RestoreDestination) async -> PlaylistWrite {
         let requested = Int32(trackIds.count)
         guard !trackIds.isEmpty else { return PlaylistWrite(created: false, added: 0, requested: 0) }
-        guard let id = try? await target.createPlaylist(name: name, description: description) else {
+        let first = Array(trackIds.prefix(addBatch))
+        guard let id = try? await target.createPlaylist(name: name, description: description, trackIds: first) else {
             return PlaylistWrite(created: false, added: 0, requested: requested)
         }
-        var added: Int32 = 0
-        for start in stride(from: 0, to: trackIds.count, by: addBatch) {
+        var added = Int32(first.count)
+        for start in stride(from: first.count, to: trackIds.count, by: addBatch) {
             let batch = Array(trackIds[start..<min(start + addBatch, trackIds.count)])
             do { try await target.add(batch, to: id) } catch { break }
             added += Int32(batch.count)
@@ -90,19 +102,21 @@ enum PlaylistRestore {
     }
 }
 
-/// The Subsonic server in use as a restore target.
+/// A Subsonic account as a restore target, on a client of its own built from that account's sign-in
+/// (never the account in use's client, which a switch closes or replaces).
 @MainActor
 final class SubsonicRestoreDestination: RestoreDestination {
-    let client: SubsonicClient
+    private let client: LazySubsonicClient
 
-    init(client: SubsonicClient) { self.client = client }
+    init(account: ServerSession.Account) { client = LazySubsonicClient(account) }
 
     func search(_ query: String) async throws -> [MatchTrack] {
-        try await client.search3(query: query, artistCount: 0, albumCount: 0, songCount: 20).songs.map(Self.track)
+        try await client.get().search3(query: query, artistCount: 0, albumCount: 0, songCount: 20).songs.map(Self.track)
     }
 
-    func createPlaylist(name: String, description: String?) async throws -> String {
-        guard let made = try await client.createPlaylist(name: name, comment: description, songIds: []) else {
+    func createPlaylist(name: String, description: String?, trackIds: [String]) async throws -> String {
+        let raw = trackIds.compactMap { PlaylistSnapshots.shared.rawIdOf(id: $0) }
+        guard let made = try await client.get().createPlaylist(name: name, comment: description, songIds: raw) else {
             throw PlaylistBackups.BackupError.notFound
         }
         return made.summary.id
@@ -110,13 +124,43 @@ final class SubsonicRestoreDestination: RestoreDestination {
 
     func add(_ trackIds: [String], to playlistId: String) async throws {
         let raw = trackIds.compactMap { PlaylistSnapshots.shared.rawIdOf(id: $0) }
-        try await client.updatePlaylist(id: playlistId, name: nil, comment: nil, isPublic: nil,
-                                        songIdsToAdd: raw, songIndexesToRemove: [])
+        try await client.get().updatePlaylist(id: playlistId, name: nil, comment: nil, isPublic: nil,
+                                              songIdsToAdd: raw, songIndexesToRemove: [])
     }
+
+    func close() { client.close() }
 
     nonisolated static func track(_ s: SongInfo) -> MatchTrack {
         MatchTrack(id: "\(s.ref.provider):\(s.id)", title: s.title, artist: s.artist, album: s.album,
                    durationSec: s.durationSec, isrc: nil)
+    }
+}
+
+/// This device's Apple Music as a restore target (Android AppleMusicSource's search and
+/// createPlaylistWithTracks): the catalog searched, a new playlist in the user's library.
+@MainActor
+final class AppleMusicRestoreDestination: RestoreDestination {
+    let apple: AppleMusicSource
+
+    init(apple: AppleMusicSource) { self.apple = apple }
+
+    func search(_ query: String) async throws -> [MatchTrack] {
+        try await apple.searchSongs(query).map(Self.track)
+    }
+
+    func createPlaylist(name: String, description: String?, trackIds: [String]) async throws -> String {
+        try await apple.createLibraryPlaylist(name: name, description: description, trackIds: trackIds)
+    }
+
+    func add(_ trackIds: [String], to playlistId: String) async throws {
+        try await apple.addToLibraryPlaylist(trackIds, playlistRawId: playlistId)
+    }
+
+    nonisolated static func track(_ s: AMSong) -> MatchTrack {
+        let seconds = (s.durationMs ?? 0) / 1000
+        return MatchTrack(id: "\(AppleMusicMapping.provider):\(s.rawId)", title: s.title,
+                          artist: s.artist.isEmpty ? nil : s.artist, album: s.album.isEmpty ? nil : s.album,
+                          durationSec: seconds > 0 ? KotlinInt(int: Int32(seconds)) : nil, isrc: nil)
     }
 }
 
@@ -160,6 +204,9 @@ final class PlaylistRestoreModel {
     @ObservationIgnored private let store: PlaylistBackupStore
     @ObservationIgnored private let destination: @MainActor (RestoreTarget) -> RestoreDestination?
     @ObservationIgnored private let now: () -> Int64
+    /// The account chosen at Restore to, opened once: matching, the review's search and the write all use
+    /// it (never looked up again, so a switch meanwhile can't send the write elsewhere).
+    @ObservationIgnored private var chosen: (target: RestoreTarget, destination: RestoreDestination)?
     @ObservationIgnored private var job: Task<Void, Never>?
     @ObservationIgnored private var searchJob: Task<Void, Never>?
 
@@ -200,6 +247,8 @@ final class PlaylistRestoreModel {
 
     func restore(to target: RestoreTarget) {
         guard target.available, let backup, job == nil, let dest = destination(target) else { return }
+        release()
+        chosen = (target, dest)
         let tracks = backup.content.tracks.map { PlaylistSnapshots.shared.toMatchTrack(track: $0) }
         let total = tracks.count
         withAnimation(Yoin.spatial) { phase = .matching(target, done: 0, total: total, outcomes: []) }
@@ -220,9 +269,22 @@ final class PlaylistRestoreModel {
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 withAnimation(Yoin.spatial) { self.phase = .failed(target) }
+                self.release()
             }
             self?.job = nil
         }
+    }
+
+    /// The account [target] was opened as at Restore to; nil once that restore is over.
+    private func chosenDestination(_ target: RestoreTarget) -> RestoreDestination? {
+        guard let chosen, chosen.target == target else { return nil }
+        return chosen.destination
+    }
+
+    /// The restore's account is let go (it is over, or another begins).
+    private func release() {
+        chosen?.destination.close()
+        chosen = nil
     }
 
     func setChecked(_ position: Int32, _ checked: Bool) {
@@ -241,7 +303,7 @@ final class PlaylistRestoreModel {
     /// Writes the checked rows to the target; the backup's history records it. Once started, the write and
     /// its history entry finish even if the page closes.
     func create() {
-        guard let backup, case .review(let target, let rows) = phase, let dest = destination(target) else { return }
+        guard let backup, case .review(let target, let rows) = phase, let dest = chosenDestination(target) else { return }
         let ids = RestoreReview.shared.trackIdsToWrite(rows: rows)
         guard !ids.isEmpty else { return }
         closeSearch()
@@ -253,7 +315,10 @@ final class PlaylistRestoreModel {
             let record = RestoreReview.shared.restoreRecord(targetProvider: target.provider, targetLabel: target.label,
                                                             rows: rows, write: write, now: now())
             store.recordRestore(id, record)
-            withAnimation(Yoin.spatial) { self?.phase = .done(target, record: record) }
+            dest.close()
+            guard let self else { return }
+            if self.chosen?.destination === dest { self.chosen = nil }
+            withAnimation(Yoin.spatial) { self.phase = .done(target, record: record) }
         }
     }
 
@@ -263,6 +328,7 @@ final class PlaylistRestoreModel {
         job?.cancel()
         job = nil
         closeSearch()
+        release()
         phase = .idle
         withAnimation(Yoin.spatial) { sheetOpen = false }
     }
@@ -276,7 +342,7 @@ final class PlaylistRestoreModel {
     }
 
     func runSearch(_ query: String, debounce: Bool = true) {
-        guard case .review(let target, _) = phase, let current = search, let dest = destination(target) else { return }
+        guard case .review(let target, _) = phase, let current = search, let dest = chosenDestination(target) else { return }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         search = Search(position: current.position, query: query, results: current.results, loading: !trimmed.isEmpty)
         searchJob?.cancel()

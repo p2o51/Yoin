@@ -31,6 +31,10 @@ struct MemoriesView: View {
     @State private var pager = SpringRunner()
     @State private var layout = MemoriesLayouts.layout(width: 390, height: 844)
     @State private var size = CGSize(width: 390, height: 844)
+    /// The open the deck was built for. A page pushed over Home (Go to album)
+    /// hides Memories without closing it; coming back finds the same open,
+    /// so the deck, its position, the diary and the drafts stay as they were.
+    @State private var builtFor: Int?
 
     init(presentation: MemoriesPresentation) {
         self.presentation = presentation
@@ -83,7 +87,8 @@ struct MemoriesView: View {
         .ignoresSafeArea(.keyboard)
         .onAppear {
             resize(CGSize(width: size.width, height: Self.windowHeight))
-            rebuild()
+            // Back from a page pushed over it: the same deck, its cards' data refreshed.
+            if builtFor == presentation.openCount { refreshInPlace() } else { rebuild() }
             #if DEBUG
             MemoriesScript.swipe = { _ in
                 let start = position
@@ -102,6 +107,13 @@ struct MemoriesView: View {
             #endif
         }
         .onChange(of: presentation.openCount) { _, _ in rebuild() }
+        // The albums its memories need and the app had no track list for
+        // (after a relaunch, a sync): loaded behind the open deck.
+        .task(id: presentation.openCount) {
+            let open = presentation.openCount
+            guard await model.store.hydrateMemoryAlbums(), open == presentation.openCount else { return }
+            withAnimation(Yoin.effects) { refreshInPlace() }
+        }
         .onChange(of: reduceMotion, initial: true) { _, r in deck.diary.reduced = r }
         // VoiceOver's two-finger scrub is iOS's back for an overlay: one level at a time.
         .accessibilityAction(.escape) { back() }
@@ -161,6 +173,7 @@ struct MemoriesView: View {
 
     /// The deck for this open: the pool rebuilt every time, stopped on the focus, every card on its card face.
     private func rebuild() {
+        builtFor = presentation.openCount
         cards = MemoryDeck.cards(model.store.memoryDeckInputs())
         pager.stop()
         position = CGFloat(MemoryDeck.startIndex(cards, focus: presentation.focusAlbumId))
@@ -169,6 +182,21 @@ struct MemoriesView: View {
         deck.router.cardPresent = !cards.isEmpty
         deck.router.isSpread = layout.isSpread
         deck.rebuild(cards, seal: seal(for: layout))
+    }
+
+    /// Every card again from the stores, in place (the deck's order holds
+    /// while it is open); memories that now qualify join at the end. An
+    /// empty deck is built afresh.
+    private func refreshInPlace() {
+        guard !cards.isEmpty else { return rebuild() }
+        let inputs = model.store.memoryDeckInputs()
+        let latest = Dictionary(inputs.memories.map { ($0.albumId, $0) }, uniquingKeysWith: { a, _ in a })
+        var next = cards.map { MemoryDeck.card(latest[$0.id] ?? $0.memory, inputs) }
+        let have = Set(next.map(\.id))
+        next += MemoryDeck.cards(inputs).filter { !have.contains($0.id) }.prefix(max(0, MemoryDeck.limit - next.count))
+        guard next != cards else { return }
+        cards = next
+        for c in next { deck.refresh(c) }
     }
 
     /// One card again after a write, in place (the deck's order holds while it is open).

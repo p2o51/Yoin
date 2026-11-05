@@ -154,8 +154,8 @@ final class MemoriesGestureRouter {
         let delta = translationY - lastY
         lastY = translationY
         switch route {
-        case .dismiss:
-            reveal.dismissDrag(-(translationY - lockY))
+        case .dismiss(let fromBar):
+            reveal.dismissDrag(-(translationY - lockY), rule: (fromBar ? MemoriesDismissRule.bar : .body).afterSlop(slopUp))
             if qCrossing?.update(reveal.fraction * reveal.containerHeight) == true { onThresholdCrossed() }
         case .cardRubberBand:
             diary.pullBy(delta)

@@ -10,6 +10,9 @@ import os
 ///   [maxBytes], down to [trimTargetBytes] (5/6 of the cap: trimming only to
 ///   the cap would put the next write over it again).
 /// - A file older than [maxAge] (30 days) is never served and gets purged.
+/// - Pinned entries (`DetailCachePins`: downloaded albums and playlists) never
+///   age out or get trimmed, so their pages open offline however long ago
+///   they were last read (Android `DetailCacheStore.keeps`).
 /// - Account-scoped through the key, so a switch never shows one account's
 ///   pages in another.
 /// - Writes carry the epoch their load began in; [remove] records the epoch
@@ -51,6 +54,7 @@ actor DetailDiskCache {
     let trimTargetBytes: Int64
     let maxAge: TimeInterval
     private let clock: @Sendable () -> Date
+    private let pins: DetailCachePins
     private let log = Logger(subsystem: "com.gpo.yoin", category: "detailcache")
 
     /// Running total of the files' sizes: seeded with one directory scan on
@@ -60,8 +64,9 @@ actor DetailDiskCache {
     private var droppedAt: [String: Int] = [:]
 
     init(directory: URL, maxBytes: Int64 = DetailDiskCache.defaultMaxBytes, maxAge: TimeInterval = DetailDiskCache.defaultMaxAge,
-         clock: @escaping @Sendable () -> Date = Date.init) {
+         clock: @escaping @Sendable () -> Date = Date.init, pins: DetailCachePins = .shared) {
         self.directory = directory
+        self.pins = pins
         self.maxBytes = maxBytes
         trimTargetBytes = maxBytes * 5 / 6
         self.maxAge = maxAge
@@ -77,7 +82,7 @@ actor DetailDiskCache {
             return nil
         }
         let cachedAt = Date(timeIntervalSince1970: env.cachedAt)
-        if clock().timeIntervalSince(cachedAt) > maxAge {
+        if clock().timeIntervalSince(cachedAt) > maxAge, !pins.contains(url.lastPathComponent) {
             delete(url)
             return nil
         }
@@ -88,7 +93,7 @@ actor DetailDiskCache {
 
     /// Stores [value], unless an edit dropped the entry after [epoch].
     func write<V: Codable & Sendable>(_ value: V, scope: String, kind: Kind, id: String, epoch: Int) {
-        let name = fileName(scope, kind, id)
+        let name = Self.fileName(scope, kind, id)
         if let dropped = droppedAt[name], dropped > epoch { return }
         guard let data = try? JSONEncoder().encode(Envelope(cachedAt: clock().timeIntervalSince1970, value: value)) else { return }
         let url = directory.appendingPathComponent(name)
@@ -111,7 +116,7 @@ actor DetailDiskCache {
 
     /// Drops an entry (an edit changed it) and keeps older loads from writing it back.
     func remove(scope: String, kind: Kind, id: String, epoch: Int) {
-        let name = fileName(scope, kind, id)
+        let name = Self.fileName(scope, kind, id)
         droppedAt[name] = max(droppedAt[name] ?? 0, epoch)
         delete(directory.appendingPathComponent(name))
     }
@@ -119,7 +124,7 @@ actor DetailDiskCache {
     /// Hygiene pass (once on start): anything past [maxAge] goes.
     func purgeExpired() {
         let cutoff = clock().addingTimeInterval(-maxAge)
-        for (url, _, _) in files() {
+        for (url, _, _) in files() where !pins.contains(url.lastPathComponent) {
             guard let data = try? Data(contentsOf: url),
                   let at = try? JSONDecoder().decode(CachedAtOnly.self, from: data).cachedAt else { delete(url); continue }
             if Date(timeIntervalSince1970: at) < cutoff { delete(url) }
@@ -137,13 +142,13 @@ actor DetailDiskCache {
 
     private struct CachedAtOnly: Decodable { var cachedAt: Double }
 
-    private func fileName(_ scope: String, _ kind: Kind, _ id: String) -> String {
+    static func fileName(_ scope: String, _ kind: Kind, _ id: String) -> String {
         let digest = SHA256.hash(data: Data("\(scope)\u{1F}\(kind.rawValue)\u{1F}\(id)".utf8))
         return kind.rawValue + "-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined() + ".json"
     }
 
     private func fileURL(_ scope: String, _ kind: Kind, _ id: String) -> URL {
-        directory.appendingPathComponent(fileName(scope, kind, id))
+        directory.appendingPathComponent(Self.fileName(scope, kind, id))
     }
 
     private var directoryReady = false
@@ -183,11 +188,11 @@ actor DetailDiskCache {
     }
 
     /// Oldest-touched first until under [trimTargetBytes]; never [keeping]
-    /// (the file just written). Returns the total after.
+    /// (the file just written) or a pinned one. Returns the total after.
     private func trim(keeping: String) -> Int64 {
         var all = files().sorted { $0.2 < $1.2 }
         var total = all.reduce(Int64(0)) { $0 + $1.1 }
-        all.removeAll { $0.0.lastPathComponent == keeping }
+        all.removeAll { $0.0.lastPathComponent == keeping || pins.contains($0.0.lastPathComponent) }
         var dropped = 0
         for (url, n, _) in all {
             if total <= trimTargetBytes { break }
@@ -198,4 +203,27 @@ actor DetailDiskCache {
         log.info("trimmed \(dropped) entries")
         return total
     }
+}
+
+/// The detail entries a download holds (album and playlist pages, per account), kept out of the
+/// cache's age limit and trims. `OfflineDownloads` sets them whenever its index loads or changes,
+/// before the cache's first purge (both start in AppModel.init).
+final class DetailCachePins: @unchecked Sendable {
+    static let shared = DetailCachePins()
+
+    struct Entry: Hashable, Sendable {
+        var scope: String
+        var kind: DetailDiskCache.Kind
+        var id: String
+    }
+
+    private let lock = NSLock()
+    private var names: Set<String> = []
+
+    func set(_ entries: Set<Entry>) {
+        let next = Set(entries.map { DetailDiskCache.fileName($0.scope, $0.kind, $0.id) })
+        lock.withLock { names = next }
+    }
+
+    func contains(_ fileName: String) -> Bool { lock.withLock { names.contains(fileName) } }
 }

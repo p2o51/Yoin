@@ -126,6 +126,28 @@ final class AppleMusicSource {
         return Array(out.prefix(cap))
     }
 
+    /// Every page of a list, to the end (Android `all`): a page that fails fails the read, and a `next` link
+    /// seen before is refused, so what comes back is the whole list or nothing. A `next` link that leaves out
+    /// one of [query]'s options gets it back (Apple's links carry the offset, not always `include`).
+    private func everyPage(_ path: String, _ query: [String: String] = [:]) async throws -> [AppleMusicJSON.Object] {
+        var out: [AppleMusicJSON.Object] = []
+        var visited = Set<String>()
+        var root = try await get(path, query)
+        out += AppleMusicJSON.resources(root)
+        while let next = AppleMusicJSON.next(root) {
+            guard visited.insert(next).inserted else { throw RequestError(message: "Apple Music repeated a page") }
+            root = try await get(next, Self.missing(query, in: next))
+            out += AppleMusicJSON.resources(root)
+        }
+        return out
+    }
+
+    /// [query]'s options a `next` link (path + query) doesn't carry.
+    nonisolated static func missing(_ query: [String: String], in next: String) -> [String: String] {
+        let carried = Set(URLComponents(string: next)?.queryItems?.map(\.name) ?? [])
+        return query.filter { !carried.contains($0.key) }
+    }
+
     private func catalog(_ kind: String) async throws -> String {
         "/v1/catalog/\(try await countryCode())/\(kind)"
     }
@@ -207,8 +229,10 @@ final class AppleMusicSource {
             .map(AppleMusicMapping.artistItem)
     }
 
+    /// Every library playlist, all pages (a backup tells a playlist gone by its absence here, so a prefix
+    /// would make the rest look deleted).
     func libraryPlaylists() async throws -> [LibraryItem] {
-        try await all("/v1/me/library/playlists", ["limit": "100"], cap: 500)
+        try await everyPage("/v1/me/library/playlists", ["limit": "100"])
             .compactMap(AppleMusicMapping.playlist).map(AppleMusicMapping.playlistItem)
     }
 
@@ -289,6 +313,32 @@ final class AppleMusicSource {
         return AppleMusicMapping.playlist(p, songs: songs(tracks))
     }
 
+    /// [rawId] read whole for a cloud backup (Android `readPlaylist`): the playlist, then every page of its
+    /// entries in order — repeats kept, and what isn't a song (a music video, an entry it can't read) kept
+    /// at its place as unreadable. Nil when the service doesn't have the playlist; any failed page throws,
+    /// so a backup never saves part of a playlist as the whole.
+    func playlistForBackup(_ rawId: String) async throws -> AMPlaylistRead? {
+        let library = AppleMusicMapping.isLibraryId(rawId)
+        let id = AppleMusicMapping.resourceId(rawId)
+        let path = library ? "/v1/me/library/playlists/\(id)" : try await catalog("playlists") + "/\(id)"
+        let root: AppleMusicJSON.Object
+        do {
+            root = try await get(path)
+        } catch let e as MusicDataRequest.Error where e.status == 404 {
+            return nil
+        }
+        guard let r = AppleMusicJSON.resources(root).first, let p = AppleMusicMapping.playlist(r) else { return nil }
+        let entries: [AppleMusicJSON.Object]
+        do {
+            entries = try await everyPage(path + "/tracks", ["include": library ? "catalog" : "albums,artists"])
+        } catch let e as MusicDataRequest.Error where e.status == 404 && (p.trackCount ?? 0) == 0 {
+            // An empty library playlist has no tracks relationship to read.
+            entries = []
+        }
+        for e in entries { if let s = AppleMusicMapping.song(e) { remember(s, resource: e) } }
+        return AppleMusicMapping.playlistRead(p, entries: entries)
+    }
+
     // MARK: Search
 
     struct SearchResults: Sendable {
@@ -330,6 +380,58 @@ final class AppleMusicSource {
             albums: AppleMusicMapping.albums(in: list("library-albums")).filter { albumIds.insert($0.id.rawId).inserted },
             songs: AppleMusicMapping.entries(songs(list("library-songs"))).filter { songIds.insert($0.track.id.rawId).inserted },
             playlists: list("library-playlists").compactMap(AppleMusicMapping.playlist).map(AppleMusicMapping.playlistItem))
+    }
+
+    /// Catalog songs for [term] (Android `search(...).tracks`, 25): a restore's matching and its review search.
+    func searchSongs(_ term: String) async throws -> [AMSong] {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let root = try await get(try await catalog("search"),
+                                 ["term": trimmed, "types": "songs", "limit": "25", "include[songs]": "albums,artists"])
+        let songs = ((root["results"] as? AppleMusicJSON.Object)?["songs"] as? AppleMusicJSON.Object)?["data"]
+            as? [AppleMusicJSON.Object] ?? []
+        return self.songs(songs)
+    }
+
+    // MARK: Playlist writes (a restore)
+
+    /// A new playlist in the user's library holding [trackIds] (`applemusic:` ids, at most a batch) in
+    /// order, sent with the create (Android `createLibraryPlaylist`: an append right after a create can
+    /// land before Apple has the playlist). Returns its raw id (`library:p.…`).
+    func createLibraryPlaylist(name: String, description: String?, trackIds: [String]) async throws -> String {
+        var body: [String: Any] = ["attributes": AppleMusicMapping.playlistAttributes(name: name, description: description)]
+        let refs = try trackIds.map(AppleMusicMapping.trackRef)
+        if !refs.isEmpty { body["relationships"] = ["tracks": ["data": refs]] }
+        let root = try await send("/v1/me/library/playlists", body: body)
+        guard let created = AppleMusicJSON.resources(root).first, let id = created["id"] as? String else {
+            throw RequestError(message: "Apple Music returned no created playlist")
+        }
+        return AppleMusicMapping.libraryPrefix + id
+    }
+
+    /// Appends [trackIds] to library playlist [playlistRawId] (`library:p.…`), in order.
+    func addToLibraryPlaylist(_ trackIds: [String], playlistRawId: String) async throws {
+        let id = AppleMusicMapping.resourceId(playlistRawId)
+        guard AppleMusicMapping.isLibraryId(playlistRawId), id.hasPrefix("p.") else {
+            throw RequestError(message: "A library playlist is required")
+        }
+        let refs = try trackIds.map(AppleMusicMapping.trackRef)
+        guard !refs.isEmpty else { return }
+        _ = try await send("/v1/me/library/playlists/\(id)/tracks", body: ["data": refs])
+    }
+
+    /// A POST to the Apple Music API with a JSON body; the answer's JSON (empty for a 204).
+    private func send(_ path: String, body: [String: Any]) async throws -> AppleMusicJSON.Object {
+        guard let url = URL(string: "https://api.music.apple.com" + path) else { throw RequestError(message: "Bad request") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let response = try await MusicDataRequest(urlRequest: request).response()
+        guard (200..<300).contains(response.urlResponse.statusCode) else {
+            throw RequestError(message: "Apple Music answered \(response.urlResponse.statusCode)")
+        }
+        return response.data.isEmpty ? [:] : AppleMusicJSON.object(response.data) ?? [:]
     }
 
     // MARK: Playback

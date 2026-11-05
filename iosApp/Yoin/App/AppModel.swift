@@ -24,7 +24,11 @@ final class AppModel {
     let library: any MusicLibrary
     let playbackSource: any PlaybackSource
 
-    var section: ShellSection = .home
+    var section: ShellSection = .home {
+        // Home left while a pushed page covered it (Memories stays open under
+        // a push, HomeView): Memories goes with it, unseen.
+        didSet { if section != .home { memories.snapClosed() } }
+    }
     var path: [Route] = []
     var padSelection: Album?
     var isPad = false

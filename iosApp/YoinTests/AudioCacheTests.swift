@@ -470,3 +470,154 @@ final class CachedTranscodeSeekTests: XCTestCase {
         XCTAssertEqual(output.seeks, [75], "t2 isn't stored: it reopens at timeOffset")
     }
 }
+
+/// Codex #10: the pages of downloaded albums and playlists outlive the cache's age limit and trims.
+final class DetailCachePinsTests: XCTestCase {
+    private var dir: URL!
+
+    override func setUp() {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("detailpins-\(UUID().uuidString)")
+    }
+
+    override func tearDown() { try? FileManager.default.removeItem(at: dir) }
+
+    func test_should_keepPinnedEntries_past_theAgeLimitAndTheBudget() async {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000_000))
+        let pins = DetailCachePins()
+        pins.set([.init(scope: "me", kind: .album, id: "kept")])
+        let cache = DetailDiskCache(directory: dir, maxBytes: 3_000, maxAge: 100, clock: { clock.now }, pins: pins)
+        let blob = String(repeating: "x", count: 900)
+        await cache.write(blob, scope: "me", kind: .album, id: "kept", epoch: 0)
+        await cache.write(blob, scope: "me", kind: .album, id: "plain", epoch: 0)
+        clock.now += 101
+        await cache.purgeExpired()
+        let kept = await cache.read(String.self, scope: "me", kind: .album, id: "kept")
+        let plain = await cache.read(String.self, scope: "me", kind: .album, id: "plain")
+        XCTAssertNotNil(kept, "downloaded: never expires")
+        XCTAssertNil(plain)
+        let otherAccount = await cache.read(String.self, scope: "you", kind: .album, id: "kept")
+        XCTAssertNil(otherAccount)
+
+        // Oldest-touched, yet never trimmed.
+        clock.now += 10
+        for id in ["b", "c", "d", "e"] {
+            await cache.write(blob, scope: "me", kind: .album, id: id, epoch: 0)
+            clock.now += 10
+        }
+        let stillKept = await cache.read(String.self, scope: "me", kind: .album, id: "kept")
+        XCTAssertNotNil(stillKept)
+        let b = await cache.read(String.self, scope: "me", kind: .album, id: "b")
+        XCTAssertNil(b, "an unpinned one went instead")
+    }
+}
+
+/// Offline downloads (Data/Cache/OfflineDownloads): who may fill a key, and who owns the pump.
+@MainActor
+final class OfflineDownloadsTests: XCTestCase {
+    /// Transfers that wait until the test answers them.
+    private final class Gate {
+        var waiting: [CheckedContinuation<(URL, URLResponse), Error>] = []
+        var urls: [URL] = []
+    }
+
+    private var dir: URL!
+    private var suite: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() async throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("offline-\(UUID().uuidString)")
+        suite = "OfflineDownloadsTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suite)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: dir)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    nonisolated private static func signed(_ host: String, _ id: String, kbps: Int? = 320) -> URL {
+        var s = "https://\(host)/rest/stream.view?u=me&t=tok\(UUID().uuidString.prefix(4))&s=salt&v=1.16.1&c=yoin&f=json&id=\(id)"
+        if let kbps { s += "&maxBitRate=\(kbps)&format=mp3" }
+        return URL(string: s)!
+    }
+
+    private func entry(_ song: String) -> PlaylistEntry {
+        let album = Album(id: MediaId(provider: "subsonic", rawId: "al"), title: "A", artist: "B", year: 2020,
+                          palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: [])
+        return PlaylistEntry(album: album, track: Track(id: MediaId(provider: "subsonic", rawId: song), number: 1,
+                                                        title: song, durationSec: 100))
+    }
+
+    private func make(server: String, pins: DetailCachePins = DetailCachePins()) -> (OfflineDownloads, Gate) {
+        let dl = OfflineDownloads(defaults: defaults, directory: dir, pins: pins)
+        let gate = Gate()
+        dl.scope = { "https://b.example|me" }
+        dl.sign = { id, _ in Self.signed(server, id) }
+        dl.transfer = { url in
+            gate.urls.append(url)
+            return try await withCheckedThrowingContinuation { gate.waiting.append($0) }
+        }
+        return (dl, gate)
+    }
+
+    private func download(_ dl: OfflineDownloads, _ songs: [String]) {
+        let collection = OfflineDownloads.Collection(kind: .album, id: "al", title: "A", subtitle: nil, coverId: nil)
+        dl.download(collection, entries: songs.map(entry)) { e in
+            SubsonicCacheKey.of(Self.signed("b.example", e.track.id.rawId, kbps: nil))
+        }
+    }
+
+    private func settle(until done: @MainActor () -> Bool) async {
+        for _ in 0..<200 where !done() { await Task.yield() }
+    }
+
+    private func audio(_ url: URL) throws -> (URL, URLResponse) {
+        let file = dir.appendingPathComponent(UUID().uuidString)
+        try Data([1, 2, 3]).write(to: file)
+        return (file, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                      headerFields: ["Content-Type": "audio/mpeg"])!)
+    }
+
+    func test_should_notDownload_when_theUrlIsSignedForAnotherAccount() async {
+        let (dl, gate) = make(server: "a.example")
+        download(dl, ["s1", "s2"])
+        await settle { false }
+        XCTAssertTrue(gate.urls.isEmpty, "another account's audio never fills this account's keys")
+        XCTAssertEqual(dl.songs.map(\.state), [.failed, .failed])
+    }
+
+    func test_should_letOnlyTheCurrentTransferClearOwnership_when_anOldOneEndsLate() async throws {
+        let (dl, gate) = make(server: "b.example")
+        download(dl, ["s1"])
+        await settle { gate.waiting.count == 1 }
+        XCTAssertEqual(gate.waiting.count, 1)
+
+        // The account changed: the old transfer is let go of and the song starts again.
+        dl.accountChanged()
+        await settle { gate.waiting.count == 2 }
+        XCTAssertEqual(gate.waiting.count, 2)
+
+        // The old one answers late (cancelled): it neither frees the pump nor starts a duplicate.
+        gate.waiting[0].resume(throwing: URLError(.cancelled))
+        await settle { false }
+        XCTAssertEqual(gate.urls.count, 2, "no third transfer")
+        XCTAssertEqual(dl.songs.first?.state, .downloading)
+
+        // The current one finishes the song.
+        gate.waiting[1].resume(returning: try audio(gate.urls[1]))
+        await settle { dl.songs.first?.state == .done }
+        XCTAssertEqual(dl.songs.first?.state, .done)
+        XCTAssertTrue(dl.isDownloaded(songId: "s1"))
+    }
+
+    func test_should_pinTheDownloadedAlbumsPage_untilItIsRemoved() {
+        let pins = DetailCachePins()
+        let (dl, _) = make(server: "a.example", pins: pins)
+        let page = DetailDiskCache.fileName("https://b.example|me", .album, "al")
+        download(dl, ["s1"])
+        XCTAssertTrue(pins.contains(page))
+        XCTAssertFalse(pins.contains(DetailDiskCache.fileName("https://a.example|me", .album, "al")))
+        dl.remove(OfflineDownloads.albumKey("al"))
+        XCTAssertFalse(pins.contains(page))
+    }
+}

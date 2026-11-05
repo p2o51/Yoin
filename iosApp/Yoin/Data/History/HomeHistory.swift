@@ -42,6 +42,9 @@ struct AlbumMemory: Hashable, Sendable {
     var firstPlayedAt: Int64?
     var lastPlayedAt: Int64?
     var isMemoryEligible: Bool
+    /// A non-blank album review is kept here (Android `hasAlbumReview`): it
+    /// alone passes the writing gate and counts as something kept.
+    var hasAlbumReview = false
 
     var albumId: String { album.id.rawId }
 }
@@ -81,38 +84,62 @@ enum HomeHistory {
         var ratingWrittenAt: (String) -> Int64? = { _ in nil }
         /// When the album's own rating / review was written (AlbumMemoryStore).
         var albumWrittenAt: (String) -> Int64? = { _ in nil }
+        /// The album has a non-blank review here (AlbumMemoryStore).
+        var albumReviewed: (String) -> Bool = { _ in false }
     }
 
     // MARK: Memories
+
+    /// Who owns what: song → album and album → songs (the plays first, then
+    /// loaded track lists), and each album's written notes.
+    private struct Ownership {
+        var songsOf: [String: Set<String>] = [:]
+        var notesOf: [String: (count: Int, last: Int64)] = [:]
+    }
+
+    private static func ownership(_ x: Inputs) -> Ownership {
+        var songAlbum: [String: String] = [:]
+        var o = Ownership()
+        for p in x.plays { if let a = p.albumId { songAlbum[p.songId] = a; o.songsOf[a, default: []].insert(p.songId) } }
+        for (id, album) in x.details {
+            for t in album.tracks {
+                songAlbum[t.id.rawId] = songAlbum[t.id.rawId] ?? id
+                o.songsOf[id, default: []].insert(t.id.rawId)
+            }
+        }
+        for n in x.notes where !n.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let a = songAlbum[n.trackId] else { continue }
+            let prev = o.notesOf[a] ?? (0, 0)
+            o.notesOf[a] = (prev.count + 1, max(prev.last, n.updatedAt))
+        }
+        return o
+    }
+
+    /// The albums with something written on them here (an album rating or
+    /// review, a noted or rated song): the ones whose album detail a memory
+    /// needs (Android AlbumMemoryCandidateBuilder loads each through the
+    /// repository). Plays alone never make a memory, so they aren't listed.
+    static func writtenAlbumIds(_ x: Inputs) -> Set<String> { writtenAlbumIds(x, ownership(x)) }
+
+    private static func writtenAlbumIds(_ x: Inputs, _ o: Ownership) -> Set<String> {
+        var ids = Set(o.notesOf.keys).union(x.ratedAlbumIds)
+        for (id, songs) in o.songsOf where songs.contains(where: { x.localRating($0) != nil }) { ids.insert(id) }
+        return ids
+    }
 
     /// Every album with plays, or with a rated / noted track the app knows
     /// the album of, in the builder's order (coverage, notes, then newest play).
     static func memories(_ x: Inputs) -> [AlbumMemory] {
         let stats = HistoryStore.albumStats(x.plays)
-        // song → album: the plays first, then loaded track lists.
-        var songAlbum: [String: String] = [:]
-        var songsOf: [String: Set<String>] = [:]
-        for p in x.plays { if let a = p.albumId { songAlbum[p.songId] = a; songsOf[a, default: []].insert(p.songId) } }
-        for (id, album) in x.details {
-            for t in album.tracks {
-                songAlbum[t.id.rawId] = songAlbum[t.id.rawId] ?? id
-                songsOf[id, default: []].insert(t.id.rawId)
-            }
-        }
-        var notesOf: [String: (count: Int, last: Int64)] = [:]
-        for n in x.notes where !n.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard let a = songAlbum[n.trackId] else { continue }
-            let prev = notesOf[a] ?? (0, 0)
-            notesOf[a] = (prev.count + 1, max(prev.last, n.updatedAt))
-        }
+        let o = ownership(x)
+        let songsOf = o.songsOf, notesOf = o.notesOf
         // Android AlbumMemoryCandidateBuilder: local_ratings and album_ratings only, never the server's stars
         // (the album page's Bun reads the same: AlbumBun).
         // A stored 0 is a rating (nil = never rated).
         func rating(_ song: String) -> Double? {
             x.localRating(song)
         }
-        var ids = Set(stats.keys).union(notesOf.keys).union(x.ratedAlbumIds)
-        for (id, songs) in songsOf where songs.contains(where: { rating($0) != nil }) { ids.insert(id) }
+        let ids = Set(stats.keys).union(writtenAlbumIds(x, o))
 
         var out: [AlbumMemory] = []
         for id in ids {
@@ -128,14 +155,16 @@ enum HomeHistory {
             let noteCount = notes?.count ?? 0
             let written = ([notes?.last, x.albumWrittenAt(id)] + songs.filter { rating($0) != nil }.map(x.ratingWrittenAt))
                 .compactMap { $0 }.filter { $0 > 0 }.max()
-            let eligible = (coverage >= coverageGate || noteCount >= noteCountGate)
+            let reviewed = x.albumReviewed(id)
+            let eligible = (coverage >= coverageGate || reviewed || noteCount >= noteCountGate)
                 && (total == 0 || total >= memoryMinTrackCount)
             let s = stats[id]
             out.append(AlbumMemory(album: album, totalTracks: total, ratedTrackCount: rated.count, coverage: coverage,
                                    averageSongRating: rated.isEmpty ? nil : rated.reduce(0, +) / Double(rated.count),
                                    albumRating: albumRating, noteCount: noteCount, lastWrittenAt: written,
                                    playCount: s?.playCount ?? 0, firstPlayedAt: s?.firstPlayedAt,
-                                   lastPlayedAt: s?.lastPlayedAt, isMemoryEligible: eligible))
+                                   lastPlayedAt: s?.lastPlayedAt, isMemoryEligible: eligible,
+                                   hasAlbumReview: reviewed))
         }
         return out.sorted { a, b in
             if a.coverage != b.coverage { return a.coverage > b.coverage }
@@ -224,7 +253,7 @@ enum HomeHistory {
     }
 
     static func hasMemory(_ m: AlbumMemory) -> Bool {
-        (m.albumRating ?? 0) > 0 || m.noteCount > 0 || m.ratedTrackCount > 0
+        (m.albumRating ?? 0) > 0 || m.hasAlbumReview || m.noteCount > 0 || m.ratedTrackCount > 0
     }
 
     static func meetsTrackCount(_ m: AlbumMemory) -> Bool {
