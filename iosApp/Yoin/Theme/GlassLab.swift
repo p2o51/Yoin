@@ -561,14 +561,31 @@ extension View {
         let lab = GlassLab.shared
         let d = min(max(depth, 0), 1)
         let k = sheet ? "sheetRecede" : "recede"
-        // Blur inside the corner mask, so the plane's silhouette stays crisp.
-        return self
+        let insets = WindowInsets.current
+        // Hosted in a full-screen frame (the layer still lays out in the same
+        // safe area): a blur draws only inside its view's frame, and the
+        // layer's own frame stops at the safe area, so any blur cut the
+        // status-bar band off.
+        return Color.clear
+            .ignoresSafeArea()
+            .overlay { self }
+            // Blur inside the corner mask, so the plane's silhouette stays crisp.
             .blur(radius: lab.extra(k + "Blur") * d)
-            // The world behind keeps the display's corners as it steps back.
+            // The world behind keeps the display's corners as it steps back,
+            // and gives up the status-bar and home-indicator bands (the look
+            // behind a sheet) by the same depth: they slide away with what
+            // rises over it.
             .mask {
-                RoundedRectangle(cornerRadius: d > 0.001 ? 44 : 0, style: .continuous).ignoresSafeArea()
+                RoundedRectangle(cornerRadius: d > 0.001 ? 44 : 0, style: .continuous)
+                    .padding(.top, insets.top * d)
+                    .padding(.bottom, insets.bottom * d)
+                    .ignoresSafeArea()
             }
-            .scaleEffect(1 - lab.extra(k + "Scale") * d)
+            // Drawn scaled, laid out as is. A layout scale (scaleEffect) moved
+            // the layer off the screen's edges, and then nothing in it could
+            // reach under the status bar (ignoresSafeArea): Now Playing's dark
+            // top went to the surface on the first frame a sheet rose.
+            .modifier(RenderScale(scale: 1 - lab.extra(k + "Scale") * d).ignoredByLayout())
             // What the shrinking plane uncovers is the app's surface, not the
             // window's black (a black rim at the corners read as a flash),
             // and the dim lies over both, so the rim dims with the plane.
@@ -873,4 +890,25 @@ struct GlassLabGestureInstaller: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+/// The key window's safe-area insets (status bar, home indicator).
+private enum WindowInsets {
+    @MainActor static var current: UIEdgeInsets {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.lazy.compactMap(\.keyWindow).first?.safeAreaInsets ?? .zero
+    }
+}
+
+/// A scale about the centre, for `.ignoredByLayout()`: applied only while drawing.
+struct RenderScale: GeometryEffect {
+    var scale: CGFloat
+    var animatableData: CGFloat {
+        get { scale }
+        set { scale = newValue }
+    }
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(CGAffineTransform(translationX: size.width * (1 - scale) / 2, y: size.height * (1 - scale) / 2)
+            .scaledBy(x: scale, y: scale))
+    }
 }
