@@ -1362,8 +1362,9 @@ struct NowPlayingView: View, Equatable {
             switch data.lyricsState(t) {
             case .loading:
                 // Android LyricsDisplay: the loading indicator at the window's start.
-                ProgressView()
-                    .tint(scheme.primary)
+                // It waits a beat: a song skipped past (two Next taps) loads in a moment,
+                // and a spinner over the leaving song's sliding lines read as a stray row.
+                DelayedSpinner(tint: scheme.primary)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .frame(height: clear, alignment: .center)
                     .accessibilityLabel("Loading lyrics")
@@ -2547,5 +2548,25 @@ struct PlayModeButton: View {
                     .opacity(off && icon == "repeat" ? 1 : 0)
             }
             .labContrast("transportSecondary")
+    }
+}
+
+/// A loading indicator that shows only once loading has taken a beat (Android's
+/// lyrics wait the same before their indicator).
+private struct DelayedSpinner: View {
+    var tint: Color
+    @State private var shown = false
+    /// Under this, a load reads as instant.
+    static let delay: Duration = .milliseconds(400)
+
+    var body: some View {
+        ProgressView()
+            .tint(tint)
+            .opacity(shown ? 1 : 0)
+            .animation(Yoin.effects, value: shown)
+            .task {
+                try? await Task.sleep(for: Self.delay)
+                shown = true
+            }
     }
 }
