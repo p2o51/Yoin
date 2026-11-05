@@ -340,7 +340,11 @@ struct NowPlayingMorph: View {
     private func page(screen: CGRect, rect: CGRect, shape: RoundedRectangle, q: CGFloat,
                       insets: EdgeInsets) -> some View {
         let s = max(0.01, rect.width / screen.width)
+        // Rebuilt every frame of the morph: `.equatable()` lets SwiftUI skip the
+        // page's body when only the geometry around it moved (it compared the
+        // new value as changed each frame, ~370 page passes per open/close cycle).
         return NowPlayingView(npNamespace: npNamespace)
+            .equatable()
             .environment(\.npMorph, model.np)
             .safeAreaPadding(insets)
             .frame(width: screen.width, height: screen.height)

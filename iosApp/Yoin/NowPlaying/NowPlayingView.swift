@@ -16,7 +16,7 @@ import YoinShared
 /// off and unmounts when the spring lands. The surface, cover and title are
 /// matched to the pill (whoever is "open" is the geometry source), so they
 /// grow out of it and shrink back into it; the rest fades.
-struct NowPlayingView: View {
+struct NowPlayingView: View, Equatable {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     var npNamespace: Namespace.ID
@@ -27,6 +27,11 @@ struct NowPlayingView: View {
     @Environment(\.npMorph) private var npMorph
     /// Morph target: true = the full page, false = folded into the bar's pill.
     var open = true
+
+    /// Its inputs; state, environment and the model it observes update it as usual.
+    nonisolated static func == (a: NowPlayingView, b: NowPlayingView) -> Bool {
+        a.npNamespace == b.npNamespace && a.panel == b.panel && a.open == b.open
+    }
 
     @State private var dragY: CGFloat = 0
     @State private var tab = 0

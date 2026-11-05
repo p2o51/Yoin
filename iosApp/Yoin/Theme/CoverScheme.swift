@@ -60,8 +60,20 @@ struct CoverScheme: Sendable {
         self.init(seedArgb: CoverSeed.seedArgb(for: album), dark: dark)
     }
 
+    /// Views rebuild the scheme on every body pass (Now Playing every frame of its
+    /// open): the built scheme is kept per (seed, mode), not only its roles.
     init(seedArgb: Int, dark: Bool) {
-        let roles = CoverScheme.cachedRoles(seedArgb: seedArgb, dark: dark)
+        let key = CacheKey(argb: seedArgb, dark: dark)
+        if let hit = CoverScheme.schemes.withLock({ $0[key] }) {
+            self = hit
+            return
+        }
+        self.init(roles: CoverScheme.cachedRoles(seedArgb: seedArgb, dark: dark))
+        let built = self
+        CoverScheme.schemes.withLock { $0[key] = built }
+    }
+
+    private init(roles: [String: Int]) {
         func c(_ name: String) -> Color { CoverScheme.color(roles[name]!) }
         primary = c("primary")
         onPrimary = c("onPrimary")
@@ -116,6 +128,7 @@ struct CoverScheme: Sendable {
     /// Views rebuild the scheme on every body pass; the MCU solve runs once
     /// per (seed, mode).
     private static let cache = OSAllocatedUnfairLock<[CacheKey: [String: Int]]>(initialState: [:])
+    private static let schemes = OSAllocatedUnfairLock<[CacheKey: CoverScheme]>(initialState: [:])
 
     private static func cachedRoles(seedArgb: Int, dark: Bool) -> [String: Int] {
         let key = CacheKey(argb: seedArgb, dark: dark)
