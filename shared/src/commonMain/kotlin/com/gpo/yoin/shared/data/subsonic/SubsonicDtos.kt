@@ -132,6 +132,15 @@ internal data class SongDto(
     val playCount: Int? = null,
     /** OpenSubsonic (Navidrome): when the user last played it, ISO-8601. */
     val played: String? = null,
+    /** When the song was added to the library, ISO-8601. */
+    val created: String? = null,
+    val comment: String? = null,
+    /** OpenSubsonic extensions (all optional). */
+    val bpm: Int? = null,
+    val channelCount: Int? = null,
+    val samplingRate: Int? = null,
+    val bitDepth: Int? = null,
+    val displayComposer: String? = null,
 )
 
 @Serializable

@@ -47,6 +47,13 @@ internal fun SongDto.toSongInfo(): SongInfo = SongInfo(
     path = path,
     playCount = playCount,
     played = played?.takeIf { it.isNotEmpty() },
+    created = created?.takeIf { it.isNotEmpty() },
+    comment = comment?.takeIf { it.isNotBlank() },
+    bpm = bpm?.takeIf { it > 0 },
+    channelCount = channelCount?.takeIf { it > 0 },
+    samplingRate = samplingRate?.takeIf { it > 0 },
+    bitDepth = bitDepth?.takeIf { it > 0 },
+    composer = displayComposer?.takeIf { it.isNotBlank() },
 )
 
 internal fun AlbumDto.toAlbumInfo(): AlbumInfo = AlbumInfo(

@@ -56,7 +56,28 @@ data class SongInfo(
     val playCount: Int?,
     /** OpenSubsonic (Navidrome) `played`: ISO-8601 time of the user's last play, as the server sent it; null when absent. */
     val played: String?,
+    /** When the song was added to the server's library, ISO-8601 as sent. */
+    val created: String? = null,
+    val comment: String? = null,
+    /** OpenSubsonic: beats per minute, channels, sample rate (Hz), bit depth, the composer line. */
+    val bpm: Int? = null,
+    val channelCount: Int? = null,
+    val samplingRate: Int? = null,
+    val bitDepth: Int? = null,
+    val composer: String? = null,
 ) {
+    /** The constructor from before the About receipt's fields (Swift: the init ending at `played:`). */
+    constructor(
+        ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
+        albumId: String?, track: Int?, disc: Int?, durationSec: Int?, coverArtId: String?, year: Int?,
+        genre: String?, starred: Boolean, starredAt: String?, userRating: Int?, suffix: String?,
+        contentType: String?, bitRate: Int?, size: Long?, path: String?, playCount: Int?, played: String?,
+    ) : this(
+        ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
+        genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, played,
+        null, null, null, null, null, null, null,
+    )
+
     /** The constructor from before [played] existed (Swift: the init without `played:`). */
     constructor(
         ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,

@@ -186,13 +186,25 @@ class SubsonicClient private constructor(
 
     /** `search3`. Counts are per kind; Subsonic's own default is 20. */
     @Throws(SubsonicException::class, CancellationException::class)
-    suspend fun search3(query: String, artistCount: Int, albumCount: Int, songCount: Int): SearchResult {
+    suspend fun search3(query: String, artistCount: Int, albumCount: Int, songCount: Int): SearchResult =
+        search3(query, artistCount, albumCount, songCount, songOffset = 0)
+
+    /** [songOffset] pages the songs (an empty query on Navidrome walks the whole library). */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun search3(
+        query: String,
+        artistCount: Int,
+        albumCount: Int,
+        songCount: Int,
+        songOffset: Int,
+    ): SearchResult {
         val body = call(
             "search3",
             "query" to query,
             "artistCount" to artistCount.toString(),
             "albumCount" to albumCount.toString(),
             "songCount" to songCount.toString(),
+            *(if (songOffset > 0) arrayOf("songOffset" to songOffset.toString()) else emptyArray()),
         )
         return body.searchResult3?.toSearchResult() ?: SearchResult(emptyList(), emptyList(), emptyList())
     }

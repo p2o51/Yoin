@@ -505,4 +505,40 @@ class SubsonicClientTest {
         assertEquals("600", sized.parameters["size"])
         assertNull(Url(c.coverArtUrl("al-1", null)).parameters["size"])
     }
+
+    // ------------------------------------------------------- About receipt
+
+    @Test
+    fun should_readReceiptFields_when_getSongCarriesOpenSubsonicExtras() = runTest {
+        val song = SubsonicFixtures.ok(
+            """"song":{"id":"s-1","title":"One","created":"2024-03-01T10:00:00Z","comment":"Live take",
+            "bpm":128,"channelCount":2,"samplingRate":44100,"bitDepth":24,"displayComposer":"Bob"}""",
+        )
+        val info = assertNotNull(client(routes = mapOf("getSong" to song)).getSong("s-1"))
+        assertEquals("2024-03-01T10:00:00Z", info.created)
+        assertEquals("Live take", info.comment)
+        assertEquals(128, info.bpm)
+        assertEquals(2, info.channelCount)
+        assertEquals(44100, info.samplingRate)
+        assertEquals(24, info.bitDepth)
+        assertEquals("Bob", info.composer)
+    }
+
+    @Test
+    fun should_leaveReceiptFieldsNull_when_theServerSendsNone() = runTest {
+        val song = SubsonicFixtures.ok(""""song":{"id":"s-1","title":"One","bpm":0}""")
+        val info = assertNotNull(client(routes = mapOf("getSong" to song)).getSong("s-1"))
+        assertNull(info.bpm)
+        assertNull(info.composer)
+        assertNull(info.created)
+    }
+
+    @Test
+    fun should_sendSongOffset_when_pagingSearch3() = runTest {
+        val c = client(routes = mapOf("search3" to SubsonicFixtures.ok(""""searchResult3":{}""")))
+        c.search3("", 0, 0, 500, songOffset = 500)
+        assertEquals("500", lastUrl.parameters["songOffset"])
+        c.search3("", 0, 0, 500)
+        assertNull(lastUrl.parameters["songOffset"])
+    }
 }
