@@ -87,14 +87,17 @@ class NowPlayingBudgetTest {
         assertTrue(rest.lower > 0f)
         // 16:9: title and artist share one row.
         assertTrue(budget.heroOneLine)
-        // Focus: the resting cover (centred by the screen), two clean
-        // (larger) lyric lines, the transport folded to one row.
+        // Focus: the resting cover (centred by the screen), the transport
+        // folded to one row, and the artist back over the title; the lyrics
+        // keep the sung line and the current one (the next run on under the
+        // transport).
         val focus = nn(budget.focus)
         assertDp(rest.cover, focus.cover)
         assertTrue(budget.compactFocus)
+        assertTrue(budget.focusHeroStacked)
         assertDp(96.dp, focus.controls)
         assertEquals(LyricFrame.List, focus.lyricFrame)
-        assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
+        assertTrue(focus.lyricSlot >= focusLyric.cleanLines(1) - 0.5.dp)
         assertDp(420.dp, budget.focusStageWidth)
         assertDp(684.dp, focus.total)
     }
@@ -258,10 +261,11 @@ class NowPlayingBudgetTest {
             assertDp(budget.rest.cover, focus.cover)
             assertDp(16.dp, focus.topBar)
             assertDp(96.dp, focus.controls)
-            // The sung line above, the current line, and the next where it fits
-            // beside the resting cover.
-            val lines = if (h >= 684) 2 else 1
-            assertTrue(focus.lyricSlot >= focusLyric.cleanLines(lines) - 0.5.dp)
+            // The artist goes back over the title (owner 2026-11-05); beside
+            // the resting cover that leaves the sung line and the current one,
+            // the next running on under the transport.
+            assertTrue(budget.focusHeroStacked)
+            assertTrue(focus.lyricSlot >= focusLyric.cleanLines(1) - 0.5.dp)
             assertDp(w.dp, budget.focusStageWidth)
             assertDp((w.dp - 48.dp - focus.cover) / 2f, budget.focusLyricInset)
             assertTrue(budget.focusLyricOverflow >= focusLyric.inactiveLine * 2f)

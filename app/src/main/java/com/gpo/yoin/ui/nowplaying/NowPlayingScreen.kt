@@ -120,7 +120,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.AlignmentLine
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -2098,6 +2102,12 @@ private fun CompactPlayingContent(
                         height = heroHeight,
                         alpha = 1f - noteHeroYield.coerceIn(0f, 1f),
                         oneLine = budget.heroOneLine,
+                        // Focus stacks the one-row hero back (owner 2026-11-05).
+                        stacking = if (budget.focusHeroStacked) {
+                            (immersiveProgress * (1f - detailProgress)).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        },
                         modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
 
@@ -4906,6 +4916,10 @@ internal fun CompactBottomHero(
     // Short windows (the height budget's one-row hero): title, then the
     // artist on the same baseline.
     oneLine: Boolean = false,
+    // [oneLine] only, 0..1: focus sets the identity as everywhere else,
+    // artist over title (owner 2026-11-05); the two glide between the row
+    // and the stack.
+    stacking: Float = 0f,
 ) {
     // Reopened before its close finished, Now Playing keeps this composition,
     // and the one-row hero's reused title/artist bounds then settle on the
@@ -5001,7 +5015,27 @@ internal fun CompactBottomHero(
                     },
                 )
             }
-            if (oneLine) {
+            if (oneLine && stacking > 0f) {
+                HeroRowToStack(
+                    stacking = stacking.coerceIn(0f, 1f),
+                    title = {
+                        Box(modifier = Modifier.then(titleModifier).then(titleClickModifier)) {
+                            NowPlayingMarqueeTitle(
+                                text = state.songTitle,
+                                style = MaterialTheme.typography.displaySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                stretchScale = titleStretchScale,
+                            )
+                        }
+                    },
+                    artist = {
+                        Box(modifier = Modifier.then(artistModifier).then(artistClickModifier)) {
+                            artistText(Modifier)
+                        }
+                    },
+                    tags = { NowPlayingFormatTags(state) },
+                )
+            } else if (oneLine) {
                 // The title's stretch (playing) and press scale grow it past its
                 // layout box from the start edge; the artist rides that growth
                 // so the gap holds instead of the title running onto the artist
@@ -5108,6 +5142,68 @@ internal fun CompactBottomHero(
         }
     }
 }
+
+/**
+ * The one-row hero ([stacking] 0: title, then the artist on its baseline)
+ * gliding into the stacked one ([stacking] 1: the artist and its format
+ * tags over the title, as on every other Now Playing). Both texts keep
+ * their size; only their places and the title's width move, and the tags
+ * fade in with the stack.
+ */
+@Composable
+private fun HeroRowToStack(
+    stacking: Float,
+    title: @Composable () -> Unit,
+    artist: @Composable () -> Unit,
+    tags: @Composable () -> Unit,
+) {
+    Layout(
+        contents = listOf(
+            title,
+            artist,
+            { Box(Modifier.graphicsLayer { alpha = stacking }) { tags() } },
+        ),
+        modifier = Modifier.fillMaxSize(),
+    ) { (titleM, artistM, tagsM), constraints ->
+        val width = constraints.maxWidth
+        val gap = HeroOneLineGap.roundToPx()
+        val loose = Constraints(maxWidth = width)
+        val tagsP = tagsM.first().measure(loose)
+        // The row caps the artist at its share and the title takes the rest;
+        // the stack gives the artist the line beside its tags and the title
+        // the whole width.
+        val artistRowMax = (width * HeroOneLineArtistShare).roundToInt()
+        val artistRowW = minOf(artistM.first().maxIntrinsicWidth(Constraints.Infinity), artistRowMax)
+        val artistMax = lerpPx(artistRowMax, (width - tagsP.width).coerceAtLeast(0), stacking)
+        val artistP = artistM.first().measure(Constraints(maxWidth = artistMax))
+        val titleMax = lerpPx((width - gap - artistRowW).coerceAtLeast(0), width, stacking)
+        val titleP = titleM.first().measure(Constraints(maxWidth = titleMax))
+
+        fun baseline(p: Placeable): Int =
+            p[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: p.height
+        // Row: the title at the top, the artist after it on its baseline.
+        val rowArtistX = titleP.width + gap
+        val rowArtistY = baseline(titleP) - baseline(artistP)
+        // Stack: the artist line (centred with its tags), 2dp, the title.
+        val artistLine = maxOf(artistP.height, tagsP.height)
+        val stackArtistY = (artistLine - artistP.height) / 2
+        val stackTitleY = artistLine + 2.dp.roundToPx()
+        layout(width, constraints.maxHeight) {
+            titleP.placeRelative(0, lerpPx(0, stackTitleY, stacking))
+            artistP.placeRelative(
+                lerpPx(rowArtistX, 0, stacking),
+                lerpPx(rowArtistY, stackArtistY, stacking),
+            )
+            tagsP.placeRelative(
+                lerpPx(rowArtistX + artistP.width, artistP.width, stacking),
+                (artistLine - tagsP.height) / 2 + lerpPx(rowArtistY, 0, stacking),
+            )
+        }
+    }
+}
+
+private fun lerpPx(start: Int, end: Int, fraction: Float): Int =
+    (start + (end - start) * fraction).roundToInt()
 
 @Composable
 private fun DockedAlbumCover(

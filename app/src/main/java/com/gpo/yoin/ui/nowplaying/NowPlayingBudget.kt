@@ -145,6 +145,12 @@ data class StageColumnBudget(
     val focusLyricInset: Dp = 0.dp,
     /** [compactFocus]: how far the dotted lines run on under the transport before they fade. */
     val focusLyricOverflow: Dp = 0.dp,
+    /**
+     * [heroOneLine] at rest, but focus sets the identity as everywhere else:
+     * the artist over the title (owner 2026-11-05). The hero moves between
+     * the two as focus comes and goes.
+     */
+    val focusHeroStacked: Boolean = false,
 ) {
     val focusOffered: Boolean get() = focus != null
 }
@@ -299,7 +305,7 @@ fun resolveStageColumnBudget(
     val focusBottom = NpGap(FocusBottomNominal, FocusBottomMin)
     // [labelRow]: the time labels drop under the wave when focus narrows
     // the column below [StageColumnMetrics.labelsInlineMin].
-    fun solveFocus(labelRow: Dp): StageColumnPose? {
+    fun solveFocus(labelRow: Dp, hero: NpGap): StageColumnPose? {
         val focusControls = if (labelRow > 0.dp) {
             NpGap(controls.nominal + labelRow, controls.min + labelRow)
         } else {
@@ -383,7 +389,7 @@ fun resolveStageColumnBudget(
     // left and right edges (「歌词本身是要和封面左右对齐的」). The dotted
     // lines run on 2–3 lines under the transport and fade, so the solid
     // buttons float on them and needn't line up with the cover.
-    fun shortWindowFocus(lines: Int, coverGives: Boolean = true): StageColumnPose? {
+    fun shortWindowFocus(lines: Int, hero: NpGap, coverGives: Boolean = true): StageColumnPose? {
         val shortControls = metrics.compactTransport?.let { NpGap(it, it) } ?: controls
         val lower = listOf(shortControls, hero, focusBottom)
         val upper = listOf(coverGap)
@@ -424,19 +430,24 @@ fun resolveStageColumnBudget(
     val shortWindow = rest.lyricFrame == LyricFrame.OneLine && rest.cover > 0.dp
     // Two lyric lines; on the shortest windows (a 16:9 phone with tall bars)
     // the current line alone, the next fading in under it.
-    var focus = if (shortWindow) {
+    fun focusWith(hero: NpGap): StageColumnPose? = if (shortWindow) {
         // The cover keeps its size before the lyrics keep their second line.
-        shortWindowFocus(FocusMinCleanLines, coverGives = false)
-            ?: shortWindowFocus(1, coverGives = false)
-            ?: shortWindowFocus(1)
+        shortWindowFocus(FocusMinCleanLines, hero, coverGives = false)
+            ?: shortWindowFocus(1, hero, coverGives = false)
+            ?: shortWindowFocus(1, hero)
     } else {
-        solveFocus(0.dp)
+        solveFocus(0.dp, hero)
     }
+    // Owner 2026-11-05: a one-row hero goes back to artist over title in
+    // focus, where that still leaves a focus; else it keeps its row.
+    val stackedFocus = if (heroCompact) focusWith(heroStacked) else null
+    val focusHero = if (stackedFocus != null) heroStacked else hero
+    var focus = stackedFocus ?: focusWith(hero)
     val restLabelsInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
     if (!shortWindow && focus != null && restLabelsInline &&
         focus.cover < metrics.labelsInlineMin
     ) {
-        focus = solveFocus(metrics.labelLine)
+        focus = solveFocus(metrics.labelLine, focusHero)
     }
     val compactFocus = shortWindow && focus != null
     return StageColumnBudget(
@@ -451,6 +462,7 @@ fun resolveStageColumnBudget(
             else -> focus.cover + ColumnPadding * 2
         },
         compactFocus = compactFocus,
+        focusHeroStacked = focus != null && stackedFocus != null,
         focusLyricInset = if (compactFocus) {
             ((stageWidth - ColumnPadding * 2 - focus!!.cover) / 2f).coerceAtLeast(0.dp)
         } else {
