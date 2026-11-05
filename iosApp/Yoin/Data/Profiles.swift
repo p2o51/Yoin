@@ -567,7 +567,15 @@ final class ProfileManager {
             return .init(profileId: p.id, url: url, username: user, scope: p.subsonicScope ?? "\(url)|\(user)")
         }
         let apple = profiles.contains { $0.service == .appleMusic } && appleAuthorized()
-        return SyncDomainBridge.Accounts(subsonic: subsonic, appleMusic: apple, storefront: nil)
+        // Spotify accounts sync as their Spotify user (Codex N08); rows already carry "spotify|<user id>".
+        let spotify = profiles.compactMap { p -> SyncDomainBridge.Accounts.Spotify? in
+            guard p.service == .spotify else { return nil }
+            let tokens = store.spotify(p.id)
+            guard let user = p.spotifyUserId ?? tokens?.userId, !user.isEmpty else { return nil }
+            return .init(profileId: p.id, userId: user, displayName: p.title, createdAt: p.createdAt,
+                         credentialsReadable: tokens != nil)
+        }
+        return SyncDomainBridge.Accounts(subsonic: subsonic, appleMusic: apple, storefront: nil, spotify: spotify)
     }
 
     // MARK: Pieces
