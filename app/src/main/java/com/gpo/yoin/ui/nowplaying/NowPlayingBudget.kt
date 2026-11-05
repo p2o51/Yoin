@@ -402,7 +402,7 @@ fun resolveStageColumnBudget(
         val bottom = focusBottom.at(squeeze.lower)
         val lyric = (height - FocusTopShort - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
         // Too short for two lines beside a cover the transport can share: no focus.
-        if (lyric < listMin) return null
+        if (lyric < listMin - 0.5.dp) return null
         return StageColumnPose(
             topBar = FocusTopShort, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
             lyricSlot = lyric, lyricFrame = LyricFrame.List,
