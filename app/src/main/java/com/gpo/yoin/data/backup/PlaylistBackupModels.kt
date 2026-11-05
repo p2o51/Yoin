@@ -116,6 +116,8 @@ data class PlaylistBackupRecord(
     val updatedAt: Long,
     /** Earlier versions, newest first. */
     val versions: List<BackupVersion> = emptyList(),
+    /** The account it came from, the same on every device; null when not known (see [PlaylistBackup.sourceAccount]). */
+    val sourceAccount: String? = null,
 ) {
     val trackCount: Int get() = content.tracks.size
     val unexportedCount: Int get() = content.unexported.size
@@ -154,6 +156,7 @@ object PlaylistBackupCodec {
         sourceProfileLabel = record.sourceProfileLabel,
         sourcePlaylistId = record.sourcePlaylistId,
         sourceProfileId = record.sourceProfileId,
+        sourceAccount = record.sourceAccount,
         playlistCreatedAt = record.playlistCreatedAt,
         firstBackedUpAt = record.firstBackedUpAt,
         lastBackedUpAt = record.lastBackedUpAt,
@@ -185,6 +188,7 @@ object PlaylistBackupCodec {
             restores = decodeRestores(row.restoresJson),
             updatedAt = row.updatedAt,
             versions = decodeVersions(row.versionsJson),
+            sourceAccount = row.sourceAccount,
         )
     }.getOrNull()
 
@@ -199,7 +203,7 @@ object PlaylistSnapshots {
 
     /**
      * The start of [playlist]'s cloud backup, made [now]: read whole from the
-     * profile [profileId] ([profileLabel]) on [provider].
+     * profile [profileId] ([profileLabel]) on [provider], account [account].
      */
     fun backup(
         id: String,
@@ -208,6 +212,7 @@ object PlaylistSnapshots {
         profileId: String?,
         profileLabel: String,
         now: Long,
+        account: String? = null,
     ): PlaylistBackupRecord = PlaylistBackupRecord(
         id = id,
         name = playlist.name,
@@ -223,6 +228,7 @@ object PlaylistSnapshots {
         content = content(playlist),
         restores = emptyList(),
         updatedAt = now,
+        sourceAccount = account,
     )
 
     /**
@@ -236,6 +242,7 @@ object PlaylistSnapshots {
         profileId: String?,
         profileLabel: String,
         now: Long,
+        account: String? = null,
     ): PlaylistBackupRecord {
         val content = content(playlist)
         val changed = content != backup.content || playlist.name != backup.name
@@ -251,6 +258,8 @@ object PlaylistSnapshots {
             name = playlist.name,
             sourceProfileLabel = profileLabel,
             sourceProfileId = profileId ?: backup.sourceProfileId,
+            // Backups from before accounts were kept pick theirs up here.
+            sourceAccount = account ?: backup.sourceAccount,
             playlistCreatedAt = playlist.libraryAddedAt?.takeIf(String::isNotBlank) ?: backup.playlistCreatedAt,
             lastBackedUpAt = now,
             lastChangedAt = if (changed) now else backup.lastChangedAt,

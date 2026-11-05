@@ -27,9 +27,12 @@ class PlaylistBackupStore(
 
     suspend fun getAll(): List<PlaylistBackupRecord> = dao.getAll().mapNotNull(PlaylistBackupCodec::fromEntity)
 
-    /** The backup that follows [sourcePlaylistId] on [sourceProvider], if there is one. */
-    suspend fun findBySource(sourceProvider: String, sourcePlaylistId: String): PlaylistBackupRecord? =
-        dao.findBySource(sourceProvider, sourcePlaylistId).firstNotNullOfOrNull(PlaylistBackupCodec::fromEntity)
+    /**
+     * The backups of a playlist with id [sourcePlaylistId] on [sourceProvider], oldest first, from every
+     * account that has one; [PlaylistBackupService] picks the profile's own.
+     */
+    suspend fun findBySource(sourceProvider: String, sourcePlaylistId: String): List<PlaylistBackupRecord> =
+        dao.findBySource(sourceProvider, sourcePlaylistId).mapNotNull(PlaylistBackupCodec::fromEntity)
 
     suspend fun save(record: PlaylistBackupRecord) = dao.upsert(PlaylistBackupCodec.toEntity(record))
 

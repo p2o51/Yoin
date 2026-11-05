@@ -150,6 +150,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_30_31,
                 MIGRATION_31_32,
                 MIGRATION_32_33,
+                MIGRATION_33_34,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -459,7 +460,9 @@ class AppContainer(private val context: Context) {
 
     /** Backs a playlist up from the playlist page; restores one from Settings › Playlist backups. */
     val playlistBackupService: com.gpo.yoin.data.backup.PlaylistBackupService by lazy {
-        com.gpo.yoin.data.backup.PlaylistBackupService(profileManager, playlistBackupStore)
+        com.gpo.yoin.data.backup.PlaylistBackupService(profileManager, playlistBackupStore) { profile ->
+            cloudSync.accountKeys.of(profile)
+        }
     }
 
     /** Optional Google Drive sync (docs/cloud-sync.md). Constructing it does no I/O. */
@@ -897,6 +900,15 @@ class AppContainer(private val context: Context) {
                     "CREATE INDEX IF NOT EXISTS `index_playlist_backups_sourceProvider_sourcePlaylistId` " +
                         "ON `playlist_backups` (`sourceProvider`, `sourcePlaylistId`)",
                 )
+            }
+        }
+
+        // v33 → v34: playlist_backups.sourceAccount, the account a backup came from, so two accounts' playlists
+        // with the same id (Subsonic's "1") stop sharing one backup. Additive; existing rows pick theirs up on
+        // their next backup.
+        val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `playlist_backups` ADD COLUMN `sourceAccount` TEXT")
             }
         }
 
