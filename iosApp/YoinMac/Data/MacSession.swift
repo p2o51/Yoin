@@ -136,6 +136,8 @@ final class MacSession {
         account = nil
         apple = nil
         state = .signedOut
+        // Its downloads stop with it (whatever window is open).
+        OfflineDownloads.shared.accountChanged()
     }
 
     private func persist() {
@@ -176,6 +178,7 @@ final class MacSession {
             client = candidate
             self.account = account
             state = .ready(server: Self.serverName(info))
+            OfflineDownloads.shared.accountChanged()
             // The same server and user again updates that entry (a new password), else it's a new account.
             if let i = profiles.firstIndex(where: { $0.account?.baseUrl == account.baseUrl
                 && $0.account?.username == account.username }) {
@@ -202,6 +205,7 @@ final class MacSession {
         self.account = account
         let c = SubsonicClient(baseUrl: account.baseUrl, username: account.username, password: account.password)
         client = c
+        OfflineDownloads.shared.accountChanged()
         state = .connecting
         Task {
             do {

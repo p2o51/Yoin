@@ -129,8 +129,17 @@ struct MacDownloadsList: View {
                         Text(subtitle(e)).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
                     }
                     Spacer(minLength: 8)
+                    if e.done > 0 {
+                        Button { model.playDownload(e.collection.key) } label: {
+                            YoinIcon("play_filled", size: 18).foregroundStyle(tint.primary)
+                                .frame(width: 32, height: 32).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play")
+                    }
                     Button {
-                        offline.rowTapped(e.status, key: e.collection.key) {}
+                        if case .failed = e.status { model.retryDownload(e) }
+                        else { offline.rowTapped(e.status, key: e.collection.key) {} }
                     } label: {
                         YoinIcon(OfflineDownloads.rowIcon(e.status), size: 18).foregroundStyle(Yoin.inkVariant)
                             .frame(width: 32, height: 32).contentShape(Rectangle())

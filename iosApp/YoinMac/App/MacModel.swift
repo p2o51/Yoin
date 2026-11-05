@@ -252,12 +252,48 @@ final class MacModel {
         let collection = OfflineDownloads.Collection(kind: .album, id: album.id.rawId, title: album.title,
                                                      subtitle: album.artist,
                                                      coverId: OfflineDownloads.coverId(album.palette.cover))
+        let gen = library.accountGeneration
+        let scope = session.accountKey
         offline.rowTapped(offline.status(collection.key), key: collection.key) {
             Task {
                 let full = await library.fullAlbum(album)
+                // Only for the account that asked (a switch meanwhile could hand back another's album).
+                guard gen == library.accountGeneration, scope == session.accountKey else { return }
                 download(collection, full.tracks.map { PlaylistEntry(album: full, track: $0) })
             }
         }
+    }
+
+    /// A download's own songs as queue entries, from what was saved (works offline, with nothing loaded).
+    func downloadedEntries(_ collectionKey: String) -> [PlaylistEntry] {
+        let songs = OfflineDownloads.shared.visible.filter { s in s.collections.contains { $0.key == collectionKey } }
+        let collection = songs.first?.collections.first { $0.key == collectionKey }
+        let cover = collection?.coverId.flatMap { id in
+            session.client.flatMap { URL(string: $0.coverArtUrl(id: id, size: nil)) }
+        }
+        return songs.map { s in
+            let palette = MacArtistDetail.placeholder(s.albumId ?? s.songId)
+            let album = Album(id: MediaId(provider: MediaRef.companion.PROVIDER_SUBSONIC, rawId: s.albumId ?? "song:\(s.songId)"),
+                              title: s.album, artist: s.artist, year: 0,
+                              palette: CoverPalette(a: palette.a, b: palette.b, c: palette.c,
+                                                    cover: cover.map { CoverRef(url: $0) }),
+                              tracks: [])
+            let track = Track(id: MediaId(provider: MediaRef.companion.PROVIDER_SUBSONIC, rawId: s.songId), number: 0,
+                              title: s.title, durationSec: s.durationSec, rating: nil, artist: s.artist)
+            return PlaylistEntry(album: album, track: track)
+        }
+    }
+
+    /// Plays a download from its saved songs, or retries its failed ones.
+    func playDownload(_ collectionKey: String) {
+        let entries = downloadedEntries(collectionKey)
+        if !entries.isEmpty { play(entries) }
+    }
+
+    func retryDownload(_ e: OfflineDownloads.Entry) {
+        let entries = downloadedEntries(e.collection.key)
+        OfflineDownloads.shared.remove(e.collection.key)
+        download(e.collection, entries)
     }
 
     /// One song on its own.
