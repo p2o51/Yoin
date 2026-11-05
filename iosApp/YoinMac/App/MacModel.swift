@@ -43,9 +43,11 @@ final class MacModel {
     var selectedTrack: String?
     /// The left column's share when a detail column is open (45 : 55 by default).
     var splitFraction: CGFloat = 0.45
-    var windowWidth: CGFloat = 1280
+    var windowWidth: CGFloat = 1280 { didSet { if windowWidth != oldValue { reflowNowPlaying() } } }
     /// Full Now Playing was entered from the panel (Esc goes back to it) or straight from closed.
     @ObservationIgnored private var fullCameFromPanel = false
+    /// The panel went full only because the window got too narrow for it; it comes back when there's room.
+    @ObservationIgnored private var panelSqueezedToFull = false
 
     /// Songs the queue was built from, so Now Playing can show their album and cover.
     @ObservationIgnored private var known: [String: PlaylistEntry] = [:]
@@ -69,6 +71,7 @@ final class MacModel {
     var detailAsColumn: Bool { detail != nil && contentWidth >= Self.columnsMinWidth }
 
     func open(_ d: Detail) {
+        panelSqueezedToFull = false
         withAnimation(Yoin.spatial) {
             if npMode == .full { npMode = .closed; focus = false }
             if detailAsColumn || details.isEmpty { details = [d] } else { details.append(d) }
@@ -82,6 +85,7 @@ final class MacModel {
     }
 
     func select(_ t: Tab) {
+        panelSqueezedToFull = false
         withAnimation(Yoin.spatial) {
             tab = t
             if !detailAsColumn { details = [] }
@@ -95,8 +99,22 @@ final class MacModel {
         windowWidth - Self.panelWidth >= (detail != nil ? Self.minColumnsBesidePanel : Self.minContentBesidePanel)
     }
 
+    /// A resize that leaves no room beside the panel turns it into the full window; widening the window
+    /// again brings the panel back.
+    private func reflowNowPlaying() {
+        if npMode == .panel, !panelFits {
+            withAnimation(Yoin.spatial) { npMode = .full }
+            fullCameFromPanel = true
+            panelSqueezedToFull = true
+        } else if npMode == .full, panelSqueezedToFull, panelFits {
+            withAnimation(Yoin.spatial) { npMode = .panel }
+            panelSqueezedToFull = false
+        }
+    }
+
     /// The bar's pill: closed → panel (or straight to full when the panel doesn't fit) → closed.
     func toggleNowPlaying() {
+        panelSqueezedToFull = false
         withAnimation(Yoin.spatial) {
             switch npMode {
             case .closed:
@@ -109,6 +127,7 @@ final class MacModel {
     }
 
     func expandNowPlaying() {
+        panelSqueezedToFull = false
         withAnimation(Yoin.spatial) {
             fullCameFromPanel = npMode == .panel
             npMode = .full
@@ -121,6 +140,7 @@ final class MacModel {
 
     /// Esc: focus → full → panel → closed, then search, then the detail page.
     func back() {
+        panelSqueezedToFull = false
         withAnimation(Yoin.spatial) {
             if searchOpen { searchOpen = false; return }
             if focus { focus = false; return }
