@@ -117,7 +117,7 @@ struct HomeView: View {
                     }
                     if !edit.isEditing { editFooter }
                 } else if !model.store.isReal {
-                    HomeConnectPrompt(scheme: scheme) { model.openSettings() }
+                    HomeConnectPrompt(scheme: scheme, hasAccount: model.profiles.active != nil) { model.openSettings() }
                 } else if model.store.homePhase == .failed {
                     RetryRow(scheme: scheme) { Task { await model.store.loadHome(force: true) } }
                 } else {
@@ -477,15 +477,18 @@ struct HomeView: View {
 /// Music's access gone): one line and the way to Settings.
 private struct HomeConnectPrompt: View {
     var scheme: CoverScheme
+    /// An account is chosen but can't be read (its sign-in is gone, or
+    /// Apple Music access is off): Settings has its card.
+    var hasAccount = false
     var action: () -> Void
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("No account connected")
+            Text(hasAccount ? "Sign in again" : "No account connected")
                 .homeType(Tokens.type.titleMedium, .semibold)
                 .foregroundStyle(scheme.onSurfaceVariant)
             Button(action: action) {
-                Text("Connect an account")
+                Text(hasAccount ? "Open Settings" : "Connect an account")
                     .yoinRole(Tokens.type.labelLarge)
                     .foregroundStyle(scheme.onSecondaryContainer)
                     .padding(.horizontal, 20)
