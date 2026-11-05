@@ -5,12 +5,11 @@ import Foundation
 // logic only (steps, the first-launch gate, what the pill's button says), so
 // it can be tested without a screen.
 
-/// A service the landing can connect. Spotify is listed the way Android lists a
-/// service it can't add yet: shown, dimmed, not pickable (no Spotify SDK on iOS).
+/// A service the landing can connect.
 enum LandingService: String, CaseIterable, Sendable {
     case subsonic, spotify, appleMusic
 
-    var availableOnIOS: Bool { self != .spotify }
+    var availableOnIOS: Bool { true }
 
     var name: String {
         switch self {
@@ -22,14 +21,15 @@ enum LandingService: String, CaseIterable, Sendable {
 }
 
 /// Android LandingStep, minus the steps iOS has nothing behind yet: Spotoolfy
-/// and Spotify (no Spotify on iOS), Home (iOS Home has no section layout to
+/// (no Spotoolfy import on iOS), Home (iOS Home has no section layout to
 /// write) and Edge (no scroll-edge styles on iOS).
 enum LandingStep: String, CaseIterable, Sendable, Hashable {
-    case hello, pick, about, subsonic, appleMusic, ready
+    case hello, pick, about, subsonic, spotify, appleMusic, ready
 
     var service: LandingService? {
         switch self {
         case .subsonic: .subsonic
+        case .spotify: .spotify
         case .appleMusic: .appleMusic
         default: nil
         }
@@ -39,7 +39,7 @@ enum LandingStep: String, CaseIterable, Sendable, Hashable {
         switch service {
         case .subsonic: .subsonic
         case .appleMusic: .appleMusic
-        case .spotify: nil
+        case .spotify: .spotify
         }
     }
 
@@ -117,7 +117,7 @@ struct LandingFlow: Equatable, Sendable {
             // An account already exists (a re-run): nothing new to add is fine.
             if hasAccount { return LandingPrimary(label: "Skip", style: .tonal) }
             return LandingPrimary(label: "Next", style: .unavailable)
-        case .subsonic, .appleMusic:
+        case .subsonic, .spotify, .appleMusic:
             let done = step.service.map(connected.contains) ?? false
             return done ? LandingPrimary(label: "Next", style: .filled) : LandingPrimary(label: "Skip", style: .tonal)
         case .ready: return LandingPrimary(label: "Open Yoin", style: .filled, arrow: true)
@@ -134,10 +134,11 @@ struct LandingFlow: Equatable, Sendable {
 /// What the mascot says on a step (the one place the copy talks).
 func landingBubble(_ step: LandingStep, noAccounts: Bool) -> (title: String, body: String?) {
     switch step {
-    case .hello: ("Hi, I'm Yoin.", "I play your music library, from your server or Apple Music.")
+    case .hello: ("Hi, I'm Yoin.", "I play your music library, from your server, Spotify or Apple Music.")
     case .pick: ("What do you listen with?", nil)
     case .about: ("Here's my part, and what stays with your service.", nil)
     case .subsonic: ("Where's your server?", nil)
+    case .spotify: ("Spotify wants an app ID from you.", "I'll walk you through it.")
     case .appleMusic: ("Apple Music needs your OK.", nil)
     case .ready: noAccounts ? ("No account yet.", "You can add one anytime in Settings.") : ("All set.", nil)
     }
