@@ -23,15 +23,26 @@ class AccountKeys(
     private val decodeCredentials: (Profile) -> ProfileCredentials?,
 ) {
     suspend fun of(profile: Profile): String? {
+        val subsonic = subsonicFingerprint(runCatching { decodeCredentials(profile) }.getOrNull())
         val binding = runCatching { syncDb().syncDao().bindingFor(profile.id) }.getOrNull()
-        if (binding?.state == SyncBindingEntity.STATE_ACTIVE) return binding.syncProfileId
-        return subsonicKey(runCatching { decodeCredentials(profile) }.getOrNull())
+        if (binding != null && bindingStillFits(binding, subsonic)) return binding.syncProfileId
+        return subsonic?.let(AccountFingerprints::deterministicId)
     }
 
     companion object {
-        internal fun subsonicKey(credentials: ProfileCredentials?): String? =
+        internal fun subsonicFingerprint(credentials: ProfileCredentials?): String? =
             (credentials as? ProfileCredentials.Subsonic)
                 ?.let { AccountFingerprints.subsonic(it.serverUrl, it.username) }
-                ?.let(AccountFingerprints::deterministicId)
+
+        /**
+         * An active binding still names the profile's account: a Subsonic profile edited to another server
+         * or user while sync was off keeps its binding active until sync next looks, so its fingerprint is
+         * checked here rather than trusted.
+         */
+        internal fun bindingStillFits(binding: SyncBindingEntity, subsonicFingerprint: String?): Boolean {
+            if (binding.state != SyncBindingEntity.STATE_ACTIVE) return false
+            val bound = binding.fingerprintHash ?: return true
+            return subsonicFingerprint == null || AccountFingerprints.fingerprintHash(subsonicFingerprint) == bound
+        }
     }
 }
