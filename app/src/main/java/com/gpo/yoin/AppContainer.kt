@@ -482,6 +482,11 @@ class AppContainer(private val context: Context) {
         com.gpo.yoin.player.dlna.DlnaManager(context)
     }
 
+    /** The system Spatializer's state and Yoin's spatial audio setting, watched for the process. */
+    val spatialAudio: com.gpo.yoin.player.SpatialAudioMonitor by lazy {
+        com.gpo.yoin.player.SpatialAudioMonitor(context)
+    }
+
     /** The stream cache and the listener's downloads (Subsonic); brought up on first use. */
     val offlineDownloads: OfflineDownloads by lazy {
         OfflineDownloads(

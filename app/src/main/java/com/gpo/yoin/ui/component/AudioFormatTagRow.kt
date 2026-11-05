@@ -22,19 +22,21 @@ import com.gpo.yoin.ui.theme.withTabularFigures
 
 /**
  * Format tags as small tonal blocks ("FLAC 24/96", "5.1"), one block each, no
- * separators. [transcodedFrom] only changes what TalkBack reads. Nothing is
- * drawn when [tags] is empty.
+ * separators. [accentTag] follows them in the primary tone ("Spatial" while
+ * the system spatializes the song). [transcodedFrom] only changes what
+ * TalkBack reads. Nothing is drawn when [tags] is empty.
  */
 @Composable
 internal fun AudioFormatTagRow(
     tags: List<String>,
     modifier: Modifier = Modifier,
     transcodedFrom: String? = null,
+    accentTag: String? = null,
     container: Color = MaterialTheme.colorScheme.secondaryContainer,
     content: Color = MaterialTheme.colorScheme.onSecondaryContainer,
 ) {
     if (tags.isEmpty()) return
-    val joined = tags.joinToString(" ")
+    val joined = (tags + listOfNotNull(accentTag)).joinToString(" ")
     val description = if (transcodedFrom != null) {
         stringResource(R.string.np_format_transcoded_description, joined, transcodedFrom)
     } else {
@@ -45,17 +47,27 @@ internal fun AudioFormatTagRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        tags.forEach { tag ->
-            Surface(shape = TagShape, color = container, contentColor = content) {
-                Text(
-                    text = tag,
-                    style = MaterialTheme.typography.labelSmall.withTabularFigures(),
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                )
-            }
+        tags.forEach { tag -> FormatTag(tag, container, content) }
+        if (accentTag != null) {
+            FormatTag(
+                tag = accentTag,
+                container = MaterialTheme.colorScheme.primaryContainer,
+                content = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
         }
+    }
+}
+
+@Composable
+private fun FormatTag(tag: String, container: Color, content: Color) {
+    Surface(shape = TagShape, color = container, contentColor = content) {
+        Text(
+            text = tag,
+            style = MaterialTheme.typography.labelSmall.withTabularFigures(),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+        )
     }
 }
 
@@ -65,6 +77,10 @@ private val TagShape = RoundedCornerShape(6.dp)
 @Composable
 private fun AudioFormatTagRowPreview() {
     YoinTheme {
-        AudioFormatTagRow(tags = listOf("FLAC 16/44.1", "5.1"), modifier = Modifier.padding(8.dp))
+        AudioFormatTagRow(
+            tags = listOf("FLAC 16/44.1", "5.1"),
+            accentTag = "Spatial",
+            modifier = Modifier.padding(8.dp),
+        )
     }
 }

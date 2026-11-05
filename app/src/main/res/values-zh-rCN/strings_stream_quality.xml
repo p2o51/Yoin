@@ -13,4 +13,16 @@
     <string name="np_format_transcoded_description">音频格式 %1$s，由 %2$s 转码</string>
     <string name="track_menu_go_to_named_artist">前往 %1$s</string>
     <string name="detail_disc_heading">第 %1$d 碟</string>
+    <string name="np_format_spatial">空间音频</string>
+    <string name="settings_spatial_audio_title">空间音频</string>
+    <string name="settings_spatial_audio_switch">把 5.1 / 7.1 歌曲空间化</string>
+    <string name="settings_spatial_audio_off">已关闭。多声道歌曲缩混成立体声播放。</string>
+    <string name="settings_spatial_audio_unsupported">这台设备不支持空间音频，多声道歌曲缩混成立体声播放。</string>
+    <string name="settings_spatial_audio_system_off">系统设置里的空间音频没开，多声道歌曲现在缩混成立体声播放。</string>
+    <string name="settings_spatial_audio_output">已就绪。当前输出不支持空间化，戴上支持空间音频的耳机后自动生效。</string>
+    <string name="settings_spatial_audio_ready">已开启。当前输出上，多声道歌曲会被空间化。</string>
+    <string name="settings_spatial_audio_ready_head">已开启。当前输出上，多声道歌曲会被空间化，可用头部追踪。</string>
+    <string name="settings_spatial_audio_system_settings">系统声音设置</string>
+    <string name="settings_spatial_audio_system_settings_detail">空间音频和头部追踪在那里按耳机打开</string>
+    <string name="settings_spatial_audio_note">只对 5.1 / 7.1 的原始文件起作用，立体声歌曲不变。</string>
 </resources>

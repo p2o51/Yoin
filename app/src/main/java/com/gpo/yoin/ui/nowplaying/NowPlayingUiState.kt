@@ -9,6 +9,7 @@ import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.ServiceFeatures
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.player.QueueEdit
+import com.gpo.yoin.player.SpatialPlayback
 
 sealed interface NowPlayingUiState {
 
@@ -104,6 +105,8 @@ sealed interface NowPlayingUiState {
         val formatTags: List<String> = emptyList(),
         /** The file's codec tag while a transcode of it plays; null otherwise. */
         val transcodedFrom: String? = null,
+        /** Whether the system spatializes what plays, for the "Spatial" tag. */
+        val spatialPlayback: SpatialPlayback = SpatialPlayback.NotMultichannel,
         /** The next song's timed lyrics, fetched ahead for the outro hand-over. */
         val upNextLyrics: UpNextLyrics? = null,
     ) : NowPlayingUiState
