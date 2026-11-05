@@ -5,11 +5,14 @@ enum OssLicense: String, CaseIterable {
     case apache2 = "license_apache_2_0"
     /// The text carries the font's copyright line, as the OFL asks.
     case ofl11 = "license_ofl_1_1"
+    /// MPMessagePack's MIT license, as the Spotify iOS SDK ships it (its own Licenses folder).
+    case mitMPMessagePack = "license_mit_mpmessagepack"
 
     var displayName: String {
         switch self {
         case .apache2: "Apache License 2.0"
         case .ofl11: "SIL Open Font License 1.1"
+        case .mitMPMessagePack: "MIT License"
         }
     }
 
@@ -30,7 +33,9 @@ struct OssComponent: Identifiable, Hashable {
 
 /// What the iOS app links: the font, the shared Kotlin module's libraries and Google Sign-In with
 /// its dependencies. Keep in step with project.yml and shared/build.gradle.kts. MusicKit is Apple's,
-/// under Apple's terms, and not listed; Yoin's symbols are its own drawings.
+/// under Apple's terms, and not listed; the Spotify iOS SDK is Spotify's, under the Spotify Developer
+/// Terms, and not listed either, but the open source library inside it is; Yoin's symbols are its
+/// own drawings.
 let openSourceComponents: [OssComponent] = [
     OssComponent(name: "Google Sans Flex", copyright: "Copyright 2022 The Google Sans Flex Project Authors", license: .ofl11),
     OssComponent(name: "Material Color Utilities", copyright: "Copyright 2022 Google LLC", license: .apache2),
@@ -41,6 +46,8 @@ let openSourceComponents: [OssComponent] = [
     OssComponent(name: "AppAuth for iOS", copyright: "Copyright The AppAuth Authors", license: .apache2),
     OssComponent(name: "GTMAppAuth, GTM Session Fetcher, GoogleUtilities, App Check and Promises",
                  copyright: "Copyright Google LLC", license: .apache2),
+    OssComponent(name: "MPMessagePack (in the Spotify iOS SDK)", copyright: "Copyright (c) 2014 Gabriel Handford",
+                 license: .mitMPMessagePack),
 ]
 
 /// Settings › About › Open source licenses (Android OpenSourceLicensesPage): the fonts and libraries
