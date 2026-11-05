@@ -387,7 +387,7 @@ struct LibraryView: View {
             VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
                                seed: item.id.rawId.count, size: side, stroke: scheme.primary)
-                    .zoomSource(item.id, zoomNS)
+                    .zoomSource(item.id, zoomNS, tile: "library")
                 Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
                 // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
                 Text(item.title)
@@ -408,7 +408,7 @@ struct LibraryView: View {
         switch item.kind {
         case .artist: model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId)
         case .playlist: model.openPlaylist(item.id.rawId)
-        case .album: if let album = item.album { model.open(album) }
+        case .album: if let album = item.album { model.open(album, tile: "library") }
         }
     }
 
@@ -629,8 +629,7 @@ struct LibraryView: View {
                 let e = entries[i]
                 LibrarySongRow(album: e.album, track: e.track, current: model.playback.track.id == e.track.id,
                                scheme: scheme)
-                    .onTapGesture { model.play(entries, startAt: i) }
-                    .trackMenu(for: e)
+                    .trackRow(for: e) { model.play(entries, startAt: i) }
                     .transition(.opacity.animation(Yoin.effects))
             }
         }

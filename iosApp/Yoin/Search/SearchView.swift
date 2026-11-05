@@ -573,10 +573,9 @@ struct SearchView: View {
             ForEach(Array(tracks.enumerated()), id: \.offset) { i, item in
                 LibrarySongRow(album: item.0, track: item.1, current: model.playback.track.id == item.1.id,
                                scheme: scheme, horizontalPadding: 0)
-                    .onTapGesture {
+                    .trackRow(for: PlaylistEntry(album: item.0, track: item.1)) {
                         model.play(tracks.map { PlaylistEntry(album: $0.0, track: $0.1) }, startAt: i)
                     }
-                    .trackMenu(for: PlaylistEntry(album: item.0, track: item.1))
             }
         }
     }

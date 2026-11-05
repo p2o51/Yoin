@@ -29,6 +29,40 @@ extension View {
     func trackMenu(for entry: PlaylistEntry, context: TrackMenuContext = .library) -> some View {
         modifier(TrackMenuTrigger(entry: entry, context: context))
     }
+
+    /// A song row of a list (Android SongListItem / AlbumTrackRow combinedClickable): the
+    /// whole row plays on a tap and opens the song's sheet on a long press, and wears the
+    /// pressed tint while a finger is on it.
+    func trackRow(for entry: PlaylistEntry, context: TrackMenuContext = .library,
+                  play: @escaping () -> Void) -> some View {
+        modifier(TrackRowGestures(entry: entry, context: context, play: play))
+    }
+}
+
+private struct TrackRowGestures: ViewModifier {
+    var entry: PlaylistEntry
+    var context: TrackMenuContext
+    var play: () -> Void
+    @State private var pressing = false
+    @State private var pressed = 0
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous)
+                    .fill(Color.primary.opacity(pressing ? 0.08 : 0))
+                    .animation(Yoin.effects, value: pressing)
+            }
+            .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
+            .onTapGesture(perform: play)
+            .onLongPressGesture(minimumDuration: 0.4) {
+                pressed += 1
+                PlaylistActions.shared.openMenu(entry, context: context)
+            } onPressingChanged: { pressing = $0 }
+            .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: "More") { PlaylistActions.shared.openMenu(entry, context: context) }
+    }
 }
 
 private struct TrackMenuTrigger: ViewModifier {

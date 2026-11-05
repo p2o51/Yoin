@@ -555,8 +555,7 @@ struct AlbumDetailView: View {
             } else if let playlist {
                 playlistMeta(playlist).frame(width: side).frame(maxWidth: .infinity)
                 Spacer().frame(height: 28)
-                Text(flowingTitles)
-                    .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
+                flowingTitles
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
             // Emblem + comment, as wide as the cover.
@@ -590,8 +589,7 @@ struct AlbumDetailView: View {
                 if loadFailed { retryButton }
             }
             Spacer().frame(height: 6)
-            Text(flowingTitles)
-                .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
+            flowingTitles
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -713,25 +711,13 @@ struct AlbumDetailView: View {
         }
     }
 
-    /// Titles in headlineMedium joined by a space, even = onSurface,
-    /// odd = onSurfaceVariant; short titles (≤ 16 units, CJK = 2) are glued
-    /// so they wrap as one unit.
-    private var flowingTitles: AttributedString {
-        var out = AttributedString()
-        for (i, t) in album.tracks.enumerated() {
-            let units = t.title.unicodeScalars.reduce(0) { $0 + ($1.value > 0x2E80 ? 2 : 1) }
-            let title = units <= 16 ? t.title.replacingOccurrences(of: " ", with: "\u{00A0}") : t.title
-            var piece = AttributedString(title)
-            piece.font = .gsf(28)
-            piece.foregroundColor = i.isMultiple(of: 2) ? app.onSurface : app.onSurfaceVariant
-            out += piece
-            if i < album.tracks.count - 1 {
-                var gap = AttributedString(" ")
-                gap.font = .gsf(28)
-                out += gap
-            }
-        }
-        return out
+    /// The track titles as one paragraph; a title plays from that song while
+    /// the hero is up (Android: links only below half the pull).
+    private var flowingTitles: some View {
+        FlowingTrackTitles(titles: album.tracks.map(\.title), primary: app.onSurface, variant: app.onSurfaceVariant,
+                           onPick: p < 0.5 ? { i in
+                               if let playlist { model.play(playlist.entries, startAt: i) } else { playAlbum(from: i) }
+                           } : nil)
     }
 
     /// The listener's review and when it was written (AlbumMemoryStore, as
@@ -783,8 +769,9 @@ struct AlbumDetailView: View {
                     ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
                         playlistRow(e)
                             .modifier(bandBlur)
-                            .onTapGesture { model.play(playlist.entries, startAt: i) }
-                            .trackMenu(for: e, context: .playlist(playlist.id.rawId, index: i))
+                            .trackRow(for: e, context: .playlist(playlist.id.rawId, index: i)) {
+                                model.play(playlist.entries, startAt: i)
+                            }
                     }
                     playlistMeta(playlist)
                         .padding(.horizontal, 8)
@@ -807,10 +794,10 @@ struct AlbumDetailView: View {
                             .padding(.bottom, 6)
                             .modifier(bandBlur)
                     }
-                    trackRow(t).modifier(bandBlur).onTapGesture { playAlbum(from: i) }
-                        .trackMenu(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
+                    trackRow(t).modifier(bandBlur)
+                        .trackRow(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
                             settlePage(to: 1, velocity: 0)
-                        }))
+                        })) { playAlbum(from: i) }
                 }
                 linerNotes
                     .padding(.horizontal, 8)
