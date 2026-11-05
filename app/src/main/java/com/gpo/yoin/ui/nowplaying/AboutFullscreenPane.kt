@@ -57,7 +57,10 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.aboutRef
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.model.LyricCredits
+import com.gpo.yoin.ui.component.LyricCreditsCard
 import com.gpo.yoin.ui.component.ThinkingDots
+import com.gpo.yoin.ui.component.coveredAboutKeys
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
@@ -76,6 +79,8 @@ fun AboutFullscreenPane(
     aboutUiState: AboutUiState,
     onRetryCanonical: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Credits the lyrics source wrote into the lyrics; shown first, with or without Gemini. */
+    credits: LyricCredits? = null,
     contentBottomPadding: androidx.compose.ui.unit.Dp = 96.dp,
 ) {
     val context = LocalContext.current
@@ -110,6 +115,7 @@ fun AboutFullscreenPane(
                     .fillMaxSize()
                     .padding(vertical = 12.dp),
             ) {
+                CreditsHeader(credits)
                 Text(
                     text = stringResource(R.string.np_about_api_key),
                     style = MaterialTheme.typography.bodyMedium,
@@ -124,6 +130,7 @@ fun AboutFullscreenPane(
                     .fillMaxSize()
                     .padding(vertical = 12.dp),
             ) {
+                CreditsHeader(credits)
                 Text(
                     text = state.message,
                     style = MaterialTheme.typography.bodyMedium,
@@ -133,6 +140,7 @@ fun AboutFullscreenPane(
             }
             is AboutUiState.Ready -> ReadyContent(
                 entries = state.entries,
+                credits = credits,
                 bottomPadding = contentBottomPadding,
             )
         }
@@ -142,6 +150,7 @@ fun AboutFullscreenPane(
 @Composable
 private fun ReadyContent(
     entries: List<SongAboutEntry>,
+    credits: LyricCredits?,
     bottomPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -171,8 +180,12 @@ private fun ReadyContent(
         val resources = LocalContext.current.resources
         val byKey = entries.filter { it.kind == SongAboutEntry.KIND_CANONICAL }
             .associateBy { it.entryKey }
+        // The lyrics source's credits stand in for Gemini's lyricist / composer / producer.
+        val covered = credits.coveredAboutKeys()
+        CreditsHeader(credits)
 
         SongAboutEntry.CANONICAL_ORDER
+            .filterNot(covered::contains)
             .mapNotNull { key -> byKey[key]?.let { key to it } }
             .filter { (_, row) -> row.answerText.isNotBlank() }
             .forEach { (_, row) ->
@@ -217,6 +230,12 @@ private fun ReadyContent(
             onDismissRequest = { menuFor = null },
         )
     }
+}
+
+@Composable
+private fun CreditsHeader(credits: LyricCredits?) {
+    if (credits == null) return
+    LyricCreditsCard(credits = credits, modifier = Modifier.padding(bottom = 12.dp))
 }
 
 internal fun labelFor(entryKey: String, resources: Resources): String = when (entryKey) {

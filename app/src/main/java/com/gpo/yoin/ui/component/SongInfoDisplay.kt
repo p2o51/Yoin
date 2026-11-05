@@ -31,6 +31,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.ui.nowplaying.AboutUiState
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -48,6 +49,8 @@ fun SongInfoDisplay(
     aboutUiState: AboutUiState,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Credits the lyrics source wrote into the lyrics; shown first, with or without Gemini. */
+    credits: LyricCredits? = null,
 ) {
     AnimatedContent(
         targetState = aboutUiState,
@@ -95,6 +98,9 @@ fun SongInfoDisplay(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Column {
+                        if (credits != null) {
+                            LyricCreditsCard(credits = credits, modifier = Modifier.padding(bottom = 8.dp))
+                        }
                         Text(
                             text = stringResource(R.string.cmp_song_info_no_key),
                             style = MaterialTheme.typography.bodyMedium,
@@ -129,7 +135,7 @@ fun SongInfoDisplay(
             }
 
             is AboutUiState.Ready -> {
-                ReadyContent(entries = state.entries)
+                ReadyContent(entries = state.entries, credits = credits)
             }
         }
     }
@@ -138,6 +144,7 @@ fun SongInfoDisplay(
 @Composable
 private fun ReadyContent(
     entries: List<SongAboutEntry>,
+    credits: LyricCredits?,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -165,8 +172,14 @@ private fun ReadyContent(
         ) {
             val byKey = entries.filter { it.kind == SongAboutEntry.KIND_CANONICAL }
                 .associateBy { it.entryKey }
+            // The lyrics source's credits stand in for Gemini's lyricist / composer / producer.
+            val covered = credits.coveredAboutKeys()
+            if (credits != null) {
+                LyricCreditsCard(credits = credits, modifier = Modifier.padding(bottom = 8.dp))
+            }
 
             SongAboutEntry.CANONICAL_ORDER
+                .filterNot(covered::contains)
                 .mapNotNull { key -> byKey[key]?.let { key to it } }
                 .filter { (_, row) -> row.answerText.isNotBlank() }
                 .forEach { (key, row) ->

@@ -14,13 +14,21 @@ import com.gpo.yoin.data.model.Lyrics
  *
  * 若解析出 >= 1 条带时间戳的行 → [Lyrics.Synced]（按 startMs 排序）；
  * 否则把原文当 unsynced 返回。
+ *
+ * 歌词开头 / 结尾的制作信息（作词、作曲、混音、版权声明……）由
+ * [LyricCreditsExtractor] 移进 [Lyrics.credits]，不留在歌词行里。所有读歌词的地方
+ * （显示、翻译对齐、同步行数）都走这里，所以行号口径一致。
  */
 object LrcParser {
 
     private val TIMESTAMP_REGEX = Regex("""\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]""")
     private val METADATA_TAG_REGEX = Regex("""^\[[a-zA-Z]+:[^\]]*\]$""")
 
-    fun parse(raw: String): Lyrics {
+    /**
+     * [extractCredits] false keeps every timed line, for checks of a provider's
+     * own line-for-line output (its translation file has no credits to take).
+     */
+    fun parse(raw: String, extractCredits: Boolean = true): Lyrics {
         val synced = mutableListOf<LyricLine>()
 
         for (rawLine in raw.lines()) {
@@ -43,11 +51,12 @@ object LrcParser {
             }
         }
 
-        return if (synced.isNotEmpty()) {
+        val parsed = if (synced.isNotEmpty()) {
             Lyrics.Synced(lines = synced.sortedBy { it.startMs })
         } else {
             Lyrics.Unsynced(text = raw.trim())
         }
+        return if (extractCredits) LyricCreditsExtractor.extract(parsed) else parsed
     }
 
     private fun isTimestampTag(line: String): Boolean =

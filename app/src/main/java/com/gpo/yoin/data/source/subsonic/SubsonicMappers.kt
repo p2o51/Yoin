@@ -7,6 +7,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LyricLine
+import com.gpo.yoin.data.lyrics.LyricCreditsExtractor
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
@@ -171,7 +172,7 @@ internal fun SubsonicStarredResponse.toStarred(): Starred = Starred(
 
 internal fun SubsonicLyricsList.toLyrics(): Lyrics? {
     val structured = structuredLyrics.firstOrNull() ?: return null
-    return if (structured.synced && structured.line.any { it.start != null }) {
+    val lyrics = if (structured.synced && structured.line.any { it.start != null }) {
         Lyrics.Synced(
             language = structured.lang,
             // Servers may emit lines out of order; ascending startMs is an
@@ -186,6 +187,7 @@ internal fun SubsonicLyricsList.toLyrics(): Lyrics? {
             text = structured.line.joinToString("\n") { it.value },
         )
     }
+    return LyricCreditsExtractor.extract(lyrics)
 }
 
 internal const val EXTRA_BIT_RATE = "subsonic.bitRate"

@@ -1607,12 +1607,14 @@ private fun CompactPlayingContent(
                                     val aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty()
                                     val spineItems = remember(
                                         aboutEntries,
+                                        state.lyricCredits,
                                         state.spineFacts,
                                         state.songId,
                                         spineLabels,
                                     ) {
                                         spineItems(
                                             entries = aboutEntries,
+                                            credits = state.lyricCredits,
                                             facts = state.spineFacts,
                                             albumName = state.albumName,
                                             artist = state.artist,
@@ -4373,6 +4375,7 @@ private fun CompactDetailPage(
         NowPlayingDetailPage.About -> SongInfoDisplay(
             aboutUiState = aboutUiState,
             onRetry = onRetryFetchSongInfo,
+            credits = state.lyricCredits,
             modifier = modifier,
         )
         NowPlayingDetailPage.Note -> NoteCompactPane(
@@ -4658,6 +4661,7 @@ private fun ExpandedDetailPage(
         NowPlayingDetailPage.About -> AboutFullscreenPane(
             aboutUiState = aboutUiState,
             onRetryCanonical = onRetryCanonical,
+            credits = state.lyricCredits,
             modifier = modifier,
         )
         NowPlayingDetailPage.Note -> {

@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.model.LyricCreditRole
+import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.codecLabel
@@ -128,12 +130,17 @@ internal fun spineItems(
     artist: String,
     title: String,
     labels: SpineLabels,
+    /** The lyrics source's credits: they answer lyricist / composer / producer before Gemini does. */
+    credits: LyricCredits? = null,
 ): List<SpineItem> {
     val items = mutableListOf<SpineItem>()
     SpineCreditKeys.forEach { key ->
-        entries
-            .firstOrNull { it.kind == SongAboutEntry.KIND_CANONICAL && it.entryKey == key }
-            ?.answerText
+        (
+            key.lyricCreditRole()?.let { credits?.namesFor(it) }
+                ?: entries
+                    .firstOrNull { it.kind == SongAboutEntry.KIND_CANONICAL && it.entryKey == key }
+                    ?.answerText
+            )
             ?.replace(Regex("\\s+"), " ")
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -165,6 +172,13 @@ internal fun spineItems(
         if (line.isNotEmpty()) items += SpineItem("", line)
     }
     return items
+}
+
+private fun String.lyricCreditRole(): LyricCreditRole? = when (this) {
+    SongAboutEntry.CANON_LYRICIST -> LyricCreditRole.Lyricist
+    SongAboutEntry.CANON_COMPOSER -> LyricCreditRole.Composer
+    SongAboutEntry.CANON_PRODUCER -> LyricCreditRole.Producer
+    else -> null
 }
 
 /** 44100 → "44.1", 96000 → "96". */
