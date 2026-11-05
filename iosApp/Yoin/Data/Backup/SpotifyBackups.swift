@@ -33,7 +33,12 @@ final class SpotifyRestoreDestination: RestoreDestination {
 
     func createPlaylist(name: String, description: String?, trackIds: [String]) async throws -> String {
         let made = try await spotify.createPlaylist(name: name, description: description)
-        if !trackIds.isEmpty { try await spotify.addTracks(Self.rawIds(trackIds), to: made.id) }
+        guard !trackIds.isEmpty else { return made.id }
+        do {
+            try await spotify.addTracks(Self.rawIds(trackIds), to: made.id)
+        } catch {
+            throw RestoreCreatedEmpty(playlistId: made.id)
+        }
         return made.id
     }
 

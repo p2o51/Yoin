@@ -307,7 +307,8 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     private func rehand() {
-        guard !starting, let current,
+        // Paused since it was scheduled: the next play hands the new pair.
+        guard wantsPlay, playing, !starting, let current,
               Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - currentTimeSec : nil)
         else { return }
         pendingStart = currentTimeSec
@@ -345,6 +346,7 @@ final class SpotifyAudioOutput: AudioOutput {
 
     func pause() {
         wantsPlay = false
+        rehandTask?.cancel()
         guard !silent, !starting else { return }
         command { $0.pause(nil) }
     }

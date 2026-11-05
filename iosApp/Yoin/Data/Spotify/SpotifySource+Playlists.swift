@@ -112,7 +112,9 @@ extension SpotifySource {
     }
 
     /// The body of a removal: one item per URI with all its positions, sorted (a song in the playlist twice
-    /// loses only the occurrences named), against [snapshotId].
+    /// loses only the occurrences named), against [snapshotId]. The field is `items` on the /items
+    /// endpoint (`tracks` was the deprecated /tracks endpoint's); per-item positions are no longer in the
+    /// reference, so a caller re-reads a playlist that still holds the song elsewhere.
     nonisolated static func removalBody(_ items: [Removal], snapshotId: String?) -> [String: Any] {
         var order: [String] = []
         var positions: [String: [Int]] = [:]
@@ -121,7 +123,7 @@ extension SpotifySource {
             if positions[uri] == nil { order.append(uri) }
             positions[uri, default: []].append(item.position)
         }
-        var body: [String: Any] = ["tracks": order.map { ["uri": $0, "positions": positions[$0]!.sorted()] }]
+        var body: [String: Any] = ["items": order.map { ["uri": $0, "positions": positions[$0]!.sorted()] }]
         if let snapshotId { body["snapshot_id"] = snapshotId }
         return body
     }

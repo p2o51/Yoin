@@ -3,6 +3,11 @@ import Observation
 import SwiftUI
 import YoinShared
 
+/// A destination made the playlist but couldn't add its first songs (Spotify creates, then adds).
+struct RestoreCreatedEmpty: Error {
+    let playlistId: String
+}
+
 /// Where a restore writes (Android MusicSource's `library().search` and
 /// `writeActions().createPlaylistWithTracks`): one account's search and a new
 /// playlist. Ids are `provider:rawId`. Each destination is one account, chosen
@@ -110,7 +115,13 @@ enum PlaylistRestore {
         let requested = Int32(trackIds.count)
         guard !trackIds.isEmpty else { return PlaylistWrite(created: false, added: 0, requested: 0) }
         let first = Array(trackIds.prefix(addBatch))
-        guard let id = try? await target.createPlaylist(name: name, description: description, trackIds: first) else {
+        let id: String
+        do {
+            id = try await target.createPlaylist(name: name, description: description, trackIds: first)
+        } catch is RestoreCreatedEmpty {
+            // Made, but its first songs didn't land: it stands, empty (a retry would make a second one).
+            return PlaylistWrite(created: true, added: 0, requested: requested)
+        } catch {
             return PlaylistWrite(created: false, added: 0, requested: requested)
         }
         var added = Int32(first.count)

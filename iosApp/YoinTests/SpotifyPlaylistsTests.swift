@@ -105,7 +105,7 @@ final class SpotifyPlaylistsTests: XCTestCase {
         XCTAssertEqual(r.method, "DELETE")
         XCTAssertEqual(r.url.path, "/v1/playlists/p1/items")
         XCTAssertEqual(body(0)["snapshot_id"] as? String, "s1")
-        let tracks = try XCTUnwrap(body(0)["tracks"] as? [[String: Any]])
+        let tracks = try XCTUnwrap(body(0)["items"] as? [[String: Any]])
         XCTAssertEqual(tracks.count, 1)
         XCTAssertEqual(tracks[0]["uri"] as? String, "spotify:track:A")
         XCTAssertEqual(tracks[0]["positions"] as? [Int], [3])
@@ -113,7 +113,7 @@ final class SpotifyPlaylistsTests: XCTestCase {
         // One item per song, its positions sorted (Android groups by URI).
         let grouped = SpotifySource.removalBody([.init(trackRawId: "A", position: 3), .init(trackRawId: "B", position: 1),
                                                  .init(trackRawId: "A", position: 0)], snapshotId: nil)
-        let rows = try XCTUnwrap(grouped["tracks"] as? [[String: Any]])
+        let rows = try XCTUnwrap(grouped["items"] as? [[String: Any]])
         XCTAssertEqual(rows.map { $0["uri"] as? String }, ["spotify:track:A", "spotify:track:B"])
         XCTAssertEqual(rows[0]["positions"] as? [Int], [0, 3])
         XCTAssertNil(grouped["snapshot_id"])

@@ -353,6 +353,12 @@ final class PlaylistBackupTests: XCTestCase {
         let none = await PlaylistRestore.write(name: "Commute", description: nil, trackIds: ids, to: refused)
         XCTAssertEqual(none, PlaylistWrite(created: false, added: 0, requested: 250))
 
+        let emptyMade = StubDestination(results: [:])
+        emptyMade.failFirstAdd = true
+        let madeEmpty = await PlaylistRestore.write(name: "Commute", description: nil, trackIds: ids, to: emptyMade)
+        XCTAssertEqual(madeEmpty, PlaylistWrite(created: true, added: 0, requested: 250))
+        XCTAssertTrue(emptyMade.batches.isEmpty)
+
         let empty = await PlaylistRestore.write(name: "Commute", description: nil, trackIds: [], to: ok)
         XCTAssertEqual(empty, PlaylistWrite(created: false, added: 0, requested: 0))
         XCTAssertEqual(ok.created, ["Commute"])
@@ -574,6 +580,8 @@ private final class StubDestination: RestoreDestination {
     var searchFails = false
     var searchDelay: Duration?
     var failCreate = false
+    /// Made, then its first songs refused (Spotify's create-then-add).
+    var failFirstAdd = false
     /// Batches that land before one fails (nil: none fails).
     var failAddAfter: Int?
     var created: [String] = []
@@ -594,6 +602,7 @@ private final class StubDestination: RestoreDestination {
         if failCreate { throw URLError(.badServerResponse) }
         created.append(name)
         createdWith.append(trackIds)
+        if failFirstAdd { throw RestoreCreatedEmpty(playlistId: "new-1") }
         return "new-1"
     }
 
