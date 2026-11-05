@@ -281,6 +281,28 @@ class FocusFieldTest {
         assertEquals(310.0, nearHue(0.0, 200.0, 50.0), 0.001)
     }
 
+    @Test
+    fun should_takeTheDarkRoomsOtherHuesFromTheCover_when_itHasThem() {
+        // Magenta primary; the cover also holds a real cyan, and a grey.
+        val magenta = argb(255, 160, 220)
+        val cyan = argb(40, 180, 200)
+        val grey = argb(120, 120, 120)
+        val room = darkRoomOf(
+            primary = magenta,
+            secondary = argb(150, 210, 160), // the scheme's turned-away green
+            tertiary = argb(140, 220, 150),
+            coverSwatches = intArrayOf(magenta, grey, cyan),
+        )
+        val cyanHue = hct.Hct.fromInt(cyan).hue
+        // The cover's cyan is kept (not pulled toward magenta), the grey lends nothing.
+        val secondHue = hct.Hct.fromInt(room.colors[1]).hue
+        assertEquals(cyanHue, secondHue, 10.0)
+
+        val (a, b) = coverSeedHues(hct.Hct.fromInt(magenta).hue, intArrayOf(magenta, grey, cyan))
+        assertEquals(cyanHue, a!!, 0.5)
+        assertNull(b)
+    }
+
     private fun luminance(c: Int): Float {
         fun ch(v: Int): Float {
             val x = v / 255f

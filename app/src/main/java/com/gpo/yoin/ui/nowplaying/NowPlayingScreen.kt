@@ -319,11 +319,14 @@ fun NowPlayingScreen(
     // resolved scheme, so a song change crosses the room over on the field's
     // own fade, not in the theme wash's few steps.
     val roomScheme = LocalCoverDarkScheme.current ?: scheme
-    val darkRoom = remember(roomScheme) {
+    // Its other hues are the cover's own swatches where it has them.
+    val roomSwatches = LocalCoverField.current?.swatches
+    val darkRoom = remember(roomScheme, roomSwatches) {
         darkRoomOf(
             primary = roomScheme.primary.toArgb(),
             secondary = roomScheme.secondary.toArgb(),
             tertiary = roomScheme.tertiary.toArgb(),
+            coverSwatches = roomSwatches ?: IntArray(0),
         )
     }
     val background = scheme.background

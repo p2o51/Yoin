@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.palette.graphics.Palette
 import com.gpo.yoin.ui.nowplaying.CoverField
 import com.gpo.yoin.ui.nowplaying.buildCoverField
 import kotlinx.coroutines.CoroutineScope
@@ -59,8 +60,10 @@ class PlaybackThemeState(private val scope: CoroutineScope) {
         loading = scope.launch {
             if (model != null) {
                 val bitmap = loadBitmap(model)
-                val seed = CoverSeedExtractor.extractSeedArgb(bitmap)
-                val field = bitmap?.let { readCoverField(it) }
+                // One Palette pass: the theme's seed and the focus room's swatches.
+                val swatchPalette = bitmap?.let { withContext(Dispatchers.Default) { CoverSeedExtractor.palette(it) } }
+                val seed = swatchPalette?.let { CoverSeedExtractor.seedSwatch(it)?.rgb }
+                val field = bitmap?.let { readCoverField(it, swatchPalette?.let(::swatchesOf) ?: IntArray(0)) }
                 if (field != null) coverField = field
                 if (seed != null && palette?.seed != seed) {
                     palette = PlaybackPalette(
@@ -131,13 +134,24 @@ data class NeighbourTint(val light: Color, val dark: Color) {
 @Immutable
 data class CoverNeighbours(val previous: NeighbourTint? = null, val next: NeighbourTint? = null)
 
-private suspend fun readCoverField(bitmap: Bitmap): CoverField? = withContext(Dispatchers.Default) {
+/** Palette's swatches in order of importance, the ones it found. */
+private fun swatchesOf(palette: Palette): IntArray = listOfNotNull(
+    palette.vibrantSwatch,
+    palette.mutedSwatch,
+    palette.darkVibrantSwatch,
+    palette.lightVibrantSwatch,
+    palette.darkMutedSwatch,
+    palette.lightMutedSwatch,
+    palette.dominantSwatch,
+).map { it.rgb }.distinct().toIntArray()
+
+private suspend fun readCoverField(bitmap: Bitmap, swatches: IntArray): CoverField? = withContext(Dispatchers.Default) {
     val w = bitmap.width
     val h = bitmap.height
     if (w <= 0 || h <= 0) return@withContext null
     val pixels = IntArray(w * h)
     bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-    buildCoverField(pixels, w, h)
+    buildCoverField(pixels, w, h, swatches)
 }
 
 private data class ArtworkRequest(val model: String?, val clearWhenMissing: Boolean)

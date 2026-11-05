@@ -40,6 +40,12 @@ class CoverField(
     val palette: IntArray,
     /** The cover's most vivid colour. */
     val accent: Int,
+    /**
+     * The cover's swatches as Palette reads them (vibrant, muted, dark and
+     * light vibrant, dark and light muted, dominant; the ones it found, ARGB):
+     * the seeds dark focus's room takes its hues from ([darkRoomOf]).
+     */
+    val swatches: IntArray = IntArray(0),
 ) {
     /** The cover's colour at ([u], [v]) in 0..1, nearest sample. */
     fun at(u: Float, v: Float): Int {
@@ -58,7 +64,7 @@ class CoverField(
  * Builds a [CoverField] from [pixels] (ARGB, [width] × [height]). Null when
  * there is nothing to read.
  */
-fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
+fun buildCoverField(pixels: IntArray, width: Int, height: Int, swatches: IntArray = IntArray(0)): CoverField? {
     if (width <= 0 || height <= 0 || pixels.size < width * height) return null
     val n = CoverField.GridSize
     val grid = IntArray(n * n)
@@ -117,7 +123,7 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
         val w = bucketWeight[k]
         argb((bucketR[k] / w).roundToInt(), (bucketG[k] / w).roundToInt(), (bucketB[k] / w).roundToInt())
     }
-    return CoverField(grid, palette, accent)
+    return CoverField(grid, palette, accent, swatches)
 }
 
 /**
@@ -130,17 +136,21 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
  * primary and tertiary hues instead of a surface, and the wanderer is the
  * brightest point, a lit primary moving through the room.
  */
-fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int): RoomPalette {
+fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int, coverSwatches: IntArray = IntArray(0)): RoomPalette {
     val p = Hct.fromInt(primary)
     val s = Hct.fromInt(secondary)
     val t = Hct.fromInt(tertiary)
     fun at(hue: Double, chroma: Double, tone: Double): Int = Hct.from(hue, chroma, tone).toInt()
-    // The expressive scheme turns secondary and tertiary ~160° away from the
-    // primary (a purple cover gets green ones); lifted to full chroma that
-    // painted the room's lower half green (owner 2026-11-05). Keep them
-    // within [DarkRoomMaxHueTurn] of the primary, on the side they lean.
-    val sHue = nearHue(p.hue, s.hue, DarkRoomMaxHueTurn)
-    val tHue = nearHue(p.hue, t.hue, DarkRoomMaxHueTurn)
+    // The second and third hues come from the cover itself (owner
+    // 2026-11-05: seeds read off the cover's swatches, then re-toned), not
+    // from the expressive scheme, which turns secondary and tertiary ~160°
+    // away from the primary (a purple cover got green ones). Where the cover
+    // has no other hue, the scheme's are used, kept within
+    // [DarkRoomMaxHueTurn] of the primary: only colours the cover hasn't got
+    // are held back.
+    val (fromCover2, fromCover3) = coverSeedHues(p.hue, coverSwatches)
+    val sHue = fromCover2 ?: nearHue(p.hue, s.hue, DarkRoomMaxHueTurn)
+    val tHue = fromCover3 ?: nearHue(p.hue, t.hue, DarkRoomMaxHueTurn)
     val between = midHue(p.hue, tHue)
     return RoomPalette(
         colors = intArrayOf(
@@ -152,6 +162,30 @@ fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int): RoomPalette {
         accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 46.0),
     )
 }
+
+/**
+ * Up to two hues the cover really holds besides [primaryHue], from its
+ * [swatches] in Palette's order of importance: each a colour (not a grey),
+ * at least [SeedMinHueGap] from the primary and from each other. Null where
+ * the cover has no such hue.
+ */
+internal fun coverSeedHues(primaryHue: Double, swatches: IntArray): Pair<Double?, Double?> {
+    val picked = ArrayList<Double>(2)
+    for (c in swatches) {
+        val hct = Hct.fromInt(c)
+        if (hct.chroma < SeedMinChroma) continue
+        val far = (listOf(primaryHue) + picked).all { abs(((hct.hue - it + 540.0) % 360.0) - 180.0) >= SeedMinHueGap }
+        if (far) picked += hct.hue
+        if (picked.size == 2) break
+    }
+    return picked.getOrNull(0) to picked.getOrNull(1)
+}
+
+/** A swatch under this chroma is a grey: it lends the room no hue. */
+internal const val SeedMinChroma = 12.0
+
+/** Hues closer than this to one already in the room count as the same colour. */
+internal const val SeedMinHueGap = 25.0
 
 /** [b], turned toward [a] the shorter way until it is at most [maxTurn] degrees from it. */
 internal fun nearHue(a: Double, b: Double, maxTurn: Double): Double {
@@ -321,7 +355,7 @@ internal const val SweepFront = 0.3f
  * auto-advance), the left after a skip back — and covering the room by the
  * end. This is the field the room travels to: main hues turned one step.
  */
-fun CoverField.journeyed(): CoverField = CoverField(grid, journeyOrder(palette, candidates = 3), accent)
+fun CoverField.journeyed(): CoverField = CoverField(grid, journeyOrder(palette, candidates = 3), accent, swatches)
 
 /** [CoverField.journeyed] for a ready-made room palette (its fourth, the deep blend, stays put). */
 fun RoomPalette.journeyed(): RoomPalette = RoomPalette(journeyOrder(colors, candidates = 2), accent)
