@@ -348,6 +348,7 @@ fun Modifier.reportFocusCover(): Modifier {
 @Composable
 fun Modifier.nowPlayingAuroraBackground(
     background: Color,
+    darkTop: Color,
     accentColors: List<Color>,
     neighbourTop: Color,
     neighbourBottom: Color,
@@ -476,9 +477,10 @@ fun Modifier.nowPlayingAuroraBackground(
     var originRoot by remember { mutableStateOf(Offset.Zero) }
     val focusCanvas = remember { FocusCanvas() }
     // The room's glass emulation (RoomAmbient.glassSaturation), one layer paint per mode.
+    val iosRoom = RoomAmbient.appliesIn(isDark)
     val roomGlassPaint = remember(isDark) {
         val saturation = RoomAmbient.glassSaturation(isDark)
-        if (saturation == 1f) {
+        if (!RoomAmbient.appliesIn(isDark) || saturation == 1f) {
             null
         } else {
             Paint().apply {
@@ -654,23 +656,38 @@ fun Modifier.nowPlayingAuroraBackground(
             // The room: base, the neighbours at the edges, then this
             // cover's aura (sliding in on a song change), under the veil,
             // all in one layer that carries the glass emulation.
+            // Dark keeps Android's own room (RoomAmbient.appliesIn): the
+            // surfaceContainer → background gradient and the cover wash.
             roomGlassPaint?.let { drawContext.canvas.saveLayer(Rect(0f, 0f, w, h), it) }
-            drawRect(background)
             val k = RoomAmbient.scaleFor(w / density) * density
-            drawRoomNeighbours(topBlob, bottomBlob, RoomAmbient.neighbourAlpha(isDark), k)
+            if (iosRoom) {
+                drawRect(background)
+                drawRoomNeighbours(topBlob, bottomBlob, RoomAmbient.neighbourAlpha(isDark), k)
+            } else {
+                drawRect(Brush.verticalGradient(listOf(darkTop, background)))
+            }
 
             // Rest wash, or a song change flowing in.
             val e = wash.progress.value
             val shown = wash.shown
             val previousWash = wash.previous
             if (e >= 1f || previousWash == null) {
-                drawRestWash(shown, 0f, 0f, 1f, isDark, k)
+                drawRestWash(shown, 0f, 0f, 1f, isDark, k, iosRoom, blend)
             } else if (wash.dir == Offset.Zero) {
-                drawRestWash(previousWash, 0f, 0f, 1f - e, isDark, k)
-                drawRestWash(shown, 0f, 0f, e, isDark, k)
+                drawRestWash(previousWash, 0f, 0f, 1f - e, isDark, k, iosRoom, blend)
+                drawRestWash(shown, 0f, 0f, e, isDark, k, iosRoom, blend)
             } else {
                 val travel = (if (wash.dir.x != 0f) w else h) * 0.9f
-                drawRestWash(previousWash, -wash.dir.x * travel * e, -wash.dir.y * travel * e, 1f - e, isDark, k)
+                drawRestWash(
+                    previousWash,
+                    -wash.dir.x * travel * e,
+                    -wash.dir.y * travel * e,
+                    1f - e,
+                    isDark,
+                    k,
+                    iosRoom,
+                    blend,
+                )
                 drawRestWash(
                     shown,
                     wash.dir.x * travel * (1f - e),
@@ -678,11 +695,15 @@ fun Modifier.nowPlayingAuroraBackground(
                     min(1f, e * 1.4f),
                     isDark,
                     k,
+                    iosRoom,
+                    blend,
                 )
             }
-            drawRect(background.copy(alpha = RoomAmbient.veilAlpha(isDark)))
-            val shade = RoomAmbient.glassShade(isDark)
-            if (shade > 0f) drawRect(Color.Black.copy(alpha = shade))
+            if (iosRoom) {
+                drawRect(background.copy(alpha = RoomAmbient.veilAlpha(isDark)))
+                val shade = RoomAmbient.glassShade(isDark)
+                if (shade > 0f) drawRect(Color.Black.copy(alpha = shade))
+            }
             if (roomGlassPaint != null) drawContext.canvas.restore()
 
             // Focus: the whole room in the cover's colours.
@@ -876,7 +897,11 @@ private fun DrawScope.drawBloom(center: Offset, radius: Float, color: Color, alp
     )
 }
 
-/** This cover's aura (RoomAmbient.Aura), offset by a song change's flow. */
+/**
+ * The rest wash, offset by a song change's flow: this cover's aura
+ * (RoomAmbient.Aura) in the iOS room, else Android's four soft points of the
+ * cover's own colours across the top.
+ */
 private fun DrawScope.drawRestWash(
     colors: WashColors,
     dx: Float,
@@ -884,13 +909,53 @@ private fun DrawScope.drawRestWash(
     alpha: Float,
     dark: Boolean,
     k: Float,
+    iosRoom: Boolean,
+    blend: BlendMode,
 ) {
     if (alpha <= 0.001f) return
+    if (!iosRoom) {
+        drawCoverPoints(colors, dx, dy, alpha, dark, blend)
+        return
+    }
     val a = RoomAmbient.auraAlpha(dark) * alpha.coerceIn(0f, 1f)
     // iOS: Circle().frame(width: 360) takes min(360, height) as its diameter.
     val fit = min(1f, size.height / (RoomAmbient.Aura.radius * 2f * k))
     val center = Offset(size.width / 2f + dx, size.height / 2f + dy)
     drawSoftDisk(RoomAmbient.AuraStops, colors.aura, a, center, RoomAmbient.Aura.outerRadius * k * fit)
+}
+
+/** Android's rest wash: four soft, static points of the cover's lifted colours. */
+private fun DrawScope.drawCoverPoints(
+    colors: WashColors,
+    dx: Float,
+    dy: Float,
+    alpha: Float,
+    dark: Boolean,
+    blend: BlendMode,
+) {
+    val w = size.width
+    val h = size.height
+    val a = (if (dark) 0.42f else 0.34f) * alpha.coerceIn(0f, 1f)
+    fun point(color: Color, x: Float, y: Float, r: Float) {
+        val center = Offset(x * w + dx, y * h + dy)
+        val radius = r * w
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to color.copy(alpha = a),
+                0.6f to color.copy(alpha = a * 0.4f),
+                1f to color.copy(alpha = 0f),
+                center = center,
+                radius = radius,
+            ),
+            radius = radius,
+            center = center,
+            blendMode = blend,
+        )
+    }
+    point(colors.k1, 0.12f, 0.06f, 0.85f)
+    point(colors.k3, 0.86f, 0.10f, 0.70f)
+    point(colors.k2, 0.52f, 0.30f, 0.75f)
+    point(colors.k1, 0.95f, 0.42f, 0.50f)
 }
 
 /**

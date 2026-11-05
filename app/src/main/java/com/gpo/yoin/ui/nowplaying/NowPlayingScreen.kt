@@ -398,6 +398,7 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .nowPlayingAuroraBackground(
                     background = background,
+                    darkTop = scheme.surfaceContainer,
                     accentColors = listOf(scheme.primary, scheme.secondary, scheme.tertiary),
                     neighbourTop = neighbourTop,
                     neighbourBottom = neighbourBottom,

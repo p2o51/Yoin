@@ -36,6 +36,8 @@ class RoomAmbientTest {
         assertEquals(1.25f, RoomAmbient.glassSaturation(dark = true))
         assertEquals(0f, RoomAmbient.glassShade(dark = false))
         assertEquals(0.15f, RoomAmbient.glassShade(dark = true))
+        assertEquals(true, RoomAmbient.appliesIn(dark = false))
+        assertEquals(false, RoomAmbient.appliesIn(dark = true))
         assertEquals(1f, RoomAmbient.scaleFor(402f))
         assertEquals(1.6f, RoomAmbient.scaleFor(1280f))
     }

@@ -73,6 +73,14 @@ object RoomAmbient {
      */
     fun glassShade(dark: Boolean): Float = if (dark) 0.15f else 0f
 
+    /**
+     * Light only (owner 2026-11-05: 「深色都按照安卓的渐变来」): dark Now
+     * Playing keeps Android's own surfaceContainer → background gradient and
+     * its four-point cover wash. The dark values above are the tuned iOS match,
+     * kept for reference.
+     */
+    fun appliesIn(dark: Boolean): Boolean = !dark
+
     /** Phone widths read as iOS; tablets grow the shapes, but not without bound. */
     fun scaleFor(widthDp: Float): Float = (widthDp / ReferenceWidthDp).coerceIn(0.85f, 1.6f)
 }

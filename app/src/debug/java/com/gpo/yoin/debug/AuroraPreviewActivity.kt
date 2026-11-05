@@ -42,6 +42,7 @@ class AuroraPreviewActivity : ComponentActivity() {
                                 .weight(1f)
                                 .nowPlayingAuroraBackground(
                                     background = scheme.background,
+                                    darkTop = scheme.surfaceContainer,
                                     accentColors = listOf(
                                         scheme.primary,
                                         scheme.tertiary,
