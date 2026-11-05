@@ -186,8 +186,10 @@ class NowPlayingBudgetTest {
                     assertTrue("hero clipped at ${w}x$h", rest.hero >= heroMin - 0.5.dp)
                     budget.focus?.let { focus ->
                         assertTrue(
-                            "focus lost its two lines at ${w}x$h",
-                            focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp,
+                            "focus lost its lines at ${w}x$h",
+                            focus.lyricSlot >= focusLyric.cleanLines(
+                                if (rest.lyricFrame == LyricFrame.OneLine) 1 else 2,
+                            ) - 0.5.dp,
                         )
                     }
                     assertTrue("pills clipped at ${w}x$h", rest.accessory >= 44.dp)
@@ -260,6 +262,16 @@ class NowPlayingBudgetTest {
         val tight = nn(resolveStageColumnBudget(360.dp, 560.dp, column()).focus)
         assertTrue(tight.cover < 244.dp && tight.cover >= 216.dp)
         assertDp(560.dp, tight.total)
+        // A 16:9 phone with tall bars (360x564 on device, real metrics a little
+        // taller): the current line alone rather than no focus.
+        val tallBars = column(transport = 140.dp)
+        for (h in listOf(540, 564)) {
+            val b = resolveStageColumnBudget(360.dp, h.dp, tallBars)
+            val f = nn(b.focus)
+            assertDp(b.rest.cover, f.cover)
+            assertTrue(f.lyricSlot >= focusLyric.cleanLines(1) - 0.5.dp)
+            assertDp(h.dp, f.total)
+        }
     }
 
     @Test

@@ -367,7 +367,7 @@ fun resolveStageColumnBudget(
     // goes to the lyrics. The column narrows to the cover, so the lyrics,
     // transport and title line up with its left and right edges (owner
     // 2026-11-05: 「里面文字要变窄，和上面对齐」).
-    fun shortWindowFocus(): StageColumnPose? {
+    fun shortWindowFocus(lines: Int): StageColumnPose? {
         // Narrowed under 360dp the time labels drop under the wave.
         val restInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
         val shortControls = if (restInline && rest.cover < metrics.labelsInlineMin) {
@@ -382,7 +382,7 @@ fun resolveStageColumnBudget(
             activeLine = metrics.lyric.activeLine * FocusLyricScale,
             inactiveLine = metrics.lyric.inactiveLine * FocusLyricScale,
             anchorFraction = FocusLyricsAnchorFraction,
-        ).cleanLines(FocusMinCleanLines)
+        ).cleanLines(lines)
         val squeeze = squeezeGaps(
             (FocusTopShort + rest.cover + nominal + listMin - height).coerceAtLeast(0.dp),
             lower,
@@ -401,7 +401,7 @@ fun resolveStageColumnBudget(
         val hr = hero.at(squeeze.lower)
         val bottom = focusBottom.at(squeeze.lower)
         val lyric = (height - FocusTopShort - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
-        // Too short for two lines beside a cover the transport can share: no focus.
+        // Too short for these lines beside a cover the transport can share.
         if (lyric < listMin - 0.5.dp) return null
         return StageColumnPose(
             topBar = FocusTopShort, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
@@ -411,7 +411,13 @@ fun resolveStageColumnBudget(
         )
     }
     val shortWindow = rest.lyricFrame == LyricFrame.OneLine && rest.cover > 0.dp
-    var focus = if (shortWindow) shortWindowFocus() else solveFocus(0.dp)
+    // Two lyric lines; on the shortest windows (a 16:9 phone with tall bars)
+    // the current line alone, the next fading in under it.
+    var focus = if (shortWindow) {
+        shortWindowFocus(FocusMinCleanLines) ?: shortWindowFocus(1)
+    } else {
+        solveFocus(0.dp)
+    }
     val restLabelsInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
     if (!shortWindow && focus != null && restLabelsInline &&
         focus.cover < metrics.labelsInlineMin
