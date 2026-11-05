@@ -1939,12 +1939,23 @@ private fun androidx.graphics.shapes.RoundedPolygon.toShapeCompat(): Shape = toS
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ScrapSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun ScrapSheet(
+    onDismiss: () -> Unit,
+    /** False: the content runs under the navigation bar and pads for it itself (edge to edge). */
+    padBottomInset: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     YoinModalBottomSheet(
         onDismissRequest = onDismiss,
         modifier = Modifier.statusBarsPadding(),
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        contentWindowInsets = { BottomSheetDefaults.modalWindowInsets.only(WindowInsetsSides.Bottom) },
+        contentWindowInsets = {
+            if (padBottomInset) {
+                BottomSheetDefaults.modalWindowInsets.only(WindowInsetsSides.Bottom)
+            } else {
+                WindowInsets(0, 0, 0, 0)
+            }
+        },
         content = content,
     )
 }

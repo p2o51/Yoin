@@ -80,13 +80,6 @@
     <string name="cmp_song_info_searching">Searching for song info…</string>
     <string name="cmp_song_info_no_key">No Gemini API key</string>
     <string name="cmp_song_info_retry">Retry</string>
-    <string name="cmp_song_info_about_heading">About</string>
-    <string name="cmp_song_info_about_label">About</string>
-    <string name="cmp_song_info_created">Created</string>
-    <string name="cmp_song_info_location">Location</string>
-    <string name="cmp_song_info_lyricist">Lyricist</string>
-    <string name="cmp_song_info_composer">Composer</string>
-    <string name="cmp_song_info_producer">Producer</string>
 
     <string name="cmp_detail_retry">Retry</string>
 
@@ -159,4 +152,8 @@
         <item>What covers are there?</item>
         <item>How was it received?</item>
     </string-array>
+    <!-- Lyric credits card in About (credits the lyrics source wrote into the lyrics) -->
+    <string name="cmp_lyric_credits_more">%1$d more · %2$s</string>
+    <string name="cmp_lyric_credits_less">Show less</string>
+    <string name="cmp_lyric_credits_note">Note</string>
 </resources>

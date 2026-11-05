@@ -74,8 +74,8 @@ class HuaweiLrcTest {
         )
         assertTrue(payload.lyric.lines().contains("[00:20.00]Dangling caret"))
         // Both sides parse to the same number of lines per timestamp → positional pairing works.
-        val original = LrcParser.parse(payload.lyric) as Lyrics.Synced
-        val translation = LrcParser.parse(payload.translatedLyric!!) as Lyrics.Synced
+        val original = LrcParser.parse(payload.lyric, extractCredits = false) as Lyrics.Synced
+        val translation = LrcParser.parse(payload.translatedLyric!!, extractCredits = false) as Lyrics.Synced
         assertEquals(original.lines.map { it.startMs }, translation.lines.map { it.startMs })
     }
 

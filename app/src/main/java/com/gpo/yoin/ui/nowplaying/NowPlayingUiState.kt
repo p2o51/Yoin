@@ -4,6 +4,7 @@ package com.gpo.yoin.ui.nowplaying
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.data.model.LibraryMembership
+import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.ServiceFeatures
 import com.gpo.yoin.player.PlayMode
@@ -73,6 +74,8 @@ sealed interface NowPlayingUiState {
          */
         val favoriteQuietFlips: Int = 0,
         val lyrics: List<LyricLine>,
+        /** Credits the lyrics source wrote into the lyrics, moved to About (owner 2026-11-05). */
+        val lyricCredits: LyricCredits? = null,
         val showLyricsTranslation: Boolean,
         val lyricsActionInFlight: LyricsAction?,
         /**
@@ -115,6 +118,7 @@ data class UpNextLyrics(
     val title: String,
     val artist: String,
     val lines: List<LyricLine>,
+    val credits: LyricCredits? = null,
     val providerName: String? = null,
     val providerSongId: String? = null,
 )

@@ -7,6 +7,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LyricLine
+import com.gpo.yoin.data.lyrics.LyricCreditsExtractor
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
@@ -32,6 +33,11 @@ internal fun SubsonicSong.toTrack(): Track {
     contentType?.let { extras[EXTRA_CONTENT_TYPE] = it }
     suffix?.let { extras[EXTRA_SUFFIX] = it }
     path?.let { extras[EXTRA_PATH] = it }
+    playCount?.takeIf { it > 0 }?.let { extras[EXTRA_PLAY_COUNT] = it.toString() }
+    bpm?.takeIf { it > 0 }?.let { extras[EXTRA_BPM] = it.toString() }
+    comment?.takeIf(String::isNotBlank)?.let { extras[EXTRA_COMMENT] = it.trim() }
+    created?.takeIf(String::isNotBlank)?.let { extras[EXTRA_CREATED] = it }
+    displayComposer?.takeIf(String::isNotBlank)?.let { extras[EXTRA_COMPOSER] = it.trim() }
     // OpenSubsonic names each artist; carried only when there is more than
     // the one in `artist`, as Spotify's are.
     val credited = artists.filter { it.name.isNotBlank() }
@@ -171,7 +177,7 @@ internal fun SubsonicStarredResponse.toStarred(): Starred = Starred(
 
 internal fun SubsonicLyricsList.toLyrics(): Lyrics? {
     val structured = structuredLyrics.firstOrNull() ?: return null
-    return if (structured.synced && structured.line.any { it.start != null }) {
+    val lyrics = if (structured.synced && structured.line.any { it.start != null }) {
         Lyrics.Synced(
             language = structured.lang,
             // Servers may emit lines out of order; ascending startMs is an
@@ -186,6 +192,7 @@ internal fun SubsonicLyricsList.toLyrics(): Lyrics? {
             text = structured.line.joinToString("\n") { it.value },
         )
     }
+    return LyricCreditsExtractor.extract(lyrics)
 }
 
 internal const val EXTRA_BIT_RATE = "subsonic.bitRate"
@@ -193,3 +200,8 @@ internal const val EXTRA_SIZE = "subsonic.size"
 internal const val EXTRA_CONTENT_TYPE = "subsonic.contentType"
 internal const val EXTRA_SUFFIX = "subsonic.suffix"
 internal const val EXTRA_PATH = "subsonic.path"
+internal const val EXTRA_PLAY_COUNT = "subsonic.playCount"
+internal const val EXTRA_BPM = "subsonic.bpm"
+internal const val EXTRA_COMMENT = "subsonic.comment"
+internal const val EXTRA_CREATED = "subsonic.created"
+internal const val EXTRA_COMPOSER = "subsonic.composer"

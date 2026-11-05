@@ -89,14 +89,15 @@ class YoinRepositoryLyricsTranslationTest {
         result as LyricsTranslationResult.Success
         assertEquals("huawei", result.providerName)
         assertEquals(songId, result.providerSongId)
-        // Title and credit lines share 00:00.00 with the first sung line; only that line is translated.
-        assertEquals(mapOf(2 to "开场白", 3 to "第二行"), result.translations)
+        // Title and credit lines share 00:00.00 with the first sung line; they move to About
+        // (LyricCreditsExtractor), so the sung lines are 0 and 1.
+        assertEquals(mapOf(0 to "开场白", 1 to "第二行"), result.translations)
         assertEquals(LrcParser.parse(cachedLyrics.captured.lrc), result.lyrics)
         assertEquals("huawei", cachedLyrics.captured.lyricsProvider)
         assertEquals(songId, cachedLyrics.captured.lyricsProviderSongId)
         assertTrue('^' !in cachedLyrics.captured.lrc)
         assertEquals("provider:huawei", cachedTranslation.captured.model)
-        assertEquals("""["","","开场白","第二行"]""", cachedTranslation.captured.translationsJson)
+        assertEquals("""["开场白","第二行"]""", cachedTranslation.captured.translationsJson)
         assertEquals(listOf(songId), huawei.fetchedIds)
         assertEquals(0, qq.searches + netease.searches)
     }

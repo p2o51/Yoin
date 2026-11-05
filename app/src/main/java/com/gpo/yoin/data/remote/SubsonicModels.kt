@@ -131,6 +131,12 @@ data class Song(
     val artists: List<ArtistRef> = emptyList(),
     val displayArtist: String? = null,
     val displayAlbumArtist: String? = null,
+    val playCount: Long? = null,
+    val bpm: Int? = null,
+    val comment: String? = null,
+    /** When the file was added to the library (ISO-8601). */
+    val created: String? = null,
+    val displayComposer: String? = null,
 )
 
 @Serializable

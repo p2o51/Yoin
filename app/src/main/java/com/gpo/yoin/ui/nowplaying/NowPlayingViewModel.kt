@@ -13,6 +13,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.aboutRef
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.LibraryMembership
@@ -98,6 +99,9 @@ class NowPlayingViewModel(
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
+
+    /** The credits the lyrics source wrote into [_lyrics], shown in About instead. */
+    private val _lyricCredits = MutableStateFlow<LyricCredits?>(null)
     private val _lyricsLoading = MutableStateFlow(false)
 
     /**
@@ -231,6 +235,7 @@ class NowPlayingViewModel(
                     val prefetched = _prefetchedLyrics.value[songId.toString()]
                     _isStarred.value = track?.isStarred == true
                     _lyrics.value = prefetched?.lines ?: emptyList()
+                    _lyricCredits.value = prefetched?.credits
                     _lyricsLoading.value = prefetched == null
                     _lyricsOwnerSongId.value = songId.toString()
                     // Consumed: the lyrics flows own it now.
@@ -250,6 +255,7 @@ class NowPlayingViewModel(
                     if (prefetched == null) loadLyrics(songId, track?.title, track?.artist, track?.durationSec)
                 } else {
                     _lyrics.value = emptyList()
+                    _lyricCredits.value = null
                     _lyricsLoading.value = false
                     _showLyricsTranslation.value = false
                     _lyricsActionInFlight.value = null
@@ -306,6 +312,7 @@ class NowPlayingViewModel(
                                 title = next.title.orEmpty(),
                                 artist = next.artist.orEmpty(),
                                 lines = lines,
+                                credits = loaded?.lyrics?.credits,
                                 providerName = loaded?.providerName,
                                 providerSongId = loaded?.providerSongId,
                             )
@@ -471,14 +478,15 @@ class NowPlayingViewModel(
     ) { state, ctx -> state to ctx }
 
     private val lyricsUiState = combine(
-        _lyrics,
+        combine(_lyrics, _lyricCredits, ::Pair),
         _lyricsLoading,
         _showLyricsTranslation,
         _lyricsActionInFlight,
         _lyricsOwnerSongId,
-    ) { lyrics, loading, showTranslation, actionInFlight, owner ->
+    ) { (lyrics, credits), loading, showTranslation, actionInFlight, owner ->
         LyricsUiState(
             lyrics = lyrics,
+            credits = credits,
             loading = loading,
             showTranslation = showTranslation,
             actionInFlight = actionInFlight,
@@ -529,6 +537,11 @@ class NowPlayingViewModel(
                     lyricsOwned -> lyricsState.lyrics
                     preloaded != null -> preloaded.lines
                     else -> emptyList()
+                },
+                lyricCredits = when {
+                    lyricsOwned -> lyricsState.credits
+                    preloaded != null -> preloaded.credits
+                    else -> null
                 },
                 showLyricsTranslation = lyricsState.showTranslation && lyricsOwned,
                 lyricsActionInFlight = lyricsState.actionInFlight,
@@ -928,6 +941,7 @@ class NowPlayingViewModel(
                     _addToPlaylistMessages.tryEmit(UiText.Raw(result.message))
                 is YoinRepository.LyricsTranslationResult.Success -> {
                     val baseLyrics = result.lyrics?.toUiLyrics() ?: currentLyrics
+                    result.lyrics?.let { _lyricCredits.value = it.credits }
                     _lyrics.value = baseLyrics.mapIndexed { index, line ->
                         line.copy(translation = result.translations[index])
                     }
@@ -955,6 +969,7 @@ class NowPlayingViewModel(
             _lyrics.value = offer.lyrics.toUiLyrics().mapIndexed { index, line ->
                 line.copy(translation = offer.translations[index])
             }
+            _lyricCredits.value = offer.lyrics.credits
             _currentLyricsProviderName.value = offer.providerName
             _currentLyricsProviderSongId.value = offer.providerSongId
             _showLyricsTranslation.value = true
@@ -1577,6 +1592,7 @@ class NowPlayingViewModel(
             when (loadedLyrics) {
                 null -> {
                     _lyrics.value = emptyList()
+                    _lyricCredits.value = null
                     _lyricsLoading.value = false
                     _showLyricsTranslation.value = false
                     _currentLyricsProviderName.value = null
@@ -1592,6 +1608,7 @@ class NowPlayingViewModel(
             throw e
         } catch (_: Exception) {
             _lyrics.value = emptyList()
+            _lyricCredits.value = null
             _lyricsLoading.value = false
             _showLyricsTranslation.value = false
             _currentLyricsProviderName.value = null
@@ -1605,6 +1622,7 @@ class NowPlayingViewModel(
         providerSongId: String?,
     ) {
         _lyrics.value = lyrics.toUiLyrics()
+        _lyricCredits.value = lyrics.credits
         _lyricsLoading.value = false
         _showLyricsTranslation.value = false
         _currentLyricsProviderName.value = providerName
@@ -1683,6 +1701,7 @@ private fun YoinRepository.LyricsSearchProviderSection.toUi(): LyricsSearchProvi
 
 private data class LyricsUiState(
     val lyrics: List<LyricLine>,
+    val credits: LyricCredits?,
     val loading: Boolean,
     val showTranslation: Boolean,
     val actionInFlight: LyricsAction?,
