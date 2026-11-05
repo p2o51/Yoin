@@ -48,6 +48,16 @@ final class MemoryBubbleController {
     init(seen: MemoryBubbleSeenStore = .shared) { self.seen = seen }
 
     var speaking: Bool { turn.reason != nil }
+
+    /// The screen's camera cutout when the bubble speaks out of it (HomeIslandBubble.swift);
+    /// nil: it unrolls from the header's title, a plain capsule.
+    var cutout: IslandCutout?
+    /// How far Home steps down for the grown island at rest (the overlay writes it).
+    @ObservationIgnored var islandRoom: CGFloat = 0
+    /// The island's morph: the unroll, less the flight home.
+    var islandT: CGFloat { cutout == nil ? 0 : min(max(unroll * (1 - flyAway), 0), 1) }
+    /// Home's step down under the grown island (the reference pushes the page to make room).
+    var islandPush: CGFloat { islandRoom * islandT }
     /// Anything of it is drawn.
     var composed: Bool { speaking || markIn > 0.01 || unroll > 0.01 }
 
@@ -153,6 +163,7 @@ struct MemoryBubbleOverlay: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var bubble: MemoryBubbleController
     var memories: MemoriesPresentation
     var pill: HomeMemoryPill?
@@ -210,13 +221,57 @@ struct MemoryBubbleOverlay: View {
     private func content(_ geo: GeometryProxy, safeTop: CGFloat) -> some View {
         let origin = geo.frame(in: .global).origin
         let layout = place(geo.size, safeTop: safeTop, origin: origin)
+        // The island is placed in the window's space: Home can bleed past the screen's sides
+        // (iPhone 17e: a 402 pt page 6 pt off each side of 390), so the page's own width and
+        // origin are not the screen's.
+        let windowWidth = geo.size.width + 2 * min(origin.x, 0)
+        let fullWidth = origin.x <= 0.5 && origin.x > -40
+        let cutout = IslandCutout.detect(pageWidth: windowWidth, fullWidth: fullWidth, safeTop: safeTop)
         return ZStack(alignment: .topLeading) {
-            if bubble.composed { bubbleLayer(layout, size: geo.size) }
+            if bubble.composed {
+                if let cutout {
+                    islandLayer(cutout, size: CGSize(width: windowWidth, height: geo.size.height))
+                        .offset(x: -min(origin.x, 0))
+                } else {
+                    bubbleLayer(layout, size: geo.size)
+                }
+            }
             arrow(layout)
         }
         .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         .onAppear { bubble.geometry = layout.geometry }
         .onChange(of: layout.geometry) { _, g in bubble.geometry = g }
+        .onChange(of: cutout, initial: true) { _, c in
+            bubble.cutout = c
+            bubble.islandRoom = c.map { max(0, $0.grown(pageWidth: windowWidth).maxY + 10 - safeTop) } ?? 0
+        }
+    }
+
+    // MARK: The island
+
+    private func islandLayer(_ cutout: IslandCutout, size: CGSize) -> some View {
+        let dark = CoverScheme.brand(dark: true)
+        let grown = cutout.grown(pageWidth: size.width)
+        return IslandBubbleLayer(cutout: cutout, t: bubble.islandT, size: size, reduceMotion: reduceMotion) { room in
+            BubbleLine(latest: bubble.say, notesOnly: bubble.saidNotesOnly, scheme: dark, room: room)
+                .frame(width: room, alignment: .leading)
+        } mark: {
+            BubbleMark(markIn: bubble.markIn, scheme: dark)
+                .rotationEffect(.degrees(360 * Double(bubble.unroll)))
+        }
+        .overlay(alignment: .topLeading) {
+            if bubble.speaking && !editing {
+                Color.clear
+                    .contentShape(.rect)
+                    .frame(width: grown.width, height: grown.height)
+                    .offset(x: grown.minX, y: grown.minY)
+                    .onTapGesture { tapBubble() }
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.bubbleFrame = $0 }
+                    .onDisappear { bubble.bubbleFrame = .zero }
+                    .accessibilityLabel(bubble.say.map { "Latest memory: \($0.albumName)" } ?? "Memories")
+                    .accessibilityAddTraits(.isButton)
+            }
+        }
     }
 
     // MARK: Timers
@@ -303,8 +358,8 @@ struct MemoryBubbleOverlay: View {
         let frame = CGRect(x: at.x - t / 2, y: at.y - t / 2, width: t, height: t)
         return YoinIcon("chevron_down", size: BubbleMetrics.arrowIcon)
             .foregroundStyle(scheme.onSurfaceVariant)
-            .offset(y: hint * BubbleMetrics.arrowPullNudge)
-            .opacity(Double(rest * fade * (1 - smoothstep(0, 0.5, editProgress))))
+            .offset(y: hint * BubbleMetrics.arrowPullNudge + bubble.islandPush)
+            .opacity(Double(rest * fade * (1 - smoothstep(0, 0.5, editProgress)) * (1 - smoothstep(0, 0.3, bubble.islandT))))
             .frame(width: t, height: t)
             .contentShape(.rect)
             .onTapGesture {
@@ -329,30 +384,17 @@ struct MemoryBubbleOverlay: View {
         let body = g.body(at: s)
         let fill = bubble.say.map { scheme.surfaceContainerHigh.mix(with: BackdropColors($0.album.palette).base, by: 0.30, in: .perceptual) }
             ?? scheme.surfaceContainerHigh
-        let rise = smoothstep(BubbleMetrics.tailRisesFrom, 1, s)
-        let tailX = min(g.tailX, body.maxX - BubbleMetrics.reach)
         let fly = bubble.flyAway
         let markHalf = BubbleMetrics.markSize / 2
         let markAt = CGPoint(x: lerpf(g.markStart.x, g.markEnd.x, s) - (1 - bubble.markIn) * BubbleMetrics.markSqueeze,
                              y: lerpf(g.markStart.y, g.markEnd.y, s))
         return ZStack(alignment: .topLeading) {
-            // The surface, drawn in one Canvas: the body at the unroll, and
-            // the tail rising last out of its top, its point over the chevron.
+            // The surface: the body at the unroll.
             Canvas { gc, _ in
                 gc.opacity = Double(smoothstep(0.04, 0.3, s))
-                if rise >= 1 {
-                    gc.fill(BubbleOutline(body: body, radius: BubbleMetrics.corner, tailX: tailX, tailTop: g.tailTop)
-                        .path(in: .zero), with: .color(fill))
-                } else {
-                    gc.fill(BubbleOutline(body: body, radius: BubbleMetrics.corner, tailX: nil).path(in: .zero), with: .color(fill))
-                    if rise > 0 {
-                        var t = gc
-                        t.clip(to: Path(CGRect(x: 0, y: 0, width: size.width, height: max(0, body.minY + BubbleMetrics.corner))))
-                        t.translateBy(x: 0, y: (1 - rise) * (body.minY - g.tailTop))
-                        t.fill(BubbleOutline(body: body, radius: BubbleMetrics.corner, tailX: tailX, tailTop: g.tailTop)
-                            .path(in: .zero), with: .color(fill))
-                    }
-                }
+                // Without a cutout to come out of, just a capsule (51: "形状只要一个胶囊就行"),
+                // no tail up to the arrow.
+                gc.fill(BubbleOutline(body: body, radius: body.height / 2, tailX: nil).path(in: .zero), with: .color(fill))
             }
             .frame(width: size.width, height: size.height)
             BubbleLine(latest: bubble.say, notesOnly: bubble.saidNotesOnly, scheme: scheme,
@@ -485,7 +527,8 @@ struct BubbleTitleShift: ViewModifier {
     var bubble: MemoryBubbleController
 
     func body(content: Content) -> some View {
-        let stay = 1 - bubble.flyAway
+        // Out of the island, the title stays put (Home steps down for the island instead).
+        let stay = bubble.cutout == nil ? 1 - bubble.flyAway : 0
         content
             .offset(x: (BubbleMetrics.markSize + BubbleMetrics.markTitleGap) * bubble.markIn * stay)
             .opacity(Double(1 - smoothstep(0, 0.45, bubble.unroll) * stay))

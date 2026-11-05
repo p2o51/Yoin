@@ -116,6 +116,8 @@ struct PhoneShell: View {
             // at the end of the close.
             if model.path.isEmpty {
                 StatusEdgeBand()
+                    .opacity(model.islandOut ? 0 : 1)
+                    .animation(Yoin.effects, value: model.islandOut)
             }
         }
         .onChange(of: model.npExpanded) { _, open in model.np.show(open) }

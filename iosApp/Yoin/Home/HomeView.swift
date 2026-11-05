@@ -59,6 +59,7 @@ struct HomeView: View {
     var body: some View {
         ZStack(alignment: .top) {
             feedScroll
+                .modifier(IslandPush(bubble: bubble))
                 .modifier(MemoriesHomeBehind(presentation: memories))
             MemoryBubbleOverlay(bubble: bubble, memories: memories, pill: pill, scheme: scheme, scroll: scroll,
                                 covered: covered, edit: edit)

@@ -33,6 +33,9 @@ final class AppModel {
     var padSelection: Album?
     var isPad = false
     var npExpanded = false
+    /// Home's Memories bubble is out of the Dynamic Island (or the notch): the soft status-bar
+    /// band steps aside so the island's black meets the screen's top without a haze.
+    var islandOut = false
     /// Phone: the pill ⇄ page morph (one progress value; see
     /// NowPlayingPresentation). Follows `npExpanded`.
     let np = NowPlayingPresentation()
