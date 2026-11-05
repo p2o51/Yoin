@@ -8,6 +8,10 @@ struct MacNowPlaying: View {
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
     @State private var tab: NPTab = .lyrics
+    @State private var transportHeight: CGFloat = 0
+    /// iOS World preset: transportPrimary 0.70, transportSecondary 0.28.
+    static let transportPrimaryTint = 0.70
+    static let transportSecondaryTint = 0.28
 
     enum NPTab: String, CaseIterable { case lyrics = "Lyrics", about = "About" }
 
@@ -34,8 +38,9 @@ struct MacNowPlaying: View {
             header.padding(.top, 6).padding(.bottom, 14).chrome(model.focus)
             art(side: side, barHeight: min(220, side * 0.72))
             tabs.padding(.top, 18).padding(.bottom, 8).chrome(model.focus)
-            tabContent(large: false).frame(maxHeight: .infinity)
-            controls.padding(.top, 12)
+            // The lyrics run on under the glass transport; the current line stays in the clear band
+            // above it (iOS lyricWindow).
+            lyricsOverControls
             meta(large: false).padding(.top, 20)
             pills.padding(.top, 18).chrome(model.focus)
         }
@@ -123,9 +128,23 @@ struct MacNowPlaying: View {
         }
     }
 
+    private var lyricsOverControls: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(maxHeight: .infinity)
+            controls.padding(.top, 12)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { transportHeight = $0 }
+        }
+        .background(alignment: .top) {
+            switch tab {
+            case .lyrics: MacLyricsView(large: false, under: transportHeight)
+            case .about: MacAboutView().chrome(model.focus).padding(.bottom, transportHeight)
+            }
+        }
+    }
+
     @ViewBuilder private func tabContent(large: Bool) -> some View {
         switch tab {
-        case .lyrics: MacLyricsView(large: large)
+        case .lyrics: MacLyricsView(large: large, under: 0)
         case .about: MacAboutView().chrome(model.focus)
         }
     }
@@ -147,11 +166,11 @@ struct MacNowPlaying: View {
                     Text(p.isPlaying ? "PAUSE" : "PLAY").font(.gsf(22, .bold)).tracking(0.7)
                         .foregroundStyle(tint.onPrimary)
                         .frame(minWidth: 136, minHeight: 64).padding(.horizontal, 10)
-                        .background(Capsule().fill(tint.primary.opacity(0.88)))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(PressDown())
-                .glassEffect(.regular.tint(tint.primary.opacity(0.6)).interactive(), in: .capsule)
+                // iOS World transportPrimary: tinted glass the lyrics show through.
+                .glassEffect(.regular.tint(tint.primary.opacity(Self.transportPrimaryTint)).interactive(), in: .capsule)
                 .animation(Yoin.standardFastSpatial, value: p.isPlaying)
                 RoundControl(icon: "skip_next_filled") { p.next() }
                 Spacer(minLength: 0)
@@ -230,7 +249,6 @@ struct RoundControl: View {
             YoinIcon(icon, size: 26)
                 .foregroundStyle(Yoin.ink.opacity(dim ? 0.45 : 1))
                 .frame(width: 64, height: 64)
-                .background(Circle().fill(tint.container.opacity(0.7)))
                 .overlay(alignment: .topTrailing) {
                     if let badge {
                         Text(badge).font(.gsf(11, .bold)).foregroundStyle(tint.onPrimary)
@@ -240,6 +258,8 @@ struct RoundControl: View {
                 .contentShape(Circle())
         }
         .buttonStyle(PressDown())
+        .glassEffect(.regular.tint(tint.container.opacity(MacNowPlaying.transportSecondaryTint)).interactive(),
+                     in: .circle)
     }
 }
 
@@ -401,6 +421,8 @@ struct QueuePill: View {
 /// Synced lyrics: the current line in the tint, the list scrolling to keep it in view; a click seeks.
 struct MacLyricsView: View {
     var large: Bool
+    /// How much of the box runs on under the transport (0: nothing under it).
+    var under: CGFloat
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
 
@@ -411,13 +433,14 @@ struct MacLyricsView: View {
         case .none:
             note("No lyrics for this song")
         case .loaded(let synced, let lines, _):
-            LyricsList(lines: lines, synced: synced, large: large)
+            LyricsList(lines: lines, synced: synced, large: large, under: under)
         }
     }
 
     private func note(_ s: String) -> some View {
         Text(s).font(.gsf(large ? 20 : 15)).foregroundStyle(Yoin.ink3)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(.top, 8)
+            .padding(.bottom, under)
     }
 }
 
@@ -425,6 +448,8 @@ private struct LyricsList: View {
     var lines: [MacLyrics.Line]
     var synced: Bool
     var large: Bool
+    var under: CGFloat
+    @State private var total: CGFloat = 0
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
 
@@ -433,7 +458,7 @@ private struct LyricsList: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: large ? 80 : 24)
+                    Color.clear.frame(height: anchor)
                     ForEach(lines) { l in
                         let on = l.id == current
                         // The point size itself animates (a scaled layer blurs the glyphs, a font swap
@@ -450,19 +475,54 @@ private struct LyricsList: View {
                             .id(l.id)
                             .animation(Yoin.effects, value: on)
                     }
-                    Color.clear.frame(height: 200)
+                    Color.clear.frame(height: max(200, total))
                 }
             }
             .scrollIndicators(.never)
-            // Fades long enough to swallow a whole line, so the edges never show a line cut in half.
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.04),
-                                         .init(color: .black, location: 0.2),
-                                         .init(color: .black, location: 0.72), .init(color: .clear, location: 0.96)],
-                                 startPoint: .top, endPoint: .bottom))
+            .mask { LyricsWindowMask(clear: clear, under: under) }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { total = $0 }
             .onChange(of: current, initial: true) { _, i in
                 guard i >= 0 else { return }
-                withAnimation(Yoin.spatial) { proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: 0.3)) }
+                withAnimation(Yoin.spatial) {
+                    proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: total > 0 ? anchor / total : 0.2))
+                }
             }
+        }
+    }
+
+    /// The band above the transport, where the current line lives.
+    private var clear: CGFloat { max(0, total - under) }
+    /// iOS: the current line at LYRICS_ANCHOR_FRACTION of the clear band.
+    private var anchor: CGFloat { clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg }
+}
+
+/// iOS `lyricWindow`'s mask: a 16 pt top fade, opaque to 24 pt above the transport, then the lyrics run on
+/// under the glass buttons at `lyricsUnder` and dissolve 100 pt in. Nothing under it: the expanded
+/// window's 16 / 64 fades.
+private struct LyricsWindowMask: View {
+    var clear: CGFloat
+    var under: CGFloat
+    /// iOS World preset's lyricsUnder.
+    static let underStrength = 0.55
+
+    var body: some View {
+        if under <= 0 {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 16)
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 64)
+            }
+        } else {
+            let total = max(clear + under, 1)
+            let u = Self.underStrength
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: min(0.12, 16 / total)),
+                .init(color: .black, location: max(0, clear - 24) / total),
+                .init(color: .black.opacity(min(1, u / 0.7)), location: clear / total),
+                .init(color: .black.opacity(u), location: min(1, (clear + 56) / total)),
+                .init(color: .clear, location: min(1, (clear + 100) / total)),
+            ], startPoint: .top, endPoint: .bottom)
         }
     }
 }
