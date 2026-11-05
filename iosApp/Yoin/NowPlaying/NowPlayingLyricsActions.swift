@@ -15,9 +15,16 @@ final class LyricsActions {
     enum Action: Equatable { case search, translate, apply }
 
     private(set) var inFlight: Action?
-    /// Track key → line index → translation, and whether it is shown.
-    private(set) var translations: [String: [Int: String]] = [:]
-    private(set) var showTranslation: [String: Bool] = [:]
+    /// A translation belongs to a song and the language it was made for: a changed target must not toggle the
+    /// old language's text on (Android keys its translation state by the language too).
+    struct Slot: Hashable {
+        var track: String
+        var language: String
+    }
+
+    /// Slot → line index → translation, and whether it is shown.
+    private(set) var translations: [Slot: [Int: String]] = [:]
+    private(set) var showTranslation: [Slot: Bool] = [:]
 
     // MARK: Search (Android LyricsSearchState)
 
@@ -56,19 +63,25 @@ final class LyricsActions {
 
     private func toast(_ text: String) { PlaylistActions.shared.show(text) }
 
-    func translationShown(_ t: PlayableTrack) -> Bool { showTranslation[NowPlayingData.key(t)] ?? false }
+    /// [language] is the target the layer would be shown in: the current setting unless a caller says otherwise.
+    func translationShown(_ t: PlayableTrack, language: String = GeminiSettings.shared.targetLanguage) -> Bool {
+        showTranslation[Slot(track: NowPlayingData.key(t), language: language)] ?? false
+    }
 
     /// Per line of the loaded lyrics: the translation when the layer is shown.
-    func shownTranslations(_ t: PlayableTrack, count: Int) -> [String?] {
-        let k = NowPlayingData.key(t)
-        guard showTranslation[k] == true, let map = translations[k] else { return Array(repeating: nil, count: count) }
+    func shownTranslations(_ t: PlayableTrack, count: Int,
+                           language: String = GeminiSettings.shared.targetLanguage) -> [String?] {
+        let slot = Slot(track: NowPlayingData.key(t), language: language)
+        guard showTranslation[slot] == true, let map = translations[slot] else {
+            return Array(repeating: nil, count: count)
+        }
         return (0..<count).map { map[$0] }
     }
 
-    /// The lyrics changed under the translations (a search / edit applied).
+    /// The lyrics changed under the translations (a search / edit applied): every language's text is stale.
     private func reset(_ k: String) {
-        translations[k] = nil
-        showTranslation[k] = nil
+        translations = translations.filter { $0.key.track != k }
+        showTranslation = showTranslation.filter { $0.key.track != k }
     }
 
     // MARK: Translate
@@ -77,16 +90,17 @@ final class LyricsActions {
     /// there; otherwise the cache, then Gemini (no key → a message).
     func translate(_ t: PlayableTrack, lines: [String], settings: GeminiSettings = .shared) {
         let k = NowPlayingData.key(t)
+        let language = settings.targetLanguage
+        let slot = Slot(track: k, language: language)
         guard !lines.isEmpty, inFlight == nil else { return }
-        if let have = translations[k], !have.isEmpty {
-            showTranslation[k] = !(showTranslation[k] ?? false)
+        if let have = translations[slot], !have.isEmpty {
+            showTranslation[slot] = !(showTranslation[slot] ?? false)
             return
         }
         // Gemini sees the sung lines only; answers map back to their rows.
         let rows = lines.indices.filter { !lines[$0].trimmingCharacters(in: .whitespaces).isEmpty }
         let source = rows.map { lines[$0].trimmingCharacters(in: .whitespaces) }
         guard !source.isEmpty else { return toast("No lyrics to translate") }
-        let language = settings.targetLanguage
         if LyricsRules.alreadyTargetLanguage(source, target: language) {
             return toast("Lyrics already appear to be \(language)")
         }
@@ -98,7 +112,7 @@ final class LyricsActions {
            registry.servesNativeTranslation(providerName: from.provider, targetLanguage: language) {
             inFlight = .translate
             Task {
-                if await translateWithProvider(t, from: from, language: language) {
+                if await translateWithProvider(t, from: from, language: language, settings: settings) {
                     inFlight = nil
                     return
                 }
@@ -111,15 +125,19 @@ final class LyricsActions {
     }
 
     /// True when a provider's translation was shown or offered.
-    private func translateWithProvider(_ t: PlayableTrack, from: LyricsSource, language: String) async -> Bool {
+    private func translateWithProvider(_ t: PlayableTrack, from: LyricsSource, language: String,
+                                       settings: GeminiSettings) async -> Bool {
         let k = NowPlayingData.key(t)
         let registry = registry
         if let r = try? await registry.fetchTranslation(providerName: from.provider, providerSongId: from.songId,
                                                        title: t.title, artist: t.artist),
            !r.translations.isEmpty {
+            // The target changed while this was fetched: its text is for the old language, so it's dropped
+            // (true = handled, no Gemini fallback for a language nobody asked for now).
+            guard settings.targetLanguage == language else { return true }
             NowPlayingData.shared.refreshProviderLyrics(r.lrc, source: LyricsSource(provider: r.providerName,
                                                                                     songId: r.providerSongId), for: t)
-            show(r, key: k)
+            show(r, key: k, language: language)
             toast("Lyrics translated")
             return true
         }
@@ -133,7 +151,7 @@ final class LyricsActions {
                                         action: .init(label: "Switch") { [weak self] in
                 let source = LyricsSource(provider: r.providerName, songId: r.providerSongId)
                 guard NowPlayingData.shared.applyUserLyrics(r.lrc, for: t, source: source) else { return }
-                self?.show(r, key: k)
+                self?.show(r, key: k, language: language)
                 self?.toast("Lyrics translated from \(label)")
             })
             return true
@@ -142,11 +160,12 @@ final class LyricsActions {
     }
 
     /// A provider's translation over its own lines (indices into `r.lyrics`).
-    private func show(_ r: LyricsTranslationResult, key: String) {
+    private func show(_ r: LyricsTranslationResult, key: String, language: String) {
         var map: [Int: String] = [:]
         for (i, text) in r.translations where !text.isEmpty { map[Int(i.int32Value)] = text }
-        translations[key] = map
-        showTranslation[key] = true
+        let slot = Slot(track: key, language: language)
+        translations[slot] = map
+        showTranslation[slot] = true
     }
 
     private func translateWithGemini(_ t: PlayableTrack, rows: [Int], source: [String], language: String,
@@ -155,7 +174,8 @@ final class LyricsActions {
         if let cached = LyricsUserStore.shared.geminiTranslations(provider: t.provider, rawId: t.id, title: t.title,
                                                                   artist: t.artist, language: language,
                                                                   model: GeminiClient.model, lines: source) {
-            apply(cached.enumerated().reduce(into: [:]) { $0[$1.offset] = $1.element }, rows: rows, key: k)
+            apply(cached.enumerated().reduce(into: [:]) { $0[$1.offset] = $1.element }, rows: rows, key: k,
+                  language: language)
             return
         }
         let apiKey = settings.requestKey
@@ -172,7 +192,9 @@ final class LyricsActions {
                                                               provider: t.provider, rawId: t.id, title: t.title,
                                                               artist: t.artist, language: language,
                                                               model: GeminiClient.model, lines: source)
-                apply(result, rows: rows, key: k)
+                // Saved under its own language above; shown only if that is still the target.
+                guard settings.targetLanguage == language else { return }
+                apply(result, rows: rows, key: k, language: language)
                 toast("Lyrics translated")
             } catch is CancellationError {
             } catch {
@@ -181,11 +203,12 @@ final class LyricsActions {
         }
     }
 
-    private func apply(_ bySource: [Int: String], rows: [Int], key: String) {
+    private func apply(_ bySource: [Int: String], rows: [Int], key: String, language: String) {
         var map: [Int: String] = [:]
         for (i, text) in bySource where i < rows.count && !text.isEmpty { map[rows[i]] = text }
-        translations[key] = map
-        showTranslation[key] = true
+        let slot = Slot(track: key, language: language)
+        translations[slot] = map
+        showTranslation[slot] = true
     }
 
     // MARK: Search

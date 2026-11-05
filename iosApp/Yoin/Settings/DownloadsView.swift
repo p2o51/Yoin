@@ -246,7 +246,7 @@ struct DownloadsView: View {
         case .playlist:
             model.openPlaylist(c.id)
         case .song:
-            break
+            model.playDownloadedSong(c)
         }
     }
 

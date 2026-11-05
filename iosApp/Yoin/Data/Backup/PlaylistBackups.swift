@@ -273,12 +273,16 @@ final class PlaylistBackups {
     func follow(_ backup: PlaylistBackupRecord, source: Source, listed: Set<String>) async -> FollowResult {
         guard let rawId = PlaylistSnapshots.shared.rawIdOf(id: backup.sourcePlaylistId) else { return .skipped }
         if !listed.contains(backup.sourcePlaylistId) {
-            store.save(backup.markedGone(now: now()))
+            // The list was awaited by the caller (and earlier backups in the batch): a deleted row stays deleted.
+            guard let current = store.record(backup.id) else { return .skipped }
+            store.save(current.markedGone(now: now()))
             return .gone
         }
         guard let playlist = try? await source.readPlaylist(rawId) else { return .skipped }
-        // Re-read the row: a sync or a restore may have changed it while the playlist loaded.
-        let current = store.record(backup.id) ?? backup
+        // Re-read the row: a sync or a restore may have changed it while the playlist loaded. A row that is gone
+        // now was deleted here or on another device meanwhile: saving the stale copy would bring it back and sync
+        // it out again, so that's a cancel.
+        guard let current = store.record(backup.id) else { return .skipped }
         let t = now()
         let next = PlaylistSnapshots.shared.refreshed(backup: current, playlist: playlist, profileId: source.profileId,
                                                       profileLabel: source.label, now: t)
