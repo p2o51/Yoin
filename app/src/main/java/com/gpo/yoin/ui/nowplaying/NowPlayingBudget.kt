@@ -448,13 +448,13 @@ fun resolveStageColumnBudget(
             0.dp
         },
         // 2–3 dotted lines (owner 2026-11-05 「多铺个 2-3 行就行」) past the
-        // list's own bottom pad and fade, through the progress row and into
-        // the top of the title's slot at most.
+        // list's own bottom pad and fade, but faded out by the progress row's
+        // bottom edge: dots under the title read as a smudge (QA 2026-11-05).
         focusLyricOverflow = if (compactFocus) {
             minOf(
                 metrics.lyric.inactiveLine * FocusLyricScale * FocusLyricOverflowLines +
                     LyricsListPadding + LyricsFadeBottom,
-                focus!!.controls + focus.hero / 2f,
+                focus!!.controls,
             )
         } else {
             0.dp

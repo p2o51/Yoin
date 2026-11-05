@@ -5848,7 +5848,7 @@ private fun Modifier.fadeRunOn(runOnPx: Int): Modifier = if (runOnPx <= 0) {
     }
 }
 
-// Short enough that about two dotted lines still read under the buttons.
+// Short enough that the dotted lines still read behind the buttons.
 private const val RunOnFadeShare = 0.45f
 
 // Smoothstep from opaque to clear: no visible onset line.
