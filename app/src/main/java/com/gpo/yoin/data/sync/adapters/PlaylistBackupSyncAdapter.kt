@@ -29,6 +29,11 @@ import kotlinx.serialization.json.JsonObject
  * `updatedAt` is a synced field and is written back as received (see
  * SongNoteSyncAdapter for why).
  *
+ * `sourceAccount` (the account it came from, as every device knows it) was
+ * added later and travels only when known: a backup without one projects as
+ * before, so adding the field didn't re-upload every backup, and older
+ * versions carry it through as an unknown key.
+ *
  * Deleting a backup is a user action, so deletes propagate as tombstones.
  * `sourceProfileId` is this device's own profile id: it never travels, and
  * apply keeps the local row's.
@@ -84,21 +89,22 @@ class PlaylistBackupSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
         }
 
     private fun projection(row: PlaylistBackup) = JsonObject(
-        mapOf(
-            NAME to jsonString(row.name),
-            SOURCE_PROVIDER to jsonString(row.sourceProvider),
-            SOURCE_PROFILE_LABEL to jsonString(row.sourceProfileLabel),
-            SOURCE_PLAYLIST_ID to jsonString(row.sourcePlaylistId),
-            PLAYLIST_CREATED_AT to jsonString(row.playlistCreatedAt),
-            FIRST_BACKED_UP_AT to jsonLong(row.firstBackedUpAt),
-            LAST_BACKED_UP_AT to jsonLong(row.lastBackedUpAt),
-            LAST_CHANGED_AT to jsonLong(row.lastChangedAt),
-            SOURCE_GONE_AT to jsonLong(row.sourceGoneAt),
-            UPDATED_AT to jsonLong(row.updatedAt),
-            CONTENT to jsonString(row.contentJson),
-            VERSIONS to jsonString(row.versionsJson),
-            RESTORES to jsonString(row.restoresJson),
-        ),
+        buildMap {
+            put(NAME, jsonString(row.name))
+            put(SOURCE_PROVIDER, jsonString(row.sourceProvider))
+            put(SOURCE_PROFILE_LABEL, jsonString(row.sourceProfileLabel))
+            put(SOURCE_PLAYLIST_ID, jsonString(row.sourcePlaylistId))
+            put(PLAYLIST_CREATED_AT, jsonString(row.playlistCreatedAt))
+            put(FIRST_BACKED_UP_AT, jsonLong(row.firstBackedUpAt))
+            put(LAST_BACKED_UP_AT, jsonLong(row.lastBackedUpAt))
+            put(LAST_CHANGED_AT, jsonLong(row.lastChangedAt))
+            put(SOURCE_GONE_AT, jsonLong(row.sourceGoneAt))
+            put(UPDATED_AT, jsonLong(row.updatedAt))
+            put(CONTENT, jsonString(row.contentJson))
+            put(VERSIONS, jsonString(row.versionsJson))
+            put(RESTORES, jsonString(row.restoresJson))
+            row.sourceAccount?.let { put(SOURCE_ACCOUNT, jsonString(it)) }
+        },
     )
 
     /** The row [payload] describes, or null when a field is missing or its JSON doesn't decode. */
@@ -118,6 +124,7 @@ class PlaylistBackupSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
             sourcePlaylistId = payload.requiredString(SOURCE_PLAYLIST_ID) ?: return null,
             // This device's own: kept from the local row (apply passes it in), never synced.
             sourceProfileId = keepProfileId,
+            sourceAccount = payload.optionalString(SOURCE_ACCOUNT).orElse { return null }?.takeIf(String::isNotEmpty),
             playlistCreatedAt = payload.optionalString(PLAYLIST_CREATED_AT).orElse { return null },
             firstBackedUpAt = payload.requiredLong(FIRST_BACKED_UP_AT) ?: return null,
             lastBackedUpAt = payload.requiredLong(LAST_BACKED_UP_AT) ?: return null,
@@ -138,6 +145,7 @@ class PlaylistBackupSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
         const val SOURCE_PROVIDER = "sourceProvider"
         const val SOURCE_PROFILE_LABEL = "sourceProfileLabel"
         const val SOURCE_PLAYLIST_ID = "sourcePlaylistId"
+        const val SOURCE_ACCOUNT = "sourceAccount"
         const val PLAYLIST_CREATED_AT = "playlistCreatedAt"
         const val FIRST_BACKED_UP_AT = "firstBackedUpAt"
         const val LAST_BACKED_UP_AT = "lastBackedUpAt"

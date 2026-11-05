@@ -37,7 +37,7 @@ import androidx.room.RoomDatabase
         ImportItem::class,
         PlaylistBackup::class,
     ],
-    version = 32,
+    version = 33,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {

@@ -16,7 +16,9 @@ import androidx.room.PrimaryKey
  * entries that couldn't be backed up) and [restoresJson] the restore history
  * ([com.gpo.yoin.data.backup.PlaylistRestoreRecord] list). Global, not per
  * profile (synced as [com.gpo.yoin.data.sync.SyncKinds.PLAYLIST_BACKUP]);
- * only [sourceProfileId] is this device's own.
+ * only [sourceProfileId] is this device's own. [sourceAccount] tells two
+ * accounts of one service apart (two Subsonic servers both have a playlist
+ * "1"), so each keeps its own backup.
  */
 @Entity(
     tableName = "playlist_backups",
@@ -36,6 +38,13 @@ data class PlaylistBackup(
      * that profile (they show the backup but can't follow it). Not synced.
      */
     val sourceProfileId: String?,
+    /**
+     * The music account it came from, the same on every device
+     * ([com.gpo.yoin.data.sync.identity.AccountKeys]); synced. Null on
+     * backups made before it was kept (DB v33) until they are next backed
+     * up, and when the account has no such id.
+     */
+    val sourceAccount: String? = null,
     /** When the playlist was made or joined the library, as its service says (ISO-8601); null when it doesn't. */
     val playlistCreatedAt: String?,
     /** When the backup began. */

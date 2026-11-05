@@ -24,6 +24,7 @@ import com.gpo.yoin.data.sync.engine.SnapshotCodec
 import com.gpo.yoin.data.sync.engine.SyncEngine
 import com.gpo.yoin.data.sync.engine.SyncSchemaTooNewException
 import com.gpo.yoin.data.sync.identity.AccountBinder
+import com.gpo.yoin.data.sync.identity.AccountKeys
 import com.gpo.yoin.data.sync.identity.BindingSnapshot
 import com.gpo.yoin.data.sync.identity.CloudAccountDescriptor
 import com.gpo.yoin.data.sync.identity.SpotifyIdentityResolver
@@ -160,6 +161,9 @@ class CloudSyncManager(
             clock = clock,
         )
     }
+
+    /** Which music account a profile is, the same on every device (playlist backups keep it). */
+    val accountKeys: AccountKeys by lazy { AccountKeys({ syncDb }, profileManager::decodeCredentials) }
 
     private val binder: AccountBinder by lazy {
         AccountBinder(
