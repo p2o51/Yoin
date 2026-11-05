@@ -142,7 +142,7 @@ struct DetailHeader: View {
     var meta: String
     var circle = false
     var onSubtitle: () -> Void
-    @Environment(\.macTint) private var tint
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -164,7 +164,8 @@ struct DetailHeader: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let subtitle {
                 Button(action: onSubtitle) {
-                    Text(subtitle).font(.gsf(16, .semibold)).foregroundStyle(palette.a)
+                    Text(subtitle).font(.gsf(16, .semibold))
+                        .foregroundStyle(MacTint.of(palette.cover?.url, dark: scheme == .dark).primary)
                 }
                 .buttonStyle(.plain)
             }
