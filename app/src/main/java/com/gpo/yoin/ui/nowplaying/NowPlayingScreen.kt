@@ -198,6 +198,7 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -5168,20 +5169,29 @@ private fun HeroRowToStack(
     artist: @Composable () -> Unit,
     tags: @Composable () -> Unit,
 ) {
-    // The artist's ride on the title's growth, from layout to the title's clip.
+    // From layout to draw: the artist's ride on the title's growth, and
+    // whether the title overflows the row (it marquees there).
     val ridePx = remember { floatArrayOf(0f) }
+    val titleScrolls = remember { booleanArrayOf(false) }
     val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
-    val titleClip = Modifier.drawWithContent {
-        if (!ltr) {
-            drawContent()
-            return@drawWithContent
+    val titleClip = Modifier
+        .graphicsLayer {
+            // A scrolling title takes its new width at the glide's middle,
+            // which starts its marquee over: it fades through there, so the
+            // restart never shows as a jump.
+            if (titleScrolls[0]) alpha = abs(1f - 2f * stacking)
         }
-        // The row clips the grown title at the artist; the stack lets it run.
-        val end = size.width + ridePx[0] + size.width * stacking
-        clipRect(left = -size.width, top = -size.height, right = end, bottom = size.height * 2f) {
-            this@drawWithContent.drawContent()
+        .drawWithContent {
+            if (!ltr) {
+                drawContent()
+                return@drawWithContent
+            }
+            // The row clips the grown title at the artist; the stack lets it run.
+            val end = size.width + ridePx[0] + size.width * stacking
+            clipRect(left = -size.width, top = -size.height, right = end, bottom = size.height * 2f) {
+                this@drawWithContent.drawContent()
+            }
         }
-    }
     Layout(
         contents = listOf(
             { title(titleClip) },
@@ -5197,25 +5207,30 @@ private fun HeroRowToStack(
         // The row caps the artist at its share and the title takes the rest;
         // the stack gives the artist the line beside its tags and the title
         // the whole width.
-        val artistRowMax = (width * HeroOneLineArtistShare).roundToInt()
-        val artistMax = lerpPx(artistRowMax, (width - tagsP.width).coerceAtLeast(0), stacking)
-        val artistP = artistM.first().measure(Constraints(maxWidth = artistMax))
-        // What the row would give it (no intrinsics: the shared bounds wrap it).
-        val artistRowW = minOf(artistP.width, artistRowMax)
-        val titleMax = lerpPx((width - gap - artistRowW).coerceAtLeast(0), width, stacking)
-        val titleP = titleM.first().measure(Constraints(maxWidth = titleMax))
-
-        fun baseline(p: Placeable): Int =
-            p[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: p.height
         // Vertical first, then across.
         val lift = (stacking / HeroStackSplit).coerceIn(0f, 1f)
         val across = ((stacking - (1f - HeroStackSplit)) / HeroStackSplit).coerceIn(0f, 1f)
+        val artistRowMax = (width * HeroOneLineArtistShare).roundToInt()
+        // The artist widens only as it slides to the start, never past the edge.
+        val artistMax = lerpPx(artistRowMax, (width - tagsP.width).coerceAtLeast(0), across)
+        val artistP = artistM.first().measure(Constraints(maxWidth = artistMax))
+        // What the row would give it (no intrinsics: the shared bounds wrap it).
+        val artistRowW = minOf(artistP.width, artistRowMax)
+        val titleRowMax = (width - gap - artistRowW).coerceAtLeast(0)
+        val titleP = titleM.first().measure(
+            Constraints(maxWidth = if (stacking < 0.5f) titleRowMax else width),
+        )
+        titleScrolls[0] = titleP.width >= titleRowMax
+
+        fun baseline(p: Placeable): Int =
+            p[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: p.height
         // Row: the title at the top, the artist after it on its baseline,
         // riding the title's growth into the row's free end.
-        val rowFree = (width - titleP.width - gap - artistP.width).coerceAtLeast(0)
-        val ride = if (ltr) minOf(titleP.width * titleGrowth(), rowFree.toFloat()) else 0f
+        val titleRowW = minOf(titleP.width, titleRowMax)
+        val rowFree = (width - titleRowW - gap - artistRowW).coerceAtLeast(0)
+        val ride = if (ltr) minOf(titleRowW * titleGrowth(), rowFree.toFloat()) else 0f
         ridePx[0] = ride
-        val rowArtistX = titleP.width + gap + ride.roundToInt()
+        val rowArtistX = titleRowW + gap + ride.roundToInt()
         val rowArtistY = baseline(titleP) - baseline(artistP)
         // Stack: the artist line (centred with its tags), 2dp, the title.
         val artistLine = maxOf(artistP.height, tagsP.height)

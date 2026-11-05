@@ -347,6 +347,7 @@ private fun LyricsDisplayContent(
     val activeLinePxEstimate = with(density) {
         (MaterialTheme.typography.bodyLarge.lineHeight * fontScale).toPx() + LyricItemPadV.toPx() * 2
     }
+    val listTopPadPx = with(density) { LyricListPadV.toPx() }
     LaunchedEffect(lyrics, currentIndex, listState, handOverTarget) {
         if (currentIndex < 0 && !handOverTarget) return@LaunchedEffect
         val target = if (handOverTarget) upNextLineIndex else currentIndex.coerceIn(0, lyrics.lastIndex)
@@ -357,23 +358,25 @@ private fun LyricsDisplayContent(
         // budget's FocusLyricsAnchorFraction = 0, FocusLinesAbove = 1): no
         // half-cut line above it (owner 2026-11-04 / 11-05).
         snapshotFlow {
-            val above = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target - 1 }?.size ?: -1
+            val shown = listState.layoutInfo.visibleItemsInfo
             LyricAnchorInputs(
                 viewportPx = listState.layoutInfo.viewportSize.height,
                 focus = anchorFocus().coerceIn(0f, 1f),
-                abovePx = above,
+                abovePx = shown.firstOrNull { it.index == target - 1 }?.size ?: -1,
+                currentPx = shown.firstOrNull { it.index == target }?.size ?: -1,
                 // Only while the transport shows does it hide the bottom.
                 coveredPx = (coveredPxNow() * coveredShownNow().coerceIn(0f, 1f)).toInt(),
             )
         }
             .filter { it.viewportPx > 0 }
-            .collect { (viewportPx, focusNow, abovePx, coveredPx) ->
+            .collect { (viewportPx, focusNow, abovePx, currentPx, coveredPx) ->
                 val anchor = 0.22f * (1f - focusNow)
                 // The sung line shows whole (a wrapped one too) as long as the
-                // current line's first row still fits above the transport;
-                // only past that does its top clip.
+                // whole current line still clears the shown transport; past
+                // that the sung line's top clips, never the current line.
                 val shownPx = (viewportPx - coveredPx).coerceAtLeast(0)
-                val roomAbove = maxOf(shownPx - activeLinePxEstimate, shownPx * LyricLineAboveMinFraction)
+                val current = if (currentPx > 0) currentPx.toFloat() else activeLinePxEstimate
+                val roomAbove = (shownPx - listTopPadPx - current).coerceAtLeast(0f)
                 val lineAbovePx = when {
                     target <= 0 -> 0f
                     abovePx >= 0 -> abovePx + lineGapPx
@@ -417,7 +420,7 @@ private fun LyricsDisplayContent(
             // effect above); untimed lyrics scroll by hand.
             userScrollEnabled = isUnsynced,
             verticalArrangement = Arrangement.spacedBy(LyricItemGap),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp, end = endOverflow),
+            contentPadding = PaddingValues(top = LyricListPadV, bottom = LyricListPadV, end = endOverflow),
         ) {
             itemsIndexed(lyrics, key = { i, _ -> i }) { index, line ->
                 val active = index == currentIndex && currentIndex >= 0 && !handingOver
@@ -698,13 +701,14 @@ private val LyricItemGap = 2.dp
 /** Each line's own vertical pad (NowPlayingBudget's LyricLinePads, halved). */
 private val LyricItemPadV = 4.dp
 
-/** Focus: the line above the current one may always take this share of the shown window. */
-private const val LyricLineAboveMinFraction = 0.3f
+/** The list's own top and bottom content padding. */
+private val LyricListPadV = 12.dp
 
 private data class LyricAnchorInputs(
     val viewportPx: Int,
     val focus: Float,
     val abovePx: Int,
+    val currentPx: Int,
     val coveredPx: Int,
 )
 
