@@ -343,6 +343,7 @@ fun Modifier.reportFocusCover(): Modifier {
  * @param pulseTrigger the committed state (song id + playing flag + queue
  *   position, never the playhead), null when not playing; see [resolveTransportPulse].
  * @param focusProgress the focus (immersive) stage progress, read in draw.
+ * @param lightRoom the same for light focus ([lightRoomOf]); null = the cover's colours toned light.
  * @param darkRoom the colours dark focus paints the room in (the screen's own
  *   dark scheme); null = the cover's colours toned dark.
  * @param songProgress how far through the song the playhead is (0..1), read
@@ -369,6 +370,7 @@ fun Modifier.nowPlayingAuroraBackground(
     coverField: CoverField? = null,
     focusProgress: () -> Float = { 0f },
     darkRoom: RoomPalette? = null,
+    lightRoom: RoomPalette? = null,
     songProgress: () -> Float = { 0f },
     journeyFromRight: Boolean = true,
     keyHintActive: Boolean = false,
@@ -459,7 +461,7 @@ fun Modifier.nowPlayingAuroraBackground(
     // cutting (a song change while focused): [fieldFrom] fades out over
     // [fieldFade] while the geometry carries on.
     // Dark focus's room crosses over with it, from the scheme it was in.
-    val room = if (isDark) darkRoom else null
+    val room = if (isDark) darkRoom else lightRoom
     var fieldShown by remember { mutableStateOf(coverField) }
     var fieldFrom by remember { mutableStateOf<CoverField?>(null) }
     var roomShown by remember { mutableStateOf(room) }

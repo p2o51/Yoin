@@ -136,7 +136,31 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int, swatches: IntArra
  * primary and tertiary hues instead of a surface, and the wanderer is the
  * brightest point, a lit primary moving through the room.
  */
-fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int, coverSwatches: IntArray = IntArray(0)): RoomPalette {
+fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int, coverSwatches: IntArray = IntArray(0)): RoomPalette =
+    roomOf(primary, secondary, tertiary, coverSwatches, DarkRoomTones, DarkRoomMinChroma)
+
+/**
+ * Light focus's room, the same recipe as [darkRoomOf] (owner 2026-11-05:
+ * 「浅色也这么改一下」): the primary's hue and up to two hues off the cover's
+ * swatches, re-toned pale for dark lyrics on top. The current line's floor
+ * ([readableUnder]) still lifts any point that comes out too deep.
+ */
+fun lightRoomOf(primary: Int, secondary: Int, tertiary: Int, coverSwatches: IntArray = IntArray(0)): RoomPalette =
+    roomOf(primary, secondary, tertiary, coverSwatches, LightRoomTones, LightRoomMinChroma)
+
+/**
+ * The room's four colours and wanderer at [tones] (primary, second, third,
+ * the blend, the wanderer), each at least [minChroma] (the second ×0.8, the
+ * wanderer ×1.6).
+ */
+private fun roomOf(
+    primary: Int,
+    secondary: Int,
+    tertiary: Int,
+    coverSwatches: IntArray,
+    tones: DoubleArray,
+    minChroma: Double,
+): RoomPalette {
     val p = Hct.fromInt(primary)
     val s = Hct.fromInt(secondary)
     val t = Hct.fromInt(tertiary)
@@ -154,14 +178,27 @@ fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int, coverSwatches: IntAr
     val between = midHue(p.hue, tHue)
     return RoomPalette(
         colors = intArrayOf(
-            at(p.hue, max(p.chroma, DarkRoomMinChroma), 32.0),
-            at(sHue, max(s.chroma, DarkRoomMinChroma * 0.8), 24.0),
-            at(tHue, max(t.chroma, DarkRoomMinChroma), 32.0),
-            at(between, DarkRoomMinChroma, 14.0),
+            at(p.hue, max(p.chroma, minChroma), tones[0]),
+            at(sHue, max(s.chroma, minChroma * 0.8), tones[1]),
+            at(tHue, max(t.chroma, minChroma), tones[2]),
+            at(between, minChroma, tones[3]),
         ),
-        accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 46.0),
+        accent = at(p.hue, max(p.chroma, minChroma * 1.6), tones[4]),
     )
 }
+
+/** Dark room tones: primary, second, third, blend, wanderer (PR #128's). */
+private val DarkRoomTones = doubleArrayOf(32.0, 24.0, 32.0, 14.0, 46.0)
+
+/**
+ * Light room tones, in the pale band the old HSL toning sat in (~0.70–0.94):
+ * the blend is the lightest, the wanderer the deepest point (still lifted
+ * to the lyric floor where it must be).
+ */
+private val LightRoomTones = doubleArrayOf(88.0, 84.0, 88.0, 93.0, 80.0)
+
+/** Light pastels need less chroma to read as colour than the dark room's. */
+private const val LightRoomMinChroma = 30.0
 
 /**
  * Up to two hues the cover really holds besides [primaryHue], from its

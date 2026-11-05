@@ -329,6 +329,15 @@ fun NowPlayingScreen(
             coverSwatches = roomSwatches ?: IntArray(0),
         )
     }
+    // Light focus: the same seeds, toned pale (owner 2026-11-05).
+    val lightRoom = remember(roomScheme, roomSwatches) {
+        lightRoomOf(
+            primary = roomScheme.primary.toArgb(),
+            secondary = roomScheme.secondary.toArgb(),
+            tertiary = roomScheme.tertiary.toArgb(),
+            coverSwatches = roomSwatches ?: IntArray(0),
+        )
+    }
     val background = scheme.background
     // The room's frame: the songs before / after this one, or (none there)
     // this cover's own secondary / tertiary container, never a grey edge.
@@ -437,6 +446,7 @@ fun NowPlayingScreen(
                     // Focus = the immersive stage (tap the cover); read in draw.
                     focusProgress = { stageProgress?.immersive ?: 0f },
                     darkRoom = darkRoom,
+                    lightRoom = lightRoom,
                     songProgress = {
                         val d = playingState?.durationMs ?: 0L
                         if (d > 0L) (latestPositionMs().toFloat() / d).coerceIn(0f, 1f) else 0f

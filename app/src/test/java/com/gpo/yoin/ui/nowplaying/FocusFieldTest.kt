@@ -303,6 +303,22 @@ class FocusFieldTest {
         assertNull(b)
     }
 
+    @Test
+    fun should_paintTheLightRoomPaleInTheCoversOwnHues_when_lightFocus() {
+        val magenta = argb(180, 40, 120)
+        val cyan = argb(40, 180, 200)
+        val room = lightRoomOf(
+            primary = magenta,
+            secondary = argb(60, 140, 80),
+            tertiary = argb(50, 150, 90),
+            coverSwatches = intArrayOf(magenta, cyan),
+        )
+        // Pale: dark lyrics read on every room colour.
+        room.colors.forEach { c -> assertTrue("luminance of ${Integer.toHexString(c)}", luminance(c) > 0.55f) }
+        // The cover's cyan, not the scheme's green.
+        assertEquals(hct.Hct.fromInt(cyan).hue, hct.Hct.fromInt(room.colors[1]).hue, 10.0)
+    }
+
     private fun luminance(c: Int): Float {
         fun ch(v: Int): Float {
             val x = v / 255f
