@@ -166,6 +166,9 @@ struct MacNowPlaying: View {
                     Text(p.isPlaying ? "PAUSE" : "PLAY").font(.gsf(22, .bold)).tracking(0.7)
                         .foregroundStyle(tint.onPrimary)
                         .frame(minWidth: 136, minHeight: 64).padding(.horizontal, 10)
+                        // macOS glass takes a tint much paler than iOS: the 0.70 primary is laid under
+                        // it as a fill, so PLAY reads like iOS and the lyrics still show through.
+                        .background(Capsule().fill(tint.primary.opacity(Self.transportPrimaryTint)))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(PressDown())
