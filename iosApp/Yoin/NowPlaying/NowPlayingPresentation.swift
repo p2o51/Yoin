@@ -593,6 +593,20 @@ struct NowPlayingAmbient: View {
     @Environment(\.colorScheme) private var colorScheme
     var scheme: CoverScheme
     private var lab: GlassLab { GlassLab.shared }
+    @State private var keyHint = false
+
+    /// The playing song's About, as SongAboutLoader files it.
+    private var aboutKey: SongAboutStore.Entry.SongKey? {
+        model.player.currentTrack.map { SongAboutStore.key(title: $0.title, artist: $0.artist, album: $0.album) }
+    }
+
+    private var geminiThinking: Bool {
+        let loader = SongAboutLoader.shared
+        if case .loading = loader.askState { return true }
+        return aboutKey.map { loader.phase($0) == .loading } ?? false
+    }
+
+    private var geminiKeyMissing: Bool { aboutKey.map { SongAboutLoader.shared.phase($0) == .noKey } ?? false }
 
     /// The two edge colours.
     private func neighbourColors(dark: Bool) -> (top: Color, bottom: Color) {
@@ -637,6 +651,18 @@ struct NowPlayingAmbient: View {
             }
             // World: the room's own cover leads; neighbours only frame it.
             if onTop { aura }
+            // Gemini thinking (an Ask question, or About's own first fetch),
+            // and the soft pink nudge when About needs a key that isn't set.
+            GeminiWash(active: geminiThinking, primary: scheme.primary, secondary: scheme.secondary,
+                       tertiary: scheme.tertiary)
+            GeminiWash(active: keyHint, primary: scheme.primary, secondary: scheme.secondary,
+                       tertiary: scheme.tertiary, fixedHue: 345, strength: 0.55)
+        }
+        .task(id: geminiKeyMissing) {
+            guard geminiKeyMissing, GeminiKeyHint.claim() else { return }
+            keyHint = true
+            try? await Task.sleep(for: .seconds(GeminiKeyHint.holdSeconds))
+            keyHint = false
         }
         // A new song, a reordered / shuffled queue or another repeat mode
         // re-colours the edges on the effects spring, never a snap: keyed on
