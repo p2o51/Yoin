@@ -7,6 +7,7 @@ struct YoinMacApp: App {
 
     init() {
         MacFonts.register()
+        MacSettings.applyAppearance()
         MacQA.applyAppearance()
         _model = State(initialValue: MacModel())
     }

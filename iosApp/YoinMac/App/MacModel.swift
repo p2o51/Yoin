@@ -96,6 +96,7 @@ final class MacModel {
                                                 format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
         }
         player.downloadedFile = { OfflineDownloads.shared.localFile(for: $0) }
+        player.streamQuality = { MacSettings.streamQuality }
         offline.pump()
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }

@@ -41,6 +41,18 @@ The iOS `OfflineDownloads` (and `DetailDiskCache` for its pins) compile into the
 
 `MenuBarExtra` (.window, Yoin `music_note` symbol): `MacMenuBarCard` — cover, title / artist, progress, prev · play · next, Open Yoin.
 
+## Settings (⌘,)
+
+Tabs: Accounts (switch / remove / add), Playback (streaming quality Original · 320 · 192 · 128 → `macStreamQuality`, the engine's `streamQuality`; mini player on top), Downloads (quality, metered networks, size, remove all), General (lyrics translations, appearance System / Light / Dark → `macAppearanceSetting`).
+
+## Lyrics tools
+
+Now Playing › Lyrics header: Translate (the source's own translation from the shared `LyricsRegistry`: the current source, else the next automatic source that serves the language, whose lyrics come with it) and Search (all providers; a pick is remembered per account and song, `lyricsChoice.<account>.<song>`). Gemini translation (needs a key) isn't on the Mac.
+
+## Playlists, history, Home
+
+Library › Playlists and the playlist page (Subsonic and Apple Music library playlists); the song menu's Add to Playlist (Subsonic). `HistoryStore` (iOS) records this Mac's plays per account; Home's Memories shelf reads it. Home › Edit orders and hides sections (`homeLayout`).
+
 ## Keys (Controls menu)
 
 Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P Now Playing panel · ⌘L full window in / out · ⌘F focus (from closed: full window in focus) · ⌘K search · ⌥⌘M mini player · Esc back chain. ⌘↑ / ⌘↓ are left alone (no in-app volume). System full screen (⌃⌘F) is the window's own.

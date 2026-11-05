@@ -116,3 +116,25 @@ struct JBISignal: Hashable, Sendable {
     var comment: String?
     var song: PlaylistEntry?
 }
+
+/// Settings the Mac keeps in its defaults.
+@MainActor
+enum MacSettings {
+    static let streamQualityKey = "macStreamQuality"
+    static let appearanceKey = "macAppearanceSetting"
+
+    /// Original and the transcode caps (Auto is a phone's network choice).
+    static var qualities: [StreamQuality] { [.original, .kbps320, .kbps192, .kbps128] }
+
+    static var streamQuality: StreamQuality {
+        StreamQuality.companion.fromKey(key: UserDefaults.standard.string(forKey: streamQualityKey)) ?? .original
+    }
+
+    static func applyAppearance() {
+        switch UserDefaults.standard.string(forKey: appearanceKey) {
+        case "light": NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        default: NSApplication.shared.appearance = nil
+        }
+    }
+}

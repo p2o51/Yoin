@@ -1,4 +1,5 @@
 import SwiftUI
+import YoinShared
 
 /// First launch: a Subsonic / Navidrome server and its sign-in.
 struct MacSignInView: View {
@@ -114,12 +115,17 @@ struct MacSignInView: View {
     }
 }
 
-/// ⌘, : the account and Sign Out.
+/// ⌘, : the Mac's settings, one tab each (iOS Settings, the parts the Mac has).
 struct MacSettingsView: View {
     @Environment(MacModel.self) private var model
+    @AppStorage(MacSettings.streamQualityKey) private var quality = StreamQuality.original.key
+    @AppStorage(MacMiniPlayer.floatsKey) private var miniFloats = true
+    @AppStorage("lyricsShowTranslation") private var showTranslation = true
+    @AppStorage(MacSettings.appearanceKey) private var appearance = "system"
 
     var body: some View {
-        Form {
+        TabView {
+            Form {
             Section("Accounts") {
                 ForEach(model.session.profiles) { p in
                     let active = p.id == model.session.activeId
@@ -148,6 +154,27 @@ struct MacSettingsView: View {
                     NSApp.mainWindow?.makeKeyAndOrderFront(nil)
                 }
             }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("Accounts", image: "yoin.artist") }
+
+            Form {
+                Section("Streaming") {
+                    Picker("Quality", selection: $quality) {
+                        ForEach(MacSettings.qualities, id: \.key) { Text($0.label).tag($0.key) }
+                    }
+                    .onChange(of: quality) { model.player.streamQualityDidChange() }
+                    Text("Takes effect from the next song. Lower qualities transcode to MP3 on the server.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Mini Player") {
+                    Toggle("Float on top of other windows", isOn: $miniFloats)
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("Playback", image: "yoin.play_filled") }
+
+            Form {
             if model.session.client != nil {
                 @Bindable var offline = OfflineDownloads.shared
                 Section("Downloads") {
@@ -161,10 +188,33 @@ struct MacSettingsView: View {
                         .disabled(offline.entries.isEmpty)
                 }
             }
+                if model.session.client == nil {
+                    Text("Downloads are for Subsonic and Navidrome accounts.").foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("Downloads", image: "yoin.download") }
+
+            Form {
+                Section("Lyrics") {
+                    Toggle("Show translations under the lyrics", isOn: $showTranslation)
+                    Text("The server's lyrics come first, then QQ Music, NetEase and LRCLIB. Search in Now Playing picks another source for a song.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Appearance") {
+                    Picker("Appearance", selection: $appearance) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: appearance) { MacSettings.applyAppearance() }
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("General", image: "yoin.settings") }
         }
-        .formStyle(.grouped)
-        .frame(width: 460)
-        .padding(.vertical, 8)
+        .frame(width: 520, height: 440)
     }
 
     private var status: String {
