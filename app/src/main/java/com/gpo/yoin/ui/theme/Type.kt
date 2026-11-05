@@ -1,19 +1,17 @@
 package com.gpo.yoin.ui.theme
 
 import androidx.compose.material3.Typography
-import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 
+/** Every GSF font goes through [yoinFont] so CJK fallback keeps its weight (Samsung). */
 val GoogleSansFlex = FontFamily(
-    Font(R.font.google_sans_flex_400, FontWeight.Normal),
-    Font(R.font.google_sans_flex_500, FontWeight.Medium),
-    Font(R.font.google_sans_flex_600, FontWeight.SemiBold),
-    Font(R.font.google_sans_flex_700, FontWeight.Bold),
+    yoinFont(R.font.google_sans_flex_400, FontWeight.Normal),
+    yoinFont(R.font.google_sans_flex_500, FontWeight.Medium),
+    yoinFont(R.font.google_sans_flex_600, FontWeight.SemiBold),
+    yoinFont(R.font.google_sans_flex_700, FontWeight.Bold),
 )
 
 /**
@@ -23,23 +21,16 @@ val GoogleSansFlex = FontFamily(
  * rounding reads at display sizes, and the landing mascot's speech bubble
  * (its voice).
  */
-@OptIn(ExperimentalTextApi::class)
 val GoogleSansFlexRounded = FontFamily(
-    Font(
+    yoinFont(
         R.font.google_sans_flex_variable,
-        weight = FontWeight.Medium,
-        variationSettings = FontVariation.Settings(
-            FontVariation.weight(FontWeight.Medium.weight),
-            FontVariation.Setting("ROND", 100f),
-        ),
+        FontWeight.Medium,
+        mapOf("wght" to FontWeight.Medium.weight.toFloat(), "ROND" to 100f),
     ),
-    Font(
+    yoinFont(
         R.font.google_sans_flex_variable,
-        weight = FontWeight.SemiBold,
-        variationSettings = FontVariation.Settings(
-            FontVariation.weight(FontWeight.SemiBold.weight),
-            FontVariation.Setting("ROND", 100f),
-        ),
+        FontWeight.SemiBold,
+        mapOf("wght" to FontWeight.SemiBold.weight.toFloat(), "ROND" to 100f),
     ),
 )
 
