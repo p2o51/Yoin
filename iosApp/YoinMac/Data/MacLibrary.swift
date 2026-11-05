@@ -215,10 +215,54 @@ final class MacLibrary {
         }
     }
 
+    /// PlayerEngine decides when (started; then half the song or 4 minutes heard). "Now playing" is
+    /// fire-and-forget; a play that couldn't be sent waits in `pendingScrobbles` (with the time it
+    /// happened) and goes with the next one that can.
     func scrobble(_ track: PlayableTrack, submission: Bool) {
         guard let client, track.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
-        let ms = Int64(Date().timeIntervalSince1970 * 1000)
-        Task { try? await client.scrobble(id: track.id, submission: submission, timeMs: KotlinLong(value: ms)) }
+        guard submission else {
+            Task { try? await client.scrobble(id: track.id, submission: false, timeMs: nil) }
+            return
+        }
+        var queue = pendingScrobbles
+        queue.append(PendingScrobble(id: track.id, timeMs: Int64(Date().timeIntervalSince1970 * 1000)))
+        pendingScrobbles = Array(queue.suffix(500))
+        flushScrobbles(client)
+    }
+
+    private struct PendingScrobble: Codable, Equatable {
+        var id: String
+        var timeMs: Int64
+    }
+
+    private static let pendingKey = "pendingScrobbles"
+
+    /// Kept per account in the defaults (scope: the server and user).
+    private var pendingScrobbles: [PendingScrobble] {
+        get {
+            guard let d = UserDefaults.standard.data(forKey: pendingKeyForAccount) else { return [] }
+            return (try? JSONDecoder().decode([PendingScrobble].self, from: d)) ?? []
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: pendingKeyForAccount) }
+    }
+
+    private var pendingKeyForAccount: String { "\(Self.pendingKey).\(session.accountKey)" }
+    @ObservationIgnored private var flushing = false
+
+    private func flushScrobbles(_ client: SubsonicClient) {
+        guard !flushing else { return }
+        flushing = true
+        Task {
+            defer { flushing = false }
+            while let next = pendingScrobbles.first {
+                do {
+                    try await client.scrobble(id: next.id, submission: true, timeMs: KotlinLong(value: next.timeMs))
+                    pendingScrobbles.removeAll { $0 == next }
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
     // MARK: Playback

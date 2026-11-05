@@ -37,6 +37,8 @@ final class MacSession {
     private(set) var state: State = .signedOut
 
     var isSignedIn: Bool { client != nil }
+    /// The account's key for per-account local state (server and user, never the password).
+    var accountKey: String { account.map { "\($0.baseUrl)|\($0.username)" } ?? "" }
 
     init() {
         if let saved = Keychain.load() { restore(saved) }
