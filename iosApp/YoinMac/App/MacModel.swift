@@ -202,6 +202,20 @@ final class MacModel {
         }
     }
 
+    /// An album's songs after the current one (in order) or at the end of the queue.
+    func queue(album: Album, next: Bool) {
+        Task {
+            let full = await library.fullAlbum(album)
+            let entries = full.tracks.map { PlaylistEntry(album: full, track: $0) }
+            if player.currentTrack == nil { play(entries); return }
+            if next {
+                for e in entries.reversed() { playNext(e) }
+            } else {
+                for e in entries { addToQueue(e) }
+            }
+        }
+    }
+
     func entry(for t: PlayableTrack?) -> PlaylistEntry? { t.flatMap { known[$0.id] } }
     var currentEntry: PlaylistEntry? { entry(for: player.currentTrack) }
 

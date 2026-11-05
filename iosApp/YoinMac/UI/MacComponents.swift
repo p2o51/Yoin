@@ -55,6 +55,8 @@ struct AlbumTile: View {
         .contextMenu {
             Button("Play") { model.play(album: album) }
             Button("Shuffle") { model.play(album: album, shuffle: true) }
+            Button("Play Next") { model.queue(album: album, next: true) }
+            Button("Add to Queue") { model.queue(album: album, next: false) }
             if let id = album.artistId {
                 Divider()
                 Button("Go to Artist") { model.open(.artist(id: id, name: album.artist)) }
@@ -171,11 +173,24 @@ struct SongMenu: View {
 
     var body: some View {
         let starred = model.library.isStarred(entry.track)
+        let id = entry.track.id.rawId
+        let rating = model.library.rating(entry.track) ?? 0
+        // The phone's long-press sheet, in its order: queue, like, rate, then where to go.
         Button("Play") { play() }
         Button("Play Next") { model.playNext(entry) }
         Button("Add to Queue") { model.addToQueue(entry) }
         Divider()
-        Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: entry.track.id.rawId, current: starred) }
+        Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: id, current: starred) }
+        Menu("Rate") {
+            ForEach((1...5).reversed(), id: \.self) { stars in
+                Toggle(String(repeating: "★", count: stars), isOn: Binding(
+                    get: { Int((rating / 2).rounded()) == stars },
+                    set: { on in model.library.setRating(songId: id, on ? Double(stars * 2) : nil) }))
+            }
+            Divider()
+            Button("Clear Rating") { model.library.setRating(songId: id, nil) }
+                .disabled(rating == 0)
+        }
         Divider()
         if !entry.album.id.rawId.hasPrefix("song:") {
             Button("Go to Album") { model.open(.album(entry.album)) }
