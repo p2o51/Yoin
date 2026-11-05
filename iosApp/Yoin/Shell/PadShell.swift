@@ -113,7 +113,7 @@ private struct PadColumns: View {
     private var columns: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            if w >= 840, let album = model.padSelection {
+            if w >= 840, model.padSelection != nil || !model.path.isEmpty {
                 // resolvePaneBudget: shell share 0.45, ≥ 600 when w ≥ 1080, both ≥ 360.
                 let shell = max(360, w >= 1080 ? max(600, w * 0.45) : w * 0.45)
                 HStack(spacing: 0) {
@@ -128,20 +128,10 @@ private struct PadColumns: View {
                         .frame(width: 12)
                         .frame(maxHeight: .infinity)
                         .background(Yoin.surface)
-                    NavigationStack(path: path) {
-                        AlbumDetailView(album: album, padColumn: true)
-                            .id(album.id)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                            .navigationDestination(for: Route.self, destination: destination)
-                    }
-                    // The column's own Play split (the phone's detail bar
-                    // lives in its ShellBar, which iPad doesn't have).
-                    .overlay(alignment: .bottomLeading) {
-                        if active { PadDetailPlay(root: album) }
-                    }
-                    .clipShape(.rect(cornerRadius: 28))
-                    .padding(.vertical, 8)
-                    .padding(.trailing, 8)
+                    detailColumn
+                        .clipShape(.rect(cornerRadius: 28))
+                        .padding(.vertical, 8)
+                        .padding(.trailing, 8)
                 }
                 .background(Yoin.surface)
             } else {
@@ -170,6 +160,45 @@ private struct PadColumns: View {
     }
 
     @State private var wide = false
+
+    /// The wide window's detail column (Android: every detail page is the
+    /// shell's right column, docs/adaptive-principles.md): the album picked
+    /// into it, else the first page opened from the shell (an artist, a
+    /// playlist, Settings), whose back closes the column. Later pages push
+    /// inside it.
+    @ViewBuilder
+    private var detailColumn: some View {
+        if let album = model.padSelection {
+            NavigationStack(path: path) {
+                AlbumDetailView(album: album, padColumn: true)
+                    .id(album.id)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .navigationDestination(for: Route.self, destination: destination)
+            }
+            // The column's own Play split (the phone's detail bar
+            // lives in its ShellBar, which iPad doesn't have).
+            .overlay(alignment: .bottomLeading) {
+                if active { PadDetailPlay(root: album) }
+            }
+        } else if let first = model.path.first {
+            NavigationStack(path: tailPath) {
+                destination(first)
+                    .id(first)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .navigationDestination(for: Route.self, destination: destination)
+            }
+            .overlay(alignment: .bottomLeading) {
+                if active { PadDetailPlay(root: nil) }
+            }
+        }
+    }
+
+    /// The column's stack above its root page (`model.path` after the first).
+    private var tailPath: Binding<[Route]> {
+        guard active else { return .constant([]) }
+        return Binding(get: { Array(model.path.dropFirst()) },
+                       set: { tail in model.path = Array(model.path.prefix(1)) + tail })
+    }
 
     @ViewBuilder
     private var shellContent: some View {

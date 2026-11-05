@@ -52,7 +52,12 @@ final class AppModel {
     var searchCircleFrame: CGRect = .zero
     enum SearchOrigin { case bar, library }
 
-    func openSearch(from origin: SearchOrigin) {
+    /// The next Search opens on the provider's whole catalog (Android
+    /// onLibraryLongClick: Apple Music → AppleMusicGlobal), taken once.
+    var searchStartsOnCatalog = false
+
+    func openSearch(from origin: SearchOrigin, catalog: Bool = false) {
+        searchStartsOnCatalog = catalog
         searchOrigin = origin
         withAnimation(Yoin.spatial) { searchActive = true }
     }

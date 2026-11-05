@@ -59,7 +59,8 @@ struct ShellBar: View {
     /// keyboard up (Search focuses its field as it opens).
     private func openLibrarySearch() {
         model.select(.library)
-        model.openSearch(from: .library)
+        // Apple Music: the whole catalog (Android LibrarySearchScope.AppleMusicGlobal).
+        model.openSearch(from: .library, catalog: model.store.searchesCatalog)
     }
 
     /// Android onNowPlayingLongClick (owner 2026-11-03, as Apple Music's mini

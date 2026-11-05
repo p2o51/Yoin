@@ -32,7 +32,8 @@ struct SearchView: View {
     var onClose: (() -> Void)? = nil
     @FocusState private var focused: Bool
     @State private var query = LaunchConfig.searchQuery
-    @State private var scope: Scope = LaunchConfig.screen == "search-catalog" ? .catalog : .library
+    @State private var scope: Scope = LaunchConfig.screen == "search-catalog" || AppModel.shared.searchStartsOnCatalog
+        ? .catalog : .library
     @State private var filter: Filter = LaunchConfig.searchFilter
     /// The results column's width (inside the 16 margins), for the 3-column cells.
     @State private var width: CGFloat = 370
