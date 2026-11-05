@@ -2035,7 +2035,11 @@ private fun CompactPlayingContent(
                                 CompactDetailPage(
                                     page = NowPlayingDetailPage.entries[page],
                                     // Short-window focus: the lyrics line up with the cover.
-                                    pageInset = focusLyricInset,
+                                    // A list shown only in focus keeps the focus's width
+                                    // all the way (it fades with the focus instead): a
+                                    // width that eases re-wraps the lines mid-exit, which
+                                    // read as a one-frame jump (QA 2026-11-05).
+                                    pageInset = if (focusOpensList) budget.focusLyricInset else focusLyricInset,
                                     // The run-on under the transport: looser dots
                                     // while it shows (owner 2026-11-05).
                                     listCoveredPx = { focusLyricOverflowPx },
