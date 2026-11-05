@@ -241,7 +241,6 @@ final class GlassLab {
         ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
         ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
         ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
-        ("emblemGlass", Double(EmblemGlass.lens.rawValue)),
     ]
 
     private func resetValues() {
