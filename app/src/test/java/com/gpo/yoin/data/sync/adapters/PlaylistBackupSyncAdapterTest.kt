@@ -70,6 +70,29 @@ class PlaylistBackupSyncAdapterTest {
     }
 
     @Test
+    fun should_carryTheAccount_when_itIsKnown() = runTest {
+        store.save(backup.copy(sourceAccount = "s-home"))
+        val local = adapter.readAll(null).single()
+        dao.delete("b1")
+
+        adapter.apply(null, "b1", local.projection, versionTs = 100L, expectedLocalHash = null)
+
+        assertEquals(JsonPrimitive("s-home"), local.projection["sourceAccount"])
+        assertEquals("s-home", store.get("b1")?.sourceAccount)
+    }
+
+    @Test
+    fun should_projectAsBefore_when_theAccountIsNotKnown() = runTest {
+        // Backups from before the account was kept must hash as they did, or every one would upload again.
+        store.save(backup)
+
+        val projection = adapter.readAll(null).single().projection
+
+        assertTrue("sourceAccount" !in projection)
+        assertEquals(null, adapter.project(projection)?.get("sourceAccount"))
+    }
+
+    @Test
     fun should_keepUnknownFields_when_newerDeviceWroteContent() = runTest {
         store.save(backup)
         val projection = adapter.readAll(null).single().projection

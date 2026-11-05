@@ -9,6 +9,12 @@ sealed interface AlbumDetailUiState {
     data class Content(
         val albumId: String,
         val albumName: String,
+        /**
+         * The release's version as the server names it ("全景声"): the header
+         * shows it as a tag after [albumName] without the " (全景声)" the server
+         * appended; everywhere else [albumName] stays whole. Null when none.
+         */
+        val albumVersion: String? = null,
         val artistName: String,
         val artistId: String?,
         val coverArtId: String?,

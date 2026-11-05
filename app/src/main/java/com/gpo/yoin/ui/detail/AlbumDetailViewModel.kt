@@ -241,6 +241,7 @@ class AlbumDetailViewModel(
                 _uiState.value = AlbumDetailUiState.Content(
                     albumId = album.id.toString(),
                     albumName = album.name,
+                    albumVersion = album.version,
                     artistName = album.artist.orEmpty(),
                     artistId = album.artistId?.toString(),
                     coverArtId = CoverRef.toStorageKey(album.coverArt),
@@ -685,7 +686,8 @@ class AlbumDetailViewModel(
         when (edit) {
             is ScrapEdit.Score -> {
                 val id = MediaId.parseOrNull(edit.songId) ?: return
-                repository.setRating(id, edit.score)
+                val score = edit.score
+                if (score == null) repository.clearRating(id) else repository.setRating(id, score)
             }
             is ScrapEdit.About -> launchScrapWrite { repository.editAboutEntry(edit.ref, edit.title, edit.answer) }
             is ScrapEdit.Ask -> askFromScrapbook(edit)
@@ -696,6 +698,7 @@ class AlbumDetailViewModel(
                 }
             }
             is ScrapEdit.Regenerate -> regenerateFromScrapbook(edit)
+            is ScrapEdit.Generate -> generateFromScrapbook(edit)
             is ScrapEdit.NoteText -> {
                 val was = viewModelScope.async { scrapWrite { repository.editNoteById(edit.noteId, edit.text) } }
                 if (edit.text.isBlank()) deletedScrapNotes[edit.noteId] = was
@@ -757,6 +760,34 @@ class AlbumDetailViewModel(
                 }
             } finally {
                 scrapGemini.update { it.copy(asking = it.asking - asking) }
+            }
+        }
+    }
+
+    private fun generateFromScrapbook(edit: ScrapEdit.Generate) {
+        val songId = edit.songId
+        if (songId in scrapGemini.value.generating) return
+        val keys = scrapAboutKeys(songId) ?: return
+        scrapGemini.update { it.copy(generating = it.generating + songId) }
+        viewModelScope.launch {
+            try {
+                val result = repository.ensureCanonicalAbout(
+                    title = keys.title,
+                    artist = keys.artist,
+                    album = keys.album,
+                    retry = true,
+                )
+                when (result) {
+                    is YoinRepository.AboutLoadResult.Success -> Unit
+                    YoinRepository.AboutLoadResult.ApiKeyMissing ->
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)))
+                    is YoinRepository.AboutLoadResult.Error -> {
+                        Log.w(TAG, "Generate from the scrapbook failed: ${result.message}")
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed)))
+                    }
+                }
+            } finally {
+                scrapGemini.update { it.copy(generating = it.generating - songId) }
             }
         }
     }

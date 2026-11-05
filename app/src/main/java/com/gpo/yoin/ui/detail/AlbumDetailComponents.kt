@@ -827,7 +827,8 @@ internal fun AlbumRateSheet(
             // The bar wears the cover's colours, like the page's Play.
             MaterialTheme(colorScheme = rememberCoverColorScheme(content.coverArtUrl) ?: MaterialTheme.colorScheme) {
                 RatingSlider(
-                    rating = live,
+                    // An album's 0 is its clear ("撤销评分", setUserRating): no score, so no number.
+                    rating = live.takeIf { it > 0f },
                     onRatingChange = { live = it },
                     orientation = Orientation.Horizontal,
                     // The sheet scrolls and drags away: a swipe across the bar is the sheet's, not a score.

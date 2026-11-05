@@ -2,7 +2,6 @@ package com.gpo.yoin.player
 
 import android.content.Intent
 import androidx.annotation.OptIn
-import androidx.media3.common.AudioAttributes
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import androidx.media3.common.C
@@ -110,17 +109,28 @@ class PlaybackService : MediaSessionService() {
                 )
             },
         )
+        // Volume leveling, per song at the sample where it begins (ReplayGainAudioProcessor.kt).
+        // A download whose page the cache no longer has still carries its gain.
+        val replayGain = ReplayGainAudioProcessor(
+            settings = { ReplayGainPreference.current(this) },
+            gainFor = { item ->
+                item.mediaMetadata.extras?.getBundle(EXTRA_REPLAY_GAIN)?.toReplayGain()
+                    ?: offlineDownloads.library.value.replayGainOf(item.mediaId)
+            },
+        )
+
         // A transcoded mp3 is constant bit rate with no seek table of its own.
         val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .build()
+        // Multichannel songs are left to the system Spatializer (behaviour AUTO)
+        // unless the listener turned spatial audio off (SpatialAudio.kt).
+        val spatialAudio = container.spatialAudio
+        var spatialMode = spatialAudio.state.value.mode
 
         val player = ExoPlayer.Builder(this)
+            .setRenderersFactory(replayGainRenderersFactory(this, replayGain))
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractors))
-            .setAudioAttributes(audioAttributes, true)
+            .setAudioAttributes(musicAudioAttributes(spatialMode), true)
             .setHandleAudioBecomingNoisy(true)
             .build()
         localPlayer = player
@@ -128,6 +138,7 @@ class PlaybackService : MediaSessionService() {
         // applies the user's current mode whenever Yoin starts a queue.
         player.repeatMode = Player.REPEAT_MODE_ALL
         player.addListener(StreamFormatListener(player, resolver))
+        player.addAnalyticsListener(AudioOutputLog)
 
         setMediaNotificationProvider(yoinNotificationProvider())
         val actions = SessionQuickActions(this, { container.playbackManager }, { container.repository })
@@ -138,6 +149,14 @@ class PlaybackService : MediaSessionService() {
             .build()
             .also(actions::attach)
         _audioSessionId.value = player.audioSessionId
+        serviceScope.launch {
+            spatialAudio.state.collect { state ->
+                if (state.mode == spatialMode) return@collect
+                spatialMode = state.mode
+                // Takes effect at once: the player reopens its audio output.
+                player.setAudioAttributes(musicAudioAttributes(spatialMode), true)
+            }
+        }
         serviceScope.launch {
             container.dlnaManager.connectedDevice.collect { device ->
                 // The local player stays paused throughout a remote session. Losing

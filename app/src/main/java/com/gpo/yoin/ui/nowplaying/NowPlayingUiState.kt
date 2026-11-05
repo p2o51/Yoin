@@ -4,10 +4,12 @@ package com.gpo.yoin.ui.nowplaying
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.data.model.LibraryMembership
+import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.ServiceFeatures
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.player.QueueEdit
+import com.gpo.yoin.player.SpatialPlayback
 
 sealed interface NowPlayingUiState {
 
@@ -63,7 +65,8 @@ sealed interface NowPlayingUiState {
         val isPlaying: Boolean,
         val durationMs: Long,
         val songId: String,
-        val rating: Float,
+        /** The track's score, 0.0–10.0; null when it was never rated (the bar is empty, no number). */
+        val rating: Float?,
         val isStarred: Boolean,
         /**
          * Spotify's answers that came in late and flipped [isStarred]: each
@@ -73,6 +76,8 @@ sealed interface NowPlayingUiState {
          */
         val favoriteQuietFlips: Int = 0,
         val lyrics: List<LyricLine>,
+        /** Credits the lyrics source wrote into the lyrics, moved to About (owner 2026-11-05). */
+        val lyricCredits: LyricCredits? = null,
         val showLyricsTranslation: Boolean,
         val lyricsActionInFlight: LyricsAction?,
         /**
@@ -100,6 +105,8 @@ sealed interface NowPlayingUiState {
         val formatTags: List<String> = emptyList(),
         /** The file's codec tag while a transcode of it plays; null otherwise. */
         val transcodedFrom: String? = null,
+        /** Whether the system spatializes what plays, for the "Spatial" tag. */
+        val spatialPlayback: SpatialPlayback = SpatialPlayback.NotMultichannel,
         /** The next song's timed lyrics, fetched ahead for the outro hand-over. */
         val upNextLyrics: UpNextLyrics? = null,
     ) : NowPlayingUiState
@@ -115,6 +122,7 @@ data class UpNextLyrics(
     val title: String,
     val artist: String,
     val lines: List<LyricLine>,
+    val credits: LyricCredits? = null,
     val providerName: String? = null,
     val providerSongId: String? = null,
 )

@@ -110,9 +110,62 @@ class TrackRatingSyncAdapterTest {
         assertEquals(1, adapter.readAll("p1").size)
     }
 
+    @Test
+    fun should_projectBareZero_when_trackIsNotRated() = runTest {
+        // A cleared row keeps the format's original "rating": 0, which older builds read as not rated.
+        dao.upsertTrackRating(local(rating = null, serverRating = 0, needsSync = false, updatedAt = 10L))
+
+        val row = adapter.readAll("p1").single()
+
+        assertEquals(hashOf(adapter.project(rating(0f))), hashOf(row.projection))
+        assertFalse(row.projection.containsKey(TrackRatingSyncAdapter.ZERO))
+    }
+
+    @Test
+    fun should_markZeroScore_when_trackIsRatedZero() = runTest {
+        dao.upsertTrackRating(local(rating = 0f, serverRating = 0, needsSync = false, updatedAt = 10L))
+
+        val row = adapter.readAll("p1").single()
+
+        assertEquals(hashOf(adapter.project(zeroScore())), hashOf(row.projection))
+        assertTrue(row.projection.containsKey(TrackRatingSyncAdapter.ZERO))
+        assertFalse(hashOf(adapter.project(rating(0f))) == hashOf(row.projection))
+    }
+
+    @Test
+    fun should_storeNotRated_when_bareZeroArrives() = runTest {
+        adapter.apply("p1", key, rating(0f), versionTs = 500L, expectedLocalHash = null)
+
+        val stored = dao.trackRating("p1", "song-1", "subsonic")!!
+        assertNull(stored.rating)
+        assertEquals(0, stored.serverRating)
+    }
+
+    @Test
+    fun should_storeZeroScore_when_markedZeroArrives() = runTest {
+        adapter.apply("p1", key, zeroScore(), versionTs = 500L, expectedLocalHash = null)
+
+        assertEquals(0f, dao.trackRating("p1", "song-1", "subsonic")!!.rating)
+    }
+
+    @Test
+    fun should_clearTheScore_when_bareZeroOverwritesAScore() = runTest {
+        dao.upsertTrackRating(local(rating = 6f, serverRating = 3, needsSync = false, updatedAt = 10L))
+        val expected = hashOf(adapter.readAll("p1").single().projection)
+
+        adapter.apply("p1", key, rating(0f), versionTs = 900L, expectedLocalHash = expected)
+
+        val stored = dao.trackRating("p1", "song-1", "subsonic")!!
+        assertNull(stored.rating)
+        assertEquals(0, stored.serverRating)
+        assertEquals(900L, stored.updatedAt)
+    }
+
+    private fun zeroScore() = payload("""{"songId":"song-1","provider":"subsonic","rating":0,"zero":true}""")
+
     private fun rating(value: Float) = payload("""{"songId":"song-1","provider":"subsonic","rating":$value}""")
 
-    private fun local(rating: Float, serverRating: Int, needsSync: Boolean, updatedAt: Long) = LocalRating(
+    private fun local(rating: Float?, serverRating: Int, needsSync: Boolean, updatedAt: Long) = LocalRating(
         profileId = "p1",
         songId = "song-1",
         provider = "subsonic",

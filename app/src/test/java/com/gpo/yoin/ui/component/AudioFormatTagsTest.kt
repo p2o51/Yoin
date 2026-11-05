@@ -58,4 +58,51 @@ class AudioFormatTagsTest {
     fun should_useServerWord_when_decoderSilent() {
         assertEquals(listOf("FLAC 24/96"), playingFormatTags(hiRes, null, null, null))
     }
+
+    @Test
+    fun should_mapEac3JocMime_when_decoderReportsIt() {
+        assertEquals("eac3-joc", AudioFormat.codecForMime("audio/eac3-joc"))
+        assertEquals("eac3", AudioFormat.codecForMime("audio/eac3"))
+        assertEquals("ac4", AudioFormat.codecForMime("audio/ac4"))
+    }
+
+    @Test
+    fun should_showDolbyAtmosAlone_when_codecIsEac3Joc() {
+        val atmos = AudioFormat("eac3-joc", bitRateKbps = 768, sampleRateHz = 48000, channels = 6)
+        assertEquals(listOf("Dolby Atmos"), audioFormatTags(atmos))
+        assertEquals(listOf("Dolby Atmos"), audioFormatTags(atmos.copy(channels = 2)))
+    }
+
+    @Test
+    fun should_spellDolbyCodecs_when_notAtmos() {
+        assertEquals(listOf("E-AC-3 640", "5.1"), audioFormatTags(AudioFormat("eac3", 640, channels = 6)))
+        assertEquals(listOf("AC-4"), audioFormatTags(AudioFormat("ac4")))
+    }
+
+    @Test
+    fun should_waitForTheDecoder_when_serverKnowsNothing() {
+        assertEquals(emptyList<String>(), playingFormatTags(source = null, decoded = null, null, null))
+        val decoded = AudioFormat("eac3-joc", sampleRateHz = 48000, channels = 6)
+        assertEquals(listOf("Dolby Atmos"), playingFormatTags(source = null, decoded = decoded, null, null))
+    }
+
+    @Test
+    fun should_letTheDecoderWin_when_serverSaidAac() {
+        // A page cached before the server's empty m4a fields were read as unknown.
+        val stale = AudioFormat("aac")
+        val decoded = AudioFormat("eac3-joc", channels = 6)
+        assertEquals(listOf("Dolby Atmos"), playingFormatTags(stale, decoded, null, null))
+    }
+
+    @Test
+    fun should_showTheTranscodeAndNoSource_when_atmosIsTranscoded() {
+        val decoded = AudioFormat("mp3", channels = 2)
+        assertEquals(listOf("MP3 320"), playingFormatTags(source = null, decoded = decoded, "mp3", 320))
+        assertNull(transcodedFrom(source = null, transcodeKbps = 320))
+    }
+
+    @Test
+    fun should_keepSurroundFlacTags_when_notDolby() {
+        assertEquals(listOf("FLAC 16/44.1", "5.1"), playingFormatTags(surround, AudioFormat("flac", channels = 6), null, null))
+    }
 }

@@ -1400,6 +1400,7 @@ class PlaybackManager(
             track.userRating?.let { putInt(EXTRA_USER_RATING, it) }
             track.discNumber?.let { putInt(EXTRA_DISC_NUMBER, it) }
             track.audioFormat?.let { putBundle(EXTRA_AUDIO_FORMAT, it.toBundle()) }
+            track.replayGain?.let { putBundle(EXTRA_REPLAY_GAIN, it.toBundle()) }
             // The service's own facts (credited artists, the Subsonic file's
             // suffix and size), so the playing song keeps them.
             if (track.extras.isNotEmpty()) {
@@ -1452,6 +1453,7 @@ class PlaybackManager(
             isStarred = extras?.getBoolean(EXTRA_STARRED, false) == true,
             extras = extras?.trackExtras().orEmpty(),
             audioFormat = extras?.getBundle(EXTRA_AUDIO_FORMAT)?.toAudioFormat(),
+            replayGain = extras?.getBundle(EXTRA_REPLAY_GAIN)?.toReplayGain(),
             discNumber = extras?.takeIf { it.containsKey(EXTRA_DISC_NUMBER) }?.getInt(EXTRA_DISC_NUMBER),
         )
     }

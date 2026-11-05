@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.nowplaying
 
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.model.LyricCredit
+import com.gpo.yoin.data.model.LyricCreditRole
+import com.gpo.yoin.data.model.LyricCredits
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -40,6 +43,32 @@ class SpineCreditsTest {
         assertEquals(
             listOf(SpineItem("lyricist", "L L2"), SpineItem("producer", "P")),
             items(entries),
+        )
+    }
+
+    @Test
+    fun should_preferTheLyricsSourceCredits_when_itNamesTheRole() {
+        val entries = listOf(
+            row(SongAboutEntry.KIND_CANONICAL, SongAboutEntry.CANON_LYRICIST, "Gemini guess"),
+            row(SongAboutEntry.KIND_CANONICAL, SongAboutEntry.CANON_PRODUCER, "P"),
+        )
+        val credits = LyricCredits(
+            roles = listOf(
+                LyricCredit("作词", "唐恬", LyricCreditRole.Lyricist),
+                LyricCredit("作曲", "钱雷", LyricCreditRole.Composer),
+            ),
+        )
+        assertEquals(
+            listOf(SpineItem("lyricist", "唐恬"), SpineItem("composer", "钱雷"), SpineItem("producer", "P")),
+            spineItems(
+                entries,
+                null,
+                albumName = "Album",
+                artist = "Artist",
+                title = "Title",
+                labels = labels,
+                credits = credits,
+            ),
         )
     }
 

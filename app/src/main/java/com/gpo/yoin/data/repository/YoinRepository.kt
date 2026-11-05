@@ -1597,20 +1597,31 @@ class YoinRepository(
      * of the same track overtook while it waited is skipped. The job is the
      * whole write, push included.
      */
-    fun setRating(trackId: MediaId, rating: Float): Job = repositoryScope.launch(start = CoroutineStart.UNDISPATCHED) {
-        val pending = storeRating(trackId, rating) ?: return@launch
-        pushRating(pending)
-    }
+    fun setRating(trackId: MediaId, rating: Float): Job = writeRating(trackId, rating.coerceIn(0f, 10f))
 
-    private suspend fun storeRating(trackId: MediaId, rating: Float): LocalRating? {
+    /**
+     * Takes [trackId] back to "not rated" (null, never 0.0, which is a score).
+     * Only the album scrapbook's track sheet offers this. The row is kept with
+     * no score rather than deleted: track ratings don't sync deletes, so a
+     * deleted row would come back from the cloud copy. The provider gets 0
+     * (Subsonic: remove the rating), as it does for a 0.0.
+     */
+    fun clearRating(trackId: MediaId): Job = writeRating(trackId, null)
+
+    private fun writeRating(trackId: MediaId, rating: Float?): Job =
+        repositoryScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val pending = storeRating(trackId, rating) ?: return@launch
+            pushRating(pending)
+        }
+
+    private suspend fun storeRating(trackId: MediaId, localRating: Float?): LocalRating? {
         val profileId = activeProfileId.value ?: return null
-        val localRating = rating.coerceIn(0f, 10f)
         val pending = LocalRating(
             profileId = profileId,
             songId = trackId.rawId,
             provider = trackId.provider,
             rating = localRating,
-            serverRating = (localRating / 2f).roundToInt().coerceIn(0, 5),
+            serverRating = ((localRating ?: 0f) / 2f).roundToInt().coerceIn(0, 5),
             needsSync = true,
         )
         ratingStores.withLock {

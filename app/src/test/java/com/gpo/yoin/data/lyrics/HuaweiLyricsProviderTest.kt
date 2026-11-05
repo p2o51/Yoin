@@ -282,8 +282,8 @@ class HuaweiLyricsProviderTest {
         assertTrue(translation.contains("[00:01.60]如果只是一场梦"))
         // Title and credit lines share 00:00.00 and get placeholders, one per line.
         assertEquals(3, translation.lines().count { it == "[00:00.00]//" })
-        val original = LrcParser.parse(payload.lyric) as Lyrics.Synced
-        val translated = LrcParser.parse(translation) as Lyrics.Synced
+        val original = LrcParser.parse(payload.lyric, extractCredits = false) as Lyrics.Synced
+        val translated = LrcParser.parse(translation, extractCredits = false) as Lyrics.Synced
         assertEquals(original.lines.map { it.startMs }, translated.lines.map { it.startMs })
         assertEquals(payload.lyric, provider.fetchLyric(match.songId))
     }

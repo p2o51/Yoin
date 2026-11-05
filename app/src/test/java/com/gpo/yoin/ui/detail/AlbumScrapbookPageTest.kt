@@ -82,7 +82,7 @@ class AlbumScrapbookPageTest {
     }
 
     @Test
-    fun should_clearTheScore_when_ticketLongPressedAndScoreCleared() {
+    fun should_clearTheScoreToUnrated_when_ticketLongPressedAndScoreCleared() {
         show()
 
         rule.onNode(hasContentDescription("Track 1, Song 1, rated 8.5", substring = true))
@@ -92,9 +92,10 @@ class AlbumScrapbookPageTest {
         // the score is a pill beside the title; it opens the bar
         rule.onNodeWithContentDescription("Score 8.5").performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("Clear").performClick()
+        rule.onNodeWithText("Clear rating").performClick()
 
-        assertEquals(listOf<ScrapEdit>(ScrapEdit.Score("subsonic:t1", 0f)), edits)
+        // Null, not 0.0: a cleared track is "not rated".
+        assertEquals(listOf<ScrapEdit>(ScrapEdit.Score("subsonic:t1", null)), edits)
     }
 
     @Test

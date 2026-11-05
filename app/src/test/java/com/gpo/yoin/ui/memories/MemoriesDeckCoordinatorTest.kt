@@ -272,14 +272,14 @@ class MemoriesDeckCoordinatorTest {
         val candidate = visitOnlyCandidate()
         stubAlbum(
             candidate = candidate,
-            ratings = mapOf("t1" to 8f, "t3" to 0f),
+            ratings = mapOf("t1" to 8f, "t3" to null),
             songNotes = listOf(
                 songNote(id = "n1", track = "t4", text = "Only a note", positionMs = 1_000L, at = day(1)),
             ),
         )
         val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).ensureDeck().single()
 
-        // t1 rated, t4 noted; t2 untouched and t3's 0 rating count as neither
+        // t1 rated, t4 noted; t2 untouched and t3's cleared rating count as neither
         assertEquals(listOf("t1", "t4"), memory.diaryTracks.map { it.track.trackId })
         val first = memory.diaryTracks[0].track
         assertEquals(1, first.number)
@@ -507,7 +507,7 @@ class MemoriesDeckCoordinatorTest {
 
     private fun stubAlbum(
         candidate: AlbumMemoryCandidate,
-        ratings: Map<String, Float> = emptyMap(),
+        ratings: Map<String, Float?> = emptyMap(),
         songNotes: List<SongNote> = emptyList(),
         albumNotes: List<AlbumNote> = emptyList(),
         review: String? = null,

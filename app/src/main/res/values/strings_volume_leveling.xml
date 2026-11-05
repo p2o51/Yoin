@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_volume_leveling_title">Volume leveling</string>
+    <string name="settings_volume_leveling_off">Off</string>
+    <string name="settings_volume_leveling_track">By track</string>
+    <string name="settings_volume_leveling_album">By album</string>
+</resources>

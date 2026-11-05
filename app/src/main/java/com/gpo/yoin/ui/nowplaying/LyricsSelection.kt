@@ -266,6 +266,14 @@ internal fun LyricsTools(
     val resources = LocalContext.current.resources
     val copyLyrics = rememberCopyLyrics(onMessage)
     val haptics = rememberYoinHaptics()
+    // Action light (ActionGlow.kt): copied or shared lyrics light a band over the lines.
+    val glowSignal = LocalNowPlayingTransportSignal.current
+    val lineGlow = {
+        glowSignal?.let {
+            it.glow(ActionGlowKind.LineGlow, it.lyricsAreaRoot, targetY = it.currentLineRootY ?: Float.NaN)
+        }
+        Unit
+    }
     AnimatedContent(
         targetState = selection.active,
         transitionSpec = {
@@ -297,10 +305,14 @@ internal fun LyricsTools(
                             ),
                             lines.size,
                         )
+                        lineGlow()
                         selection.exit()
                     }
                 },
-                onShareClick = selection::openShare,
+                onShareClick = {
+                    lineGlow()
+                    selection.openShare()
+                },
                 onEditClick = {
                     selection.exit()
                     onEditLyricsClick()

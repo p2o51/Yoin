@@ -373,7 +373,7 @@ class MemoriesDeckCoordinator(
         val ratings = facts.ratings
         val rated = facts.rated
         val averageRating = rated
-            .map(LocalRating::rating)
+            .mapNotNull(LocalRating::rating)
             .takeIf(List<Float>::isNotEmpty)
             ?.average()
             ?.toFloat()
@@ -501,7 +501,7 @@ class MemoriesDeckCoordinator(
         val songs = playlist?.tracks.orEmpty()
         val ratings = repository.getRatings(songs.map(Track::id))
         val rated = songs.mapNotNull { song ->
-            ratings[song.id]?.takeIf { localRating -> localRating.rating > 0f }
+            ratings[song.id]?.takeIf { localRating -> localRating.rating != null }
         }
 
         val coverArtUrl = playlist?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
@@ -539,7 +539,7 @@ class MemoriesDeckCoordinator(
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
                     durationSeconds = song.durationSec,
-                    rating = ratings[song.id]?.rating?.takeIf { rating -> rating > 0f },
+                    rating = ratings[song.id]?.rating,
                 ).withIndexFallback(index)
             },
         )
@@ -726,16 +726,18 @@ internal fun diaryTracks(tracks: List<MemoryTrack>, writings: List<MemoryWriting
     }
 }
 
-/** The card's score with the shared Memories rounding ([MemoryScores]: 9.95 → "10.0"); "N/A" when unrated. */
-internal fun Float?.formatScore(): String = if (this != null && this > 0f) {
+/**
+ * The card's score with the shared Memories rounding ([MemoryScores]: 9.95 → "10.0"); "N/A" when unrated
+ * (null). A 0.0 is a score and reads "0.0"; callers pass an album rating only when one is set.
+ */
+internal fun Float?.formatScore(): String = if (this != null) {
     MemoryScores.text(this)
 } else {
     "N/A"
 }
 
 internal fun List<LocalRating>.averageScoreText(): String =
-    map(LocalRating::rating)
-        .filter { rating -> rating > 0f }
+    mapNotNull(LocalRating::rating)
         .takeIf(List<Float>::isNotEmpty)
         ?.average()
         ?.let(MemoryScores::text)

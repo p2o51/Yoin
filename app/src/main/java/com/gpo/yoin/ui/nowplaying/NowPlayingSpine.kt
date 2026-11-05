@@ -37,8 +37,17 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.model.LyricCreditRole
+import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.subsonic.EXTRA_BPM
+import com.gpo.yoin.data.source.subsonic.EXTRA_COMMENT
+import com.gpo.yoin.data.source.subsonic.EXTRA_COMPOSER
+import com.gpo.yoin.data.source.subsonic.EXTRA_CREATED
+import com.gpo.yoin.data.source.subsonic.EXTRA_PATH
+import com.gpo.yoin.data.source.subsonic.EXTRA_PLAY_COUNT
+import com.gpo.yoin.data.source.subsonic.EXTRA_SIZE
 import com.gpo.yoin.ui.component.codecLabel
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.experience.LocalMotionProfile
@@ -76,6 +85,17 @@ data class SpineSourceFacts(
     val year: Int? = null,
     val trackNumber: Int? = null,
     val discNumber: Int? = null,
+    // About's receipt shows everything the server says (owner 2026-11-05); the spine keeps to the above.
+    val durationSec: Int? = null,
+    val channels: Int? = null,
+    val sizeBytes: Long? = null,
+    val playCount: Long? = null,
+    val bpm: Int? = null,
+    val composer: String? = null,
+    val comment: String? = null,
+    /** When the file was added to the library, ISO-8601 as the server sent it. */
+    val added: String? = null,
+    val path: String? = null,
 )
 
 /** The spine's Subsonic facts for [this] track; null for every other provider. */
@@ -91,6 +111,15 @@ internal fun Track.spineSourceFacts(): SpineSourceFacts? {
         year = year?.takeIf { it > 0 },
         trackNumber = trackNumber?.takeIf { it > 0 },
         discNumber = discNumber,
+        durationSec = durationSec?.takeIf { it > 0 },
+        channels = audioFormat?.channels,
+        sizeBytes = extras[EXTRA_SIZE]?.toLongOrNull()?.takeIf { it > 0 },
+        playCount = extras[EXTRA_PLAY_COUNT]?.toLongOrNull(),
+        bpm = extras[EXTRA_BPM]?.toIntOrNull(),
+        composer = extras[EXTRA_COMPOSER],
+        comment = extras[EXTRA_COMMENT],
+        added = extras[EXTRA_CREATED],
+        path = extras[EXTRA_PATH]?.takeIf(String::isNotBlank),
     )
 }
 
@@ -128,12 +157,17 @@ internal fun spineItems(
     artist: String,
     title: String,
     labels: SpineLabels,
+    /** The lyrics source's credits: they answer lyricist / composer / producer before Gemini does. */
+    credits: LyricCredits? = null,
 ): List<SpineItem> {
     val items = mutableListOf<SpineItem>()
     SpineCreditKeys.forEach { key ->
-        entries
-            .firstOrNull { it.kind == SongAboutEntry.KIND_CANONICAL && it.entryKey == key }
-            ?.answerText
+        (
+            key.lyricCreditRole()?.let { credits?.namesFor(it) }
+                ?: entries
+                    .firstOrNull { it.kind == SongAboutEntry.KIND_CANONICAL && it.entryKey == key }
+                    ?.answerText
+            )
             ?.replace(Regex("\\s+"), " ")
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -165,6 +199,13 @@ internal fun spineItems(
         if (line.isNotEmpty()) items += SpineItem("", line)
     }
     return items
+}
+
+private fun String.lyricCreditRole(): LyricCreditRole? = when (this) {
+    SongAboutEntry.CANON_LYRICIST -> LyricCreditRole.Lyricist
+    SongAboutEntry.CANON_COMPOSER -> LyricCreditRole.Composer
+    SongAboutEntry.CANON_PRODUCER -> LyricCreditRole.Producer
+    else -> null
 }
 
 /** 44100 → "44.1", 96000 → "96". */

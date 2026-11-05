@@ -28,6 +28,13 @@ class HomeAlbumMemoryMarkTest {
     }
 
     @Test
+    fun should_markZeroPointZero_when_tracksAreRatedZero() {
+        val mark = albumMemoryMarkOf(candidate("a", average = 0f, ratedTracks = 2))
+
+        assertEquals(HomeAlbumMemoryMark(MemoryScoreKind.AVERAGE_TRACK_RATING, scoreText = "0.0", noteCount = 0), mark)
+    }
+
+    @Test
     fun should_markNotesWithoutAScore_when_onlyNotesAreKept() {
         val mark = albumMemoryMarkOf(candidate("a", notes = 3))
 
@@ -39,7 +46,8 @@ class HomeAlbumMemoryMarkTest {
         // Plays, a review alone, or an average with no rated track behind it.
         assertNull(albumMemoryMarkOf(candidate("plays")))
         assertNull(albumMemoryMarkOf(candidate("review", review = true)))
-        assertNull(albumMemoryMarkOf(candidate("zero", albumRating = 0f, average = 0f)))
+        // An album's 0 is its cleared rating; no rated track means no average.
+        assertNull(albumMemoryMarkOf(candidate("zero", albumRating = 0f)))
         assertNull(albumMemoryMarkOf(candidate("ghost", average = 8f, ratedTracks = 0)))
     }
 

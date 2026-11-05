@@ -22,6 +22,7 @@ import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.media3.exoplayer.scheduler.Requirements
+import com.gpo.yoin.data.cache.ReplayGainDto
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -402,6 +403,7 @@ class OfflineDownloads(
             trackNumber = track.trackNumber,
             discNumber = track.discNumber,
             quality = quality.key,
+            replayGain = track.replayGain?.let(ReplayGainDto::from),
         )
     }
 }

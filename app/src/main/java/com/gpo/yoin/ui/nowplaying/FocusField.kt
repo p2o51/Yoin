@@ -40,6 +40,12 @@ class CoverField(
     val palette: IntArray,
     /** The cover's most vivid colour. */
     val accent: Int,
+    /**
+     * The cover's swatches as Palette reads them (vibrant, muted, dark and
+     * light vibrant, dark and light muted, dominant; the ones it found, ARGB):
+     * the seeds dark focus's room takes its hues from ([darkRoomOf]).
+     */
+    val swatches: IntArray = IntArray(0),
 ) {
     /** The cover's colour at ([u], [v]) in 0..1, nearest sample. */
     fun at(u: Float, v: Float): Int {
@@ -58,7 +64,7 @@ class CoverField(
  * Builds a [CoverField] from [pixels] (ARGB, [width] × [height]). Null when
  * there is nothing to read.
  */
-fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
+fun buildCoverField(pixels: IntArray, width: Int, height: Int, swatches: IntArray = IntArray(0)): CoverField? {
     if (width <= 0 || height <= 0 || pixels.size < width * height) return null
     val n = CoverField.GridSize
     val grid = IntArray(n * n)
@@ -117,7 +123,7 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
         val w = bucketWeight[k]
         argb((bucketR[k] / w).roundToInt(), (bucketG[k] / w).roundToInt(), (bucketB[k] / w).roundToInt())
     }
-    return CoverField(grid, palette, accent)
+    return CoverField(grid, palette, accent, swatches)
 }
 
 /**
@@ -130,22 +136,102 @@ fun buildCoverField(pixels: IntArray, width: Int, height: Int): CoverField? {
  * primary and tertiary hues instead of a surface, and the wanderer is the
  * brightest point, a lit primary moving through the room.
  */
-fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int): RoomPalette {
+fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int, coverSwatches: IntArray = IntArray(0)): RoomPalette =
+    roomOf(primary, secondary, tertiary, coverSwatches, DarkRoomTones, DarkRoomMinChroma)
+
+/**
+ * Light focus's room, the same recipe as [darkRoomOf] (owner 2026-11-05:
+ * 「浅色也这么改一下」): the primary's hue and up to two hues off the cover's
+ * swatches, re-toned pale for dark lyrics on top. The current line's floor
+ * ([readableUnder]) still lifts any point that comes out too deep.
+ */
+fun lightRoomOf(primary: Int, secondary: Int, tertiary: Int, coverSwatches: IntArray = IntArray(0)): RoomPalette =
+    roomOf(primary, secondary, tertiary, coverSwatches, LightRoomTones, LightRoomMinChroma)
+
+/**
+ * The room's four colours and wanderer at [tones] (primary, second, third,
+ * the blend, the wanderer), each at least [minChroma] (the second ×0.8, the
+ * wanderer ×1.6).
+ */
+private fun roomOf(
+    primary: Int,
+    secondary: Int,
+    tertiary: Int,
+    coverSwatches: IntArray,
+    tones: DoubleArray,
+    minChroma: Double,
+): RoomPalette {
     val p = Hct.fromInt(primary)
     val s = Hct.fromInt(secondary)
     val t = Hct.fromInt(tertiary)
     fun at(hue: Double, chroma: Double, tone: Double): Int = Hct.from(hue, chroma, tone).toInt()
-    val between = midHue(p.hue, t.hue)
+    // The second and third hues come from the cover itself (owner
+    // 2026-11-05: seeds read off the cover's swatches, then re-toned), not
+    // from the expressive scheme, which turns secondary and tertiary ~160°
+    // away from the primary (a purple cover got green ones). Where the cover
+    // has no other hue, the scheme's are used, kept within
+    // [DarkRoomMaxHueTurn] of the primary: only colours the cover hasn't got
+    // are held back.
+    val (fromCover2, fromCover3) = coverSeedHues(p.hue, coverSwatches)
+    val sHue = fromCover2 ?: nearHue(p.hue, s.hue, DarkRoomMaxHueTurn)
+    val tHue = fromCover3 ?: nearHue(p.hue, t.hue, DarkRoomMaxHueTurn)
+    val between = midHue(p.hue, tHue)
     return RoomPalette(
         colors = intArrayOf(
-            at(p.hue, max(p.chroma, DarkRoomMinChroma), 32.0),
-            at(s.hue, max(s.chroma, DarkRoomMinChroma * 0.8), 24.0),
-            at(t.hue, max(t.chroma, DarkRoomMinChroma), 32.0),
-            at(between, DarkRoomMinChroma, 14.0),
+            at(p.hue, max(p.chroma, minChroma), tones[0]),
+            at(sHue, max(s.chroma, minChroma * 0.8), tones[1]),
+            at(tHue, max(t.chroma, minChroma), tones[2]),
+            at(between, minChroma, tones[3]),
         ),
-        accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 46.0),
+        accent = at(p.hue, max(p.chroma, minChroma * 1.6), tones[4]),
     )
 }
+
+/** Dark room tones: primary, second, third, blend, wanderer (PR #128's). */
+private val DarkRoomTones = doubleArrayOf(32.0, 24.0, 32.0, 14.0, 46.0)
+
+/**
+ * Light room tones, in the pale band the old HSL toning sat in (~0.70–0.94):
+ * the blend is the lightest, the wanderer the deepest point (still lifted
+ * to the lyric floor where it must be).
+ */
+private val LightRoomTones = doubleArrayOf(88.0, 84.0, 88.0, 93.0, 80.0)
+
+/** Light pastels need less chroma to read as colour than the dark room's. */
+private const val LightRoomMinChroma = 30.0
+
+/**
+ * Up to two hues the cover really holds besides [primaryHue], from its
+ * [swatches] in Palette's order of importance: each a colour (not a grey),
+ * at least [SeedMinHueGap] from the primary and from each other. Null where
+ * the cover has no such hue.
+ */
+internal fun coverSeedHues(primaryHue: Double, swatches: IntArray): Pair<Double?, Double?> {
+    val picked = ArrayList<Double>(2)
+    for (c in swatches) {
+        val hct = Hct.fromInt(c)
+        if (hct.chroma < SeedMinChroma) continue
+        val far = (listOf(primaryHue) + picked).all { abs(((hct.hue - it + 540.0) % 360.0) - 180.0) >= SeedMinHueGap }
+        if (far) picked += hct.hue
+        if (picked.size == 2) break
+    }
+    return picked.getOrNull(0) to picked.getOrNull(1)
+}
+
+/** A swatch under this chroma is a grey: it lends the room no hue. */
+internal const val SeedMinChroma = 12.0
+
+/** Hues closer than this to one already in the room count as the same colour. */
+internal const val SeedMinHueGap = 25.0
+
+/** [b], turned toward [a] the shorter way until it is at most [maxTurn] degrees from it. */
+internal fun nearHue(a: Double, b: Double, maxTurn: Double): Double {
+    val d = ((b - a + 540.0) % 360.0) - 180.0
+    return (a + d.coerceIn(-maxTurn, maxTurn) + 360.0) % 360.0
+}
+
+/** How far the dark room's other colours may turn from the primary's hue. */
+internal const val DarkRoomMaxHueTurn = 50.0
 
 /** The hue halfway round the shorter way from [a] to [b], in degrees. */
 private fun midHue(a: Double, b: Double): Double {
@@ -153,7 +239,10 @@ private fun midHue(a: Double, b: Double): Double {
     return (a + d / 2.0 + 360.0) % 360.0
 }
 
-private const val DarkRoomMinChroma = 40.0
+// 2026-11-05: the prototype's deeper, more chromatic room (33 / 23 / 12,
+// wanderer 49, chroma 48) hurt the lyrics on device (owner: 「渐变有点太夸张
+// 导致歌词可读性不是很好」); back to the PR #128 tones with a little more chroma.
+private const val DarkRoomMinChroma = 44.0
 
 /**
  * A ready-made room palette: the theme's own colours (ARGB), used as they
@@ -201,13 +290,16 @@ fun focusFieldPoints(
 ): List<FieldPoint> {
     val s = spread.coerceIn(0f, 1f)
     val open = 0.3f + 0.7f * s
+    // The owner's 「明显」: every path FocusDriftSpeed× faster, FocusDriftReach× wider.
+    val time = timeMs * FocusDriftSpeed
+    val reach = FocusDriftReach
     fun px(x: Float) = coverCenterX + (x - coverCenterX) * open
     fun py(y: Float) = coverCenterY + (y - coverCenterY) * open
     val points = ArrayList<FieldPoint>(16)
     // Around the cover: tight, nearly still; their sampling spots orbit the rim.
     for (i in 0 until 6) {
         val a = i / 6f * TAU + 0.4f
-        val ua = a + timeMs / 16_000f
+        val ua = a + time / 16_000f
         val color = room?.around(ua / TAU * 4f)
             ?: toneForRoom(field.at(0.5f + 0.4f * cos(ua), 0.5f + 0.4f * sin(ua)), dark)
         points += FieldPoint(
@@ -220,8 +312,8 @@ fun focusFieldPoints(
     }
     // Around the room: broad, slow drift; neighbours take different main hues.
     RoomAnchors.forEachIndexed { i, (fx, fy) ->
-        val dx = sin(timeMs / (5_200f + i * 640f) + i) * coverSize * 0.09f
-        val dy = cos(timeMs / (6_100f + i * 530f) + i * 1.7f) * coverSize * 0.1f
+        val dx = sin(time / (5_200f + i * 640f) + i) * coverSize * 0.09f * reach
+        val dy = cos(time / (6_100f + i * 530f) + i * 1.7f) * coverSize * 0.1f * reach
         val hue = field.palette[RoomHueOrder[i]]
         val near = field.at(fx.coerceIn(0.06f, 0.94f), fy.coerceIn(0.06f, 0.94f))
         points += FieldPoint(
@@ -235,16 +327,17 @@ fun focusFieldPoints(
     }
     // The lower corner holds the second hue.
     points += FieldPoint(
-        x = px(width * 0.23f + sin(timeMs / 8_800f) * coverSize * 0.12f),
-        y = py(height * 0.81f + sin(timeMs / 6_100f + 1f) * coverSize * 0.28f),
+        x = px(width * 0.23f + sin(time / 8_800f) * coverSize * 0.12f * reach),
+        y = py(height * 0.81f + sin(time / 6_100f + 1f) * coverSize * 0.28f * min(reach, 1.6f)),
         color = room?.colors?.get(1) ?: toneForRoom(field.palette[1], dark, if (dark) 0.06f else 0f),
         reach = coverSize * 0.34f * open,
         weight = 1.4f,
     )
-    // The wanderer: the cover's most vivid colour, roaming.
+    // The wanderer: the cover's most vivid colour, roaming (wider, but kept on screen).
+    val roam = kotlin.math.sqrt(reach)
     points += FieldPoint(
-        x = px(width * (0.5f + 0.35f * sin(timeMs / 7_300f + 0.6f))),
-        y = py(height * (0.52f + 0.33f * sin(timeMs / 9_700f + 2.2f))),
+        x = px(width * (0.5f + min(0.46f, 0.35f * roam) * sin(time / 7_300f + 0.6f))),
+        y = py(height * (0.52f + min(0.44f, 0.33f * roam) * sin(time / 9_700f + 2.2f))),
         color = room?.accent ?: toneForRoom(field.accent, dark, if (dark) 0.12f else -0.02f),
         reach = coverSize * 0.37f * open,
         weight = 2.2f,
@@ -256,12 +349,120 @@ fun focusFieldPoints(
  * [to]'s points with each colour [t] of the way from [from]'s matching point:
  * a song change in focus keeps the geometry and crosses the colours over.
  * Both must come from [focusFieldPoints] with the same layout arguments.
+ *
+ * With [fromRight] set, the new colours sweep in from that side instead of
+ * landing everywhere at once (owner 2026-11-05: a skip forward reads right
+ * to left, a skip back left to right); [width] is the field's width.
  */
-fun crossFieldColors(from: List<FieldPoint>, to: List<FieldPoint>, t: Float): List<FieldPoint> {
+fun crossFieldColors(
+    from: List<FieldPoint>,
+    to: List<FieldPoint>,
+    t: Float,
+    fromRight: Boolean? = null,
+    width: Float = 0f,
+): List<FieldPoint> {
     if (from.size != to.size) return to
     val k = t.coerceIn(0f, 1f)
-    return to.mapIndexed { i, p -> p.copy(color = mix(from[i].color, p.color, k)) }
+    return to.mapIndexed { i, p ->
+        val local = if (fromRight == null) k else sweepAt(p.x, width, k, fromRight)
+        p.copy(color = mix(from[i].color, p.color, local))
+    }
 }
+
+/**
+ * A front sweeping across a field [width] wide as [t] goes 0 → 1, entering
+ * from the right ([fromRight]) or the left: how far it has passed a point at
+ * [x]. 0 everywhere at the start, 1 everywhere at the end; the front itself
+ * is [front] of the width, smoothstepped.
+ */
+fun sweepAt(x: Float, width: Float, t: Float, fromRight: Boolean, front: Float = SweepFront): Float {
+    val xn = if (width > 0f) (x / width).coerceIn(0f, 1f) else 0.5f
+    val fromEntry = if (fromRight) 1f - xn else xn
+    val u = ((t.coerceIn(0f, 1f) * (1f + front) - fromEntry) / front).coerceIn(0f, 1f)
+    return u * u * (3f - 2f * u)
+}
+
+/** A sweep's soft front, as a share of the field's width: narrow enough to read as moving. */
+internal const val SweepFront = 0.3f
+
+/**
+ * A song's colour journey (owner 2026-11-05, 「一首歌一段色程」): over the
+ * song, the room moves from the cover's main hue toward its second, entering
+ * from the side the song came from — the right after a skip forward (or an
+ * auto-advance), the left after a skip back — and covering the room by the
+ * end. This is the field the room travels to: main hues turned one step.
+ */
+fun CoverField.journeyed(): CoverField = CoverField(grid, journeyOrder(palette, candidates = 3), accent, swatches)
+
+/** [CoverField.journeyed] for a ready-made room palette (its fourth, the deep blend, stays put). */
+fun RoomPalette.journeyed(): RoomPalette = RoomPalette(journeyOrder(colors, candidates = 2), accent)
+
+/**
+ * [colors] with the one of its next [candidates] whose hue lies furthest from
+ * the first moved to the front, the rest in order behind it: the journey's
+ * "second colour" is the one that reads as a change, not a near twin of the
+ * first (owner's prototype: a peach cover journeying to peach showed nothing).
+ */
+internal fun journeyOrder(colors: IntArray, candidates: Int): IntArray {
+    val hsl = FloatArray(3)
+    argbToHsl(colors[0], hsl)
+    val firstHue = hsl[0]
+    var best = 1
+    var bestDistance = -1f
+    for (i in 1..candidates.coerceAtMost(colors.size - 1)) {
+        argbToHsl(colors[i], hsl)
+        // A grey has no hue to travel to: weigh the distance by saturation.
+        val d = hueDistance(firstHue, hsl[0]) * hsl[1]
+        if (d > bestDistance) {
+            bestDistance = d
+            best = i
+        }
+    }
+    val out = IntArray(colors.size)
+    out[0] = colors[best]
+    var j = 1
+    for (i in colors.indices) if (i != best) out[j++] = colors[i]
+    return out
+}
+
+private fun hueDistance(a: Float, b: Float): Float {
+    val d = abs(a - b) % 360f
+    return if (d > 180f) 360f - d else d
+}
+
+/**
+ * How far the journey has reached a point at [x] of [width] when the song is
+ * [progress] (0..1) through: 0 at the start everywhere, the entry side first,
+ * all of the room by the end. Smoothstepped, no hard front.
+ */
+fun journeyAt(x: Float, width: Float, progress: Float, fromRight: Boolean): Float {
+    val xn = if (width > 0f) (x / width).coerceIn(0f, 1f) else 0.5f
+    val fromEntry = if (fromRight) 1f - xn else xn
+    val t = ((progress.coerceIn(0f, 1f) * (1f + SweepFront) - fromEntry) / SweepFront).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+/**
+ * [base]'s points with each colour moved toward [toward]'s matching point by
+ * [JourneyMaxMix] × [journeyAt] its x. Both from [focusFieldPoints] with the
+ * same layout arguments (the second on the [journeyed] field).
+ */
+fun journeyFieldColors(
+    base: List<FieldPoint>,
+    toward: List<FieldPoint>,
+    width: Float,
+    progress: Float,
+    fromRight: Boolean,
+): List<FieldPoint> {
+    if (base.size != toward.size || progress <= 0f) return base
+    return base.mapIndexed { i, p ->
+        val k = JourneyMaxMix * journeyAt(p.x, width, progress, fromRight)
+        if (k <= 0f) p else p.copy(color = mix(p.color, toward[i].color, k))
+    }
+}
+
+/** How much of the second hue the room holds at the song's end. */
+internal const val JourneyMaxMix = 0.6f
 
 /** The wanderer's colour (the last point), for the dots around the room's edge. */
 fun List<FieldPoint>.wandererColor(): Int = last().color
@@ -330,8 +531,9 @@ fun renderFocusField(
 fun toneForRoom(color: Int, dark: Boolean, bias: Float = 0f): Int {
     val hsl = FloatArray(3)
     argbToHsl(color, hsl)
-    val s = min(1f, hsl[1] * 1.4f + 0.1f)
-    var l = ((if (dark) DarkRoomFloor + hsl[2] * DarkRoomSpan else 0.70f + hsl[2] * 0.24f) + bias).coerceIn(0f, 1f)
+    val s = min(1f, hsl[1] * 1.5f + 0.1f)
+    var l = ((if (dark) DarkRoomFloor + hsl[2] * DarkRoomSpan else LightRoomFloor + hsl[2] * LightRoomSpan) + bias)
+        .coerceIn(0f, 1f)
     // HSL lightness flatters yellows and greens: in the dark room, step them
     // down until the light text over them still reads.
     var out = hslToArgb(hsl[0], s, l)
@@ -341,6 +543,36 @@ fun toneForRoom(color: Int, dark: Boolean, bias: Float = 0f): Int {
     }
     return out
 }
+
+/**
+ * The field's colours, each lifted (light theme) just enough that [text]
+ * keeps [minContrast] over it, hue and saturation kept (owner 2026-11-05:
+ * 「运动完全可以动，但是颜色不应该超过可读的颜色过多」). The colours may be as
+ * rich and move as much as they like inside that line. Mixing in the field
+ * can dip a hair under it between points; the line is set with that slack.
+ */
+fun List<FieldPoint>.readableUnder(text: Int, minContrast: Float = FocusLyricContrast): List<FieldPoint> {
+    val minLum = minContrast * (relativeLuminance(text) + 0.05f) - 0.05f
+    if (minLum <= 0f) return this
+    return map { p -> if (relativeLuminance(p.color) >= minLum) p else p.copy(color = lightenTo(p.color, minLum)) }
+}
+
+/** [color] with its HSL lightness raised until its luminance reaches [minLum] (or white). */
+internal fun lightenTo(color: Int, minLum: Float): Int {
+    val hsl = FloatArray(3)
+    argbToHsl(color, hsl)
+    var lo = hsl[2]
+    var hi = 1f
+    // Luminance rises with HSL lightness at a fixed hue and saturation: bisect.
+    repeat(14) {
+        val mid = (lo + hi) / 2f
+        if (relativeLuminance(hslToArgb(hsl[0], hsl[1], mid)) >= minLum) hi = mid else lo = mid
+    }
+    return hslToArgb(hsl[0], hsl[1], hi)
+}
+
+/** Light focus: the current lyric line (the accent colour) over the room. */
+internal const val FocusLyricContrast = 4f
 
 private fun relativeLuminance(color: Int): Float {
     fun channel(c: Int): Float {
@@ -398,6 +630,19 @@ private const val BaseWeight = 0.02f
 /** Light text keeps ~4.5:1 over the dark room's brightest point. */
 // Dark room: deeper than the lab's (owner 2026-11-03: "深色全屏播放页面有点亮").
 internal const val DarkRoomFloor = 0.10f
+
+/**
+ * Light room's lightness band. The prototype's deeper 0.64 hurt the lyrics on
+ * device (owner 2026-11-05), so it stays at the pale 0.70–0.94 the dark text reads on.
+ */
+internal const val LightRoomFloor = 0.70f
+internal const val LightRoomSpan = 0.24f
+
+/** Focus motion (owner 2026-11-05, 「明显」): paths this many times faster… */
+internal const val FocusDriftSpeed = 3f
+
+/** …and this many times wider. */
+internal const val FocusDriftReach = 2.2f
 internal const val DarkRoomSpan = 0.34f
 private const val DarkRoomMaxLuminance = 0.065f
 private const val TAU = (2.0 * Math.PI).toFloat()

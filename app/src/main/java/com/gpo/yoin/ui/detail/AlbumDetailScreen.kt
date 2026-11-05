@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -95,6 +96,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
+import com.gpo.yoin.data.model.albumNameWithoutVersion
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.BarExtraAction
@@ -763,6 +765,7 @@ private fun AlbumDetailContent(
             Box {
                 AlbumTopHeader(
                     albumName = content.albumName,
+                    albumVersion = content.albumVersion,
                     artistName = content.artistName,
                     year = content.year,
                     titleColor = titleColor,
@@ -794,6 +797,7 @@ private fun AlbumDetailContent(
                     if (showTwin) {
                         AlbumBarHeaderTwin(
                             albumName = content.albumName,
+                            albumVersion = content.albumVersion,
                             artistName = content.artistName,
                             year = content.year,
                             pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
@@ -982,6 +986,7 @@ internal val AlbumBarTitleGap = 12.dp
 @Composable
 private fun AlbumTopHeader(
     albumName: String,
+    albumVersion: String?,
     artistName: String,
     year: Int?,
     titleColor: Color,
@@ -1029,13 +1034,24 @@ private fun AlbumTopHeader(
             // flush against the arrow it read as one crowded blob.
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = albumName,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = titleColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        // The version is its own tag here, not repeated in the title.
+                        text = albumNameWithoutVersion(albumName, albumVersion),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = titleColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (albumVersion != null) {
+                        AlbumVersionTag(
+                            version = albumVersion,
+                            onBar = visualOnly,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 DetailMetaLine(
                     groups = buildList {
                         if (artistName.isNotBlank()) add(MetaGroup.Plain(artistName))
@@ -1089,6 +1105,29 @@ private fun AlbumTopHeader(
 }
 
 /**
+ * The album's version ("Deluxe", "全景声") as a tag after the title, the same
+ * small tonal block as the format tags; the server's value as it comes, never
+ * translated. In white on the spectrum bar's twin.
+ */
+@Composable
+private fun AlbumVersionTag(version: String, onBar: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = if (onBar) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = if (onBar) Color.White else MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier,
+    ) {
+        Text(
+            text = version,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+        )
+    }
+}
+
+/**
  * The header in white, for over the spectrum bar. Same layout as the real
  * header, so the caller clips it to the bar and fades it in on top; it has no
  * touch targets and no semantics of its own.
@@ -1096,6 +1135,7 @@ private fun AlbumTopHeader(
 @Composable
 internal fun AlbumBarHeaderTwin(
     albumName: String,
+    albumVersion: String? = null,
     artistName: String,
     year: Int?,
     pageFraction: () -> Float,
@@ -1118,6 +1158,7 @@ internal fun AlbumBarHeaderTwin(
     ) {
         AlbumTopHeader(
             albumName = albumName,
+            albumVersion = albumVersion,
             artistName = artistName,
             year = year,
             titleColor = onBar,

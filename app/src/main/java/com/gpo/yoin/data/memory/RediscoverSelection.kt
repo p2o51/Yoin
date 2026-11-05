@@ -83,7 +83,7 @@ data class RediscoverSongPick(
 
 /** Whether the user kept something on this song: a track rating, or a non-blank note. */
 fun hasRediscoverMemory(song: SongMemoryAggregate): Boolean =
-    (song.rating ?: 0f) > 0f || (song.noteCount > 0 && !song.latestNote.isNullOrBlank())
+    song.rating != null || (song.noteCount > 0 && !song.latestNote.isNullOrBlank())
 
 /**
  * Rediscover's one order, albums and songs alike: scored cards first, best
@@ -145,7 +145,7 @@ fun selectRediscoverSongs(
             } else {
                 RediscoverSongPick(
                     song = song,
-                    score = song.rating?.takeIf { rating -> rating > 0f },
+                    score = song.rating,
                     lastPlayedAt = song.lastPlayedAt,
                 )
             }

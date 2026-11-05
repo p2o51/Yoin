@@ -191,10 +191,14 @@
     <string name="detail_scrap_cd_score_open">评分条已展开</string>
     <string name="detail_scrap_cd_score_closed">点按修改评分</string>
     <string name="detail_scrap_not_rated">未评分</string>
-    <string name="detail_scrap_clear">清除</string>
+    <string name="detail_scrap_clear">清除评分</string>
+    <string name="detail_scrap_score_cleared">已清除评分</string>
     <string name="detail_scrap_asked">问：%1$s</string>
     <string name="detail_scrap_by_you">我写的</string>
     <string name="detail_scrap_by_gemini">Gemini</string>
+    <string name="detail_scrap_about_empty">这首歌还没有资料。</string>
+    <string name="detail_scrap_about_generate">让 Gemini 生成</string>
+    <string name="detail_scrap_about_generating">Gemini 正在写…</string>
     <string name="detail_scrap_regenerate">重新生成</string>
     <string name="detail_scrap_done">完成</string>
     <string name="detail_scrap_regenerated">已重新生成</string>

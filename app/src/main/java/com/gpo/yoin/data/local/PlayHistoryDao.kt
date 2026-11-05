@@ -145,7 +145,7 @@ interface PlayHistoryDao {
 
     /**
      * Rediscover's songs: tracks this profile kept something on — a track
-     * rating above 0 or a non-blank song note — that were played in Yoin but
+     * rating (0.0 included; a cleared one is none) or a non-blank song note — that were played in Yoin but
      * not since [playedBefore] (history only; visits never count), with their
      * play history and the memory itself. Ordered as Rediscover orders: rated
      * first, best rating first, then longest unplayed. Track metadata is the
@@ -158,7 +158,7 @@ interface PlayHistoryDao {
             "MIN(ph.playedAt) AS firstPlayedAt, MAX(ph.playedAt) AS lastPlayedAt, " +
             "(SELECT r.rating FROM local_ratings r " +
             "WHERE r.profileId = :profileId AND r.provider = :provider " +
-            "AND r.songId = ph.songId AND r.rating > 0) AS rating, " +
+            "AND r.songId = ph.songId AND r.rating IS NOT NULL) AS rating, " +
             "(SELECT COUNT(*) FROM song_notes n " +
             "WHERE n.profileId = :profileId AND n.provider = :provider " +
             "AND n.trackId = ph.songId AND TRIM(n.content) != '') AS noteCount, " +
@@ -169,7 +169,7 @@ interface PlayHistoryDao {
             "FROM play_history ph " +
             "WHERE ph.profileId = :profileId AND ph.provider = :provider AND ph.songId IN (" +
             "SELECT songId FROM local_ratings " +
-            "WHERE profileId = :profileId AND provider = :provider AND rating > 0 " +
+            "WHERE profileId = :profileId AND provider = :provider AND rating IS NOT NULL " +
             "UNION SELECT trackId FROM song_notes " +
             "WHERE profileId = :profileId AND provider = :provider AND TRIM(content) != '') " +
             "GROUP BY ph.songId " +

@@ -214,12 +214,174 @@ class PlaylistBackupServiceTest {
         newId = { "b$now" },
     )
 
+    @Test
+    fun should_keepABackupPerAccount_when_twoServersHaveAPlaylistWithTheSameId() = runTest {
+        val home = Profile("home", MediaId.PROVIDER_SUBSONIC, "Home", "{}")
+        val work = Profile("work", MediaId.PROVIDER_SUBSONIC, "Work", "{}")
+        val id = MediaId.subsonic("1")
+        val homeSource = FakeTransferTarget(playlists = mapOf(id to subsonicPlaylist(id, "Home mix", "h")))
+        val workSource = FakeTransferTarget(playlists = mapOf(id to subsonicPlaylist(id, "Work mix", "w")))
+        val profiles = FakeProfiles(
+            listOf(home, work),
+            active = "home",
+            sources = mapOf("home" to homeSource, "work" to workSource),
+            accounts = mapOf("home" to "s-home", "work" to "s-work"),
+        )
+        val service = service(profiles)
+
+        val homeBackup = service.backUp(id)
+        profiles.active = "work"
+        now = 2_000L
+        val workBackup = service.backUp(id)
+
+        assertTrue(homeBackup.id != workBackup.id)
+        val all = store.getAll().associateBy { it.id }
+        assertEquals("Home mix", all.getValue(homeBackup.id).name)
+        assertEquals("home", all.getValue(homeBackup.id).sourceProfileId)
+        assertEquals("s-home", all.getValue(homeBackup.id).sourceAccount)
+        assertEquals("Work mix", all.getValue(workBackup.id).name)
+        assertEquals("work", all.getValue(workBackup.id).sourceProfileId)
+        assertEquals("s-work", all.getValue(workBackup.id).sourceAccount)
+
+        // Following reads each from its own server, and neither takes the other's place.
+        now = 2_000L + PlaylistBackupService.FOLLOW_INTERVAL_MS
+        assertEquals(FollowSummary(checked = 2, changed = 0, gone = 0), service.followDue())
+        assertEquals(setOf("Home mix", "Work mix"), store.getAll().mapTo(HashSet()) { it.name })
+    }
+
+    @Test
+    fun should_keepABackupPerProfile_when_noAccountIsKnown() = runTest {
+        // Two profiles here, no account ids (e.g. credentials unreadable): the profile still tells them apart.
+        val home = Profile("home", MediaId.PROVIDER_SUBSONIC, "Home", "{}")
+        val work = Profile("work", MediaId.PROVIDER_SUBSONIC, "Work", "{}")
+        val id = MediaId.subsonic("1")
+        val profiles = FakeProfiles(
+            listOf(home, work),
+            active = "home",
+            sources = mapOf(
+                "home" to FakeTransferTarget(playlists = mapOf(id to subsonicPlaylist(id, "Home mix", "h"))),
+                "work" to FakeTransferTarget(playlists = mapOf(id to subsonicPlaylist(id, "Work mix", "w"))),
+            ),
+        )
+        val service = service(profiles)
+
+        service.backUp(id)
+        profiles.active = "work"
+        now = 2_000L
+        service.backUp(id)
+
+        assertEquals(setOf("home", "work"), store.getAll().mapTo(HashSet()) { it.sourceProfileId })
+    }
+
+    @Test
+    fun should_takeUpAnotherDevicesBackup_when_itIsFromTheSameAccount() = runTest {
+        val id = MediaId.subsonic("1")
+        store.save(otherDeviceBackup("theirs", id, account = "s-home", label = "My server"))
+        store.save(otherDeviceBackup("other-server", id, account = "s-work", label = "Home"))
+        val home = Profile("home", MediaId.PROVIDER_SUBSONIC, "Home", "{}")
+        val source = FakeTransferTarget(playlists = mapOf(id to subsonicPlaylist(id, "Mix", "h")))
+        val service = service(
+            FakeProfiles(
+                listOf(home),
+                active = "home",
+                sources = mapOf("home" to source),
+                accounts = mapOf("home" to "s-home"),
+            ),
+        )
+
+        val backup = service.backUp(id)
+
+        assertEquals("theirs", backup.id)
+        assertEquals("home", store.get("theirs")?.sourceProfileId)
+        assertEquals(null, store.get("other-server")?.sourceProfileId)
+        assertEquals("Old", store.get("other-server")?.name)
+    }
+
+    @Test
+    fun should_takeUpAnOldBackup_only_when_itWasMadeUnderThisProfilesName() = runTest {
+        val id = MediaId.subsonic("1")
+        store.save(otherDeviceBackup("old-work", id, account = null, label = "Work"))
+        val home = Profile("home", MediaId.PROVIDER_SUBSONIC, "Home", "{}")
+        val profiles = FakeProfiles(
+            listOf(home),
+            active = "home",
+            sources = mapOf("home" to FakeTransferTarget(playlists = mapOf(id to subsonicPlaylist(id, "Mix", "h")))),
+            accounts = mapOf("home" to "s-home"),
+        )
+        val service = service(profiles)
+
+        val fresh = service.backUp(id)
+        assertTrue(fresh.id != "old-work")
+        assertEquals("Old", store.get("old-work")?.name)
+
+        store.delete(fresh.id)
+        store.save(otherDeviceBackup("old-home", id, account = null, label = "Home"))
+        val taken = service.backUp(id)
+        assertEquals("old-home", taken.id)
+        // It learns its account now.
+        assertEquals("s-home", store.get("old-home")?.sourceAccount)
+    }
+
+    @Test
+    fun should_leaveTheBackupAlone_when_itsProfileIsNowAnotherAccount() = runTest {
+        val id = MediaId.subsonic("1")
+        val home = Profile("home", MediaId.PROVIDER_SUBSONIC, "Home", "{}")
+        val source = FakeTransferTarget(playlists = mapOf(id to subsonicPlaylist(id, "Mix", "h")))
+        val profiles = FakeProfiles(
+            listOf(home),
+            active = "home",
+            sources = mapOf("home" to source),
+            accounts = mapOf("home" to "s-home"),
+        )
+        val service = service(profiles)
+        val backup = service.backUp(id)
+        // Signed in to another server under the same profile.
+        profiles.accounts = mapOf("home" to "s-elsewhere")
+        source.playlists = mapOf(id to subsonicPlaylist(id, "Someone else's", "x"))
+        now = 1_000L + PlaylistBackupService.FOLLOW_INTERVAL_MS
+
+        service.followDue()
+
+        assertEquals("Mix", store.get(backup.id)?.name)
+        assertEquals(1_000L, store.get(backup.id)?.lastBackedUpAt)
+    }
+
+    private fun subsonicPlaylist(id: MediaId, name: String, prefix: String) = Playlist(
+        id = id,
+        name = name,
+        owner = null,
+        coverArt = null,
+        songCount = 1,
+        durationSec = null,
+        tracks = listOf(track(MediaId.subsonic("$prefix-1"), "Song $prefix", "Artist")),
+    )
+
+    /** A backup synced in from another device: no profile here follows it. */
+    private fun otherDeviceBackup(backupId: String, id: MediaId, account: String?, label: String) =
+        PlaylistSnapshots.backup(
+            backupId,
+            subsonicPlaylist(id, "Old", "o"),
+            MediaId.PROVIDER_SUBSONIC,
+            profileId = null,
+            profileLabel = label,
+            now = 500L,
+            account = account,
+        )
+
+    private fun service(profiles: BackupProfiles) = PlaylistBackupService(
+        profiles = profiles,
+        store = store,
+        clock = { now },
+        newId = { "b$now" },
+    )
+
     private fun sourceService() = FakeTransferTarget(playlists = mapOf(sourcePlaylist.id to sourcePlaylist))
 
     private class FakeProfiles(
         list: List<Profile>,
-        private val active: String,
+        var active: String,
         private val sources: Map<String, MusicSource>,
+        var accounts: Map<String, String> = emptyMap(),
     ) : BackupProfiles {
         private val all = MutableStateFlow(list)
         override val profiles: Flow<List<Profile>> = all
@@ -228,6 +390,8 @@ class PlaylistBackupServiceTest {
 
         override suspend fun <T> withSource(profileId: String, block: suspend (MusicSource) -> T): T? =
             sources[profileId]?.let { block(it) }
+
+        override suspend fun accountKey(profile: Profile): String? = accounts[profile.id]
     }
 
     private fun track(id: MediaId, title: String, artist: String) = Track(

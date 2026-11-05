@@ -1,5 +1,7 @@
 package com.gpo.yoin.data.offline
 
+import com.gpo.yoin.data.cache.ReplayGainDto
+import com.gpo.yoin.data.model.ReplayGain
 import com.gpo.yoin.data.remote.SubsonicCacheKey
 import com.gpo.yoin.data.remote.SubsonicStreamUrls
 import kotlinx.serialization.Serializable
@@ -93,6 +95,8 @@ data class OfflinePayload(
     val trackNumber: Int? = null,
     val discNumber: Int? = null,
     val quality: String = DownloadSettings.DefaultQuality.key,
+    /** The song's ReplayGain as the server reported it at download; it applies to a transcode too. */
+    val replayGain: ReplayGainDto? = null,
     /** Every album, playlist or lone-song download that holds this song; it goes when the last one does. */
     val collections: List<OfflineCollection> = emptyList(),
 ) {
@@ -244,6 +248,10 @@ data class OfflineLibrary(val songs: List<OfflineSong> = emptyList()) {
     /** Whether the song [songId] (a MediaId string) is fully on the device. */
     fun isDownloaded(songId: String): Boolean =
         songs.any { it.payload.songId == songId && it.state == OfflineSong.State.Done }
+
+    /** The ReplayGain a download of [songId] (a MediaId string) was kept with; null when none. */
+    fun replayGainOf(songId: String): ReplayGain? =
+        songs.firstOrNull { it.payload.songId == songId }?.payload?.replayGain?.toDomain()
 
     fun songsOf(collectionKey: String): List<OfflineSong> =
         songs.filter { song -> song.payload.collections.any { it.key == collectionKey } }

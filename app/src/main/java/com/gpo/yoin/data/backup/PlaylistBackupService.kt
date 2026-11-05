@@ -29,9 +29,18 @@ interface BackupProfiles {
 
     /** [block] with profile [profileId]'s source; null when the profile is gone or can't be signed in. */
     suspend fun <T> withSource(profileId: String, block: suspend (MusicSource) -> T): T?
+
+    /**
+     * Which account [profile] is, the same on every device
+     * ([com.gpo.yoin.data.sync.identity.AccountKeys]); null when not known.
+     */
+    suspend fun accountKey(profile: Profile): String? = null
 }
 
-internal class ProfileManagerBackupProfiles(private val manager: ProfileManager) : BackupProfiles {
+internal class ProfileManagerBackupProfiles(
+    private val manager: ProfileManager,
+    private val accountKeyOf: suspend (Profile) -> String?,
+) : BackupProfiles {
     override val profiles: Flow<List<Profile>> get() = manager.profiles
 
     override suspend fun activeProfile(): Profile? {
@@ -41,6 +50,10 @@ internal class ProfileManagerBackupProfiles(private val manager: ProfileManager)
 
     override suspend fun <T> withSource(profileId: String, block: suspend (MusicSource) -> T): T? =
         manager.withSourceFor(profileId, block)
+
+    override suspend fun accountKey(profile: Profile): String? = runCatching { accountKeyOf(profile) }
+        .onFailure { if (it is CancellationException) throw it }
+        .getOrNull()
 }
 
 /** What following one backup found. */
@@ -77,8 +90,8 @@ class PlaylistBackupService(
     private val clock: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
-    constructor(manager: ProfileManager, store: PlaylistBackupStore) :
-        this(ProfileManagerBackupProfiles(manager), store)
+    constructor(manager: ProfileManager, store: PlaylistBackupStore, accountKeyOf: suspend (Profile) -> String?) :
+        this(ProfileManagerBackupProfiles(manager, accountKeyOf), store)
 
     /**
      * Starts [playlistId]'s cloud backup on the active profile, or — when it
@@ -91,17 +104,32 @@ class PlaylistBackupService(
         // Spotify refused its songs (someone else's playlist, development mode): nothing to back up.
         check(!playlist.tracksUnavailable) { "Playlist songs unavailable" }
         val now = clock()
-        val existing = store.findBySource(profile.provider, playlist.id.toString())
+        val account = profiles.accountKey(profile)
+        val existing = backupOf(profile, account, playlist.id)
         val record = existing
-            ?.let { PlaylistSnapshots.refreshed(it, playlist, profile.id, profile.displayName, now) }
-            ?: PlaylistSnapshots.backup(newId(), playlist, profile.provider, profile.id, profile.displayName, now)
+            ?.let { PlaylistSnapshots.refreshed(it, playlist, profile.id, profile.displayName, now, account) }
+            ?: PlaylistSnapshots.backup(
+                newId(),
+                playlist,
+                profile.provider,
+                profile.id,
+                profile.displayName,
+                now,
+                account,
+            )
         store.save(record)
         return record
     }
 
-    /** The cloud backup that follows [playlistId] on [provider], if any (the playlist page's menu). */
-    suspend fun backupOf(provider: String, playlistId: MediaId): PlaylistBackupRecord? =
-        store.findBySource(provider, playlistId.toString())
+    /**
+     * [profile]'s own cloud backup of [playlistId], if it has one: never
+     * another account's backup of a playlist with the same id (two Subsonic
+     * servers both have a "1").
+     */
+    private suspend fun backupOf(profile: Profile, account: String?, playlistId: MediaId): PlaylistBackupRecord? {
+        val localIds = profiles.profiles.first().mapTo(HashSet(), Profile::id)
+        return ownBackup(store.findBySource(profile.provider, playlistId.toString()), profile, account, localIds)
+    }
 
     /**
      * Follows every backup this device can follow that hasn't been checked
@@ -119,8 +147,9 @@ class PlaylistBackupService(
         var gone = 0
         due.groupBy { it.sourceProfileId!! }.forEach { (profileId, backups) ->
             val profile = local.getValue(profileId)
+            val account = profiles.accountKey(profile)
             val results = runCatching {
-                profiles.withSource(profileId) { source -> backups.map { follow(it, profile, source) } }
+                profiles.withSource(profileId) { source -> backups.map { follow(it, profile, source, account) } }
             }.getOrNull().orEmpty()
             changed += results.count { it == FollowResult.Changed }
             gone += results.count { it == FollowResult.Gone }
@@ -135,11 +164,21 @@ class PlaylistBackupService(
     suspend fun followNow(backup: PlaylistBackupRecord): FollowResult {
         val profileId = checkNotNull(backup.sourceProfileId) { "Not followed on this device" }
         val profile = checkNotNull(profiles.profiles.first().firstOrNull { it.id == profileId }) { "Profile gone" }
-        return checkNotNull(profiles.withSource(profileId) { follow(backup, profile, it) }) { "Profile unavailable" }
+        val account = profiles.accountKey(profile)
+        return checkNotNull(profiles.withSource(profileId) { follow(backup, profile, it, account) }) {
+            "Profile unavailable"
+        }
     }
 
-    internal suspend fun follow(backup: PlaylistBackupRecord, profile: Profile, source: MusicSource): FollowResult {
+    internal suspend fun follow(
+        backup: PlaylistBackupRecord,
+        profile: Profile,
+        source: MusicSource,
+        account: String? = null,
+    ): FollowResult {
         val id = MediaId.parseOrNull(backup.sourcePlaylistId) ?: return FollowResult.Skipped
+        // The profile is another account now (signed in elsewhere): its playlist of that id isn't this one.
+        if (!accountFits(backup, account)) return FollowResult.Skipped
         // Gone = the service answers with its list and the playlist isn't in it; a failed answer proves nothing.
         val listed = runCatching { source.library().getPlaylists() }.getOrNull() ?: return FollowResult.Skipped
         val now = clock()
@@ -150,7 +189,7 @@ class PlaylistBackupService(
         val playlist = runCatching { source.library().getPlaylistInFull(id) }.getOrNull() ?: return FollowResult.Skipped
         // Refused songs aren't an empty playlist: keep the backup as it was.
         if (playlist.tracksUnavailable) return FollowResult.Skipped
-        val next = PlaylistSnapshots.refreshed(backup, playlist, profile.id, profile.displayName, now)
+        val next = PlaylistSnapshots.refreshed(backup, playlist, profile.id, profile.displayName, now, account)
         store.save(next)
         return if (next.lastChangedAt == now) FollowResult.Changed else FollowResult.Unchanged
     }
@@ -230,6 +269,35 @@ class PlaylistBackupService(
     companion object {
         /** How often a followed playlist is read again (on app start or return, never in the background). */
         const val FOLLOW_INTERVAL_MS = 6 * 60 * 60 * 1000L
+
+        /**
+         * Which of [candidates] (backups of one playlist id on [profile]'s service, oldest first) is
+         * [profile]'s own, on account [account]; [localProfileIds] are this device's profiles.
+         *
+         * 1. One this profile follows here.
+         * 2. One no profile here follows, from the same account (backed up on another device).
+         * 3. One no profile here follows from before accounts were kept: only when it was backed up under
+         *    this profile's name, the one sign left that it is this account.
+         *
+         * A backup another profile here follows, or one from a different account, is never it: that is
+         * another account's playlist that happens to have the same id.
+         */
+        internal fun ownBackup(
+            candidates: List<PlaylistBackupRecord>,
+            profile: Profile,
+            account: String?,
+            localProfileIds: Set<String>,
+        ): PlaylistBackupRecord? {
+            val fitting = candidates.filter { accountFits(it, account) }
+            fitting.firstOrNull { it.sourceProfileId == profile.id }?.let { return it }
+            val unfollowed = fitting.filter { it.sourceProfileId == null || it.sourceProfileId !in localProfileIds }
+            if (account != null) unfollowed.firstOrNull { it.sourceAccount == account }?.let { return it }
+            return unfollowed.firstOrNull { it.sourceAccount == null && it.sourceProfileLabel == profile.displayName }
+        }
+
+        /** False only when both accounts are known and differ. */
+        private fun accountFits(backup: PlaylistBackupRecord, account: String?): Boolean =
+            backup.sourceAccount == null || account == null || backup.sourceAccount == account
 
         internal fun restoreTargets(profiles: List<Profile>): List<RestoreTarget> = profiles
             .filter { Capability.PLAYLIST_IMPORT in ServiceFeatureCatalog.forProvider(it.provider).capabilities }

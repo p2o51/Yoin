@@ -128,7 +128,7 @@ class AlbumScrapbookSourceTest {
     @Test
     fun should_assembleTheAlbumsData_when_observed() = runTest {
         database.localRatingDao().upsert(rating("t1", 8.5f))
-        database.localRatingDao().upsert(rating("t2", 0f)) // stored 0 = not rated
+        database.localRatingDao().upsert(rating("t2", null)) // cleared = not rated
         database.songNoteDao().insert(note("late", "t1", positionMs = 90_000L, createdAt = 1L))
         database.songNoteDao().insert(note("early", "t1", positionMs = 10_000L, createdAt = 2L))
         database.songNoteDao().insert(note("loose", "t1", positionMs = null, createdAt = 0L))
@@ -317,7 +317,7 @@ class AlbumScrapbookSourceTest {
 
     private fun rating(
         songId: String,
-        value: Float,
+        value: Float?,
         profile: String = "profile-a",
         provider: String = sub,
     ) = LocalRating(profileId = profile, songId = songId, provider = provider, rating = value, serverRating = 0)

@@ -225,6 +225,14 @@ class RediscoverSelectionTest {
     }
 
     @Test
+    fun should_includeSongWithZeroScore_when_ratedZero() {
+        // 0.0 is a score, not "not rated" (only null is).
+        val pick = selectRediscoverSongs(listOf(song("s1", rating = 0f)), nowMillis = NOW).single()
+
+        assertEquals(0f, pick.score)
+    }
+
+    @Test
     fun should_includeSongWithoutScore_when_itHasOnlyANote() {
         val pick = selectRediscoverSongs(listOf(song("s1", rating = null, note = "kept")), nowMillis = NOW).single()
 
@@ -236,7 +244,6 @@ class RediscoverSelectionTest {
         val picks = selectRediscoverSongs(
             listOf(
                 song("unrated", rating = null),
-                song("zero", rating = 0f),
                 song("blank-note", rating = null, note = "   "),
             ),
             nowMillis = NOW,

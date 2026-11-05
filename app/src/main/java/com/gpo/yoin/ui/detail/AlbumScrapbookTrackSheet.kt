@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -56,7 +58,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -183,24 +184,25 @@ internal fun ScrapTrackSheet(
     }
     val gemini by feeds.gemini.collectAsState()
 
-    ScrapSheet(onDismiss = onDismiss) {
+    // Edge to edge (owner 2026-11-05): the sheet's paper runs under the navigation bar; the scroll pads for
+    // the bar at its end instead of the sheet stopping short of the screen's foot.
+    ScrapSheet(onDismiss = onDismiss, padBottomInset = false) {
         // The notice takes its own room under the scroll, so it never covers the buttons at the foot.
         Column(
             modifier = modifier
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding(),
+                .imePadding(),
         ) {
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = SheetGutter, end = SheetGutter, bottom = 32.dp)
+                    .padding(start = SheetGutter, end = SheetGutter, bottom = 24.dp)
                     // A removed row folds away instead of the sheet snapping shorter.
                     .animateContentSize(YoinMotion.defaultSpatialSpec()),
             ) {
-                ScoreHeader(track = track, colors = colors, onEdit = onEdit)
+                ScoreHeader(track = track, colors = colors, onEdit = onEdit, onNotice = onNotice)
                 YoinTabGroup(
                     labels = listOf(
                         stringResource(R.string.detail_scrap_tab_about),
@@ -248,10 +250,12 @@ internal fun ScrapTrackSheet(
                         )
                     }
                 }
+                // Under the navigation bar (above the keyboard's top, it is already taken by imePadding).
+                Spacer(modifier = Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
             // At the sheet's foot while it is open; the page shows the same host once it closes.
             snackbar?.let { host ->
-                YoinSnackbarHost(hostState = host, modifier = Modifier.fillMaxWidth())
+                YoinSnackbarHost(hostState = host, modifier = Modifier.fillMaxWidth().navigationBarsPadding())
             }
         }
     }
@@ -262,16 +266,30 @@ internal fun ScrapTrackSheet(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ScoreHeader(track: ScrapTrack, colors: ScrapbookColors, onEdit: (ScrapEdit) -> Unit) {
-    // The bar's own value; saved when the finger lifts, like the album's rate sheet.
-    var live by remember(track.songId) { mutableFloatStateOf(track.score ?: 0f) }
-    var saved by remember(track.songId) { mutableFloatStateOf(track.score ?: 0f) }
+private fun ScoreHeader(
+    track: ScrapTrack,
+    colors: ScrapbookColors,
+    onEdit: (ScrapEdit) -> Unit,
+    onNotice: (ScrapNotice) -> Unit,
+) {
+    // The bar's own value (null: not rated); saved when the finger lifts, like the album's rate sheet.
+    var live by remember(track.songId) { mutableStateOf(track.score) }
+    var saved by remember(track.songId) { mutableStateOf(track.score) }
+    var held by remember(track.songId) { mutableStateOf(false) }
     var open by remember(track.songId) { mutableStateOf(false) }
-    fun commit(score: Float) {
+    // A score written from elsewhere (the clear's Undo, Now Playing) is what the bar shows, unless a finger is on it.
+    LaunchedEffect(track.songId, track.score) {
+        if (!held && track.score != saved) {
+            live = track.score
+            saved = track.score
+        }
+    }
+    fun commit(score: Float?) {
         if (score == saved) return
         saved = score
         onEdit(ScrapEdit.Score(track.songId, score))
     }
+    val clearedLabel = stringResource(R.string.detail_scrap_score_cleared)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -293,7 +311,7 @@ private fun ScoreHeader(track: ScrapTrack, colors: ScrapbookColors, onEdit: (Scr
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(12.dp))
-        val scoreText = if (live > 0f) scrapScoreText(live) else null
+        val scoreText = live?.let(::scrapScoreText)
         val description = scoreText?.let { stringResource(R.string.detail_scrap_cd_score, it) }
             ?: stringResource(R.string.detail_scrap_not_rated)
         val state = stringResource(
@@ -340,25 +358,33 @@ private fun ScoreHeader(track: ScrapTrack, colors: ScrapbookColors, onEdit: (Scr
                 orientation = Orientation.Horizontal,
                 // The sheet scrolls and drags away: a swipe across the bar is the sheet's, not a score.
                 claimOnDown = false,
-                onInteractionChange = { active -> if (!active) commit(live) },
+                onInteractionChange = { active ->
+                    held = active
+                    if (!active) commit(live)
+                },
                 gestureKey = track.songId,
                 modifier = Modifier.weight(1f),
             )
+            // The only clear in the app (owner 2026-11-04): back to "not rated", never 0.0. Undo puts the score back.
             ClearScoreButton(
-                visible = live > 0f,
+                visible = live != null,
                 onClick = {
-                    live = 0f
-                    commit(0f)
+                    val was = saved
+                    live = null
+                    commit(null)
+                    if (was != null) {
+                        onNotice(ScrapNotice(clearedLabel, YoinSymbols.Delete, ScrapEdit.Score(track.songId, was)))
+                    }
                 },
             )
         }
     }
 }
 
-/** "Clear" beside the slider; its width is held when it fades out, so clearing a score doesn't shift the bar. */
+/** "Clear rating" beside the slider; its width is held when it fades out, so clearing a score doesn't shift the bar. */
 @Composable
 private fun ClearScoreButton(visible: Boolean, onClick: () -> Unit) {
-    Box(modifier = Modifier.widthIn(min = 72.dp), contentAlignment = Alignment.CenterEnd) {
+    Box(modifier = Modifier.widthIn(min = 112.dp), contentAlignment = Alignment.CenterEnd) {
         AnimatedVisibility(
             visible = visible,
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
@@ -434,6 +460,15 @@ private fun AboutTab(
     val shownKeys = asks.filterNot { it.own }.mapTo(HashSet()) { SongAboutEntry.normalize(it.question) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Nothing about the track yet: offer Gemini's About in one tap (owner 2026-11-05).
+        if (facts.isEmpty()) {
+            GenerateAbout(
+                generating = songId in gemini.generating,
+                colors = colors,
+                onGenerate = { onEdit(ScrapEdit.Generate(songId)) },
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
         shortFacts.forEachIndexed { i, fact ->
             key(fact.ref ?: fact.label) {
                 val open = fact.ref != null && fact.ref == editing
@@ -508,6 +543,58 @@ private fun AboutTab(
             onWrite = { heading, text -> onEdit(ScrapEdit.Write(songId, heading, text)) },
             modifier = Modifier.padding(top = 22.dp),
         )
+    }
+}
+
+/** The empty sheet's offer: Gemini writes the track's About (when, where, who, a review) in one go. */
+@Composable
+private fun GenerateAbout(
+    generating: Boolean,
+    colors: ScrapbookColors,
+    onGenerate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = InnerGutter, vertical = 12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.detail_scrap_about_empty),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(12.dp))
+        AnimatedContent(
+            targetState = generating,
+            transitionSpec = {
+                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+            },
+            label = "scrapGenerateAbout",
+        ) { busy ->
+            if (busy) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(40.dp)) {
+                    ThinkingDots(color = MaterialTheme.colorScheme.tertiary)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = stringResource(R.string.detail_scrap_about_generating),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                EditorButton(
+                    label = stringResource(R.string.detail_scrap_about_generate),
+                    icon = YoinSymbols.Sparkle,
+                    container = colors.review,
+                    content = colors.onReview,
+                    onClick = onGenerate,
+                )
+            }
+        }
     }
 }
 

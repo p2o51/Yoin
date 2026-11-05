@@ -213,10 +213,14 @@
     <string name="detail_scrap_cd_score_open">Score bar open</string>
     <string name="detail_scrap_cd_score_closed">Tap to change the score</string>
     <string name="detail_scrap_not_rated">Not rated</string>
-    <string name="detail_scrap_clear">Clear</string>
+    <string name="detail_scrap_clear">Clear rating</string>
+    <string name="detail_scrap_score_cleared">Rating cleared</string>
     <string name="detail_scrap_asked">Asked: %1$s</string>
     <string name="detail_scrap_by_you">Written by you</string>
     <string name="detail_scrap_by_gemini">Gemini</string>
+    <string name="detail_scrap_about_empty">Nothing about this song yet.</string>
+    <string name="detail_scrap_about_generate">Generate with Gemini</string>
+    <string name="detail_scrap_about_generating">Gemini is writing…</string>
     <string name="detail_scrap_regenerate">Regenerate</string>
     <string name="detail_scrap_done">Done</string>
     <string name="detail_scrap_regenerated">Regenerated</string>

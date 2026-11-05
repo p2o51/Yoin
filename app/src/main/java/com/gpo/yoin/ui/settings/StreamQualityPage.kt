@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.settings
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -21,9 +24,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.player.AudioOutputKind
+import com.gpo.yoin.player.SpatialAudioMode
+import com.gpo.yoin.player.SpatialAudioState
+import com.gpo.yoin.player.SpatialPlayback
 import com.gpo.yoin.player.StreamQuality
 import com.gpo.yoin.player.StreamQualityPreference
+import com.gpo.yoin.player.spatialPlaybackOf
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -32,6 +41,7 @@ import com.gpo.yoin.ui.theme.YoinTheme
  * like Scroll edge: SettingsFeatureActivity, native cross-Activity back to
  * Settings, the page's own back button; no gesture of its own, no back code.
  * Two groups, one choice each; it applies from the next song that opens.
+ * Then spatial audio (2026-11-04), which applies at once.
  * Shown only while the active account can transcode (Capability.STREAM_QUALITY).
  */
 @Composable
@@ -56,8 +66,88 @@ internal fun StreamQualityPageContent(modifier: Modifier = Modifier) {
                 StreamQualityPreference.setMobile(context, quality)
             },
         )
+        // Absent in previews, where the context isn't Yoin's application.
+        val spatialAudio = (context.applicationContext as? YoinApplication)?.container?.spatialAudio
+        if (spatialAudio != null) {
+            val spatial by spatialAudio.state.collectAsState()
+            SpatialAudioGroup(
+                state = spatial,
+                onModeChange = { mode ->
+                    haptics.performContextClick()
+                    spatialAudio.setMode(mode)
+                },
+                onOpenSystemSettings = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_SOUND_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                },
+            )
+        }
     }
 }
+
+/**
+ * Spatial audio: Yoin's switch (spatialization behaviour AUTO or NEVER) with
+ * what the system makes of it now, and a way to the system switch — Yoin can
+ * ask for spatialization but only Android turns it on, per output.
+ */
+@Composable
+private fun SpatialAudioGroup(
+    state: SpatialAudioState,
+    onModeChange: (SpatialAudioMode) -> Unit,
+    onOpenSystemSettings: () -> Unit,
+) {
+    val on = state.mode == SpatialAudioMode.Auto
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsGroup(title = stringResource(R.string.settings_spatial_audio_title)) {
+            item {
+                SettingsItem(
+                    icon = YoinSymbols.Headphones,
+                    title = stringResource(R.string.settings_spatial_audio_switch),
+                    summary = spatialAudioStatus(state),
+                    onClick = { onModeChange(if (on) SpatialAudioMode.Off else SpatialAudioMode.Auto) },
+                    trailing = { Switch(checked = on, onCheckedChange = null) },
+                )
+            }
+            // Kept while Yoin's switch is off too: the switch never adds or removes a row.
+            if (state.supported) {
+                item {
+                    SettingsItem(
+                        icon = YoinSymbols.Settings,
+                        title = stringResource(R.string.settings_spatial_audio_system_settings),
+                        summary = stringResource(R.string.settings_spatial_audio_system_settings_detail),
+                        onClick = onOpenSystemSettings,
+                    )
+                }
+            }
+        }
+        Text(
+            text = stringResource(R.string.settings_spatial_audio_note),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
+    }
+}
+
+/** What a 5.1 song would get right now, in a sentence. */
+@Composable
+private fun spatialAudioStatus(state: SpatialAudioState): String = stringResource(
+    when (spatialPlaybackOf(channels = 6, state = state)) {
+        SpatialPlayback.DownmixedByChoice -> R.string.settings_spatial_audio_off
+        SpatialPlayback.DownmixedUnsupported -> R.string.settings_spatial_audio_unsupported
+        SpatialPlayback.DownmixedSystemOff -> R.string.settings_spatial_audio_system_off
+        SpatialPlayback.DownmixedOutput -> R.string.settings_spatial_audio_output
+        SpatialPlayback.Spatialized, SpatialPlayback.NotMultichannel ->
+            if (state.headTracking) {
+                R.string.settings_spatial_audio_ready_head
+            } else {
+                R.string.settings_spatial_audio_ready
+            }
+    },
+)
 
 @Composable
 private fun QualityGroup(
@@ -80,7 +170,7 @@ private fun QualityGroup(
 }
 
 @Composable
-private fun QualityRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+internal fun QualityRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -129,5 +219,25 @@ internal fun streamQualityLabel(quality: StreamQuality): String = when {
 private fun StreamQualityPagePreview() {
     YoinTheme {
         StreamQualityPageContent(modifier = Modifier.padding(16.dp))
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun SpatialAudioGroupPreview() {
+    YoinTheme {
+        Column(modifier = Modifier.padding(16.dp)) {
+            SpatialAudioGroup(
+                state = SpatialAudioState(
+                    supported = true,
+                    enabled = true,
+                    available = true,
+                    spatializableChannels = setOf(6, 8),
+                    headTracking = true,
+                ),
+                onModeChange = {},
+                onOpenSystemSettings = {},
+            )
+        }
     }
 }

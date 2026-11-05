@@ -56,9 +56,12 @@ data class LyricWindowMetrics(
     val inactiveLine: Dp,
     /** Where the active line sits; focus pins it to the top ([FocusLyricsAnchorFraction]). */
     val anchorFraction: Float = LyricsAnchorFraction,
+    /** Whole lines kept above the active one (focus: [FocusLinesAbove]). */
+    val linesAbove: Int = 0,
 ) {
     fun cleanLines(n: Int): Dp {
-        val lines = activeLine + (inactiveLine + LyricsListLineGap) * (n - 1).coerceAtLeast(0)
+        val following = (n - 1).coerceAtLeast(0) + linesAbove
+        val lines = activeLine + (inactiveLine + LyricsListLineGap) * following
         return (LyricsListPadding + lines + LyricsFadeBottom) / (1f - anchorFraction)
     }
 }
@@ -142,6 +145,13 @@ data class StageColumnBudget(
     val focusLyricInset: Dp = 0.dp,
     /** [compactFocus]: how far the dotted lines run on under the transport before they fade. */
     val focusLyricOverflow: Dp = 0.dp,
+    /**
+     * [heroOneLine] with a focus: while the transport shows, the title and
+     * artist keep their row; once it steps away at ease, the artist lifts
+     * over the title into the transport's room, as everywhere else (owner
+     * 2026-11-05 「显示按键的时候还是要一行」).
+     */
+    val focusHeroStacked: Boolean = false,
 ) {
     val focusOffered: Boolean get() = focus != null
 }
@@ -296,7 +306,7 @@ fun resolveStageColumnBudget(
     val focusBottom = NpGap(FocusBottomNominal, FocusBottomMin)
     // [labelRow]: the time labels drop under the wave when focus narrows
     // the column below [StageColumnMetrics.labelsInlineMin].
-    fun solveFocus(labelRow: Dp): StageColumnPose? {
+    fun solveFocus(labelRow: Dp, hero: NpGap): StageColumnPose? {
         val focusControls = if (labelRow > 0.dp) {
             NpGap(controls.nominal + labelRow, controls.min + labelRow)
         } else {
@@ -314,6 +324,7 @@ fun resolveStageColumnBudget(
             activeLine = metrics.lyric.activeLine * FocusLyricScale,
             inactiveLine = metrics.lyric.inactiveLine * FocusLyricScale,
             anchorFraction = FocusLyricsAnchorFraction,
+            linesAbove = FocusLinesAbove,
         )
         fun focusMargin(cover: Dp): Dp = (width - cover) / 2f
         // A cover at [equalFloor] still earns focus when focus unfolds the
@@ -379,7 +390,7 @@ fun resolveStageColumnBudget(
     // left and right edges (「歌词本身是要和封面左右对齐的」). The dotted
     // lines run on 2–3 lines under the transport and fade, so the solid
     // buttons float on them and needn't line up with the cover.
-    fun shortWindowFocus(lines: Int): StageColumnPose? {
+    fun shortWindowFocus(lines: Int, hero: NpGap, coverGives: Boolean = true): StageColumnPose? {
         val shortControls = metrics.compactTransport?.let { NpGap(it, it) } ?: controls
         val lower = listOf(shortControls, hero, focusBottom)
         val upper = listOf(coverGap)
@@ -388,6 +399,7 @@ fun resolveStageColumnBudget(
             activeLine = metrics.lyric.activeLine * FocusLyricScale,
             inactiveLine = metrics.lyric.inactiveLine * FocusLyricScale,
             anchorFraction = FocusLyricsAnchorFraction,
+            linesAbove = FocusLinesAbove,
         ).cleanLines(lines)
         val squeeze = squeezeGaps(
             (FocusTopShort + rest.cover + nominal + listMin - height).coerceAtLeast(0.dp),
@@ -401,6 +413,7 @@ fun resolveStageColumnBudget(
             minOf(rest.cover, ShortFocusMinColumn),
         )
         if (cover < rest.cover * EqualMarginCoverKeep) return null
+        if (!coverGives && cover < rest.cover - 0.5.dp) return null
         val cg = coverGap.at(squeeze.upper)
         val ctl = shortControls.at(squeeze.lower)
         val hr = hero.at(squeeze.lower)
@@ -418,16 +431,20 @@ fun resolveStageColumnBudget(
     val shortWindow = rest.lyricFrame == LyricFrame.OneLine && rest.cover > 0.dp
     // Two lyric lines; on the shortest windows (a 16:9 phone with tall bars)
     // the current line alone, the next fading in under it.
-    var focus = if (shortWindow) {
-        shortWindowFocus(FocusMinCleanLines) ?: shortWindowFocus(1)
+    fun focusWith(hero: NpGap): StageColumnPose? = if (shortWindow) {
+        // The cover keeps its size before the lyrics keep their second line.
+        shortWindowFocus(FocusMinCleanLines, hero, coverGives = false)
+            ?: shortWindowFocus(1, hero, coverGives = false)
+            ?: shortWindowFocus(1, hero)
     } else {
-        solveFocus(0.dp)
+        solveFocus(0.dp, hero)
     }
+    var focus = focusWith(hero)
     val restLabelsInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
     if (!shortWindow && focus != null && restLabelsInline &&
         focus.cover < metrics.labelsInlineMin
     ) {
-        focus = solveFocus(metrics.labelLine)
+        focus = solveFocus(metrics.labelLine, hero)
     }
     val compactFocus = shortWindow && focus != null
     return StageColumnBudget(
@@ -442,6 +459,7 @@ fun resolveStageColumnBudget(
             else -> focus.cover + ColumnPadding * 2
         },
         compactFocus = compactFocus,
+        focusHeroStacked = focus != null && heroCompact,
         focusLyricInset = if (compactFocus) {
             ((stageWidth - ColumnPadding * 2 - focus!!.cover) / 2f).coerceAtLeast(0.dp)
         } else {
@@ -677,6 +695,12 @@ internal const val LyricsAnchorFraction = 0.22f
 
 /** Focus pins the current line to the top of the lyric window (LyricsDisplay anchor). */
 const val FocusLyricsAnchorFraction = 0f
+
+/**
+ * Focus keeps the line just sung above the current one, whole (owner
+ * 2026-11-05: 「歌词应该上面也漏出来一行」); the anchor itself stays at the top.
+ */
+const val FocusLinesAbove = 1
 
 /** Phone / panel list: two clean lines; enlarged: three (= four visible). */
 private const val PhoneCleanLines = 2
