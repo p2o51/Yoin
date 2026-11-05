@@ -139,7 +139,11 @@ internal fun PlaybackControls(
     // row (PLAY and NEXT make room) and the progress bar takes the second row
     // alone, growing to the full width as PREVIOUS leaves it.
     prevToTopRow: Float = 0f,
+    // Focus at ease, 0..1: the buttons and the time labels step away; the
+    // progress bar stays (owner 2026-11-05 「按键没了也应该显示进度条」).
+    atEase: Float = 0f,
 ) {
+    val awayModifier = Modifier.graphicsLayer { alpha = (1f - atEase).coerceIn(0f, 1f) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
         // Publish the PLAY/PAUSE press to the reactive background so it can gather
@@ -375,7 +379,7 @@ internal fun PlaybackControls(
             Box(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().then(awayModifier),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -484,7 +488,7 @@ internal fun PlaybackControls(
                                 if (labelsInline) {
                                     PlaybackTimeLabel(
                                         text = formatTrackDurationMs(positionMs),
-                                        modifier = Modifier
+                                        modifier = awayModifier
                                             // minWidth (not fixed width): fontScale>1 grows
                                             // instead of clipping; tabular figures keep the
                                             // fontScale-1 footprint identical.
@@ -508,7 +512,7 @@ internal fun PlaybackControls(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     PlaybackTimeLabel(
                                         text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
-                                        modifier = Modifier
+                                        modifier = awayModifier
                                             .defaultMinSize(minWidth = 52.dp)
                                             .offset(y = 6.dp),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -519,6 +523,7 @@ internal fun PlaybackControls(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .then(awayModifier)
                                         .padding(start = (controlSize + 8.dp) * (1f - prevToTopRow)),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                 ) {
@@ -535,7 +540,7 @@ internal fun PlaybackControls(
                 // PREVIOUS: at the start of the progress row at rest, gliding up to the
                 // start of the top row in short focus (one button, so one press state).
                 Box(
-                    modifier = Modifier.offset {
+                    modifier = awayModifier.offset {
                         val secondRowTop = (controlSize + TransportRowGap).toPx()
                         val secondRowHeight = lerp(controlSize, ShortFocusProgressRowHeight, prevToTopRow).toPx()
                         val restTop = secondRowTop + (secondRowHeight - controlSize.toPx()) / 2f
@@ -952,6 +957,9 @@ internal val PlaybackLabelsInlineMinWidth = 360.dp
 
 /** The progress bar's own row in short focus (prevToTopRow = 1). */
 internal val ShortFocusProgressRowHeight = 36.dp
+
+/** The transport's first row (+ the gap to the progress row): what steps away at ease. */
+internal fun transportTopRowHeight(controlSize: Dp): Dp = controlSize + TransportRowGap
 
 /** The controls' height in short focus: one transport row, then the progress bar's row. */
 internal fun shortFocusControlsHeight(controlSize: Dp): Dp = controlSize + TransportRowGap + ShortFocusProgressRowHeight
