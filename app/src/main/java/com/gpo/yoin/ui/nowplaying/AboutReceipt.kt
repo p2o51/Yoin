@@ -134,7 +134,8 @@ internal fun aboutReceiptRows(
             facts.samplingRateHz?.let { hz -> labels.khz(formatKhz(hz)) },
             facts.bitRateKbps?.let(labels::kbps),
         )
-        if (quality.isNotEmpty()) add(labels.quality, quality.joinToString("  "))
+        // Two spaces between parts, as on the spine (oneLine would fold them).
+        if (quality.isNotEmpty()) rows += ReceiptRow(labels.quality, quality.joinToString("  "))
         add(labels.channels, facts.channels?.let(labels::channelCount))
         add(labels.size, facts.sizeBytes?.let { labels.megabytes(formatMegabytes(it)) })
         add(labels.bpm, facts.bpm?.toString())
