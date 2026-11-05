@@ -2112,10 +2112,8 @@ private fun CompactPlayingContent(
                         },
                         // Stacked, it lines up with the cover's edges like the
                         // lyrics (owner 2026-11-05 「跟上面那个封面平齐」).
-                        modifier = Modifier.padding(
-                            horizontal = horizontalPadding +
-                                if (budget.focusHeroStacked) focusLyricInset else 0.dp,
-                        ),
+                        stackInset = budget.focusLyricInset,
+                        modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
 
                     StageHeightSlot(
@@ -4929,6 +4927,8 @@ internal fun CompactBottomHero(
     stackable: Boolean = false,
     // [stackable] only, 0 = the row .. 1 = the stack.
     stacking: Float = 0f,
+    // [stackable]: the stack's inset on each side (the cover's edges).
+    stackInset: Dp = 0.dp,
 ) {
     // Reopened before its close finished, Now Playing keeps this composition,
     // and the one-row hero's reused title/artist bounds then settle on the
@@ -5027,6 +5027,7 @@ internal fun CompactBottomHero(
             if (oneLine && stackable) {
                 HeroRowToStack(
                     stacking = stacking.coerceIn(0f, 1f),
+                    stackInset = stackInset,
                     // The title's stretch and press scale, which the artist
                     // rides in the row (see the row below).
                     titleGrowth = {
@@ -5169,6 +5170,7 @@ internal fun CompactBottomHero(
 @Composable
 private fun HeroRowToStack(
     stacking: Float,
+    stackInset: Dp,
     titleGrowth: () -> Float,
     title: @Composable (Modifier) -> Unit,
     artist: @Composable () -> Unit,
@@ -5205,9 +5207,14 @@ private fun HeroRowToStack(
         ),
         modifier = Modifier.fillMaxSize(),
     ) { (titleM, artistM, tagsM), constraints ->
+        // The box keeps the row's full width throughout; the stack insets
+        // inside it, so the row's title never changes width (or restarts its
+        // marquee) until it fades through the glide's middle.
         val width = constraints.maxWidth
+        val inset = stackInset.roundToPx().coerceIn(0, width / 4)
+        val stackWidth = width - inset * 2
         val gap = HeroOneLineGap.roundToPx()
-        val loose = Constraints(maxWidth = width)
+        val loose = Constraints(maxWidth = stackWidth)
         val tagsP = tagsM.first().measure(loose)
         // The row caps the artist at its share and the title takes the rest;
         // the stack gives the artist the line beside its tags and the title
@@ -5217,13 +5224,13 @@ private fun HeroRowToStack(
         val across = ((stacking - (1f - HeroStackSplit)) / HeroStackSplit).coerceIn(0f, 1f)
         val artistRowMax = (width * HeroOneLineArtistShare).roundToInt()
         // The artist widens only as it slides to the start, never past the edge.
-        val artistMax = lerpPx(artistRowMax, (width - tagsP.width).coerceAtLeast(0), across)
+        val artistMax = lerpPx(artistRowMax, (stackWidth - tagsP.width).coerceAtLeast(0), across)
         val artistP = artistM.first().measure(Constraints(maxWidth = artistMax))
         // What the row would give it (no intrinsics: the shared bounds wrap it).
         val artistRowW = minOf(artistP.width, artistRowMax)
         val titleRowMax = (width - gap - artistRowW).coerceAtLeast(0)
         val titleP = titleM.first().measure(
-            Constraints(maxWidth = if (stacking < 0.5f) titleRowMax else width),
+            Constraints(maxWidth = if (stacking < 0.5f) titleRowMax else stackWidth),
         )
         titleScrolls[0] = titleP.width >= titleRowMax
 
@@ -5241,10 +5248,10 @@ private fun HeroRowToStack(
         val artistLine = maxOf(artistP.height, tagsP.height)
         val stackArtistY = (artistLine - artistP.height) / 2
         val stackTitleY = artistLine + 2.dp.roundToPx()
-        val artistX = lerpPx(rowArtistX, 0, across)
+        val artistX = lerpPx(rowArtistX, inset, across)
         val artistY = lerpPx(rowArtistY, stackArtistY, lift)
         layout(width, constraints.maxHeight) {
-            titleP.placeRelative(0, lerpPx(0, stackTitleY, lift))
+            titleP.placeRelative(lerpPx(0, inset, lift), lerpPx(0, stackTitleY, lift))
             artistP.placeRelative(artistX, artistY)
             tagsP.placeRelative(
                 artistX + artistP.width,
