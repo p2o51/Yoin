@@ -494,6 +494,14 @@ fun Modifier.nowPlayingAuroraBackground(
     // song change in focus; a lyric line moving on swells it.
     val bandDots = remember { DotLayers(EdgeBandLayers) }
     val focusOn by remember { derivedStateOf { latestFocus() > 0.02f } }
+    // Light: the focus field fades in over FocusFieldInMs instead of landing
+    // with the stage spring (~0.1 s), so the bright iOS-style room hands over
+    // to the darker field without a jump (owner 2026-11-05). Leaving stays fast.
+    val fieldIn by animateFloatAsState(
+        targetValue = if (focusOn) 1f else 0f,
+        animationSpec = tween(durationMillis = FocusFieldInMs, easing = FastOutSlowInEasing),
+        label = "focusFieldIn",
+    )
     LaunchedEffect(focusOn) {
         if (focusOn) edgeBand.enter(clock.floatValue)
     }
@@ -737,7 +745,7 @@ fun Modifier.nowPlayingAuroraBackground(
                     image = image,
                     srcSize = IntSize(image.width, image.height),
                     dstSize = IntSize(w.roundToInt(), h.roundToInt()),
-                    alpha = min(1f, f * 1.25f),
+                    alpha = if (iosRoom) min(min(1f, f * 1.25f), fieldIn) else min(1f, f * 1.25f),
                     filterQuality = FilterQuality.Low,
                 )
                 if (edgeBand.alive(t)) {
@@ -1199,6 +1207,9 @@ private const val PAUSE_BURST_MS = 2200
 private const val LINE_BAND_MS = 1400
 private const val WASH_FLOW_MS = 820
 private const val FIELD_CROSS_MS = 900
+
+/** Light focus field's fade-in (see fieldIn). */
+private const val FocusFieldInMs = 420
 
 /** How long a commit waits for the new cover's colours before flowing anyway. */
 private const val FlowWaitMs = 700L
