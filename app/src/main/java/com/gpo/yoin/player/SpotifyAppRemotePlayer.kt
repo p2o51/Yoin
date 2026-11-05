@@ -114,6 +114,20 @@ sealed interface SpotifyConnectFailure {
     /** Network / IPC / offline-mode / version mismatch. */
     data class TransportFailure(val message: String) : SpotifyConnectFailure
 
+    /**
+     * The Spotify app didn't answer a start the user is waiting on (asleep in
+     * the background, or closed). Opening it wakes App Remote; the start then
+     * runs when Yoin is back, unless Spotify is already playing something.
+     */
+    data object SpotifyAsleep : SpotifyConnectFailure
+
+    /**
+     * Spotify didn't answer here, and the Web API says it is playing on
+     * [deviceName], another of the account's devices. Yoin doesn't take that
+     * over unasked: the shell offers "Play here".
+     */
+    data class PlayingElsewhere(val deviceName: String) : SpotifyConnectFailure
+
     fun userMessage(resources: Resources? = null): String = when (this) {
         NoClientId -> resources?.getString(R.string.player_spotify_no_client_id)
             ?: "Open Settings → Spotify to enter a Client ID."
@@ -129,6 +143,10 @@ sealed interface SpotifyConnectFailure {
             resources?.getString(R.string.player_spotify_connection_lost)
                 ?: "Spotify playback connection was lost."
         }
+        SpotifyAsleep -> resources?.getString(R.string.player_spotify_asleep)
+            ?: "Can't reach Spotify. Open it, come back, and this song plays."
+        is PlayingElsewhere -> resources?.getString(R.string.player_spotify_playing_elsewhere, deviceName)
+            ?: "Spotify is playing on $deviceName."
     }
 }
 
@@ -158,6 +176,14 @@ internal class SpotifyAppRemotePlayer(
     private val appRemote: AppRemoteConnector = AppRemoteConnector.Sdk,
     /** Spotify's queue through the Web API ([SpotifyQueueMirror.syncUserQueue]); null when there's no way to read it. */
     private val queueReader: suspend () -> SpotifyPlayerQueue? = { null },
+    /**
+     * The name of another device Spotify is playing on right now, through the Web API
+     * (`GET /me/player`, a read that changes nothing); null when it plays nowhere, plays
+     * here, or can't be read. Asked only once App Remote can't reach the Spotify app.
+     */
+    private val playingElsewhere: suspend () -> String? = { null },
+    /** The Spotify app's own launcher entry ([SpotifyAppRemoteCompat.launchIntent]); null when there's none. */
+    private val spotifyLaunchIntent: (Context) -> android.content.Intent? = SpotifyAppRemoteCompat::launchIntent,
 ) {
     private val tag = "SpotifyAppRemotePlayer"
 
@@ -239,6 +265,26 @@ internal class SpotifyAppRemotePlayer(
      */
     private var transportRetryAvailable: Boolean = true
 
+    /** The silent retry [handleRemoteError] scheduled; a hint shown meanwhile cancels it. */
+    private var retryJob: Job? = null
+
+    /** Bounds how long a waiting start sits on a Spotify app that doesn't answer ([armUnreachableWatch]). */
+    private var unreachableWatch: Job? = null
+
+    /**
+     * The hint for an unreachable Spotify is up ([reportUnreachable]) and the start the user
+     * asked for is held in [pendingOperations]. It runs on the next connect only if the user
+     * opened Spotify from the hint ([openSpotify]); otherwise the next connect drops it, so a
+     * song tapped hours ago never starts by itself.
+     */
+    private var parked: Boolean = false
+
+    /** The user opened Spotify from the hint: the held start may run on the next connect. */
+    private var openedForStart: Boolean = false
+
+    /** "Play here": the held start runs even if Spotify is playing (on another device) by then. */
+    private var playHere: Boolean = false
+
     /** The host is now [context] (another started Activity); the connection stays as it is. */
     fun onHostChanged(context: Context) {
         hostContext = context
@@ -247,8 +293,14 @@ internal class SpotifyAppRemotePlayer(
     fun onHostStart(context: Context) {
         Log.d(tag, "onHostStart: host=${context.javaClass.simpleName}")
         hostContext = context
+        // Back without opening Spotify from the hint: the song it held was let go.
+        if (parked && !openedForStart) {
+            parked = false
+            dropHeldStart()
+        }
         if (wantsConnection) {
             connectIfPossible()
+            if (pendingOperations.isNotEmpty()) armUnreachableWatch()
         }
     }
 
@@ -294,6 +346,8 @@ internal class SpotifyAppRemotePlayer(
         coldStartAuthRetryAvailable = true
         clientIdBootstrapRetryAvailable = true
         transportRetryAvailable = true
+        unreachableWatch?.cancel()
+        unreachableWatch = null
         // Cancel any in-flight handshake so a late onConnected can't
         // resurrect playback in the background (assign a remote, flush
         // queued play ops, then defeat the next onHostStart's
@@ -317,6 +371,7 @@ internal class SpotifyAppRemotePlayer(
         replaceableOperationJob?.cancel()
         replaceableOperationJob = null
         pendingStart = null
+        clearUnreachable()
         disconnectRemote(preserveSnapshot = !resetState)
         if (resetState) {
             publish(SpotifyRemoteSnapshot())
@@ -765,6 +820,8 @@ internal class SpotifyAppRemotePlayer(
         )
         wantsConnection = true
         if (replacePending) {
+            // A new start replaces whatever a hint held, and asks again from scratch.
+            clearUnreachable()
             pendingOperations.clear()
             // Cancel the old start, including its confirmation wait. The mutex
             // still orders a blocking HTTP call's completion before the new start.
@@ -781,6 +838,7 @@ internal class SpotifyAppRemotePlayer(
         }
         pendingOperations += operation
         connectIfPossible()
+        armUnreachableWatch()
     }
 
     /**
@@ -868,6 +926,17 @@ internal class SpotifyAppRemotePlayer(
                 connect(context, clientId)
             }.onSuccess { connected ->
                 Log.d(tag, "connectIfPossible: connected")
+                unreachableWatch?.cancel()
+                unreachableWatch = null
+                if (parked) {
+                    try {
+                        settleHeldStart(connected)
+                    } catch (error: CancellationException) {
+                        // Host stop raced the look: don't leak the live remote's IPC connection.
+                        appRemote.disconnect(connected)
+                        throw error
+                    }
+                }
                 remote = connected
                 // Successful connect — refill all single-shot retry budgets so
                 // a later hiccup in the same session can also get one free
@@ -888,7 +957,7 @@ internal class SpotifyAppRemotePlayer(
                 flushPendingOperations(connected)
             }.onFailure { error ->
                 Log.w(tag, "connectIfPossible: failed", error)
-                handleRemoteError(error)
+                handleRemoteError(error, duringConnect = true)
             }
             connectJob = null
         }
@@ -1101,7 +1170,7 @@ internal class SpotifyAppRemotePlayer(
         return "spotify:track:${id.rawId}"
     }
 
-    private fun handleRemoteError(error: Throwable, userStart: Boolean = false) {
+    private fun handleRemoteError(error: Throwable, userStart: Boolean = false, duringConnect: Boolean = false) {
         // Cancellation (a replaced start, a connect cancelled by host
         // stop) is not a remote failure — rethrow so the coroutine just
         // dies instead of consuming retry budgets, disconnecting a live
@@ -1128,7 +1197,7 @@ internal class SpotifyAppRemotePlayer(
             // sees a flash of failure. If the retry also fails we'll fall
             // back through this same method and publish Error then.
             disconnectRemote(preserveSnapshot = true)
-            scope.launch {
+            retryJob = scope.launch {
                 kotlinx.coroutines.delay(COLD_START_AUTH_RETRY_DELAY_MS)
                 connectIfPossible()
             }
@@ -1151,10 +1220,16 @@ internal class SpotifyAppRemotePlayer(
             transportRetryAvailable = false
             Log.d(tag, "handleRemoteError: silently retrying transport failure after ${TRANSPORT_RETRY_DELAY_MS}ms")
             disconnectRemote(preserveSnapshot = true)
-            scope.launch {
+            retryJob = scope.launch {
                 kotlinx.coroutines.delay(TRANSPORT_RETRY_DELAY_MS)
                 connectIfPossible()
             }
+            return
+        }
+
+        // The Spotify app didn't answer while a start waits on it: say so, with a way to wake it.
+        if (duringConnect && pendingOperations.isNotEmpty() && isUnreachable(error)) {
+            reportUnreachable()
             return
         }
 
@@ -1169,7 +1244,10 @@ internal class SpotifyAppRemotePlayer(
             return
         }
 
-        val message = failure.userMessage(applicationContext.resources)
+        publishError(failure, failure.userMessage(applicationContext.resources))
+    }
+
+    private fun publishError(failure: SpotifyConnectFailure, message: String) {
         // If the user had already been watching something play (observed
         // at least one real PlayerState), preserve `currentTrack` and let
         // UI render an "interrupted" state. If we never observed a frame,
@@ -1206,6 +1284,140 @@ internal class SpotifyAppRemotePlayer(
      * failure is worth surfacing to UI — warm/speculative connects with
      * neither shouldn't flash banners.
      */
+    /** No answer from the Spotify app at all, as opposed to one that says why (offline, needs an update, …). */
+    private fun isUnreachable(error: Throwable): Boolean =
+        failureFor(error) is SpotifyConnectFailure.TransportFailure &&
+            error !is OfflineModeException &&
+            error !is UnsupportedFeatureVersionException
+
+    /**
+     * A start waiting on the connection gets [SPOTIFY_UNREACHABLE_AFTER_MS], not the SDK's ~30 s
+     * bound-service timeout (twice, with the silent retry): Spotify asleep in the background
+     * used to leave the tap hanging for up to a minute, then a hint with nothing to do.
+     */
+    private fun armUnreachableWatch() {
+        if (remote?.isConnected == true || hostContext == null || unreachableWatch?.isActive == true) return
+        unreachableWatch = scope.launch {
+            delay(SPOTIFY_UNREACHABLE_AFTER_MS)
+            unreachableWatch = null
+            if (remote?.isConnected != true && pendingOperations.isNotEmpty()) {
+                Log.d(tag, "unreachableWatch: no connection after ${SPOTIFY_UNREACHABLE_AFTER_MS}ms")
+                reportUnreachable()
+            }
+        }
+    }
+
+    /**
+     * Stops trying and holds the waiting start ([parked]), then tells the user: Spotify plays
+     * on another device ([SpotifyConnectFailure.PlayingElsewhere], asked of the Web API, which
+     * only reads), or it is asleep here ([SpotifyConnectFailure.SpotifyAsleep]). Nothing here
+     * plays, pauses or moves Spotify's playback.
+     */
+    private fun reportUnreachable() {
+        retryJob?.cancel()
+        retryJob = null
+        unreachableWatch?.cancel()
+        unreachableWatch = null
+        connectJob?.cancel()
+        connectJob = null
+        parked = true
+        openedForStart = false
+        playHere = false
+        val held = pendingOperations.size
+        scope.launch {
+            val device = try {
+                withTimeoutOrNull(PLAYING_ELSEWHERE_TIMEOUT_MS) { playingElsewhere() }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.w(tag, "reportUnreachable: playback state unreadable", error)
+                null
+            }
+            // A new start, a connection or a sign-out came first: this hint is stale.
+            if (!parked || remote?.isConnected == true || pendingOperations.size != held) return@launch
+            Log.d(tag, "reportUnreachable: elsewhere=${device != null}")
+            val failure = device?.let(SpotifyConnectFailure::PlayingElsewhere) ?: SpotifyConnectFailure.SpotifyAsleep
+            publishError(failure, failure.userMessage(applicationContext.resources))
+        }
+    }
+
+    /**
+     * Opens the Spotify app from the hint, without a song, so nothing it plays changes; App
+     * Remote connects when Yoin is back, and the held start runs then, unless Spotify is
+     * playing by that time. [playHere] runs it anyway: the user asked to move playback here.
+     * False when the Spotify app can't be opened.
+     */
+    fun openSpotify(playHere: Boolean): Boolean {
+        val context = hostContext ?: applicationContext
+        val intent = spotifyLaunchIntent(context) ?: return false
+        if (context !is android.app.Activity) intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        val opened = runCatching { context.startActivity(intent) }
+            .onFailure { Log.w(tag, "openSpotify: launch failed", it) }
+            .isSuccess
+        if (opened && parked) {
+            openedForStart = true
+            this.playHere = playHere
+        }
+        return opened
+    }
+
+    /**
+     * The first connect after a hint decides what the held start does: dropped unless the
+     * user opened Spotify for it, and dropped when Spotify is already playing by then (the
+     * user picked something there), unless they asked for "Play here".
+     */
+    private suspend fun settleHeldStart(connected: SpotifyAppRemote) {
+        val opened = openedForStart
+        val force = playHere
+        parked = false
+        openedForStart = false
+        playHere = false
+        val keep = when {
+            !opened -> false
+            force -> true
+            else -> {
+                val state = try {
+                    withTimeoutOrNull(PLAYER_STATE_LOOK_TIMEOUT_MS) { connected.playerApi.playerState.awaitData() }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    null
+                }
+                // Unknown counts as playing: better a start the user taps again than one that cuts in.
+                state?.isPaused == true
+            }
+        }
+        Log.d(tag, "settleHeldStart: opened=$opened force=$force keep=$keep")
+        if (!keep) dropHeldStart()
+    }
+
+    /** Lets the start a hint held go, and the hint with it. */
+    private fun dropHeldStart() {
+        Log.d(tag, "dropHeldStart: pending=${pendingOperations.size}")
+        pendingOperations.clear()
+        pendingStart = null
+        publish(
+            lastSnapshot.copy(
+                pendingTrack = null,
+                connectionPhase = if (lastSnapshot.connectionPhase == ConnectionPhase.Error) {
+                    ConnectionPhase.Idle
+                } else {
+                    lastSnapshot.connectionPhase
+                },
+                connectionFailure = null,
+                connectionErrorMessage = null,
+            ),
+        )
+    }
+
+    private fun clearUnreachable() {
+        parked = false
+        openedForStart = false
+        playHere = false
+        unreachableWatch?.cancel()
+        unreachableWatch = null
+    }
+
     private fun isUserWaitingOnConnection(): Boolean =
         pendingOperations.isNotEmpty() || lastSnapshot.observedPlayerState
 
@@ -1249,6 +1461,12 @@ internal class SpotifyAppRemotePlayer(
          * up, but a small pause gives the IPC channel a moment to reset.
          */
         const val TRANSPORT_RETRY_DELAY_MS = 800L
+
+        /** The Web API's word on where Spotify plays, for the hint; past this the hint says "asleep". */
+        const val PLAYING_ELSEWHERE_TIMEOUT_MS = 2_500L
+
+        /** The look at Spotify's state before a held start runs ([settleHeldStart]). */
+        const val PLAYER_STATE_LOOK_TIMEOUT_MS = 2_000L
     }
 
     private fun failureFor(error: Throwable): SpotifyConnectFailure = when (error) {
@@ -1305,6 +1523,9 @@ internal class SpotifyAppRemotePlayer(
 
 /** Grace for the subscription to report the requested track after a start command answers. */
 internal const val SPOTIFY_START_HEARD_TIMEOUT_MS = 4_000L
+
+/** How long a start waits on a Spotify app that doesn't answer before the hint ([SpotifyAppRemotePlayer.openSpotify]). */
+internal const val SPOTIFY_UNREACHABLE_AFTER_MS = 5_000L
 
 /** Wait before reading Spotify's queue after a start or an Add to queue: the Web API lags the app a little. */
 internal const val SPOTIFY_QUEUE_READ_DELAY_MS = 800L

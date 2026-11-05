@@ -4,7 +4,9 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.spotify.SpotifyDevice
+import com.gpo.yoin.data.source.spotify.SpotifyPlaybackStateResponse
 import com.gpo.yoin.data.source.spotify.pickLocalSpotifyDevice
+import com.gpo.yoin.data.source.spotify.playingElsewhere
 import com.gpo.yoin.data.source.spotify.startPlaybackBody
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -232,5 +234,17 @@ class SpotifyStartPlanTest {
 
         assertEquals("named", pickLocalSpotifyDevice(devices, listOf("Gpo's Tablet", "Pixel Tablet"))?.id)
         assertNull(pickLocalSpotifyDevice(devices, listOf("Pixel 9")))
+    }
+
+    @Test
+    fun should_nameOnlyAnotherDeviceThatPlays_when_spotifysPlaybackStateIsRead() {
+        val speaker = SpotifyDevice(id = "s", name = "Living Room", type = "Speaker", isActive = true)
+        val tablet = SpotifyDevice(id = "t", name = "Pixel Tablet", type = "Tablet", isActive = true)
+        val here = listOf("Gpo's Tablet", "Pixel Tablet")
+
+        assertEquals("Living Room", playingElsewhere(SpotifyPlaybackStateResponse(speaker, isPlaying = true), here))
+        assertNull(playingElsewhere(SpotifyPlaybackStateResponse(speaker, isPlaying = false), here))
+        assertNull(playingElsewhere(SpotifyPlaybackStateResponse(tablet, isPlaying = true), here))
+        assertNull(playingElsewhere(null, here))
     }
 }
