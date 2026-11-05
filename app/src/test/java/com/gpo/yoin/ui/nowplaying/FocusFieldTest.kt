@@ -263,6 +263,24 @@ class FocusFieldTest {
         assertEquals(pale, out[1])
     }
 
+    @Test
+    fun should_keepTheDarkRoomNearThePrimaryHue_when_theSchemeTurnsItsAccentsAway() {
+        // A purple cover's expressive dark scheme: secondary and tertiary turned ~160° to green.
+        val room = darkRoomOf(
+            primary = argb(200, 170, 255),
+            secondary = argb(150, 210, 160),
+            tertiary = argb(140, 220, 150),
+        )
+        val primaryHue = hct.Hct.fromInt(argb(200, 170, 255)).hue
+        (room.colors.toList() + room.accent).forEach { c ->
+            val d = kotlin.math.abs(((hct.Hct.fromInt(c).hue - primaryHue + 540.0) % 360.0) - 180.0)
+            assertTrue("hue of ${Integer.toHexString(c)} is $d° from the primary", d <= DarkRoomMaxHueTurn + 8.0)
+        }
+        assertEquals(90.0, nearHue(0.0, 90.0, 120.0), 0.001)
+        assertEquals(50.0, nearHue(0.0, 160.0, 50.0), 0.001)
+        assertEquals(310.0, nearHue(0.0, 200.0, 50.0), 0.001)
+    }
+
     private fun luminance(c: Int): Float {
         fun ch(v: Int): Float {
             val x = v / 255f

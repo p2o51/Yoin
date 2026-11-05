@@ -135,17 +135,32 @@ fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int): RoomPalette {
     val s = Hct.fromInt(secondary)
     val t = Hct.fromInt(tertiary)
     fun at(hue: Double, chroma: Double, tone: Double): Int = Hct.from(hue, chroma, tone).toInt()
-    val between = midHue(p.hue, t.hue)
+    // The expressive scheme turns secondary and tertiary ~160° away from the
+    // primary (a purple cover gets green ones); lifted to full chroma that
+    // painted the room's lower half green (owner 2026-11-05). Keep them
+    // within [DarkRoomMaxHueTurn] of the primary, on the side they lean.
+    val sHue = nearHue(p.hue, s.hue, DarkRoomMaxHueTurn)
+    val tHue = nearHue(p.hue, t.hue, DarkRoomMaxHueTurn)
+    val between = midHue(p.hue, tHue)
     return RoomPalette(
         colors = intArrayOf(
             at(p.hue, max(p.chroma, DarkRoomMinChroma), 32.0),
-            at(s.hue, max(s.chroma, DarkRoomMinChroma * 0.8), 24.0),
-            at(t.hue, max(t.chroma, DarkRoomMinChroma), 32.0),
+            at(sHue, max(s.chroma, DarkRoomMinChroma * 0.8), 24.0),
+            at(tHue, max(t.chroma, DarkRoomMinChroma), 32.0),
             at(between, DarkRoomMinChroma, 14.0),
         ),
         accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 46.0),
     )
 }
+
+/** [b], turned toward [a] the shorter way until it is at most [maxTurn] degrees from it. */
+internal fun nearHue(a: Double, b: Double, maxTurn: Double): Double {
+    val d = ((b - a + 540.0) % 360.0) - 180.0
+    return (a + d.coerceIn(-maxTurn, maxTurn) + 360.0) % 360.0
+}
+
+/** How far the dark room's other colours may turn from the primary's hue. */
+internal const val DarkRoomMaxHueTurn = 50.0
 
 /** The hue halfway round the shorter way from [a] to [b], in degrees. */
 private fun midHue(a: Double, b: Double): Double {
