@@ -85,6 +85,8 @@ struct NowPlayingView: View, Equatable {
     /// The page's geometry before the keyboard came up (see `page`).
     @State private var frozenGeometry: PageGeometry?
     @State private var keyboardHeight: CGFloat = 0
+    @State private var spotifyDevicesOpen = false
+    private var spotifySong: Bool { engineTrack?.provider == SpotifyMapping.provider && model.store.spotify != nil }
     /// The expanded Lyrics page (Android NowPlayingScreen's lyricsAutoScroll /
     /// lyricsRecenterTick and LyricsSelectionState): following the playhead,
     /// the Recenter key's tick, select mode and its pick, the editor and the
@@ -203,6 +205,9 @@ struct NowPlayingView: View, Equatable {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .animation(Yoin.effects, value: model.queueSheetOpen)
+        }
+        .sheet(isPresented: $spotifyDevicesOpen) {
+            if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scheme: scheme).reportsSheetRise() }
         }
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet().reportsSheetRise()
@@ -1881,11 +1886,14 @@ struct NowPlayingView: View, Equatable {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
                 pill("queue", "Queue", shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
-                pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20))) { airPlay.present() }
+                pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
+                    if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
+                }
                     // The system route picker, invisible, over the pill: a
                     // finger lands on its own button (the forwarding in
-                    // `present()` is the fallback).
-                    .overlay { AirPlayRoutePicker(trigger: airPlay) }
+                    // `present()` is the fallback). A Spotify song plays in the
+                    // Spotify app: its Connect devices instead (Codex N17).
+                    .overlay { if !spotifySong { AirPlayRoutePicker(trigger: airPlay) } }
                 pill("note", "Write", shape: AnyShape(Capsule())) { startWriting() }
             }
         }

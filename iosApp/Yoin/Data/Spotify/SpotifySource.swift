@@ -244,6 +244,35 @@ final class SpotifySource {
         return out
     }
 
+    // MARK: Connect devices (Android getDevices / transferPlayback)
+
+    struct Device: Identifiable, Equatable, Sendable {
+        var id: String
+        var name: String
+        var type: String
+        var isActive: Bool
+    }
+
+    private struct DevicesDTO: Decodable {
+        struct D: Decodable { let id: String?; let name: String?; let type: String?; let isActive: Bool? }
+        let devices: [D]
+    }
+
+    /// The account's Spotify Connect devices (user-read-playback-state).
+    func devices() async throws -> [Device] {
+        let r = try await api.get("me/player/devices", as: DevicesDTO.self)
+        return r.devices.compactMap { d in
+            guard let id = d.id else { return nil }
+            return Device(id: id, name: d.name ?? "Device", type: d.type ?? "", isActive: d.isActive ?? false)
+        }
+    }
+
+    /// Moves playback to [deviceId], playing there.
+    func transfer(to deviceId: String) async throws {
+        let json = try JSONSerialization.data(withJSONObject: ["device_ids": [deviceId], "play": true])
+        try await api.send("PUT", "me/player", json: json)
+    }
+
     // MARK: Following an artist (Android SpotifyMusicSource.setArtistFollowed)
 
     /// Follows or unfollows the artist on Spotify (PUT / DELETE me/following, user-follow-modify).
