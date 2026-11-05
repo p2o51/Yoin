@@ -66,7 +66,12 @@ private class CjkFallbackFont(
     override fun equals(other: Any?): Boolean =
         other is CjkFallbackFont && other.resId == resId && other.weight == weight && other.axes == axes
 
-    override fun hashCode(): Int = (resId * 31 + weight.hashCode()) * 31 + axes.hashCode()
+    // The CJK script is folded into the hash, read at lookup time: Compose caches loaded typefaces
+    // process-wide by Font, so after a language switch (zh-Hans ↔ zh-Hant / ja / ko) without a process
+    // restart the lookup lands in another bucket, misses, and loads the new region's glyphs.
+
+    override fun hashCode(): Int =
+        ((resId * 31 + weight.hashCode()) * 31 + axes.hashCode()) * 31 + SystemCjk.preferredTag().hashCode()
 
     override fun toString(): String = "CjkFallbackFont(resId=$resId, weight=$weight, axes=$axes)"
 
@@ -99,7 +104,7 @@ private class CjkFallbackFont(
             val builder = Typeface.CustomFallbackBuilder(PlatformFontFamily.Builder(gsf).build())
                 .setStyle(FontStyle(w, FontStyle.FONT_SLANT_UPRIGHT))
                 .setSystemFallback("sans-serif")
-            SystemCjk.fontFor(w)?.let { builder.addCustomFallback(PlatformFontFamily.Builder(it).build()) }
+            SystemCjk.fontFor(SystemCjk.preferredTag(), w)?.let { builder.addCustomFallback(PlatformFontFamily.Builder(it).build()) }
             return builder.build()
         }
     }
@@ -111,28 +116,35 @@ private fun Map<String, Float>.toVariationString(): String =
 /** The system's sans CJK font for the current locale, picked once and cached per weight. */
 @RequiresApi(Build.VERSION_CODES.Q)
 private object SystemCjk {
-    private val fontsByWeight = HashMap<Int, PlatformFont?>()
+    private class Script(val candidates: List<PlatformFont>, val isVariable: Boolean)
 
-    /** Han script variants in fallback order; the first that matches the user's locales wins. */
-    private val scriptTags = listOf("zh-Hans", "zh-Hant", "ja", "ko")
+    private val scripts = HashMap<String, Script>()
+    private val fonts = HashMap<Pair<String, Int>, PlatformFont?>()
 
-    private val candidates: List<PlatformFont> by lazy {
-        val all = runCatching { SystemFonts.getAvailableFonts().toList() }.getOrDefault(emptyList())
+    private val allFonts: List<PlatformFont> by lazy {
+        runCatching { SystemFonts.getAvailableFonts().toList() }.getOrDefault(emptyList())
             .filter { it.style.slant == FontStyle.FONT_SLANT_UPRIGHT && !it.isSerif() }
-        val tag = preferredTag()
-        all.filter { font -> font.localeTags().any { it.equals(tag, ignoreCase = true) || it.startsWith("$tag-", true) } }
     }
 
-    private val isVariable: Boolean by lazy {
-        candidates.firstOrNull()?.let { runCatching { hasWeightAxis(it.buffer, it.ttcIndex) }.getOrDefault(false) }
-            ?: false
+    private fun script(tag: String): Script = synchronized(scripts) {
+        scripts.getOrPut(tag) {
+            val candidates = allFonts.filter { font ->
+                font.localeTags().any { it.equals(tag, ignoreCase = true) || it.startsWith("$tag-", true) }
+            }
+            val regular = candidates.minByOrNull { kotlin.math.abs(it.style.weight - 400) }
+            val variable = regular?.let { runCatching { hasWeightAxis(it.buffer, it.ttcIndex) }.getOrDefault(false) }
+                ?: false
+            Script(candidates, variable)
+        }
     }
 
-    fun fontFor(weight: Int): PlatformFont? = synchronized(fontsByWeight) {
-        fontsByWeight.getOrPut(weight) { runCatching { pick(weight) }.getOrNull() }
+    fun fontFor(tag: String, weight: Int): PlatformFont? = synchronized(fonts) {
+        fonts.getOrPut(tag to weight) { runCatching { pick(script(tag), weight) }.getOrNull() }
     }
 
-    private fun pick(weight: Int): PlatformFont? {
+    private fun pick(script: Script, weight: Int): PlatformFont? {
+        val candidates = script.candidates
+        val isVariable = script.isVariable
         if (candidates.isEmpty()) return null
         // A real file at (or near) this weight beats any synthesis.
         val axis = if (isVariable) "'wght' $weight" else null
@@ -162,7 +174,8 @@ private object SystemCjk {
             .build()
     }
 
-    private fun preferredTag(): String {
+    /** The Han script for the user's first CJK locale; Simplified Chinese when there is none. */
+    fun preferredTag(): String {
         val locales = LocaleList.getDefault()
         for (i in 0 until locales.size()) {
             val l = locales[i]
@@ -176,7 +189,7 @@ private object SystemCjk {
                 }
             }
         }
-        return scriptTags.first()
+        return "zh-Hans"
     }
 
     private fun PlatformFont.localeTags(): List<String> {
