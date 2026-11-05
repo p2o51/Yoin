@@ -66,7 +66,11 @@ final class MacModel {
         player = PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: appleOutput))
         library = MacLibrary(session: session)
         system = MacPlaybackSystem(player: player)
-        player.onScrobble = { [weak self] track, submission in self?.library.scrobble(track, submission: submission) }
+        player.onScrobble = { [weak self] track, submission in
+            guard let self else { return }
+            self.library.scrobble(track, submission: submission)
+            self.recordHistory(track, submission: submission)
+        }
         player.onStateChange = { [weak self] in
             guard let self else { return }
             self.system?.refresh()
@@ -308,6 +312,48 @@ final class MacModel {
     private func download(_ c: OfflineDownloads.Collection, _ entries: [PlaylistEntry]) {
         OfflineDownloads.shared.download(c, entries: entries) { [library] e in
             library.playable(e).flatMap { SubsonicCacheKey.of($0.streamURL) }
+        }
+    }
+
+    // MARK: History (iOS HistoryStore: this Mac's plays, per account)
+
+    @ObservationIgnored private var openPlay: (song: String, id: String)?
+
+    /// A song that starts is a play row; heard long enough, it counts.
+    private func recordHistory(_ t: PlayableTrack, submission: Bool) {
+        let history = HistoryStore.shared
+        let scope = session.accountKey
+        guard !scope.isEmpty else { return }
+        if submission {
+            guard let open = openPlay, open.song == t.id else { return }
+            history.markListened(playId: open.id, listenedSec: player.progress.positionSec, completed: true)
+            return
+        }
+        let e = entry(for: t)
+        let coverKey = t.provider == AppleMusicMapping.provider
+            ? t.coverURL?.absoluteString
+            : OfflineDownloads.coverId(e?.album.palette.cover)
+        let id = history.recordPlay(scope: scope, provider: t.provider, songId: t.id, albumId: t.albumId,
+                                    artistId: e?.album.artistId, title: t.title, album: t.album, artist: t.artist,
+                                    coverKey: coverKey, durationSec: t.durationSec)
+        openPlay = (t.id, id)
+    }
+
+    /// Albums this account has played here, the most recent first (Home's Memories shelf).
+    func memories(limit: Int = 18) -> [(album: Album, stats: AlbumPlayStats)] {
+        let scope = session.accountKey
+        let provider = session.isAppleMusic ? AppleMusicMapping.provider : MediaRef.companion.PROVIDER_SUBSONIC
+        guard !scope.isEmpty else { return [] }
+        return HistoryStore.shared.lastPlayedAlbums(scope: scope, provider: provider, limit: limit).map { s in
+            let key = s.latest.coverKey
+            let url: URL? = if provider == AppleMusicMapping.provider { key.flatMap(URL.init(string:)) }
+                else { key.flatMap { id in session.client.flatMap { URL(string: $0.coverArtUrl(id: id, size: nil)) } } }
+            let p = MacArtistDetail.placeholder(s.albumId)
+            let album = Album(id: MediaId(provider: provider, rawId: s.albumId), title: s.latest.album,
+                              artist: s.latest.artist, year: 0,
+                              palette: CoverPalette(a: p.a, b: p.b, c: p.c, cover: url.map { CoverRef(url: $0) }),
+                              tracks: [], artistId: s.latest.artistId)
+            return (album, s)
         }
     }
 

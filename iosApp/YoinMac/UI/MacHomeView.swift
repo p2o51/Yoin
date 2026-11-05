@@ -35,6 +35,17 @@ struct MacHomeView: View {
                         }
                     }
                 }
+                let memories = model.memories()
+                if !memories.isEmpty {
+                    MacSectionTitle(text: "Memories")
+                    // What you've played on this Mac: how often, and when last.
+                    AlbumGrid(albums: memories.map(\.album)) { a in
+                        guard let s = memories.first(where: { $0.album.id == a.id })?.stats else { return a.artist }
+                        let when = Date(timeIntervalSince1970: Double(s.lastPlayedAt) / 1000)
+                            .formatted(.relative(presentation: .named))
+                        return "\(s.playCount) \(s.playCount == 1 ? "play" : "plays")  \(when)"
+                    }
+                }
                 if !home.recentlyAdded.isEmpty {
                     MacSectionTitle(text: "Recently Added")
                     AlbumGrid(albums: home.recentlyAdded)
