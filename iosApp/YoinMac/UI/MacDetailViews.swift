@@ -60,7 +60,7 @@ struct MacAlbumDetail: View {
                     }
                 }
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 32)
             .padding(.top, 60)
             .padding(.bottom, 130)
         }
@@ -120,7 +120,7 @@ struct MacArtistDetail: View {
                     }
                 }
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 32)
             .padding(.top, 60)
             .padding(.bottom, 130)
         }
@@ -145,9 +145,11 @@ struct DetailHeader: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        // Stacked, nothing may be wider than the column: an overflowing header would centre the whole
+        // page and push its margins (and the rows' right edge) out of the column.
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: 24) { cover.frame(width: 220); titles }
-            VStack(alignment: .leading, spacing: 18) { cover.frame(width: 200); titles }
+            HStack(alignment: .bottom, spacing: 24) { cover.frame(width: 220); titles.frame(minWidth: 220, alignment: .leading) }
+            VStack(alignment: .leading, spacing: 18) { cover.frame(maxWidth: 200); titles }
         }
         .padding(.bottom, 22)
     }
@@ -171,7 +173,6 @@ struct DetailHeader: View {
             }
             Text(meta).font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
         }
-        .frame(minWidth: 220, alignment: .leading)
     }
 }
 
