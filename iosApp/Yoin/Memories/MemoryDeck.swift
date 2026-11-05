@@ -1,10 +1,28 @@
 import Foundation
 import SwiftUI
 
-/// One memory card (Android `MemoryEntry`, the card state only): the
-/// exhibit — cover, groove emblem, title, album row — and the teaser excerpt.
+/// One memory (Android `MemoryEntry`): the card's exhibit — cover, groove
+/// emblem, title, album row — and teaser excerpt, and what its diary reads:
+/// the review, Yoin's paragraph, the rated or noted tracks with their notes,
+/// the play numerals.
 struct MemoryCard: Identifiable, Hashable {
     enum TitleKind: Hashable { case user, ai, album }
+
+    struct Review: Hashable {
+        var text: String
+        /// When it was written (epoch ms; 0 = unknown).
+        var at: Int64
+    }
+
+    /// One liner row: a rated or noted track, its notes under it (by moment, then age).
+    struct DiaryTrack: Hashable, Identifiable {
+        /// Its place in the album's track list (what Play starts at).
+        var index: Int
+        var track: Track
+        var rating: Double?
+        var notes: [SongNote]
+        var id: String { track.id.rawId }
+    }
 
     struct Excerpt: Hashable {
         enum Kind: Hashable { case review, note }
@@ -26,6 +44,16 @@ struct MemoryCard: Identifiable, Hashable {
     var excerpt: Excerpt?
     var noteCount: Int
     var lastHeardAt: Int64?
+    /// The memory it was built from (a write rebuilds the card in place).
+    var memory: AlbumMemory
+    var review: Review?
+    /// Yoin's own title under a user title (the AI's): what Restore brings back.
+    var yoinTitle: String?
+    /// Yoin's paragraph (the Gemini memory copy), shown above a blank page.
+    var paragraph: String?
+    var diaryTracks: [DiaryTrack]
+    var playCount: Int
+    var firstPlayedAt: Int64?
 
     var id: String { album.id.rawId }
 }
@@ -44,6 +72,10 @@ enum MemoryDeck {
         var title: (String) -> (text: String, user: Bool)? = { _ in nil }
         /// Raw song id → your rating.
         var rating: (String) -> Double? = { _ in nil }
+        /// Raw album id → Yoin's own title (the AI's), whatever the user calls it.
+        var yoinTitle: (String) -> String? = { _ in nil }
+        /// Raw album id → Yoin's paragraph (the memory copy).
+        var copy: (String) -> String? = { _ in nil }
     }
 
     /// The deck: the Memory pool (eligible memories; every memory with
@@ -77,13 +109,52 @@ enum MemoryDeck {
         let albumScore = m.albumRating.flatMap { $0 > 0 ? $0 : nil }
         let average = m.averageSongRating
         let rated = m.album.tracks.map { x.rating($0.id.rawId) != nil }
+        let review = x.review(id).flatMap { r -> MemoryCard.Review? in
+            let t = r.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : .init(text: t, at: r.at)
+        }
         return MemoryCard(album: m.album, title: title?.text ?? m.album.title,
                           titleKind: title == nil ? .album : (title!.user ? .user : .ai),
                           score: albumScore ?? average,
                           emblemKind: ScoreEmblem.Kind(rating: albumScore, average: average),
                           rated: rated.isEmpty ? Array(repeating: false, count: max(m.totalTracks, 1)) : rated,
                           excerpt: excerpt, noteCount: max(m.noteCount, notes.count),
-                          lastHeardAt: m.lastPlayedAt)
+                          lastHeardAt: m.lastPlayedAt, memory: m, review: review,
+                          yoinTitle: x.yoinTitle(id).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                          paragraph: x.copy(id).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                          diaryTracks: diaryTracks(m.album, notes: notes, rating: x.rating),
+                          playCount: m.playCount, firstPlayedAt: m.firstPlayedAt)
+    }
+
+    /// The liner (Android option A): only the rated or noted tracks, in album
+    /// order, each with its notes (by moment, unanchored last, then age).
+    static func diaryTracks(_ album: Album, notes: [SongNote], rating: (String) -> Double?) -> [MemoryCard.DiaryTrack] {
+        var byTrack: [String: [SongNote]] = [:]
+        for n in notes { byTrack[n.trackId, default: []].append(n) }
+        return album.tracks.enumerated().compactMap { i, t in
+            let r = rating(t.id.rawId)
+            let ns = (byTrack[t.id.rawId] ?? []).sorted {
+                switch ($0.positionMs, $1.positionMs) {
+                case let (a?, b?) where a != b: return a < b
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: return $0.createdAt < $1.createdAt
+                }
+            }
+            guard r != nil || !ns.isEmpty else { return nil }
+            return .init(index: i, track: t, rating: r, notes: ns)
+        }
+    }
+
+    /// The foot's two numerals (Android diaryFooterStats): only for an album
+    /// played in Yoin. Whole days since the first play's day.
+    static func footer(plays: Int, firstPlayedAt: Int64?, now: Int64,
+                       calendar: Calendar = .current) -> (plays: Int, days: Int)? {
+        guard plays > 0, let first = firstPlayedAt, first > 0 else { return nil }
+        let a = calendar.startOfDay(for: Date(timeIntervalSince1970: Double(first) / 1000))
+        let b = calendar.startOfDay(for: Date(timeIntervalSince1970: Double(now) / 1000))
+        let days = calendar.dateComponents([.day], from: a, to: b).day ?? 0
+        return (plays, max(days, 0))
     }
 
     /// Where the deck opens: the focused album's card, else the first.
@@ -157,10 +228,39 @@ extension MemoryDeck {
         ]
     }()
 
-    static func mockInputs() -> Inputs {
-        Inputs(memories: mockMemories(), notes: mockNotes,
-               review: { $0 == "al4" ? ("Loud, bright and a little too short. I keep coming back to Night Market.", 0) : nil },
-               title: { mockTitles[$0].map { ($0, $0.hasPrefix("Letters")) } },
-               rating: { id in MockLibrary.allAlbums.lazy.flatMap(\.tracks).first { $0.id.rawId == id }?.rating })
+    /// Yoin's own (AI) titles under the mock's; "al1" also carries a user title.
+    static let mockAITitles: [String: String] = [
+        "al12": "A field that stays bright after dark",
+        "al1": "The chord that never resolves",
+    ]
+
+    static let mockCopy: [String: String] = [
+        "al12": "Eleven plays this month, most of them after midnight. What keeps you at the bridge?",
+        "al2": "You played it start to finish on one ferry ride. Which song was the crossing?",
+    ]
+
+    @MainActor static func mockInputs() -> Inputs {
+        let writes = MockWrites.shared
+        return Inputs(memories: mockMemories(), notes: mockNotes,
+                      review: { id in
+                          if let r = writes.reviews[id] { return r }
+                          return id == "al4" ? ("Loud, bright and a little too short. I keep coming back to Night Market.", 0) : nil
+                      },
+                      title: { id in
+                          if let user = writes.titles[id] { return user.map { ($0, true) } ?? mockAITitles[id].map { ($0, false) } }
+                          return mockTitles[id].map { ($0, $0.hasPrefix("Letters")) }
+                      },
+                      rating: { id in MockLibrary.allAlbums.lazy.flatMap(\.tracks).first { $0.id.rawId == id }?.rating },
+                      yoinTitle: { mockAITitles[$0] },
+                      copy: { mockCopy[$0] })
+    }
+
+    /// The mock deck's writes, in memory only (signed out nothing reaches the
+    /// stores): a review saved, a title named or restored (nil).
+    @MainActor
+    final class MockWrites {
+        static let shared = MockWrites()
+        var reviews: [String: (text: String, at: Int64)] = [:]
+        var titles: [String: String?] = [:]
     }
 }

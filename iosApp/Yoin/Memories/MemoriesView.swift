@@ -2,35 +2,49 @@ import SwiftUI
 import UIKit
 
 /// Memories, the shell-owned upward overlay (AGENTS.md ShellOverlayUp),
-/// ported from Android ui/memories (MemoriesScreen, showcase/MemoryCardFace,
-/// MemoriesTopBar, MemoriesAuroraBackground), card state only.
+/// ported from Android ui/memories (MemoriesScreen, showcase/*).
 ///
-/// Back surface: it retreats upward to Home. q (MemoriesPresentation) is the
-/// one displacement: the drag up on the page, the ⌃ Home pill, the bar's
-/// Home tap and VoiceOver's escape all move it; the page reads it as its
-/// offset (−q·H), Home behind reads it as its scale / dim. One drag router on
-/// the page decides the axis on its first movement: sideways turns the deck
-/// (its own pager position, the aurora's drift), upward feeds q.
+/// Back surface: it retreats upward to Home. The page has two controllers,
+/// never fighting: q (MemoriesPresentation, the retreat to Home: the drag up,
+/// the ⌃ Home pill, the bar's Home tap, VoiceOver's escape) and p
+/// (MemoriesDiary, card ⇄ diary: the Diary button, a pull past the diary's
+/// top, the bar as its handle, the bar cover / ⌄, escape at the diary level).
+/// One gesture router (MemoriesGestures) hands each drag to exactly one of
+/// them at the slop; sideways turns the deck.
+///
+/// The container's own size picks the tier (MemoriesLayout): the two states
+/// on a phone and a Medium column, the spread (exhibit | diary) when wide.
 struct MemoriesView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var presentation: MemoriesPresentation
 
+    @State private var deck: MemoriesDeckModel
     @State private var cards: [MemoryCard] = []
     /// The deck's continuous page (0 = first card).
     @State private var position: CGFloat = 0
-    @State private var axis: Axis?
+    @State private var axis: MemoriesDragAxis?
+    @State private var route: MemoriesVerticalRoute?
+    @State private var pagerAxis: MemoriesDragAxis?
     @State private var dragStartPosition: CGFloat = 0
     @State private var pager = SpringRunner()
-    @State private var width: CGFloat = 390
+    @State private var layout = MemoriesLayouts.layout(width: 390, height: 844)
+    @State private var size = CGSize(width: 390, height: 844)
+
+    init(presentation: MemoriesPresentation) {
+        self.presentation = presentation
+        _deck = State(initialValue: MemoriesDeckModel(presentation: presentation))
+    }
 
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
+    private var dark: Bool { colorScheme == .dark }
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             ZStack(alignment: .top) {
-                MemoriesAurora(palettes: cards.map(\.album.palette), position: position, dark: colorScheme == .dark)
+                MemoriesAurora(palettes: cards.map(\.album.palette), position: position, dark: dark)
                     .background(scheme.background)
                     .ignoresSafeArea()
                 if cards.isEmpty {
@@ -40,27 +54,35 @@ struct MemoriesView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ForEach(visibleIndices, id: \.self) { i in
-                        MemoryCardFace(card: cards[i], scheme: scheme, dark: colorScheme == .dark,
-                                       height: geo.size.height) {
-                            model.open(cards[i].album)
-                        }
-                        .frame(width: w)
-                        // Neighbours slide past at the deck's pace; only ±1 is drawn.
-                        .offset(x: (CGFloat(i) - position) * w)
-                        .accessibilityHidden(i != currentIndex)
+                        page(i, size: geo.size)
+                            .frame(width: w)
+                            // Neighbours slide past at the deck's pace; only ±1 is drawn.
+                            .offset(x: (CGFloat(i) - position) * w)
+                            .accessibilityHidden(i != currentIndex)
                     }
                 }
-                MemoriesTopBar(dots: cards.map { MemoryTones(palette: $0.album.palette, dark: colorScheme == .dark).dot },
-                               position: position, scheme: scheme,
-                               onHome: { presentation.close() },
-                               onDot: { turn(to: $0, velocity: 0) })
+                MemoriesTopBar(cards: cards, position: position, deck: deck, layout: layout, scheme: scheme, dark: dark,
+                               width: w, onHome: home, onDot: { turn(to: $0, velocity: 0) })
+                    .gesture(pageGesture(zone: .bar))
             }
+            .coordinateSpace(.named(MemoryPageMorph.space))
             .contentShape(.rect)
-            .gesture(router(width: w))
-            .onAppear { width = w }
-            .onChange(of: w) { _, new in width = new }
+            // The page's own drag: the card body (and the bar band). In the
+            // diary the text's scroll has the body; in a spread its left page.
+            .gesture(pageGesture(zone: nil), including: layout.twoState && !deck.diary.isDiaryLevel ? .all : .subviews)
+            .background(MemoriesAwardDriver(deck: deck, presentation: presentation, keys: cards.map(\.id),
+                                            position: position, spread: layout.isSpread))
+            // The container's width (adaptive principle 1) and the window's
+            // height, system bars included: Memories always runs the window's
+            // full height, and the safe area settles late while the page rides
+            // in, so the height is read from the window, not the moving frame.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                resize(CGSize(width: w, height: Self.windowHeight))
+            }
         }
+        .ignoresSafeArea(.keyboard)
         .onAppear {
+            resize(CGSize(width: size.width, height: Self.windowHeight))
             rebuild()
             #if DEBUG
             MemoriesScript.swipe = { _ in
@@ -70,15 +92,47 @@ struct MemoriesView: View {
                     turn(to: MemoryDeck.settlePage(position: position, velocity: 1.5, count: cards.count), velocity: 1.5)
                 }
             }
+            MemoriesScript.deck = deck
+            MemoriesScript.current = { cards.indices.contains(currentIndex) ? cards[currentIndex] : nil }
+            MemoriesScript.title = { title($0, $1) }
+            MemoriesScript.review = { review($0, $1) }
+            MemoriesScript.back = { back() }
+            // iPad: Home full width (no album column), for the spread's recordings.
+            if UserDefaults.standard.bool(forKey: "memoriesNoColumn"), model.padSelection != nil { model.padSelection = nil }
             #endif
         }
         .onChange(of: presentation.openCount) { _, _ in rebuild() }
-        // VoiceOver's two-finger scrub is iOS's back for an overlay: the same retreat.
-        .accessibilityAction(.escape) { presentation.close() }
+        .onChange(of: reduceMotion, initial: true) { _, r in deck.diary.reduced = r }
+        // VoiceOver's two-finger scrub is iOS's back for an overlay: one level at a time.
+        .accessibilityAction(.escape) { back() }
         .accessibilityAddTraits(.isModal)
     }
 
+    @ViewBuilder
+    private func page(_ i: Int, size: CGSize) -> some View {
+        let card = cards[i]
+        if layout.isSpread {
+            let cover = MemoriesLayouts.spreadCover(layout, room: self.size.height - layout.barHeight - 120)
+            MemoriesSpreadPage(card: card, deck: deck, layout: layout, cover: cover, seal: deck.sealSize, size: size,
+                               scheme: scheme, dark: dark, current: i == currentIndex,
+                               onOpenAlbum: { open(card) }, onTitle: { title(card, $0) },
+                               onReview: { review(card, $0) }, onOpenNeoDBSettings: openNeoDBSettings,
+                               leftGesture: pageGesture(zone: .card), horizontalPager: horizontalPager())
+        } else {
+            MemoryPageView(card: card, deck: deck, layout: layout, scheme: scheme, dark: dark, current: i == currentIndex,
+                           onOpenAlbum: { open(card) }, onTitle: { title(card, $0) },
+                           onReview: { review(card, $0) }, onOpenNeoDBSettings: openNeoDBSettings,
+                           horizontalPager: horizontalPager())
+        }
+    }
+
     private var currentIndex: Int { min(max(Int(position.rounded()), 0), max(cards.count - 1, 0)) }
+
+    private static var windowHeight: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.first { $0.activationState == .foregroundActive }?.keyWindow?.bounds.height
+            ?? scenes.first?.keyWindow?.bounds.height ?? 844
+    }
 
     private var visibleIndices: [Int] {
         guard !cards.isEmpty else { return [] }
@@ -86,53 +140,210 @@ struct MemoriesView: View {
         return lo <= hi ? Array(lo...hi) : []
     }
 
-    /// The deck for this open: the pool rebuilt every time, stopped on the focus.
+    // MARK: The deck
+
+    private func resize(_ s: CGSize) {
+        size = s
+        let l = MemoriesLayouts.layout(width: s.width, height: s.height)
+        guard l != layout else { return }
+        let sealChanged = seal(for: l) != deck.sealSize
+        layout = l
+        deck.router.isSpread = l.isSpread
+        // A spread has no diary level: p goes back to the card unseen.
+        if l.isSpread { deck.diary.snap(to: 0) }
+        if sealChanged, !cards.isEmpty { deck.rebuild(cards, seal: seal(for: l)) }
+    }
+
+    private func seal(for l: MemoriesLayout) -> CGFloat {
+        guard l.isSpread else { return l.seal }
+        return MemoriesLayouts.seal(for: l, cover: MemoriesLayouts.spreadCover(l, room: size.height - l.barHeight - 120))
+    }
+
+    /// The deck for this open: the pool rebuilt every time, stopped on the focus, every card on its card face.
     private func rebuild() {
         cards = MemoryDeck.cards(model.store.memoryDeckInputs())
         pager.stop()
         position = CGFloat(MemoryDeck.startIndex(cards, focus: presentation.focusAlbumId))
+        deck.diary.snap(to: 0)
+        deck.editor.end()
+        deck.router.cardPresent = !cards.isEmpty
+        deck.router.isSpread = layout.isSpread
+        deck.rebuild(cards, seal: seal(for: layout))
+    }
+
+    /// One card again after a write, in place (the deck's order holds while it is open).
+    private func refresh(_ card: MemoryCard) {
+        guard let i = cards.firstIndex(where: { $0.id == card.id }) else { return }
+        let fresh = MemoryDeck.card(card.memory, model.store.memoryDeckInputs())
+        cards[i] = fresh
+        deck.refresh(fresh)
     }
 
     private func turn(to page: Int, velocity: CGFloat) {
+        let key = cards.indices.contains(page) ? cards[page].id : nil
         pager.run(from: position, to: CGFloat(page), velocity: velocity, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { v in
             position = v
+        } completion: { [deck] in
+            deck.awards.onPagerSettled(key)
         }
     }
 
-    /// The page's one drag: its first movement picks the axis.
-    private func router(width w: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 10)
+    // MARK: Actions
+
+    private func open(_ card: MemoryCard) { model.open(card.album) }
+
+    private func title(_ card: MemoryCard, _ outcome: MemoryTitles.Outcome) {
+        switch outcome {
+        case .unchanged: return
+        case .restore: MemoryWrites.saveTitle(card, nil)
+        case .save(let t): MemoryWrites.saveTitle(card, t)
+        }
+        withAnimation(Yoin.effects) { refresh(card) }
+    }
+
+    private func review(_ card: MemoryCard, _ text: String) -> Bool {
+        guard MemoryWrites.saveReview(card, text: text) else {
+            PlaylistActions.shared.show("Couldn't save the review. Your draft is kept.")
+            return false
+        }
+        withAnimation(Yoin.spatial) { refresh(card) }
+        return true
+    }
+
+    /// NeoDB signs in in Settings: Memories retreats, Settings opens.
+    private func openNeoDBSettings() {
+        home()
+        model.openSettings()
+    }
+
+    private func home() {
+        MemoriesHaptics.click()
+        deck.awards.onDismissCommitted()
+        presentation.close()
+    }
+
+    /// Back, one level at a time: a title being edited, then the diary, then Home.
+    private func back() {
+        if deck.editor.isEditing { return deck.editor.end() }
+        if layout.twoState && deck.diary.isDiaryLevel { return deck.closeDiary() }
+        home()
+    }
+
+    // MARK: Gestures
+
+    /// The page's one drag: its first movement picks the axis; a vertical
+    /// one goes to the router, which picks q or p. [zone] nil = by where it started.
+    private func pageGesture(zone fixed: MemoriesDragZone?) -> AnyGesture<DragGesture.Value> {
+        AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop)
             .onChanged { v in
+                let router = deck.router
                 if axis == nil {
-                    axis = abs(v.translation.width) > abs(v.translation.height) ? .horizontal : .vertical
-                    dragStartPosition = position
-                    pager.stop()
+                    router.press()
+                    let a = MemoriesRouting.axis(dx: v.translation.width, dy: v.translation.height, slop: 0) ?? .vertical
+                    if a == .horizontal && !deck.editor.isEditing && !cards.isEmpty {
+                        axis = .horizontal
+                        beginPaging()
+                    } else {
+                        axis = .vertical
+                        let zone = fixed ?? (v.startLocation.y < layout.barHeight ? .bar : .card)
+                        route = router.begin(zone: zone, translationY: v.translation.height)
+                    }
                 }
                 switch axis {
-                case .horizontal:
-                    // 1:1, soft past either end.
-                    let raw = dragStartPosition - v.translation.width / max(w, 1)
-                    let last = CGFloat(max(cards.count - 1, 0))
-                    position = raw < 0 ? -rubber(-raw) : raw > last ? last + rubber(raw - last) : raw
-                case .vertical:
-                    presentation.dismissDrag(-v.translation.height)
+                case .horizontal: page(v)
+                case .vertical: if let route { router.drag(route, translationY: v.translation.height) }
                 case nil: break
                 }
             }
             .onEnded { v in
-                defer { axis = nil }
+                defer { axis = nil; route = nil }
+                deck.router.lift()
                 switch axis {
-                case .horizontal:
-                    let velocity = -v.velocity.width / max(w, 1)
-                    turn(to: MemoryDeck.settlePage(position: position, velocity: velocity, count: cards.count), velocity: velocity)
-                case .vertical:
-                    presentation.dismissEnded(velocity: -v.velocity.height)
+                case .horizontal: settlePaging(v)
+                case .vertical: if let route { deck.router.release(route, velocityY: v.velocity.height) }
                 case nil: break
+                }
+            })
+    }
+
+    /// Sideways over a scroll (the diary, the spread's right page): only a horizontal drag pages.
+    private func horizontalPager() -> AnyGesture<DragGesture.Value> {
+        AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop)
+            .onChanged { v in
+                if pagerAxis == nil {
+                    let a = MemoriesRouting.axis(dx: v.translation.width, dy: v.translation.height, slop: 0) ?? .vertical
+                    pagerAxis = a == .horizontal && !deck.editor.isEditing ? .horizontal : .vertical
+                    if pagerAxis == .horizontal {
+                        deck.router.press()
+                        beginPaging()
+                    }
+                }
+                if pagerAxis == .horizontal { page(v) }
+            }
+            .onEnded { v in
+                defer { pagerAxis = nil }
+                guard pagerAxis == .horizontal else { return }
+                deck.router.lift()
+                settlePaging(v)
+            })
+    }
+
+    private func beginPaging() {
+        deck.router.beginHorizontal()
+        dragStartPosition = position
+        pager.stop()
+    }
+
+    /// 1:1, soft past either end.
+    private func page(_ v: DragGesture.Value) {
+        let raw = dragStartPosition - v.translation.width / max(size.width, 1)
+        let last = CGFloat(max(cards.count - 1, 0))
+        position = raw < 0 ? -rubber(-raw) : raw > last ? last + rubber(raw - last) : raw
+    }
+
+    private func settlePaging(_ v: DragGesture.Value) {
+        let velocity = -v.velocity.width / max(size.width, 1)
+        turn(to: MemoryDeck.settlePage(position: position, velocity: velocity, count: cards.count), velocity: velocity)
+    }
+
+    private func rubber(_ over: CGFloat) -> CGFloat {
+        MemoriesBackTokens.diaryRubberBand * (1 - 1 / (1 + over / MemoriesBackTokens.diaryRubberBand))
+    }
+}
+
+/// Drives the award lifecycle from the deck (Android MemoriesAwardEffects):
+/// q, p and the pager read here, in a view of their own, so their frames
+/// re-render only this. A change of inputs replaces a pending lift delay.
+private struct MemoriesAwardDriver: View {
+    var deck: MemoriesDeckModel
+    var presentation: MemoriesPresentation
+    var keys: [String]
+    var position: CGFloat
+    var spread: Bool
+    @State private var pending: Task<Void, Never>?
+
+    var body: some View {
+        let diary = deck.diary
+        let i = min(max(Int(position.rounded()), 0), max(keys.count - 1, 0))
+        let inputs = MemoriesAwardInputs(
+            cardKey: keys.indices.contains(i) ? keys[i] : nil,
+            fingerDown: deck.awards.fingerDown,
+            nearCard: MemoriesAwardInputs.near(position: position, card: i),
+            revealIn: MemoriesAwardInputs.revealIn(presentation.fraction),
+            cardState: spread || MemoriesAwardInputs.cardState(diary.fraction),
+            diaryState: !spread && MemoriesAwardInputs.diaryState(diary.fraction, settling: diary.isSettling))
+        Color.clear
+            .onChange(of: inputs, initial: true) { _, now in
+                pending?.cancel()
+                let awards = deck.awards
+                guard let wait = awards.inputsChanged(now) else { return }
+                pending = Task { @MainActor in
+                    if wait > 0 { try? await Task.sleep(for: .milliseconds(wait)) }
+                    guard !Task.isCancelled else { return }
+                    awards.start(now)
                 }
             }
     }
-
-    private func rubber(_ over: CGFloat) -> CGFloat { 0.3 * (1 - 1 / (1 + over / 0.3)) }
 }
 
 // MARK: - Tones (Android MemoryPalette)
@@ -174,158 +385,6 @@ struct MemoryTones {
         if l > hi { return mix(c, .black, 1 - hi / l) }
         if l < lo { return mix(c, .white, (lo - l) / (1 - l)) }
         return c
-    }
-}
-
-// MARK: - The card
-
-/// The card state of one memory (Android MemoryCardFace, phone tier): the
-/// exhibit at a fixed height — air, the cover with the groove emblem pinned to
-/// its lower-right corner, the title, the album row — and the teaser anchored
-/// to the bottom: the excerpt, then Go to album. Flat, no cover border.
-private struct MemoryCardFace: View {
-    var card: MemoryCard
-    var scheme: CoverScheme
-    var dark: Bool
-    var height: CGFloat
-    var openAlbum: () -> Void
-
-    /// MemoriesLayoutTokens: phone, and the short (< 760) rhythm.
-    private var short: Bool { height < 760 }
-    private var cover: CGFloat { short ? 168 : 256 }
-    private var seal: CGFloat { short ? 72 : 96 }
-    private var air1: CGFloat { short ? 24 : 59 }
-
-    var body: some View {
-        let tones = MemoryTones(palette: card.album.palette, dark: dark)
-        VStack(spacing: 0) {
-            Color.clear.frame(height: MemoriesTopBar.height + air1)
-            exhibit(tones)
-            Spacer(minLength: 24)
-            if let e = card.excerpt { excerpt(e, tones).padding(.bottom, 16) }
-            Button(action: openAlbum) {
-                Text("Go to album")
-                    .homeType(Tokens.type.labelLarge, .semibold)
-                    .foregroundStyle(tones.onButton)
-                    .padding(.horizontal, 24)
-                    .frame(height: 48)
-                    .background(tones.button, in: .capsule)
-            }
-            .buttonStyle(PressScale())
-            .padding(.bottom, short ? 28 : 40)
-        }
-        .padding(.horizontal, 28)
-        .frame(maxWidth: .infinity)
-    }
-
-    private func exhibit(_ tones: MemoryTones) -> some View {
-        VStack(spacing: 0) {
-            CoverArt(palette: card.album.palette, cornerRadius: Tokens.shape.HERO.cg, seed: card.album.seed)
-                .frame(width: cover, height: cover)
-                .overlay(alignment: .topLeading) {
-                    // The emblem hangs off the lower-right corner by 0.3 / 0.24 of its size.
-                    ScoreEmblem(score: card.score ?? 0, kind: card.emblemKind, rated: card.rated,
-                                palette: card.album.palette, size: seal, neutrals: scheme, onCover: true)
-                        .offset(x: cover - seal * 0.7, y: cover - seal * 0.76)
-                }
-                .padding(.bottom, seal * 0.24)
-            Text(card.title)
-                .font(card.titleKind == .album ? .gsf(24, .semibold) : .system(size: 26, weight: .semibold, design: .serif))
-                .lineSpacing(card.titleKind == .album ? 24 * 0.3 - 6 : 26 * 0.36 - 7)
-                .multilineTextAlignment(.center)
-                .lineLimit(card.titleKind == .album ? 2 : 3)
-                .foregroundStyle(scheme.onSurface)
-                .frame(maxWidth: 340)
-                .padding(.top, short ? 22 : 30)
-            VStack(spacing: 2) {
-                if card.titleKind != .album {
-                    Text(card.album.title)
-                        .font(.gsf(17, .semibold))
-                        .foregroundStyle(tones.ink)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                }
-                HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
-                    if !card.album.artist.isEmpty { Text(card.album.artist) }
-                    if card.album.year > 0 { Text(String(card.album.year)).monospacedDigit() }
-                }
-                .font(.gsf(13, .medium))
-                .foregroundStyle(scheme.onSurfaceVariant)
-                .lineLimit(1)
-            }
-            .padding(.top, card.titleKind == .album ? 6 : (short ? 16 : 20))
-            .frame(maxWidth: 340)
-        }
-    }
-
-    private func excerpt(_ e: MemoryCard.Excerpt, _ tones: MemoryTones) -> some View {
-        VStack(spacing: 6) {
-            Text("“\(e.text)”")
-                .font(.gsf(e.text.count < 60 ? 22 : 17, e.text.count < 60 ? .medium : .regular))
-                .lineSpacing(e.text.count < 60 ? 22 * 0.4 - 6 : 17 * 0.65 - 5)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(scheme.onSurface)
-                .lineLimit(4)
-                .frame(maxWidth: 324)
-            HStack(spacing: 8) {
-                Text(e.kind == .review ? "Your review" : "Your note")
-                    .homeType(Tokens.type.labelSmall)
-                    .foregroundStyle(tones.ink)
-                if let d = e.detail {
-                    Text(d).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(scheme.onSurface.opacity(0.6))
-                }
-            }
-            .lineLimit(1)
-        }
-    }
-}
-
-// MARK: - Top bar
-
-/// The bar (Android MemoriesTopBar): the "⌃ Home" pill and the page dots,
-/// each dot a tap target, the current one larger.
-private struct MemoriesTopBar: View {
-    static let height: CGFloat = 64
-    var dots: [Color]
-    var position: CGFloat
-    var scheme: CoverScheme
-    var onHome: () -> Void
-    var onDot: (Int) -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button(action: onHome) {
-                HStack(spacing: 4) {
-                    YoinIcon("chevron_up", size: 18)
-                    Text("Home").homeType(Tokens.type.labelLarge, .semibold)
-                }
-                .foregroundStyle(scheme.onSurface)
-                .frame(width: 88, height: 36)
-                .background(scheme.surfaceContainerHigh, in: .capsule)
-                .frame(height: 48)
-                .contentShape(.rect)
-            }
-            .buttonStyle(PressScale())
-            .accessibilityLabel("Close Memories, back to Home")
-            Spacer(minLength: 12)
-            HStack(spacing: 0) {
-                ForEach(Array(dots.enumerated()), id: \.offset) { i, color in
-                    // 7 pt, the current one 12, by how near the deck is to it.
-                    let near = max(0, 1 - abs(CGFloat(i) - position))
-                    Circle()
-                        .fill(color.opacity(0.35 + 0.65 * near))
-                        .frame(width: 7 + 5 * near, height: 7 + 5 * near)
-                        .frame(width: 18, height: 48)
-                        .contentShape(.rect)
-                        .onTapGesture { onDot(i) }
-                        .accessibilityLabel("Memory \(i + 1)")
-                        .accessibilityAddTraits(.isButton)
-                }
-            }
-        }
-        .padding(.leading, 16)
-        .padding(.trailing, 12)
-        .frame(height: Self.height)
     }
 }
 

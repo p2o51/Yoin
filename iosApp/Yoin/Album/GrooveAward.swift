@@ -495,13 +495,41 @@ final class ScoreEmblemAward {
             let beats = grooveAwardBeats(script, tiny: layout.tiny, mode: mode == .first ? .first : .replay,
                                          reduced: reduced)
             GrooveHaptics.prepare(beats)
-            beatTask = Task { @MainActor in
-                for b in beats {
-                    let wait = start.addingTimeInterval(Double(b.atMs) / 1000).timeIntervalSinceNow
-                    if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
-                    if Task.isCancelled { return }
-                    GrooveHaptics.fire(b)
-                }
+            beatPlan = (beats, start)
+            scheduleBeats(after: 0)
+        }
+    }
+
+    /// The first award's strongest beat (Android `strongestBeat`), in ms from its start:
+    /// Memories counts a card as awarded once a run has passed it.
+    var climaxMs: Int {
+        grooveAwardBeats(script, tiny: layout.tiny, mode: .first, reduced: reducedMotion)
+            .max { $0.scale < $1.scale }?.atMs ?? 0
+    }
+
+    /// Memories: a drag holds the beats while the picture plays on…
+    func pauseBeats() {
+        beatTask?.cancel()
+        beatTask = nil
+    }
+
+    /// …and back on the same card the beats still ahead go on.
+    func resumeBeats() {
+        guard beatTask == nil, let plan = beatPlan, case .script? = run else { return }
+        scheduleBeats(after: Int(Date().timeIntervalSince(plan.start) * 1000))
+    }
+
+    @ObservationIgnored private var beatPlan: (beats: [GrooveBeat], start: Date)?
+
+    private func scheduleBeats(after elapsedMs: Int) {
+        guard let plan = beatPlan else { return }
+        let ahead = plan.beats.filter { $0.atMs >= elapsedMs }
+        beatTask = Task { @MainActor in
+            for b in ahead {
+                let wait = plan.start.addingTimeInterval(Double(b.atMs) / 1000).timeIntervalSinceNow
+                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                if Task.isCancelled { return }
+                GrooveHaptics.fire(b)
             }
         }
     }
@@ -554,6 +582,7 @@ final class ScoreEmblemAward {
     private func stopAll() {
         beatTask?.cancel()
         beatTask = nil
+        beatPlan = nil
         finisher?.cancel()
         finisher = nil
         run = nil

@@ -128,6 +128,10 @@ struct ScrollPullObserver: UIViewRepresentable {
 }
 
 #if DEBUG
+private extension Double {
+    var nonZero: Double? { self == 0 ? nil : self }
+}
+
 /// Recording aids for the Memories path, driving the same controller a
 /// finger does (QA can't inject touches on every simulator):
 /// `-memoriesScripted YES`: Home's pull 55 % and let go (it opens), a swipe
@@ -139,6 +143,7 @@ enum MemoriesScript {
     private static var started = false
 
     static func run(_ memories: MemoriesPresentation, focus: String?) async {
+        await runDiary(memories, focus: focus)
         guard UserDefaults.standard.bool(forKey: "memoriesScripted"), !started else { return }
         started = true
         try? await Task.sleep(for: .seconds(2.5))
@@ -166,6 +171,72 @@ enum MemoriesScript {
 
     /// A sideways swipe on the deck (set by MemoriesView): −1 = to the next card.
     static var swipe: ((CGFloat) -> Void)?
+    /// The open deck and its actions (set by MemoriesView), for the diary script.
+    static var deck: MemoriesDeckModel?
+    static var current: (() -> MemoryCard?)?
+    static var title: ((MemoryCard, MemoryTitles.Outcome) -> Void)?
+    static var review: ((MemoryCard, String) -> Bool)?
+    static var back: (() -> Void)?
+
+    /// `-memoriesDiaryScripted YES`: open on the focus; the Diary button; a
+    /// pull past the diary's top that closes it; the button again and the
+    /// bar as the handle (a short pull springs back, a long one closes); a
+    /// draft typed on the blank page; the title renamed in the diary and
+    /// restored; ⌄; escape at the diary level, then at the card (Home).
+    static func runDiary(_ memories: MemoriesPresentation, focus: String?) async {
+        guard UserDefaults.standard.bool(forKey: "memoriesDiaryScripted"), !started else { return }
+        started = true
+        let step = UserDefaults.standard.double(forKey: "memoriesStepPause").nonZero ?? 2
+        func pause(_ s: Double = step) async { try? await Task.sleep(for: .seconds(s / LaunchConfig.animationSpeed)) }
+        try? await Task.sleep(for: .seconds(2.5))
+        let target = UserDefaults.standard.string(forKey: "memoriesFocus") ?? focus
+        memories.open(focus: target)
+        await pause(3)
+        if UserDefaults.standard.bool(forKey: "memoriesNoColumn") {
+            // The column closing rebuilt the shell (Memories went with Home): open again, full width.
+            memories.open(focus: target)
+            await pause(3)
+        }
+        guard let deck, let card = current?() else { return }
+        let diary = deck.diary
+        deck.openDiary(card)
+        await pause()
+        // A pull past the top of the text, 220 pt, let go: it closes.
+        diary.startPull(banded: true, fromScrolled: false)
+        var last: CGFloat = 0
+        await finger(0.6) { t in diary.pullBy(t * 220 - last); last = t * 220 }
+        diary.releasePull(velocity: 0)
+        await pause()
+        deck.openDiary(card)
+        await pause()
+        // The bar as the handle: 90 pt springs back, 200 pt closes.
+        for travel in [CGFloat(90), 200] {
+            diary.startPull(banded: false, fromScrolled: false)
+            last = 0
+            await finger(0.5) { t in diary.pullBy(t * travel - last); last = t * travel }
+            diary.releasePull(velocity: 0)
+            await pause()
+            if diary.target == 0 { deck.openDiary(card); await pause() }
+        }
+        deck.drafts.texts[card.id] = "Late bus, the window fogged, this on repeat."
+        await pause(3)
+        deck.editor.begin(.diary, card)
+        await pause(1.5)
+        deck.editor.draft = "Night buses"
+        await pause(1.5)
+        title?(card, .save("Night buses"))
+        deck.editor.end()
+        await pause(3)
+        if let renamed = current?() { title?(renamed, .restore) }
+        await pause(2)
+        deck.closeDiary()
+        await pause()
+        deck.openDiary(card)
+        await pause()
+        back?()
+        await pause()
+        back?()
+    }
 
     /// A finger moving 0 → 1 over [seconds], ease-out, at ~120 Hz.
     static func finger(_ seconds: Double, _ step: (CGFloat) -> Void) async {

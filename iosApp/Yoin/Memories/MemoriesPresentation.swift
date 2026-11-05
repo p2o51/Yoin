@@ -67,10 +67,12 @@ final class MemoriesPresentation {
         return current < positionThreshold ? 0 : 1
     }
 
-    /// chooseDismissTarget: [dismissed] travel up (pt) and its speed (pt/s, up positive).
-    nonisolated static func dismissTarget(dismissed: CGFloat, velocity: CGFloat) -> CGFloat {
+    /// chooseDismissTarget: [dismissed] travel up (pt) and its speed (pt/s, up
+    /// positive), on the card body's rule unless given the bar's.
+    nonisolated static func dismissTarget(dismissed: CGFloat, velocity: CGFloat,
+                                          commit: CGFloat = dismissCommit, fling: CGFloat = dismissFling) -> CGFloat {
         if velocity <= -flickBack { return 0 }
-        if dismissed >= dismissCommit || velocity >= dismissFling { return 1 }
+        if dismissed >= commit || velocity >= fling { return 1 }
         return 0
     }
 
@@ -111,12 +113,14 @@ final class MemoriesPresentation {
         fraction = Self.rubberBanded(dragFrom + up / max(containerHeight, 1))
     }
 
-    /// Released at [velocity] pt/s (up positive). Returns true when it retreats.
+    /// Released at [velocity] pt/s (up positive) on [rule] (the body's, the
+    /// bar's; less the slop the lock ate). Returns true when it retreats.
     @discardableResult
-    func dismissEnded(velocity: CGFloat) -> Bool {
+    func dismissEnded(velocity: CGFloat, rule: MemoriesDismissRule = .body) -> Bool {
         guard dragging else { return false }
         dragging = false
-        let to = Self.dismissTarget(dismissed: fraction * containerHeight, velocity: velocity)
+        let to = Self.dismissTarget(dismissed: fraction * containerHeight, velocity: velocity,
+                                    commit: rule.commit, fling: rule.fling)
         let v = velocity / max(containerHeight, 1)
         // A commit never starts moving backwards.
         run(to: to, velocity: to == 1 ? max(v, 0) : v)
