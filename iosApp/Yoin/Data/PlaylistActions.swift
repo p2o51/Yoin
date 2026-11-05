@@ -44,6 +44,16 @@ final class PlaylistActions {
     struct Toast: Identifiable, Equatable {
         let id = UUID()
         var text: String
+        /// A button beside the text (Undo), when the toast offers one.
+        var action: ToastAction?
+
+        static func == (a: Toast, b: Toast) -> Bool { a.id == b.id && a.text == b.text }
+    }
+
+    /// The toast's one button: its label, and what a tap does (the toast then goes).
+    struct ToastAction {
+        var label: String
+        var run: @MainActor () -> Void
     }
 
     var menu: MenuTarget?
@@ -86,13 +96,22 @@ final class PlaylistActions {
         requestAdd(e)
     }
 
-    func show(_ text: String) {
-        let t = Toast(text: text)
+    /// A one-line confirmation; with `action`, a button beside it (Undo) and a
+    /// longer stay, so there is time to reach it.
+    func show(_ text: String, action: ToastAction? = nil) {
+        let t = Toast(text: text, action: action)
         withAnimation(Yoin.spatial) { toast = t }
         Task {
-            try? await Task.sleep(for: .seconds(2.6))
+            try? await Task.sleep(for: .seconds(action == nil ? 2.6 : 4))
             if toast?.id == t.id { withAnimation(Yoin.spatial) { toast = nil } }
         }
+    }
+
+    /// The toast's button was tapped: it runs once and the toast goes.
+    func runToastAction() {
+        guard let action = toast?.action else { return }
+        withAnimation(Yoin.spatial) { toast = nil }
+        action.run()
     }
 
     // MARK: Rules

@@ -160,14 +160,34 @@ extension NowPlayingData {
 /// window, `AboutFullscreenPane` expanded): label in primary over the value
 /// in onSurface. Small: labelMedium / bodyMedium, 3 apart, the foot fading
 /// out. Expanded: titleMedium / bodyLarge, 8 apart, scrolling.
+///
+/// Expanded, Gemini's rows and the listener's own answer a long-press
+/// (owner-approved prototype v3, 2026-11-02): `AboutEntrySheet` offers the
+/// row in its album's scrapbook and, for Gemini's, a fresh answer; a row
+/// being written again shows thinking dots in place of its text.
 struct NowPlayingAboutView: View {
     var state: NowPlayingData.AboutState
     var expanded: Bool
     var scheme: CoverScheme
     var bottomPadding: CGFloat = 56
     @Environment(\.colorScheme) private var colorScheme
+    /// The long-pressed row whose sheet is up.
+    @State private var menuFor: AboutEntrySheet.Target?
+    @State private var pressed = 0
+
+    private var loader: SongAboutLoader { .shared }
+
+    /// The state as shown (DEBUG `-aboutDemo`: the mock song's demo rows).
+    private var shown: NowPlayingData.AboutState {
+        #if DEBUG
+        if case .gemini = state { return state }
+        if let rows = SongAboutDemo.rows(), !rows.isEmpty { return .gemini(rows) }
+        #endif
+        return state
+    }
 
     var body: some View {
+        let state = shown
         ZStack(alignment: .topLeading) {
             switch state {
             case .loading:
@@ -196,6 +216,29 @@ struct NowPlayingAboutView: View {
             }
         }
         .animation(Yoin.effects, value: state)
+        .sheet(item: $menuFor) { target in
+            AboutEntrySheet(target: target, scheme: scheme)
+                .reportsSheetRise()
+        }
+        // The song can move on while a row's sheet is up: the sheet goes with
+        // its row, so Manage never pairs one song's row with the next song's album.
+        .onChange(of: shown) { _, now in
+            guard let open = menuFor else { return }
+            guard case .gemini(let rows) = now, rows.contains(where: { $0.ref == open.entry.ref }) else {
+                menuFor = nil
+                return
+            }
+        }
+        .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
+        #if DEBUG
+        .task {
+            // `-aboutDemo sheet`: the question's sheet, as a long-press opens it.
+            guard expanded, SongAboutDemo.mode == "sheet", case .gemini(let rows) = shown,
+                  let ask = rows.first(where: { $0.kind == SongAboutStore.Kind.ask }) else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            menuFor = .init(entry: ask, label: ask.heading ?? "")
+        }
+        #endif
     }
 
     // MARK: States
@@ -274,21 +317,24 @@ struct NowPlayingAboutView: View {
         var value: String
         /// Android's small window sets the review 8 lower with its own heading gap.
         var gapAbove: CGFloat = 0
-        var id: String { label + "\u{1}" + value }
+        /// Gemini's or the listener's row (nil: the server's facts).
+        var entry: SongAboutStore.Entry? = nil
+        var id: String { entry.map { "\($0.kind)/\($0.entryKey)" } ?? label + "\u{1}" + value }
     }
 
     /// Android's rows: canonical in order (blank ones skipped), then the
-    /// asks: every one expanded under a 20 gap, the latest only in the
-    /// small window under a 12 gap. The review reads "About".
+    /// asks and the listener's own entries: every one expanded under a 20
+    /// gap, the latest only in the small window under a 12 gap. The review
+    /// reads "About".
     private func items(_ entries: [SongAboutStore.Entry]) -> [Item] {
         var out: [Item] = entries.filter { $0.kind == SongAboutStore.Kind.canonical }.map { row in
             Item(label: Self.label(row.entryKey, expanded: expanded), value: row.answerText,
-                 gapAbove: !expanded && row.entryKey == SongAboutStore.Canon.review ? 8 : 0)
+                 gapAbove: !expanded && row.entryKey == SongAboutStore.Canon.review ? 8 : 0, entry: row)
         }
-        let asks = entries.filter { $0.kind == SongAboutStore.Kind.ask }
+        let asks = entries.filter { $0.kind != SongAboutStore.Kind.canonical }
         for (i, row) in (expanded ? asks : Array(asks.prefix(1))).enumerated() {
-            let heading = row.titleText.flatMap { $0.isEmpty ? nil : $0 } ?? row.promptText ?? ""
-            out.append(Item(label: heading, value: row.answerText, gapAbove: i == 0 ? (expanded ? 20 : 12) : 0))
+            out.append(Item(label: row.heading ?? "", value: row.answerText,
+                            gapAbove: i == 0 ? (expanded ? 20 : 12) : 0, entry: row))
         }
         return out
     }
@@ -317,18 +363,33 @@ struct NowPlayingAboutView: View {
         let column = VStack(alignment: .leading, spacing: 0) {
             if let header { header }
             ForEach(items) { item in
+                let thinking = item.entry.map { loader.regenerating.contains($0.ref) } ?? false
                 VStack(alignment: .leading, spacing: expanded ? 2 : 0) {
                     Text(item.label)
                         .yoinRole(expanded ? Tokens.type.titleMedium : Tokens.type.labelMedium)
                         .foregroundStyle(scheme.primary)
-                    Text(Self.markdown(item.value))
-                        .yoinRole(expanded ? Tokens.type.bodyLarge : Tokens.type.bodyMedium)
-                        .foregroundStyle(scheme.onSurface)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // Gemini is writing this row again: dots in place of the old text.
+                    if thinking {
+                        ThinkingDots(color: scheme.primary)
+                            .padding(.top, 10).padding(.bottom, 6)
+                            .transition(.opacity)
+                    } else {
+                        Text(Self.markdown(item.value))
+                            .yoinRole(expanded ? Tokens.type.bodyLarge : Tokens.type.bodyMedium)
+                            .foregroundStyle(scheme.onSurface)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, expanded ? 8 : 3)
                 .padding(.top, item.gapAbove)
+                .animation(Yoin.effects, value: thinking)
+                .contentShape(.rect)
+                .modifier(RowMenu(entry: expanded ? item.entry : nil, label: item.label) { target in
+                    pressed += 1
+                    menuFor = target
+                })
                 .accessibilityElement(children: .combine)
             }
             Spacer().frame(height: bottomPadding)
@@ -473,5 +534,23 @@ struct AskGeminiField: View {
         guard !q.isEmpty else { return }
         focus.wrappedValue = false
         onSubmit(q)
+    }
+}
+
+/// An About row's long-press: opens its sheet (only Gemini's rows and the
+/// listener's own, and only on the expanded page).
+private struct RowMenu: ViewModifier {
+    var entry: SongAboutStore.Entry?
+    var label: String
+    var open: (AboutEntrySheet.Target) -> Void
+
+    func body(content: Content) -> some View {
+        if let entry {
+            content
+                .onLongPressGesture(minimumDuration: 0.4) { open(.init(entry: entry, label: label)) }
+                .accessibilityAction(named: "Options for this entry") { open(.init(entry: entry, label: label)) }
+        } else {
+            content
+        }
     }
 }

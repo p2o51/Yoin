@@ -152,6 +152,135 @@ final class SongAboutLoader {
         }
     }
 
+    // MARK: Regenerate one row
+
+    /// How "Regenerate with Gemini" on one row went (Android `AboutRegenerateResult`).
+    enum RegenerateResult: Equatable {
+        /// Gemini wrote the row again; `beforeTitle` / `beforeAnswer` put it back (Undo).
+        case success(beforeTitle: String?, beforeAnswer: String)
+        /// Gemini came back with nothing for this row: it was left as it was.
+        case nothingNew
+        case apiKeyMissing
+        case error(String)
+    }
+
+    /// The rows Gemini is writing again right now (their text shows thinking dots).
+    private(set) var regenerating: Set<SongAboutStore.Entry.Ref> = []
+
+    /// Android `regenerateAboutEntry` (owner 2026-10-29: what Gemini said can go
+    /// out of date): a question is asked again in its own words; a canonical
+    /// field is fetched again with the rest of the song's About and only that
+    /// field is written. The row keeps its place and its text until the new
+    /// one lands. The listener's own entries are never regenerated. Nil when
+    /// the row is already being regenerated.
+    func regenerate(_ ref: SongAboutStore.Entry.Ref) async -> RegenerateResult? {
+        guard !regenerating.contains(ref) else { return nil }
+        guard let row = store.entry(ref), row.kind != SongAboutStore.Kind.own else { return .nothingNew }
+        let apiKey = settings.requestKey
+        guard !apiKey.isEmpty else { return .apiKeyMissing }
+        let language = settings.targetLanguage
+        regenerating.insert(ref)
+        defer { regenerating.remove(ref) }
+        let call = client()
+        // Its own task: leaving the page mustn't throw away a paid call.
+        let request = Task { () throws -> (String?, String) in
+            if row.kind == SongAboutStore.Kind.ask {
+                let question = row.promptText.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+                    ?? row.entryKey
+                let reply = try await call.ask(apiKey: apiKey, title: row.titleDisplay, artist: row.artistDisplay,
+                                               album: row.albumDisplay, question: question, targetLanguage: language)
+                return (reply.title, reply.answer)
+            }
+            let values = try await call.canonicalAbout(apiKey: apiKey, title: row.titleDisplay,
+                                                       artist: row.artistDisplay, album: row.albumDisplay,
+                                                       targetLanguage: language)
+            return (row.titleText, values.first { $0.key == row.entryKey }?.answer ?? "")
+        }
+        do {
+            let (title, answer) = try await request.value
+            let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, var now = store.entry(ref) else { return .nothingNew }
+            now.titleText = title
+            now.answerText = text
+            now.updatedAt = Int64((Date().timeIntervalSince1970 * 1000).rounded())
+            store.upsert([now])
+            SongAboutStore.onLocalChange?()
+            return .success(beforeTitle: row.titleText, beforeAnswer: row.answerText)
+        } catch is CancellationError {
+            return .nothingNew
+        } catch {
+            return .error((error as? GeminiClient.Failure)?.message ?? "Failed to ask Gemini")
+        }
+    }
+
+    #if DEBUG
+    /// `-aboutDemo thinking`: a row shown as being written again.
+    func demoRegenerating(_ ref: SongAboutStore.Entry.Ref) { regenerating.insert(ref) }
+    #endif
+
+    /// Android `undoAboutRegenerate`: the row says what it said before.
+    func undoRegenerate(_ ref: SongAboutStore.Entry.Ref, title: String?, answer: String) {
+        store.edit(ref, title: title, answer: answer)
+    }
+
+    /// Regenerate from Now Playing or the scrapbook, told in the shell's toast:
+    /// "Regenerated" with Undo, or why nothing changed (Android
+    /// `np_about_regenerate_*` / `detail_scrap_gemini_*`; one wording for both).
+    func regenerateAndReport(_ ref: SongAboutStore.Entry.Ref, toast: PlaylistActions = .shared) {
+        Task {
+            guard let result = await regenerate(ref) else { return }
+            switch result {
+            case .success(let title, let answer):
+                toast.show("Regenerated", action: .init(label: "Undo") { [weak self] in
+                    self?.undoRegenerate(ref, title: title, answer: answer)
+                })
+            case .nothingNew: toast.show("Gemini had nothing new")
+            case .apiKeyMissing: toast.show("Gemini API key missing")
+            case .error: toast.show("Gemini couldn't answer. Try again.")
+            }
+        }
+    }
+
+    // MARK: Ask from the scrapbook
+
+    /// A question asked from the scrapbook's track sheet that Gemini has not answered yet.
+    struct Asking: Hashable {
+        var song: SongAboutStore.Entry.SongKey
+        var question: String
+    }
+
+    private(set) var asking: [Asking] = []
+
+    /// Android `askFromScrapbook`: the answer joins the song's About like one
+    /// asked in Now Playing; Now Playing's Ask bar isn't involved. A failure is
+    /// told in the toast.
+    func askFromScrapbook(title: String, artist: String, album: String, question: String,
+                          toast: PlaylistActions = .shared) {
+        let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !asked.isEmpty else { return }
+        let apiKey = settings.requestKey
+        guard !apiKey.isEmpty else {
+            toast.show("Gemini API key missing")
+            return
+        }
+        let language = settings.targetLanguage
+        let pending = Asking(song: SongAboutStore.key(title: title, artist: artist, album: album), question: asked)
+        asking.append(pending)
+        let call = client()
+        Task {
+            do {
+                let reply = try await call.ask(apiKey: apiKey, title: title, artist: artist, album: album,
+                                               question: asked, targetLanguage: language)
+                store.saveAsk(title: title, artist: artist, album: album, question: asked, reply: reply,
+                              language: language)
+            } catch is CancellationError {
+            } catch {
+                toast.show("Gemini couldn't answer. Try again.")
+            }
+            if let i = asking.firstIndex(of: pending) { asking.remove(at: i) }
+        }
+    }
+
     /// A key was just saved: songs that said "no key" may ask now.
     func keyChanged() {
         for (k, p) in phases where p == .noKey { phases[k] = .idle }

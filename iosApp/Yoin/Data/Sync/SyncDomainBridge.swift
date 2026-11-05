@@ -279,8 +279,11 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     /// Only rows known to be in this language (every row records it now; unstamped rows from before
     /// stay out of sync rather than be published under a language they may not be in, Codex C17).
+    /// The listener's own entries stay out too for now: Android files them under "*" (any language),
+    /// and the shared adapter stamps every row with this device's language, which would publish them
+    /// under a key Android never writes.
     private static func current(_ e: SongAboutStore.Entry, _ language: String) -> Bool {
-        e.language == language
+        e.language == language && e.kind != SongAboutStore.Kind.own
     }
 
     func songAbouts() -> [SongAboutRow] {
@@ -301,10 +304,11 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     }
 
     /// The shared adapter applies a record only when its language is this device's (`aboutLanguage`), so
-    /// the row is stamped with it.
+    /// the row is stamped with it; an own entry is the listener's, shown in every language.
     func putSongAbout(row: SongAboutRow) -> Bool {
         main {
-            let language = GeminiSettings.normalizeLanguage(GeminiSettings.shared.targetLanguage)
+            let language = row.kind == SongAboutStore.Kind.own ? SongAboutStore.anyLanguage
+                : GeminiSettings.normalizeLanguage(GeminiSettings.shared.targetLanguage)
             return SongAboutStore.shared.syncUpsert(.init(titleKey: row.titleKey, artistKey: row.artistKey,
                                                           albumKey: row.albumKey, titleDisplay: row.titleDisplay,
                                                           artistDisplay: row.artistDisplay, albumDisplay: row.albumDisplay,

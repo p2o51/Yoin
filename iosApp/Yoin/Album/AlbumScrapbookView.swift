@@ -47,8 +47,10 @@ struct AlbumScrapbookView: View {
     }
     @Environment(\.colorScheme) private var colorScheme
     @Environment(AppModel.self) private var model
-    /// The ticket whose score sheet is open (Android AlbumScrapbookTrackSheet's score row).
-    @State private var scoring: Track?
+    /// The ticket whose track sheet is open (Android ScrapSheetOpen).
+    @State private var trackSheet: ScrapSheetOpen?
+    /// In the window (a page being set up off screen never takes a focus request).
+    @State private var onScreen = false
     /// The Memory title being renamed in place (Android OpeningTitle).
     @State private var renaming = false
     @State private var titleDraft = ""
@@ -155,11 +157,33 @@ struct AlbumScrapbookView: View {
             award = a
             stampIfSettled()
         }
-        .onChange(of: settled) { _, _ in stampIfSettled() }
-        .sheet(item: $scoring) { t in
-            ScrapScoreSheet(track: t, scheme: s, store: model.store)
-                .presentationDetents([.height(220)])
-                .presentationDragIndicator(.visible)
+        .onChange(of: settled) { _, _ in
+            stampIfSettled()
+            openFocus()
+        }
+        .onAppear {
+            onScreen = true
+            openFocus()
+        }
+        .onDisappear { onScreen = false }
+        .onChange(of: ScrapbookFocusRequest.shared.pending) { _, _ in openFocus() }
+        .onChange(of: album.tracks.map(\.id)) { _, _ in openFocus() }
+        .sheet(item: $trackSheet) { open in
+            ScrapTrackSheet(track: open.track, album: album, scheme: s, store: model.store,
+                            scoreEditable: !isMock, initialEditing: open.editing)
+                .reportsSheetRise()
+        }
+    }
+
+    /// Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): once the
+    /// pager has come to rest here, the song's sheet opens at that row's editor.
+    private func openFocus() {
+        guard settled, ScrapbookFocusRequest.shared.pending != nil else { return }
+        // Next turn: a sheet state written during the page's first update is dropped.
+        Task {
+            guard onScreen, let focus = ScrapbookFocusRequest.shared.take(for: album.tracks.map(\.id)),
+                  let t = album.tracks.first(where: { $0.id == focus.songId }) else { return }
+            trackSheet = ScrapSheetOpen(track: t, editing: focus.edit)
         }
     }
 
@@ -520,8 +544,8 @@ struct AlbumScrapbookView: View {
             }
         }
         .contentShape(TicketShape())
-        // A server album's ticket opens its score (the mock's are hand-set).
-        .onTapGesture { if !isMock { scoring = t } }
+        // A server album's ticket opens its sheet: score and About (the mock's are hand-set).
+        .onTapGesture { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
         .accessibilityAddTraits(isMock ? [] : .isButton)
         .modifier(layer(tilt("\(t.number)/tk", Tilt.ticket), depth: 0.5))
     }
@@ -760,10 +784,13 @@ struct ProgressiveEdgeBlur: View {
 /// the number pill ("—" unrated), a horizontal bar that rates where the
 /// finger lands and commits on release, and Clear, the one place a song goes
 /// back to never rated (51, 2026-11-04). Clear offers Undo in a dark pill.
+/// `embedded`: the head of the track sheet (ScrapTrackSheet), which brings
+/// its own sheet chrome; the Undo then rides the shell's toast.
 struct ScrapScoreSheet: View {
     var track: Track
     var scheme: CoverScheme
     var store: LibraryStore
+    var embedded = false
 
     @State private var draft: Double?
     @State private var undo: (value: Double, id: UUID)?
@@ -773,6 +800,20 @@ struct ScrapScoreSheet: View {
     private var live: Double? { draft ?? stored }
 
     var body: some View {
+        if embedded {
+            score
+        } else {
+            score
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .overlay(alignment: .bottom) { undoPill }
+                .background(scheme.surfaceContainerLow)
+                .animation(Yoin.spatial, value: undo?.id)
+        }
+    }
+
+    private var score: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Text(String(format: "%02d", track.number))
@@ -803,28 +844,25 @@ struct ScrapScoreSheet: View {
                     .animation(Yoin.effects, value: live == nil)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 28)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .overlay(alignment: .bottom) {
-            if let u = undo {
-                HStack(spacing: 16) {
-                    Text("Rating cleared").font(.gsf(15, .medium))
-                    Button("Undo") { restore(u.value) }
-                        .font(.gsf(15, .semibold))
-                        .foregroundStyle(scheme.inversePrimary)
-                }
-                .foregroundStyle(scheme.inverseOnSurface)
-                .padding(.horizontal, 20)
-                .frame(height: 48)
-                .background(scheme.inverseSurface, in: .capsule)
-                .padding(.bottom, 12)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .id(u.id)
+    }
+
+    @ViewBuilder
+    private var undoPill: some View {
+        if let u = undo {
+            HStack(spacing: 16) {
+                Text("Rating cleared").font(.gsf(15, .medium))
+                Button("Undo") { restore(u.value) }
+                    .font(.gsf(15, .semibold))
+                    .foregroundStyle(scheme.inversePrimary)
             }
+            .foregroundStyle(scheme.inverseOnSurface)
+            .padding(.horizontal, 20)
+            .frame(height: 48)
+            .background(scheme.inverseSurface, in: .capsule)
+            .padding(.bottom, 12)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .id(u.id)
         }
-        .background(scheme.surfaceContainerLow)
-        .animation(Yoin.spatial, value: undo?.id)
     }
 
     private func commit() {
@@ -842,6 +880,10 @@ struct ScrapScoreSheet: View {
         }
         // Subsonic: 0 stars removes the server's rating.
         Task { _ = await store.setRating(track, rating: nil) }
+        if embedded {
+            PlaylistActions.shared.show("Rating cleared", action: .init(label: "Undo") { restore(was) })
+            return
+        }
         let id = UUID()
         undo = (was, id)
         Task {
