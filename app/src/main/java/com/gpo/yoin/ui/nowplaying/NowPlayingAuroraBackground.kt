@@ -344,6 +344,10 @@ fun Modifier.reportFocusCover(): Modifier {
  * @param focusProgress the focus (immersive) stage progress, read in draw.
  * @param darkRoom the colours dark focus paints the room in (the screen's own
  *   dark scheme); null = the cover's colours toned dark.
+ * @param songProgress how far through the song the playhead is (0..1), read
+ *   in draw: focus's colour journey ([journeyFieldColors]).
+ * @param journeyFromRight the side the journey enters from: true when the song
+ *   came by a skip forward or an auto-advance, false by a skip back.
  */
 @Composable
 fun Modifier.nowPlayingAuroraBackground(
@@ -362,6 +366,8 @@ fun Modifier.nowPlayingAuroraBackground(
     coverField: CoverField? = null,
     focusProgress: () -> Float = { 0f },
     darkRoom: RoomPalette? = null,
+    songProgress: () -> Float = { 0f },
+    journeyFromRight: Boolean = true,
 ): Modifier {
     val baseBottom = background
     val isDark = background.luminance() < 0.5f
@@ -379,6 +385,9 @@ fun Modifier.nowPlayingAuroraBackground(
     val auroraVisible = auroraActive || activeFraction > 0.01f
 
     val latestFocus by rememberUpdatedState(focusProgress)
+    val latestSongProgress by rememberUpdatedState(songProgress)
+    val latestJourneyFromRight by rememberUpdatedState(journeyFromRight)
+    val journey = remember { JourneyState() }
     val latestField by rememberUpdatedState(coverField)
     // Flips at the ends of the focus motion only, never per frame.
     val focusShown by remember { derivedStateOf { latestField != null && latestFocus() > 0.001f } }
@@ -720,7 +729,8 @@ fun Modifier.nowPlayingAuroraBackground(
             if (field != null && f > 0.001f) {
                 val cover = transportSignal?.focusCoverRoot?.translate(-originRoot)
                     ?: Rect(center = Offset(w * 0.5f, h * 0.33f), radius = w * 0.3f)
-                fun pointsOf(source: CoverField, room: RoomPalette?) = focusFieldPoints(
+                val journeyK = journey.step(latestSongProgress(), latestJourneyFromRight, t)
+                fun rawPointsOf(source: CoverField, room: RoomPalette?) = focusFieldPoints(
                     field = source,
                     dark = isDark,
                     width = w,
@@ -732,6 +742,12 @@ fun Modifier.nowPlayingAuroraBackground(
                     timeMs = t,
                     room = room,
                 )
+                fun pointsOf(source: CoverField, room: RoomPalette?): List<FieldPoint> {
+                    val base = rawPointsOf(source, room)
+                    if (journeyK <= 0.001f) return base
+                    val toward = rawPointsOf(source.journeyed(), room?.journeyed())
+                    return journeyFieldColors(base, toward, w, journeyK, journey.fromRight)
+                }
                 val incoming = pointsOf(field, roomShown)
                 val outgoing = fieldFrom
                 val fade = fieldFade.value
@@ -834,6 +850,34 @@ fun Modifier.nowPlayingAuroraBackground(
 
 /** The rest wash's three colours, lifted toward the page (k1, k2, k3 in the lab). */
 private data class WashColors(val k1: Color, val k2: Color, val k3: Color, val aura: Color)
+
+/**
+ * Focus's colour journey as drawn: eases toward the playhead's progress
+ * (~1.2 s), so a song change, a seek or a cover that resolves after the
+ * playhead has moved glides back instead of jumping. The entry side is
+ * latched while the journey is near its start, never mid-way.
+ */
+private class JourneyState {
+    var shown = 0f
+        private set
+    var fromRight = true
+        private set
+    private var lastMs = Float.NaN
+
+    fun step(target: Float, enterFromRight: Boolean, nowMs: Float): Float {
+        val goal = target.coerceIn(0f, 1f)
+        val dt = nowMs - lastMs
+        shown = if (lastMs.isNaN() || dt !in 0f..JourneySnapGapMs) goal else shown + (goal - shown) * min(1f, dt / JourneyEaseMs)
+        lastMs = nowMs
+        if (shown < 0.05f) fromRight = enterFromRight
+        return shown
+    }
+}
+
+private const val JourneyEaseMs = 1_200f
+
+/** Longer than this between frames (focus left and re-entered): take the playhead as is. */
+private const val JourneySnapGapMs = 500f
 
 private fun restWashColors(field: CoverField?, dark: Boolean, fallback: List<Color>, aura: Color): WashColors {
     val (a, b, c) = if (field != null) {

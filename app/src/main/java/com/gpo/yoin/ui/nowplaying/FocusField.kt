@@ -138,12 +138,12 @@ fun darkRoomOf(primary: Int, secondary: Int, tertiary: Int): RoomPalette {
     val between = midHue(p.hue, t.hue)
     return RoomPalette(
         colors = intArrayOf(
-            at(p.hue, max(p.chroma, DarkRoomMinChroma), 32.0),
-            at(s.hue, max(s.chroma, DarkRoomMinChroma * 0.8), 24.0),
-            at(t.hue, max(t.chroma, DarkRoomMinChroma), 32.0),
-            at(between, DarkRoomMinChroma, 14.0),
+            at(p.hue, max(p.chroma, DarkRoomMinChroma), 33.0),
+            at(s.hue, max(s.chroma, DarkRoomMinChroma * 0.8), 23.0),
+            at(t.hue, max(t.chroma, DarkRoomMinChroma), 33.0),
+            at(between, DarkRoomMinChroma, 12.0),
         ),
-        accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 46.0),
+        accent = at(p.hue, max(p.chroma, DarkRoomMinChroma * 1.6), 49.0),
     )
 }
 
@@ -153,7 +153,10 @@ private fun midHue(a: Double, b: Double): Double {
     return (a + d / 2.0 + 360.0) % 360.0
 }
 
-private const val DarkRoomMinChroma = 40.0
+// Focus tuned 2026-11-05 (owner, prototype "Yoin 聚焦新意"): tones a step
+// apart (33 / 23 / 12, wanderer 49) and more chroma, still ≥ 8:1 under
+// white (≥ 4.5:1 for the wanderer).
+private const val DarkRoomMinChroma = 48.0
 
 /**
  * A ready-made room palette: the theme's own colours (ARGB), used as they
@@ -201,13 +204,16 @@ fun focusFieldPoints(
 ): List<FieldPoint> {
     val s = spread.coerceIn(0f, 1f)
     val open = 0.3f + 0.7f * s
+    // The owner's 「明显」: every path FocusDriftSpeed× faster, FocusDriftReach× wider.
+    val time = timeMs * FocusDriftSpeed
+    val reach = FocusDriftReach
     fun px(x: Float) = coverCenterX + (x - coverCenterX) * open
     fun py(y: Float) = coverCenterY + (y - coverCenterY) * open
     val points = ArrayList<FieldPoint>(16)
     // Around the cover: tight, nearly still; their sampling spots orbit the rim.
     for (i in 0 until 6) {
         val a = i / 6f * TAU + 0.4f
-        val ua = a + timeMs / 16_000f
+        val ua = a + time / 16_000f
         val color = room?.around(ua / TAU * 4f)
             ?: toneForRoom(field.at(0.5f + 0.4f * cos(ua), 0.5f + 0.4f * sin(ua)), dark)
         points += FieldPoint(
@@ -220,31 +226,32 @@ fun focusFieldPoints(
     }
     // Around the room: broad, slow drift; neighbours take different main hues.
     RoomAnchors.forEachIndexed { i, (fx, fy) ->
-        val dx = sin(timeMs / (5_200f + i * 640f) + i) * coverSize * 0.09f
-        val dy = cos(timeMs / (6_100f + i * 530f) + i * 1.7f) * coverSize * 0.1f
+        val dx = sin(time / (5_200f + i * 640f) + i) * coverSize * 0.09f * reach
+        val dy = cos(time / (6_100f + i * 530f) + i * 1.7f) * coverSize * 0.1f * reach
         val hue = field.palette[RoomHueOrder[i]]
         val near = field.at(fx.coerceIn(0.06f, 0.94f), fy.coerceIn(0.06f, 0.94f))
         points += FieldPoint(
             x = px(fx * width + dx),
             y = py(fy * height + dy),
             color = room?.colors?.get(RoomHueOrder[i])
-                ?: toneForRoom(mix(hue, near, 0.3f), dark, if (i % 2 == 1) -0.04f else 0.03f),
+                ?: toneForRoom(mix(hue, near, 0.3f), dark, if (i % 2 == 1) -0.07f else 0.05f),
             reach = coverSize * 0.69f * open,
             weight = 0.9f,
         )
     }
     // The lower corner holds the second hue.
     points += FieldPoint(
-        x = px(width * 0.23f + sin(timeMs / 8_800f) * coverSize * 0.12f),
-        y = py(height * 0.81f + sin(timeMs / 6_100f + 1f) * coverSize * 0.28f),
+        x = px(width * 0.23f + sin(time / 8_800f) * coverSize * 0.12f * reach),
+        y = py(height * 0.81f + sin(time / 6_100f + 1f) * coverSize * 0.28f * min(reach, 1.6f)),
         color = room?.colors?.get(1) ?: toneForRoom(field.palette[1], dark, if (dark) 0.06f else 0f),
         reach = coverSize * 0.34f * open,
         weight = 1.4f,
     )
-    // The wanderer: the cover's most vivid colour, roaming.
+    // The wanderer: the cover's most vivid colour, roaming (wider, but kept on screen).
+    val roam = kotlin.math.sqrt(reach)
     points += FieldPoint(
-        x = px(width * (0.5f + 0.35f * sin(timeMs / 7_300f + 0.6f))),
-        y = py(height * (0.52f + 0.33f * sin(timeMs / 9_700f + 2.2f))),
+        x = px(width * (0.5f + min(0.46f, 0.35f * roam) * sin(time / 7_300f + 0.6f))),
+        y = py(height * (0.52f + min(0.44f, 0.33f * roam) * sin(time / 9_700f + 2.2f))),
         color = room?.accent ?: toneForRoom(field.accent, dark, if (dark) 0.12f else -0.02f),
         reach = coverSize * 0.37f * open,
         weight = 2.2f,
@@ -262,6 +269,54 @@ fun crossFieldColors(from: List<FieldPoint>, to: List<FieldPoint>, t: Float): Li
     val k = t.coerceIn(0f, 1f)
     return to.mapIndexed { i, p -> p.copy(color = mix(from[i].color, p.color, k)) }
 }
+
+/**
+ * A song's colour journey (owner 2026-11-05, 「一首歌一段色程」): over the
+ * song, the room moves from the cover's main hue toward its second, entering
+ * from the side the song came from — the right after a skip forward (or an
+ * auto-advance), the left after a skip back — and covering the room by the
+ * end. This is the field the room travels to: main hues turned one step.
+ */
+fun CoverField.journeyed(): CoverField =
+    CoverField(grid, intArrayOf(palette[1], palette[2], palette[0], palette[3]), accent)
+
+/** [CoverField.journeyed] for a ready-made room palette. */
+fun RoomPalette.journeyed(): RoomPalette =
+    RoomPalette(intArrayOf(colors[1], colors[2], colors[0], colors[3]), accent)
+
+/**
+ * How far the journey has reached a point at [x] of [width] when the song is
+ * [progress] (0..1) through: 0 at the start everywhere, the entry side first,
+ * all of the room by the end. Smoothstepped, no hard front.
+ */
+fun journeyAt(x: Float, width: Float, progress: Float, fromRight: Boolean): Float {
+    val xn = if (width > 0f) (x / width).coerceIn(0f, 1f) else 0.5f
+    val fromEntry = if (fromRight) 1f - xn else xn
+    val t = ((progress.coerceIn(0f, 1f) * 1.5f - fromEntry) / 0.5f).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+/**
+ * [base]'s points with each colour moved toward [toward]'s matching point by
+ * [JourneyMaxMix] × [journeyAt] its x. Both from [focusFieldPoints] with the
+ * same layout arguments (the second on the [journeyed] field).
+ */
+fun journeyFieldColors(
+    base: List<FieldPoint>,
+    toward: List<FieldPoint>,
+    width: Float,
+    progress: Float,
+    fromRight: Boolean,
+): List<FieldPoint> {
+    if (base.size != toward.size || progress <= 0f) return base
+    return base.mapIndexed { i, p ->
+        val k = JourneyMaxMix * journeyAt(p.x, width, progress, fromRight)
+        if (k <= 0f) p else p.copy(color = mix(p.color, toward[i].color, k))
+    }
+}
+
+/** How much of the second hue the room holds at the song's end. */
+internal const val JourneyMaxMix = 0.85f
 
 /** The wanderer's colour (the last point), for the dots around the room's edge. */
 fun List<FieldPoint>.wandererColor(): Int = last().color
@@ -330,8 +385,9 @@ fun renderFocusField(
 fun toneForRoom(color: Int, dark: Boolean, bias: Float = 0f): Int {
     val hsl = FloatArray(3)
     argbToHsl(color, hsl)
-    val s = min(1f, hsl[1] * 1.4f + 0.1f)
-    var l = ((if (dark) DarkRoomFloor + hsl[2] * DarkRoomSpan else 0.70f + hsl[2] * 0.24f) + bias).coerceIn(0f, 1f)
+    val s = min(1f, hsl[1] * 1.6f + 0.12f)
+    var l = ((if (dark) DarkRoomFloor + hsl[2] * DarkRoomSpan else LightRoomFloor + hsl[2] * LightRoomSpan) + bias)
+        .coerceIn(0f, 1f)
     // HSL lightness flatters yellows and greens: in the dark room, step them
     // down until the light text over them still reads.
     var out = hslToArgb(hsl[0], s, l)
@@ -398,6 +454,16 @@ private const val BaseWeight = 0.02f
 /** Light text keeps ~4.5:1 over the dark room's brightest point. */
 // Dark room: deeper than the lab's (owner 2026-11-03: "深色全屏播放页面有点亮").
 internal const val DarkRoomFloor = 0.10f
+
+/** Light room's lightness band (owner 2026-11-05: a step deeper than the old 0.70–0.94). */
+internal const val LightRoomFloor = 0.64f
+internal const val LightRoomSpan = 0.24f
+
+/** Focus motion (owner 2026-11-05, 「明显」): paths this many times faster… */
+internal const val FocusDriftSpeed = 3f
+
+/** …and this many times wider. */
+internal const val FocusDriftReach = 2.2f
 internal const val DarkRoomSpan = 0.34f
 private const val DarkRoomMaxLuminance = 0.065f
 private const val TAU = (2.0 * Math.PI).toFloat()

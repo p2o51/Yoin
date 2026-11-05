@@ -45,7 +45,7 @@ class FocusFieldTest {
         val hsl = FloatArray(3)
         argbToHsl(toneForRoom(red, dark = false), hsl)
         assertEquals(0f, hsl[0], 2f)
-        assertTrue(hsl[2] in 0.70f..0.94f)
+        assertTrue(hsl[2] in LightRoomFloor..(LightRoomFloor + LightRoomSpan))
 
         argbToHsl(toneForRoom(argb(250, 250, 250), dark = true), hsl)
         assertTrue(hsl[2] <= DarkRoomFloor + DarkRoomSpan + 0.001f)
@@ -166,6 +166,55 @@ class FocusFieldTest {
             argbToHsl(c, hsl)
             assertTrue("saturation of ${Integer.toHexString(c)}", hsl[1] > 0.3f)
         }
+    }
+
+    @Test
+    fun should_startEverywhereAtNothingAndEndEverywhereFull_when_theSongPlaysThrough() {
+        for (x in listOf(0f, 100f, 200f, 300f, 400f)) {
+            assertEquals(0f, journeyAt(x, 400f, 0f, fromRight = true), 0f)
+            assertEquals(1f, journeyAt(x, 400f, 1f, fromRight = true), 0f)
+            assertEquals(1f, journeyAt(x, 400f, 1f, fromRight = false), 0f)
+        }
+    }
+
+    @Test
+    fun should_enterFromTheSideTheSongCameFrom_when_halfwayThrough() {
+        // Skip forward / auto-advance: right first. Skip back: left first.
+        assertTrue(journeyAt(380f, 400f, 0.4f, fromRight = true) > journeyAt(20f, 400f, 0.4f, fromRight = true))
+        assertTrue(journeyAt(20f, 400f, 0.4f, fromRight = false) > journeyAt(380f, 400f, 0.4f, fromRight = false))
+        assertEquals(
+            journeyAt(380f, 400f, 0.4f, fromRight = true),
+            journeyAt(20f, 400f, 0.4f, fromRight = false),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun should_moveTheColoursOnlyTowardTheSecondHue_when_journeying() {
+        val base = listOf(
+            FieldPoint(x = 0f, y = 0f, color = red, reach = 5f, weight = 1f),
+            FieldPoint(x = 400f, y = 0f, color = red, reach = 5f, weight = 1f),
+        )
+        val toward = base.map { it.copy(x = it.x + 1f, color = blue) }
+
+        assertEquals(base, journeyFieldColors(base, toward, 400f, 0f, fromRight = true))
+        val mid = journeyFieldColors(base, toward, 400f, 0.5f, fromRight = true)
+        // Geometry stays the base's; the right point has gone further than the left.
+        assertEquals(base.map { it.x }, mid.map { it.x })
+        assertTrue((mid[1].color and 0xFF) > (mid[0].color and 0xFF))
+        // At the end the room holds JourneyMaxMix of the second hue, everywhere.
+        val end = journeyFieldColors(base, toward, 400f, 1f, fromRight = true)
+        end.forEach { assertEquals(40f + (220f - 40f) * JourneyMaxMix, (it.color and 0xFF).toFloat(), 1f) }
+    }
+
+    @Test
+    fun should_turnTheMainHuesOneStep_when_journeyed() {
+        val field = buildCoverField(splitCover(), 48, 48)!!
+        val j = field.journeyed()
+        assertEquals(field.palette[1], j.palette[0])
+        assertEquals(field.palette[2], j.palette[1])
+        assertEquals(field.palette[0], j.palette[2])
+        assertEquals(field.accent, j.accent)
     }
 
     private fun luminance(c: Int): Float {

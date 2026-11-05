@@ -373,6 +373,9 @@ fun NowPlayingScreen(
     // Focus's edge band swells once per lyric line (EdgeDotBand.kt).
     val bandLyrics = playingState?.lyrics
     val latestPositionMs by rememberUpdatedState(positionMs)
+    // Focus's colour journey enters from the side the song came from, latched
+    // per song: skipDirection is −1 while a skip back's new song composes.
+    val journeyFromRight = remember(playingState?.songId) { skipDirection > 0 }
     val bandLine by remember(bandLyrics) {
         derivedStateOf { bandLyrics?.currentLyricLine(latestPositionMs(), showTranslation = false)?.first ?: -1 }
     }
@@ -413,6 +416,11 @@ fun NowPlayingScreen(
                     // Focus = the immersive stage (tap the cover); read in draw.
                     focusProgress = { stageProgress?.immersive ?: 0f },
                     darkRoom = darkRoom,
+                    songProgress = {
+                        val d = playingState?.durationMs ?: 0L
+                        if (d > 0L) (latestPositionMs().toFloat() / d).coerceIn(0f, 1f) else 0f
+                    },
+                    journeyFromRight = journeyFromRight,
                 ),
         ) {
             when (uiState) {
