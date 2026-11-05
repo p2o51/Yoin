@@ -38,6 +38,7 @@ enum QAProbe {
                   + " phases=\(store.phases.map { "\($0.key):\($0.value)" }.sorted())")
         }
         report("launch")
+        typeSpecimen()
         // `-qaDiagRestore <profile id>`: just make that account the one in use (undo a cut-off diag run).
         if let id = UserDefaults.standard.string(forKey: "qaDiagRestore") {
             await model.profiles.switchTo(id)
@@ -64,6 +65,36 @@ enum QAProbe {
         if apple != nil, let original, original != model.profiles.activeId {
             await model.profiles.switchTo(original)
             report("switched back")
+        }
+    }
+
+    /// The same words in each font path, rendered by SwiftUI into Documents/qa-type.png: which of
+    /// them reaches Google Sans Flex on this OS.
+    static func typeSpecimen() {
+        let rows: [(String, Font)] = [
+            ("system", .system(size: 30)),
+            ("gsf static name", .gsf(30)),
+            ("gsf semibold name", .gsf(30, .semibold)),
+            ("variable Font(UIFont)", YoinFont.font(size: 30, YoinFont.Axes(weight: 400))),
+            ("variable rounded 600", YoinFont.rounded(30, semibold: true)),
+        ]
+        let view = VStack(alignment: .leading, spacing: 10) {
+            ForEach(rows.indices, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(rows[i].0).font(.system(size: 13)).foregroundStyle(.gray)
+                    Text("Rag Gyt 9.6 Home").font(rows[i].1).foregroundStyle(.black)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 420, alignment: .leading)
+        .background(.white)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("qa-type.png")
+        if let data = renderer.uiImage?.pngData() {
+            try? data.write(to: url)
+            print("[diag] type specimen \(url.path)")
         }
     }
 
