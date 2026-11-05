@@ -1907,6 +1907,10 @@ private fun CompactPlayingContent(
                                     page = NowPlayingDetailPage.entries[page],
                                     // Short-window focus: the lyrics line up with the cover.
                                     pageInset = focusLyricInset,
+                                    // The run-on under the transport: looser dots
+                                    // while it shows (owner 2026-11-05).
+                                    listCoveredPx = { focusLyricOverflowPx },
+                                    listCoveredShown = { 1f - focusIdleShown },
                                     state = state,
                                     positionMs = positionMs,
                                     aboutUiState = aboutUiState,
@@ -4429,6 +4433,10 @@ private fun CompactDetailPage(
     pageInset: Dp = 0.dp,
     // The current line's anchor (LyricsDisplay.anchorFocus); follows [listFocus].
     listAnchorFocus: () -> Float = listFocus,
+    // The list's bottom px under the transport and how much it shows
+    // (LyricsDisplay.coveredPx / coveredShown).
+    listCoveredPx: () -> Int = { 0 },
+    listCoveredShown: () -> Float = { 0f },
 ) {
     val insetModifier = modifier.padding(horizontal = pageInset)
     when (page) {
@@ -4452,6 +4460,8 @@ private fun CompactDetailPage(
                 queueIndex = state.currentQueueIndex,
                 focus = listFocus,
                 anchorFocus = listAnchorFocus,
+                coveredPx = listCoveredPx,
+                coveredShown = listCoveredShown,
                 fontScale = lyricScale,
                 durationMs = state.durationMs,
                 upNext = upNext,
