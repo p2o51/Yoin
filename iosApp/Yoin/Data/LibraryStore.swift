@@ -43,6 +43,8 @@ final class LibraryStore {
     @ObservationIgnored let session: ServerSession
     @ObservationIgnored let sources: SourceSelection
     @ObservationIgnored let appleMusic: AppleMusicSource
+    /// The Spotify account in use, its source built by the app as accounts switch (nil: none).
+    var spotifyAccount: (source: SpotifySource, scope: String)?
     @ObservationIgnored let history: HistoryStore
     @ObservationIgnored let notes: NotesStore
     @ObservationIgnored let ratings: LocalRatings
@@ -119,6 +121,7 @@ final class LibraryStore {
             _ = session.client
             _ = sources.active
             _ = appleMusic.authorization
+            _ = spotifyAccount?.scope
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -132,9 +135,20 @@ final class LibraryStore {
     var client: SubsonicClient? { sources.active == .subsonic ? session.client : nil }
     /// Apple Music, when it is the active source and authorized.
     var apple: AppleMusicSource? { sources.active == .appleMusic && appleMusic.isAuthorized ? appleMusic : nil }
-    var isReal: Bool { client != nil || apple != nil }
+    /// Spotify, when it is the active source and an account is signed in.
+    var spotify: SpotifySource? { sources.active == .spotify ? spotifyAccount?.source : nil }
+    var isReal: Bool { client != nil || apple != nil || spotify != nil }
     /// The active source's provider token (new ids are minted in it).
-    var provider: String { apple != nil ? AppleMusicMapping.provider : MediaRef.companion.PROVIDER_SUBSONIC }
+    var provider: String {
+        if spotify != nil { return SpotifyMapping.provider }
+        return apple != nil ? AppleMusicMapping.provider : MediaRef.companion.PROVIDER_SUBSONIC
+    }
+
+    /// The active source's words for a failure.
+    private func message(for error: Error) -> String {
+        if spotify != nil { return SpotifySource.message(for: error) }
+        return apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
+    }
 
     /// A palette for a page whose data is still loading: Subsonic's cover for
     /// [coverId] when given, else a quiet placeholder.
@@ -194,6 +208,7 @@ final class LibraryStore {
         }
         guard gen == generation else { return }
         if let apple { return await loadAppleHome(apple, epoch: epoch) }
+        if let spotify { return await loadSpotifyHome(spotify, epoch: epoch) }
         guard let client, let mapping else { return }
         do {
             // One after another: the Kotlin client isn't Sendable, so no `async let`.
@@ -247,6 +262,26 @@ final class LibraryStore {
         } catch {
             guard gen == generation else { return }
             log.error("home failed: \(AppleMusicSource.message(for: error), privacy: .public)")
+            homePhase = homeLists != nil ? .loaded : .failed
+        }
+    }
+
+    /// Spotify (Android SpotifyMusicSource): Activities = recently played; Recently Added = the newest
+    /// saved albums, its grid the last songs played; the rest of the saved albums behind.
+    private func loadSpotifyHome(_ spotify: SpotifySource, epoch: Int) async {
+        let gen = generation
+        homePhase = .loading
+        do {
+            let l = try await spotify.homeLists()
+            guard gen == generation else { return }
+            let lists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
+                                  random: l.older, recentTracks: l.recentTracks)
+            homeLists = lists
+            homePhase = .loaded
+            persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
+        } catch {
+            guard gen == generation else { return }
+            log.error("home failed: \(SpotifySource.message(for: error), privacy: .public)")
             homePhase = homeLists != nil ? .loaded : .failed
         }
     }
@@ -526,7 +561,7 @@ final class LibraryStore {
                     self.failures[key] = nil
                 }
             } catch {
-                let message = self.apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
+                let message = self.message(for: error)
                 self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
                 if QAProbe.diag { print("[diag] \(key) failed: \(message) — \(error)") }
                 if gen == self.generation {
@@ -567,7 +602,8 @@ final class LibraryStore {
 
     /// How this source's models go to disk; nil for the mock library.
     private var codec: DetailCacheCodec? {
-        if apple != nil { return .appleMusic }
+        // Spotify keeps its artwork URLs as they are, as Apple Music does.
+        if apple != nil || spotify != nil { return .appleMusic }
         return mapping.map(DetailCacheCodec.subsonic)
     }
 
@@ -663,6 +699,15 @@ final class LibraryStore {
                 albums = all
                 return codec?.dtoAlbums(albums)
             }
+            if let spotify {
+                let progressive = albums.isEmpty
+                let all = try await spotify.libraryAlbums(onPage: { [self] partial in
+                    if progressive, (try? ensureLive()) != nil { albums = partial }
+                })
+                try ensureLive()
+                albums = all
+                return codec?.dtoAlbums(albums)
+            }
             guard let client, let mapping else { return nil }
             // Nothing on screen yet: each page shows as it comes. Over a stored copy: the whole list at the end.
             let progressive = albums.isEmpty
@@ -706,6 +751,13 @@ final class LibraryStore {
                 })
                 try ensureLive()
                 artists = read
+            } else if let spotify {
+                let progressive = artists.isEmpty
+                let read = try await spotify.libraryArtists(onPage: { [self] partial in
+                    if progressive, (try? ensureLive()) != nil { artists = partial }
+                })
+                try ensureLive()
+                artists = read
             } else {
                 guard let client, let mapping else { return nil }
                 let read = try await client.getArtists().flatMap { $0.artists.map(mapping.artistItem) }
@@ -721,6 +773,10 @@ final class LibraryStore {
                          restore: { (d: [DetailCacheDTO.Item], c) in self.playlists = d.map(c.item) }) { [self] in
             if let apple {
                 let read = try await apple.libraryPlaylists()
+                try ensureLive()
+                playlists = read
+            } else if let spotify {
+                let read = try await spotify.libraryPlaylists()
                 try ensureLive()
                 playlists = read
             } else {
@@ -752,6 +808,12 @@ final class LibraryStore {
                          restore: { (d: [DetailCacheDTO.Entry], c) in self.songs = d.map(c.entry) }) { [self] in
             if let apple {
                 let read = try await apple.librarySongs()
+                try ensureLive()
+                songs = read
+                songsMore = .none
+            } else if let spotify {
+                // Liked Songs (Android: Spotify's Songs is the saved tracks).
+                let read = try await spotify.librarySongs()
                 try ensureLive()
                 songs = read
                 songsMore = .none
@@ -814,6 +876,15 @@ final class LibraryStore {
             // Apple Music has no favorites read (loved songs aren't listable,
             // library membership isn't a heart: Android rule): none.
             if apple != nil { return nil }
+            if let spotify {
+                // The heart is Liked Songs: Favorites lists them.
+                let read = try await spotify.librarySongs()
+                try ensureLive()
+                favoriteArtists = []
+                favoriteAlbums = []
+                favorites = read
+                return codec.map { c in favorites.map(c.dto) }
+            }
             guard let client, let mapping else { return nil }
             let starred = try await client.getStarred2()
             try ensureLive()
@@ -855,7 +926,7 @@ final class LibraryStore {
 
     /// Library's All grid: playlists, artists, then albums.
     var libraryItems: [LibraryItem] {
-        if apple != nil { return playlists + artists + albums.map(AppleMusicMapping.albumItem) }
+        if apple != nil || spotify != nil { return playlists + artists + albums.map(AppleMusicMapping.albumItem) }
         guard let mapping else { return [] }
         return playlists + artists + albums.map(mapping.albumItem)
     }
@@ -871,6 +942,8 @@ final class LibraryStore {
             var album: Album?
             if let apple {
                 album = try await apple.album(id)
+            } else if let spotify {
+                album = try await spotify.album(id)
             } else if let client, let mapping {
                 album = try await client.getAlbum(id: id).map(mapping.album)
             }
@@ -889,6 +962,13 @@ final class LibraryStore {
                          restore: { (d: DetailCacheDTO.ArtistPage, c) in self.artistPages[id] = c.artistPage(d) }) { [self] in
             if let apple {
                 let read = try await apple.artist(id)
+                try ensureLive()
+                guard let page = read else { return nil }
+                artistPages[id] = page
+                return codec?.dto(page)
+            }
+            if let spotify {
+                let read = try await spotify.artist(id)
                 try ensureLive()
                 guard let page = read else { return nil }
                 artistPages[id] = page
@@ -929,6 +1009,11 @@ final class LibraryStore {
             if let apple {
                 if var d = try await apple.playlist(id) {
                     // The library row's cover when the playlist answers without one.
+                    if d.palette.cover == nil, let row = playlistSummary(id) { d.palette = row.palette }
+                    detail = d
+                }
+            } else if let spotify {
+                if var d = try await spotify.playlist(id) {
                     if d.palette.cover == nil, let row = playlistSummary(id) { d.palette = row.palette }
                     detail = d
                 }
@@ -996,6 +1081,10 @@ final class LibraryStore {
                 let r = request.scope == .catalog ? try await apple.search(q) : try await apple.searchLibrary(q)
                 hits = SearchHits(query: q, scope: request.scope, artists: r.artists, albums: r.albums,
                                   songs: r.songs, playlists: r.playlists)
+            } else if let spotify {
+                let r = try await spotify.search(q)
+                hits = SearchHits(query: q, scope: request.scope, artists: r.artists, albums: r.albums,
+                                  songs: r.songs, playlists: r.playlists)
             } else if let client, let mapping {
                 let r = try await client.search3(query: q, artistCount: 20, albumCount: 30, songCount: 40)
                 // Android SubsonicMusicSource.search: search3 alone, which has no
@@ -1012,7 +1101,7 @@ final class LibraryStore {
             searchPhase = .loaded
         } catch {
             guard !Task.isCancelled, searchRequest == request else { return }
-            let message = apple != nil ? AppleMusicSource.message(for: error) : ServerSession.message(for: error)
+            let message = message(for: error)
             log.error("search failed: \(message, privacy: .public)")
             // A failure is not "no results": the old request's rows go too.
             search = nil
@@ -1088,6 +1177,16 @@ final class LibraryStore {
                                  streamURL: AppleMusicMapping.streamURL(rawId: e.track.id.rawId),
                                  coverURL: e.album.coverURL)
         }
+        if spotify != nil, e.track.id.provider == SpotifyMapping.provider {
+            let albumId = e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId
+            var t = PlayableTrack(id: e.track.id.rawId, provider: SpotifyMapping.provider, title: e.track.title,
+                                  artist: e.track.artist ?? e.album.artist, album: e.album.title, albumId: albumId,
+                                  durationSec: Double(e.track.durationSec),
+                                  streamURL: SpotifyAudioOutput.streamURL(trackId: e.track.id.rawId, albumId: albumId),
+                                  coverURL: e.album.coverURL)
+            t.starred = isStarred(e.track)
+            return t
+        }
         guard let client, e.track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return nil }
         var t = PlayableTrack(id: e.track.id.rawId, provider: e.track.id.provider, title: e.track.title,
                               artist: e.track.artist ?? e.album.artist, album: e.album.title,
@@ -1126,6 +1225,7 @@ final class LibraryStore {
     /// user, or Apple Music. Paired with `provider` on every row.
     var historyScope: String {
         if apple != nil { return AppleMusicMapping.provider }
+        if spotify != nil, let scope = spotifyAccount?.scope { return scope }
         // The account's scope (`Profile.subsonicScope`), steady across an edit of how its address is written.
         return session.scope ?? ""
     }

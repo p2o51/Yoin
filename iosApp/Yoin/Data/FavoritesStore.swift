@@ -66,6 +66,14 @@ final class FavoritesStore {
             }
             return
         }
+        if provider == SpotifyMapping.provider, let spotify = AppModel.shared.store.spotify {
+            // Liked Songs: Spotify saves and un-saves (Android SpotifyMusicSource.setFavorite).
+            let target = !was
+            write(provider: provider, songId: songId, target: target, was: was) {
+                if target { try await spotify.save(songId) } else { try await spotify.unsave(songId) }
+            }
+            return
+        }
         guard let client, provider == MediaRef.companion.PROVIDER_SUBSONIC else {
             write(provider: provider, songId: songId, target: !was, was: was, send: nil)
             return

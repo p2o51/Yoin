@@ -44,8 +44,11 @@ final class SpotifyWebAPI: Sendable {
     private let maxRetries: Int
     private let maxRetryWait: Int
     private let sleep: @Sendable (Int) async throws -> Void
+    /// Refreshes the token after a 401 (the request is then tried once more); nil: the 401 is thrown.
+    private let refresh: (@Sendable () async throws -> Void)?
 
     init(token: @escaping @Sendable () async throws -> String,
+         refresh: (@Sendable () async throws -> Void)? = nil,
          session: URLSession = .shared,
          base: URL = SpotifyWebAPI.defaultBase,
          maxRetries: Int = 2,
@@ -57,6 +60,7 @@ final class SpotifyWebAPI: Sendable {
         self.maxRetries = maxRetries
         self.maxRetryWait = maxRetryWait
         self.sleep = sleep
+        self.refresh = refresh
     }
 
     static let decoder: JSONDecoder = {
@@ -83,20 +87,27 @@ final class SpotifyWebAPI: Sendable {
 
     /// One request; the response body (empty for most writes).
     @discardableResult
-    func send(_ method: String, _ path: String, _ query: [String: String] = [:]) async throws -> Data {
+    func send(_ method: String, _ path: String, _ query: [String: String] = [:], json: Data? = nil) async throws -> Data {
         let url = try url(path, query)
         var attempt = 0
+        var refreshed = false
         while true {
             var req = URLRequest(url: url)
             req.httpMethod = method
             req.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
+            if let json {
+                req.httpBody = json
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { throw SpotifyAPIError.badRequest }
             switch http.statusCode {
             case 200..<300:
                 return data
             case 401:
-                throw SpotifyAPIError.unauthorized
+                guard let refresh, !refreshed else { throw SpotifyAPIError.unauthorized }
+                refreshed = true
+                try await refresh()
             case 429:
                 let wait = max(1, Int(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? Self.defaultRetryAfter)
                 guard attempt < maxRetries, wait <= maxRetryWait else { throw SpotifyAPIError.rateLimited(retryAfter: wait) }

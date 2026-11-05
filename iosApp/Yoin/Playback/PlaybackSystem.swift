@@ -24,6 +24,8 @@ final class PlaybackSystem {
 
     /// Apple Music songs play through MusicKit (set when built by `live()`).
     private(set) var appleOutput: AppleMusicAudioOutput?
+    /// Spotify songs play in the Spotify app (set when built by `live()`).
+    private(set) var spotifyOutput: SpotifyAudioOutput?
     /// MusicKit owns the lock screen card and remote commands while it plays.
     private var nowPlayingWritten = false
 
@@ -31,7 +33,9 @@ final class PlaybackSystem {
     /// Apple Music, wired to the OS.
     static func live() -> PlaybackSystem {
         let apple = AppleMusicAudioOutput()
-        let system = PlaybackSystem(engine: PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: apple)))
+        let spotify = SpotifyAudioOutput()
+        let system = PlaybackSystem(engine: PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: apple,
+                                                                                    spotify: spotify)))
         let conditions = StreamQualityConditions()
         system.streamConditions = conditions
         system.engine.streamQuality = { conditions.resolvedNow() }
@@ -43,11 +47,15 @@ final class PlaybackSystem {
         system.engine.downloadedFile = { OfflineDownloads.shared.localFile(for: $0) }
         AudioCache.shared.warmUp()
         system.appleOutput = apple
+        system.spotifyOutput = spotify
         return system
     }
 
     /// The current song plays through MusicKit.
-    private var isAppleMusic: Bool { engine.currentTrack?.provider == AppleMusicMapping.provider }
+    private var isAppleMusic: Bool {
+        // The Spotify app, like MusicKit, owns its own sound, lock screen card and commands.
+        engine.currentTrack?.provider == AppleMusicMapping.provider || engine.currentTrack?.provider == "spotify"
+    }
 
     init(engine: PlayerEngine) {
         self.engine = engine

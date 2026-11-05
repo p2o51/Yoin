@@ -213,6 +213,23 @@ final class SpotifySource {
             playlists: (r.playlists?.items ?? []).compactMap { $0 }.map(SpotifyMapping.playlistItem))
     }
 
+    // MARK: Playback (Android SpotifyStartPlan: Web API play with a context and offset.uri)
+
+    /// Starts [trackURI] in the Spotify app, inside [contextURI] (its album) when given so Spotify
+    /// shows where it plays from and goes on by itself; a bare song otherwise. No device id: the
+    /// Spotify app App Remote just connected to is the active device.
+    func startPlayback(trackURI: String, contextURI: String?) async throws {
+        var body: [String: Any] = [:]
+        if let contextURI {
+            body["context_uri"] = contextURI
+            body["offset"] = ["uri": trackURI]
+        } else {
+            body["uris"] = [trackURI]
+        }
+        let json = try JSONSerialization.data(withJSONObject: body)
+        try await api.send("PUT", "me/player/play", json: json)
+    }
+
     // MARK: The heart (Liked Songs)
 
     /// `GET /me/library/contains`, 40 URIs at a time (the endpoint's maximum).

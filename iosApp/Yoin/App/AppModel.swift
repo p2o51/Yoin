@@ -190,6 +190,7 @@ final class AppModel {
                                        appleAuthorized: { apple.isAuthorized }, forcedSource: forced)
         self.store = LibraryStore(session: session, sources: sources, appleMusic: appleMusic)
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
+        observeSpotifyAccount()
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
@@ -555,6 +556,45 @@ final class AppModel {
             withAnimation(Yoin.spatial) { npPanel = true }
         } else {
             setNowPlaying(expanded: true)
+        }
+    }
+}
+
+extension AppModel {
+    /// The Spotify account in use, as a source for the library and a token for the Spotify app: built
+    /// again whenever the account in use changes (Android ProfileManager.activeSource for Spotify).
+    func observeSpotifyAccount() {
+        withObservationTracking {
+            syncSpotifyAccount()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeSpotifyAccount() }
+        }
+    }
+
+    private func syncSpotifyAccount() {
+        guard let p = profiles.active, p.service == .spotify, let tokens = profiles.store.spotify(p.id),
+              !tokens.missingRequiredScopes else {
+            if store.spotifyAccount != nil {
+                store.spotifyAccount = nil
+                SpotifyRemote.shared.token = nil
+                SpotifyRemote.shared.disconnect()
+            }
+            return
+        }
+        let scope = "spotify|\(tokens.userId)"
+        guard store.spotifyAccount?.scope != scope else { return }
+        let profiles = profiles
+        let provider = SpotifyTokenProvider(profileId: p.id, tokens: tokens) {
+            // Revoked: the account asks to sign in again (its card says so).
+            Task { @MainActor in profiles.clearFailure() }
+        }
+        let api = SpotifyWebAPI(token: { try await provider.accessToken() },
+                                refresh: { _ = try await provider.accessToken(force: true) })
+        let source = SpotifySource(api: api)
+        store.spotifyAccount = (source, scope)
+        SpotifyRemote.shared.token = { try await provider.accessToken() }
+        playbackSystem.spotifyOutput?.startPlayback = { [weak source] uri, context in
+            try await source?.startPlayback(trackURI: uri, contextURI: context)
         }
     }
 }

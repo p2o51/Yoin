@@ -47,7 +47,11 @@ struct RootView: View {
         .font(.gsf(17))
         .onChange(of: hsc, initial: true) { _, new in model.isPad = new == .regular }
         // Cloud sync (Data/Sync): Google's sign-in redirect, and the start (no network unless sync is on).
-        .onOpenURL { _ = CloudSync.handle(url: $0) }
+        .onOpenURL { url in
+            // The Spotify app hands back here after waking (App Remote's token).
+            if SpotifyRemote.shared.handle(url) { return }
+            _ = CloudSync.handle(url: url)
+        }
         .task {
             let profiles = model.profiles
             CloudSync.shared.start { profiles.syncAccounts }
