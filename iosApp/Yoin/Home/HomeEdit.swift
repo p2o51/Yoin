@@ -45,6 +45,9 @@ final class HomeEditController {
     nonisolated static let undoMax = 20
     /// The feed's coordinate space (the sections report their frames in it).
     nonisolated static let feedSpace = "homeFeed"
+    /// How long a finger holds a section's body before it lifts: out of edit mode the long-press
+    /// that enters it; in edit mode a short hold, so a scroll still scrolls (Android's T and slop).
+    nonisolated static func holdDuration(editing: Bool) -> TimeInterval { editing ? 0.2 : 0.4 }
     /// IdleSettle: this long without a touch and the sway settles.
     nonisolated static let idleSeconds: Double = 6
     /// A strip's height and the gap between strips (HomeEditTokens §4).
@@ -168,6 +171,11 @@ final class HomeEditController {
     /// The section's block, as laid out (not as drawn).
     func report(_ s: HomeSection, frame: CGRect) { frames[s] = frame }
 
+    /// The shown section whose block holds feed-space [y].
+    func section(atY y: CGFloat) -> HomeSection? {
+        order.first { frames[$0].map { $0.minY <= y && y <= $0.maxY } ?? false }
+    }
+
     func beginCarry(_ s: HomeSection) {
         guard isEditing, carried == nil, landing == nil, let i = layout.shownSections.firstIndex(of: s) else { return }
         liveOrder = layout.shownSections
@@ -262,9 +270,6 @@ struct HomeEditBlock<Content: View>: View {
     var covers: [CoverPalette]
     @ViewBuilder var content: () -> Content
     @State private var naturalHeight: CGFloat = 0
-    /// The hold is down. A hold that enters edit mode can be cancelled as the
-    /// block turns into a strip (no onEnded): its reset lands the strip.
-    @GestureState private var holding = false
 
     var body: some View {
         let s = scheme!
@@ -307,27 +312,6 @@ struct HomeEditBlock<Content: View>: View {
             edit.report(section, frame: $0)
         }
         .modifier(SwayModifier(section: section, envelope: edit.sway * (1 - f)))
-        .simultaneousGesture(
-            // Holding a section's body lifts it; out of edit mode the hold
-            // enters it first (Android's long-press), and the tap under it is swallowed.
-            LongPressGesture(minimumDuration: 0.4)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-                .updating($holding) { _, state, _ in state = true }
-                .onChanged { v in
-                    guard case .second(true, let drag) = v else { return }
-                    if !edit.isEditing {
-                        guard drag == nil else { return }
-                        edit.enter()
-                    }
-                    if edit.carried == nil { edit.beginCarry(section) }
-                    if let drag { edit.carry(drag.translation.height) }
-                }
-                .onEnded { v in
-                    if case .second(true, let drag) = v, edit.isEditing { edit.endCarry(commit: true, velocity: drag?.velocity.height ?? 0) }
-                })
-        .onChange(of: holding) { _, down in
-            if !down, edit.carried == section { edit.endCarry(commit: true, velocity: 0) }
-        }
     }
 
     private func badges(_ s: CoverScheme, _ r: CGFloat) -> some View {
@@ -348,13 +332,6 @@ struct HomeEditBlock<Content: View>: View {
                 .foregroundStyle(s.onSurfaceVariant)
                 .frame(width: 48, height: 48)
                 .contentShape(.rect)
-                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { v in
-                        guard edit.isEditing else { return }
-                        if edit.carried == nil { edit.beginCarry(section) }
-                        edit.carry(v.translation.height)
-                    }
-                    .onEnded { v in edit.endCarry(commit: true, velocity: v.velocity.height) })
                 .accessibilityLabel("Reorder \(section.title)")
                 .accessibilityActions {
                     Button("Move up") { edit.move(section, to: index - 1) }
@@ -636,3 +613,73 @@ enum HomeEditScript {
     }
 }
 #endif
+
+/// Home's hold over the whole feed (Android's page-wide edit detector): a
+/// finger held on a section's body enters edit mode and lifts it, then the
+/// same touch carries it until it lifts. It is a UIKit long-press on the
+/// feed's scroll view (found from this view, set behind the feed's stack):
+/// it keeps tracking after it begins whatever the views under the finger do
+/// (a SwiftUI gesture on the section was cancelled the moment the section
+/// folded into its strip), and it runs beside the scroll view's own pan.
+struct HomeHoldObserver: UIViewRepresentable {
+    var edit: HomeEditController
+
+    func makeUIView(context: Context) -> HoldView { HoldView() }
+
+    func updateUIView(_ v: HoldView, context: Context) {
+        v.edit = edit
+        v.hold.minimumPressDuration = HomeEditController.holdDuration(editing: edit.isEditing)
+    }
+
+    final class HoldView: UIView, UIGestureRecognizerDelegate {
+        var edit: HomeEditController?
+        let hold = UILongPressGestureRecognizer()
+        private var startY: CGFloat = 0
+        private var lastY: CGFloat = 0
+        private var lastTime: TimeInterval = 0
+        private var velocity: CGFloat = 0
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            hold.minimumPressDuration = HomeEditController.holdDuration(editing: false)
+            hold.delegate = self
+            hold.addTarget(self, action: #selector(held(_:)))
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil, hold.view == nil else { return }
+            var v: UIView? = superview
+            while let cur = v, !(cur is UIScrollView) { v = cur.superview }
+            v?.addGestureRecognizer(hold)
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        @objc private func held(_ g: UILongPressGestureRecognizer) {
+            guard let edit else { return }
+            // This view lies behind the feed's stack: its space is the feed's.
+            let y = g.location(in: self).y
+            switch g.state {
+            case .began:
+                guard let section = edit.section(atY: y) else { return }
+                if !edit.isEditing { edit.enter() }
+                edit.beginCarry(section)
+                startY = y; lastY = y; lastTime = CACurrentMediaTime(); velocity = 0
+            case .changed:
+                guard edit.carried != nil else { return }
+                let now = CACurrentMediaTime()
+                if now > lastTime { velocity = (y - lastY) / CGFloat(now - lastTime) }
+                lastY = y; lastTime = now
+                edit.carry(y - startY)
+            case .ended, .cancelled, .failed:
+                if edit.carried != nil { edit.endCarry(commit: g.state == .ended, velocity: velocity) }
+            default: break
+            }
+        }
+    }
+}

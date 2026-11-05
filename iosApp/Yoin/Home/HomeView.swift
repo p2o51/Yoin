@@ -126,6 +126,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
             .coordinateSpace(.named(HomeEditController.feedSpace))
+            .background(HomeHoldObserver(edit: edit))
             .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
             .background(ScrollPullObserver(presentation: memories, enabled: !edit.isEditing && !covered) {
@@ -133,6 +134,8 @@ struct HomeView: View {
             })
         }
         .contentMargins(.bottom, 24, for: .scrollContent)
+        // A carried section owns the finger: the feed doesn't scroll under it.
+        .scrollDisabled(edit.carried != nil)
         // `-screen home-bottom` opens scrolled to the end (screenshots).
         .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
