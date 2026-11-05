@@ -163,7 +163,7 @@ class SpotifyUnreachableTest {
 
     @Test
     fun should_keepTheTypedFailure_when_theConnectSaysWhatIsWrong() = runTest {
-        appRemote.failWith = NotLoggedInException()
+        appRemote.failWith = NotLoggedInException("not logged in", null)
         val player = hostedPlayer()
 
         tap(player)
