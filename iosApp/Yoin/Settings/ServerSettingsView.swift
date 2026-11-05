@@ -242,6 +242,20 @@ struct ServerSettingsView: View {
                 .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                 .contentShape(.rect)
             }
+            .buttonStyle(.plain)),
+             AnyView(NavigationLink { OpenSourceLicensesView() } label: {
+                HStack {
+                    Text("Open source licenses")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                    Spacer(minLength: 16)
+                    YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .contentShape(.rect)
+            }
             .buttonStyle(.plain))]
         }
     }

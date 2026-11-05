@@ -100,6 +100,10 @@ enum QAProbe {
             ("variable Font(UIFont)", YoinFont.font(size: 30, YoinFont.Axes(weight: 400))),
             ("variable rounded 600", YoinFont.rounded(30, semibold: true)),
         ]
+        let designed: [(String, Font)] = [
+            ("gsf semibold + fontDesign(.default)", .gsf(30, .semibold)),
+            ("variable rounded + fontDesign(.default)", YoinFont.rounded(30, semibold: true)),
+        ]
         let view = VStack(alignment: .leading, spacing: 10) {
             ForEach(rows.indices, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 2) {
@@ -111,7 +115,19 @@ enum QAProbe {
         .padding(20)
         .frame(width: 420, alignment: .leading)
         .background(.white)
-        let renderer = ImageRenderer(content: view)
+        let withDesign = VStack(alignment: .leading, spacing: 10) {
+            view
+            ForEach(designed.indices, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(designed[i].0).font(.system(size: 13)).foregroundStyle(.gray)
+                    Text("Rag Gyt 9.6 Activities").font(designed[i].1).foregroundStyle(.black)
+                }
+                .fontDesign(.default)
+            }
+        }
+        .padding(.bottom, 20)
+        .background(.white)
+        let renderer = ImageRenderer(content: withDesign)
         renderer.scale = 3
         let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("qa-type.png")
         if let data = renderer.uiImage?.pngData() {
