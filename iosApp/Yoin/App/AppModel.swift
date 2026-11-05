@@ -397,7 +397,17 @@ final class AppModel {
         path.removeLast()
     }
 
-    func open(_ album: Album) {
+    /// The cover tile each album was last opened from (`zoomSource(_:_:tile:)`):
+    /// the zoom into its page, and back out, uses that tile's frame alone. Keyed by
+    /// id only, two tiles of one album on a page (Activities and Jump Back In)
+    /// were both sources, and the cover flew out of the wrong one.
+    @ObservationIgnored private var zoomTiles: [MediaId: String] = [:]
+
+    /// The zoom transition's source id for an album's page.
+    func zoomSourceID(_ id: MediaId) -> String { ZoomTile.sourceID(id, tile: zoomTiles[id]) }
+
+    func open(_ album: Album, tile: String? = nil) {
+        zoomTiles[album.id] = tile
         if isPad {
             withAnimation(Yoin.spatial) { padSelection = album }
         } else {
@@ -557,9 +567,19 @@ extension EnvironmentValues {
     }
 }
 
+/// One cover tile's identity for the album zoom: a tile keeps it as `@State`, marks
+/// its cover with `zoomSource(_:_:tile:)` and opens with `model.open(_:tile:)`.
+struct ZoomTile {
+    let key = UUID().uuidString
+
+    static func sourceID(_ id: MediaId, tile: String?) -> String {
+        "\(tile ?? "-")|\(id.provider)|\(id.rawId)"
+    }
+}
+
 extension View {
     @ViewBuilder
-    func zoomSource(_ id: MediaId, _ ns: Namespace.ID?) -> some View {
-        if let ns { matchedTransitionSource(id: id, in: ns) } else { self }
+    func zoomSource(_ id: MediaId, _ ns: Namespace.ID?, tile: String) -> some View {
+        if let ns { matchedTransitionSource(id: ZoomTile.sourceID(id, tile: tile), in: ns) } else { self }
     }
 }

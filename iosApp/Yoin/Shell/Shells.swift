@@ -50,7 +50,7 @@ struct PhoneShell: View {
                         switch route {
                         case .album(let album):
                             AlbumDetailView(album: album)
-                                .navigationTransition(.zoom(sourceID: album.id, in: zoomNS))
+                                .navigationTransition(.zoom(sourceID: model.zoomSourceID(album.id), in: zoomNS))
                         case .artist(let ref):
                             ArtistDetailView(ref: ref)
                         case .playlist(let id):
