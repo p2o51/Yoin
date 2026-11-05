@@ -25,9 +25,10 @@ import androidx.compose.ui.unit.lerp
  * rating, the tabs and the pills give way; the title stays as it rests and
  * the lyrics keep three clean lines, or two where three would cost the
  * cover its equal margins, printed larger and with the current line pinned
- * to the top (owner 2026-11-04). A short handset window (one resting lyric
- * line) focuses into the compact transport and is offered for the lyrics alone;
- * elsewhere focus is offered only when the cover grows by at least
+ * to the top (owner 2026-11-04). A short window (one resting lyric line)
+ * keeps its resting order and sizes: the cover keeps its size, centred, and
+ * the freed height opens the lyrics (owner 2026-11-05); it is offered for
+ * the lyrics alone. Elsewhere focus is offered only when the cover grows by at least
  * max(40dp, 12%). Otherwise the cover is a plain image.
  *
  * Pure Dp math, JVM-tested (NowPlayingBudgetTest).
@@ -130,8 +131,6 @@ data class StageColumnBudget(
     val heroOneLine: Boolean = false,
     /** Focus narrows the column to the cover (+ its 24dp insets), centred in the window. */
     val focusStageWidth: Dp = stageWidth,
-    /** Focus takes the short transport (PREVIOUS up, progress on its own row); handset widths only. */
-    val compactFocus: Boolean = false,
 ) {
     val focusOffered: Boolean get() = focus != null
 }
@@ -148,8 +147,6 @@ fun resolveStageColumnBudget(
     metrics: StageColumnMetrics,
     enlarged: NowPlayingEnlargedSpec? = null,
     previous: LyricFrame? = null,
-    /** A compact-width window (handset, Fold outer); false in a panel on a wide window. */
-    handset: Boolean = true,
 ): StageColumnBudget {
     val ratingColumn = enlarged?.ratingColumn ?: PhoneRatingColumn
     val stageMaxWidth = enlarged?.let { minOf(width, it.columnWidth + ColumnPadding * 2) } ?: width
@@ -286,19 +283,10 @@ fun resolveStageColumnBudget(
         rest.cover * CoverFocusMaxScale,
     )
     val focusBottom = NpGap(FocusBottomNominal, FocusBottomMin)
-    // A short window (its resting lyrics fold to one line) focuses into the
-    // compact transport: PREVIOUS moves up and the progress takes its own row.
-    // Handset widths only: the inner screen and tablets keep both transport rows.
-    val compactFocus = enlarged == null && handset &&
-        rest.lyricFrame == LyricFrame.OneLine &&
-        metrics.compactTransport != null
     // [labelRow]: the time labels drop under the wave when focus narrows
     // the column below [StageColumnMetrics.labelsInlineMin].
     fun solveFocus(labelRow: Dp): StageColumnPose? {
-        val focusControls = if (compactFocus) {
-            val compact = metrics.compactTransport!!
-            NpGap(compact, compact)
-        } else if (labelRow > 0.dp) {
+        val focusControls = if (labelRow > 0.dp) {
             NpGap(controls.nominal + labelRow, controls.min + labelRow)
         } else {
             controls
@@ -321,7 +309,6 @@ fun resolveStageColumnBudget(
         // resting one-line lyrics into the list.
         fun worthIt(cover: Dp, floorPose: Boolean = false): Boolean =
             coverFocusOffered(rest.cover, cover) ||
-                (compactFocus && cover >= rest.cover * CompactFocusCoverKeep) ||
                 (floorPose && rest.lyricFrame == LyricFrame.OneLine)
 
         fun focusPose(cover: Dp, listMin: Dp): StageColumnPose {
@@ -372,9 +359,47 @@ fun resolveStageColumnBudget(
             else -> null
         }
     }
-    var focus = solveFocus(0.dp)
+    // Short windows (the resting lyrics fold to one line: Fold 8 outer,
+    // 16:9). Owner 2026-11-05 (prototype 方案 2 + 居中): focus keeps the
+    // resting order and sizes — the cover keeps its size and moves up into
+    // the top bar's room, centred; the transport (its own two rows) and the
+    // title keep their slots and sink into the pills' room; everything freed
+    // goes to the lyrics. The column keeps its full width.
+    fun shortWindowFocus(): StageColumnPose? {
+        val lower = listOf(controls, hero, focusBottom)
+        val upper = listOf(coverGap)
+        val nominal = nominalSum(lower) + nominalSum(upper)
+        val listMin = LyricWindowMetrics(
+            activeLine = metrics.lyric.activeLine * FocusLyricScale,
+            inactiveLine = metrics.lyric.inactiveLine * FocusLyricScale,
+            anchorFraction = FocusLyricsAnchorFraction,
+        ).cleanLines(FocusMinCleanLines)
+        val squeeze = squeezeGaps(
+            (FocusTopShort + rest.cover + nominal + listMin - height).coerceAtLeast(0.dp),
+            lower,
+            upper,
+        )
+        // Only when even the squeezed gaps can't hold two lines does the cover give.
+        val cover = (rest.cover - squeeze.unmet).coerceAtLeast(0.dp)
+        if (cover < rest.cover * EqualMarginCoverKeep) return null
+        val cg = coverGap.at(squeeze.upper)
+        val ctl = controls.at(squeeze.lower)
+        val hr = hero.at(squeeze.lower)
+        val bottom = focusBottom.at(squeeze.lower)
+        val lyric = (height - FocusTopShort - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
+        return StageColumnPose(
+            topBar = FocusTopShort, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
+            lyricSlot = lyric, lyricFrame = LyricFrame.List,
+            controls = ctl, hero = hr, accessory = bottom,
+            lower = squeeze.lower, upper = squeeze.upper,
+        )
+    }
+    val shortWindow = rest.lyricFrame == LyricFrame.OneLine && rest.cover > 0.dp
+    var focus = if (shortWindow) shortWindowFocus() else solveFocus(0.dp)
     val restLabelsInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
-    if (focus != null && !compactFocus && restLabelsInline && focus.cover < metrics.labelsInlineMin) {
+    if (!shortWindow && focus != null && restLabelsInline &&
+        focus.cover < metrics.labelsInlineMin
+    ) {
         focus = solveFocus(metrics.labelLine)
     }
     return StageColumnBudget(
@@ -384,8 +409,10 @@ fun resolveStageColumnBudget(
         heroOneLine = heroCompact,
         // Always the cover's own width: the transport fits itself to it
         // (PlaybackControls steps down to 48dp below the designed width).
-        focusStageWidth = focus?.let { it.cover + ColumnPadding * 2 } ?: stageWidth,
-        compactFocus = compactFocus && focus != null,
+        focusStageWidth = when {
+            shortWindow || focus == null -> stageWidth
+            else -> focus.cover + ColumnPadding * 2
+        },
     )
 }
 
@@ -637,6 +664,9 @@ private val OneLineRowNominal = 44.dp
 private val OneLineAirMin = 4.dp
 private val LyricFrameHysteresis = 8.dp
 private val FocusTopMin = 12.dp
+
+/** A short window's focus: the cover's top once the top bar retreats. */
+private val FocusTopShort = 16.dp
 private val FocusBottomNominal = 20.dp
 private val FocusBottomMin = 8.dp
 
@@ -652,8 +682,6 @@ internal const val FocusMinCleanLines = 2
  */
 const val FocusLyricScale = 1.6f
 
-/** A short window's focus may give up this little of the resting cover for its three lines. */
-private const val CompactFocusCoverKeep = 0.9f
 
 /** Focus keeps equal margins around the cover as long as it stays this much of its resting size. */
 private const val EqualMarginCoverKeep = 0.7f

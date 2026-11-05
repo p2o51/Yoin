@@ -1306,11 +1306,8 @@ private fun CompactPlayingContent(
         val castVisible = state.serviceFeatures.supportsYoinCast && castState !is CastState.NotAvailable
         val lastLyricFrame = remember { arrayOfNulls<LyricFrame>(1) }
         val firstMetrics = rememberStageColumnMetrics(stageMaxWidth, stageControlSize, castVisible)
-        // The short focus transport is a handset's: a panel on the Fold inner
-        // screen or a tablet keeps both rows (owner 2026-11-04).
-        val handsetWindow = !LocalYoinWindowInfo.current.isWidthAtLeastMedium
-        val firstBudget = remember(maxWidth, maxHeight, firstMetrics, enlarged, handsetWindow) {
-            resolveStageColumnBudget(maxWidth, maxHeight, firstMetrics, enlarged, lastLyricFrame[0], handsetWindow)
+        val firstBudget = remember(maxWidth, maxHeight, firstMetrics, enlarged) {
+            resolveStageColumnBudget(maxWidth, maxHeight, firstMetrics, enlarged, lastLyricFrame[0])
         }
         // A height-bound enlarged cover pulls the stage in with it, which can
         // move the time labels under the wave: measure again at that width.
@@ -1318,8 +1315,8 @@ private fun CompactPlayingContent(
         val budget = if (metrics == firstMetrics) {
             firstBudget
         } else {
-            remember(maxWidth, maxHeight, metrics, enlarged, handsetWindow) {
-                resolveStageColumnBudget(maxWidth, maxHeight, metrics, enlarged, lastLyricFrame[0], handsetWindow)
+            remember(maxWidth, maxHeight, metrics, enlarged) {
+                resolveStageColumnBudget(maxWidth, maxHeight, metrics, enlarged, lastLyricFrame[0])
             }
         }
         SideEffect { lastLyricFrame[0] = budget.rest.lyricFrame }
@@ -1364,15 +1361,12 @@ private fun CompactPlayingContent(
         // centred. The current lyric line stays, as in every focus. The title and
         // artist stay too, as in every focus (owner 2026-11-03 "标题和歌手不动";
         // 2026-11-04 they had vanished on the Fold 8 outer screen).
-        // On a short window where the regular focus IS offered (the Fold 8 outer
-        // screen, 16:9), its focus takes the same arrangement: the lyric frame
-        // already folds to one line there, so that is the short-window test
-        // (owner 2026-11-02, device screenshot). The budget sizes that focus
-        // (compact transport, two or three lyric lines; owner 2026-11-04).
+        // Where the regular focus IS offered on a short window, it keeps the
+        // transport's own two rows: the cover stays its size, centred, and the
+        // freed height goes to the lyrics (owner 2026-11-05).
         var shortFocus by remember { mutableStateOf(false) }
         val shortFocusHaptics = rememberYoinHaptics()
-        // Handset widths only: the inner screen and tablets keep both rows.
-        val shortArrangement = shortFocus || (budget.compactFocus && stageMode == NowPlayingStageMode.Immersive)
+        val shortArrangement = shortFocus
         val shortFocusProgress by animateFloatAsState(
             targetValue = if (shortArrangement) 1f else 0f,
             animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
