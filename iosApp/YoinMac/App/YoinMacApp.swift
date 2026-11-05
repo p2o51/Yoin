@@ -22,6 +22,14 @@ struct YoinMacApp: App {
         .defaultSize(width: 1280, height: 820)
         .commands { MacCommands(model: model) }
 
+        Window("Mini Player", id: MacMiniPlayer.windowID) {
+            MacMiniPlayer().environment(model)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .windowBackgroundDragBehavior(.enabled)
+        .defaultPosition(.topTrailing)
+
         Settings {
             MacSettingsView().environment(model)
         }
@@ -31,6 +39,9 @@ struct YoinMacApp: App {
 /// The Controls menu: every playback action and its key.
 struct MacCommands: Commands {
     let model: MacModel
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    @AppStorage(MacMiniPlayer.floatsKey) private var miniFloats = true
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {}
@@ -68,6 +79,12 @@ struct MacCommands: Commands {
             Button(model.focus ? "Leave Focus" : "Focus") { model.toggleFocusFromAnywhere() }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(typing || p.currentTrack == nil)
+            Button(model.miniOpen ? "Close Mini Player" : "Mini Player") {
+                if model.miniOpen { dismissWindow(id: MacMiniPlayer.windowID) } else { openWindow(id: MacMiniPlayer.windowID) }
+            }
+            .keyboardShortcut("m", modifiers: [.command, .option])
+            .disabled(!model.session.isSignedIn)
+            Toggle("Float Mini Player on Top", isOn: $miniFloats)
             Divider()
             Button("Search") { withAnimation(Yoin.effects) { model.searchOpen = true } }
                 .keyboardShortcut("k", modifiers: .command)

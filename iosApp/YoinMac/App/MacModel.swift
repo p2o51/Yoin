@@ -40,6 +40,8 @@ final class MacModel {
     var npMode: NowPlayingMode = .closed
     var focus = false
     var searchOpen = false
+    /// The mini player window is showing.
+    var miniOpen = false
     var selectedTrack: String?
     /// The left column's share when a detail column is open (45 : 55 by default).
     var splitFraction: CGFloat = 0.45
