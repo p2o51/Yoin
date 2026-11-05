@@ -79,6 +79,15 @@ final class SpotifyMappingTests: XCTestCase {
         XCTAssertEqual(rows[0].owner, "u2")
     }
 
+    func test_should_keep_the_song_count_when_a_followed_playlist_hands_over_no_songs() throws {
+        let p: SpotifyDTO.Playlist = try decode("""
+        {"id":"pl9","name":"Theirs","items":{"href":"x","total":25},"owner":{"id":"u2"}}
+        """)
+        let info = SpotifyMapping.playlist(p, tracks: [])
+        XCTAssertTrue(info.entries.isEmpty)
+        XCTAssertEqual(info.songCount, 25)
+    }
+
     func test_should_map_artist_page_newest_first_when_releases_come_unsorted() throws {
         let a: SpotifyDTO.Artist = try decode(#"{"id":"ar1","name":"Kiri Ono","images":\#(img)}"#)
         let rel: SpotifyDTO.Paging<SpotifyDTO.Album> = try decode("""

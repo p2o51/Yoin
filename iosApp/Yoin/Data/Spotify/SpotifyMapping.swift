@@ -176,10 +176,12 @@ enum SpotifyMapping {
     /// playlist the app may not read the items of (someone else's, 2026-02) opens without any.
     static func playlist(_ p: SpotifyDTO.Playlist, tracks: [SpotifyDTO.Track], saved: Set<String> = []) -> PlaylistInfo {
         // Every occurrence (Codex N12): a playlist may hold a song twice; its rows key by position.
-        PlaylistInfo(id: MediaId(provider: provider, rawId: p.id), title: p.name ?? "", owner: owner(p),
-                     isPublic: p.public, description: plainText(p.description),
-                     palette: palette(p.images, key: p.id),
-                     entries: tracks.enumerated().compactMap { i, t in entry(t, index: i, saved: saved) })
+        var info = PlaylistInfo(id: MediaId(provider: provider, rawId: p.id), title: p.name ?? "", owner: owner(p),
+                                isPublic: p.public, description: plainText(p.description),
+                                palette: palette(p.images, key: p.id),
+                                entries: tracks.enumerated().compactMap { i, t in entry(t, index: i, saved: saved) })
+        info.songCount = p.entries?.total
+        return info
     }
 
     /// The playlist's playable tracks in order, and each one's raw offset in the

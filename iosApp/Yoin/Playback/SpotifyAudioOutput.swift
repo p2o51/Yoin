@@ -51,7 +51,8 @@ final class SpotifyRemote: NSObject {
     /// Connected to the Spotify app (true), trying once with the account's token. False when the app
     /// isn't running or won't take the token: the caller wakes it with [wake].
     func connect() async -> Bool {
-        guard account != nil, let r = appRemote() else { return false }
+        // The QA fake (`-spotifyFake`) never reaches the Spotify app.
+        guard !SpotifyFake.isOn, account != nil, let r = appRemote() else { return false }
         if r.isConnected { return true }
         if let token, let t = try? await token() { r.connectionParameters.accessToken = t }
         return await withCheckedContinuation { cont in
@@ -62,6 +63,7 @@ final class SpotifyRemote: NSObject {
 
     /// Opens the Spotify app on [uri] (it starts playing it) and connects when it hands back.
     func wake(playing uri: String) {
+        guard !SpotifyFake.isOn else { return onFailure?("The QA fake doesn't play songs") ?? () }
         guard let r = appRemote() else { return onFailure?("Add your Spotify Client ID in Settings") ?? () }
         r.authorizeAndPlayURI(uri) { [weak self] opened in
             if !opened { MainActor.assumeIsolated { self?.onFailure?("Install the Spotify app to play Spotify songs") } }

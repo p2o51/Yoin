@@ -392,10 +392,12 @@ struct SearchView: View {
         switch model.store.searchMore(kind) {
         case .none: EmptyView()
         case .available, .loading:
+            // The id outermost: each page's foot is a new view, so its onAppear asks for the page after
+            // (an id inside the onAppear left the foot's appearance as it was: only page 2 was read).
             RowSkeleton(scheme: scheme, rows: 2)
-                .id(model.store.search?.offsets[kind])
                 .transition(.opacity.animation(Yoin.effects))
                 .onAppear { Task { await model.store.loadMoreSearch(kind) } }
+                .id(model.store.search?.offsets[kind])
         case .failed:
             RetryRow(scheme: scheme) { Task { await model.store.loadMoreSearch(kind) } }
                 .padding(.vertical, 12)
@@ -410,7 +412,8 @@ struct SearchView: View {
         var serverId: String?
         var palette: CoverPalette
         var seed: Int
-        var albumCount: Int
+        /// nil: the service doesn't say (Spotify, Apple Music): the row says "Artist", not "0 albums".
+        var albumCount: Int?
     }
 
     private struct Results {
@@ -427,7 +430,7 @@ struct SearchView: View {
             guard realState == .loaded, let hits = model.store.search else { return Results() }
             return Results(artists: hits.artists.map {
                                ArtistHit(id: $0.id, name: $0.title, serverId: $0.id.rawId, palette: $0.palette,
-                                         seed: 0, albumCount: $0.count ?? 0)
+                                         seed: 0, albumCount: $0.count)
                            },
                            albums: hits.albums, playlists: hits.playlists,
                            tracks: hits.songs.map { ($0.album, $0.track) })
@@ -507,7 +510,8 @@ struct SearchView: View {
                     .yoinRole(Tokens.type.titleSmall)
                     .foregroundStyle(scheme.onSurface)
                 Spacer(minLength: 8)
-                metaPill(albumCount(a.albumCount))
+                // No count from the service: no pill (the section already says Artists).
+                if a.albumCount != nil { metaPill(albumCount(a.albumCount)) }
             }
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
@@ -515,8 +519,9 @@ struct SearchView: View {
         .buttonStyle(.plain)
     }
 
-    private func albumCount(_ n: Int) -> String {
-        n == 1 ? "1 album" : "\(n) albums"
+    private func albumCount(_ n: Int?) -> String {
+        guard let n else { return "Artist" }
+        return n == 1 ? "1 album" : "\(n) albums"
     }
 
     private func openArtist(_ a: ArtistHit) {

@@ -35,7 +35,9 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
 /// asks again up to [maxRetries] times; a longer wait, or one that keeps
 /// coming, throws `.rateLimited` so the screen can say so instead of hanging.
 final class SpotifyWebAPI: Sendable {
-    static let defaultBase = URL(string: "https://api.spotify.com/v1")!
+    static let liveBase = URL(string: "https://api.spotify.com/v1")!
+    /// The live API, or the QA fake (`-spotifyFake`, DEBUG builds only).
+    static var defaultBase: URL { SpotifyFake.base ?? liveBase }
     static let defaultRetryAfter = 5
 
     private let token: @Sendable () async throws -> String

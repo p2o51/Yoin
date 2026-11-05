@@ -980,9 +980,11 @@ struct AlbumDetailView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     sectionLabel("Length")
-                    Text("\(pl.entries.count) tracks").monospacedDigit()
+                    // The service's count when the songs weren't handed over (Android songCount), and
+                    // "—" for a length nobody knows rather than "0 min".
+                    Text("\(pl.tracksUnavailable ? pl.songCount ?? 0 : pl.entries.count) tracks").monospacedDigit()
                         .yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                    Text(mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min").monospacedDigit()
+                    Text(pl.entries.isEmpty ? "—" : mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min").monospacedDigit()
                         .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
                 }
                 Spacer()

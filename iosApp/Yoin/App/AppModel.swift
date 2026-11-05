@@ -194,6 +194,9 @@ final class AppModel {
                                        appleAuthorized: { apple.isAuthorized }, forcedSource: forced)
         self.store = LibraryStore(session: session, sources: sources, appleMusic: appleMusic)
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
+        #if DEBUG
+        profiles.useFakeSpotify()
+        #endif
         observeSpotifyAccount()
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {

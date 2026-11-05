@@ -556,6 +556,13 @@ final class ProfileManager {
     func removeAllSubsonic() {
         for p in profiles where p.service == .subsonic { remove(p.id) }
     }
+
+    /// `-spotifyFake <url>`: the stand-in Spotify account (SpotifyFake) is saved and put in use.
+    func useFakeSpotify() {
+        guard SpotifyFake.isOn, case .success(let saved) = store.saveSpotify(SpotifyFake.tokens) else { return }
+        spotifyRevoked.remove(saved.id)
+        commit(saved, probe: nil, account: nil)
+    }
     #endif
 
     // MARK: Cloud sync

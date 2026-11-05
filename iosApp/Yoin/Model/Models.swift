@@ -167,6 +167,9 @@ struct PlaylistInfo: Hashable, Sendable {
     /// The service wouldn't hand over the songs (Spotify: someone else's playlist since 2026-02):
     /// the page says so instead of showing an empty playlist (Android tracksUnavailable).
     var tracksUnavailable = false
+    /// How many entries the service says it holds (Android songCount): the Length a playlist whose songs
+    /// weren't handed over still shows. nil: count [entries].
+    var songCount: Int? = nil
     /// Spotify (Android ownedByMe): whether the signed-in user made it; nil where the source doesn't say.
     var ownedByMe: Bool? = nil
     /// Spotify: its owner lets others add and remove songs.

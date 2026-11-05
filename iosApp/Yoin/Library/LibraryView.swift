@@ -415,7 +415,9 @@ struct LibraryView: View {
     private func subtitle(_ item: LibraryItem) -> String {
         switch item.kind {
         case .artist:
-            let n = item.count ?? model.library.albums().filter { $0.artist == item.title }.count
+            // A service that doesn't count an artist's albums (Spotify) says "Artist", not the mock's count.
+            guard let n = item.count ?? (item.id.provider == "mock"
+                ? model.library.albums().filter { $0.artist == item.title }.count : nil) else { return "Artist" }
             return n == 1 ? "1 album" : "\(n) albums"
         case .album: return item.album?.artist ?? ""
         case .playlist: return "Playlist"
