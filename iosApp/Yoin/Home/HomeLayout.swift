@@ -224,22 +224,47 @@ enum HomeLayoutCodec {
 /// profile id): one document per account scope, in one JSON file in
 /// Application Support. A layout equal to what is stored is not rewritten;
 /// Reset clears the account back to "never customized".
+///
+/// Each scope keeps the document's exact text and when it last changed:
+/// cloud sync carries the text as is (a peer's encoder spells it its own
+/// way, and rewriting it would look like a local edit), and a newer change
+/// wins.
 @MainActor
 @Observable
 final class HomeLayoutStore {
     static let shared = HomeLayoutStore(fileURL: HomeLayoutStore.defaultURL)
 
-    /// scope → the layout document's prefs.
-    private var docs: [String: [HomeSectionPref]] = [:]
+    struct Entry: Equatable {
+        var prefs: [HomeSectionPref]
+        /// The document as written or received.
+        var json: String
+        /// Epoch ms.
+        var updatedAt: Int64
+    }
+
+    /// scope → its document.
+    private var docs: [String: Entry] = [:]
+    /// Bumps when a synced change lands from another device (an open Home rereads it).
+    private(set) var remoteRevision = 0
     @ObservationIgnored private let fileURL: URL
+    /// A local edit or Reset: cloud sync has something to send.
+    @ObservationIgnored static var onLocalChange: (() -> Void)?
 
     init(fileURL: URL) {
         self.fileURL = fileURL
         if let data = try? Data(contentsOf: fileURL),
            let all = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             for (scope, value) in all {
-                guard let doc = try? JSONSerialization.data(withJSONObject: value) else { continue }
-                if let prefs = HomeLayoutCodec.decode(doc) { docs[scope] = prefs }
+                if let o = value as? [String: Any], let json = o["json"] as? String {
+                    // {"json": "<document>", "updatedAt": ms}
+                    guard let prefs = HomeLayoutCodec.decode(Data(json.utf8)) else { continue }
+                    docs[scope] = Entry(prefs: prefs, json: json, updatedAt: (o["updatedAt"] as? NSNumber)?.int64Value ?? 0)
+                } else if let doc = try? JSONSerialization.data(withJSONObject: value),
+                          let prefs = HomeLayoutCodec.decode(doc) {
+                    // The first file format: the document itself.
+                    docs[scope] = Entry(prefs: prefs, json: String(decoding: HomeLayoutCodec.encode(prefs), as: UTF8.self),
+                                        updatedAt: 0)
+                }
             }
         }
     }
@@ -250,36 +275,70 @@ final class HomeLayoutStore {
     }
 
     /// The saved prefs for [scope]; nil = never customized.
-    func prefs(_ scope: String) -> [HomeSectionPref]? { docs[scope] }
+    func prefs(_ scope: String) -> [HomeSectionPref]? { docs[scope]?.prefs }
 
-    func layout(_ scope: String) -> HomeLayout { HomeLayout.reconcile(docs[scope]) }
+    func layout(_ scope: String) -> HomeLayout { HomeLayout.reconcile(docs[scope]?.prefs) }
 
     /// Saves [layout] for [scope]; skipped when the stored document already holds it.
     func save(_ layout: HomeLayout, scope: String) {
         let prefs = layout.toPrefs()
-        guard docs[scope] != prefs else { return }
-        docs[scope] = prefs
-        write()
+        guard docs[scope]?.prefs != prefs else { return }
+        let old = docs[scope]
+        docs[scope] = Entry(prefs: prefs, json: String(decoding: HomeLayoutCodec.encode(prefs), as: UTF8.self),
+                            updatedAt: Self.now)
+        guard write() else { docs[scope] = old; return }
+        Self.onLocalChange?()
     }
 
     /// Back to "never customized" (Reset): new sections follow their defaults again.
     func clear(_ scope: String) {
-        guard docs[scope] != nil else { return }
+        guard let old = docs[scope] else { return }
         docs[scope] = nil
-        write()
+        guard write() else { docs[scope] = old; return }
+        Self.onLocalChange?()
     }
 
-    private func write() {
+    // MARK: Cloud sync
+
+    /// [scope]'s document as it travels, or nil (the default layout).
+    func synced(_ scope: String) -> Entry? { docs[scope] }
+
+    /// Another device's layout for [scope], at [updatedAt]. False when the
+    /// text isn't a layout document or the file couldn't be written (nothing changes).
+    func applySynced(json: String, updatedAt: Int64, scope: String) -> Bool {
+        guard let prefs = HomeLayoutCodec.decode(Data(json.utf8)) else { return false }
+        let old = docs[scope]
+        docs[scope] = Entry(prefs: prefs, json: json, updatedAt: updatedAt)
+        guard write() else { docs[scope] = old; return false }
+        remoteRevision += 1
+        return true
+    }
+
+    /// Another device went back to the default layout.
+    func clearSynced(_ scope: String) -> Bool {
+        guard let old = docs[scope] else { return true }
+        docs[scope] = nil
+        guard write() else { docs[scope] = old; return false }
+        remoteRevision += 1
+        return true
+    }
+
+    private static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    /// True once the file holds every document.
+    @discardableResult
+    private func write() -> Bool {
         var all: [String: Any] = [:]
-        for (scope, prefs) in docs {
-            if let obj = try? JSONSerialization.jsonObject(with: HomeLayoutCodec.encode(prefs)) { all[scope] = obj }
+        for (scope, e) in docs {
+            all[scope] = ["json": e.json, "updatedAt": NSNumber(value: e.updatedAt)] as [String: Any]
         }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: all, options: [.sortedKeys])
             try data.write(to: fileURL, options: .atomic)
+            return true
         } catch {
-            // Best effort: the session's draft stays authoritative; the next write heals.
+            return false
         }
     }
 }

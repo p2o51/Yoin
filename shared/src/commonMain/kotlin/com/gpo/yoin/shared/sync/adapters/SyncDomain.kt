@@ -122,6 +122,12 @@ data class LyricsCacheRow(
     val cachedAt: Long,
 )
 
+/** `home_layout`: one account's Home layout document, kept as the exact text it was written or received as. */
+data class HomeLayoutRow(
+    val sectionsJson: String,
+    val updatedAt: Long,
+)
+
 interface SyncDomain {
     /** Every local music account. */
     fun profiles(): List<SyncProfile>
@@ -210,6 +216,14 @@ interface SyncDomain {
 
     /** Replaces the track's cached lyrics with [row] (Android `writeLyricsCache`). */
     fun writeLyricsCache(row: LyricsCacheRow): Boolean
+
+    /** The account's Home layout; null = never customized (the default). */
+    fun homeLayout(profileId: String): HomeLayoutRow?
+
+    fun putHomeLayout(profileId: String, row: HomeLayoutRow): Boolean
+
+    /** Back to the default layout. */
+    fun deleteHomeLayout(profileId: String): Boolean
 }
 
 /** A [SyncDomain] write that did not reach storage; the record stays unapplied and is retried. */

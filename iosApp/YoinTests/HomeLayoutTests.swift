@@ -102,6 +102,53 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertNil(HomeLayoutStore(fileURL: url).prefs("subsonic|https://a|me"))
     }
 
+    func test_should_keepSyncedTextAsReceived_when_anotherDeviceSendsLayout() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = HomeLayoutStore(fileURL: url)
+        // Android's encoder: id before enabled, no sorted keys.
+        let android = #"{"version":1,"sections":[{"id":"rediscover","enabled":true},{"id":"activities","enabled":false}]}"#
+        XCTAssertTrue(store.applySynced(json: android, updatedAt: 700, scope: "acc"))
+        XCTAssertEqual(store.synced("acc")?.json, android)
+        XCTAssertEqual(store.synced("acc")?.updatedAt, 700)
+        XCTAssertEqual(store.layout("acc").shownSections.first, .rediscover)
+        XCTAssertEqual(store.remoteRevision, 1)
+        // Read back from disk unchanged.
+        XCTAssertEqual(HomeLayoutStore(fileURL: url).synced("acc")?.json, android)
+        // Not a layout document: nothing changes.
+        XCTAssertFalse(store.applySynced(json: "nope", updatedAt: 800, scope: "acc"))
+        XCTAssertEqual(store.synced("acc")?.updatedAt, 700)
+        XCTAssertTrue(store.clearSynced("acc"))
+        XCTAssertNil(store.synced("acc"))
+    }
+
+    func test_should_readFirstFileFormat_when_upgrading() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let old = #"{"acc":{"version":1,"sections":[{"enabled":true,"id":"rediscover"}]}}"#
+        try Data(old.utf8).write(to: url)
+        let store = HomeLayoutStore(fileURL: url)
+        XCTAssertEqual(store.layout("acc").shownSections.first, .rediscover)
+        XCTAssertEqual(store.synced("acc")?.updatedAt, 0)
+    }
+
+    func test_should_askSyncToSend_when_layoutEditedLocally() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url); HomeLayoutStore.onLocalChange = nil }
+        var sent = 0
+        HomeLayoutStore.onLocalChange = { sent += 1 }
+        let store = HomeLayoutStore(fileURL: url)
+        store.save(HomeLayout.default.movedShown(.rediscover, to: 0), scope: "acc")
+        XCTAssertEqual(sent, 1)
+        XCTAssertGreaterThan(store.synced("acc")?.updatedAt ?? 0, 0)
+        // A remote apply is not sent back.
+        _ = store.applySynced(json: #"{"version":1,"sections":[]}"#, updatedAt: 5, scope: "acc")
+        XCTAssertEqual(sent, 1)
+        store.clear("acc")
+        XCTAssertEqual(sent, 2)
+    }
+
     func test_should_saveEachChangeAndUndo_when_editing() {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }

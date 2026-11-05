@@ -93,6 +93,7 @@ final class CloudSync {
         // Gemini lyric translations and the answer language (Android lyrics_translation / setting).
         LyricsUserStore.onLocalChange = { CloudSync.shared.localChanged() }
         GeminiSettings.onLocalChange = { CloudSync.shared.localChanged() }
+        HomeLayoutStore.onLocalChange = { CloudSync.shared.localChanged() }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                             queue: .main) { _ in

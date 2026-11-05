@@ -2,6 +2,7 @@ package com.gpo.yoin.shared.sync.testing
 
 import com.gpo.yoin.shared.sync.adapters.AlbumRatingRow
 import com.gpo.yoin.shared.sync.adapters.AlbumTitleRow
+import com.gpo.yoin.shared.sync.adapters.HomeLayoutRow
 import com.gpo.yoin.shared.sync.adapters.LyricsCacheRow
 import com.gpo.yoin.shared.sync.adapters.LyricsTranslationRow
 import com.gpo.yoin.shared.sync.adapters.MemoryCopyRow
@@ -24,6 +25,7 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     val abouts = LinkedHashMap<List<String>, SongAboutRow>()
     val translations = LinkedHashMap<List<String>, LyricsTranslationRow>()
     val lyrics = LinkedHashMap<Pair<String, String>, LyricsCacheRow>()
+    val homeLayouts = LinkedHashMap<String, HomeLayoutRow>()
 
     override fun profiles() = profileList.toList()
 
@@ -161,6 +163,20 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun writeLyricsCache(row: LyricsCacheRow): Boolean {
         if (failWrites) return false
         lyrics[row.trackProvider to row.trackRawId] = row
+        return true
+    }
+
+    override fun homeLayout(profileId: String) = homeLayouts[profileId]
+
+    override fun putHomeLayout(profileId: String, row: HomeLayoutRow): Boolean {
+        if (failWrites) return false
+        homeLayouts[profileId] = row
+        return true
+    }
+
+    override fun deleteHomeLayout(profileId: String): Boolean {
+        if (failWrites) return false
+        homeLayouts.remove(profileId)
         return true
     }
 }

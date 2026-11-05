@@ -60,6 +60,8 @@ struct HomeView: View {
         .task(id: model.store.generation) { await model.store.loadHome() }
         .onAppear { edit.load(scope: model.store.homeScope) }
         .onChange(of: model.store.homeScope) { _, scope in edit.load(scope: scope) }
+        // Another device's layout landed (cloud sync): reread it unless a draft is open.
+        .onChange(of: HomeLayoutStore.shared.remoteRevision) { edit.load(scope: model.store.homeScope) }
         // Home leaves the screen (Library): Memories and edit mode go with it, unseen.
         .onDisappear { memories.snapClosed(); edit.snapExit() }
         // Something opens over Home: edit mode ends under it.

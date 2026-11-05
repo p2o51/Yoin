@@ -385,4 +385,40 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
                 for: LocalRatings.key(provider: row.trackProvider, songId: row.trackRawId))
         }
     }
+
+    // MARK: Home layout
+
+    /// The Home layout scope of [profileId]'s account (LibraryStore.homeScope: provider|account), or nil when
+    /// that account isn't signed in on this device.
+    @MainActor
+    private func homeScope(of profileId: String) -> String? {
+        let a = accounts()
+        switch profileId {
+        case Self.subsonicProfileId: return a.subsonic.map { "subsonic|\($0.url)|\($0.username)" }
+        case Self.appleMusicProfileId: return a.appleMusic ? "\(AppleMusicMapping.provider)|\(AppleMusicMapping.provider)" : nil
+        default: return nil
+        }
+    }
+
+    func homeLayout(profileId: String) -> HomeLayoutRow? {
+        main {
+            guard let scope = homeScope(of: profileId), let e = HomeLayoutStore.shared.synced(scope) else { return nil }
+            return HomeLayoutRow(sectionsJson: e.json, updatedAt: e.updatedAt)
+        }
+    }
+
+    func putHomeLayout(profileId: String, row: HomeLayoutRow) -> Bool {
+        let json = row.sectionsJson, updatedAt = row.updatedAt
+        return main {
+            guard let scope = homeScope(of: profileId) else { return false }
+            return HomeLayoutStore.shared.applySynced(json: json, updatedAt: updatedAt, scope: scope)
+        }
+    }
+
+    func deleteHomeLayout(profileId: String) -> Bool {
+        main {
+            guard let scope = homeScope(of: profileId) else { return false }
+            return HomeLayoutStore.shared.clearSynced(scope)
+        }
+    }
 }

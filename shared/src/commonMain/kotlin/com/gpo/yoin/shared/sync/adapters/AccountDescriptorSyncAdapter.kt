@@ -123,7 +123,7 @@ class AccountDescriptorSyncAdapter(
 }
 
 /**
- * The kinds this platform applies. Android's allowlist also has home_layout and playlist_backup (and setting
+ * The kinds this platform applies. Android's allowlist also has playlist_backup (and setting
  * keys iOS has no such setting for: spotify_client_id, seam_top_style); a device without an adapter for a
  * kind or key keeps those records opaquely and republishes them unchanged (SyncEngine.mergeRecord /
  * outgoingFiles), so nothing is lost on the way.
@@ -142,6 +142,7 @@ object SharedSyncAdapters {
         MemoryTitleSyncAdapter(domain),
         AlbumTitleSyncAdapter(domain),
         SongAboutSyncAdapter(domain),
+        HomeLayoutSyncAdapter(domain),
         AccountDescriptorSyncAdapter(syncDb) { domain.profiles() },
     )
 }
