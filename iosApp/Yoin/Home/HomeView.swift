@@ -9,6 +9,11 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @State private var contentWidth: CGFloat = 370
+    /// Edit mode and the account's section layout (HomeEdit.swift).
+    @State private var edit = HomeEditController()
+    /// The Memories bubble's motion and turns (HomeMemoryBubble.swift).
+    @State private var bubble = MemoryBubbleController()
+    @State private var scroll = HomeScrollState()
 
     /// App-wide tokens follow the playing cover (design.md 颜色系统 3).
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
@@ -17,15 +22,78 @@ struct HomeView: View {
     /// signed out: the mock shelf the screenshots use.
     private var feed: HomeFeed? { model.store.isReal ? model.store.home : MockLibrary.shared.homeFeed() }
 
+    private var memories: MemoriesPresentation { model.memories }
+
+    /// Something above Home owns the screen: the bubble keeps quiet, the pull stays shut.
+    private var covered: Bool { !model.path.isEmpty || model.npExpanded || model.np.mounted || model.searchActive }
+
+    /// What the bubble can say: the account's latest memory, its others, its notes.
+    private var pill: HomeMemoryPill? {
+        let store = model.store
+        if store.isReal {
+            let provider = store.provider
+            return HomeMemories.pill(store.memories, noteCount: store.noteCount, scope: store.homeScope) {
+                AlbumMemoryStore.shared.memoryTitle(provider: provider, albumId: $0.albumId)
+            }
+        }
+        guard LaunchConfig.demoContent else { return nil }
+        return HomeMemories.pill(MemoryDeck.mockMemories(), noteCount: MemoryDeck.mockNotes.values.map(\.count).reduce(0, +),
+                                 scope: "mock") { MemoryDeck.mockTitles[$0.albumId] }
+    }
+
     var body: some View {
+        ZStack(alignment: .top) {
+            feedScroll
+                .modifier(MemoriesHomeBehind(presentation: memories))
+            MemoryBubbleOverlay(bubble: bubble, memories: memories, pill: pill, scheme: scheme, scroll: scroll,
+                                covered: covered, edit: edit)
+            if memories.mounted {
+                MemoriesView(presentation: memories)
+                    .modifier(MemoriesPagePose(presentation: memories))
+                    .zIndex(2)
+                    .transition(.identity)
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { memories.containerHeight = $0 }
+        .environment(\.homeScheme, scheme)
+        .environment(\.homeEdit, edit)
+        .task(id: model.store.generation) { await model.store.loadHome() }
+        .onAppear { edit.load(scope: model.store.homeScope) }
+        .onChange(of: model.store.homeScope) { _, scope in edit.load(scope: scope) }
+        // Home leaves the screen (Library): Memories and edit mode go with it, unseen.
+        .onDisappear { memories.snapClosed(); edit.snapExit() }
+        // Something opens over Home: edit mode ends under it.
+        .onChange(of: covered) { _, c in if c { edit.exit() } }
+        #if DEBUG
+        // Recording aids, off the view's lifecycle (Home is rebuilt once at launch).
+        .onAppear {
+            HomeEditScript.edit = edit
+            let focus = pill?.recall.dropFirst().first?.albumId
+            Task { await MemoriesScript.run(memories, focus: focus) }
+            Task { await HomeEditScript.run() }
+        }
+        #endif
+    }
+
+    private var feedScroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 if let feed {
-                    if !feed.activities.isEmpty { activities(feed.activities) }
-                    if !feed.jumpBackIn.isEmpty { jumpBackIn(feed) }
-                    if !feed.recentTracks.isEmpty || !feed.recentAlbums.isEmpty { recentlyAdded(feed) }
-                    if !feed.rediscover.isEmpty { rediscover(feed.rediscover) }
+                    let shown = edit.order.filter { edit.isEditing || hasContent($0, feed) }
+                    ForEach(Array(shown.enumerated()), id: \.element) { i, section in
+                        HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed)) {
+                            sectionView(section, feed)
+                        }
+                    }
+                    if edit.isEditing || edit.progress > 0 {
+                        HomeEditTray(edit: edit)
+                            .modifier(EditFade(edit: edit, from: 0.3, to: 1))
+                            .padding(.top, 6)
+                    } else if shown.isEmpty && !feed.isEmpty {
+                        Text("Home is empty").homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(scheme.onSurfaceVariant)
+                    }
+                    if !edit.isEditing { editFooter }
                 } else if model.store.homePhase == .failed {
                     RetryRow(scheme: scheme) { Task { await model.store.loadHome(force: true) } }
                 } else {
@@ -33,20 +101,85 @@ struct HomeView: View {
                 }
             }
             .padding(.horizontal, 16)
+            .coordinateSpace(.named(HomeEditController.feedSpace))
+            .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
+            .background(ScrollPullObserver(presentation: memories, enabled: !edit.isEditing && !covered) {
+                bubble.cue(.outOfReach, pill: nil)
+            })
         }
         .contentMargins(.bottom, 24, for: .scrollContent)
         // `-screen home-bottom` opens scrolled to the end (screenshots).
         .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
+            scroll.scrolled = y
+        }
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
                            startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
         )
-        .environment(\.homeScheme, scheme)
-        .task(id: model.store.generation) { await model.store.loadHome() }
-        .refreshable { if model.store.isReal { await model.store.loadHome(force: true) } }
+    }
+
+    // MARK: Sections (the account's layout, Android HomeSection catalog)
+
+    private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool {
+        switch s {
+        case .activities: !feed.activities.isEmpty
+        case .jumpBackIn: !feed.jumpBackIn.isEmpty
+        case .recentlyAdded: !feed.recentTracks.isEmpty || !feed.recentAlbums.isEmpty
+        case .rediscover: !feed.rediscover.isEmpty
+        case .recentlyPlayed, .yourPlaylists, .otherProfiles: false
+        }
+    }
+
+    @ViewBuilder
+    private func sectionView(_ s: HomeSection, _ feed: HomeFeed) -> some View {
+        if !hasContent(s, feed) {
+            // Editing, a section with nothing yet: its panel, its title and one honest line.
+            VStack(alignment: .leading, spacing: 4) {
+                HomeSectionTitle(s.title)
+                Text("Nothing here yet").homeType(Tokens.type.bodyMedium).foregroundStyle(scheme.onSurfaceVariant)
+            }
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+        } else {
+            switch s {
+            case .activities: activities(feed.activities)
+            case .jumpBackIn: jumpBackIn(feed)
+            case .recentlyAdded: recentlyAdded(feed)
+            case .rediscover: rediscover(feed.rediscover)
+            case .recentlyPlayed, .yourPlaylists, .otherProfiles: EmptyView()
+            }
+        }
+    }
+
+    /// A strip's covers: the section's first few.
+    private func covers(_ s: HomeSection, _ feed: HomeFeed) -> [CoverPalette] {
+        let albums: [Album] = switch s {
+        case .activities: feed.activities.map(\.album)
+        case .jumpBackIn: feed.signals.map(\.album) + feed.jumpBackIn
+        case .recentlyAdded: feed.recentAlbums + feed.recentTracks.map(\.album)
+        case .rediscover: feed.rediscover.map(\.album)
+        case .recentlyPlayed, .yourPlaylists, .otherProfiles: []
+        }
+        return Array(albums.prefix(3).map(\.palette))
+    }
+
+    /// Discoverability (Android Q6b): Edit Home at the foot of the feed.
+    private var editFooter: some View {
+        Button { edit.enter() } label: {
+            HStack(spacing: 8) {
+                YoinIcon("edit", size: 18)
+                Text("Edit Home").homeType(Tokens.type.labelLarge, .semibold)
+            }
+            .foregroundStyle(scheme.onSurfaceVariant)
+            .padding(.horizontal, 16)
+            .frame(height: 48)
+        }
+        .buttonStyle(PressScale())
+        .frame(maxWidth: .infinity)
+        .padding(.top, 6)
     }
 
     // MARK: Header (HomeGreetingTitle.kt)
@@ -67,31 +200,36 @@ struct HomeView: View {
                     .font(YoinFont.rounded(16, relativeTo: .subheadline))
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .frame(height: 24)
-                Text("Home")
-                    .font(YoinFont.rounded(28, relativeTo: .largeTitle))
-                    .foregroundStyle(scheme.onSurface)
+                EditTitleSwap(edit: edit, scheme: scheme)
                     .frame(height: 36)
                     // An easy way into Glass Lab on a real phone (besides the
                     // three-finger long-press).
                     .onLongPressGesture { withAnimation(Yoin.spatial) { GlassLab.shared.panelOpen = true } }
             }
             .lineLimit(1)
+            // The bubble takes the title's place when it speaks.
+            .modifier(BubbleTitleShift(bubble: bubble))
+            // Where the title rests (outside the shift, so the bubble's own push doesn't move it).
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.titleFrame = $0 }
             .padding(.trailing, Tokens.home.HEADER_TITLE_BREATHING.cg)
             Spacer(minLength: 0)
-            Button { model.openSettings() } label: {
-                // 32 dp avatar in a 48 dp target; profile 0 = Cookie6Sided.
-                Text("5")
-                    .font(.gsf(14, .semibold))
-                    .foregroundStyle(scheme.onPrimary)
-                    .frame(width: 32, height: 32)
-                    .background(BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
-                                in: CookieShape(lobes: 6, depth: 0.16))
-                    .padding(1.5)
-                    .background(scheme.surfaceContainer, in: CookieShape(lobes: 6, depth: 0.16))
-                    .frame(width: 48, height: 48)
+            HeaderActions(edit: edit, scheme: scheme) {
+                Button { model.openSettings() } label: {
+                    // 32 dp avatar in a 48 dp target; profile 0 = Cookie6Sided.
+                    Text("5")
+                        .font(.gsf(14, .semibold))
+                        .foregroundStyle(scheme.onPrimary)
+                        .frame(width: 32, height: 32)
+                        .background(BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
+                                    in: CookieShape(lobes: 6, depth: 0.16))
+                        .padding(1.5)
+                        .background(scheme.surfaceContainer, in: CookieShape(lobes: 6, depth: 0.16))
+                        .frame(width: 48, height: 48)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Account")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Account")
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { bubble.freeEnd = $0 }
         }
         .frame(minHeight: 48)
         .padding(.top, 12)
@@ -239,7 +377,7 @@ struct HomeView: View {
                                     ForEach(r..<min(r + 2, tiles.count), id: \.self) { i in
                                         TrackTile(album: tiles[i].album, track: tiles[i].track)
                                             .frame(width: (gridWidth - tileGap) / 2, alignment: .leading)
-                                            .onTapGesture { model.play(tiles, startAt: i) }
+                                            .onTapGesture { homeTap(edit) { model.play(tiles, startAt: i) } }
                                     }
                                 }
                             }
@@ -279,6 +417,13 @@ struct HomeView: View {
 }
 
 // MARK: - Scheme plumbing
+
+/// A card's tap, unless edit mode has it (the long-press that entered edit
+/// lands its release on the card under it).
+@MainActor func homeTap(_ edit: HomeEditController?, _ action: () -> Void) {
+    if edit?.swallowsTap == true { return }
+    action()
+}
 
 private struct HomeSchemeKey: EnvironmentKey {
     static let defaultValue: CoverScheme? = nil
@@ -348,6 +493,7 @@ private struct MetaLine: View {
 
 private struct HeroCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
     var album: Album
@@ -366,7 +512,7 @@ private struct HeroCard: View {
     var body: some View {
         let s = scheme!
         let muted = s.onSurfaceVariant
-        Button { model.open(album) } label: {
+        Button { homeTap(edit) { model.open(album) } } label: {
             HStack(spacing: 14) {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
                     .zoomSource(album.id, zoomNS)
@@ -388,6 +534,7 @@ private struct HeroCard: View {
 
 private struct SmallCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var album: Album
     var entity: EntityBackdrop.Entity
@@ -398,7 +545,9 @@ private struct SmallCard: View {
     var body: some View {
         let s = scheme!
         Button {
-            if entity == .artist { model.openArtist(album.artist, id: album.artistId) } else { model.open(album) }
+            homeTap(edit) {
+                if entity == .artist { model.openArtist(album.artist, id: album.artistId) } else { model.open(album) }
+            }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 10) {
@@ -427,6 +576,7 @@ private struct SmallCard: View {
 
 private struct WideCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
     var album: Album
@@ -434,7 +584,7 @@ private struct WideCard: View {
 
     var body: some View {
         let s = scheme!
-        Button { model.open(album) } label: {
+        Button { homeTap(edit) { model.open(album) } } label: {
             HStack(spacing: 12) {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
                     .zoomSource(album.id, zoomNS)
@@ -456,13 +606,14 @@ private struct WideCard: View {
 
 private struct StripCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var album: Album
     var timeAgo: String
 
     var body: some View {
         let s = scheme!
-        Button { model.open(album) } label: {
+        Button { homeTap(edit) { model.open(album) } } label: {
             HStack(spacing: 10) {
                 HStack(spacing: 12) {
                     Text(album.title).homeType(Tokens.type.bodyMedium, .semibold).foregroundStyle(s.onSurface)
@@ -487,6 +638,7 @@ private typealias MemoryMark = AlbumMemoryMark
 
 private struct JBICell: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
     var album: Album
@@ -495,7 +647,7 @@ private struct JBICell: View {
 
     var body: some View {
         let s = scheme!
-        Button { model.open(album) } label: {
+        Button { homeTap(edit) { model.open(album) } } label: {
             AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg) {
                 // albumMemoryMarkInk: palette base, accent in dark mode.
                 if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
@@ -575,6 +727,7 @@ extension AlbumItem where Mark == EmptyView {
 /// the score over its basis and the words. A noted track plays its song.
 private struct SignalCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var signal: JBISignal
 
@@ -586,7 +739,17 @@ private struct SignalCard: View {
         let s = scheme!
         let ink = cardInk(album.palette, dark: colorScheme == .dark)
         Button {
-            if let song = signal.song { model.play([song]) } else { model.open(album) }
+            homeTap(edit) {
+                // A memory 1×2 opens Memories stopped on its album (Android onOpenMemoryFocus);
+                // a noted track plays its song.
+                if let song = signal.song {
+                    model.play([song])
+                } else if signal.kind == .ratedAlbum {
+                    model.memories.open(focus: album.id.rawId)
+                } else {
+                    model.open(album)
+                }
+            }
         } label: {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -662,13 +825,14 @@ private struct TrackTile: View {
 
 private struct AlbumMini: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.colorScheme) private var colorScheme
     var album: Album
     var mark: MemoryMark? = nil
 
     var body: some View {
-        Button { model.open(album) } label: {
+        Button { homeTap(edit) { model.open(album) } } label: {
             // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
             AlbumItem(album: album, size: Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg, titleSize: 12, titleLineHeight: 16,
                       artistStyle: Tokens.type.labelSmall, gap: 6) {
@@ -685,6 +849,7 @@ private struct AlbumMini: View {
 
 private struct RediscoverCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var album: Album
     var reason: String
@@ -698,7 +863,7 @@ private struct RediscoverCard: View {
         let s = scheme!
         let ink = cardInk(album.palette, dark: colorScheme == .dark)
         let container = cardWash(s, album.palette)
-        Button { model.open(album) } label: {
+        Button { homeTap(edit) { model.open(album) } } label: {
             HStack(spacing: 14) {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed,
                                size: Tokens.home.REDISCOVER_BACKDROP.cg, stroke: s.primary)

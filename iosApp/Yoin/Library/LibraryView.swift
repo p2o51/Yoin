@@ -533,6 +533,7 @@ struct LibraryView: View {
     private var songEntries: [PlaylistEntry] {
         if filter == .favorites { return favoriteEntries }
         guard model.store.isReal else {
+            guard LaunchConfig.demoContent else { return [] }
             return model.library.albums().flatMap { a in a.tracks.prefix(3).map { PlaylistEntry(album: a, track: $0) } }
         }
         return model.store.songs
@@ -542,6 +543,7 @@ struct LibraryView: View {
         let hearts = FavoritesStore.shared
         let all = model.store.isReal
             ? model.store.favorites
+            : !LaunchConfig.demoContent ? []
             : model.library.albums().flatMap { a in a.tracks.map { PlaylistEntry(album: a, track: $0) } }
         return all.filter { e in
             hearts.isFavorite(provider: e.track.id.provider, songId: e.track.id.rawId,

@@ -32,6 +32,8 @@ final class AppModel {
     /// Phone: the pill ⇄ page morph (one progress value; see
     /// NowPlayingPresentation). Follows `npExpanded`.
     let np = NowPlayingPresentation()
+    /// Home's Memories overlay (ShellOverlayUp): one reveal progress.
+    let memories = MemoriesPresentation()
     /// iPad: Now Playing as a right-hand inspector panel (Closed → Panel → Full).
     var npPanel = false
     /// iPad: the window's content width, for the panel/columns budget.
@@ -41,7 +43,8 @@ final class AppModel {
     /// Screenshot aid: expand Now Playing slowly so a mid-morph frame can be captured.
     var slowMorph = false
     var glassFlavor: GlassFlavor = .system
-    var showLanding = false
+    /// The first-run landing / Welcome guide over the shell (Landing/LandingView.swift); nil = none.
+    var landing: LandingSession?
     /// Search surface open (from the bar's search circle).
     var searchActive = false
     /// What search grew out of: the bar's circle morphs into the field;
@@ -65,12 +68,12 @@ final class AppModel {
     /// Signed in, that is whenever the engine has no song (the mock song is
     /// only for the signed-out screenshots).
     var isIdle: Bool {
-        get { mockIdle || (store.isReal && player.currentTrack == nil) }
+        get { mockIdle || ((store.isReal || !LaunchConfig.demoContent) && player.currentTrack == nil) }
         set { mockIdle = newValue }
     }
     private var mockIdle = false
     /// The mock snapshot the `-screen` screenshots render while the engine's
-    /// queue is empty.
+    /// queue is empty (only then: a real launch with nothing playing is idle).
     var mockPlayback: PlaybackSnapshot
     /// Native playback (AVQueuePlayer, lock screen, remote commands).
     let playbackSystem: PlaybackSystem
@@ -163,7 +166,6 @@ final class AppModel {
         case "np-morph": slowMorph = true; np.slow = true
         case "np-morph-close": slowMorph = true; np.slow = true; npExpanded = true
         case "np-panel": npPanel = true
-        case "landing": showLanding = true
         case "settings": path = [.settings]
         case "artist", "artist-bottom": path = [.artist(ArtistRef("Mina Asahi"))]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
@@ -199,7 +201,7 @@ final class AppModel {
         case "library-idle": isIdle = true; section = .library
         default: break
         }
-        padSelection = library.albums()[0]
+        padSelection = library.albums().first
         let store = store
         let engine = player
         // Codex A39: what the engine did on its own reaches the shell (the toast); a held failure stays
@@ -235,7 +237,19 @@ final class AppModel {
         }
         #if DEBUG
         signInFromLaunchArguments()
+        // `-landingReset YES`: forget that the landing was seen (QA of the first-run gate).
+        if UserDefaults.standard.bool(forKey: "landingReset") { DefaultsLandingStore().reset() }
         #endif
+        // First launch with no account: the landing (an install with an account never sees it).
+        landing = LandingGate.atLaunch(store: DefaultsLandingStore(),
+                                       hasAccount: session.account != nil || appleMusic.isAuthorized,
+                                       launch: LaunchConfig.landingLaunch)
+    }
+
+    /// Settings › About › Welcome guide.
+    func openWelcomeGuide() {
+        guard landing == nil else { return }
+        landing = LandingGate.rerun()
     }
 
     #if DEBUG
@@ -438,6 +452,8 @@ final class AppModel {
     }
 
     func select(_ s: ShellSection) {
+        // Home again while Memories is up: it retreats to Home (its back).
+        if s == .home, section == .home, memories.isOpen { return memories.close() }
         withAnimation(Yoin.spatial) { section = s }
     }
 

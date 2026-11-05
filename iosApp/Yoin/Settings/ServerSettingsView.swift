@@ -83,7 +83,9 @@ struct ServerSettingsView: View {
                 if edited { signInButton.transition(.opacity.combined(with: .scale(scale: 0.96))) }
                 appleMusicGroup
                 GeminiSettingsSection(app: app, row: row)
+                NeoDBSettingsSection(app: app, row: row)
                 StorageSettingsSection(app: app, row: row)
+                aboutGroup
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 40)
@@ -103,6 +105,14 @@ struct ServerSettingsView: View {
             fillFromAccount()
             apple.refreshAuthorization()
         }
+        #if DEBUG
+        // `-openWelcomeGuide YES` (QA): About › Welcome guide, a beat after the page opens.
+        .task {
+            guard UserDefaults.standard.bool(forKey: "openWelcomeGuide") else { return }
+            try? await Task.sleep(for: .milliseconds(1200))
+            model.openWelcomeGuide()
+        }
+        #endif
     }
 
     // MARK: Pieces
@@ -319,6 +329,29 @@ struct ServerSettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+    }
+
+    // MARK: About
+
+    /// Android Settings › About › Welcome guide: the landing again, over everything.
+    private var aboutGroup: some View {
+        group("About") {
+            [AnyView(Button { model.openWelcomeGuide() } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Welcome guide")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                    Text("Accounts")
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain))]
+        }
     }
 
     // MARK: Apple Music

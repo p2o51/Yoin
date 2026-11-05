@@ -256,6 +256,63 @@ final class LibraryStore {
                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l))
     }
 
+    /// The account's album memories (the Home lists' albums known too), for
+    /// the Memories bubble and deck. Signed out: none (the mock deck stands in).
+    var memories: [AlbumMemory] {
+        guard isReal else { return [] }
+        return HomeHistory.memories(historyInputs(extra: homeListAlbums))
+    }
+
+    /// Every album the Home lists carry (so a memory knows its cover and counts).
+    private var homeListAlbums: [Album] {
+        guard let l = homeLists else { return [] }
+        var all: [Album] = l.recent
+        all += l.frequent
+        all += l.newest
+        all += l.highest
+        all += l.random
+        all += l.recentTracks.map(\.album)
+        return all
+    }
+
+    /// The account's written notes (Android `countNotes`: blank notes don't count).
+    var noteCount: Int {
+        guard isReal else { return 0 }
+        let provider = provider
+        return notes.notes.filter { $0.provider == provider && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+    }
+
+    /// What the Memories deck reads: the memories, each album's notes (by the
+    /// plays' and loaded track lists' song → album), reviews, titles, ratings.
+    /// Signed out: the mock deck.
+    func memoryDeckInputs() -> MemoryDeck.Inputs {
+        guard isReal else { return LaunchConfig.demoContent ? MemoryDeck.mockInputs() : MemoryDeck.Inputs(memories: []) }
+        let provider = provider
+        let inputs = historyInputs(extra: homeListAlbums)
+        var songAlbum: [String: String] = [:]
+        for p in inputs.plays { if let a = p.albumId { songAlbum[p.songId] = a } }
+        for (id, album) in inputs.details { for t in album.tracks where songAlbum[t.id.rawId] == nil { songAlbum[t.id.rawId] = id } }
+        var byAlbum: [String: [SongNote]] = [:]
+        for n in inputs.notes { if let a = songAlbum[n.trackId] { byAlbum[a, default: []].append(n) } }
+        let memoryStore = AlbumMemoryStore.shared
+        let ratings = ratings
+        return MemoryDeck.Inputs(
+            memories: HomeHistory.memories(inputs), notes: byAlbum,
+            review: { id in
+                guard let r = memoryStore.album(provider: provider, albumId: id), let text = r.review else { return nil }
+                return (text, r.reviewUpdatedAt ?? r.updatedAt)
+            },
+            title: { id in
+                if let t = memoryStore.userTitle(provider: provider, albumId: id) { return (t, true) }
+                return memoryStore.memoryTitle(provider: provider, albumId: id).map { ($0, false) }
+            },
+            rating: { ratings.rating(provider: provider, songId: $0) })
+    }
+
+    /// Whose Home this is (Android `homeScopeKey` provider|profile): the
+    /// bubble's "seen" mark and the Home layout are kept per account.
+    var homeScope: String { isReal ? "\(provider)|\(historyScope)" : "mock" }
+
     /// What the local stores add to Home (nil with no history, notes or
     /// ratings: the server's shelves alone, as before).
     struct HomeOverlay {
@@ -1066,6 +1123,9 @@ final class LibraryStore {
         let ratings = ratings
         let albumRecords = AlbumMemoryStore.shared.albums.values.filter { $0.provider == provider }
         let albumRatings = Dictionary(albumRecords.map { ($0.albumId, $0.rating) }, uniquingKeysWith: { $1 })
+        let albumWrites = Dictionary(albumRecords.map { ($0.albumId, max($0.updatedAt, $0.reviewUpdatedAt ?? 0)) },
+                                     uniquingKeysWith: { max($0, $1) })
+        let ratingTimes = ratings.updatedAt
         return HomeHistory.Inputs(
             now: history.nowMs,
             plays: history.plays(scope: historyScope, provider: provider),
@@ -1078,7 +1138,9 @@ final class LibraryStore {
             localAlbumRating: { albumRatings[$0] },
             ratedAlbumIds: albumRecords
                 .filter { $0.rating > 0 || !($0.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .map(\.albumId))
+                .map(\.albumId),
+            ratingWrittenAt: { ratingTimes[LocalRatings.key(provider: provider, songId: $0)] },
+            albumWrittenAt: { albumWrites[$0] })
     }
 
     /// An album made from a play's snapshot, for one the app has no copy of.

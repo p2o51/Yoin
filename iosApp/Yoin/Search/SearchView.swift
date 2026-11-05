@@ -383,6 +383,8 @@ struct SearchView: View {
                            albums: hits.albums, playlists: hits.playlists,
                            tracks: hits.songs.map { ($0.album, $0.track) })
         }
+        // No source and no demo arguments: nothing to search.
+        guard LaunchConfig.demoContent else { return Results() }
         let q = query.lowercased()
         let all = model.library.albums()
         var r = Results()

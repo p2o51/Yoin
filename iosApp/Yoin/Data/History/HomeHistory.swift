@@ -35,7 +35,8 @@ struct AlbumMemory: Hashable, Sendable {
     /// album rating).
     var albumRating: Double?
     var noteCount: Int
-    /// Newest note written on it (ratings carry no time here).
+    /// Newest write on it (Android `lastWrittenAt`): a note, a track rating
+    /// or the album's rating / review. Plays and visits never count.
     var lastWrittenAt: Int64?
     var playCount: Int
     var firstPlayedAt: Int64?
@@ -76,6 +77,10 @@ enum HomeHistory {
         var localAlbumRating: (String) -> Double? = { _ in nil }
         /// Albums with an album rating or review here (Android seeds Memories from `album_ratings`).
         var ratedAlbumIds: [String] = []
+        /// When a song's local rating was written (epoch ms; nil = unknown).
+        var ratingWrittenAt: (String) -> Int64? = { _ in nil }
+        /// When the album's own rating / review was written (AlbumMemoryStore).
+        var albumWrittenAt: (String) -> Int64? = { _ in nil }
     }
 
     // MARK: Memories
@@ -121,12 +126,14 @@ enum HomeHistory {
             let notes = notesOf[id]
             let albumRating = x.localAlbumRating(id).flatMap { $0 > 0 ? $0 : nil }
             let noteCount = notes?.count ?? 0
+            let written = ([notes?.last, x.albumWrittenAt(id)] + songs.filter { rating($0) != nil }.map(x.ratingWrittenAt))
+                .compactMap { $0 }.filter { $0 > 0 }.max()
             let eligible = (coverage >= coverageGate || noteCount >= noteCountGate)
                 && (total == 0 || total >= memoryMinTrackCount)
             let s = stats[id]
             out.append(AlbumMemory(album: album, totalTracks: total, ratedTrackCount: rated.count, coverage: coverage,
                                    averageSongRating: rated.isEmpty ? nil : rated.reduce(0, +) / Double(rated.count),
-                                   albumRating: albumRating, noteCount: noteCount, lastWrittenAt: notes?.last,
+                                   albumRating: albumRating, noteCount: noteCount, lastWrittenAt: written,
                                    playCount: s?.playCount ?? 0, firstPlayedAt: s?.firstPlayedAt,
                                    lastPlayedAt: s?.lastPlayedAt, isMemoryEligible: eligible))
         }

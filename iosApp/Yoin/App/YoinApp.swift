@@ -32,6 +32,8 @@ struct RootView: View {
                 PhoneShell()
             }
         }
+        // Covered by the landing: out of VoiceOver's reach until it hands off.
+        .accessibilityHidden(model.landing != nil)
         // Song sheet, Add to playlist, playlist dialogs, confirmations (Library/TrackMenuSheet.swift).
         .playlistActionsHost()
         .environment(model)
@@ -62,10 +64,17 @@ struct RootView: View {
         .animation(Yoin.spatial, value: GlassLab.shared.panelOpen)
         .background(GlassLabGestureInstaller())
         .background(SlowMotionInstaller())
-        .fullScreenCover(isPresented: $model.showLanding) {
-            LandingGuideView()
-                .environment(model)
-                .environment(\.glassFlavor, model.glassFlavor)
+        // The first-run landing / Welcome guide: above the shell (bar included), like Android's
+        // LandingHost. Mounted and removed without a transition; it fades itself in and out.
+        .overlay {
+            if let landing = model.landing {
+                LandingView(session: landing)
+                    .id(landing.id)
+                    .environment(model)
+                    .environment(\.glassFlavor, model.glassFlavor)
+                    .font(.gsf(17))
+                    .transition(.identity)
+            }
         }
     }
 }

@@ -104,8 +104,14 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
         ]
     }
 
-    /// Home as the screenshots show it (hand-placed shelf).
+    /// Home as the screenshots show it (hand-placed shelf). Outside screenshots
+    /// and demos (`LaunchConfig.demoContent`), an empty shelf: a launch with no
+    /// account shows nothing made up.
     func homeFeed() -> HomeFeed {
+        guard LaunchConfig.demoContent else {
+            return HomeFeed(layout: .server, activities: [], jumpBackIn: [], recentTracks: [], recentAlbums: [],
+                            rediscover: [])
+        }
         let a = Self.allAlbums
         let grid: [(Int, Int)] = [(9, 0), (6, 1), (2, 1), (8, 2)]
         return HomeFeed(
@@ -168,7 +174,9 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
         }
     }()
 
+    /// Library's mock rows (screenshots and demos only; see `homeFeed`).
     func libraryItems() -> [LibraryItem] {
+        guard LaunchConfig.demoContent else { return [] }
         let a = Self.allAlbums
         var items: [LibraryItem] = []
         let playlist = LibraryItem(id: MediaId(provider: "mock", rawId: "pl1"), kind: .playlist,

@@ -1,0 +1,181 @@
+import SwiftUI
+import UIKit
+
+// How Home hosts Memories: Home's pull feeds q, and Home and the page read
+// it, each in a modifier of its own (a frame of q re-renders these only).
+
+/// Home behind Memories (Android rememberMemoriesHomeBehind): it waits at
+/// scale 0.94 / alpha 0.5 under the open deck and comes up to 1 / 1 as
+/// Memories retreats, scaled from its top centre. Reduce Motion keeps the
+/// alpha only. Identity once Memories is closed.
+struct MemoriesHomeBehind: ViewModifier {
+    var presentation: MemoriesPresentation
+    @Environment(\.accessibilityReduceMotion) private var reduced
+
+    func body(content: Content) -> some View {
+        let q = min(max(presentation.fraction, 0), 1)
+        content
+            .scaleEffect(reduced || q >= 1 ? 1 : 0.94 + 0.06 * q, anchor: .top)
+            .opacity(q >= 1 ? 1 : Double(0.5 + 0.5 * q))
+    }
+}
+
+/// The page's own pose (Android rememberMemoriesHostPose): −q·H, or a fade
+/// in place under Reduce Motion.
+struct MemoriesPagePose: ViewModifier {
+    var presentation: MemoriesPresentation
+    @Environment(\.accessibilityReduceMotion) private var reduced
+
+    func body(content: Content) -> some View {
+        // Hard at the open end (feedback: the spring's overshoot must not
+        // pull the page down off its top and show Home above it).
+        let q = max(presentation.fraction, 0)
+        content
+            .offset(y: reduced ? 0 : -q * presentation.containerHeight)
+            .opacity(reduced ? Double(1 - min(max(q, 0), 1)) : 1)
+    }
+}
+
+/// The feed's scroll distance, read by the arrow only (a scroll frame must
+/// not re-render Home).
+@MainActor
+@Observable
+final class HomeScrollState {
+    var scrolled: CGFloat = 0
+}
+
+/// Home's pull toward Memories, on the feed's own UIScrollView pan: at the
+/// top, a pull down moves q 1:1 with the finger instead of overscrolling the
+/// feed (the offset stays pinned at the top), and the release hands the
+/// finger's velocity to q's spring. Once the pull goes back past where it
+/// engaged, the feed scrolls again.
+struct ScrollPullObserver: UIViewRepresentable {
+    var presentation: MemoriesPresentation
+    /// Pulling may engage (Home readable, not editing).
+    var enabled: Bool
+    var onEngage: () -> Void = {}
+
+    func makeUIView(context: Context) -> ObserverView { ObserverView() }
+
+    func updateUIView(_ v: ObserverView, context: Context) {
+        v.presentation = presentation
+        v.enabled = enabled
+        v.onEngage = onEngage
+    }
+
+    final class ObserverView: UIView {
+        var presentation: MemoriesPresentation?
+        var enabled = true
+        var onEngage: () -> Void = {}
+        private weak var scrollView: UIScrollView?
+        private var engaged = false
+        private var engageAt: CGFloat = 0
+        private var lastTranslation: CGFloat = 0
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil, scrollView == nil else { return }
+            var v: UIView? = superview
+            while let cur = v, !(cur is UIScrollView) { v = cur.superview }
+            guard let sv = v as? UIScrollView else { return }
+            scrollView = sv
+            sv.panGestureRecognizer.addTarget(self, action: #selector(pan(_:)))
+        }
+
+        private func atTop(_ sv: UIScrollView) -> Bool { sv.contentOffset.y <= -sv.adjustedContentInset.top + 0.5 }
+
+        @objc private func pan(_ g: UIPanGestureRecognizer) {
+            guard let sv = scrollView, let presentation else { return }
+            let ty = g.translation(in: sv.superview).y
+            switch g.state {
+            case .began:
+                engaged = false
+                lastTranslation = ty
+            case .changed:
+                if !engaged, enabled, atTop(sv), ty > lastTranslation {
+                    engaged = true
+                    engageAt = lastTranslation
+                    onEngage()
+                }
+                lastTranslation = ty
+                guard engaged else { return }
+                let pull = ty - engageAt
+                if pull < 0 && presentation.fraction >= 1 {
+                    // Back past where it engaged: the feed's again.
+                    presentation.pull(0)
+                    presentation.pullEnded(velocity: 0)
+                    engaged = false
+                    return
+                }
+                sv.contentOffset.y = -sv.adjustedContentInset.top
+                presentation.pull(max(pull, 0))
+            case .ended, .cancelled, .failed:
+                guard engaged else { return }
+                engaged = false
+                sv.contentOffset.y = -sv.adjustedContentInset.top
+                presentation.pullEnded(velocity: g.state == .ended ? g.velocity(in: sv.superview).y : 0)
+            default: break
+            }
+        }
+    }
+}
+
+#if DEBUG
+/// Recording aids for the Memories path, driving the same controller a
+/// finger does (QA can't inject touches on every simulator):
+/// `-memoriesScripted YES`: Home's pull 55 % and let go (it opens), a swipe
+/// to the next memory, a drag up past the commit line (it retreats); then the
+/// arrow's open, and a short drag up that springs back; then a memory focus
+/// on the third card and the ⌃ Home pill.
+@MainActor
+enum MemoriesScript {
+    private static var started = false
+
+    static func run(_ memories: MemoriesPresentation, focus: String?) async {
+        guard UserDefaults.standard.bool(forKey: "memoriesScripted"), !started else { return }
+        started = true
+        try? await Task.sleep(for: .seconds(2.5))
+        // A pull past half way, let go at a walking pace: it opens.
+        await finger(0.6) { memories.pull($0 * memories.containerHeight * 0.55) }
+        try? await Task.sleep(for: .milliseconds(80))
+        memories.pullEnded(velocity: 400)
+        try? await Task.sleep(for: .seconds(2.5))
+        MemoriesScript.swipe?(-1)
+        try? await Task.sleep(for: .seconds(2))
+        await finger(0.45) { memories.dismissDrag($0 * 180) }
+        memories.dismissEnded(velocity: 300)
+        try? await Task.sleep(for: .seconds(2))
+        memories.open()
+        try? await Task.sleep(for: .seconds(2))
+        await finger(0.3) { memories.dismissDrag($0 * 60) }
+        memories.dismissEnded(velocity: 0)
+        try? await Task.sleep(for: .seconds(2))
+        memories.close()
+        try? await Task.sleep(for: .seconds(2))
+        memories.open(focus: focus)
+        try? await Task.sleep(for: .seconds(2.5))
+        memories.close()
+    }
+
+    /// A sideways swipe on the deck (set by MemoriesView): −1 = to the next card.
+    static var swipe: ((CGFloat) -> Void)?
+
+    /// A finger moving 0 → 1 over [seconds], ease-out, at ~120 Hz.
+    static func finger(_ seconds: Double, _ step: (CGFloat) -> Void) async {
+        let start = Date()
+        while true {
+            let t = min(1, CGFloat(Date().timeIntervalSince(start) / (seconds / LaunchConfig.animationSpeed)))
+            step(1 - pow(1 - t, 2))
+            if t >= 1 { break }
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+    }
+}
+#endif
