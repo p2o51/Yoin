@@ -50,7 +50,6 @@ import com.gpo.yoin.ui.nowplaying.LocalNowPlayingTransportSignal
 import com.gpo.yoin.ui.nowplaying.LyricDotsBreakMs
 import com.gpo.yoin.ui.nowplaying.LyricDotsDevelopFrom
 import com.gpo.yoin.ui.nowplaying.LyricDotsDevelopMs
-import com.gpo.yoin.ui.nowplaying.LyricDotsRest
 import com.gpo.yoin.ui.nowplaying.LyricDotsSolid
 import com.gpo.yoin.ui.nowplaying.LyricLine
 import com.gpo.yoin.ui.nowplaying.UpNextHandoffTickSlackMs
@@ -58,6 +57,7 @@ import com.gpo.yoin.ui.nowplaying.UpNextLyrics
 import com.gpo.yoin.ui.nowplaying.lastLineOutroFor
 import com.gpo.yoin.ui.nowplaying.lastLineStretchScale
 import com.gpo.yoin.ui.nowplaying.lyricDotRadius
+import com.gpo.yoin.ui.nowplaying.lyricDotsRest
 import com.gpo.yoin.ui.nowplaying.lyricHalftone
 import com.gpo.yoin.ui.nowplaying.outroProgress
 import com.gpo.yoin.ui.nowplaying.upNextHandedOver
@@ -117,6 +117,10 @@ fun LyricsDisplay(
     // Extra room past the end edge the held last line may draw into (the
     // caller widened this box by as much); the lines still wrap without it.
     endOverflow: Dp = 0.dp,
+    // How far the current line's anchor has moved to the top (0 = the
+    // resting 22%, 1 = pinned). Follows [focus] unless the caller pins it: a
+    // list that only shows in focus opens pinned, with no line above it.
+    anchorFocus: () -> Float = focus,
 ) {
     val liveTrackKey by rememberUpdatedState(trackKey)
     // Song change = the stream carries on (see LyricsTrackTransition);
@@ -156,6 +160,7 @@ fun LyricsDisplay(
                 loading = shown.loading,
                 fontScale = fontScale,
                 focus = focus,
+                anchorFocus = anchorFocus,
                 durationMs = shown.durationMs,
                 upNext = shown.upNext,
                 endOverflow = endOverflow,
@@ -183,6 +188,7 @@ private fun LyricsDisplayContent(
     loading: Boolean,
     fontScale: Float,
     focus: () -> Float,
+    anchorFocus: () -> Float,
     durationMs: Long,
     upNext: UpNextLyrics?,
     endOverflow: Dp,
@@ -319,10 +325,14 @@ private fun LyricsDisplayContent(
         var firstAnchor = true
         // filter { it > 0 }: during an expand the height is ~0 for a frame, and a 0
         // offset would slip the anchoring by a line.
-        snapshotFlow { listState.layoutInfo.viewportSize.height }
-            .filter { it > 0 }
-            .collect { viewportPx ->
-                val offsetPx = if (handOverTarget) 0 else -(viewportPx * 0.22f).toInt()
+        // Focus pins the current line to the top (the budget's
+        // FocusLyricsAnchorFraction = 0): only the current line and what
+        // follows show, no half-cut line above it (owner 2026-11-04).
+        snapshotFlow { listState.layoutInfo.viewportSize.height to anchorFocus().coerceIn(0f, 1f) }
+            .filter { it.first > 0 }
+            .collect { (viewportPx, focusNow) ->
+                val anchor = 0.22f * (1f - focusNow)
+                val offsetPx = if (handOverTarget) 0 else -(viewportPx * anchor).toInt()
                 when {
                     // Very first centre of the song: instant, no animation.
                     !hasCentered -> {
@@ -460,7 +470,8 @@ private fun LyricLineItem(
     // Focus's halftone: the line's own dot radius. The current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
     // fine dots. Lines that are current when they first show start solid.
-    val dots = remember { Animatable(if (isActive) LyricDotsSolid else LyricDotsRest) }
+    val restDots = lyricDotsRest()
+    val dots = remember { Animatable(if (isActive) LyricDotsSolid else restDots) }
     val shownBefore = remember { booleanArrayOf(false) }
     LaunchedEffect(isActive) {
         if (!shownBefore[0]) {
@@ -470,8 +481,8 @@ private fun LyricLineItem(
         if (isActive) {
             dots.snapTo(minOf(dots.value, LyricDotsDevelopFrom))
             dots.animateTo(LyricDotsSolid, tween(LyricDotsDevelopMs, easing = EaseOutCubic))
-        } else if (dots.value > LyricDotsRest) {
-            dots.animateTo(LyricDotsRest, tween(LyricDotsBreakMs, easing = EaseOutCubic))
+        } else if (dots.value > restDots) {
+            dots.animateTo(restDots, tween(LyricDotsBreakMs, easing = EaseOutCubic))
         }
     }
     // I-2 in focus: the song's last line held wide from its left edge. A

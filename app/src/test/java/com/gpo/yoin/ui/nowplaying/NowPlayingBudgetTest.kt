@@ -13,6 +13,11 @@ class NowPlayingBudgetTest {
     // Font scale 1.0 metrics (M3 line heights: labelLarge 20, titleMedium 24,
     // displaySmall 44, bodyLarge 24, bodyMedium 20).
     private val lyric = LyricWindowMetrics(activeLine = 32.dp, inactiveLine = 28.dp)
+    private val focusLyric = LyricWindowMetrics(
+        activeLine = 32.dp * FocusLyricScale,
+        inactiveLine = 28.dp * FocusLyricScale,
+        anchorFraction = FocusLyricsAnchorFraction,
+    )
     private fun column(transport: Dp = 116.dp, pills: Dp = 44.dp) = StageColumnMetrics(
         tabText = 20.dp,
         transport = transport,
@@ -21,6 +26,8 @@ class NowPlayingBudgetTest {
         pills = pills,
         oneLineContent = 32.dp,
         lyric = lyric,
+        // shortFocusControlsHeight(56): play row + 4 + the 36dp progress row.
+        compactTransport = 96.dp,
     )
 
     private fun <T> nn(value: T?): T {
@@ -60,8 +67,9 @@ class NowPlayingBudgetTest {
         assertDp(364.dp, focus.cover)
         assertEquals(LyricFrame.List, focus.lyricFrame)
         assertDp(0.dp, focus.tabs)
-        assertDp(148.dp, focus.controls)
-        assertDp(86.dp, focus.hero)
+        // The larger focus lyrics take a little of the transport's air.
+        assertTrue(focus.controls >= 116.dp + 8.dp - 0.5.dp)
+        assertTrue(focus.lyricSlot >= focusLyric.cleanLines(3) - 0.5.dp)
         assertTrue(focus.topBar < rest.topBar)
         assertTrue(focus.accessory < rest.accessory)
         assertDp(843.dp, focus.total)
@@ -78,12 +86,15 @@ class NowPlayingBudgetTest {
         assertTrue(rest.lower > 0f)
         // 16:9: title and artist share one row.
         assertTrue(budget.heroOneLine)
-        // Focus visibly grows; with the pills and top bar gone the list fits
-        // again for a cover that yields under 15% of its focus size.
+        // Focus: the resting cover (centred by the screen), two clean
+        // (larger) lyric lines, the transport folded to one row.
         val focus = nn(budget.focus)
-        assertDp(358.4.dp, focus.cover)
+        assertDp(rest.cover, focus.cover)
+        assertTrue(budget.compactFocus)
+        assertDp(96.dp, focus.controls)
         assertEquals(LyricFrame.List, focus.lyricFrame)
-        assertTrue(focus.lyricSlot >= lyric.cleanLines(2) - 0.5.dp)
+        assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
+        assertDp(420.dp, budget.focusStageWidth)
         assertDp(684.dp, focus.total)
     }
 
@@ -175,7 +186,12 @@ class NowPlayingBudgetTest {
                     val heroMin = if (budget.heroOneLine) 48.dp else 74.dp
                     assertTrue("hero clipped at ${w}x$h", rest.hero >= heroMin - 0.5.dp)
                     budget.focus?.let { focus ->
-                        assertTrue("focus dropped the lyric line at ${w}x$h", focus.lyricSlot >= 36.dp - 0.5.dp)
+                        assertTrue(
+                            "focus lost its lines at ${w}x$h",
+                            focus.lyricSlot >= focusLyric.cleanLines(
+                                if (rest.lyricFrame == LyricFrame.OneLine) 1 else 2,
+                            ) - 0.5.dp,
+                        )
                     }
                     assertTrue("pills clipped at ${w}x$h", rest.accessory >= 44.dp)
                     if (rest.lyricFrame == LyricFrame.OneLine) {
@@ -183,10 +199,14 @@ class NowPlayingBudgetTest {
                     }
                     budget.focus?.let { focus ->
                         assertTrue("focus overflow at ${w}x$h", focus.total <= h.dp + 0.5.dp)
-                        assertTrue(
-                            "focus too small at ${w}x$h",
-                            coverFocusOffered(rest.cover, focus.cover),
-                        )
+                        assertTrue("focus too small at ${w}x$h", focus.cover >= rest.cover * 0.7f - 0.5.dp)
+                        if (budget.compactFocus) {
+                            assertDp(budget.stageWidth, budget.focusStageWidth)
+                            assertDp(budget.stageWidth, focus.cover + 48.dp + budget.focusLyricInset * 2f)
+                        } else {
+                            assertDp(focus.cover + 48.dp, budget.focusStageWidth)
+                        }
+                        assertTrue("focus column too wide at ${w}x$h", budget.focusStageWidth <= w.dp + 0.5.dp)
                     }
                 }
             }
@@ -209,15 +229,84 @@ class NowPlayingBudgetTest {
     }
 
     @Test
-    fun should_fallBackToCurrentLine_when_listWouldCostTheCoverOver15Percent() {
-        // Find a window whose focus keeps only the current line: the cover
-        // there is larger than any list-keeping cover would have been.
-        val preview = (560..760).map { it.dp }.firstNotNullOfOrNull { h ->
-            resolveStageColumnBudget(412.dp, h, column()).focus?.takeIf { it.lyricFrame == LyricFrame.Preview }
+    fun should_makeRoomForTheTimeLabels_when_focusNarrowsTheColumn() {
+        // Fold inner panel: the rest column keeps the time labels inline;
+        // focus narrows it under 360dp, so they drop under the wave and the
+        // transport slot grows by their row instead of covering the title.
+        val metrics = column().copy(labelLine = 20.dp)
+        val inline = resolveStageColumnBudget(475.dp, 800.dp, column())
+        val budget = resolveStageColumnBudget(475.dp, 800.dp, metrics)
+        val focus = nn(budget.focus)
+        assertTrue(focus.cover < 360.dp)
+        assertTrue(focus.controls >= 116.dp + 20.dp)
+        assertTrue(focus.controls >= nn(inline.focus).controls + 20.dp - 0.5.dp)
+        assertDp(800.dp, focus.total)
+    }
+
+    @Test
+    fun should_keepTheRestingOrderAndCover_when_shortWindowFocuses() {
+        // Owner 2026-11-05 (prototype v3): the Fold 8 outer screen and 16:9
+        // keep the cover's resting size, centred; the transport folds to one
+        // row and keeps the full width with the title; the lyrics line up
+        // with the cover and run on 2–3 dotted lines under the transport.
+        for ((w, h) in listOf(475 to 690, 420 to 684, 360 to 592)) {
+            val budget = resolveStageColumnBudget(w.dp, h.dp, column())
+            assertEquals(LyricFrame.OneLine, budget.rest.lyricFrame)
+            val focus = nn(budget.focus)
+            assertTrue(budget.compactFocus)
+            assertDp(budget.rest.cover, focus.cover)
+            assertDp(16.dp, focus.topBar)
+            assertDp(96.dp, focus.controls)
+            assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
+            assertDp(w.dp, budget.focusStageWidth)
+            assertDp((w.dp - 48.dp - focus.cover) / 2f, budget.focusLyricInset)
+            assertTrue(budget.focusLyricOverflow >= focusLyric.inactiveLine * 2f)
+            // Faded out by the progress row's bottom: never under the title.
+            assertDp(focus.controls, budget.focusLyricOverflow)
+            assertDp(h.dp, focus.total)
         }
-        val p = nn(preview)
-        assertTrue(p.lyricSlot >= 36.dp - 0.5.dp)
-        assertDp(0.dp, p.tabs)
+        // The labels' row doesn't apply: the progress bar has its own full-width row.
+        val labelled = nn(resolveStageColumnBudget(475.dp, 690.dp, column().copy(labelLine = 20.dp)).focus)
+        assertDp(96.dp, labelled.controls)
+        assertDp(690.dp, labelled.total)
+        // Shorter still: the folded transport frees enough that the cover
+        // still keeps its size.
+        for (h in listOf(480, 520)) {
+            val tight = resolveStageColumnBudget(360.dp, h.dp, column())
+            val tightFocus = nn(tight.focus)
+            assertDp(tight.rest.cover, tightFocus.cover)
+            assertDp(h.dp, tightFocus.total)
+        }
+        // A 16:9 phone with tall bars (360x564 on device, real metrics a little
+        // taller): the current line alone rather than no focus.
+        val tallBars = column(transport = 140.dp)
+        for (h in listOf(540, 564)) {
+            val b = resolveStageColumnBudget(360.dp, h.dp, tallBars)
+            val f = nn(b.focus)
+            assertDp(b.rest.cover, f.cover)
+            assertTrue(f.lyricSlot >= focusLyric.cleanLines(1) - 0.5.dp)
+            assertDp(h.dp, f.total)
+        }
+        // Tall phones keep the regular focus.
+        assertTrue(!resolveStageColumnBudget(412.dp, 843.dp, column()).compactFocus)
+    }
+
+    @Test
+    fun should_pinTheCurrentLineToTheTop_when_focused() {
+        // No line above the current one: two clean focus lines cost less
+        // than the resting window's anchor would.
+        val anchored = LyricWindowMetrics(focusLyric.activeLine, focusLyric.inactiveLine)
+        assertTrue(focusLyric.cleanLines(2) < anchored.cleanLines(2) - 20.dp)
+    }
+
+    @Test
+    fun should_keepThreeLinesAndBothTransportRows_when_tallPhoneFocuses() {
+        val budget = resolveStageColumnBudget(412.dp, 843.dp, column())
+        val focus = nn(budget.focus)
+        assertTrue(focus.controls >= 116.dp)
+        assertTrue(focus.lyricSlot >= focusLyric.cleanLines(3) - 0.5.dp)
+        // Equal margins: the column is the cover plus its 24dp insets.
+        assertDp((412.dp - focus.cover) / 2f, focus.topBar)
     }
 
     // ── DualPane ────────────────────────────────────────────────────────
