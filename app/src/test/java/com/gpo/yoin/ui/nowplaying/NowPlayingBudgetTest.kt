@@ -87,13 +87,14 @@ class NowPlayingBudgetTest {
         // 16:9: title and artist share one row.
         assertTrue(budget.heroOneLine)
         // Focus: the resting cover (centred by the screen), two clean
-        // (larger) lyric lines, the transport's own two rows.
+        // (larger) lyric lines, the transport folded to one row.
         val focus = nn(budget.focus)
         assertDp(rest.cover, focus.cover)
-        assertTrue(focus.controls >= 116.dp)
+        assertTrue(budget.compactFocus)
+        assertDp(96.dp, focus.controls)
         assertEquals(LyricFrame.List, focus.lyricFrame)
         assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
-        assertDp(focus.cover + 48.dp, budget.focusStageWidth)
+        assertDp(420.dp, budget.focusStageWidth)
         assertDp(684.dp, focus.total)
     }
 
@@ -199,7 +200,12 @@ class NowPlayingBudgetTest {
                     budget.focus?.let { focus ->
                         assertTrue("focus overflow at ${w}x$h", focus.total <= h.dp + 0.5.dp)
                         assertTrue("focus too small at ${w}x$h", focus.cover >= rest.cover * 0.7f - 0.5.dp)
-                        assertDp(focus.cover + 48.dp, budget.focusStageWidth)
+                        if (budget.compactFocus) {
+                            assertDp(budget.stageWidth, budget.focusStageWidth)
+                            assertDp(budget.stageWidth, focus.cover + 48.dp + budget.focusLyricInset * 2f)
+                        } else {
+                            assertDp(focus.cover + 48.dp, budget.focusStageWidth)
+                        }
                         assertTrue("focus column too wide at ${w}x$h", budget.focusStageWidth <= w.dp + 0.5.dp)
                     }
                 }
@@ -239,29 +245,37 @@ class NowPlayingBudgetTest {
 
     @Test
     fun should_keepTheRestingOrderAndCover_when_shortWindowFocuses() {
-        // Owner 2026-11-05 (prototype 方案 2 + 居中): the Fold 8 outer screen
-        // and 16:9 keep the cover's resting size and the transport's two
-        // rows; the top bar's and pills' room opens the lyrics.
+        // Owner 2026-11-05 (prototype v3): the Fold 8 outer screen and 16:9
+        // keep the cover's resting size, centred; the transport folds to one
+        // row and keeps the full width with the title; the lyrics line up
+        // with the cover and run on 2–3 dotted lines under the transport.
         for ((w, h) in listOf(475 to 690, 420 to 684, 360 to 592)) {
             val budget = resolveStageColumnBudget(w.dp, h.dp, column())
             assertEquals(LyricFrame.OneLine, budget.rest.lyricFrame)
             val focus = nn(budget.focus)
+            assertTrue(budget.compactFocus)
             assertDp(budget.rest.cover, focus.cover)
             assertDp(16.dp, focus.topBar)
-            assertTrue(focus.controls >= 116.dp)
+            assertDp(96.dp, focus.controls)
             assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
-            // The column narrows to the cover: lyrics, transport and title line up with it.
-            assertDp(focus.cover + 48.dp, budget.focusStageWidth)
+            assertDp(w.dp, budget.focusStageWidth)
+            assertDp((w.dp - 48.dp - focus.cover) / 2f, budget.focusLyricInset)
+            assertTrue(budget.focusLyricOverflow >= focusLyric.inactiveLine * 2f)
+            assertTrue(budget.focusLyricOverflow <= focus.controls + 0.5.dp)
             assertDp(h.dp, focus.total)
         }
-        // Narrowed under 360dp, the transport makes room for its time-label row.
+        // The labels' row doesn't apply: the progress bar has its own full-width row.
         val labelled = nn(resolveStageColumnBudget(475.dp, 690.dp, column().copy(labelLine = 20.dp)).focus)
-        assertTrue(labelled.controls >= 116.dp + 20.dp)
+        assertDp(96.dp, labelled.controls)
         assertDp(690.dp, labelled.total)
-        // Shorter still: only then does the cover give a little.
-        val tight = nn(resolveStageColumnBudget(360.dp, 560.dp, column()).focus)
-        assertTrue(tight.cover < 244.dp && tight.cover >= 216.dp)
-        assertDp(560.dp, tight.total)
+        // Shorter still: the folded transport frees enough that the cover
+        // still keeps its size.
+        for (h in listOf(480, 520)) {
+            val tight = resolveStageColumnBudget(360.dp, h.dp, column())
+            val tightFocus = nn(tight.focus)
+            assertDp(tight.rest.cover, tightFocus.cover)
+            assertDp(h.dp, tightFocus.total)
+        }
         // A 16:9 phone with tall bars (360x564 on device, real metrics a little
         // taller): the current line alone rather than no focus.
         val tallBars = column(transport = 140.dp)
@@ -272,6 +286,8 @@ class NowPlayingBudgetTest {
             assertTrue(f.lyricSlot >= focusLyric.cleanLines(1) - 0.5.dp)
             assertDp(h.dp, f.total)
         }
+        // Tall phones keep the regular focus.
+        assertTrue(!resolveStageColumnBudget(412.dp, 843.dp, column()).compactFocus)
     }
 
     @Test

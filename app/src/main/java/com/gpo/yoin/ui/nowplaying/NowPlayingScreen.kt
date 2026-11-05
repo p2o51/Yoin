@@ -102,7 +102,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
@@ -131,6 +136,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1348,6 +1354,18 @@ private fun CompactPlayingContent(
             detailProgress,
         )
         val stageOffsetX = (maxWidth - liveStageWidth) / 2
+        // Short-window focus (owner 2026-11-05, prototype v3): the transport
+        // folds to one row and keeps the full width with the title; only the
+        // lyrics narrow to the centred cover, their dotted lines running on
+        // under the transport (drawn over them) before they fade.
+        val compactFocusProgress = if (budget.compactFocus) {
+            (immersiveProgress * (1f - detailProgress)).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val focusLyricInset = budget.focusLyricInset * compactFocusProgress
+        val focusLyricOverflow = budget.focusLyricOverflow * compactFocusProgress
+        val focusLyricOverflowPx = with(LocalDensity.current) { focusLyricOverflow.roundToPx() }
         // Enlarged tablet: the lyric tools ride at the end of the tab row even
         // at rest (TabletPortraitNP).
         val toolsInCompactTabs = enlarged != null && !lyricOneLine
@@ -1361,9 +1379,9 @@ private fun CompactPlayingContent(
         // centred. The current lyric line stays, as in every focus. The title and
         // artist stay too, as in every focus (owner 2026-11-03 "标题和歌手不动";
         // 2026-11-04 they had vanished on the Fold 8 outer screen).
-        // Where the regular focus IS offered on a short window, it keeps the
-        // transport's own two rows: the cover stays its size, centred, and the
-        // freed height goes to the lyrics (owner 2026-11-05).
+        // Where the regular focus IS offered on a short window, the cover stays
+        // its size, centred, and the freed height goes to the lyrics (owner
+        // 2026-11-05; compactFocusProgress above).
         var shortFocus by remember { mutableStateOf(false) }
         val shortFocusHaptics = rememberYoinHaptics()
         val shortArrangement = shortFocus
@@ -1471,6 +1489,7 @@ private fun CompactPlayingContent(
         // Add back the space the surrounding slots will release at Expanded.
         // Round each slot separately, exactly as their layout modifiers do, so
         // the lazy list receives identical pixel constraints on every frame.
+        // Less the run-on the pager already measures (runOnBelow).
         val lyricsViewportGrowthPx = with(LocalDensity.current) {
             topBarHeight.roundToPx() - ExpandedTopBarHeight.roundToPx() +
                 coverRowHeight.roundToPx() + controlsHeight.roundToPx() +
@@ -1478,7 +1497,8 @@ private fun CompactPlayingContent(
                 tabHeight.roundToPx() - ExpandedTabRowHeight.roundToPx() +
                 tabSpacerHeight.roundToPx() - ExpandedTabGap.roundToPx() +
                 heroHeight.roundToPx() - expandedHeroHeight.roundToPx() +
-                bottomAccessoryHeight.roundToPx() - expandedAccessoryHeight.roundToPx()
+                bottomAccessoryHeight.roundToPx() - expandedAccessoryHeight.roundToPx() -
+                focusLyricOverflowPx
         }
         // The cover as drawn (the budget's row IS the cover square).
         val compactCoverSize = visibleCoverHeight
@@ -1809,6 +1829,7 @@ private fun CompactPlayingContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                            .runOnBelow(focusLyricOverflowPx)
                             .reportLyricsSurface(
                                 primary = lyricsLead,
                                 landingFromTop = if (stageMode == NowPlayingStageMode.Expanded) {
@@ -1818,7 +1839,8 @@ private fun CompactPlayingContent(
                                 },
                                 clipLight = false,
                             )
-                            .edgeFade(start = pagerEdgeFade, end = pagerEdgeFade),
+                            .edgeFade(start = pagerEdgeFade, end = pagerEdgeFade)
+                            .fadeRunOn(focusLyricOverflowPx),
                     ) {
                         HorizontalPager(
                             state = pagerState,
@@ -1844,6 +1866,8 @@ private fun CompactPlayingContent(
                             ) {
                                 CompactDetailPage(
                                     page = NowPlayingDetailPage.entries[page],
+                                    // Short-window focus: the lyrics line up with the cover.
+                                    pageInset = focusLyricInset,
                                     state = state,
                                     positionMs = positionMs,
                                     aboutUiState = aboutUiState,
@@ -1941,6 +1965,8 @@ private fun CompactPlayingContent(
                                 // the text needs 32), focus included.
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
+                                    // Centred in the slot, not in the run-on below it.
+                                    .offset { IntOffset(0, -focusLyricOverflowPx / 2) }
                                     .fillMaxWidth()
                                     .heightIn(max = OneLineLyricRowHeight)
                                     .padding(horizontal = horizontalPadding)
@@ -1958,6 +1984,8 @@ private fun CompactPlayingContent(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    // Not the run-on: the transport's gaps stay the transport's.
+                                    .padding(bottom = focusLyricOverflow)
                                     .clickable(
                                         interactionSource = pagerClickSource,
                                         indication = null,
@@ -1990,7 +2018,7 @@ private fun CompactPlayingContent(
                             onSetPlayMode = playbackActions.onSetPlayMode,
                             controlSize = stageControlSize,
                             live = stageControlsLive,
-                            prevToTopRow = shortFocusProgress,
+                            prevToTopRow = maxOf(shortFocusProgress, compactFocusProgress),
                             modifier = Modifier
                                 .padding(horizontal = horizontalPadding)
                                 .graphicsLayer {
@@ -4345,12 +4373,15 @@ private fun CompactDetailPage(
     // The page's end padding up to the screen edge: the held last line may
     // run on into it (the lines still wrap at the page edge).
     endOverflow: Dp = 0.dp,
+    // Extra inset on both sides (short-window focus: the cover's edges).
+    pageInset: Dp = 0.dp,
 ) {
+    val insetModifier = modifier.padding(horizontal = pageInset)
     when (page) {
         NowPlayingDetailPage.Lyrics -> Box(
             // Clipped top and bottom only: the held last line may run on past
             // the page's end edge.
-            modifier = modifier.drawWithContent {
+            modifier = insetModifier.drawWithContent {
                 clipRect(
                     left = -endOverflow.toPx(),
                     top = 0f,
@@ -4391,12 +4422,12 @@ private fun CompactDetailPage(
         NowPlayingDetailPage.About -> SongInfoDisplay(
             aboutUiState = aboutUiState,
             onRetry = onRetryFetchSongInfo,
-            modifier = modifier,
+            modifier = insetModifier,
         )
         NowPlayingDetailPage.Note -> NoteCompactPane(
             notes = notes,
             positionMs = positionMs,
-            modifier = modifier,
+            modifier = insetModifier,
         )
     }
 }
@@ -5756,3 +5787,55 @@ private fun NowPlayingFormatTags(state: NowPlayingUiState.Playing) {
         )
     }
 }
+
+/**
+ * Measures the content [runOnPx] taller than its slot but reports the slot:
+ * the extra runs on under the rows that follow (drawn over it).
+ */
+private fun Modifier.runOnBelow(runOnPx: Int): Modifier = if (runOnPx <= 0) {
+    this
+} else {
+    layout { measurable, constraints ->
+        val placeable = measurable.measure(
+            if (constraints.hasBoundedHeight) {
+                constraints.copy(
+                    minHeight = constraints.minHeight + runOnPx,
+                    maxHeight = constraints.maxHeight + runOnPx,
+                )
+            } else {
+                constraints
+            },
+        )
+        val height = (placeable.height - runOnPx).coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(placeable.width, height) { placeable.place(0, 0) }
+    }
+}
+
+/**
+ * Fades the [runOnBelow] extra out (its last ~two-thirds), on the content's
+ * own alpha. Sits inside an offscreen layer (edgeFade's).
+ */
+private fun Modifier.fadeRunOn(runOnPx: Int): Modifier = if (runOnPx <= 0) {
+    this
+} else {
+    drawWithContent {
+        drawContent()
+        val fade = runOnPx * RunOnFadeShare
+        val top = size.height - fade
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = RunOnFadeStops,
+                startY = top,
+                endY = size.height,
+            ),
+            topLeft = Offset(0f, top),
+            size = Size(size.width, fade),
+            blendMode = BlendMode.DstIn,
+        )
+    }
+}
+
+private const val RunOnFadeShare = 0.7f
+
+// Smoothstep from opaque to clear: no visible onset line.
+private val RunOnFadeStops = listOf(1f, 0.896f, 0.648f, 0.352f, 0.104f, 0f).map { Color.Black.copy(alpha = it) }

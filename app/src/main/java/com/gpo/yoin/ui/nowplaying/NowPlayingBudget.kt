@@ -26,9 +26,10 @@ import androidx.compose.ui.unit.lerp
  * the lyrics keep three clean lines, or two where three would cost the
  * cover its equal margins, printed larger and with the current line pinned
  * to the top (owner 2026-11-04). A short window (one resting lyric line)
- * keeps its resting order and sizes: the cover keeps its size, centred, and
- * the freed height opens the lyrics (owner 2026-11-05); it is offered for
- * the lyrics alone. Elsewhere focus is offered only when the cover grows by at least
+ * keeps its resting order and sizes: the cover keeps its size, centred, the
+ * transport folds to one row and the freed height opens the lyrics, which
+ * line up with the cover and run on in dots under the transport (owner
+ * 2026-11-05); it is offered for the lyrics alone. Elsewhere focus is offered only when the cover grows by at least
  * max(40dp, 12%). Otherwise the cover is a plain image.
  *
  * Pure Dp math, JVM-tested (NowPlayingBudgetTest).
@@ -131,6 +132,16 @@ data class StageColumnBudget(
     val heroOneLine: Boolean = false,
     /** Focus narrows the column to the cover (+ its 24dp insets), centred in the window. */
     val focusStageWidth: Dp = stageWidth,
+    /**
+     * Short-window focus (Fold outer, 16:9): the transport folds to one row
+     * (PREVIOUS up, the progress bar on its own row) and, with the title,
+     * keeps the full width; only the lyrics narrow to the centred cover.
+     */
+    val compactFocus: Boolean = false,
+    /** [compactFocus]: each side's extra inset that lines the lyrics up with the cover. */
+    val focusLyricInset: Dp = 0.dp,
+    /** [compactFocus]: how far the dotted lines run on under the transport before they fade. */
+    val focusLyricOverflow: Dp = 0.dp,
 ) {
     val focusOffered: Boolean get() = focus != null
 }
@@ -360,21 +371,16 @@ fun resolveStageColumnBudget(
         }
     }
     // Short windows (the resting lyrics fold to one line: Fold 8 outer,
-    // 16:9). Owner 2026-11-05 (prototype 方案 2 + 居中): focus keeps the
-    // resting order and sizes — the cover keeps its size and moves up into
-    // the top bar's room, centred; the transport (its own two rows) and the
-    // title keep their slots and sink into the pills' room; everything freed
-    // goes to the lyrics. The column narrows to the cover, so the lyrics,
-    // transport and title line up with its left and right edges (owner
-    // 2026-11-05: 「里面文字要变窄，和上面对齐」).
+    // 16:9). Owner 2026-11-05 (prototype 方案 2 + 居中, then v3): focus keeps
+    // the resting order — the cover keeps its size and moves up into the top
+    // bar's room, centred; the transport folds to one row (PREVIOUS up, the
+    // progress bar on its own row) and, with the title, keeps the full width;
+    // everything freed goes to the lyrics, which line up with the cover's
+    // left and right edges (「歌词本身是要和封面左右对齐的」). The dotted
+    // lines run on 2–3 lines under the transport and fade, so the solid
+    // buttons float on them and needn't line up with the cover.
     fun shortWindowFocus(lines: Int): StageColumnPose? {
-        // Narrowed under 360dp the time labels drop under the wave.
-        val restInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
-        val shortControls = if (restInline && rest.cover < metrics.labelsInlineMin) {
-            NpGap(controls.nominal + metrics.labelLine, controls.min + metrics.labelLine)
-        } else {
-            controls
-        }
+        val shortControls = metrics.compactTransport?.let { NpGap(it, it) } ?: controls
         val lower = listOf(shortControls, hero, focusBottom)
         val upper = listOf(coverGap)
         val nominal = nominalSum(lower) + nominalSum(upper)
@@ -389,8 +395,7 @@ fun resolveStageColumnBudget(
             upper,
         )
         // Only when even the squeezed gaps can't hold two lines does the cover
-        // give — never under the transport's narrowest width, which the column
-        // now shares.
+        // give — never so far that the lyrics, which share its width, crowd.
         val cover = maxOf(
             (rest.cover - squeeze.unmet).coerceAtLeast(0.dp),
             minOf(rest.cover, ShortFocusMinColumn),
@@ -401,7 +406,7 @@ fun resolveStageColumnBudget(
         val hr = hero.at(squeeze.lower)
         val bottom = focusBottom.at(squeeze.lower)
         val lyric = (height - FocusTopShort - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
-        // Too short for these lines beside a cover the transport can share.
+        // Too short for these lines beside a cover the lyrics can share.
         if (lyric < listMin - 0.5.dp) return null
         return StageColumnPose(
             topBar = FocusTopShort, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
@@ -424,16 +429,30 @@ fun resolveStageColumnBudget(
     ) {
         focus = solveFocus(metrics.labelLine)
     }
+    val compactFocus = shortWindow && focus != null
     return StageColumnBudget(
         stageWidth = stageWidth,
         rest = rest,
         focus = focus,
         heroOneLine = heroCompact,
-        // Always the cover's own width: the transport fits itself to it
+        // Elsewhere the cover's own width: the transport fits itself to it
         // (PlaybackControls steps down to 48dp below the designed width).
         focusStageWidth = when {
-            focus == null -> stageWidth
+            focus == null || compactFocus -> stageWidth
             else -> focus.cover + ColumnPadding * 2
+        },
+        compactFocus = compactFocus,
+        focusLyricInset = if (compactFocus) {
+            ((stageWidth - ColumnPadding * 2 - focus!!.cover) / 2f).coerceAtLeast(0.dp)
+        } else {
+            0.dp
+        },
+        // 2–3 dotted lines (owner 2026-11-05 「多铺个 2-3 行就行」), never
+        // past the transport itself.
+        focusLyricOverflow = if (compactFocus) {
+            minOf(metrics.lyric.inactiveLine * FocusLyricScale * FocusLyricOverflowLines, focus!!.controls)
+        } else {
+            0.dp
         },
     )
 }
@@ -690,8 +709,11 @@ private val FocusTopMin = 12.dp
 /** A short window's focus: the cover's top once the top bar retreats. */
 private val FocusTopShort = 16.dp
 
-/** The narrowest column the transport fits at 48dp controls (PLAY, next, the mode pill at its minimum). */
+/** Short-window focus: the narrowest the cover (and the lyrics lined up with it) gives. */
 private val ShortFocusMinColumn = 216.dp
+
+/** Short-window focus: dotted lyric lines that run on under the transport. */
+private const val FocusLyricOverflowLines = 2.5f
 private val FocusBottomNominal = 20.dp
 private val FocusBottomMin = 8.dp
 
