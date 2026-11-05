@@ -653,7 +653,12 @@ final class LibraryStore {
         await cachedLoad("albums", kind: .list, id: "albums", force: force, inMemory: { !self.albums.isEmpty },
                          restore: { (d: [DetailCacheDTO.Album], c) in self.albums = d.map(c.album) }) { [self] in
             if let apple {
-                let all = try await apple.libraryAlbums()
+                // Nothing on screen yet: each page shows as it comes (a library of 1,600
+                // albums is 17 pages, a minute on a phone).
+                let progressive = albums.isEmpty
+                let all = try await apple.libraryAlbums(onPage: { [self] partial in
+                    if progressive, (try? ensureLive()) != nil { albums = partial }
+                })
                 try ensureLive()
                 albums = all
                 return codec?.dtoAlbums(albums)
@@ -695,7 +700,10 @@ final class LibraryStore {
         await cachedLoad("artists", kind: .list, id: "artists", force: force, inMemory: { !self.artists.isEmpty },
                          restore: { (d: [DetailCacheDTO.Item], c) in self.artists = d.map(c.item) }) { [self] in
             if let apple {
-                let read = try await apple.libraryArtists()
+                let progressive = artists.isEmpty
+                let read = try await apple.libraryArtists(onPage: { [self] partial in
+                    if progressive, (try? ensureLive()) != nil { artists = partial }
+                })
                 try ensureLive()
                 artists = read
             } else {
