@@ -335,15 +335,15 @@ private fun LyricsDisplayContent(
     // next song's own list opens (scroll 0), so the swap is in place.
     val windowCovered = LocalWindowCovered.current
     val handOverTarget = handingOver && upNextLineIndex >= 0
-    // Focus: the line just sung, whole, above the current one (owner
-    // 2026-11-05 「歌词应该上面也漏出来一行」). Until that line has been laid
-    // out its height is estimated from one inactive line.
+    // Focus: one row of the line just sung above the current one (owner
+    // 2026-11-05 「歌词应该上面也漏出来一行」), so the current line always
+    // sits at the second row (「第二行这个位置就出现就行了」); a wrapped sung
+    // line shows its last row.
     val density = LocalDensity.current
     val inactiveStyle = MaterialTheme.typography.bodyMedium
     val lineAbovePxEstimate = with(density) {
         (inactiveStyle.lineHeight * fontScale).toPx() + LyricItemPadV.toPx() * 2 + LyricItemGap.toPx()
     }
-    val lineGapPx = with(density) { LyricItemGap.toPx() }
     val activeLinePxEstimate = with(density) {
         (MaterialTheme.typography.bodyLarge.lineHeight * fontScale).toPx() + LyricItemPadV.toPx() * 2
     }
@@ -362,26 +362,20 @@ private fun LyricsDisplayContent(
             LyricAnchorInputs(
                 viewportPx = listState.layoutInfo.viewportSize.height,
                 focus = anchorFocus().coerceIn(0f, 1f),
-                abovePx = shown.firstOrNull { it.index == target - 1 }?.size ?: -1,
                 currentPx = shown.firstOrNull { it.index == target }?.size ?: -1,
                 // Only while the transport shows does it hide the bottom.
                 coveredPx = (coveredPxNow() * coveredShownNow().coerceIn(0f, 1f)).toInt(),
             )
         }
             .filter { it.viewportPx > 0 }
-            .collect { (viewportPx, focusNow, abovePx, currentPx, coveredPx) ->
+            .collect { (viewportPx, focusNow, currentPx, coveredPx) ->
                 val anchor = 0.22f * (1f - focusNow)
-                // The sung line shows whole (a wrapped one too) as long as the
-                // whole current line still clears the shown transport; past
-                // that the sung line's top clips, never the current line.
+                // On the shortest windows the whole current line still clears
+                // the shown transport first: the sung row gives way.
                 val shownPx = (viewportPx - coveredPx).coerceAtLeast(0)
                 val current = if (currentPx > 0) currentPx.toFloat() else activeLinePxEstimate
                 val roomAbove = (shownPx - listTopPadPx - current).coerceAtLeast(0f)
-                val lineAbovePx = when {
-                    target <= 0 -> 0f
-                    abovePx >= 0 -> abovePx + lineGapPx
-                    else -> lineAbovePxEstimate
-                }.coerceAtMost(roomAbove)
+                val lineAbovePx = if (target <= 0) 0f else lineAbovePxEstimate.coerceAtMost(roomAbove)
                 val offsetPx = if (handOverTarget) {
                     0
                 } else {
@@ -707,7 +701,6 @@ private val LyricListPadV = 12.dp
 private data class LyricAnchorInputs(
     val viewportPx: Int,
     val focus: Float,
-    val abovePx: Int,
     val currentPx: Int,
     val coveredPx: Int,
 )

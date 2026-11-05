@@ -2110,7 +2110,12 @@ private fun CompactPlayingContent(
                         } else {
                             0f
                         },
-                        modifier = Modifier.padding(horizontal = horizontalPadding),
+                        // Stacked, it lines up with the cover's edges like the
+                        // lyrics (owner 2026-11-05 「跟上面那个封面平齐」).
+                        modifier = Modifier.padding(
+                            horizontal = horizontalPadding +
+                                if (budget.focusHeroStacked) focusLyricInset else 0.dp,
+                        ),
                     )
 
                     StageHeightSlot(
