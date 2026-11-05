@@ -963,10 +963,11 @@ struct NowPlayingView: View, Equatable {
         let actions = LyricsActions.shared
         let translations = actions.shownTranslations(t, count: loaded.lines.count)
         let times = loaded.lyrics.lines.map(\.timeMs)
-        return PlaybackPosition { position, _ in
-            ExpandedLyricsList(
-                lines: loaded.lines, times: times, translations: translations, synced: loaded.synced,
-                active: loaded.activeIndex(positionSec: position),
+        // No PlaybackPosition around it: a list built inside that closure kept the follow / recenter
+        // values of the render that made the closure, so a scroll never stopped following and
+        // Recenter never reached the list. It reads the playhead itself.
+        return ExpandedLyricsList(
+                lines: loaded.lines, times: times, translations: translations, loaded: loaded,
                 follow: lyricsFollow && !lyricsSelecting, recenterTick: lyricsRecenterTick,
                 selecting: lyricsSelecting, selected: lyricsSelected, limitNudge: lyricsLimitNudge > 0,
                 scheme: scheme,
@@ -977,7 +978,6 @@ struct NowPlayingView: View, Equatable {
                 },
                 onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) }
             )
-        }
     }
 
     private func lyricLineTapped(_ i: Int, times: [Int64], synced: Bool) {

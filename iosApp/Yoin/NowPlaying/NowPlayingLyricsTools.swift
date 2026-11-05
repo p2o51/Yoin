@@ -115,9 +115,7 @@ struct ExpandedLyricsList: View {
     var lines: [String]
     var times: [Int64]
     var translations: [String?]
-    var synced: Bool
-    /// -1 = before the first line, or unsynced.
-    var active: Int
+    var loaded: NowPlayingData.LoadedLyrics
     /// Follows the playhead (Android `autoScrollEnabled && !selecting`).
     var follow: Bool
     var recenterTick: Int
@@ -131,6 +129,22 @@ struct ExpandedLyricsList: View {
     /// Android LyricsRowInset: rows reach this far past the page edge.
     static let rowInset: CGFloat = 12
 
+    @Environment(AppModel.self) private var model
+
+    var synced: Bool { loaded.synced }
+    /// The playhead's line (-1 = before the first line, or unsynced), as PlaybackPosition reads it.
+    private var active: Int {
+        let sec = model.player.currentTrack != nil ? model.player.progress.positionSec : Double(model.mockPlayback.positionSec)
+        return loaded.activeIndex(positionSec: sec)
+    }
+
+    /// Where the list is right now (a box, so scrolling doesn't re-render the rows).
+    @State private var offset = OffsetBox()
+    final class OffsetBox { var y: CGFloat = 0 }
+    /// Scrolled through its binding: a ScrollViewReader scroll asked for after the user's own
+    /// scroll was dropped (the key greyed out, the list stayed put).
+    @State private var position = ScrollPosition(idType: Int.self)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if selecting {
@@ -143,7 +157,6 @@ struct ExpandedLyricsList: View {
                     .padding(.vertical, 8)
                     .transition(.opacity)
             }
-            ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(lines.indices, id: \.self) { i in
@@ -151,18 +164,24 @@ struct ExpandedLyricsList: View {
                         }
                         Color.clear.frame(height: 96)
                     }
+                    .scrollTargetLayout()
                     .padding(.top, 48)
                     .padding(.bottom, 48)
                 }
+                .scrollPosition($position)
+                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in offset.y = y }
+                // A quick flick can go from tracking straight to decelerating, never reporting
+                // .interacting: the list left the line while still "following", so Recenter
+                // stayed greyed out and could not bring it back.
                 .onScrollPhaseChange { _, phase in
-                    if phase == .interacting { onUserScroll() }
+                    if phase == .interacting || phase == .decelerating { onUserScroll() }
                 }
                 .mask(NowPlayingAboutView.fade(top: 16, bottom: 64))
-                .onAppear { seat(proxy, animated: false) }
-                .onChange(of: active) { seat(proxy, animated: true) }
-                .onChange(of: recenterTick) { seat(proxy, animated: true) }
-                .onChange(of: follow) { seat(proxy, animated: true) }
-            }
+                .onAppear { seat(animated: false) }
+                .onChange(of: active) { seat(animated: true) }
+                // Recenter (and a tapped line) also catches a list still coasting from a fling.
+                .onChange(of: recenterTick) { seat(animated: true, halt: true) }
+                .onChange(of: follow) { seat(animated: true, halt: true) }
         }
         .padding(.horizontal, -Self.rowInset)
         .animation(Yoin.effects, value: selecting)
@@ -170,13 +189,25 @@ struct ExpandedLyricsList: View {
     }
 
     /// The active row's centre in the middle of the window's clean band.
-    private func seat(_ proxy: ScrollViewProxy, animated: Bool) {
+    /// [halt]: a list still coasting from a fling kept its momentum and threw the animated
+    /// scroll away, so Recenter did nothing and, following again, stayed greyed out. Pinning
+    /// the offset where it is first stops the coast (Android: stopScroll, then animate).
+    private func seat(animated: Bool, halt: Bool = false) {
         guard follow, active >= 0, active < lines.count else { return }
         let anchor = UnitPoint(x: 0, y: 0.45)
-        if animated {
-            withAnimation(Yoin.spatial) { proxy.scrollTo(active, anchor: anchor) }
+        guard animated else {
+            position.scrollTo(id: active, anchor: anchor)
+            return
+        }
+        if halt {
+            position.scrollTo(y: offset.y)
+            let target = active
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(34))
+                withAnimation(Yoin.spatial) { position.scrollTo(id: target, anchor: anchor) }
+            }
         } else {
-            proxy.scrollTo(active, anchor: anchor)
+            withAnimation(Yoin.spatial) { position.scrollTo(id: active, anchor: anchor) }
         }
     }
 
