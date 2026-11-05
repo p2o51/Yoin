@@ -31,6 +31,8 @@ struct MemoriesView: View {
     @State private var pager = SpringRunner()
     @State private var layout = MemoriesLayouts.layout(width: 390, height: 844)
     @State private var size = CGSize(width: 390, height: 844)
+    /// A plain box: it changes every frame of q, and nothing draws from it.
+    @State private var surfaceTop = SurfaceTop()
     /// The open the deck was built for. A page pushed over Home (Go to album)
     /// hides Memories without closing it; coming back finds the same open,
     /// so the deck, its position, the diary and the drafts stay as they were.
@@ -80,9 +82,13 @@ struct MemoriesView: View {
             // height, system bars included: Memories always runs the window's
             // full height, and the safe area settles late while the page rides
             // in, so the height is read from the window, not the moving frame.
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
-                resize(CGSize(width: w, height: Self.windowHeight))
+            // Both dimensions are triggers: a height-only resize (an iPad window) must re-lay out too.
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { s in
+                resize(CGSize(width: s.width, height: Self.windowHeight))
             }
+            // Where this surface's top sits in the window: the pose moves it (q), and the bar band is
+            // judged in its own frame while the finger is measured in the window's (see pageGesture).
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { surfaceTop.y = $0 }
         }
         .ignoresSafeArea(.keyboard)
         .onAppear {
@@ -262,7 +268,9 @@ struct MemoriesView: View {
     /// The page's one drag: its first movement picks the axis; a vertical
     /// one goes to the router, which picks q or p. [zone] nil = by where it started.
     private func pageGesture(zone fixed: MemoriesDragZone?) -> AnyGesture<DragGesture.Value> {
-        AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop)
+        // The window's space, not this surface's: q moves it, so a finger measured in its own space
+        // read a motion that moved the surface that changed the motion (tracking and the release velocity).
+        AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop, coordinateSpace: .global)
             .onChanged { v in
                 let router = deck.router
                 if axis == nil {
@@ -273,7 +281,7 @@ struct MemoriesView: View {
                         beginPaging()
                     } else {
                         axis = .vertical
-                        let zone = fixed ?? (v.startLocation.y < layout.barHeight ? .bar : .card)
+                        let zone = fixed ?? (v.startLocation.y - surfaceTop.y < layout.barHeight ? .bar : .card)
                         route = router.begin(zone: zone, translationY: v.translation.height)
                     }
                 }
@@ -296,7 +304,7 @@ struct MemoriesView: View {
 
     /// Sideways over a scroll (the diary, the spread's right page): only a horizontal drag pages.
     private func horizontalPager() -> AnyGesture<DragGesture.Value> {
-        AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop)
+        AnyGesture(DragGesture(minimumDistance: MemoriesBackTokens.touchSlop, coordinateSpace: .global)
             .onChanged { v in
                 if pagerAxis == nil {
                     let a = MemoriesRouting.axis(dx: v.translation.width, dy: v.translation.height, slop: 0) ?? .vertical
@@ -457,4 +465,10 @@ private struct MemoriesAurora: View {
         }
         .allowsHitTesting(false)
     }
+}
+
+/// The surface's top edge in the window, written per frame without invalidating the view.
+@MainActor
+private final class SurfaceTop {
+    var y: CGFloat = 0
 }

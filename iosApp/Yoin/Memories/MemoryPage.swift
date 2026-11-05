@@ -430,7 +430,7 @@ struct MemoryPageView: View {
             // Not while q moves (an open or a retreat must not pay for it either).
             if diary.isShown || (current && warm && deck.presentation.isOpen) {
                 MemoryDiaryView(card: card, deck: deck, morph: morph, layout: layout, scheme: scheme, dark: dark,
-                                interactive: current && diary.isDiaryLevel, onOpenAlbum: onOpenAlbum,
+                                interactive: current && (diary.isDiaryLevel || diary.isPulling), onOpenAlbum: onOpenAlbum,
                                 onTitle: onTitle, onReview: onReview, onOpenNeoDBSettings: onOpenNeoDBSettings,
                                 horizontalPager: horizontalPager)
             }

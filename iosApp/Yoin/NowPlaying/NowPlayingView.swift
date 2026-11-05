@@ -2063,7 +2063,9 @@ struct NowPlayingView: View, Equatable {
     }
 
     private var dismissDrag: some Gesture {
-        DragGesture(minimumDistance: 12)
+        // The window's space: `dragY` moves the page this gesture is on, and a finger measured in the
+        // moving page's own space feeds its motion back into itself (tracking and release velocity).
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { v in
                 // 1:1 down, rubber-band up.
                 let t = v.translation.height

@@ -148,6 +148,8 @@ struct ExpandedLyricsList: View {
         var viewport: CGFloat = 0
         var contentHeight: CGFloat = 0
         var rows: [Int: CGRect] = [:]
+        /// The seat waiting out its frame: cancelled by the reader's scroll and by any newer seat.
+        var seating: Task<Void, Never>?
     }
     /// The window's top fade (the mask) and bottom fade (LyricsEdgeFade).
     static let fadeTop: CGFloat = 16
@@ -193,7 +195,11 @@ struct ExpandedLyricsList: View {
                 // .interacting: the list left the line while still "following", so Recenter
                 // stayed greyed out and could not bring it back.
                 .onScrollPhaseChange { _, phase in
-                    if phase == .interacting || phase == .decelerating { onUserScroll() }
+                    if phase == .interacting || phase == .decelerating {
+                        // The reader has the list: a seat still waiting doesn't pull it back (Codex M03).
+                        offset.seating?.cancel()
+                        onUserScroll()
+                    }
                 }
                 .mask(NowPlayingAboutView.fade(top: Self.fadeTop, bottom: Self.fadeBottom))
                 .onAppear { seat(animated: false) }
@@ -214,6 +220,8 @@ struct ExpandedLyricsList: View {
     /// scroll away, so Recenter did nothing and, following again, stayed greyed out. Pinning
     /// the offset where it is first stops the coast (Android: stopScroll, then animate).
     private func seat(animated: Bool, halt: Bool = false) {
+        offset.seating?.cancel()
+        offset.seating = nil
         guard follow, active >= 0, active < lines.count else { return }
         let target = active
         guard animated else {
@@ -221,9 +229,10 @@ struct ExpandedLyricsList: View {
             return
         }
         if halt { position.scrollTo(y: offset.y) }
-        Task { @MainActor in
+        offset.seating = Task { @MainActor in
             // A frame for the row to take its active style (its height is the seat's input).
             try? await Task.sleep(for: .milliseconds(34))
+            guard !Task.isCancelled else { return }
             withAnimation(Yoin.spatial) {
                 if let y = seatY(target) { position.scrollTo(y: y) } else { position.scrollTo(id: target, anchor: .center) }
             }

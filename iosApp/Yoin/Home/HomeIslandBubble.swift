@@ -110,11 +110,13 @@ struct IslandBubbleLayer<Line: View, Mark: View>: View {
 /// frame of the morph re-renders this offset only).
 struct IslandPush: ViewModifier {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var bubble: MemoryBubbleController
 
     func body(content: Content) -> some View {
         content
-            .offset(y: bubble.islandPush)
+            // Reduce Motion: the window only fades, Home stays where it is (Codex M04).
+            .offset(y: reduceMotion ? 0 : bubble.islandPush)
             // The grown window covers the status bar's corners: its clock and battery step aside
             // while it is out, as the system's own island activities do.
             .statusBarHidden(bubble.islandT > 0.02)

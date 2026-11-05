@@ -59,6 +59,9 @@ final class MemoriesDiary {
     /// Back steps the diary (diary → card) from here up; below it back goes to q.
     /// Stored, so a frame of p invalidates only its readers (it flips once per motion).
     private(set) var isDiaryLevel = false
+    /// A finger pull out of the diary's text is engaged. The diary stays interactive through it, so
+    /// dropping below p .5 doesn't disable its scroll (and cancel the very pull that is moving p).
+    private(set) var isPulling = false
     /// Any of the diary is on screen (or about to be): mounted only then.
     private(set) var isShown = false
     /// Reduce Motion: the morph fades instead of flying (the same p).
@@ -93,6 +96,7 @@ final class MemoriesDiary {
     /// Without motion (a closed deck rebuilding).
     func snap(to value: CGFloat) {
         stop()
+        isPulling = false
         fraction = min(max(value, minFraction), 1)
         target = fraction >= 0.5 ? 1 : 0
     }
@@ -103,6 +107,7 @@ final class MemoriesDiary {
     /// for this pull (the card's own pull-down passes 0: it never opens the diary).
     func startPull(banded: Bool, fromScrolled: Bool, ceiling: CGFloat = 1) {
         stop()
+        isPulling = banded
         self.banded = banded
         self.fromScrolled = banded && fromScrolled
         self.ceiling = max(min(max(ceiling, 0), 1), min(fraction, 1))
@@ -127,6 +132,7 @@ final class MemoriesDiary {
     /// Lets the pull go at [velocity] pt/s (positive = finger down). Returns the endpoint.
     @discardableResult
     func releasePull(velocity: CGFloat) -> CGFloat {
+        isPulling = false
         let open = -velocity
         let to = Self.releaseTarget(fraction: fraction, openVelocity: open, distance: distance, band: band,
                                     flick: MemoriesPresentation.flickBack, fromScrolled: fromScrolled)
@@ -140,7 +146,11 @@ final class MemoriesDiary {
         run(to: min(max(value, 0), 1), velocity: 0)
     }
 
+    /// The pull handed the finger back to the text (p reached 1).
+    func endPull() { isPulling = false }
+
     private func run(to: CGFloat, velocity: CGFloat) {
+        isPulling = false
         target = to
         guard fraction != to || velocity != 0 else { isSettling = false; return }
         isSettling = true
