@@ -11,6 +11,7 @@ import com.gpo.yoin.data.lyrics.LyricCreditsExtractor
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
+import com.gpo.yoin.data.model.ReplayGain
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -66,12 +67,30 @@ internal fun SubsonicSong.toTrack(): Track {
         addedAt = starred,
         audioFormat = subsonicAudioFormat(),
         discNumber = discNumber?.takeIf { it > 0 },
+        replayGain = replayGain?.let {
+            ReplayGain.of(
+                trackGainDb = it.trackGain,
+                albumGainDb = it.albumGain,
+                trackPeak = it.trackPeak,
+                albumPeak = it.albumPeak,
+                baseGainDb = it.baseGain,
+                fallbackGainDb = it.fallbackGain,
+            )
+        },
     )
 }
 
 /** What the server says about the file's encoding; null when it says nothing usable. */
 internal fun SubsonicSong.subsonicAudioFormat(): AudioFormat? {
     val depth = bitDepth?.takeIf { it > 0 }
+    // An MP4 the server can't read (Navidrome and E-AC-3) comes with the bit
+    // rate, depth, rate and channels all 0: that is no AAC, so say nothing
+    // and let the decoder name it once it plays.
+    if (AudioFormat.isMp4Suffix(suffix) &&
+        listOf(bitRate, bitDepth, samplingRate, channelCount).all { (it ?: 0) <= 0 }
+    ) {
+        return null
+    }
     val codec = AudioFormat.codecForSuffix(suffix, depth)
         ?: AudioFormat.codecForMime(contentType)
     val format = AudioFormat(
@@ -104,6 +123,7 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     releaseType = subsonicReleaseType(releaseTypes),
     // When the album came onto the server: Library's Recently added.
     libraryAddedAt = created,
+    version = version?.trim()?.takeIf(String::isNotEmpty),
 )
 
 /** OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins. */

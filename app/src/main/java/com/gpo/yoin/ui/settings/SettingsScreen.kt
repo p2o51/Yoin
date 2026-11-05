@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.player.ReplayGainPreference
 import com.gpo.yoin.player.StreamQualityPreference
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.Capability
@@ -442,14 +443,27 @@ fun SettingsContent(
                                     }
                                     val activeProvider = state.profileCards.firstOrNull { it.isActive }?.provider
                                     val activeFeatures = ServiceFeatureCatalog.forProvider(activeProvider?.key)
-                                    if (Capability.STREAM_QUALITY in activeFeatures.capabilities) {
+                                    val streamQuality = Capability.STREAM_QUALITY in activeFeatures.capabilities
+                                    val volumeLeveling = Capability.REPLAY_GAIN in activeFeatures.capabilities
+                                    if (streamQuality || volumeLeveling) {
                                         SettingsGroup(title = stringResource(R.string.settings_section_playback)) {
-                                            item(key = SettingsFeature.StreamQuality, paintsOwnSegment = listDetail) {
-                                                StreamQualityItem(
-                                                    listDetail = listDetail,
-                                                    selected = openFeature == SettingsFeature.StreamQuality,
-                                                    onOpenPage = { onOpenFeature(SettingsFeature.StreamQuality) },
-                                                )
+                                            if (streamQuality) {
+                                                item(key = SettingsFeature.StreamQuality, paintsOwnSegment = listDetail) {
+                                                    StreamQualityItem(
+                                                        listDetail = listDetail,
+                                                        selected = openFeature == SettingsFeature.StreamQuality,
+                                                        onOpenPage = { onOpenFeature(SettingsFeature.StreamQuality) },
+                                                    )
+                                                }
+                                            }
+                                            if (volumeLeveling) {
+                                                item(key = SettingsFeature.VolumeLeveling, paintsOwnSegment = listDetail) {
+                                                    VolumeLevelingItem(
+                                                        listDetail = listDetail,
+                                                        selected = openFeature == SettingsFeature.VolumeLeveling,
+                                                        onOpenPage = { onOpenFeature(SettingsFeature.VolumeLeveling) },
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1512,7 +1526,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, StreamQuality, Downloads, Tips, PlaylistBackups, Licenses }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1548,6 +1562,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
         SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)
+        SettingsFeature.VolumeLeveling -> stringResource(R.string.settings_volume_leveling_title)
         SettingsFeature.Downloads -> stringResource(R.string.settings_downloads_title)
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
@@ -1606,6 +1621,8 @@ internal fun SettingsFeatureScreen(
                         ScrollEdgePageContent()
                     } else if (feature == SettingsFeature.StreamQuality) {
                         StreamQualityPageContent()
+                    } else if (feature == SettingsFeature.VolumeLeveling) {
+                        VolumeLevelingPageContent()
                     } else if (feature == SettingsFeature.Downloads) {
                         DownloadsPageContent()
                     } else if (feature == SettingsFeature.Tips) {
@@ -1639,7 +1656,8 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.StreamQuality, SettingsFeature.Downloads,
+                                    SettingsFeature.ScrollEdge, SettingsFeature.StreamQuality, SettingsFeature.VolumeLeveling,
+                                    SettingsFeature.Downloads,
                                     SettingsFeature.Tips,
                                     SettingsFeature.PlaylistBackups, SettingsFeature.Licenses,
                                     -> Unit
@@ -1693,6 +1711,23 @@ private fun StreamQualityItem(
         FeaturePageRow(icon = YoinSymbols.Equalizer, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.Equalizer, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Playback › Volume leveling: which ReplayGain a Subsonic song plays at. */
+@Composable
+private fun VolumeLevelingItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_volume_leveling_title)
+    val settings by ReplayGainPreference.observe(LocalContext.current).collectAsState()
+    val summary = replayGainModeLabel(settings.mode)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.VolumeUp, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.VolumeUp, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 

@@ -149,11 +149,20 @@ class StreamQualityTest {
 
     @Test
     fun should_rewriteToTranscode_when_onMobileData() {
-        val resolver = SubsonicStreamResolver({ settings }, { false }, { navidrome })
+        val resolver = SubsonicStreamResolver({ settings }, { false }, { navidrome }, { 1_000 })
         val url = resolver.resolveDataSpec(spec("s1")).uri.toString().toHttpUrl()
         assertEquals("192", url.queryParameter("maxBitRate"))
         assertEquals("mp3", url.queryParameter("format"))
         assertEquals("true", url.queryParameter("estimateContentLength"))
+    }
+
+    @Test
+    fun should_notAskForEstimatedLength_when_serverListsNoBitRate() {
+        // Navidrome estimates from the listed bit rate; for an MP4 it can't read it lists 0.
+        val resolver = SubsonicStreamResolver({ settings }, { false }, { navidrome }, { null })
+        val url = resolver.resolveDataSpec(spec("s1")).uri.toString().toHttpUrl()
+        assertEquals("192", url.queryParameter("maxBitRate"))
+        assertNull(url.queryParameter("estimateContentLength"))
     }
 
     @Test

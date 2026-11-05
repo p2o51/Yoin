@@ -20,6 +20,8 @@ data class Track(
     val audioFormat: AudioFormat? = null,
     /** Which disc of a multi-disc release the song is on, 1-based; null when the service doesn't say. */
     val discNumber: Int? = null,
+    /** The song's ReplayGain as the service reports it; null where it doesn't (every service but Subsonic). */
+    val replayGain: ReplayGain? = null,
 ) {
     companion object {
         /**

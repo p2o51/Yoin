@@ -108,6 +108,13 @@ enum class Capability {
     STREAM_QUALITY,
 
     /**
+     * The local player decodes the service's files itself and the server
+     * reports their ReplayGain (OpenSubsonic `replayGain`), so Settings offers
+     * Volume leveling. Spotify and Apple Music level the volume themselves.
+     */
+    REPLAY_GAIN,
+
+    /**
      * The player streams the service's files itself, so they can be kept on
      * the device (Subsonic): an album, a playlist or a song offers Download,
      * and Settings offers Downloads. Spotify and Apple Music don't allow it.

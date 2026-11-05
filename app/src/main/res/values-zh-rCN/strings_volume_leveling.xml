@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_volume_leveling_title">音量平衡</string>
+    <string name="settings_volume_leveling_off">关</string>
+    <string name="settings_volume_leveling_track">按曲目</string>
+    <string name="settings_volume_leveling_album">按专辑</string>
+</resources>

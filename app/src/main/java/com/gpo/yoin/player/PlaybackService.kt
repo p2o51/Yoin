@@ -110,6 +110,16 @@ class PlaybackService : MediaSessionService() {
                 )
             },
         )
+        // Volume leveling, per song at the sample where it begins (ReplayGainAudioProcessor.kt).
+        // A download whose page the cache no longer has still carries its gain.
+        val replayGain = ReplayGainAudioProcessor(
+            settings = { ReplayGainPreference.current(this) },
+            gainFor = { item ->
+                item.mediaMetadata.extras?.getBundle(EXTRA_REPLAY_GAIN)?.toReplayGain()
+                    ?: offlineDownloads.library.value.replayGainOf(item.mediaId)
+            },
+        )
+
         // A transcoded mp3 is constant bit rate with no seek table of its own.
         val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
@@ -119,6 +129,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val player = ExoPlayer.Builder(this)
+            .setRenderersFactory(replayGainRenderersFactory(this, replayGain))
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractors))
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
@@ -128,6 +139,7 @@ class PlaybackService : MediaSessionService() {
         // applies the user's current mode whenever Yoin starts a queue.
         player.repeatMode = Player.REPEAT_MODE_ALL
         player.addListener(StreamFormatListener(player, resolver))
+        player.addAnalyticsListener(AudioOutputLog)
 
         setMediaNotificationProvider(yoinNotificationProvider())
         val actions = SessionQuickActions(this, { container.playbackManager }, { container.repository })

@@ -23,7 +23,30 @@ data class Album(
      * Home's Recently Added reads. Null where the provider gives no date.
      */
     val libraryAddedAt: String? = null,
-)
+    /**
+     * Which version of the release this is, as the service names it
+     * (OpenSubsonic `version`, from the files' ALBUMVERSION tag: "Deluxe",
+     * "全景声"). Library data, shown as it comes, never translated. Null when
+     * the service doesn't say.
+     */
+    val version: String? = null,
+) {
+    /**
+     * [name] without the " (version)" a server appends to it (Navidrome's
+     * Subsonic.AppendAlbumVersion, on by default), for where [version] is shown
+     * beside it as a tag; [name] itself where it doesn't end that way.
+     */
+    val nameWithoutVersion: String
+        get() = albumNameWithoutVersion(name, version)
+}
+
+/** [name] without a trailing " ([version])"; [name] unchanged unless it ends exactly so. */
+fun albumNameWithoutVersion(name: String, version: String?): String {
+    val v = version?.trim()?.takeIf(String::isNotEmpty) ?: return name
+    val suffix = " ($v)"
+    if (!name.endsWith(suffix)) return name
+    return name.removeSuffix(suffix).trimEnd().ifEmpty { name }
+}
 
 /**
  * Release kinds a provider can report (Spotify `album_type`, OpenSubsonic

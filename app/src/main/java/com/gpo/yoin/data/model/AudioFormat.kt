@@ -6,7 +6,8 @@ package com.gpo.yoin.data.model
  * the bit rate, OpenSubsonic adds depth, rate and channels. Only Subsonic
  * fills it on a [Track]; Spotify and Apple Music never say.
  *
- * [codec] is a lower-case name ("flac", "mp3", "opus", "aac", "alac").
+ * [codec] is a lower-case name ("flac", "mp3", "opus", "aac", "alac",
+ * "eac3-joc" for Dolby Atmos in E-AC-3).
  */
 data class AudioFormat(
     val codec: String?,
@@ -17,7 +18,16 @@ data class AudioFormat(
 ) {
     val isLossless: Boolean get() = codec in LosslessCodecs
 
+    /**
+     * E-AC-3 with joint object coding: Dolby Atmos. Its channel count is the
+     * base layer's (or whatever the decoder renders to), not the content's
+     * layout, so it gets no channel tag.
+     */
+    val isDolbyAtmos: Boolean get() = codec == CODEC_EAC3_JOC
+
     companion object {
+        const val CODEC_EAC3_JOC = "eac3-joc"
+
         private val LosslessCodecs = setOf("flac", "alac", "wav", "aiff", "ape", "wavpack", "dsd")
 
         /**
@@ -44,6 +54,11 @@ data class AudioFormat(
                 else -> suffix.trim().lowercase()
             }
 
+        /** Whether [suffix] is an MP4 container, which can hold AAC, ALAC or E-AC-3 alike. */
+        fun isMp4Suffix(suffix: String?): Boolean = suffix?.trim()?.lowercase() in Mp4Suffixes
+
+        private val Mp4Suffixes = setOf("m4a", "mp4", "m4b")
+
         /** The codec a decoder's MIME type names, e.g. "audio/flac" → "flac". */
         fun codecForMime(mime: String?): String? = when (mime?.lowercase()) {
             null, "" -> null
@@ -56,6 +71,9 @@ data class AudioFormat(
             "audio/raw", "audio/wav" -> "wav"
             "audio/ac3" -> "ac3"
             "audio/eac3" -> "eac3"
+            "audio/eac3-joc" -> CODEC_EAC3_JOC
+            // AC-4 may carry Atmos too, but the MIME type doesn't say: plain AC-4.
+            "audio/ac4" -> "ac4"
             else -> null
         }
     }

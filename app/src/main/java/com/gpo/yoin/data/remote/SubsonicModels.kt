@@ -95,6 +95,8 @@ data class Album(
     val song: List<Song> = emptyList(),
     /** OpenSubsonic (Navidrome ≥0.53): e.g. ["Album"], ["EP"], ["Single"], ["Compilation"]. */
     val releaseTypes: List<String> = emptyList(),
+    /** OpenSubsonic: the release's version (ALBUMVERSION), e.g. "Deluxe"; absent on older servers. */
+    val version: String? = null,
 )
 
 @Serializable
@@ -137,6 +139,18 @@ data class Song(
     /** When the file was added to the library (ISO-8601). */
     val created: String? = null,
     val displayComposer: String? = null,
+    val replayGain: SubsonicReplayGain? = null,
+)
+
+/** OpenSubsonic `ReplayGain`: gains in dB, peaks linear; every field optional. */
+@Serializable
+data class SubsonicReplayGain(
+    val trackGain: Float? = null,
+    val albumGain: Float? = null,
+    val trackPeak: Float? = null,
+    val albumPeak: Float? = null,
+    val baseGain: Float? = null,
+    val fallbackGain: Float? = null,
 )
 
 @Serializable

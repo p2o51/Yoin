@@ -78,7 +78,10 @@ data class StreamDelivery(val maxBitRateKbps: Int?, val format: String?) {
  *
  * A transcode has no length of its own, so it asks for an estimated one
  * (Navidrome's `estimateContentLength`), which gives it a duration and lets
- * the extractor seek. An mp3 transcode is constant bit rate, so a byte
+ * the extractor seek. Only for a file the server lists a bit rate for:
+ * Navidrome estimates from it, and for a file it couldn't read (E-AC-3 in
+ * MP4 lists 0) it declares too short a length and the stream fails ("wrote
+ * more than the declared Content-Length"). Such a transcode plays unseekable. An mp3 transcode is constant bit rate, so a byte
  * position is a time: a reopen past the start asks the server to start the
  * transcode there (`timeOffset`, where the server has `transcodeOffset`)
  * instead of transcoding from the start and throwing the bytes away.
@@ -133,7 +136,7 @@ internal class SubsonicStreamResolver(
             maxBitRateKbps = delivery.maxBitRateKbps,
             format = delivery.format,
             timeOffsetSeconds = offset,
-            estimateContentLength = true,
+            estimateContentLength = sourceKbps != null && sourceKbps > 0,
         )
         return if (offset > 0) {
             // The server starts there; the bytes stand in for the ones at
