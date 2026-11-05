@@ -270,7 +270,7 @@ struct DiaryScrollObserver: UIViewRepresentable {
 
         @objc private func pan(_ g: UIPanGestureRecognizer) {
             guard let sv = scrollView, let router, active else { return }
-            let ty = g.translation(in: sv.superview).y
+            let ty = g.translation(in: nil).y
             let diary = router.diary
             switch g.state {
             case .began:
@@ -310,7 +310,7 @@ struct DiaryScrollObserver: UIViewRepresentable {
                 }
             case .ended, .cancelled, .failed:
                 router.lift()
-                let v = g.state == .ended ? g.velocity(in: sv.superview).y : 0
+                let v = g.state == .ended ? g.velocity(in: nil).y : 0
                 switch mode {
                 case .pull:
                     sv.contentOffset.y = top(sv)
