@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// The floating glass Button Group: [Home][Now Playing pill][Library]; with a detail column open in a
-/// wide window it becomes [Home][Library][pill][Play ▾][Shuffle].
+/// wide window it becomes [Home][Library][pill][Play ▾][Shuffle]. With the Now Playing panel open the
+/// pill folds away (the panel is the song) and the bar wraps what's left.
 struct MacBottomBar: View {
     var wide: Bool
+    var showsPill: Bool
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
 
@@ -11,14 +13,15 @@ struct MacBottomBar: View {
         GlassEffectContainer {
             HStack(spacing: 6) {
                 tabButton(.home, label: "Home", icon: "home")
-                if wide { tabButton(.library, label: "Library", icon: "library") }
-                NowPlayingPill()
+                if wide || !showsPill { tabButton(.library, label: "Library", icon: "library") }
+                if showsPill { NowPlayingPill().transition(.scale(scale: 0.6).combined(with: .opacity)) }
                 if wide {
                     detailPlay
-                } else {
+                } else if showsPill {
                     tabButton(.library, label: "Library", icon: "library")
                 }
             }
+            .animation(Yoin.spatial, value: showsPill)
             .padding(8)
             .frame(height: 60)
             .glassEffect(.regular, in: .capsule)

@@ -36,12 +36,14 @@ struct MacShell: View {
                 edgeFades(width: contentW, height: geo.size.height)
                 if model.npMode != .full {
                     let wide = model.detailAsColumn
-                    MacBottomBar(wide: wide)
-                        .frame(width: min(wide ? 720 : 560, contentW - 48))
+                    let pill = model.npMode != .panel
+                    MacBottomBar(wide: wide, showsPill: pill)
+                        .frame(width: pill ? min(wide ? 720 : 560, contentW - 48) : nil)
+                        .fixedSize(horizontal: !pill, vertical: false)
                         .frame(width: contentW, height: geo.size.height, alignment: .bottom)
                         .padding(.bottom, 22)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                    searchButton
+                    searchButton(room: contentW - Self.trafficLightsWidth - 14)
                         .frame(width: contentW, alignment: .trailing)
                         .padding(.top, 10)
                         .offset(x: -14)
@@ -109,21 +111,30 @@ struct MacShell: View {
         .allowsHitTesting(false)
     }
 
-    private var searchButton: some View {
-        Button { withAnimation(Yoin.effects) { model.searchOpen = true } } label: {
+    /// The traffic lights and the gap after them: nothing in the shell's top bar may sit there.
+    static let trafficLightsWidth: CGFloat = 78
+
+    /// The search field, 200 wide when there's room right of the traffic lights; narrower it shrinks, and
+    /// below 120 it's a round icon button.
+    private func searchButton(room: CGFloat) -> some View {
+        let compact = room < 120
+        return Button { withAnimation(Yoin.effects) { model.searchOpen = true } } label: {
             HStack(spacing: 8) {
                 YoinIcon("search", size: 16)
-                Text("Search").font(.gsf(13))
-                Spacer(minLength: 0)
-                Text("⌘K").font(.gsf(11)).foregroundStyle(Yoin.ink3)
+                if !compact {
+                    Text("Search").font(.gsf(13)).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text("⌘K").font(.gsf(11)).foregroundStyle(Yoin.ink3)
+                }
             }
             .foregroundStyle(Yoin.inkVariant)
-            .padding(.leading, 12).padding(.trailing, 14)
-            .frame(width: 200, height: 34)
+            .padding(.leading, compact ? 0 : 12).padding(.trailing, compact ? 0 : 14)
+            .frame(width: compact ? 34 : min(200, room), height: 34)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .capsule)
+        .help("Search (⌘K)")
     }
 }
 
