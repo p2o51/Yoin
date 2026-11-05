@@ -1504,7 +1504,13 @@ private fun CompactPlayingContent(
             animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
             label = "npFocusIdle",
         )
-        val focusIdleShown = (focusIdleProgress * (1f - detailProgress)).coerceIn(0f, 1f)
+        // Capped by the focus itself: leaving focus at ease, the stacked hero,
+        // the lift and the run-on unwind on the focus's own clock, as one move
+        // with the cover and the transport, instead of trailing it on their
+        // slower idle clock (the Fold outer screen's two-row title read as a
+        // jump on the way out, owner 2026-11-05).
+        val focusIdleShown =
+            (minOf(focusIdleProgress, immersiveProgress) * (1f - detailProgress)).coerceIn(0f, 1f)
         val focusLyricInset = budget.focusLyricInset * compactFocusProgress
         // At ease a one-row hero stacks: the artist lifts over the title into
         // the transport's room, the progress bar moving up with it (owner
