@@ -7,6 +7,7 @@ import com.gpo.yoin.shared.sync.RemoteFile
 import com.gpo.yoin.shared.sync.SyncEnvelope
 import com.gpo.yoin.shared.sync.SyncFileProps
 import com.gpo.yoin.shared.sync.SyncKinds
+import com.gpo.yoin.shared.sync.SyncSettingKeys
 import com.gpo.yoin.shared.sync.WireRecord
 import com.gpo.yoin.shared.sync.adapters.AlbumRatingRow
 import com.gpo.yoin.shared.sync.adapters.AlbumTitleRow
@@ -139,9 +140,13 @@ class AndroidGoldenCompatTest {
             records(gunzipBytes(file.bytes).decodeToString())
         }
 
-        // Android also writes kinds iOS has no adapter for (here: a setting); every other record is identical.
+        // Android also writes kinds and settings iOS has no adapter for (here: seam_top_style, a setting iOS
+        // doesn't have); every other record is identical.
         val supported = SharedSyncAdapters.create(domain, store).map { it.kind }.toSet()
-        val expected = androidRecords().filter { it.str("k") in supported }
+        val expected = androidRecords().filter {
+            it.str("k") in supported &&
+                (it.str("k") != SyncKinds.SETTING || it.str("id") == SyncSettingKeys.TRANSLATION_LANGUAGE)
+        }
         assertTrue(expected.size >= 15, "golden has ${expected.size} comparable records")
         assertEquals(expected.map { it.toString() }.sorted(), ours.map { it.toString() }.sorted())
     }

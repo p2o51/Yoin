@@ -123,10 +123,10 @@ class AccountDescriptorSyncAdapter(
 }
 
 /**
- * The kinds this platform applies. Android's allowlist also has home_layout,
- * setting, lyrics_translation and playlist_backup; a device without an adapter
- * for a kind keeps those records opaquely and republishes them unchanged
- * (SyncEngine.mergeRecord / outgoingFiles), so nothing is lost on the way.
+ * The kinds this platform applies. Android's allowlist also has home_layout and playlist_backup (and setting
+ * keys iOS has no such setting for: spotify_client_id, seam_top_style); a device without an adapter for a
+ * kind or key keeps those records opaquely and republishes them unchanged (SyncEngine.mergeRecord /
+ * outgoingFiles), so nothing is lost on the way.
  */
 object SharedSyncAdapters {
     fun create(domain: SyncDomain, syncDb: SyncStore): List<SyncAdapter> = listOf(
@@ -134,6 +134,10 @@ object SharedSyncAdapters {
         TrackRatingSyncAdapter(domain),
         AlbumRatingSyncAdapter(domain),
         AlbumReviewSyncAdapter(domain),
+        SettingsSyncAdapter(domain) { key ->
+            syncDb.getLocalState(SyncKinds.SETTING, SyncFormat.GLOBAL_SCOPE, key)?.localHash != null
+        },
+        LyricsTranslationSyncAdapter(domain),
         MemoryCopySyncAdapter(domain),
         MemoryTitleSyncAdapter(domain),
         AlbumTitleSyncAdapter(domain),

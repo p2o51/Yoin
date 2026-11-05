@@ -152,8 +152,9 @@ final class LyricsActions {
     private func translateWithGemini(_ t: PlayableTrack, rows: [Int], source: [String], language: String,
                                      settings: GeminiSettings) {
         let k = NowPlayingData.key(t)
-        if let cached = LyricsUserStore.shared.translations(k, language: language, lines: source),
-           cached.count == source.count {
+        if let cached = LyricsUserStore.shared.geminiTranslations(provider: t.provider, rawId: t.id, title: t.title,
+                                                                  artist: t.artist, language: language,
+                                                                  model: GeminiClient.model, lines: source) {
             apply(cached.enumerated().reduce(into: [:]) { $0[$1.offset] = $1.element }, rows: rows, key: k)
             return
         }
@@ -167,8 +168,10 @@ final class LyricsActions {
                 let result = try await client.translateLyricLines(
                     apiKey: apiKey, title: t.title.isEmpty ? "Unknown song" : t.title,
                     artist: t.artist.isEmpty ? "Unknown artist" : t.artist, lines: source, targetLanguage: language)
-                LyricsUserStore.shared.saveTranslations(source.indices.map { result[$0] ?? "" }, key: k,
-                                                        language: language, lines: source)
+                LyricsUserStore.shared.saveGeminiTranslations(source.indices.map { result[$0] ?? "" },
+                                                              provider: t.provider, rawId: t.id, title: t.title,
+                                                              artist: t.artist, language: language,
+                                                              model: GeminiClient.model, lines: source)
                 apply(result, rows: rows, key: k)
                 toast("Lyrics translated")
             } catch is CancellationError {

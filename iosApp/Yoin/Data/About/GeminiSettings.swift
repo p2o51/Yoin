@@ -56,10 +56,25 @@ final class GeminiSettings {
         return true
     }
 
+    /// The user changed the language on this device, for cloud sync (`translation_language`); sync's own
+    /// writes (`syncSetLanguage`) don't call it.
+    @ObservationIgnored static var onLocalChange: (@MainActor () -> Void)?
+
     func saveLanguage(_ language: String) {
         let l = Self.normalizeLanguage(language)
+        let changed = l != targetLanguage
         defaults.set(l, forKey: Self.languageDefaultsKey)
         targetLanguage = l
+        if changed { Self.onLocalChange?() }
+    }
+
+    /// Sync's `translation_language` from another device (the shared adapter vetted it: a supported
+    /// language, no About / Ask rows here). Only the language; the key is never touched.
+    func syncSetLanguage(_ language: String) -> Bool {
+        guard Self.languages.contains(language) else { return false }
+        defaults.set(language, forKey: Self.languageDefaultsKey)
+        targetLanguage = language
+        return true
     }
 }
 

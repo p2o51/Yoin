@@ -2,6 +2,8 @@ package com.gpo.yoin.shared.sync.testing
 
 import com.gpo.yoin.shared.sync.adapters.AlbumRatingRow
 import com.gpo.yoin.shared.sync.adapters.AlbumTitleRow
+import com.gpo.yoin.shared.sync.adapters.LyricsCacheRow
+import com.gpo.yoin.shared.sync.adapters.LyricsTranslationRow
 import com.gpo.yoin.shared.sync.adapters.MemoryCopyRow
 import com.gpo.yoin.shared.sync.adapters.SongAboutRow
 import com.gpo.yoin.shared.sync.adapters.SongNoteRow
@@ -20,6 +22,8 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     val albumTitles = LinkedHashMap<Triple<String, String, String>, AlbumTitleRow>()
     val memories = LinkedHashMap<List<String>, MemoryCopyRow>()
     val abouts = LinkedHashMap<List<String>, SongAboutRow>()
+    val translations = LinkedHashMap<List<String>, LyricsTranslationRow>()
+    val lyrics = LinkedHashMap<Pair<String, String>, LyricsCacheRow>()
 
     override fun profiles() = profileList.toList()
 
@@ -111,6 +115,52 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     override fun putSongAbout(row: SongAboutRow): Boolean {
         if (failWrites) return false
         abouts[listOf(row.titleKey, row.artistKey, row.albumKey, row.kind, row.entryKey)] = row
+        return true
+    }
+
+    override fun songAboutEntryCount() = abouts.size
+
+    override fun putTranslationLanguage(language: String): Boolean {
+        if (failWrites) return false
+        this.language = language
+        return true
+    }
+
+    private fun LyricsTranslationRow.id() = listOf(trackProvider, trackRawId, sourceHash, targetLanguage, model)
+
+    override fun paidLyricsTranslations() = translations.values.filterNot { it.model.startsWith("provider:") }
+
+    override fun lyricsTranslation(
+        trackProvider: String,
+        trackRawId: String,
+        sourceHash: String,
+        targetLanguage: String,
+        model: String,
+    ) = translations[listOf(trackProvider, trackRawId, sourceHash, targetLanguage, model)]
+
+    override fun insertLyricsTranslationIfAbsent(row: LyricsTranslationRow): Boolean {
+        if (failWrites) return false
+        translations.getOrPut(row.id()) { row }
+        return true
+    }
+
+    override fun deleteLyricsTranslation(
+        trackProvider: String,
+        trackRawId: String,
+        sourceHash: String,
+        targetLanguage: String,
+        model: String,
+    ): Boolean {
+        if (failWrites) return false
+        translations.remove(listOf(trackProvider, trackRawId, sourceHash, targetLanguage, model))
+        return true
+    }
+
+    override fun lyricsCache(trackProvider: String, trackRawId: String) = lyrics[trackProvider to trackRawId]
+
+    override fun writeLyricsCache(row: LyricsCacheRow): Boolean {
+        if (failWrites) return false
+        lyrics[row.trackProvider to row.trackRawId] = row
         return true
     }
 }

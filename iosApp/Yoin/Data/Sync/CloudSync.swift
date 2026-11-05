@@ -90,6 +90,9 @@ final class CloudSync {
         // Gemini's About / Ask answers are synced too (Android observes song_about_entries); sync's own
         // writes don't call this, so applying never re-triggers a capture.
         SongAboutStore.onLocalChange = { CloudSync.shared.localChanged() }
+        // Gemini lyric translations and the answer language (Android lyrics_translation / setting).
+        LyricsUserStore.onLocalChange = { CloudSync.shared.localChanged() }
+        GeminiSettings.onLocalChange = { CloudSync.shared.localChanged() }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                             queue: .main) { _ in

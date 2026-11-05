@@ -94,6 +94,34 @@ data class SongAboutRow(
     val updatedAt: Long,
 )
 
+/**
+ * `lyrics_translation_cache`: one translation of a track's lyrics (Android LyricsTranslationCache).
+ * [translationsJson] is kept as the exact text it was written or received as.
+ */
+data class LyricsTranslationRow(
+    val trackProvider: String,
+    val trackRawId: String,
+    val sourceHash: String,
+    val targetLanguage: String,
+    val model: String,
+    val translationsJson: String,
+    val cachedAt: Long,
+)
+
+/**
+ * `lyrics_cache`: the lyrics a track loads (Android LyricsCache). [lyricsProvider] "manual" = typed by the
+ * user; a [lyricsProviderSongId] starting "user|" = a provider's lyrics the user chose (LyricsCachePolicy).
+ * [cachedAt] is when an automatic row was fetched.
+ */
+data class LyricsCacheRow(
+    val trackProvider: String,
+    val trackRawId: String,
+    val lyricsProvider: String,
+    val lyricsProviderSongId: String?,
+    val lrc: String,
+    val cachedAt: Long,
+)
+
 interface SyncDomain {
     /** Every local music account. */
     fun profiles(): List<SyncProfile>
@@ -145,6 +173,43 @@ interface SyncDomain {
     fun songAbout(titleKey: String, artistKey: String, albumKey: String, kind: String, entryKey: String): SongAboutRow?
 
     fun putSongAbout(row: SongAboutRow): Boolean
+
+    /** Every About / Ask row on this device, any language (Android `songAboutEntryCount`). */
+    fun songAboutEntryCount(): Int
+
+    /**
+     * Sets the Gemini answer language (Android `gemini_config.targetLanguage`; the API key is never touched).
+     * [aboutLanguage] reads it back.
+     */
+    fun putTranslationLanguage(language: String): Boolean
+
+    /** Every Gemini (paid) translation: rows whose model doesn't start "provider:" (Android `paidTranslations`). */
+    fun paidLyricsTranslations(): List<LyricsTranslationRow>
+
+    fun lyricsTranslation(
+        trackProvider: String,
+        trackRawId: String,
+        sourceHash: String,
+        targetLanguage: String,
+        model: String,
+    ): LyricsTranslationRow?
+
+    /** Adds [row] unless one with its key exists (Android `insertTranslationIfAbsent`). */
+    fun insertLyricsTranslationIfAbsent(row: LyricsTranslationRow): Boolean
+
+    fun deleteLyricsTranslation(
+        trackProvider: String,
+        trackRawId: String,
+        sourceHash: String,
+        targetLanguage: String,
+        model: String,
+    ): Boolean
+
+    /** The lyrics the track loads from this device's cache, or null (Android `lyrics_cache`). */
+    fun lyricsCache(trackProvider: String, trackRawId: String): LyricsCacheRow?
+
+    /** Replaces the track's cached lyrics with [row] (Android `writeLyricsCache`). */
+    fun writeLyricsCache(row: LyricsCacheRow): Boolean
 }
 
 /** A [SyncDomain] write that did not reach storage; the record stays unapplied and is retried. */

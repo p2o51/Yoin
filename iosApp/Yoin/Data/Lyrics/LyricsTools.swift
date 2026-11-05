@@ -91,17 +91,41 @@ struct LyricsSource: Codable, Equatable, Hashable, Sendable {
 
 /// Lyrics the user chose (search result or the editor) win over the server's
 /// on every later load (Android `userChosen` lyrics_cache rows), and Gemini
-/// translations are kept per song, language and source text (Android
-/// `lyrics_translation_cache`). A provider's own hit is kept 30 days.
+/// translations are kept as Android's `lyrics_translation_cache` rows (same
+/// identity, so cloud sync carries them both ways). A provider's own hit is
+/// kept 30 days.
 @MainActor
 final class LyricsUserStore {
     static let shared = LyricsUserStore(fileURL: LyricsUserStore.defaultURL)
 
+    /// A change made on this device (a new translation), for cloud sync; sync's own writes don't call it.
+    static var onLocalChange: (@MainActor () -> Void)?
+
+    /// One Android `lyrics_translation_cache` row. `translationsJson` is kept as the exact text it was
+    /// written or received as (sync hashes it).
+    struct TranslationRow: Codable, Equatable {
+        var trackProvider: String
+        var trackRawId: String
+        /// `LyricsTranslationIdentity.sourceHash` of title, artist and the source lines.
+        var sourceHash: String
+        var targetLanguage: String
+        /// Gemini's model name (Android `GeminiService.MODEL`), or "provider:<name>" for a provider's own.
+        var model: String
+        var translationsJson: String
+        /// Epoch ms.
+        var cachedAt: Int64
+
+        var key: String { LyricsUserStore.rowKey(trackProvider, trackRawId, sourceHash, targetLanguage, model) }
+    }
+
     struct Snapshot: Codable, Equatable {
         /// Track key → raw LRC.
         var chosen: [String: String] = [:]
-        /// "trackKey|language|hash" → one translation per source line ("" = none).
+        /// Before Android's identity (read only, moved to `rows` when next used):
+        /// "trackKey|language|fnvHash" → one translation per source line ("" = none).
         var translations: [String: [String]] = [:]
+        /// Android `lyrics_translation_cache`, by `TranslationRow.key`.
+        var rows: [String: TranslationRow]? = nil
         /// Track key → where the chosen lyrics came from (nil for the editor's).
         var chosenSource: [String: LyricsSource]? = nil
         /// Lyrics a provider found on its own (Android's lyrics cache, not user-chosen):
@@ -159,6 +183,7 @@ final class LyricsUserStore {
         persist()
     }
 
+    /// The pre-Android cache's translations (kept readable; `geminiTranslations` moves them over).
     func translations(_ key: String, language: String, lines: [String]) -> [String]? {
         snapshot.translations[Self.translationKey(key, language: language, lines: lines)]
     }
@@ -167,6 +192,141 @@ final class LyricsUserStore {
         snapshot.translations[Self.translationKey(key, language: language, lines: lines)] = t
         persist()
     }
+
+    // MARK: Android lyrics_translation_cache
+
+    /// Android's composite key (U+001F between the five fields).
+    nonisolated static func rowKey(_ parts: String...) -> String { parts.joined(separator: "\u{1F}") }
+
+    func translation(trackProvider: String, trackRawId: String, sourceHash: String, targetLanguage: String,
+                     model: String) -> TranslationRow? {
+        snapshot.rows?[Self.rowKey(trackProvider, trackRawId, sourceHash, targetLanguage, model)]
+    }
+
+    /// Gemini's rows (Android `paidTranslations`: model not "provider:…").
+    var paidTranslations: [TranslationRow] {
+        (snapshot.rows ?? [:]).values.filter { !LyricsTranslationIdentity.shared.isProviderModel(model: $0.model) }
+    }
+
+    /// Android `translateLyrics`' cache read for Gemini: the row for this song's exact source lines,
+    /// language and model, its list as long as the lines (Android `toTranslations`). A translation from
+    /// the pre-Android cache moves to its Android row here, the first time its lines are seen again
+    /// (the old key can't be turned into Android's: it kept only a hash of the lines).
+    func geminiTranslations(provider: String, rawId: String, title: String, artist: String, language: String,
+                            model: String, lines: [String], now: Date = .now) -> [String]? {
+        let hash = LyricsTranslationIdentity.shared.geminiSourceHash(title: title, artist: artist, lines: lines)
+        if let row = translation(trackProvider: provider, trackRawId: rawId, sourceHash: hash,
+                                 targetLanguage: language, model: model) {
+            return LyricsTranslationIdentity.shared.decodeTranslations(translationsJson: row.translationsJson)
+                .flatMap { $0.count == lines.count ? $0 : nil }
+        }
+        let legacyKey = Self.translationKey(LocalRatings.key(provider: provider, songId: rawId), language: language,
+                                            lines: lines)
+        guard let legacy = snapshot.translations[legacyKey], legacy.count == lines.count else { return nil }
+        let row = TranslationRow(trackProvider: provider, trackRawId: rawId, sourceHash: hash,
+                                 targetLanguage: language, model: model,
+                                 translationsJson: LyricsTranslationIdentity.shared.encodeTranslations(translations: legacy),
+                                 cachedAt: Self.ms(now))
+        var rows = snapshot.rows ?? [:]
+        rows[row.key] = row
+        snapshot.rows = rows
+        snapshot.translations[legacyKey] = nil
+        persist()
+        Self.onLocalChange?()
+        return legacy
+    }
+
+    /// Android `translateLyrics`' upsert after Gemini answered: one entry per source line ("" = none).
+    func saveGeminiTranslations(_ t: [String], provider: String, rawId: String, title: String, artist: String,
+                                language: String, model: String, lines: [String], now: Date = .now) {
+        let row = TranslationRow(
+            trackProvider: provider, trackRawId: rawId,
+            sourceHash: LyricsTranslationIdentity.shared.geminiSourceHash(title: title, artist: artist, lines: lines),
+            targetLanguage: language, model: model,
+            translationsJson: LyricsTranslationIdentity.shared.encodeTranslations(translations: t),
+            cachedAt: Self.ms(now))
+        var rows = snapshot.rows ?? [:]
+        rows[row.key] = row
+        snapshot.rows = rows
+        persist()
+        Self.onLocalChange?()
+    }
+
+    /// Sync: adds a row from another device unless one with its key is here. On disk before memory.
+    func syncInsertIfAbsent(_ row: TranslationRow) -> Bool {
+        guard snapshot.rows?[row.key] == nil else { return true }
+        var next = snapshot
+        var rows = next.rows ?? [:]
+        rows[row.key] = row
+        next.rows = rows
+        return commit(next)
+    }
+
+    func syncRemoveTranslation(key: String) -> Bool {
+        guard snapshot.rows?[key] != nil else { return true }
+        var next = snapshot
+        next.rows?[key] = nil
+        return commit(next)
+    }
+
+    // MARK: Android lyrics_cache, for sync's lyrics snapshot
+
+    /// The lyrics a track loads, as Android's `lyrics_cache` row would hold them: the user's (typed =
+    /// "manual"; a provider's they chose = song id marked "user|"), else the provider's own hit (any age).
+    struct CachedLyrics: Equatable {
+        var lyricsProvider: String
+        var lyricsProviderSongId: String?
+        var lrc: String
+        /// Epoch ms the automatic hit was saved; 0 for the user's.
+        var cachedAt: Int64
+    }
+
+    nonisolated static let manualProvider = "manual"
+    nonisolated static let userChosenPrefix = "user|"
+
+    func cachedLyrics(_ key: String) -> CachedLyrics? {
+        if let lrc = snapshot.chosen[key] {
+            guard let source = snapshot.chosenSource?[key] else {
+                return CachedLyrics(lyricsProvider: Self.manualProvider, lyricsProviderSongId: nil, lrc: lrc, cachedAt: 0)
+            }
+            return CachedLyrics(lyricsProvider: source.provider, lyricsProviderSongId: Self.userChosenPrefix + source.songId,
+                                lrc: lrc, cachedAt: 0)
+        }
+        guard let a = snapshot.auto?[key] else { return nil }
+        return CachedLyrics(lyricsProvider: a.source.provider, lyricsProviderSongId: a.source.songId, lrc: a.lrc,
+                            cachedAt: Self.ms(a.savedAt))
+    }
+
+    /// Sync's lyrics seed (the shared adapter decided it may replace what is here). On disk before memory.
+    func syncWriteLyrics(_ c: CachedLyrics, for key: String) -> Bool {
+        var next = snapshot
+        let songId = c.lyricsProviderSongId ?? ""
+        if c.lyricsProvider == Self.manualProvider {
+            next.chosen[key] = c.lrc
+            next.chosenSource?[key] = nil
+        } else if songId.hasPrefix(Self.userChosenPrefix) {
+            next.chosen[key] = c.lrc
+            var sources = next.chosenSource ?? [:]
+            sources[key] = LyricsSource(provider: c.lyricsProvider, songId: String(songId.dropFirst(Self.userChosenPrefix.count)))
+            next.chosenSource = sources
+        } else {
+            next.chosen[key] = nil
+            next.chosenSource?[key] = nil
+            var all = next.auto ?? [:]
+            all[key] = AutoLyrics(lrc: c.lrc, source: LyricsSource(provider: c.lyricsProvider, songId: songId),
+                                  savedAt: Date(timeIntervalSince1970: TimeInterval(c.cachedAt) / 1000))
+            next.auto = all
+        }
+        return commit(next)
+    }
+
+    private func commit(_ next: Snapshot) -> Bool {
+        guard write(next) else { return false }
+        snapshot = next
+        return true
+    }
+
+    private static func ms(_ date: Date) -> Int64 { Int64((date.timeIntervalSince1970 * 1000).rounded()) }
 
     static func translationKey(_ key: String, language: String, lines: [String]) -> String {
         // FNV-1a over the source text: stable across launches (Swift's Hasher isn't).
@@ -178,9 +338,16 @@ final class LyricsUserStore {
         return "\(key)|\(language)|\(String(h, radix: 16))"
     }
 
-    private func persist() {
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: fileURL, options: .atomic) }
+    private func persist() { _ = write(snapshot) }
+
+    private func write(_ s: Snapshot) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(s).write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

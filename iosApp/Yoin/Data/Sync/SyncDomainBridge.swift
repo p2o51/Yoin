@@ -9,6 +9,8 @@ extension AlbumTitleRow: @retroactive @unchecked Sendable {}
 extension MemoryCopyRow: @retroactive @unchecked Sendable {}
 extension SongAboutRow: @retroactive @unchecked Sendable {}
 extension SyncProfile: @retroactive @unchecked Sendable {}
+extension LyricsTranslationRow: @retroactive @unchecked Sendable {}
+extension LyricsCacheRow: @retroactive @unchecked Sendable {}
 
 /// The iOS stores as cloud sync's `SyncDomain` (shared Kotlin,
 /// `com.gpo.yoin.shared.sync.adapters.SyncDomain`): the shared adapters read
@@ -314,6 +316,73 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
                                                           promptText: row.promptText, titleText: row.titleText,
                                                           answerText: row.answerText, createdAt: row.createdAt,
                                                           updatedAt: row.updatedAt, language: language))
+        }
+    }
+
+    func songAboutEntryCount() -> Int32 {
+        main { Int32(SongAboutStore.shared.all.count) }
+    }
+
+    // MARK: Settings (Android `setting`: iOS has translation_language only)
+
+    func putTranslationLanguage(language: String) -> Bool {
+        main { GeminiSettings.shared.syncSetLanguage(language) }
+    }
+
+    // MARK: Lyric translations (Data/Lyrics LyricsUserStore, Android lyrics_translation_cache)
+
+    private static func row(_ r: LyricsUserStore.TranslationRow) -> LyricsTranslationRow {
+        LyricsTranslationRow(trackProvider: r.trackProvider, trackRawId: r.trackRawId, sourceHash: r.sourceHash,
+                             targetLanguage: r.targetLanguage, model: r.model, translationsJson: r.translationsJson,
+                             cachedAt: r.cachedAt)
+    }
+
+    func paidLyricsTranslations() -> [LyricsTranslationRow] {
+        main { LyricsUserStore.shared.paidTranslations.map(Self.row) }
+    }
+
+    func lyricsTranslation(trackProvider: String, trackRawId: String, sourceHash: String, targetLanguage: String,
+                           model: String) -> LyricsTranslationRow? {
+        main {
+            LyricsUserStore.shared.translation(trackProvider: trackProvider, trackRawId: trackRawId,
+                                               sourceHash: sourceHash, targetLanguage: targetLanguage,
+                                               model: model).map(Self.row)
+        }
+    }
+
+    func insertLyricsTranslationIfAbsent(row: LyricsTranslationRow) -> Bool {
+        main {
+            LyricsUserStore.shared.syncInsertIfAbsent(.init(trackProvider: row.trackProvider, trackRawId: row.trackRawId,
+                                                            sourceHash: row.sourceHash,
+                                                            targetLanguage: row.targetLanguage, model: row.model,
+                                                            translationsJson: row.translationsJson,
+                                                            cachedAt: row.cachedAt))
+        }
+    }
+
+    func deleteLyricsTranslation(trackProvider: String, trackRawId: String, sourceHash: String,
+                                 targetLanguage: String, model: String) -> Bool {
+        main {
+            LyricsUserStore.shared.syncRemoveTranslation(
+                key: LyricsUserStore.rowKey(trackProvider, trackRawId, sourceHash, targetLanguage, model))
+        }
+    }
+
+    func lyricsCache(trackProvider: String, trackRawId: String) -> LyricsCacheRow? {
+        main {
+            LyricsUserStore.shared.cachedLyrics(LocalRatings.key(provider: trackProvider, songId: trackRawId)).map {
+                LyricsCacheRow(trackProvider: trackProvider, trackRawId: trackRawId, lyricsProvider: $0.lyricsProvider,
+                               lyricsProviderSongId: $0.lyricsProviderSongId, lrc: $0.lrc, cachedAt: $0.cachedAt)
+            }
+        }
+    }
+
+    func writeLyricsCache(row: LyricsCacheRow) -> Bool {
+        main {
+            LyricsUserStore.shared.syncWriteLyrics(
+                .init(lyricsProvider: row.lyricsProvider, lyricsProviderSongId: row.lyricsProviderSongId, lrc: row.lrc,
+                      cachedAt: row.cachedAt),
+                for: LocalRatings.key(provider: row.trackProvider, songId: row.trackRawId))
         }
     }
 }
