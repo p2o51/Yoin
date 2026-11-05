@@ -29,6 +29,10 @@ YoinShared has a `macos-arm64` slice; the Darwin Ktor engine and the Foundation 
 
 `MacMiniPlayer` (window id `mini`, ⌥⌘M): cover, the spine beside it (title → artist → album → year, one at a time, every 5 s or on scroll; an item longer than the spine marquees instead of being cut), title / artist, prev · play · next, progress. Floats over other apps by default; Controls ▸ Float Mini Player on Top turns it off (`miniPlayerFloats`).
 
+## Menu bar
+
+`MenuBarExtra` (.window, Yoin `music_note` symbol): `MacMenuBarCard` — cover, title / artist, progress, prev · play · next, Open Yoin.
+
 ## Keys (Controls menu)
 
 Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P Now Playing panel · ⌘L full window in / out · ⌘F focus (from closed: full window in focus) · ⌘K search · ⌥⌘M mini player · Esc back chain. ⌘↑ / ⌘↓ are left alone (no in-app volume). System full screen (⌃⌘F) is the window's own.
@@ -39,4 +43,4 @@ Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P No
 
 ## Not in P0
 
-Apple Music, Spotify, cloud sync, NeoDB, Gemini, Memories, menu bar extra, Write / notes, Devices, playlists, offline downloads, stream-quality settings.
+Apple Music, Spotify, cloud sync, NeoDB, Gemini, Memories, Write / notes, Devices, playlists, offline downloads, stream-quality settings.

@@ -30,6 +30,13 @@ struct YoinMacApp: App {
         .windowBackgroundDragBehavior(.enabled)
         .defaultPosition(.topTrailing)
 
+        MenuBarExtra {
+            MacMenuBarCard().environment(model)
+        } label: {
+            Image("yoin.music_note")
+        }
+        .menuBarExtraStyle(.window)
+
         Settings {
             MacSettingsView().environment(model)
         }
