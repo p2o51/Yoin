@@ -107,7 +107,7 @@ internal const val LyricDotsReadable = 2.2f
  * the rest, so they read as texture behind the buttons, not as text (owner
  * 2026-11-05). They turn readable once the transport steps away at ease.
  */
-internal const val LyricDotsLoose = 0.8f
+internal const val LyricDotsLoose = 1f
 
 /** How many lines after the current one print as [LyricDotsReadable]. */
 internal const val LyricDotsReadableLines = 2

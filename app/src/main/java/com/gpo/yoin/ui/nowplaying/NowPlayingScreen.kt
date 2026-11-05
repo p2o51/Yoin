@@ -2103,6 +2103,7 @@ private fun CompactPlayingContent(
                         alpha = 1f - noteHeroYield.coerceIn(0f, 1f),
                         oneLine = budget.heroOneLine,
                         // Focus stacks the one-row hero back (owner 2026-11-05).
+                        stackable = budget.focusHeroStacked,
                         stacking = if (budget.focusHeroStacked) {
                             (immersiveProgress * (1f - detailProgress)).coerceIn(0f, 1f)
                         } else {
@@ -4916,9 +4917,11 @@ internal fun CompactBottomHero(
     // Short windows (the height budget's one-row hero): title, then the
     // artist on the same baseline.
     oneLine: Boolean = false,
-    // [oneLine] only, 0..1: focus sets the identity as everywhere else,
-    // artist over title (owner 2026-11-05); the two glide between the row
-    // and the stack.
+    // [oneLine] windows whose focus sets the identity as everywhere else,
+    // artist over title (owner 2026-11-05): one layout for the row and the
+    // stack, so the title (and its marquee) carries on through the glide.
+    stackable: Boolean = false,
+    // [stackable] only, 0 = the row .. 1 = the stack.
     stacking: Float = 0f,
 ) {
     // Reopened before its close finished, Now Playing keeps this composition,
@@ -5015,11 +5018,16 @@ internal fun CompactBottomHero(
                     },
                 )
             }
-            if (oneLine && stacking > 0f) {
+            if (oneLine && stackable) {
                 HeroRowToStack(
                     stacking = stacking.coerceIn(0f, 1f),
-                    title = {
-                        Box(modifier = Modifier.then(titleModifier).then(titleClickModifier)) {
+                    // The title's stretch and press scale, which the artist
+                    // rides in the row (see the row below).
+                    titleGrowth = {
+                        (titleStretchScale * (titleRouteInteraction?.scaleX ?: 1f) - 1f).coerceAtLeast(0f)
+                    },
+                    title = { titleClip ->
+                        Box(modifier = titleClip.then(titleModifier).then(titleClickModifier)) {
                             NowPlayingMarqueeTitle(
                                 text = state.songTitle,
                                 style = MaterialTheme.typography.displaySmall,
@@ -5148,18 +5156,35 @@ internal fun CompactBottomHero(
  * gliding into the stacked one ([stacking] 1: the artist and its format
  * tags over the title, as on every other Now Playing). Both texts keep
  * their size; only their places and the title's width move, and the tags
- * fade in with the stack.
+ * fade in with the stack. The moves are staggered so the artist never
+ * crosses the title: it lifts (and the title drops) first, then it slides
+ * to the start; leaving, it slides back first and then settles.
  */
 @Composable
 private fun HeroRowToStack(
     stacking: Float,
-    title: @Composable () -> Unit,
+    titleGrowth: () -> Float,
+    title: @Composable (Modifier) -> Unit,
     artist: @Composable () -> Unit,
     tags: @Composable () -> Unit,
 ) {
+    // The artist's ride on the title's growth, from layout to the title's clip.
+    val ridePx = remember { floatArrayOf(0f) }
+    val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    val titleClip = Modifier.drawWithContent {
+        if (!ltr) {
+            drawContent()
+            return@drawWithContent
+        }
+        // The row clips the grown title at the artist; the stack lets it run.
+        val end = size.width + ridePx[0] + size.width * stacking
+        clipRect(left = -size.width, top = -size.height, right = end, bottom = size.height * 2f) {
+            this@drawWithContent.drawContent()
+        }
+    }
     Layout(
         contents = listOf(
-            title,
+            { title(titleClip) },
             artist,
             { Box(Modifier.graphicsLayer { alpha = stacking }) { tags() } },
         ),
@@ -5173,30 +5198,37 @@ private fun HeroRowToStack(
         // the stack gives the artist the line beside its tags and the title
         // the whole width.
         val artistRowMax = (width * HeroOneLineArtistShare).roundToInt()
-        val artistRowW = minOf(artistM.first().maxIntrinsicWidth(Constraints.Infinity), artistRowMax)
         val artistMax = lerpPx(artistRowMax, (width - tagsP.width).coerceAtLeast(0), stacking)
         val artistP = artistM.first().measure(Constraints(maxWidth = artistMax))
+        // What the row would give it (no intrinsics: the shared bounds wrap it).
+        val artistRowW = minOf(artistP.width, artistRowMax)
         val titleMax = lerpPx((width - gap - artistRowW).coerceAtLeast(0), width, stacking)
         val titleP = titleM.first().measure(Constraints(maxWidth = titleMax))
 
         fun baseline(p: Placeable): Int =
             p[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: p.height
-        // Row: the title at the top, the artist after it on its baseline.
-        val rowArtistX = titleP.width + gap
+        // Vertical first, then across.
+        val lift = (stacking / HeroStackSplit).coerceIn(0f, 1f)
+        val across = ((stacking - (1f - HeroStackSplit)) / HeroStackSplit).coerceIn(0f, 1f)
+        // Row: the title at the top, the artist after it on its baseline,
+        // riding the title's growth into the row's free end.
+        val rowFree = (width - titleP.width - gap - artistP.width).coerceAtLeast(0)
+        val ride = if (ltr) minOf(titleP.width * titleGrowth(), rowFree.toFloat()) else 0f
+        ridePx[0] = ride
+        val rowArtistX = titleP.width + gap + ride.roundToInt()
         val rowArtistY = baseline(titleP) - baseline(artistP)
         // Stack: the artist line (centred with its tags), 2dp, the title.
         val artistLine = maxOf(artistP.height, tagsP.height)
         val stackArtistY = (artistLine - artistP.height) / 2
         val stackTitleY = artistLine + 2.dp.roundToPx()
+        val artistX = lerpPx(rowArtistX, 0, across)
+        val artistY = lerpPx(rowArtistY, stackArtistY, lift)
         layout(width, constraints.maxHeight) {
-            titleP.placeRelative(0, lerpPx(0, stackTitleY, stacking))
-            artistP.placeRelative(
-                lerpPx(rowArtistX, 0, stacking),
-                lerpPx(rowArtistY, stackArtistY, stacking),
-            )
+            titleP.placeRelative(0, lerpPx(0, stackTitleY, lift))
+            artistP.placeRelative(artistX, artistY)
             tagsP.placeRelative(
-                lerpPx(rowArtistX + artistP.width, artistP.width, stacking),
-                (artistLine - tagsP.height) / 2 + lerpPx(rowArtistY, 0, stacking),
+                artistX + artistP.width,
+                artistY + (artistP.height - tagsP.height) / 2,
             )
         }
     }
@@ -5310,6 +5342,9 @@ private fun Modifier.maxWidthFraction(fraction: Float): Modifier = layout { meas
 
 /** The one-row hero: gap after the title; the artist takes at most this share. */
 private val HeroOneLineGap = 12.dp
+
+/** [HeroRowToStack]: each move's share of the glide (they overlap by 2x - 1). */
+private const val HeroStackSplit = 0.6f
 private const val HeroOneLineArtistShare = 0.4f
 
 /** Enlarged phone: the tab row grows to hold the lyric tools at its end. */
