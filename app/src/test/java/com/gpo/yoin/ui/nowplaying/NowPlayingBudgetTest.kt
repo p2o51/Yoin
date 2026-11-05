@@ -93,7 +93,7 @@ class NowPlayingBudgetTest {
         assertTrue(focus.controls >= 116.dp)
         assertEquals(LyricFrame.List, focus.lyricFrame)
         assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
-        assertDp(420.dp, budget.focusStageWidth)
+        assertDp(focus.cover + 48.dp, budget.focusStageWidth)
         assertDp(684.dp, focus.total)
     }
 
@@ -197,11 +197,7 @@ class NowPlayingBudgetTest {
                     budget.focus?.let { focus ->
                         assertTrue("focus overflow at ${w}x$h", focus.total <= h.dp + 0.5.dp)
                         assertTrue("focus too small at ${w}x$h", focus.cover >= rest.cover * 0.7f - 0.5.dp)
-                        if (rest.lyricFrame == LyricFrame.OneLine) {
-                            assertDp(budget.stageWidth, budget.focusStageWidth)
-                        } else {
-                            assertDp(focus.cover + 48.dp, budget.focusStageWidth)
-                        }
+                        assertDp(focus.cover + 48.dp, budget.focusStageWidth)
                         assertTrue("focus column too wide at ${w}x$h", budget.focusStageWidth <= w.dp + 0.5.dp)
                     }
                 }
@@ -252,12 +248,17 @@ class NowPlayingBudgetTest {
             assertDp(16.dp, focus.topBar)
             assertTrue(focus.controls >= 116.dp)
             assertTrue(focus.lyricSlot >= focusLyric.cleanLines(2) - 0.5.dp)
-            assertDp(w.dp, budget.focusStageWidth)
+            // The column narrows to the cover: lyrics, transport and title line up with it.
+            assertDp(focus.cover + 48.dp, budget.focusStageWidth)
             assertDp(h.dp, focus.total)
         }
+        // Narrowed under 360dp, the transport makes room for its time-label row.
+        val labelled = nn(resolveStageColumnBudget(475.dp, 690.dp, column().copy(labelLine = 20.dp)).focus)
+        assertTrue(labelled.controls >= 116.dp + 20.dp)
+        assertDp(690.dp, labelled.total)
         // Shorter still: only then does the cover give a little.
         val tight = nn(resolveStageColumnBudget(360.dp, 560.dp, column()).focus)
-        assertTrue(tight.cover < 244.dp && tight.cover >= 244.dp * 0.7f)
+        assertTrue(tight.cover < 244.dp && tight.cover >= 216.dp)
         assertDp(560.dp, tight.total)
     }
 

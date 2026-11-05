@@ -364,9 +364,18 @@ fun resolveStageColumnBudget(
     // resting order and sizes — the cover keeps its size and moves up into
     // the top bar's room, centred; the transport (its own two rows) and the
     // title keep their slots and sink into the pills' room; everything freed
-    // goes to the lyrics. The column keeps its full width.
+    // goes to the lyrics. The column narrows to the cover, so the lyrics,
+    // transport and title line up with its left and right edges (owner
+    // 2026-11-05: 「里面文字要变窄，和上面对齐」).
     fun shortWindowFocus(): StageColumnPose? {
-        val lower = listOf(controls, hero, focusBottom)
+        // Narrowed under 360dp the time labels drop under the wave.
+        val restInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
+        val shortControls = if (restInline && rest.cover < metrics.labelsInlineMin) {
+            NpGap(controls.nominal + metrics.labelLine, controls.min + metrics.labelLine)
+        } else {
+            controls
+        }
+        val lower = listOf(shortControls, hero, focusBottom)
         val upper = listOf(coverGap)
         val nominal = nominalSum(lower) + nominalSum(upper)
         val listMin = LyricWindowMetrics(
@@ -379,14 +388,21 @@ fun resolveStageColumnBudget(
             lower,
             upper,
         )
-        // Only when even the squeezed gaps can't hold two lines does the cover give.
-        val cover = (rest.cover - squeeze.unmet).coerceAtLeast(0.dp)
+        // Only when even the squeezed gaps can't hold two lines does the cover
+        // give — never under the transport's narrowest width, which the column
+        // now shares.
+        val cover = maxOf(
+            (rest.cover - squeeze.unmet).coerceAtLeast(0.dp),
+            minOf(rest.cover, ShortFocusMinColumn),
+        )
         if (cover < rest.cover * EqualMarginCoverKeep) return null
         val cg = coverGap.at(squeeze.upper)
-        val ctl = controls.at(squeeze.lower)
+        val ctl = shortControls.at(squeeze.lower)
         val hr = hero.at(squeeze.lower)
         val bottom = focusBottom.at(squeeze.lower)
         val lyric = (height - FocusTopShort - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
+        // Too short for two lines beside a cover the transport can share: no focus.
+        if (lyric < listMin) return null
         return StageColumnPose(
             topBar = FocusTopShort, cover = cover, coverGap = cg, tabs = 0.dp, tabGap = 0.dp,
             lyricSlot = lyric, lyricFrame = LyricFrame.List,
@@ -410,7 +426,7 @@ fun resolveStageColumnBudget(
         // Always the cover's own width: the transport fits itself to it
         // (PlaybackControls steps down to 48dp below the designed width).
         focusStageWidth = when {
-            shortWindow || focus == null -> stageWidth
+            focus == null -> stageWidth
             else -> focus.cover + ColumnPadding * 2
         },
     )
@@ -667,6 +683,9 @@ private val FocusTopMin = 12.dp
 
 /** A short window's focus: the cover's top once the top bar retreats. */
 private val FocusTopShort = 16.dp
+
+/** The narrowest column the transport fits at 48dp controls (PLAY, next, the mode pill at its minimum). */
+private val ShortFocusMinColumn = 216.dp
 private val FocusBottomNominal = 20.dp
 private val FocusBottomMin = 8.dp
 
