@@ -288,8 +288,9 @@ struct RatingBar: View {
             Capsule().fill(dragValue != nil ? Color.clear : tint.primary.opacity(0.12))
             Capsule().fill(tint.primary.mix(with: .black, by: 0.06))
                 .frame(height: max(0, height * value / 10))
-            Text(value > 0 ? String(Int(value)) : "–")
+            Text(value > 0 ? String(format: "%.1f", value) : "")
                 .font(.gsf(22, .medium).monospacedDigit())
+                .lineLimit(1).minimumScaleFactor(0.7)
                 .foregroundStyle(value >= 9.2 ? tint.onPrimary : Yoin.ink)
                 .frame(maxHeight: .infinity, alignment: .top).padding(.top, 10)
         }
@@ -435,12 +436,12 @@ private struct LyricsList: View {
                     Color.clear.frame(height: large ? 80 : 24)
                     ForEach(lines) { l in
                         let on = l.id == current
-                        // One font for every line; the current one is full size, the rest scale down
-                        // (a font change would crossfade two layouts).
+                        // The point size itself animates (a scaled layer blurs the glyphs, a font swap
+                        // would crossfade two layouts): every frame is real text at its real size.
+                        let size: CGFloat = (large ? 30 : 19) * (on || !synced ? 1 : 0.8)
                         Text(l.text.isEmpty ? "♪" : l.text)
-                            .font(.gsf(large ? 30 : 19, .semibold))
+                            .modifier(LyricLineFont(size: size))
                             .foregroundStyle(on ? tint.primary : (synced ? Yoin.ink3 : Yoin.ink))
-                            .scaleEffect(on || !synced ? 1 : (large ? 0.8 : 0.8), anchor: .leading)
                             .opacity(model.focus && !on && synced ? 0.35 : 1)
                             .padding(.vertical, large ? 6 : 3)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -453,14 +454,29 @@ private struct LyricsList: View {
                 }
             }
             .scrollIndicators(.never)
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08),
-                                         .init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
+            // Fades long enough to swallow a whole line, so the edges never show a line cut in half.
+            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.04),
+                                         .init(color: .black, location: 0.2),
+                                         .init(color: .black, location: 0.72), .init(color: .clear, location: 0.96)],
                                  startPoint: .top, endPoint: .bottom))
             .onChange(of: current, initial: true) { _, i in
                 guard i >= 0 else { return }
                 withAnimation(Yoin.spatial) { proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: 0.3)) }
             }
         }
+    }
+}
+
+/// A lyric line's font with an animatable point size.
+private struct LyricLineFont: ViewModifier, @MainActor Animatable {
+    var size: CGFloat
+    var animatableData: CGFloat {
+        get { size }
+        set { size = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.gsf(size, .semibold))
     }
 }
 
