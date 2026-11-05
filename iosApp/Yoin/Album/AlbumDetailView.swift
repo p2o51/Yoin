@@ -969,6 +969,12 @@ struct AlbumDetailView: View {
     private func playlistMeta(_ pl: PlaylistInfo) -> some View {
         let mins = pl.entries.map(\.track.durationSec).reduce(0, +) / 60
         return VStack(alignment: .leading, spacing: 14) {
+            if pl.tracksUnavailable {
+                // Android detail_playlist_tracks_unavailable: why the list is empty (Codex N18).
+                Text("Spotify only shows this app the songs of playlists you made or collaborate on. To play this one, open it in Spotify.")
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+            }
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     sectionLabel("Length")

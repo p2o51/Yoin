@@ -4,18 +4,10 @@ import XCTest
 /// The engine's stand-in URLs for Spotify songs, and the PKCE challenge.
 @MainActor
 final class SpotifyPlaybackTests: XCTestCase {
-    func test_should_carryTheAlbumAsContext_when_aSongHasOne() {
-        let url = SpotifyAudioOutput.streamURL(trackId: "4uLU6hMCjMI75M1A2tKUQC", albumId: "6akEvsycLGftJxYudPjmqK")
+    func test_should_nameTheSpotifyTrack_when_readingTheEnginesURL() {
+        let url = SpotifyAudioOutput.streamURL(trackId: "4uLU6hMCjMI75M1A2tKUQC")
         XCTAssertTrue(SpotifyAudioOutput.isSpotify(url))
-        let item = SpotifyAudioOutput.Item(url)
-        XCTAssertEqual(item?.trackURI, "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
-        XCTAssertEqual(item?.contextURI, "spotify:album:6akEvsycLGftJxYudPjmqK")
-    }
-
-    func test_should_playABareSong_when_thereIsNoAlbum() {
-        let item = SpotifyAudioOutput.Item(SpotifyAudioOutput.streamURL(trackId: "abc", albumId: nil))
-        XCTAssertEqual(item?.trackURI, "spotify:track:abc")
-        XCTAssertNil(item?.contextURI)
+        XCTAssertEqual(SpotifyAudioOutput.Item(url)?.trackURI, "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
     }
 
     func test_should_notReadAnotherSourcesURL_when_parsing() {

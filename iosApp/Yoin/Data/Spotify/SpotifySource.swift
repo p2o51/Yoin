@@ -128,6 +128,8 @@ final class SpotifySource {
                 tracks += more.items
                 next = more.next
             }
+            // Each track's heart, asked (Codex N11): the Liked Songs read so far covers only some.
+            _ = await savedStates(tracks.compactMap(\.id))
             return SpotifyMapping.album(a, tracks: tracks, saved: liked)
         } catch let e as SpotifyAPIError where e.isNotFound {
             return nil
@@ -152,10 +154,10 @@ final class SpotifySource {
                                          starred: followed)
     }
 
-    /// The playlist and its first [cap] playable tracks. Someone else's playlist
-    /// answers 403 for its items: it opens with none. Local files, episodes and
+    /// The playlist and its playable tracks, every occurrence (up to [cap], Codex N12). Someone else's
+    /// playlist answers 403 for its items: it opens marked unreadable (N18). Local files, episodes and
     /// removed entries are left out.
-    func playlist(_ rawId: String, cap: Int = 300) async throws -> PlaylistInfo? {
+    func playlist(_ rawId: String, cap: Int = 10_000) async throws -> PlaylistInfo? {
         let p: SpotifyDTO.Playlist
         do {
             p = try await api.get("playlists/\(rawId)", ["additional_types": "track"], as: SpotifyDTO.Playlist.self)
@@ -180,10 +182,14 @@ final class SpotifySource {
                                           of: SpotifyDTO.PlaylistItem.self, cap: cap)
             }
         } catch let e as SpotifyAPIError where e.isForbidden {
-            items = []
+            playlistOffsets[rawId] = []
+            var info = SpotifyMapping.playlist(p, tracks: [], saved: liked)
+            info.tracksUnavailable = true
+            return info
         }
         let (tracks, offsets) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))
         playlistOffsets[rawId] = offsets
+        _ = await savedStates(Array(Set(tracks.compactMap(\.id))))
         return SpotifyMapping.playlist(p, tracks: tracks, saved: liked)
     }
 
@@ -215,18 +221,11 @@ final class SpotifySource {
 
     // MARK: Playback (Android SpotifyStartPlan: Web API play with a context and offset.uri)
 
-    /// Starts [trackURI] in the Spotify app, inside [contextURI] (its album) when given so Spotify
-    /// shows where it plays from and goes on by itself; a bare song otherwise. No device id: the
-    /// Spotify app App Remote just connected to is the active device.
-    func startPlayback(trackURI: String, contextURI: String?) async throws {
-        var body: [String: Any] = [:]
-        if let contextURI {
-            body["context_uri"] = contextURI
-            body["offset"] = ["uri": trackURI]
-        } else {
-            body["uris"] = [trackURI]
-        }
-        let json = try JSONSerialization.data(withJSONObject: body)
+    /// Starts [uris] (the current song and the engine's next) in the Spotify app. Yoin's queue stays
+    /// the truth: an album context let Spotify carry on through the album while Yoin played a playlist
+    /// (Codex N02). No device id: the Spotify app App Remote just connected to is the active device.
+    func startPlayback(uris: [String]) async throws {
+        let json = try JSONSerialization.data(withJSONObject: ["uris": uris])
         try await api.send("PUT", "me/player/play", json: json)
     }
 
@@ -243,6 +242,13 @@ final class SpotifySource {
             out += answer
         }
         return out
+    }
+
+    // MARK: Following an artist (Android SpotifyMusicSource.setArtistFollowed)
+
+    /// Follows or unfollows the artist on Spotify (PUT / DELETE me/following, user-follow-modify).
+    func setFollowed(_ on: Bool, artist rawId: String) async throws {
+        try await api.send(on ? "PUT" : "DELETE", "me/following", ["type": "artist", "ids": rawId])
     }
 
     /// Whether the track is in Liked Songs (nil: unknown, the read failed).

@@ -208,7 +208,8 @@ struct SearchView: View {
                 // 16 type, 56 tall, 16 in), so from there nothing moves.
                 HStack(spacing: 12) {
                     YoinIcon("search", size: 24).foregroundStyle(Yoin.inkVariant)
-                    TextField(scope == .library ? "Search library" : "Search Apple Music", text: $query)
+                    TextField(model.store.spotify != nil ? "Search Spotify"
+                              : scope == .library ? "Search library" : "Search Apple Music", text: $query)
                         .font(.gsf(16))
                         .focused($focused)
                         .submitLabel(.search)
@@ -309,7 +310,9 @@ struct SearchView: View {
     /// Android searchFiltersFor: Playlists only where search returns them
     /// (Apple Music, in either scope; not Subsonic's search3).
     private var availableFilters: [Filter] {
-        model.store.isReal && !model.store.searchesCatalog ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
+        // Spotify searches its catalog, playlists included (Codex N14); a Subsonic server has none.
+        model.store.isReal && !model.store.searchesCatalog && model.store.spotify == nil
+            ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
     }
 
     private var positionKey: String { "\(scope)|\(filter)" }

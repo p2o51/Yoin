@@ -263,7 +263,7 @@ private struct PadDetailPlay: View {
             let inner = Tokens.bar.SPLIT_INNER_CORNER.cg
             GlassEffectContainer(spacing: 0) {
                 HStack(spacing: Tokens.bar.SPLIT_GAP.cg) {
-                    Button { Task { model.play(await entries()) } } label: {
+                    Button { model.play(loading: { await entries() }) } label: {
                         HStack(spacing: 8) {
                             YoinIcon("play_filled", size: 20)
                             Text("Play").font(.gsf(16, .medium))
@@ -279,11 +279,15 @@ private struct PadDetailPlay: View {
                                  in: UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 28,
                                                             bottomTrailingRadius: inner, topTrailingRadius: inner))
                     Menu {
-                        Button("Shuffle play") { Task { model.play(await entries(), shuffle: true) } }
+                        Button("Shuffle play") { model.play(loading: { await entries() }, shuffle: true) }
                         Button("Play next") { Task { model.enqueue(await entries(), next: true) } }
                         Button("Add to queue") { Task { model.enqueue(await entries(), next: false) } }
                         if PlaylistActions.shared.canAddToPlaylist(model.store) {
                             Button("Add to playlist") { Task { PlaylistActions.shared.requestAdd(await entries()) } }
+                        }
+                        // Android OfflineToggle, as the phone's ▾ has it: the column's root album included.
+                        if let c = model.detailOfflineCollection, c.kind == .album {
+                            OfflineMenuButton(collection: c, entries: { await entries() })
                         }
                         if model.path.isEmpty || model.path.last == .album(album) {
                             Divider()

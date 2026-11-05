@@ -104,12 +104,14 @@ final class LibraryStore {
         self.ratings = ratings
         self.disk = disk
         observeSession()
-        hearts.onWrite = { [weak self] _, songId in
-            // Wherever the heart was set: the stored pages that show it go.
-            self?.dropAlbums(containing: songId)
-            self?.dropFromDisk(.list, "favorites")
+        hearts.onWrite = { [weak self] provider, songId in
+            // Wherever the heart was set: the stored pages that show it are written with it.
+            guard let self else { return }
+            let on = self.hearts.isFavorite(provider: provider, songId: songId)
+            self.dropAlbums(containing: songId) { $0.starred = on }
+            self.dropFromDisk(.list, "favorites")
             // The starred list is the source's: read it again on the next visit.
-            self?.favoritesStale = true
+            self.favoritesStale = true
         }
         Task { await disk.purgeExpired() }
     }
@@ -671,10 +673,15 @@ final class LibraryStore {
         Task.detached(priority: .utility) { await disk.remove(scope: scope, kind: kind, id: id, epoch: epoch) }
     }
 
-    /// A heart or rating on [trackId] changed: the stored pages that show it go.
-    private func dropAlbums(containing trackId: String) {
+    /// A heart or rating on [trackId] changed: the stored pages that show it are written again with
+    /// the change (Codex N20: dropping them left a downloaded album with no track list offline).
+    private func dropAlbums(containing trackId: String, edit: (inout Track) -> Void = { _ in }) {
         for (id, album) in albumDetails where album.tracks.contains(where: { $0.id.rawId == trackId }) {
+            var updated = album
+            for i in updated.tracks.indices where updated.tracks[i].id.rawId == trackId { edit(&updated.tracks[i]) }
+            albumDetails[id] = updated
             dropFromDisk(.album, id)
+            persist(codec?.dto(updated), kind: .album, id: id, epoch: diskEpoch)
         }
     }
 
@@ -871,6 +878,16 @@ final class LibraryStore {
     func loadFavorites(force: Bool = false) async {
         let force = force || favoritesStale
         favoritesStale = false
+        // The starred artists and albums paint from disk too (Codex F04: offline, only the songs came back).
+        if favoriteArtists.isEmpty, favoriteAlbums.isEmpty, let codec {
+            let scope = historyScope, gen = generation
+            let artists = await disk.read([DetailCacheDTO.Item].self, scope: scope, kind: .list, id: "favoriteArtists")
+            let albums = await disk.read([DetailCacheDTO.Album].self, scope: scope, kind: .list, id: "favoriteAlbums")
+            if gen == generation, favoriteArtists.isEmpty, favoriteAlbums.isEmpty {
+                favoriteArtists = artists?.value.map(codec.item) ?? []
+                favoriteAlbums = albums?.value.map(codec.album) ?? []
+            }
+        }
         await cachedLoad("favorites", kind: .list, id: "favorites", force: force, inMemory: { !self.favorites.isEmpty },
                          restore: { (d: [DetailCacheDTO.Entry], c) in self.favorites = d.map(c.entry) }) { [self] in
             // Apple Music has no favorites read (loved songs aren't listable,
@@ -892,6 +909,10 @@ final class LibraryStore {
             favoriteArtists = starred.artists.map(mapping.artistItem)
             favoriteAlbums = starred.albums.map(mapping.album)
             favorites = starred.songs.enumerated().map { mapping.entry($1, index: $0) }
+            if let c = codec {
+                persist(favoriteArtists.map(c.dto), kind: .list, id: "favoriteArtists", epoch: diskEpoch)
+                persist(favoriteAlbums.map(c.dto), kind: .list, id: "favoriteAlbums", epoch: diskEpoch)
+            }
             return codec.map { c in favorites.map(c.dto) }
         }
     }
@@ -1131,6 +1152,19 @@ final class LibraryStore {
         guard page.id.provider != AppleMusicMapping.provider else { return }
         let id = page.id.rawId
         let now = !isStarred(artist: page)
+        if let spotify, page.id.provider == SpotifyMapping.provider {
+            // Follow on Spotify (Codex N13), the star reverting when Spotify refuses.
+            let key = "artist:\(id)", before = starredOverride[key]
+            starredOverride[key] = now
+            Task {
+                do { try await spotify.setFollowed(now, artist: id) } catch {
+                    log.error("follow failed: \(SpotifySource.message(for: error), privacy: .public)")
+                    withAnimation(Yoin.effects) { self.starredOverride[key] = before ?? !now }
+                }
+            }
+            dropFromDisk(.artist, id)
+            return
+        }
         write(key: "artist:\(id)", on: now) { client, on in
             on ? try await client.star(id: nil, albumId: nil, artistId: id)
                 : try await client.unstar(id: nil, albumId: nil, artistId: id)
@@ -1157,7 +1191,7 @@ final class LibraryStore {
         guard let client, track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
         do {
             try await client.setRating(id: track.id.rawId, rating: Int32(SubsonicMapping.serverRating(rating)))
-            dropAlbums(containing: track.id.rawId)
+            dropAlbums(containing: track.id.rawId) { $0.rating = rating }
             return true
         } catch {
             log.error("rating failed: \(ServerSession.message(for: error), privacy: .public)")
@@ -1182,9 +1216,12 @@ final class LibraryStore {
             var t = PlayableTrack(id: e.track.id.rawId, provider: SpotifyMapping.provider, title: e.track.title,
                                   artist: e.track.artist ?? e.album.artist, album: e.album.title, albumId: albumId,
                                   durationSec: Double(e.track.durationSec),
-                                  streamURL: SpotifyAudioOutput.streamURL(trackId: e.track.id.rawId, albumId: albumId),
+                                  streamURL: SpotifyAudioOutput.streamURL(trackId: e.track.id.rawId),
                                   coverURL: e.album.coverURL)
-            t.starred = isStarred(e.track)
+            // Liked when known; otherwise unknown, so Now Playing asks Spotify (Codex N11): "not in
+            // the Liked Songs read so far" isn't "not liked".
+            let known = e.track.starred || hearts.hasReport(provider: SpotifyMapping.provider, songId: e.track.id.rawId)
+            t.starred = known ? isStarred(e.track) : nil
             return t
         }
         guard let client, e.track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return nil }

@@ -213,6 +213,7 @@ enum SpotifyAuth {
     private static func webAuth(_ url: URL) async throws -> URL {
         try await withCheckedThrowingContinuation { cont in
             let session = ASWebAuthenticationSession(url: url, callback: .customScheme(SpotifyConfig.callbackScheme)) { callback, error in
+                MainActor.assumeIsolated { current = nil }
                 if let callback { cont.resume(returning: callback); return }
                 if let e = error as? ASWebAuthenticationSessionError, e.code == .canceledLogin {
                     cont.resume(throwing: SpotifyAuthError.cancelled)
@@ -222,9 +223,16 @@ enum SpotifyAuth {
             }
             session.presentationContextProvider = AuthAnchor.shared
             session.prefersEphemeralWebBrowserSession = false
-            session.start()
+            // Kept until it answers: nothing else holds the session once this returns.
+            current = session
+            if !session.start() {
+                current = nil
+                cont.resume(throwing: SpotifyAuthError.failed("Couldn't open Spotify's sign-in"))
+            }
         }
     }
+
+    private static var current: ASWebAuthenticationSession?
 
     private final class AuthAnchor: NSObject, ASWebAuthenticationPresentationContextProviding {
         static let shared = AuthAnchor()
@@ -257,12 +265,16 @@ actor SpotifyTokenProvider {
     let profileId: String
     private var tokens: SpotifyTokens
     private var refreshing: Task<SpotifyTokens, Error>?
-    /// Called (on the main actor) when the refresh token was revoked.
+    /// Called when the refresh token was revoked.
     private let onRevoked: @Sendable () -> Void
+    /// Called with the tokens after every refresh (saved to the Keychain already).
+    private let onRefreshed: @Sendable (SpotifyTokens) -> Void
 
-    init(profileId: String, tokens: SpotifyTokens, onRevoked: @escaping @Sendable () -> Void) {
+    init(profileId: String, tokens: SpotifyTokens, onRefreshed: @escaping @Sendable (SpotifyTokens) -> Void = { _ in },
+         onRevoked: @escaping @Sendable () -> Void) {
         self.profileId = profileId
         self.tokens = tokens
+        self.onRefreshed = onRefreshed
         self.onRevoked = onRevoked
     }
 
@@ -281,6 +293,7 @@ actor SpotifyTokenProvider {
             tokens = fresh
             let id = profileId
             await MainActor.run { _ = SpotifyTokenStore.save(fresh, for: id) }
+            onRefreshed(fresh)
             return fresh.accessToken
         } catch SpotifyAuthError.revoked {
             onRevoked()

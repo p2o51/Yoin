@@ -164,6 +164,9 @@ struct PlaylistInfo: Hashable, Sendable {
     var description: String?
     var palette: CoverPalette
     var entries: [PlaylistEntry]
+    /// The service wouldn't hand over the songs (Spotify: someone else's playlist since 2026-02):
+    /// the page says so instead of showing an empty playlist (Android tracksUnavailable).
+    var tracksUnavailable = false
 
     /// The playlist as an Album, so it can reuse the album page's hero,
     /// spectrum and pull-up (Android shares them the same way).

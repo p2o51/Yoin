@@ -316,7 +316,7 @@ struct ShellBar: View {
     /// The page's songs (album tracks, playlist entries, the artist's Most
     /// Played) into the engine.
     private func playDetail(shuffle: Bool) {
-        Task { model.play(await model.detailEntries(), shuffle: shuffle) }
+        model.play(loading: { await model.detailEntries() }, shuffle: shuffle)
     }
 
     private func enqueueDetail(next: Bool) {

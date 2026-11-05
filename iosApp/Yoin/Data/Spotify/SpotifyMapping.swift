@@ -175,9 +175,11 @@ enum SpotifyMapping {
     /// [tracks] are the playlist's playable entries, already in order. A
     /// playlist the app may not read the items of (someone else's, 2026-02) opens without any.
     static func playlist(_ p: SpotifyDTO.Playlist, tracks: [SpotifyDTO.Track], saved: Set<String> = []) -> PlaylistInfo {
+        // Every occurrence (Codex N12): a playlist may hold a song twice; its rows key by position.
         PlaylistInfo(id: MediaId(provider: provider, rawId: p.id), title: p.name ?? "", owner: owner(p),
                      isPublic: p.public, description: plainText(p.description),
-                     palette: palette(p.images, key: p.id), entries: entries(tracks, saved: saved))
+                     palette: palette(p.images, key: p.id),
+                     entries: tracks.enumerated().compactMap { i, t in entry(t, index: i, saved: saved) })
     }
 
     /// The playlist's playable tracks in order, and each one's raw offset in the
@@ -185,10 +187,9 @@ enum SpotifyMapping {
     /// offsets are what `offset.position` of a play request needs).
     static func playableTracks(_ items: [SpotifyDTO.PlaylistItem]) -> (tracks: [SpotifyDTO.Track], offsets: [Int]) {
         var tracks: [SpotifyDTO.Track] = [], offsets: [Int] = []
-        var seen = Set<String>()
         for (i, item) in items.enumerated() {
-            // Same dedupe as `entries`, so row i of the page is offsets[i].
-            guard let t = item.playable, isPlayable(t), let id = t.id, seen.insert(id).inserted else { continue }
+            // Every occurrence, as the page shows them: row i of the page is offsets[i].
+            guard let t = item.playable, isPlayable(t), t.id != nil else { continue }
             tracks.append(t)
             offsets.append(i)
         }

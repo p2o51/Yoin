@@ -231,7 +231,8 @@ enum KeychainItem {
 /// per profile; iOS reads one Subsonic server at a time, so a Subsonic row carries the server + user it was
 /// written under ("baseUrl|username", the same scope as the play history) and is shown and edited only
 /// while that account is in use (Codex C03). Cloud sync reads another account's rows through `reading`.
-/// Apple Music has one account per device: no scope.
+/// Apple Music has one account per device: no scope. Each Spotify account's rows carry its Spotify user
+/// ("spotify|<user id>", Codex N07), so two Spotify accounts never see each other's notes or ratings.
 @MainActor
 @Observable
 final class AccountScope {
@@ -253,7 +254,19 @@ final class AccountScope {
     static func subsonicScope(_ a: ServerSession.Account) -> String { "\(a.baseUrl)|\(a.username)" }
 
     /// The scope a row of [provider] is written under and read back in.
-    func scope(for provider: String) -> String? { provider == Self.subsonicProvider ? (pinned ?? subsonic) : nil }
+    func scope(for provider: String) -> String? {
+        if provider == Self.subsonicProvider { return pinned ?? subsonic }
+        if provider == Self.spotifyProvider { return spotify }
+        return nil
+    }
+
+    /// The Spotify account in use's scope; nil without one.
+    var spotify: String? {
+        didSet { if spotify != oldValue { NowPlayingData.shared.accountChanged() } }
+    }
+
+    static let spotifyProvider = "spotify"
+    static func spotifyScope(userId: String) -> String { "spotify|\(userId)" }
 
     /// Set only inside `reading`: the Subsonic account the stores read and write for the moment.
     @ObservationIgnored private var pinned: String?

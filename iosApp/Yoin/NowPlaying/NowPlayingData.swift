@@ -227,7 +227,8 @@ final class NowPlayingData {
                 return
             }
         }
-        if t.provider == AppleMusicMapping.provider {
+        // Spotify's lyrics come from the providers too (Codex N24): the next song's are ready for the outro.
+        if t.provider == AppleMusicMapping.provider || t.provider == SpotifyMapping.provider {
             await loadProviderLyrics(t, k)
         } else if let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC {
             await loadLyrics(t, k, client)

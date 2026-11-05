@@ -42,6 +42,8 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
     /// Spotify only: whose account it is (its rows' scope), and the name it shows.
     var spotifyUserId: String? = nil
     var spotifyName: String? = nil
+    /// Epoch ms of its last sign-in: a new sign-in (after a revoke) rebuilds the account's source.
+    var spotifySignedInAt: Int64? = nil
 
     /// `AccountScope`'s key for this account's rows ("baseUrl|username" as first saved); nil for Apple Music.
     var subsonicScope: String? {
@@ -218,10 +220,16 @@ final class ProfileStore {
         guard status == errSecSuccess || status == errSecMissingEntitlement else { return .failure(.keychain(status)) }
         spotifyTokens[profileId] = tokens
         let updated = Profile(id: profileId, service: .spotify, createdAt: existing?.createdAt ?? now,
-                              spotifyUserId: tokens.userId, spotifyName: tokens.displayName)
+                              spotifyUserId: tokens.userId, spotifyName: tokens.displayName, spotifySignedInAt: now)
         if let i = profiles.firstIndex(where: { $0.id == profileId }) { profiles[i] = updated } else { profiles.append(updated) }
         persist()
         return .success(updated)
+    }
+
+    /// The tokens a refresh wrote to the Keychain, here too (the in-memory copy a switch reuses).
+    func updateSpotify(_ tokens: SpotifyTokens, for id: String) {
+        guard profile(id) != nil else { return }
+        spotifyTokens[id] = tokens
     }
 
     /// A Spotify account's tokens (read once a run; an unsigned build keeps them for the run).
@@ -350,8 +358,8 @@ final class ProfileManager {
         switch p.service {
         case .subsonic: store.signIn(p.id) == nil
         case .appleMusic: false
-        // No tokens, or signed in before a required scope (Android ProfileState.NeedsReconnect).
-        case .spotify: store.spotify(p.id).map(\.missingRequiredScopes) ?? true
+        // No tokens, signed in before a required scope, or revoked (Android ProfileState.NeedsReconnect).
+        case .spotify: spotifyRevoked.contains(p.id) || (store.spotify(p.id).map(\.missingRequiredScopes) ?? true)
         }
     }
 
@@ -363,6 +371,11 @@ final class ProfileManager {
     }
 
     func clearFailure() { failure = nil }
+
+    /// Spotify accounts whose sign-in was revoked this run (invalid_grant): they ask to sign in again.
+    private(set) var spotifyRevoked: Set<String> = []
+
+    func markSpotifyRevoked(_ id: String) { spotifyRevoked.insert(id) }
 
     // MARK: Switching
 
@@ -500,6 +513,7 @@ final class ProfileManager {
         case .failure(.keychain(let status)):
             return "Couldn't save the sign-in (Keychain error \(status))"
         case .success(let saved):
+            spotifyRevoked.remove(saved.id)
             if activate || saved.id == activeId || activeId == nil {
                 commit(saved, probe: nil, account: nil)
             } else {
