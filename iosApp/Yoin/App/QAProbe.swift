@@ -41,8 +41,22 @@ enum QAProbe {
         print("[hitch] phase \(HitchMonitor.shared.phase)")
         switch cycle {
         case "np": model.setNowPlaying(expanded: open)
+        case "nptap":
+            // As a finger does it: down on the pill (prewarm), a tap's length, then open.
+            if open {
+                model.np.prewarm()
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(110))
+                    model.setNowPlaying(expanded: true)
+                }
+            } else {
+                model.setNowPlaying(expanded: false)
+            }
         case "search":
-            if open { model.openSearch(from: .bar) } else { withAnimation(Yoin.spatial) { model.searchActive = false } }
+            if open { model.openSearch(from: .bar) } else {
+                AppModel.dismissKeyboard()
+                withAnimation(Yoin.spatial) { model.searchActive = false }
+            }
         case "sheet":
             if open {
                 let p = model.playback

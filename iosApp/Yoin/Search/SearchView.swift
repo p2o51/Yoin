@@ -617,6 +617,9 @@ struct SearchView: View {
     }
 
     private func close() {
+        // The keyboard goes down first, on this frame (a ~30 ms stall), so the
+        // fold's first frames don't carry it.
+        if focused { AppModel.dismissKeyboard() }
         focused = false
         if let onClose { return onClose() }
         // The field folds back into the circle as Search fades out.

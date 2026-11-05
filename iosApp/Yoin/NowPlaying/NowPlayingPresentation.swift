@@ -29,7 +29,12 @@ final class NowPlayingPresentation {
     /// stays hidden until the spring settles, which is a while after the
     /// shape has visibly landed on it: a tap there meanwhile lands on the
     /// morph, so the morph takes it as the pill's tap and opens again.
-    var closing: Bool { mounted && !dragging && target == 0 }
+    var closing: Bool { mounted && !dragging && target == 0 && !warming }
+    /// Mounted at rest under the pill on touch-down (`prewarm`): the page's
+    /// first build runs while the finger is still down, not on the open's
+    /// first frame (60-150 ms on an iPhone Air).
+    private(set) var warming = false
+    @ObservationIgnored private var warmTask: Task<Void, Never>?
 
     /// Global frames of the bar's pill and its cover / title.
     var pillFrame: CGRect = .zero
@@ -61,6 +66,8 @@ final class NowPlayingPresentation {
     /// never restarts from rest.
     func show(_ open: Bool, velocity: CGFloat? = nil) {
         let to: CGFloat = open ? 1 : 0
+        warmTask?.cancel()
+        warming = false
         if open && !mounted {
             progress = 0
             setMounted(true)
@@ -83,6 +90,27 @@ final class NowPlayingPresentation {
             }
         }
     }
+
+    /// A finger went down on the pill: build the page now, folded at the pill
+    /// (the morph at 0 is the pill). No tap follows (a long-press, a scroll):
+    /// it comes down again after a beat.
+    func prewarm() {
+        guard !mounted else { return }
+        progress = 0
+        target = 0
+        warming = true
+        setMounted(true)
+        warmTask?.cancel()
+        warmTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.warmHoldMs))
+            guard let self, !Task.isCancelled, warming, !dragging, target == 0 else { return }
+            warming = false
+            setMounted(false)
+        }
+    }
+
+    /// How long a prewarmed page waits for its tap.
+    nonisolated static let warmHoldMs = 1200
 
     /// Launched open (`-screen np`): no morph.
     func snapOpen() {

@@ -38,7 +38,11 @@ struct ShellBar: View {
     private func longPress(_ which: ShellLongPress, _ action: @escaping () -> Void) -> some Gesture {
         LongPressGesture(minimumDuration: 0.45)
             // Touch down: a new touch, whatever the last one did.
-            .onChanged { _ in if longPressed == which { longPressed = nil } }
+            .onChanged { _ in
+                if longPressed == which { longPressed = nil }
+                // The pill: Now Playing builds while the finger is down.
+                if which == .pill, !model.isPad, !model.isIdle { model.np.prewarm() }
+            }
             .onEnded { _ in
                 longPressed = which
                 longPresses += 1

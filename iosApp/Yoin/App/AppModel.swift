@@ -502,6 +502,11 @@ final class AppModel {
         }
     }
 
+    /// Resigns whatever field has the keyboard, now (not on the next update).
+    static func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     func setNowPlaying(expanded: Bool) {
         withAnimation(Yoin.spatial) { npExpanded = expanded }
     }
