@@ -74,7 +74,8 @@ data class HomeAlbumMemoryMark(
 internal fun albumMemoryMarkOf(candidate: AlbumMemoryCandidate): HomeAlbumMemoryMark? {
     val notes = candidate.noteCount.coerceAtLeast(0)
     val albumRating = candidate.albumRating?.takeIf { rating -> rating > 0f }
-    val average = candidate.averageSongRating?.takeIf { rating -> rating > 0f && candidate.ratedTrackCount > 0 }
+    // A 0.0 track average is a score; only no rated track is none.
+    val average = candidate.averageSongRating?.takeIf { candidate.ratedTrackCount > 0 }
     val (kind, score) = when {
         albumRating != null -> MemoryScoreKind.ALBUM_RATING to albumRating
         average != null -> MemoryScoreKind.AVERAGE_TRACK_RATING to average

@@ -149,6 +149,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_29_30,
                 MIGRATION_30_31,
                 MIGRATION_31_32,
+                MIGRATION_32_33,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -822,6 +823,41 @@ class AppContainer(private val context: Context) {
 
         // v31 → v32: playlist cloud backups (docs/playlist-transfer.md §7), one row per playlist, synced as
         // playlist_backup. Additive.
+        /**
+         * v33: `local_ratings.rating` becomes nullable — null is "not rated",
+         * 0.0 a real score. Until now a stored 0 was both: the scrapbook's
+         * Clear wrote 0 ("a stored 0 is not rated"), and every surface but
+         * Now Playing's bar read 0 as unrated. A stored 0 keeps that reading
+         * here: it becomes NULL. SQLite can't drop NOT NULL in place, so the
+         * table is rebuilt.
+         */
+        val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `local_ratings_new` (
+                        `profileId` TEXT NOT NULL DEFAULT '',
+                        `songId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `rating` REAL,
+                        `serverRating` INTEGER NOT NULL,
+                        `needsSync` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `songId`, `provider`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "INSERT INTO `local_ratings_new` " +
+                        "(profileId, songId, provider, rating, serverRating, needsSync, updatedAt) " +
+                        "SELECT profileId, songId, provider, NULLIF(rating, 0), serverRating, needsSync, updatedAt " +
+                        "FROM `local_ratings`",
+                )
+                db.execSQL("DROP TABLE `local_ratings`")
+                db.execSQL("ALTER TABLE `local_ratings_new` RENAME TO `local_ratings`")
+            }
+        }
+
         val MIGRATION_31_32 = object : Migration(31, 32) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

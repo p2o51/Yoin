@@ -13,11 +13,17 @@ import com.gpo.yoin.data.sync.SyncFormat
 import com.gpo.yoin.data.sync.SyncKinds
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /**
  * `local_ratings` <-> [SyncKinds.TRACK_RATING], key = provider␟songId.
  *
- * Only the 0..10 rating syncs. `serverRating` / `needsSync` are this device's
+ * Only the 0..10 rating syncs. "Not rated" (a cleared row, rating null)
+ * travels as `rating: 0`, the format's original reading of 0 (older builds
+ * wrote 0 for a clear and read it as unrated); a real 0.0 score adds
+ * `"zero": true`, which older builds ignore. See [ratingFrom] / [projection].
+ * `serverRating` / `needsSync` are this device's
  * push state for the provider: a new row starts as already pushed (another
  * device owned the push), an existing row keeps its push state unless the
  * rating value itself changes.
@@ -47,7 +53,7 @@ class TrackRatingSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
         val songId = payload.requiredString("songId")?.takeIf(String::isNotEmpty) ?: return null
         val provider = payload.requiredString("provider")?.takeIf(String::isNotEmpty) ?: return null
         val rating = payload.rating("rating") ?: return null
-        return projection(songId, provider, rating)
+        return projection(songId, provider, ratingFrom(rating, payload))
     }
 
     override suspend fun apply(
@@ -63,12 +69,13 @@ class TrackRatingSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
                 ?: return@withTransaction ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null)
             val existing = dao.trackRating(profileId, songId, provider)
             val currentHash = existing?.let { projection(it.songId, it.provider, it.rating) }.hashOrNull()
-            val rating = payload.rating("rating")
+            val wire = payload.rating("rating")
             val matchesKey = payload.requiredString("songId") == songId &&
                 payload.requiredString("provider") == provider
-            if (rating == null || !matchesKey) {
+            if (wire == null || !matchesKey) {
                 return@withTransaction ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
             }
+            val rating = ratingFrom(wire, payload)
             if (currentHash != expectedLocalHash) {
                 return@withTransaction ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
             }
@@ -115,16 +122,27 @@ class TrackRatingSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
         }
     }
 
-    private fun projection(songId: String, provider: String, rating: Float) = JsonObject(
-        mapOf(
-            "songId" to jsonString(songId),
-            "provider" to jsonString(provider),
-            "rating" to jsonRating(rating),
-        ),
+    private fun projection(songId: String, provider: String, rating: Float?) = JsonObject(
+        buildMap {
+            put("songId", jsonString(songId))
+            put("provider", jsonString(provider))
+            put("rating", jsonRating(rating ?: 0f))
+            if (rating == 0f) put(ZERO, JsonPrimitive(true))
+        },
     )
 
     internal companion object {
-        /** Provider-native 0..5 stars from Yoin's 0..10 scale, as the repository computes it. */
-        fun serverRatingFor(rating: Float): Int = (rating / 2).roundToInt().coerceIn(0, 5)
+        /** Marks a real 0.0 score; a bare `rating: 0` is "not rated". */
+        const val ZERO = "zero"
+
+        /** Provider-native 0..5 stars from Yoin's 0..10 scale (none: 0), as the repository computes it. */
+        fun serverRatingFor(rating: Float?): Int = ((rating ?: 0f) / 2).roundToInt().coerceIn(0, 5)
+
+        /** The local rating a synced [wire] value means: 0 is "not rated" unless the payload marks it a score. */
+        fun ratingFrom(wire: Float, payload: JsonObject): Float? = when {
+            wire != 0f -> wire
+            (payload[ZERO] as? JsonPrimitive)?.booleanOrNull == true -> 0f
+            else -> null
+        }
     }
 }

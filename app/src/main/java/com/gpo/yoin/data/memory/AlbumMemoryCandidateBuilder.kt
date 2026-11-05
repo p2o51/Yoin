@@ -224,7 +224,9 @@ class AlbumMemoryCandidateBuilder(
         val album = runCatching { getAlbum(albumId) }.getOrNull()
         val tracks = album?.tracks.orEmpty()
         val ratings = loadTrackRatings(tracks)
-        val rated = ratings.values.filter { rating -> rating.rating > 0f }
+        // 0.0 is a score; a cleared rating (null) is not.
+        val ratedRows = ratings.values.filter { row -> row.rating != null }
+        val rated = ratedRows.mapNotNull(LocalRating::rating)
         val totalTracks = tracks.size.takeIf { it > 0 } ?: album?.songCount ?: 0
         val ratedTrackCount = rated.size
         val ratingCoverage = if (totalTracks > 0) {
@@ -233,7 +235,6 @@ class AlbumMemoryCandidateBuilder(
             0f
         }
         val averageSongRating = rated
-            .map(LocalRating::rating)
             .takeIf(List<Float>::isNotEmpty)
             ?.average()
             ?.toFloat()
@@ -249,7 +250,7 @@ class AlbumMemoryCandidateBuilder(
         // a write. Album notes are left out — nothing writes them yet.
         val lastWrittenAt = listOfNotNull(
             albumRating?.takeIf { it.rating > 0f || !it.review.isNullOrBlank() }?.updatedAt,
-            rated.maxOfOrNull(LocalRating::updatedAt),
+            ratedRows.maxOfOrNull(LocalRating::updatedAt),
             noteStats.lastUpdatedAt,
         ).maxOrNull()
         val askAiCount = countAskAiRows(tracks)

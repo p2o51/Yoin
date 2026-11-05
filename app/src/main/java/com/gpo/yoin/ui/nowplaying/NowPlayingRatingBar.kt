@@ -27,12 +27,16 @@ import com.gpo.yoin.ui.component.RatingSlider
  * as a press). The draft stays on the bar until the stored [rating] catches
  * up, so the fill never flicks back to the old value in between.
  *
+ * A song that was never rated (null [rating]) shows an empty bar with no
+ * number; the first tap or drag gives it a score. There is no clear here:
+ * only the album scrapbook takes a score back to "not rated".
+ *
  * @param songId the playing song: a new one cancels the old press and drops its draft.
  */
 @Composable
 internal fun NowPlayingRatingBar(
     songId: String,
-    rating: Float,
+    rating: Float?,
     onRatingCommit: (Float) -> Unit,
     modifier: Modifier = Modifier,
     orientation: Orientation = Orientation.Vertical

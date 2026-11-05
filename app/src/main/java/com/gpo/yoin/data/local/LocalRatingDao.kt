@@ -35,8 +35,8 @@ interface LocalRatingDao {
     ): Flow<List<LocalRating>>
 
     /**
-     * Per album, this profile's track ratings (above 0): how many tracks and
-     * the newest rating. A rating carries no album, so the album is the one
+     * Per album, this profile's track ratings (any score, 0.0 included; a
+     * cleared one is no rating): how many tracks and the newest rating. A rating carries no album, so the album is the one
      * play_history recorded for the track, or the one track_album_links knows
      * (rated on an album page, or imported, but never played in Yoin); a track
      * known to neither belongs to none. Most-rated albums first.
@@ -50,7 +50,7 @@ interface LocalRatingDao {
             "UNION SELECT trackId AS songId, albumId FROM track_album_links " +
             "WHERE profileId = :profileId AND provider = :provider AND albumId != '') ph " +
             "ON ph.songId = r.songId " +
-            "WHERE r.profileId = :profileId AND r.provider = :provider AND r.rating > 0 " +
+            "WHERE r.profileId = :profileId AND r.provider = :provider AND r.rating IS NOT NULL " +
             "GROUP BY ph.albumId " +
             "ORDER BY signalCount DESC, lastWrittenAt DESC LIMIT :limit",
     )
@@ -87,14 +87,14 @@ interface LocalRatingDao {
 
     /**
      * The provider took [rating]: clear the row's needsSync — only while the
-     * row still holds that rating. A newer rating written meanwhile keeps its
-     * value and its flag; a late answer about an older one never rolls it back.
+     * row still holds that rating (null: still cleared; `IS` matches NULL
+     * too). A newer rating written meanwhile keeps its value and its flag; a late answer about an older one never rolls it back.
      */
     @Query(
         "UPDATE local_ratings SET needsSync = 0 " +
-            "WHERE profileId = :profileId AND songId = :songId AND provider = :provider AND rating = :rating"
+            "WHERE profileId = :profileId AND songId = :songId AND provider = :provider AND rating IS :rating"
     )
-    suspend fun markSynced(songId: String, provider: String, profileId: String, rating: Float): Int
+    suspend fun markSynced(songId: String, provider: String, profileId: String, rating: Float?): Int
 
     @Query("DELETE FROM local_ratings")
     suspend fun deleteAll()

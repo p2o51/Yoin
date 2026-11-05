@@ -44,9 +44,9 @@ internal class AlbumMemoryFacts(
 ) {
     val songs: List<Track> get() = album?.tracks.orEmpty()
 
-    /** The album's rated tracks (a stored 0 is "not rated"), in album order. */
+    /** The album's rated tracks (0.0 is a score; a cleared rating, null, is not), in album order. */
     val rated: List<LocalRating> = songs.mapNotNull { song ->
-        ratings[song.id]?.takeIf { localRating -> localRating.rating > 0f }
+        ratings[song.id]?.takeIf { localRating -> localRating.rating != null }
     }
 
     /** The writing Yoin's AI title is drawn from (design.md 拟题豁免): the review, else the newest note. */
@@ -226,7 +226,7 @@ internal fun composeAlbumMemoryCopy(
             title = song.title.orEmpty(),
             artist = song.artist.orEmpty(),
             durationSeconds = song.durationSec,
-            rating = facts.ratings[song.id]?.rating?.takeIf { rating -> rating > 0f },
+            rating = facts.ratings[song.id]?.rating,
             number = song.trackNumber ?: (index + 1),
             trackId = song.id.rawId,
             playbackIndex = index,

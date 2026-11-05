@@ -86,6 +86,8 @@
 
     <string name="cmp_rating_state">评分 %1$s / 10</string>
 
+    <string name="cmp_rating_state_unrated">未评分</string>
+
     <string name="cmp_bar_label_home">首页</string>
     <string name="cmp_bar_cd_home">首页</string>
     <string name="cmp_bar_label_library">资料库</string>

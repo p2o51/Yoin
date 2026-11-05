@@ -19,7 +19,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -51,7 +53,9 @@ import kotlin.math.roundToInt
  * orientations share the exact same fill spring, label crossfade and rating
  * conversion — only the layout axis + gesture coordinate differ.
  *
- * @param rating current rating 0.0–10.0
+ * @param rating current rating 0.0–10.0, or null when not rated: the bar is
+ *   empty and shows no number (a 0.0 shows "0.0"). The first tap or drag
+ *   sets a score through [onRatingChange], as on any other value.
  * @param onRatingChange called with the new rating (step 0.1)
  * @param orientation track axis; [Orientation.Vertical] fills from the bottom,
  *   [Orientation.Horizontal] fills from the start (left)
@@ -67,7 +71,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun RatingSlider(
-    rating: Float,
+    rating: Float?,
     onRatingChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     orientation: Orientation = Orientation.Vertical,
@@ -77,14 +81,16 @@ fun RatingSlider(
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
-    val ratingState = stringResource(R.string.cmp_rating_state, formatRatingLabel(rating))
+    val label = ratingLabel(rating)
+    val ratingState = label?.let { stringResource(R.string.cmp_rating_state, it) }
+        ?: stringResource(R.string.cmp_rating_state_unrated)
     // An item's gesture outlives recompositions: read the callers' latest
     // lambdas, not the first ones.
     val latestOnRatingChange by rememberUpdatedState(onRatingChange)
     val latestOnInteractionChange by rememberUpdatedState(onInteractionChange)
     val latestGestureKey by rememberUpdatedState(gestureKey)
     val animatedFraction by animateFloatAsState(
-        targetValue = (rating / 10f).coerceIn(0f, 1f),
+        targetValue = ratingFillFraction(rating),
         animationSpec = YoinMotion.spatialSpring(),
         label = "ratingFill",
     )
@@ -105,7 +111,7 @@ fun RatingSlider(
             }
             .semantics {
                 progressBarRangeInfo = ProgressBarRangeInfo(
-                    current = rating.coerceIn(0f, 10f),
+                    current = (rating ?: 0f).coerceIn(0f, 10f),
                     range = 0f..10f,
                     // 0.1-step control: 99 discrete values between the endpoints.
                     steps = 99,
@@ -213,10 +219,19 @@ fun RatingSlider(
             animationSpec = YoinMotion.defaultEffectsSpec(),
             label = "ratingLabelColor",
         )
+        // Unrated: no number. The last one fades out (and a first score fades
+        // in) on the effects spring instead of popping.
+        val lastLabel = remember { mutableStateOf("") }
+        SideEffect { if (label != null) lastLabel.value = label }
+        val labelAlpha by animateFloatAsState(
+            targetValue = if (label != null) 1f else 0f,
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "ratingLabelAlpha",
+        )
         Text(
-            text = formatRatingLabel(rating),
+            text = label ?: lastLabel.value,
             style = MaterialTheme.typography.titleLarge.withTabularFigures(),
-            color = labelColor,
+            color = labelColor.copy(alpha = labelColor.alpha * labelAlpha),
             maxLines = 1,
             softWrap = false,
             modifier = Modifier
@@ -238,13 +253,6 @@ private fun ratingFractionFrom(position: Float, dimensionPx: Int, orientation: O
         Orientation.Horizontal -> position / dimensionPx
     }
 
-private fun formatRatingLabel(rating: Float): String {
-    val clamped = rating.coerceIn(0f, 10f)
-    val roundedTenths = (clamped * 10f).roundToInt()
-    if (roundedTenths >= 100) return "10"
-    return "%d.%d".format(roundedTenths / 10, roundedTenths % 10)
-}
-
 // ── Previews ────────────────────────────────────────────────────────────
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
@@ -261,10 +269,22 @@ private fun RatingSliderPreview() {
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
-private fun RatingSliderEmptyPreview() {
+private fun RatingSliderZeroPreview() {
     YoinTheme {
         RatingSlider(
             rating = 0f,
+            onRatingChange = {},
+            modifier = Modifier.height(200.dp),
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun RatingSliderUnratedPreview() {
+    YoinTheme {
+        RatingSlider(
+            rating = null,
             onRatingChange = {},
             modifier = Modifier.height(200.dp),
         )

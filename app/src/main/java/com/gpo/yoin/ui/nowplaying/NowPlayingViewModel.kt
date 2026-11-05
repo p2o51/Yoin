@@ -332,9 +332,9 @@ class NowPlayingViewModel(
 
     private val ratingFlow = currentSongId.flatMapLatest { songId ->
         if (songId != null) {
-            repository.getRating(songId).map { it?.rating ?: 0f }
+            repository.getRating(songId).map { it?.rating }
         } else {
-            flowOf(0f)
+            flowOf(null)
         }
     }
 

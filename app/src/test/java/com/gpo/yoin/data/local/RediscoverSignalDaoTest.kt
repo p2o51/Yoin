@@ -89,7 +89,7 @@ class RediscoverSignalDaoTest {
         plays.insert(play("b1", albumId = "album-2", playedAt = 40L))
         ratings.upsert(rating("a1", 8f, updatedAt = 100L))
         // A cleared rating is no memory.
-        ratings.upsert(rating("a2", 0f, updatedAt = 500L))
+        ratings.upsert(rating("a2", null, updatedAt = 500L))
         ratings.upsert(rating("b1", 7f, updatedAt = 200L))
         ratings.upsert(rating("a2", 9f, updatedAt = 900L, profileId = "profile-b"))
         ratings.upsert(rating("unplayed", 9f, updatedAt = 900L))
@@ -186,7 +186,7 @@ class RediscoverSignalDaoTest {
         plays.insert(play("elsewhere", albumId = "album-1", playedAt = NOW - 300 * DAY, profileId = "profile-b"))
         ratings.upsert(rating("rated", 9f, updatedAt = 1L))
         ratings.upsert(rating("recent", 8f, updatedAt = 1L))
-        ratings.upsert(rating("zero", 0f, updatedAt = 1L))
+        ratings.upsert(rating("zero", null, updatedAt = 1L))
         ratings.upsert(rating("elsewhere", 9f, updatedAt = 1L, profileId = "profile-b"))
         notes.insert(note("n1", trackId = "noted", content = "older words", updatedAt = 100L))
         notes.insert(note("n2", trackId = "noted", content = "newest words", updatedAt = 300L))
@@ -276,7 +276,7 @@ class RediscoverSignalDaoTest {
 
     private fun rating(
         songId: String,
-        value: Float,
+        value: Float?,
         updatedAt: Long,
         profileId: String = "profile-a",
     ): LocalRating = LocalRating(
