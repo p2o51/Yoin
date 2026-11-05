@@ -4,6 +4,7 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import com.gpo.yoin.ui.component.RatingSlider
 
 /**
@@ -36,6 +40,18 @@ internal fun NowPlayingRatingBar(
     var draft by remember(songId) { mutableStateOf<Float?>(null) }
     var held by remember(songId) { mutableStateOf(false) }
     val latestOnRatingCommit by rememberUpdatedState(onRatingCommit)
+    // Action lights (ActionGlow.kt): a column up the bar while held, a band
+    // across the room when the rating lands, a drain when it is cleared.
+    val glowSignal = LocalNowPlayingTransportSignal.current
+    val glowBounds = remember { GlowBounds() }
+    val vertical = orientation == Orientation.Vertical
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    fun holdAt(value: Float) = GlowHold(
+        kind = GlowHoldKind.Rating,
+        pointRoot = ratingPoint(glowBounds.rootBounds, value, vertical, rtl),
+        barRoot = glowBounds.rootBounds,
+        value = value,
+    )
     // The stored rating moved — the commit landed, or a write from elsewhere:
     // it is what the bar shows again, unless a finger is on it.
     LaunchedEffect(songId, rating) {
@@ -43,13 +59,33 @@ internal fun NowPlayingRatingBar(
     }
     RatingSlider(
         rating = draft ?: rating,
-        onRatingChange = { value -> draft = value },
+        onRatingChange = { value ->
+            draft = value
+            if (held && glowSignal != null && !glowBounds.rootBounds.isEmpty) glowSignal.glowHold = holdAt(value)
+        },
         orientation = orientation,
         gestureKey = songId,
         onInteractionChange = { active ->
             held = active
-            if (!active) draft?.let(latestOnRatingCommit)
+            if (active) {
+                if (glowSignal != null && !glowBounds.rootBounds.isEmpty) glowSignal.glowHold = holdAt(draft ?: rating)
+            } else {
+                glowSignal?.glowHold = null
+                draft?.let { value ->
+                    glowSignal?.glow(
+                        ratingGlowKind(value),
+                        Rect(ratingPoint(glowBounds.rootBounds, value, vertical, rtl), 1f),
+                        value = value,
+                    )
+                    latestOnRatingCommit(value)
+                }
+            }
         },
-        modifier = modifier
+        modifier = modifier.trackGlowBounds(glowBounds)
     )
+    // A new song cancels the press without a lift (RatingSlider's gestureKey):
+    // drop its light too, or the background would never come to rest.
+    DisposableEffect(glowSignal, songId) {
+        onDispose { glowSignal?.glowHold = null }
+    }
 }

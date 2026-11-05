@@ -37,6 +37,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
@@ -54,6 +55,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -162,6 +165,9 @@ internal fun PlaybackControls(
         // Each key's outline (root px), for its ring of tap dots: plain slots,
         // written on layout, read on tap — never composed.
         val keyBounds = remember { arrayOf(Rect.Zero, Rect.Zero, Rect.Zero) }
+        // The wave bar's light: follows a scrub, flashes where the playhead lands.
+        val waveGlow = remember(transportSignal) { WaveGlow(transportSignal) }
+        DisposableEffect(waveGlow) { onDispose { waveGlow.scrub(null) } }
         // PREVIOUS is stamped with the playhead it was tapped at, and every tick
         // reports the playhead back: a PREVIOUS the player answered with a
         // restart (no song change) is spent the moment the playhead lands back
@@ -501,12 +507,18 @@ internal fun PlaybackControls(
                                     progress = progress,
                                     buffered = buffered,
                                     durationMs = durationMs,
-                                    onSeek = onSeek,
+                                    onSeek = { fraction ->
+                                        waveGlow.release(fraction)
+                                        onSeek(fraction)
+                                    },
                                     isPlaying = isPlaying,
                                     noteAnchorsMs = noteAnchorsMs,
                                     animating = live,
                                     actedScrub = actedScrub,
-                                    modifier = Modifier.weight(1f),
+                                    onScrubPreview = waveGlow::scrub,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .trackGlowBounds(waveGlow.bounds),
                                 )
                                 if (labelsInline) {
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -620,6 +632,21 @@ internal fun PlayModeButton(
 ) {
     val haptics = rememberYoinHaptics()
     val cycle = remember { PlayModeCycle() }
+    // Action lights (ActionGlow.kt): shuffle and repeat changes light from the key.
+    val glowSignal = LocalNowPlayingTransportSignal.current
+    val glowBounds = remember { GlowBounds() }
+    val glowRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    fun glowFor(to: PlayMode, half: Int) {
+        val kind = playModeGlowKind(playMode, to) ?: return
+        val b = glowBounds.rootBounds
+        // half: 0 the whole key, −1 the shuffle segment, +1 the repeat segment.
+        val anchor = when {
+            half == 0 -> b
+            (half < 0) != glowRtl -> Rect(b.left, b.top, b.center.x, b.bottom)
+            else -> Rect(b.center.x, b.top, b.right, b.bottom)
+        }
+        glowSignal?.glow(kind, anchor)
+    }
     var split by splitState
     // One more on every tap while split: the merge waits for a quiet spell.
     var splitTouches by remember { mutableIntStateOf(0) }
@@ -680,6 +707,7 @@ internal fun PlayModeButton(
         modifier = modifier
             .width(width)
             .height(height)
+            .trackGlowBounds(glowBounds)
             .then(
                 if (split) {
                     Modifier
@@ -698,6 +726,7 @@ internal fun PlayModeButton(
                             onClick = {
                                 haptics.performTick()
                                 val next = playMode.next()
+                                glowFor(next, half = 0)
                                 onSetPlayMode(next)
                                 val roundTheCycle = cycle.onTap(playMode, next, SystemClock.uptimeMillis())
                                 if (showSplitOnFullCycle && roundTheCycle) {
@@ -725,7 +754,9 @@ internal fun PlayModeButton(
                 onToggle = {
                     haptics.performTick()
                     splitTouches += 1
-                    onSetPlayMode(playMode.withShuffle(!playMode.shuffle))
+                    val next = playMode.withShuffle(!playMode.shuffle)
+                    glowFor(next, half = -1)
+                    onSetPlayMode(next)
                 },
                 onMerge = merge,
             )
@@ -740,7 +771,9 @@ internal fun PlayModeButton(
                 onToggle = {
                     haptics.performTick()
                     splitTouches += 1
-                    onSetPlayMode(playMode.nextRepeat())
+                    val next = playMode.nextRepeat()
+                    glowFor(next, half = 1)
+                    onSetPlayMode(next)
                 },
                 onMerge = merge,
             )

@@ -1,4 +1,5 @@
 package com.gpo.yoin.ui.nowplaying
+import android.os.SystemClock
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -87,6 +88,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -169,7 +171,6 @@ import com.gpo.yoin.ui.component.NoteWriteBarDefaults
 import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.SongInfoDisplay
-import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.component.horizontalFadeMask
@@ -391,6 +392,77 @@ fun NowPlayingScreen(
     // the finger: gather while held, ripple/sink from the tapped button on
     // commit. The lyrics column and the outro hand-over publish here too.
     val transportSignal = remember { NowPlayingTransportSignal() }
+
+    // Action lights (ActionGlow.kt) for the actions decided up here; the
+    // controls (heart, rating, play mode, wave bar) fire their own.
+    val latestOnSaveNote by rememberUpdatedState(onSaveNote)
+    val latestOnSelectDevice by rememberUpdatedState(onSelectDevice)
+    val latestOnApplySearchResult by rememberUpdatedState(onApplyLyricsSearchResult)
+    val latestOnApplyLyrics by rememberUpdatedState(onApplyLyrics)
+    val latestRequestNoteDelete by rememberUpdatedState(requestNoteDelete)
+    val glowSaveNote: (NoteSaveRequest) -> Unit = remember(transportSignal) {
+        { request ->
+            val signal = transportSignal
+            val from = signal.anchorOf(GlowAnchor.Write)
+                ?: signal.lyricsAreaRoot?.let { Rect(Offset(it.center.x, it.bottom), 1f) }
+            signal.glow(ActionGlowKind.NoteSave, from, targetY = signal.currentLineRootY ?: Float.NaN)
+            latestOnSaveNote(request)
+        }
+    }
+    val glowDeleteNote: (String) -> Unit = remember(transportSignal) {
+        { id ->
+            val signal = transportSignal
+            signal.glow(
+                ActionGlowKind.NoteDelete,
+                signal.lyricsAreaRoot ?: signal.anchorOf(GlowAnchor.Write),
+                targetY = signal.currentLineRootY ?: Float.NaN,
+            )
+            latestRequestNoteDelete(id)
+        }
+    }
+    val glowSelectDevice: (YoinDevice) -> Unit = remember(transportSignal) {
+        { device ->
+            transportSignal.glow(ActionGlowKind.DeviceHandoff, transportSignal.anchorOf(GlowAnchor.Devices))
+            latestOnSelectDevice(device)
+        }
+    }
+    val revealLyrics = remember(transportSignal) {
+        { transportSignal.glow(ActionGlowKind.LyricsReveal, null, areaRoot = transportSignal.lyricsAreaRoot) }
+    }
+    // Applying lyrics (a search result, the editor) is asynchronous and can
+    // fail: the reveal waits for the new lines to arrive on this song.
+    var lyricsRevealOwedAt by remember { mutableLongStateOf(0L) }
+    val glowApplySearchResult: (LyricsSearchResultUi) -> Unit = remember {
+        { result ->
+            lyricsRevealOwedAt = SystemClock.uptimeMillis()
+            latestOnApplySearchResult(result)
+        }
+    }
+    val glowApplyLyrics: (String) -> Unit = remember {
+        { text ->
+            lyricsRevealOwedAt = SystemClock.uptimeMillis()
+            latestOnApplyLyrics(text)
+        }
+    }
+    val revealSongId = (uiState as? NowPlayingUiState.Playing)?.songId
+    val revealLines = (uiState as? NowPlayingUiState.Playing)?.lyrics
+    LaunchedEffect(revealSongId) { lyricsRevealOwedAt = 0L }
+    LaunchedEffect(revealLines) {
+        val owed = lyricsRevealOwedAt
+        if (owed == 0L || revealLines.isNullOrEmpty()) return@LaunchedEffect
+        lyricsRevealOwedAt = 0L
+        if (SystemClock.uptimeMillis() - owed <= LyricsRevealWaitMs) revealLyrics()
+    }
+    // A translation: the slow sweep while it is fetched, each line lights once when it lands.
+    val translating = (uiState as? NowPlayingUiState.Playing)?.lyricsActionInFlight == LyricsAction.Translate
+    val translationShown = (uiState as? NowPlayingUiState.Playing)?.showLyricsTranslation == true
+    val latestTranslationShown by rememberUpdatedState(translationShown)
+    var wasTranslating by remember { mutableStateOf(false) }
+    LaunchedEffect(translating) {
+        transportSignal.lyricsWaiting = translating
+        if (wasTranslating && !translating && latestTranslationShown) revealLyrics()
+        wasTranslating = translating
+    }
     // Every user seek (lyric line, note row, wave bar) tells the background
     // first: the player may buffer at the new spot, and that dip is the
     // seek's, not a play/pause (NowPlayingTransportSignal.recordSeek).
@@ -493,10 +565,10 @@ fun NowPlayingScreen(
                     onOpenLyricsSearch = onOpenLyricsSearch,
                     onLyricsSearchQueryChange = onLyricsSearchQueryChange,
                     onSearchLyrics = onSearchLyrics,
-                    onApplyLyricsSearchResult = onApplyLyricsSearchResult,
+                    onApplyLyricsSearchResult = glowApplySearchResult,
                     onDismissLyricsSearch = onDismissLyricsSearch,
                     onTranslateLyrics = onTranslateLyrics,
-                    onApplyLyrics = onApplyLyrics,
+                    onApplyLyrics = glowApplyLyrics,
                     onLyricsMessage = onLyricsMessage,
                     onRatingChange = onRatingChange,
                     onToggleFavorite = onToggleFavorite,
@@ -525,14 +597,14 @@ fun NowPlayingScreen(
                     onStageBack = onStageBack,
                     onDetailPageChange = onDetailPageChange,
                     notesState = visibleNotes,
-                    onSaveNote = onSaveNote,
+                    onSaveNote = glowSaveNote,
                     noteSortMode = noteSortMode,
                     onNoteSortModeChange = { noteSortMode = it },
                     noteDraft = noteDraft,
-                    onDeleteNote = requestNoteDelete,
+                    onDeleteNote = glowDeleteNote,
                     devicesState = devicesState,
                     onRefreshDevices = onRefreshDevices,
-                    onSelectDevice = onSelectDevice,
+                    onSelectDevice = glowSelectDevice,
                     castState = castState,
                     onCastClick = onCastClick,
                     sharedTransitionScope = sharedTransitionScope,
@@ -1844,7 +1916,7 @@ private fun CompactPlayingContent(
                                         )
                                     }
                                     if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
-                                        TrackLibraryButton(
+                                        NowPlayingLibraryButton(
                                             membership = state.libraryMembership,
                                             isWorking = state.libraryActionInFlight,
                                             onClick = onAddCurrentToLibrary,
@@ -2739,7 +2811,7 @@ private fun WidePlayingContent(
                             )
                         }
                         if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
-                            TrackLibraryButton(
+                            NowPlayingLibraryButton(
                                 membership = state.libraryMembership,
                                 isWorking = state.libraryActionInFlight,
                                 onClick = onAddCurrentToLibrary,
@@ -3308,7 +3380,7 @@ private fun LandscapePlayingContent(
                     }
                     if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
                         Spacer(modifier = Modifier.width(12.dp))
-                        TrackLibraryButton(
+                        NowPlayingLibraryButton(
                             membership = state.libraryMembership,
                             isWorking = state.libraryActionInFlight,
                             onClick = onAddCurrentToLibrary,
@@ -3982,7 +4054,7 @@ private fun TabletopPlayingContent(
                 verticalArrangement = Arrangement.Bottom,
             ) {
                 if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) {
-                    TrackLibraryButton(
+                    NowPlayingLibraryButton(
                         membership = state.libraryMembership,
                         isWorking = state.libraryActionInFlight,
                         onClick = onAddCurrentToLibrary,
@@ -5669,6 +5741,9 @@ internal fun FavoriteButton(
         // and put both click + long-click on the same combinedClickable so
         // gesture dispatch stays on one clickable node.
         val interactionSource = remember { MutableInteractionSource() }
+        // Action lights (ActionGlow.kt): the heart fills or empties with a light from itself.
+        val glowSignal = LocalNowPlayingTransportSignal.current
+        val glowBounds = remember { GlowBounds() }
         var tapPulse by remember { mutableIntStateOf(0) }
         val bounce = remember { Animatable(1f) }
         val bounceSpec = YoinMotion.defaultSpatialSpec<Float>()
@@ -5685,6 +5760,7 @@ internal fun FavoriteButton(
             modifier = modifier
                 .size(44.dp)
                 .minimumTouchTarget()
+                .trackGlowBounds(glowBounds)
                 .graphicsLayer {
                     scaleX = bounce.value
                     scaleY = bounce.value
@@ -5701,11 +5777,16 @@ internal fun FavoriteButton(
                         } else {
                             haptics.performTick()
                         }
+                        glowSignal?.glow(
+                            if (isStarred) ActionGlowKind.FavoriteOff else ActionGlowKind.FavoriteOn,
+                            glowBounds.rootBounds,
+                        )
                         onClick()
                     },
                     onLongClick = onLongClick?.let { longClick ->
                         {
                             haptics.performLongPress()
+                            glowSignal?.glow(ActionGlowKind.GatherInto, glowBounds.rootBounds)
                             longClick()
                         }
                     },
@@ -6134,3 +6215,6 @@ private const val FocusIdleMs = 4_000L
 
 // Smoothstep from opaque to clear: no visible onset line.
 private val RunOnFadeStops = listOf(1f, 0.896f, 0.648f, 0.352f, 0.104f, 0f).map { Color.Black.copy(alpha = it) }
+
+/** New lyrics landing this long after an apply still get its reveal. */
+private const val LyricsRevealWaitMs = 15_000L
