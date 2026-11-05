@@ -31,6 +31,8 @@ final class MacLibrary {
     private(set) var artists: [LibraryItem] = []
     private(set) var songs: [PlaylistEntry] = []
     private(set) var albumDetails: [String: Album] = [:]
+    private(set) var playlists: [LibraryItem] = []
+    private(set) var playlistDetails: [String: PlaylistInfo] = [:]
     private(set) var artistPages: [String: ArtistPage] = [:]
     private(set) var phases: [String: Phase] = [:]
     /// Hearts flipped here before the server's lists catch up (key: "song:id", "album:id", "artist:id").
@@ -60,6 +62,8 @@ final class MacLibrary {
         inflight.values.forEach { $0.cancel() }
         inflight = [:]
         inLibrary = [:]
+        playlists = []
+        playlistDetails = [:]
         home = Home()
         albums = []
         artists = []
@@ -204,6 +208,49 @@ final class MacLibrary {
     }
 
     func album(_ id: String) -> Album? { albumDetails[id] }
+
+    func playlist(_ id: String) -> PlaylistInfo? { playlistDetails[id] }
+
+    func loadPlaylists(force: Bool = false) async {
+        if apple != nil {
+            await runApple("playlists", force: force) { a, live in
+                let list = try await a.libraryPlaylists()
+                guard live() else { return }
+                self.playlists = list
+            }
+            return
+        }
+        await run("playlists", force: force) { client, m, live in
+            let list = try await client.getPlaylists()
+            guard live() else { return }
+            self.playlists = list.map(m.playlistItem)
+        }
+    }
+
+    func loadPlaylist(_ id: String, force: Bool = false) async {
+        if apple != nil {
+            await runApple("playlist:\(id)", force: force) { a, live in
+                guard let p = try await a.playlist(id), live() else { return }
+                self.playlistDetails[id] = p
+            }
+            return
+        }
+        await run("playlist:\(id)", force: force) { client, m, live in
+            guard let d = try await client.getPlaylist(id: id), live() else { return }
+            self.playlistDetails[id] = m.playlist(d)
+        }
+    }
+
+    /// Appends songs to a Subsonic playlist (Apple Music playlists stay read-only on the Mac).
+    func add(songIds: [String], toPlaylist id: String) async throws {
+        guard let client else { throw AppleMusicSource.RequestError(message: "Not available for this account") }
+        let gen = generation
+        try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil, songIdsToAdd: songIds,
+                                        songIndexesToRemove: [])
+        guard gen == generation else { return }
+        await loadPlaylist(id, force: true)
+        await loadPlaylists(force: true)
+    }
 
     func loadAlbum(_ id: String, force: Bool = false) async {
         if apple != nil {

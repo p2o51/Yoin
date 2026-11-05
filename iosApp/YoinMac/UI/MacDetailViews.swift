@@ -12,6 +12,7 @@ struct MacDetailPage: View {
             switch detail {
             case .album(let a): MacAlbumDetail(seed: a, leadingInset: asColumn ? 0 : 0)
             case .artist(let id, let name): MacArtistDetail(id: id, name: name)
+            case .playlist(let id, let title): MacPlaylistDetail(id: id, title: title)
             }
             GlassCircleButton(icon: asColumn && model.details.count <= 1 ? "close" : "back") { model.closeDetail() }
                 .padding(.top, 12)
@@ -201,5 +202,52 @@ struct DetailAction: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A playlist page: the album page's header and actions over its songs, each with its own cover.
+struct MacPlaylistDetail: View {
+    var id: String
+    var title: String
+    @Environment(MacModel.self) private var model
+
+    var body: some View {
+        let p = model.library.playlist(id)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHeader(palette: p?.palette ?? MacArtistDetail.placeholder(id), eyebrow: "Playlist",
+                             title: p?.title ?? title, subtitle: p?.owner.isEmpty == false ? p?.owner : nil,
+                             meta: p.map(meta) ?? "") {}
+                if let p, !p.entries.isEmpty {
+                    HStack(spacing: 10) {
+                        DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(p.entries) }
+                        DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) {
+                            model.play(playlist: id, shuffle: true)
+                        }
+                    }
+                    .padding(.bottom, 18)
+                    VStack(spacing: 2) {
+                        ForEach(Array(p.entries.enumerated()), id: \.offset) { i, e in
+                            TrackRow(entry: e, showCover: true) { model.play(p.entries, startAt: i) }
+                        }
+                    }
+                }
+                if p == nil || p?.entries.isEmpty == true {
+                    PhaseNote(phase: model.library.phase("playlist:\(id)"), empty: true, emptyText: "No songs") {
+                        Task { await model.library.loadPlaylist(id, force: true) }
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 60)
+            .padding(.bottom, 130)
+        }
+        .task(id: id) { await model.library.loadPlaylist(id) }
+    }
+
+    private func meta(_ p: PlaylistInfo) -> String {
+        let n = p.entries.count
+        let mins = p.entries.reduce(0) { $0 + $1.track.durationSec } / 60
+        return "\(n) \(n == 1 ? "song" : "songs")   \(mins) min"
     }
 }

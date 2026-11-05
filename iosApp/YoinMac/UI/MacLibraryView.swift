@@ -25,6 +25,13 @@ struct MacLibraryView: View {
                     PhaseNote(phase: lib.phase("artists"), empty: lib.artists.isEmpty, emptyText: "No artists") {
                         Task { await lib.loadArtists(force: true) }
                     }
+                case .playlists:
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
+                        ForEach(lib.playlists, id: \.id) { PlaylistTile(item: $0) }
+                    }
+                    PhaseNote(phase: lib.phase("playlists"), empty: lib.playlists.isEmpty, emptyText: "No playlists") {
+                        Task { await lib.loadPlaylists(force: true) }
+                    }
                 case .downloads:
                     MacDownloadsList()
                 case .songs:
@@ -51,6 +58,7 @@ struct MacLibraryView: View {
             case .albums: await lib.loadAlbums()
             case .artists: await lib.loadArtists()
             case .songs: await lib.loadSongs()
+            case .playlists: await lib.loadPlaylists()
             case .downloads: break
             }
         }
@@ -143,5 +151,31 @@ struct MacDownloadsList: View {
         case .none: ""
         }
         return [e.collection.subtitle, state].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  ")
+    }
+}
+
+/// A playlist in the grid: its cover (a rounded square), name and song count.
+struct PlaylistTile: View {
+    var item: LibraryItem
+    @Environment(MacModel.self) private var model
+    @State private var hover = false
+
+    var body: some View {
+        Button { model.open(.playlist(id: item.id.rawId, title: item.title)) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                MacCover(palette: item.palette)
+                    .scaleEffect(hover ? 1.03 : 1)
+                Text(item.title).font(.gsf(14, .semibold)).foregroundStyle(Yoin.ink).lineLimit(1).padding(.top, 8)
+                Text(item.count.map { "\($0) \($0 == 1 ? "song" : "songs")" } ?? item.subtitle)
+                    .font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(Yoin.spatialFast) { hover = h } }
+        .contextMenu {
+            Button("Play") { model.play(playlist: item.id.rawId) }
+            Button("Shuffle") { model.play(playlist: item.id.rawId, shuffle: true) }
+        }
     }
 }

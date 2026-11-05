@@ -198,6 +198,15 @@ struct SongMenu: View {
         }
         if !model.session.isAppleMusic { rateMenu(id: id, rating: rating) }
         if model.session.client != nil {
+            Menu("Add to Playlist") {
+                ForEach(model.library.playlists, id: \.id) { p in
+                    Button(p.title) {
+                        Task { try? await model.library.add(songIds: [id], toPlaylist: p.id.rawId) }
+                    }
+                }
+                if model.library.playlists.isEmpty { Text("No playlists") }
+            }
+            .task { await model.library.loadPlaylists() }
             Button(OfflineDownloads.rowLabel(OfflineDownloads.shared.status(OfflineDownloads.songKey(id)))) {
                 model.toggleDownload(song: entry)
             }

@@ -10,12 +10,13 @@ import YoinShared
 final class MacModel {
     enum Tab: Hashable { case home, library }
     enum LibraryKind: String, CaseIterable, Hashable {
-        case albums = "Albums", artists = "Artists", songs = "Songs", downloads = "Downloads"
+        case albums = "Albums", artists = "Artists", playlists = "Playlists", songs = "Songs", downloads = "Downloads"
     }
 
     enum Detail: Hashable {
         case album(Album)
         case artist(id: String, name: String)
+        case playlist(id: String, title: String)
     }
 
     /// Now Playing's one chain (docs/adaptive-principles.md): closed → side panel → full window; focus is a
@@ -275,6 +276,20 @@ final class MacModel {
 
     /// The account in use changed: its downloads run, another's wait.
     func accountDidChange() { OfflineDownloads.shared.accountChanged() }
+
+    /// A playlist's songs, shuffled or in order (the play mode stays the listener's).
+    func play(playlist id: String, shuffle: Bool = false) {
+        playRequest += 1
+        let token = playRequest
+        let gen = library.accountGeneration
+        Task {
+            await library.loadPlaylist(id)
+            guard token == playRequest, gen == library.accountGeneration,
+                  var entries = library.playlist(id)?.entries, !entries.isEmpty else { return }
+            if shuffle { entries.shuffle() }
+            play(entries)
+        }
+    }
 
     /// Empties what's after the current song.
     func clearUpcoming() {
