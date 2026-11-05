@@ -696,6 +696,7 @@ class AlbumDetailViewModel(
                 }
             }
             is ScrapEdit.Regenerate -> regenerateFromScrapbook(edit)
+            is ScrapEdit.Generate -> generateFromScrapbook(edit)
             is ScrapEdit.NoteText -> {
                 val was = viewModelScope.async { scrapWrite { repository.editNoteById(edit.noteId, edit.text) } }
                 if (edit.text.isBlank()) deletedScrapNotes[edit.noteId] = was
@@ -757,6 +758,34 @@ class AlbumDetailViewModel(
                 }
             } finally {
                 scrapGemini.update { it.copy(asking = it.asking - asking) }
+            }
+        }
+    }
+
+    private fun generateFromScrapbook(edit: ScrapEdit.Generate) {
+        val songId = edit.songId
+        if (songId in scrapGemini.value.generating) return
+        val keys = scrapAboutKeys(songId) ?: return
+        scrapGemini.update { it.copy(generating = it.generating + songId) }
+        viewModelScope.launch {
+            try {
+                val result = repository.ensureCanonicalAbout(
+                    title = keys.title,
+                    artist = keys.artist,
+                    album = keys.album,
+                    retry = true,
+                )
+                when (result) {
+                    is YoinRepository.AboutLoadResult.Success -> Unit
+                    YoinRepository.AboutLoadResult.ApiKeyMissing ->
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.np_ask_api_key_missing)))
+                    is YoinRepository.AboutLoadResult.Error -> {
+                        Log.w(TAG, "Generate from the scrapbook failed: ${result.message}")
+                        scrapEvents.tryEmit(ScrapEvent.Failed(UiText.Res(R.string.detail_scrap_gemini_failed)))
+                    }
+                }
+            } finally {
+                scrapGemini.update { it.copy(generating = it.generating - songId) }
             }
         }
     }

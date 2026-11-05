@@ -4376,6 +4376,8 @@ private fun CompactDetailPage(
             aboutUiState = aboutUiState,
             onRetry = onRetryFetchSongInfo,
             credits = state.lyricCredits,
+            facts = state.spineFacts,
+            songKey = "${state.songTitle}\u0000${state.artist}\u0000${state.albumName}",
             modifier = modifier,
         )
         NowPlayingDetailPage.Note -> NoteCompactPane(
@@ -4662,6 +4664,7 @@ private fun ExpandedDetailPage(
             aboutUiState = aboutUiState,
             onRetryCanonical = onRetryCanonical,
             credits = state.lyricCredits,
+            facts = state.spineFacts,
             modifier = modifier,
         )
         NowPlayingDetailPage.Note -> {

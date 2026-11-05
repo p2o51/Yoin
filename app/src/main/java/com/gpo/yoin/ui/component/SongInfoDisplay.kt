@@ -4,260 +4,135 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.ui.nowplaying.AboutUiState
+import com.gpo.yoin.ui.nowplaying.SpineSourceFacts
+import com.gpo.yoin.ui.nowplaying.aboutCarouselPages
+import com.gpo.yoin.ui.nowplaying.aboutParagraphs
+import com.gpo.yoin.ui.nowplaying.aboutReceiptRows
+import com.gpo.yoin.ui.nowplaying.resourceAboutLabels
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
- * Compact About preview used inside `NowPlayingScreen`'s middle pager.
- * Renders canonical rows in fixed [SongAboutEntry.CANONICAL_ORDER] plus a
- * teaser of the most recent Ask Gemini answer. Editing / asking happens in
- * the fullscreen About pane; this surface is intentionally read-only.
+ * Compact About used inside `NowPlayingScreen`'s middle pager (owner 2026-11-05): a carousel of the
+ * fullscreen About's receipt lines (a few at a time) and its paragraphs, turning on its own; a tap turns
+ * to the next. Gemini's state (loading, no key, an error) sits under it, or alone when there is nothing
+ * to show yet. Editing / asking happens in the fullscreen About pane; this surface is read-only.
  */
 @Composable
 fun SongInfoDisplay(
     aboutUiState: AboutUiState,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Credits the lyrics source wrote into the lyrics; shown first, with or without Gemini. */
+    /** Credits the lyrics source wrote into the lyrics; shown with or without Gemini. */
     credits: LyricCredits? = null,
+    /** What the Subsonic server says about the song; null on other providers. */
+    facts: SpineSourceFacts? = null,
+    /** Starts the carousel over on a new song. */
+    songKey: String = "",
 ) {
+    val resources = LocalContext.current.resources
+    val entries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty()
+    val reviewLabel = stringResource(R.string.np_about_review)
+    val pages = remember(entries, credits, facts, resources, reviewLabel) {
+        aboutCarouselPages(
+            rows = aboutReceiptRows(entries, credits, facts, resourceAboutLabels(resources)),
+            paragraphs = aboutParagraphs(entries, reviewLabel),
+        )
+    }
+    if (pages.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+            AboutStatus(aboutUiState, onRetry)
+        }
+        return
+    }
+    Column(modifier = modifier.fillMaxSize()) {
+        AboutCarousel(
+            pages = pages,
+            songKey = songKey,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        )
+        if (aboutUiState !is AboutUiState.Ready) AboutStatus(aboutUiState, onRetry)
+    }
+}
+
+/** Gemini's side of the compact About: tap to load, searching, no key, or the error with Retry. */
+@Composable
+private fun AboutStatus(state: AboutUiState, onRetry: () -> Unit) {
     AnimatedContent(
-        targetState = aboutUiState,
+        targetState = state,
         transitionSpec = {
             YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
                 YoinMotion.fadeOut(role = YoinMotionRole.Standard)
         },
         contentKey = { it::class },
-        modifier = modifier,
-        label = "songInfoContent",
-    ) { state ->
-        when (state) {
-            is AboutUiState.Idle -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    TextButton(onClick = onRetry) {
-                        Text(stringResource(R.string.cmp_song_info_tap_load))
-                    }
-                }
+        label = "songInfoStatus",
+    ) { shown ->
+        when (shown) {
+            is AboutUiState.Idle -> TextButton(onClick = onRetry) {
+                Text(stringResource(R.string.cmp_song_info_tap_load))
             }
-
-            is AboutUiState.Loading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Column {
-                        YoinLoadingIndicator()
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = stringResource(R.string.cmp_song_info_searching),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            is AboutUiState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                YoinLoadingIndicator(size = 32.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.cmp_song_info_searching),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-
             is AboutUiState.ApiKeyMissing -> {
                 val context = LocalContext.current
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    // The credits card can expand past the viewport.
-                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        if (credits != null) {
-                            LyricCreditsCard(credits = credits, modifier = Modifier.padding(bottom = 8.dp))
-                        }
-                        Text(
-                            text = stringResource(R.string.cmp_song_info_no_key),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        TextButton(
-                            onClick = { context.startActivity(SettingsActivity.intent(context)) },
-                        ) {
-                            Text(stringResource(R.string.cmp_song_info_settings))
-                        }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.cmp_song_info_no_key),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    TextButton(onClick = { context.startActivity(SettingsActivity.intent(context)) }) {
+                        Text(stringResource(R.string.cmp_song_info_settings))
                     }
                 }
             }
-
-            is AboutUiState.Error -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Column {
-                        Text(
-                            text = state.message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        TextButton(onClick = onRetry) {
-                            Text(stringResource(R.string.cmp_song_info_retry))
-                        }
-                    }
-                }
-            }
-
-            is AboutUiState.Ready -> {
-                ReadyContent(entries = state.entries, credits = credits)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReadyContent(
-    entries: List<SongAboutEntry>,
-    credits: LyricCredits?,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .clipToBounds()
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                val fadeHeight = 48.dp.toPx()
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Black, Color.Transparent),
-                        startY = size.height - fadeHeight,
-                        endY = size.height,
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-            },
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            val byKey = entries.filter { it.kind == SongAboutEntry.KIND_CANONICAL }
-                .associateBy { it.entryKey }
-            // The lyrics source's credits stand in for Gemini's lyricist / composer / producer.
-            val covered = credits.coveredAboutKeys()
-            if (credits != null) {
-                LyricCreditsCard(credits = credits, modifier = Modifier.padding(bottom = 8.dp))
-            }
-
-            SongAboutEntry.CANONICAL_ORDER
-                .filterNot(covered::contains)
-                .mapNotNull { key -> byKey[key]?.let { key to it } }
-                .filter { (_, row) -> row.answerText.isNotBlank() }
-                .forEach { (key, row) ->
-                    if (key == SongAboutEntry.CANON_REVIEW) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = stringResource(R.string.cmp_song_info_about_heading),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 2.dp),
-                        )
-                        Text(
-                            text = markdownBoldAnnotatedString(row.answerText),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    } else {
-                        InfoItem(label = labelFor(key), value = row.answerText)
-                    }
-                }
-
-            // Preview teaser: just the newest question or own entry (observeAbout: newest first).
-            val latestAsk = entries.firstOrNull { it.kind != SongAboutEntry.KIND_CANONICAL }
-            if (latestAsk != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                val heading = latestAsk.titleText?.takeIf { it.isNotBlank() }
-                    ?: latestAsk.promptText.orEmpty()
+            is AboutUiState.Error -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = heading,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = markdownBoldAnnotatedString(latestAsk.answerText),
+                    text = shown.message,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
+                TextButton(onClick = onRetry) { Text(stringResource(R.string.cmp_song_info_retry)) }
             }
-
-            // Extra space so bottom fade doesn't clip content
-            Spacer(modifier = Modifier.height(56.dp))
+            is AboutUiState.Ready -> Unit
         }
-    }
-}
-
-@Composable
-private fun labelFor(entryKey: String): String = when (entryKey) {
-    SongAboutEntry.CANON_CREATION_TIME -> stringResource(R.string.cmp_song_info_created)
-    SongAboutEntry.CANON_CREATION_LOCATION -> stringResource(R.string.cmp_song_info_location)
-    SongAboutEntry.CANON_LYRICIST -> stringResource(R.string.cmp_song_info_lyricist)
-    SongAboutEntry.CANON_COMPOSER -> stringResource(R.string.cmp_song_info_composer)
-    SongAboutEntry.CANON_PRODUCER -> stringResource(R.string.cmp_song_info_producer)
-    SongAboutEntry.CANON_REVIEW -> stringResource(R.string.cmp_song_info_about_label)
-    else -> entryKey
-}
-
-@Composable
-private fun InfoItem(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = markdownBoldAnnotatedString(value),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
     }
 }
 

@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,19 +36,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.onLongClick
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,11 +53,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.album.aboutRef
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.LyricCredits
-import com.gpo.yoin.ui.component.LyricCreditsCard
-import com.gpo.yoin.ui.component.ThinkingDots
-import com.gpo.yoin.ui.component.coveredAboutKeys
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
-import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.SettingsActivity
@@ -81,6 +72,8 @@ fun AboutFullscreenPane(
     modifier: Modifier = Modifier,
     /** Credits the lyrics source wrote into the lyrics; shown first, with or without Gemini. */
     credits: LyricCredits? = null,
+    /** What the Subsonic server says about the song; null on other providers. */
+    facts: SpineSourceFacts? = null,
     contentBottomPadding: androidx.compose.ui.unit.Dp = 96.dp,
 ) {
     val context = LocalContext.current
@@ -117,7 +110,7 @@ fun AboutFullscreenPane(
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 12.dp),
             ) {
-                CreditsHeader(credits)
+                SourceReceipt(credits, facts)
                 Text(
                     text = stringResource(R.string.np_about_api_key),
                     style = MaterialTheme.typography.bodyMedium,
@@ -133,7 +126,7 @@ fun AboutFullscreenPane(
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 12.dp),
             ) {
-                CreditsHeader(credits)
+                SourceReceipt(credits, facts)
                 Text(
                     text = state.message,
                     style = MaterialTheme.typography.bodyMedium,
@@ -144,6 +137,7 @@ fun AboutFullscreenPane(
             is AboutUiState.Ready -> ReadyContent(
                 entries = state.entries,
                 credits = credits,
+                facts = facts,
                 bottomPadding = contentBottomPadding,
             )
         }
@@ -154,6 +148,7 @@ fun AboutFullscreenPane(
 private fun ReadyContent(
     entries: List<SongAboutEntry>,
     credits: LyricCredits?,
+    facts: SpineSourceFacts?,
     bottomPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -174,50 +169,37 @@ private fun ReadyContent(
             }
         }
     }
+    val resources = LocalContext.current.resources
+    val labels = remember(resources) { resourceAboutLabels(resources) }
+    val rows = remember(entries, credits, facts, labels) { aboutReceiptRows(entries, credits, facts, labels) }
+    val reviewLabel = stringResource(R.string.np_about_review)
+    val paragraphs = remember(entries, reviewLabel) { aboutParagraphs(entries, reviewLabel) }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .verticalEdgeFadeOnScroll(scrollState, bottom = 64.dp)
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .padding(top = 8.dp),
     ) {
-        val resources = LocalContext.current.resources
-        val byKey = entries.filter { it.kind == SongAboutEntry.KIND_CANONICAL }
-            .associateBy { it.entryKey }
-        // The lyrics source's credits stand in for Gemini's lyricist / composer / producer.
-        val covered = credits.coveredAboutKeys()
-        CreditsHeader(credits)
-
-        SongAboutEntry.CANONICAL_ORDER
-            .filterNot(covered::contains)
-            .mapNotNull { key -> byKey[key]?.let { key to it } }
-            .filter { (_, row) -> row.answerText.isNotBlank() }
-            .forEach { (_, row) ->
-                val label = labelFor(row.entryKey, resources)
-                InfoItem(
-                    label = label,
-                    value = row.answerText,
-                    thinking = row.aboutRef() in regenerating,
-                    onLongPress = longPressFor(row, label),
-                )
-            }
-
-        // Gemini's answers and the listener's own entries (written in the scrapbook).
-        val asks = entries.filter { it.kind == SongAboutEntry.KIND_ASK || it.kind == SongAboutEntry.KIND_OWN }
-        if (asks.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(20.dp))
-            asks.forEach { row ->
-                // Heading is Gemini's short title (v16+). Rows written
-                // before the titleText column existed fall back to the
-                // user's original question so history stays readable.
-                val heading = row.titleText?.takeIf { it.isNotBlank() }
-                    ?: row.promptText.orEmpty()
-                InfoItem(
-                    label = heading,
-                    value = row.answerText,
-                    thinking = row.aboutRef() in regenerating,
-                    onLongPress = longPressFor(row, heading),
-                )
-            }
+        AboutReceipt(
+            rows = rows,
+            credits = credits,
+            thinking = { it.aboutRef() in regenerating },
+            onLongPress = if (actions == null) {
+                null
+            } else {
+                { row -> row.entry?.let { longPressFor(it, row.label)?.invoke() } }
+            },
+        )
+        // Gemini's review, its answers and the listener's own entries (written in the scrapbook).
+        paragraphs.forEachIndexed { i, paragraph ->
+            if (i > 0) DashedRule(modifier = Modifier.padding(horizontal = 4.dp))
+            AboutParagraphSection(
+                paragraph = paragraph,
+                thinking = paragraph.entry.aboutRef() in regenerating,
+                onLongPress = longPressFor(paragraph.entry, paragraph.label),
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
         Spacer(modifier = Modifier.height(bottomPadding))
     }
@@ -235,10 +217,14 @@ private fun ReadyContent(
     }
 }
 
+/** The receipt without Gemini (no key, or it failed): the lyrics' credits and the server's facts. */
 @Composable
-private fun CreditsHeader(credits: LyricCredits?) {
-    if (credits == null) return
-    LyricCreditsCard(credits = credits, modifier = Modifier.padding(bottom = 12.dp))
+private fun SourceReceipt(credits: LyricCredits?, facts: SpineSourceFacts?) {
+    val resources = LocalContext.current.resources
+    val rows = remember(credits, facts, resources) {
+        aboutReceiptRows(emptyList(), credits, facts, resourceAboutLabels(resources))
+    }
+    AboutReceipt(rows = rows, credits = credits, modifier = Modifier.padding(bottom = 12.dp))
 }
 
 internal fun labelFor(entryKey: String, resources: Resources): String = when (entryKey) {
@@ -249,54 +235,4 @@ internal fun labelFor(entryKey: String, resources: Resources): String = when (en
     SongAboutEntry.CANON_PRODUCER -> resources.getString(R.string.np_about_producer)
     SongAboutEntry.CANON_REVIEW -> resources.getString(R.string.np_about_review)
     else -> entryKey
-}
-
-@Composable
-private fun InfoItem(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    // Gemini is writing this row again: dots in place of the old text.
-    thinking: Boolean = false,
-    onLongPress: (() -> Unit)? = null,
-) {
-    val menuLabel = stringResource(R.string.np_about_cd_entry_menu)
-    val currentOnLongPress by rememberUpdatedState(onLongPress)
-    val press = if (onLongPress == null) {
-        Modifier
-    } else {
-        Modifier
-            .pointerInput(Unit) { detectTapGestures(onLongPress = { currentOnLongPress?.invoke() }) }
-            .semantics {
-                onLongClick(label = menuLabel) {
-                    currentOnLongPress?.invoke()
-                    true
-                }
-            }
-    }
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(press)
-            .padding(vertical = 8.dp),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        if (thinking) {
-            ThinkingDots(
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
-            )
-        } else {
-            Text(
-                text = markdownBoldAnnotatedString(value),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-    }
 }

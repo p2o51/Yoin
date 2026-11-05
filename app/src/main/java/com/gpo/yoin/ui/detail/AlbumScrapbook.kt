@@ -183,6 +183,12 @@ sealed interface ScrapEdit {
     /** The listener's own About entry: a heading and their text (no Gemini). */
     data class Write(val songId: String, val heading: String, val text: String) : ScrapEdit
 
+    /**
+     * Ask Gemini for a track's About from nothing (owner 2026-11-05: an empty sheet offers it, rather than
+     * leaving the listener to think of a question).
+     */
+    data class Generate(val songId: String) : ScrapEdit
+
     /** Ask Gemini for one row again (owner 2026-10-29: what it said can go out of date). */
     data class Regenerate(val ref: AlbumScrapbookAboutRef) : ScrapEdit
 

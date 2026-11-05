@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -183,20 +185,21 @@ internal fun ScrapTrackSheet(
     }
     val gemini by feeds.gemini.collectAsState()
 
-    ScrapSheet(onDismiss = onDismiss) {
+    // Edge to edge (owner 2026-11-05): the sheet's paper runs under the navigation bar; the scroll pads for
+    // the bar at its end instead of the sheet stopping short of the screen's foot.
+    ScrapSheet(onDismiss = onDismiss, padBottomInset = false) {
         // The notice takes its own room under the scroll, so it never covers the buttons at the foot.
         Column(
             modifier = modifier
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding(),
+                .imePadding(),
         ) {
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = SheetGutter, end = SheetGutter, bottom = 32.dp)
+                    .padding(start = SheetGutter, end = SheetGutter, bottom = 24.dp)
                     // A removed row folds away instead of the sheet snapping shorter.
                     .animateContentSize(YoinMotion.defaultSpatialSpec()),
             ) {
@@ -248,10 +251,12 @@ internal fun ScrapTrackSheet(
                         )
                     }
                 }
+                // Under the navigation bar (above the keyboard's top, it is already taken by imePadding).
+                Spacer(modifier = Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
             // At the sheet's foot while it is open; the page shows the same host once it closes.
             snackbar?.let { host ->
-                YoinSnackbarHost(hostState = host, modifier = Modifier.fillMaxWidth())
+                YoinSnackbarHost(hostState = host, modifier = Modifier.fillMaxWidth().navigationBarsPadding())
             }
         }
     }
@@ -434,6 +439,15 @@ private fun AboutTab(
     val shownKeys = asks.filterNot { it.own }.mapTo(HashSet()) { SongAboutEntry.normalize(it.question) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Nothing about the track yet: offer Gemini's About in one tap (owner 2026-11-05).
+        if (facts.isEmpty()) {
+            GenerateAbout(
+                generating = songId in gemini.generating,
+                colors = colors,
+                onGenerate = { onEdit(ScrapEdit.Generate(songId)) },
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
         shortFacts.forEachIndexed { i, fact ->
             key(fact.ref ?: fact.label) {
                 val open = fact.ref != null && fact.ref == editing
@@ -508,6 +522,58 @@ private fun AboutTab(
             onWrite = { heading, text -> onEdit(ScrapEdit.Write(songId, heading, text)) },
             modifier = Modifier.padding(top = 22.dp),
         )
+    }
+}
+
+/** The empty sheet's offer: Gemini writes the track's About (when, where, who, a review) in one go. */
+@Composable
+private fun GenerateAbout(
+    generating: Boolean,
+    colors: ScrapbookColors,
+    onGenerate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = InnerGutter, vertical = 12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.detail_scrap_about_empty),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(12.dp))
+        AnimatedContent(
+            targetState = generating,
+            transitionSpec = {
+                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+            },
+            label = "scrapGenerateAbout",
+        ) { busy ->
+            if (busy) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(40.dp)) {
+                    ThinkingDots(color = MaterialTheme.colorScheme.tertiary)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = stringResource(R.string.detail_scrap_about_generating),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                EditorButton(
+                    label = stringResource(R.string.detail_scrap_about_generate),
+                    icon = YoinSymbols.Sparkle,
+                    container = colors.review,
+                    content = colors.onReview,
+                    onClick = onGenerate,
+                )
+            }
+        }
     }
 }
 

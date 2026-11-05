@@ -45,6 +45,8 @@ data class ScrapLyricLine(val startMs: Long, val text: String)
 data class ScrapGemini(
     val regenerating: Set<AlbumScrapbookAboutRef> = emptySet(),
     val asking: List<ScrapAsking> = emptyList(),
+    /** Tracks whose About Gemini is writing from nothing ([ScrapEdit.Generate]), by song id. */
+    val generating: Set<String> = emptySet(),
 )
 
 @Immutable

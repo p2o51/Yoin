@@ -65,13 +65,6 @@
     <string name="cmp_song_info_searching">正在查找歌曲信息…</string>
     <string name="cmp_song_info_no_key">未设置 Gemini API 密钥</string>
     <string name="cmp_song_info_retry">重试</string>
-    <string name="cmp_song_info_about_heading">关于</string>
-    <string name="cmp_song_info_about_label">关于</string>
-    <string name="cmp_song_info_created">创作时间</string>
-    <string name="cmp_song_info_location">地点</string>
-    <string name="cmp_song_info_lyricist">作词</string>
-    <string name="cmp_song_info_composer">作曲</string>
-    <string name="cmp_song_info_producer">制作人</string>
 
     <string name="cmp_detail_retry">重试</string>
 
@@ -144,12 +137,6 @@
         <item>当时反响如何？</item>
     </string-array>
     <!-- About 里的制作名单（歌词源写在歌词里的制作信息） -->
-    <string name="cmp_lyric_credits_title">制作名单</string>
-    <string name="cmp_lyric_credits_source">来自歌词</string>
-    <string name="cmp_lyric_credits_lyricist">作词</string>
-    <string name="cmp_lyric_credits_composer">作曲</string>
-    <string name="cmp_lyric_credits_arranger">编曲</string>
-    <string name="cmp_lyric_credits_producer">制作人</string>
     <string name="cmp_lyric_credits_more">更多 %1$d 项 · %2$s</string>
     <string name="cmp_lyric_credits_less">收起</string>
     <string name="cmp_lyric_credits_note">备注</string>
