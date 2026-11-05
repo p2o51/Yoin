@@ -46,6 +46,7 @@ enum MacQA {
         guard let screen = MacLaunch.screen else { return }
         Task {
             await model.library.loadHome()
+            for _ in 0..<50 where model.library.home.recentlyAdded.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
             let albums = model.library.home.recentlyAdded
             switch screen {
             case "library":
@@ -58,10 +59,11 @@ enum MacQA {
                     if let t = full.tracks.dropFirst().first { model.selectedTrack = t.id.rawId }
                 }
             case "np-panel", "np-full", "np-focus":
-                guard let a = albums.first else { return }
+                guard let a = model.library.home.recentlyPlayed.first ?? albums.first else { return }
                 let full = await model.library.fullAlbum(a)
                 model.play(album: full, startAt: min(1, max(0, full.tracks.count - 1)))
-                try? await Task.sleep(for: .milliseconds(600))
+                try? await Task.sleep(for: .milliseconds(800))
+                model.player.seek(to: 52)
                 model.toggleNowPlaying()
                 if screen != "np-panel" { model.expandNowPlaying() }
                 if screen == "np-focus" { model.toggleFocus() }

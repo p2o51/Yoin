@@ -50,7 +50,7 @@ final class MacPlaybackSystem {
                 Task {
                     await CoverArtwork.shared.load(ref)
                     guard self.artworkKey == ref.key, let image = CoverArtwork.shared.image(ref) else { return }
-                    self.artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    self.artwork = Self.artwork(image)
                     self.refresh()
                 }
             }
@@ -58,5 +58,11 @@ final class MacPlaybackSystem {
         }
         info.nowPlayingInfo = d
         info.playbackState = player.isPlaying ? .playing : .paused
+    }
+
+    /// MediaPlayer asks for the image on its own queue: the handler must not be main-actor isolated.
+    nonisolated private static func artwork(_ image: NSImage) -> MPMediaItemArtwork {
+        nonisolated(unsafe) let image = image
+        return MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
     }
 }

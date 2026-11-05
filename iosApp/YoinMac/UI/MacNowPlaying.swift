@@ -28,7 +28,7 @@ struct MacNowPlaying: View {
     private func panelLayout(_ size: CGFloat2) -> some View {
         let inner = size.width - 48
         // The cover gives way first when the window is short.
-        let fixed: CGFloat = 520
+        let fixed: CGFloat = model.focus ? 400 : 520
         let side = min(inner - (model.focus ? 0 : 68), max(120, size.height - fixed))
         return VStack(alignment: .leading, spacing: 0) {
             header.padding(.top, 6).padding(.bottom, 14).chrome(model.focus)
@@ -46,7 +46,8 @@ struct MacNowPlaying: View {
 
     private func fullLayout(_ size: CGFloat2) -> some View {
         let leftW = min(model.focus ? 560 : 440, max(300, (size.width - 160) * (model.focus ? 0.5 : 0.42)))
-        let fixedLeft: CGFloat = 54 + 24 + 110 + 160 + 70 + 34
+        // Focus hides the header and the pills: the cover takes their height.
+        let fixedLeft: CGFloat = (model.focus ? 0 : 54 + 62) + 24 + 110 + 160 + 34
         let side = min(leftW - (model.focus ? 0 : 68), max(160, size.height - fixedLeft))
         return HStack(alignment: .top, spacing: 40) {
             VStack(alignment: .leading, spacing: 0) {
@@ -140,26 +141,27 @@ struct MacNowPlaying: View {
 
     private var controls: some View {
         let p = model.player
-        return Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
-            GridRow {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
                 Button { p.togglePlayPause() } label: {
                     Text(p.isPlaying ? "PAUSE" : "PLAY").font(.gsf(22, .bold)).tracking(0.7)
                         .foregroundStyle(tint.onPrimary)
                         .frame(minWidth: 136, minHeight: 64).padding(.horizontal, 10)
+                        .background(Capsule().fill(tint.primary.opacity(0.88)))
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.tint(tint.primary.opacity(0.85)).interactive(), in: .capsule)
+                .buttonStyle(PressDown())
+                .glassEffect(.regular.tint(tint.primary.opacity(0.6)).interactive(), in: .capsule)
                 .animation(Yoin.standardFastSpatial, value: p.isPlaying)
                 RoundControl(icon: "skip_next_filled") { p.next() }
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                Spacer(minLength: 0)
                 RoundControl(icon: p.shuffle ? "shuffle" : "repeat", badge: p.repeatMode == .one ? "1" : nil,
                              dim: p.repeatMode == .off) { p.cyclePlayMode() }
                     .help("Play Mode")
             }
-            GridRow {
+            HStack(spacing: 10) {
                 RoundControl(icon: "skip_previous_filled") { p.previous() }
-                ProgressRow().gridCellColumns(3)
+                ProgressRow()
             }
         }
     }
@@ -341,10 +343,11 @@ struct NPPill: View {
             HStack(spacing: 7) { YoinIcon(icon, size: 17); Text(title).font(.gsf(14)) }
                 .foregroundStyle(tint.onPrimary)
                 .padding(.horizontal, 16).frame(height: 44)
+                .background(Capsule().fill(tint.primary.opacity(0.78)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.tint(tint.primary.opacity(0.7)).interactive(), in: .capsule)
+        .glassEffect(.regular.tint(tint.primary.opacity(0.5)).interactive(), in: .capsule)
         .opacity(enabled ? 1 : 0.5)
         .disabled(!enabled)
     }
@@ -432,11 +435,14 @@ private struct LyricsList: View {
                     Color.clear.frame(height: large ? 80 : 24)
                     ForEach(lines) { l in
                         let on = l.id == current
+                        // One font for every line; the current one is full size, the rest scale down
+                        // (a font change would crossfade two layouts).
                         Text(l.text.isEmpty ? "♪" : l.text)
-                            .font(.gsf(on ? (large ? 30 : 19) : (large ? 24 : 15), on ? .semibold : (large ? .medium : .regular)))
+                            .font(.gsf(large ? 30 : 19, .semibold))
                             .foregroundStyle(on ? tint.primary : (synced ? Yoin.ink3 : Yoin.ink))
+                            .scaleEffect(on || !synced ? 1 : (large ? 0.8 : 0.8), anchor: .leading)
                             .opacity(model.focus && !on && synced ? 0.35 : 1)
-                            .padding(.vertical, large ? 9 : 5)
+                            .padding(.vertical, large ? 6 : 3)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                             .onTapGesture { if synced { model.player.seek(to: l.timeSec) } }

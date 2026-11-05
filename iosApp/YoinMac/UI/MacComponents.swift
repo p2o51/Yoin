@@ -103,18 +103,29 @@ struct TrackRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                if isCurrent {
-                    EqualizerBars(playing: model.player.isPlaying, color: tint.primary)
-                } else if hover {
-                    YoinIcon("play_filled", size: 16).foregroundStyle(tint.primary)
-                } else if !showCover {
-                    Text("\(entry.track.number)").font(.gsf(13).monospacedDigit()).foregroundStyle(Yoin.ink3)
-                }
-            }
-            .frame(width: 24, alignment: .trailing)
             if showCover {
-                MacCover(palette: entry.album.palette, corner: Tokens.shape.THUMB.cg).frame(width: 40, height: 40)
+                MacCover(palette: entry.album.palette, corner: Tokens.shape.THUMB.cg)
+                    .frame(width: 40, height: 40)
+                    .overlay {
+                        if isCurrent || hover {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: Tokens.shape.THUMB.cg).fill(.black.opacity(0.35))
+                                if isCurrent { EqualizerBars(playing: model.player.isPlaying, color: .white) }
+                                else { YoinIcon("play_filled", size: 16).foregroundStyle(.white) }
+                            }
+                        }
+                    }
+            } else {
+                ZStack {
+                    if isCurrent {
+                        EqualizerBars(playing: model.player.isPlaying, color: tint.primary)
+                    } else if hover {
+                        YoinIcon("play_filled", size: 16).foregroundStyle(tint.primary)
+                    } else {
+                        Text("\(entry.track.number)").font(.gsf(13).monospacedDigit()).foregroundStyle(Yoin.ink3)
+                    }
+                }
+                .frame(width: 24, alignment: .trailing)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.track.title)
