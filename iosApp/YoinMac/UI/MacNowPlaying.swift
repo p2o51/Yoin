@@ -457,18 +457,21 @@ private struct LyricsList: View {
         let current = synced ? MacLyrics.index(in: lines, at: model.player.progress.positionSec) : -1
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: large ? 4 : 3) {
                     Color.clear.frame(height: anchor)
                     ForEach(lines) { l in
                         let on = l.id == current
                         // The point size itself animates (a scaled layer blurs the glyphs, a font swap
                         // would crossfade two layouts): every frame is real text at its real size.
-                        let size: CGFloat = (large ? 30 : 19) * (on || !synced ? 1 : 0.8)
+                        // iOS LyricLinesView's proportions: regular neighbours, the current line semibold
+                        // and ~1.14× larger; row pitch about 2.1× the neighbour size.
+                        let lit = on && synced
+                        let size: CGFloat = large ? (lit ? 25 : 22) : (lit ? 17 : 15)
                         Text(l.text.isEmpty ? "♪" : l.text)
-                            .modifier(LyricLineFont(size: size))
+                            .modifier(LyricLineFont(size: size, weight: lit || !synced ? .semibold : .regular))
                             .foregroundStyle(on ? tint.primary : (synced ? Yoin.ink3 : Yoin.ink))
                             .opacity(model.focus && !on && synced ? 0.35 : 1)
-                            .padding(.vertical, large ? 6 : 3)
+                            .padding(.vertical, large ? 9 : 5)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                             .onTapGesture { if synced { model.player.seek(to: l.timeSec) } }
@@ -530,13 +533,14 @@ private struct LyricsWindowMask: View {
 /// A lyric line's font with an animatable point size.
 private struct LyricLineFont: ViewModifier, @MainActor Animatable {
     var size: CGFloat
+    var weight: Font.Weight
     var animatableData: CGFloat {
         get { size }
         set { size = newValue }
     }
 
     func body(content: Content) -> some View {
-        content.font(.gsf(size, .semibold))
+        content.font(.gsf(size, weight))
     }
 }
 
