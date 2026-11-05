@@ -52,7 +52,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -63,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
@@ -590,7 +590,13 @@ internal fun PlaybackControls(
 private fun Modifier.stepAwayWidth(away: Float, fromEnd: Boolean): Modifier = if (away <= 0f) {
     this
 } else {
-    clipToBounds().layout { measurable, constraints ->
+    // Clip across only: the label draws 6dp below its box (offset), which a
+    // full clip would cut while it steps away and pop back once settled.
+    drawWithContent {
+        clipRect(left = 0f, top = -size.height, right = size.width, bottom = size.height * 2f) {
+            this@drawWithContent.drawContent()
+        }
+    }.layout { measurable, constraints ->
         val placeable = measurable.measure(constraints.copy(minWidth = 0))
         val width = (placeable.width * (1f - away)).roundToInt().coerceAtLeast(0)
         layout(width, placeable.height) {
