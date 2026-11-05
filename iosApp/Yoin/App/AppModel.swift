@@ -403,8 +403,9 @@ final class AppModel {
     /// were both sources, and the cover flew out of the wrong one.
     @ObservationIgnored private var zoomTiles: [MediaId: String] = [:]
 
-    /// The zoom transition's source id for an album's page.
-    func zoomSourceID(_ id: MediaId) -> String { ZoomTile.sourceID(id, tile: zoomTiles[id]) }
+    /// The zoom transition's source id for an album's page; nil when it wasn't opened from a
+    /// cover tile (search, an artist, Memories, Now Playing), which then pushes the plain way.
+    func zoomSourceID(_ id: MediaId) -> String? { zoomTiles[id].map { ZoomTile.sourceID(id, tile: $0) } }
 
     func open(_ album: Album, tile: String? = nil) {
         zoomTiles[album.id] = tile
@@ -578,6 +579,14 @@ struct ZoomTile {
 }
 
 extension View {
+    /// An album page zooms out of (and back into) its tile when it has one. Without one, a zoom
+    /// has nothing to shrink into and its edge swipe didn't follow the finger: the standard
+    /// push, whose back swipe always does.
+    @ViewBuilder
+    func zoomTransition(_ sourceID: String?, _ ns: Namespace.ID) -> some View {
+        if let sourceID { navigationTransition(.zoom(sourceID: sourceID, in: ns)) } else { self }
+    }
+
     @ViewBuilder
     func zoomSource(_ id: MediaId, _ ns: Namespace.ID?, tile: String) -> some View {
         if let ns { matchedTransitionSource(id: ZoomTile.sourceID(id, tile: tile), in: ns) } else { self }
