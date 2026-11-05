@@ -25,6 +25,8 @@ struct MacLibraryView: View {
                     PhaseNote(phase: lib.phase("artists"), empty: lib.artists.isEmpty, emptyText: "No artists") {
                         Task { await lib.loadArtists(force: true) }
                     }
+                case .downloads:
+                    MacDownloadsList()
                 case .songs:
                     LazyVStack(spacing: 2) {
                         ForEach(Array(lib.songs.enumerated()), id: \.offset) { i, e in
@@ -49,6 +51,7 @@ struct MacLibraryView: View {
             case .albums: await lib.loadAlbums()
             case .artists: await lib.loadArtists()
             case .songs: await lib.loadSongs()
+            case .downloads: break
             }
         }
     }
@@ -57,12 +60,15 @@ struct MacLibraryView: View {
 /// The glass segment rail floating over the grid.
 struct FilterRail: View {
     @Binding var selection: MacModel.LibraryKind
+    @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
     @Namespace private var ns
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(MacModel.LibraryKind.allCases, id: \.self) { k in
+            // Downloads are a Subsonic thing (Apple Music doesn't let an app store its songs).
+            ForEach(MacModel.LibraryKind.allCases.filter { $0 != .downloads || model.session.client != nil },
+                    id: \.self) { k in
                 Button { withAnimation(Yoin.spatialFast) { selection = k } } label: {
                     Text(k.rawValue)
                         .font(.gsf(13.5, selection == k ? .semibold : .regular))
@@ -80,5 +86,62 @@ struct FilterRail: View {
         }
         .padding(4)
         .glassEffect(.regular, in: .capsule)
+    }
+}
+
+/// Library › Downloads: every album, playlist and song kept on this Mac, newest first, with its state.
+struct MacDownloadsList: View {
+    @Environment(MacModel.self) private var model
+    @Environment(\.macTint) private var tint
+
+    var body: some View {
+        let offline = OfflineDownloads.shared
+        let entries = offline.entries
+        VStack(alignment: .leading, spacing: 2) {
+            if entries.isEmpty {
+                Text("Albums and songs you download play without a connection. Right-click one to download it.")
+                    .font(.gsf(14)).foregroundStyle(Yoin.inkVariant)
+                    .padding(.top, 8)
+            } else {
+                Text("\(entries.count) \(entries.count == 1 ? "download" : "downloads")  "
+                     + ByteCountFormatter.string(fromByteCount: offline.bytes, countStyle: .file))
+                    .font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
+                    .padding(.bottom, 8)
+            }
+            ForEach(entries) { e in
+                HStack(spacing: 12) {
+                    YoinIcon(e.collection.kind == .song ? "music_note" : e.collection.kind == .album ? "album" : "playlist",
+                             size: 20)
+                        .foregroundStyle(tint.primary)
+                        .frame(width: 40, height: 40)
+                        .background(RoundedRectangle(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous)
+                            .fill(tint.container.opacity(0.6)))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(e.collection.title).font(.gsf(14, .medium)).foregroundStyle(Yoin.ink).lineLimit(1)
+                        Text(subtitle(e)).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Button {
+                        offline.rowTapped(e.status, key: e.collection.key) {}
+                    } label: {
+                        YoinIcon(OfflineDownloads.rowIcon(e.status), size: 18).foregroundStyle(Yoin.inkVariant)
+                            .frame(width: 32, height: 32).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(OfflineDownloads.rowLabel(e.status))
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func subtitle(_ e: OfflineDownloads.Entry) -> String {
+        let state: String = switch e.status {
+        case .downloaded: ByteCountFormatter.string(fromByteCount: e.bytes, countStyle: .file)
+        case .downloading(let done, let total): "Downloading \(done)/\(total)"
+        case .failed: "Some songs failed"
+        case .none: ""
+        }
+        return [e.collection.subtitle, state].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  ")
     }
 }

@@ -156,6 +156,8 @@ targets:
       - path: Yoin/Data/AppleMusicSource.swift
       - path: Yoin/Data/AppleMusicMapping.swift
       - path: Yoin/Playback/AppleMusicAudioOutput.swift
+      - path: Yoin/Data/Cache/OfflineDownloads.swift
+      - path: Yoin/Data/Cache/DetailDiskCache.swift
       - path: Yoin/YoinSymbols.xcassets
       - path: Yoin/Resources/Fonts/google_sans_flex_400.ttf
         buildPhase: resources

@@ -25,6 +25,10 @@ YoinShared has a `macos-arm64` slice; the Darwin Ktor engine and the Foundation 
 - Media keys / Control Center: `MacPlaybackSystem` (MPRemoteCommandCenter + MPNowPlayingInfoCenter).
 - Lyrics: server (`lyricsFor`) first, then YoinShared `LyricsRegistry.autoFetch` (QQ → NetEase → LRCLIB).
 
+## Offline downloads
+
+The iOS `OfflineDownloads` (and `DetailDiskCache` for its pins) compile into the Mac; its AppModel rows stay iOS-only. `MacModel` sets `scope` (the signed-in Subsonic account), `sign` (stream url at the chosen quality, 320 by default) and the player's `downloadedFile`. Album right-click / detail action and song right-click: Download / Downloading n/m (cancel) / Remove download; a downloaded song shows `download_done` on its row. Library › Downloads lists them; Settings › Downloads: quality, metered networks (URLSession expensive / constrained), size, Remove All. Files: Application Support/YoinOffline (sandbox container).
+
 ## Mini player
 
 `MacMiniPlayer` (window id `mini`, ⌥⌘M): cover, the spine beside it (title → artist → album → year, one at a time, every 5 s or on scroll; an item longer than the spine marquees instead of being cut), title / artist, prev · play · next, progress. Floats over other apps by default; Controls ▸ Float Mini Player on Top turns it off (`miniPlayerFloats`).
@@ -49,4 +53,4 @@ Needs, once, in the developer portal: an explicit App ID `com.gpo.yoin.mac` with
 
 ## Not in P0
 
-Spotify, cloud sync, NeoDB, Gemini, Memories, Write / notes, Devices, playlists, offline downloads, stream-quality settings.
+Spotify, cloud sync, NeoDB, Gemini, Memories, Write / notes, Devices, playlists, stream-quality settings.

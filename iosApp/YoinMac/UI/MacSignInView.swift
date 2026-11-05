@@ -126,6 +126,19 @@ struct MacSettingsView: View {
                     Text("Not signed in").foregroundStyle(.secondary)
                 }
             }
+            if model.session.client != nil {
+                @Bindable var offline = OfflineDownloads.shared
+                Section("Downloads") {
+                    Picker("Quality", selection: $offline.quality) {
+                        ForEach(OfflineDownloads.Quality.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    Toggle("Download on metered networks", isOn: $offline.overMobileData)
+                    LabeledContent("On this Mac",
+                                   value: ByteCountFormatter.string(fromByteCount: offline.bytes, countStyle: .file))
+                    Button("Remove All Downloads", role: .destructive) { offline.removeAll() }
+                        .disabled(offline.entries.isEmpty)
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)

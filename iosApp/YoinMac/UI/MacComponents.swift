@@ -57,6 +57,12 @@ struct AlbumTile: View {
             Button("Shuffle") { model.play(album: album, shuffle: true) }
             Button("Play Next") { model.queue(album: album, next: true) }
             Button("Add to Queue") { model.queue(album: album, next: false) }
+            if model.session.client != nil {
+                Divider()
+                Button(OfflineDownloads.rowLabel(OfflineDownloads.shared.status(OfflineDownloads.albumKey(album.id.rawId)))) {
+                    model.toggleDownload(album: album)
+                }
+            }
             if let id = album.artistId {
                 Divider()
                 Button("Go to Artist") { model.open(.artist(id: id, name: album.artist)) }
@@ -146,6 +152,9 @@ struct TrackRow: View {
             }
             .buttonStyle(.plain)
             .opacity(hover || starred ? 1 : 0)
+            if OfflineDownloads.shared.isDownloaded(songId: id) {
+                YoinIcon("download_done", size: 15).foregroundStyle(Yoin.ink3).help("Downloaded")
+            }
             Text(formatTime(entry.track.durationSec))
                 .font(.gsf(13).monospacedDigit()).foregroundStyle(Yoin.ink3)
         }
@@ -188,6 +197,11 @@ struct SongMenu: View {
             Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: id, current: starred) }
         }
         if !model.session.isAppleMusic { rateMenu(id: id, rating: rating) }
+        if model.session.client != nil {
+            Button(OfflineDownloads.rowLabel(OfflineDownloads.shared.status(OfflineDownloads.songKey(id)))) {
+                model.toggleDownload(song: entry)
+            }
+        }
         Divider()
         if !entry.album.id.rawId.hasPrefix("song:") {
             Button("Go to Album") { model.open(.album(entry.album)) }

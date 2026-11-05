@@ -9,7 +9,9 @@ import YoinShared
 @Observable
 final class MacModel {
     enum Tab: Hashable { case home, library }
-    enum LibraryKind: String, CaseIterable, Hashable { case albums = "Albums", artists = "Artists", songs = "Songs" }
+    enum LibraryKind: String, CaseIterable, Hashable {
+        case albums = "Albums", artists = "Artists", songs = "Songs", downloads = "Downloads"
+    }
 
     enum Detail: Hashable {
         case album(Album)
@@ -72,6 +74,21 @@ final class MacModel {
                 self.library.refreshLibraryMembership(t.id)
             }
         }
+        // Offline downloads (iOS OfflineDownloads): this Subsonic account's, signed only when a file opens;
+        // a downloaded song plays from its file.
+        let offline = OfflineDownloads.shared
+        offline.scope = { [weak self] in
+            guard let self, self.session.client != nil else { return nil }
+            return self.session.accountKey
+        }
+        offline.sign = { [weak self] id, quality in
+            guard let client = self?.session.client else { return nil }
+            let kbps = quality.maxBitRateKbps.map { KotlinInt(int: Int32($0)) }
+            return URL(string: client.streamUrl(id: id, maxBitRate: kbps,
+                                                format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
+        }
+        player.downloadedFile = { OfflineDownloads.shared.localFile(for: $0) }
+        offline.pump()
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }
     }
@@ -224,6 +241,38 @@ final class MacModel {
     }
 
     @ObservationIgnored private var playRequest = 0
+
+    /// Downloads an album (its full track list) for offline listening, or removes / retries it.
+    func toggleDownload(album: Album) {
+        let offline = OfflineDownloads.shared
+        let collection = OfflineDownloads.Collection(kind: .album, id: album.id.rawId, title: album.title,
+                                                     subtitle: album.artist,
+                                                     coverId: OfflineDownloads.coverId(album.palette.cover))
+        offline.rowTapped(offline.status(collection.key), key: collection.key) {
+            Task {
+                let full = await library.fullAlbum(album)
+                download(collection, full.tracks.map { PlaylistEntry(album: full, track: $0) })
+            }
+        }
+    }
+
+    /// One song on its own.
+    func toggleDownload(song e: PlaylistEntry) {
+        let offline = OfflineDownloads.shared
+        let collection = OfflineDownloads.Collection(kind: .song, id: e.track.id.rawId, title: e.track.title,
+                                                     subtitle: e.track.artist ?? e.album.artist,
+                                                     coverId: OfflineDownloads.coverId(e.album.palette.cover))
+        offline.rowTapped(offline.status(collection.key), key: collection.key) { download(collection, [e]) }
+    }
+
+    private func download(_ c: OfflineDownloads.Collection, _ entries: [PlaylistEntry]) {
+        OfflineDownloads.shared.download(c, entries: entries) { [library] e in
+            library.playable(e).flatMap { SubsonicCacheKey.of($0.streamURL) }
+        }
+    }
+
+    /// The account in use changed: its downloads run, another's wait.
+    func accountDidChange() { OfflineDownloads.shared.accountChanged() }
 
     /// Empties what's after the current song.
     func clearUpcoming() {

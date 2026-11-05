@@ -128,7 +128,12 @@ final class OfflineDownloads {
 
     private(set) var songs: [Song] = []
     /// The account whose downloads are shown and run (nil signed out).
+    #if os(iOS)
     @ObservationIgnored var scope: () -> String? = { AccountScope.shared.subsonic }
+    #else
+    /// The Mac sets this to its signed-in Subsonic account.
+    @ObservationIgnored var scope: () -> String? = { nil }
+    #endif
     /// Signs a song's stream url for the signed-in account; nil when there is no client.
     @ObservationIgnored var sign: (_ songId: String, _ quality: Quality) -> URL? = { _, _ in nil }
     /// Fetches a signed url to a temporary file (tests answer without a network); nil: the URLSession.
@@ -470,6 +475,7 @@ final class OfflineDownloads {
 
 // MARK: - Download rows (Android OfflineToggle)
 
+#if os(iOS)
 extension AppModel {
     /// The download the visible album or playlist page is held under (nil
     /// on other pages, signed out, or off Subsonic).
@@ -496,6 +502,8 @@ extension AppModel {
         }
     }
 }
+
+#endif
 
 extension OfflineDownloads {
     /// The cover's server id (its url is signed, so never stored).
@@ -535,6 +543,7 @@ extension OfflineDownloads {
     }
 }
 
+#if os(iOS)
 /// The Download row in an album's ▾ or a playlist's ⋮ menu.
 struct OfflineMenuButton: View {
     @Environment(AppModel.self) private var model
@@ -553,3 +562,4 @@ struct OfflineMenuButton: View {
         }
     }
 }
+#endif

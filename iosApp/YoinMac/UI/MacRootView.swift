@@ -14,6 +14,7 @@ struct MacGate: View {
         }
         .frame(minWidth: 640, minHeight: 600)
         .animation(Yoin.spatial, value: model.session.isSignedIn)
+        .onChange(of: model.session.accountKey) { model.accountDidChange() }
     }
 }
 

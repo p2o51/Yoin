@@ -41,6 +41,11 @@ struct MacAlbumDetail: View {
                 HStack(spacing: 10) {
                     DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(album: a) }
                     DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) { model.play(album: a, shuffle: true) }
+                    if model.session.client != nil {
+                        let status = OfflineDownloads.shared.status(OfflineDownloads.albumKey(a.id.rawId))
+                        DetailAction(title: OfflineDownloads.rowLabel(status), icon: OfflineDownloads.rowIcon(status),
+                                     prominent: false) { model.toggleDownload(album: a) }
+                    }
                 }
                 .padding(.bottom, 18)
                 let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
