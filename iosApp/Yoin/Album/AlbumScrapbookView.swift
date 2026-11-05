@@ -943,7 +943,8 @@ private struct ScrapScoreBar: View {
 /// rating, the emblem goes back to the tracks' average); the words save
 /// when the sheet closes. No Clear here: clearing a song's score lives in
 /// the scrapbook's score sheet. Written to AlbumMemoryStore (Android
-/// album_ratings) and handed to cloud sync.
+/// album_ratings) and handed to cloud sync; the closed sheet hands changes
+/// to NeoDB when signed in (AlbumNeoDBLine.swift: the last line, the push).
 struct AlbumRateSheet: View {
     var album: Album
     var scheme: CoverScheme
@@ -952,8 +953,13 @@ struct AlbumRateSheet: View {
     @State private var dragging = false
     @State private var text = ""
     @FocusState private var focused: Bool
+    @Environment(AppModel.self) private var model: AppModel?
+    @Environment(\.dismiss) private var dismiss
 
     private var memories: AlbumMemoryStore { .shared }
+    /// NeoDB's line and push (AlbumNeoDBLine.swift).
+    private var neo: AlbumNeoDBSync { .shared }
+    private var neoState: AlbumNeoDBState { neo.state(album) }
     private var record: AlbumMemoryStore.AlbumRecord? {
         memories.album(provider: album.id.provider, albumId: album.id.rawId)
     }
@@ -999,32 +1005,65 @@ struct AlbumRateSheet: View {
                     dragging = true
                 }, onCommit: commit)
                 reviewField
+                if neoState.isShown {
+                    AlbumNeoDBLine(state: neoState, scheme: scheme, onSignIn: openNeoDBSettings,
+                                   onRetry: { Task { await neo.retry(album) } })
+                        .transition(.opacity)
+                }
             }
+            .animation(Yoin.spatial, value: neoState.isShown)
             .padding(.horizontal, 24)
             .padding(.top, 28)
             .padding(.bottom, 20)
         }
         .scrollDismissesKeyboard(.interactively)
         .background(scheme.surfaceContainerLow)
-        .onAppear { text = record?.review ?? "" }
-        .onDisappear(perform: saveReview)
+        .onAppear {
+            text = record?.review ?? ""
+            neo.sheetOpened(album)
+        }
+        .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: normalizedText != record?.review) }
+        .onDisappear {
+            saveReview()
+            let album = album
+            Task { await AlbumNeoDBSync.shared.sheetClosed(album) }
+        }
+    }
+
+    private var normalizedText: String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// "Sign in to sync": Settings, where NeoDB signs in (Android opens Settings › NeoDB).
+    private func openNeoDBSettings() {
+        dismiss()
+        model?.openSettings()
     }
 
     /// AlbumReviewField: a borderless field on surfaceContainerHigh, 28
     /// corners closed, 20 once open (a spatial spring); "Review" as its hint.
     private var reviewField: some View {
-        TextField("", text: $text, prompt: Text("Review").foregroundStyle(scheme.onSurfaceVariant), axis: .vertical)
-            .lineLimit(3...)
-            .font(.gsf(Tokens.type.bodyLarge.size.cg))
-            .lineSpacing(YoinType.lineSpacing(Tokens.type.bodyLarge))
-            .foregroundStyle(scheme.onSurface)
-            .tint(scheme.primary)
-            .focused($focused)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .background(scheme.surfaceContainerHigh,
-                        in: .rect(cornerRadius: open ? 20 : 28, style: .continuous))
-            .animation(Yoin.spatial, value: open)
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("", text: $text, prompt: Text("Review").foregroundStyle(scheme.onSurfaceVariant), axis: .vertical)
+                .lineLimit(3...)
+                .font(.gsf(Tokens.type.bodyLarge.size.cg))
+                .lineSpacing(YoinType.lineSpacing(Tokens.type.bodyLarge))
+                .foregroundStyle(scheme.onSurface)
+                .tint(scheme.primary)
+                .focused($focused)
+            // Where the words go on NeoDB: a short comment (with its count) or a review.
+            if !text.isEmpty {
+                AlbumReviewRoute(text: text, scheme: scheme)
+                    .transition(.opacity)
+            }
+        }
+        .animation(Yoin.spatial, value: text.isEmpty)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(scheme.surfaceContainerHigh,
+                    in: .rect(cornerRadius: open ? 20 : 28, style: .continuous))
+        .animation(Yoin.spatial, value: open)
     }
 
     private var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
@@ -1039,6 +1078,8 @@ struct AlbumRateSheet: View {
                                     rating: min(10, max(0, v)), review: was?.review,
                                     reviewUpdatedAt: was?.reviewUpdatedAt, updatedAt: now))
         }
+        NeoDBPendingStore.shared.markRatingChanged(provider: album.id.provider, albumId: album.id.rawId)
+        neo.edited(album, unsavedWords: normalizedText != record?.review)
         CloudSync.shared.localChanged()
     }
 
@@ -1052,6 +1093,7 @@ struct AlbumRateSheet: View {
         memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
                                 rating: was?.rating ?? 0, review: normalized,
                                 reviewUpdatedAt: normalized == nil ? nil : now, updatedAt: now))
+        NeoDBPendingStore.shared.markReviewChanged(provider: album.id.provider, albumId: album.id.rawId)
         CloudSync.shared.localChanged()
     }
 }
