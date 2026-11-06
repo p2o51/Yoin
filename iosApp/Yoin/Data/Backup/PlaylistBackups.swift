@@ -1,7 +1,9 @@
 import Foundation
 import Observation
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 import YoinShared
 import os
 
@@ -52,7 +54,11 @@ final class PlaylistBackups {
     }
 
     /// Every configured account (tests hand their own).
+    #if os(iOS)
     private var accounts: BackupAccounts { injectedAccounts ?? LiveBackupAccounts.shared }
+    #else
+    private var accounts: BackupAccounts { injectedAccounts ?? MacBackupAccounts.shared }
+    #endif
 
     /// One account a backup is read from: its provider, its profile id, its name, and how to read it.
     struct Source {
@@ -75,6 +81,7 @@ final class PlaylistBackups {
         }
     }
 
+#if os(iOS)
     /// The account in use, as a backup source, when it is the one the library shows; nil signed out (the
     /// mock library). Cheap: nothing is opened until it reads.
     func source(_ library: LibraryStore) -> Source? {
@@ -87,8 +94,10 @@ final class PlaylistBackups {
         return accounts.source(id)
     }
 
+#endif
     // MARK: Back up
 
+#if os(iOS)
     /// Cloud backup from a playlist page: reads [playlist] whole and saves it; a toast says what came of it,
     /// with View to open the backup (Android PlaylistDetailViewModel.backUp).
     func backUp(_ playlist: PlaylistInfo, library: LibraryStore) {
@@ -117,6 +126,7 @@ final class PlaylistBackups {
         }
     }
 
+#endif
     /// Starts [rawId]'s backup on [source], or — when it already has one — backs it up again now.
     func backUp(rawId: String, from source: Source) async throws -> PlaylistBackupRecord {
         guard let playlist = try await source.readPlaylist(rawId) else { throw BackupError.notFound }
@@ -154,6 +164,7 @@ final class PlaylistBackups {
     /// What following one backup found (Android FollowResult).
     enum FollowResult: Equatable { case changed, unchanged, gone, skipped }
 
+    #if os(iOS)
     /// From launch: follows the due backups each time the app comes to the foreground, off the return path.
     func start(library: LibraryStore) {
         guard observer == nil else { return }
@@ -208,6 +219,8 @@ final class PlaylistBackups {
         store.save(PlaylistSnapshots.shared.backup(id: "qa-seed", playlist: playlist, provider: "spotify", profileId: nil,
                                                    profileLabel: "Chen", now: t0))
     }
+    #endif
+
     #endif
 
     private func foreground() {
@@ -391,6 +404,7 @@ protocol BackupAccounts: AnyObject {
     func destination(_ profileId: String) -> RestoreDestination?
 }
 
+#if os(iOS)
 /// The app's accounts (ProfileManager), this device's Apple Music, and each Spotify account's Web API.
 @MainActor
 final class LiveBackupAccounts: BackupAccounts {
@@ -430,6 +444,7 @@ final class LiveBackupAccounts: BackupAccounts {
     }
 }
 
+#endif
 /// A Subsonic client of a backup's or a restore's own, opened at its first use and closed with it.
 @MainActor
 final class LazySubsonicClient {

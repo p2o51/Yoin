@@ -259,6 +259,9 @@ struct MacSettingsView: View {
 
             MacSyncSettings()
                 .tabItem { Label("Sync", image: "yoin.cloud") }
+
+            MacBackupsSettings()
+                .tabItem { Label("Backups", image: "yoin.playlist") }
         }
         .frame(width: 520, height: 440)
     }

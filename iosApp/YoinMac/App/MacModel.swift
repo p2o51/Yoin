@@ -102,6 +102,16 @@ final class MacModel {
         player.streamQuality = { MacSettings.streamQuality }
         offline.pump()
         spotifyOutput.source = { [weak self] in self?.session.spotify }
+        // Playlist backups (iOS Data/Backup) read and restore through the Mac's accounts; the ones followed
+        // here are checked again whenever Yoin comes to the front (iOS: foreground), off that path.
+        MacBackupAccounts.shared.session = session
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                               queue: .main) { _ in
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(8))
+                _ = await PlaylistBackups.shared.followDue()
+            }
+        }
         spotifyOutput.onDevice = { [weak self] name in self?.spotifyDevice = name }
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }

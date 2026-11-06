@@ -201,6 +201,9 @@ targets:
       - path: Yoin/Data/Lyrics/LyricsTools.swift
       - path: Yoin/Home/HomeLayout.swift
       - path: Yoin/Data/Backup/PlaylistBackupStore.swift
+      - path: Yoin/Data/Backup/PlaylistBackups.swift
+      - path: Yoin/Data/Backup/PlaylistRestore.swift
+      - path: Yoin/Data/Backup/SpotifyBackups.swift
       - path: Yoin/YoinSymbols.xcassets
       - path: Yoin/Resources/Fonts/google_sans_flex_400.ttf
         buildPhase: resources

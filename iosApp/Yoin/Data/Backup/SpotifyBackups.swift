@@ -53,6 +53,7 @@ final class SpotifyRestoreDestination: RestoreDestination {
     }
 }
 
+#if os(iOS)
 extension AppModel {
     /// The Spotify account [profileId] as a source of its own: the library's when it is the account in use,
     /// else one built from its saved tokens (refreshes saved back, a revoke marks it). nil: signed out.
@@ -73,3 +74,4 @@ extension AppModel {
         return source
     }
 }
+#endif
