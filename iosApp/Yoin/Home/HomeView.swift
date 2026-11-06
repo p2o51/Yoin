@@ -160,6 +160,10 @@ struct HomeView: View {
         // `-screen home-bottom` opens scrolled to the end (screenshots).
         .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        // Behind a pull into Memories Home is scaled, and the bottom edge
+        // effect then drew as an opaque band under the bar, cutting the feed
+        // off with a hard edge. It sits out while Memories is up.
+        .scrollEdgeEffectHidden(memories.mounted, for: .bottom)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             scroll.scrolled = y
         }
