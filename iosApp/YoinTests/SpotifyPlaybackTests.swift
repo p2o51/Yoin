@@ -62,4 +62,25 @@ final class SpotifyPlaybackTests: XCTestCase {
         XCTAssertEqual(both?.shuffle, true)
         XCTAssertEqual(both?.repeatMode, .all)
     }
+
+    func test_should_readNoActiveDevice_when_spotifyAnswers404ForAPlayerCommand() {
+        XCTAssertTrue(SpotifyAPIError.http(status: 404, message: "Player command failed: No active device found").isNoActiveDevice)
+        XCTAssertFalse(SpotifyAPIError.http(status: 404, message: "Non existing id").isNoActiveDevice)
+        XCTAssertFalse(SpotifyAPIError.http(status: 403, message: "No active device found").isNoActiveDevice)
+    }
+
+    func test_should_neverCutIn_when_anotherDeviceIsPlaying() {
+        let elsewhere = SpotifySource.PlayerNow(deviceId: "mac", deviceName: "51's Mac", isPlaying: true)
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: elsewhere, appRemoteConnected: true), .playingElsewhere("51's Mac"))
+    }
+
+    func test_should_playHere_when_nothingPlaysAndTheAppIsConnected() {
+        let idle = SpotifySource.PlayerNow(deviceId: "mac", deviceName: "Mac", isPlaying: false)
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: idle, appRemoteConnected: true), .playHere)
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: nil, appRemoteConnected: true), .playHere)
+    }
+
+    func test_should_askToOpenSpotify_when_theAppIsNotConnected() {
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: nil, appRemoteConnected: false), .openSpotify)
+    }
 }

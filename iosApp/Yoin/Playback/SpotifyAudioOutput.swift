@@ -150,7 +150,9 @@ extension SpotifyRemote: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegate {
 final class SpotifyAudioOutput: AudioOutput {
     weak var events: AudioOutputEvents?
     /// Starts songs in the Spotify app (Web API PUT /me/player/play with these uris); set by the app.
-    var startPlayback: ((_ uris: [String], _ positionMs: Int) async throws -> Void)?
+    var startPlayback: ((_ uris: [String], _ positionMs: Int, _ deviceId: String?) async throws -> Void)?
+    /// Where Spotify plays now (GET /me/player, a read only); set by the app.
+    var playerNow: (() async throws -> SpotifySource.PlayerNow?)?
 
     private let remote = SpotifyRemote.shared
     private let silent = UserDefaults.standard.bool(forKey: "silentAudio")
@@ -257,7 +259,13 @@ final class SpotifyAudioOutput: AudioOutput {
         let next = self.next
         do {
             let at = pendingStart > 1 ? Int(pendingStart * 1000) : 0
-            try await startPlayback?([item.trackURI] + (next.map { [$0.trackURI] } ?? []), at)
+            let uris = [item.trackURI] + (next.map { [$0.trackURI] } ?? [])
+            do {
+                try await startPlayback?(uris, at, nil)
+            } catch let e as SpotifyAPIError where e.isNoActiveDevice {
+                // The Spotify app is connected but idle, so it isn't Spotify's active device yet.
+                try await startOnThisPhone(item, uris: uris, at: at, gen: gen)
+            }
             guard gen == generation else { return }
             handedNext = next
             starting = false
@@ -271,8 +279,57 @@ final class SpotifyAudioOutput: AudioOutput {
             guard gen == generation else { return }
             starting = false
             Self.log.error("start failed: \(error.localizedDescription, privacy: .public)")
-            events?.outputDidFail(SpotifySource.message(for: error), network: PlaybackFailureKind.isNetwork(error))
+            // No device to play on holds the queue (Retry) rather than skipping through it.
+            events?.outputDidFail(SpotifySource.message(for: error),
+                                  network: error is SpotifyPlaybackError || PlaybackFailureKind.isNetwork(error))
         }
+    }
+
+    /// What a start with no active Spotify device does (Android's rule: never cut into playback,
+    /// here or on another device).
+    enum NoDeviceStep: Equatable {
+        /// Another device is playing: say where, start nothing.
+        case playingElsewhere(String)
+        /// Nothing plays anywhere: start this song in the connected Spotify app on this phone.
+        case playHere
+        /// The Spotify app isn't connected: ask the listener to open it.
+        case openSpotify
+    }
+
+    nonisolated static func noDeviceStep(now: SpotifySource.PlayerNow?, appRemoteConnected: Bool) -> NoDeviceStep {
+        if let now, now.isPlaying { return .playingElsewhere(now.deviceName) }
+        return appRemoteConnected ? .playHere : .openSpotify
+    }
+
+    /// No active device: App Remote starts the song in the Spotify app here, which makes this phone
+    /// the active device; then the Web API hands it [current, next] from the position, on its id.
+    private func startOnThisPhone(_ item: Item, uris: [String], at: Int, gen: Int) async throws {
+        let now = try? await playerNow?()
+        switch Self.noDeviceStep(now: now ?? nil, appRemoteConnected: remote.isConnected) {
+        case .playingElsewhere(let name):
+            throw SpotifyPlaybackError("Spotify is playing on \(name). Switch it to this iPhone under Devices.")
+        case .openSpotify:
+            throw SpotifyPlaybackError("Open the Spotify app on this iPhone, then tap Retry.")
+        case .playHere:
+            break
+        }
+        guard let player = remote.player else { throw SpotifyPlaybackError("Open the Spotify app on this iPhone, then tap Retry.") }
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            player.play(item.trackURI) { _, error in
+                if let error { cont.resume(throwing: error) } else { cont.resume() }
+            }
+        }
+        // Spotify needs a moment before the Web API sees the phone as active.
+        for _ in 0..<10 {
+            guard gen == generation else { return }
+            if let id = (try? await playerNow?())??.deviceId {
+                try await startPlayback?(uris, at, id)
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        // The song plays through App Remote; only the next song and the position are missing.
+        if at > 0 { player.seek(toPosition: at, callback: nil) }
     }
 
     /// Connected after a wake (or again after a drop): a start still waiting is made now.
@@ -480,4 +537,11 @@ final class SpotifyAudioOutput: AudioOutput {
             }
         }
     }
+}
+
+/// A Spotify start with nowhere to play, said so the listener knows what to do.
+struct SpotifyPlaybackError: Error, LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
 }

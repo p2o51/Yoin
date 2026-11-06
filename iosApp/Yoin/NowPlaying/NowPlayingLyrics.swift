@@ -138,10 +138,12 @@ private struct LyricLinesBody: View {
             }
         }
         // Scroll so the active line's box (with its 4 pt pad) sits at
-        // `anchor`; keyed on the offset itself, so a row measured a frame
-        // late (a wrap) glides too.
-        .offset(y: anchor - 4 - above)
-        .animation(handing ? Yoin.slowSpatial : Yoin.spatial, value: anchor - 4 - above)
+        // `anchor`. Only the scroll animates (Android: the list reflows at
+        // once, the scroll springs): a value-keyed animation here also sprang
+        // the rows themselves, so a line that wraps as it lights up overlapped
+        // the next one until the spring settled. A row measured a frame late
+        // (a wrap) still glides, as the offset follows it.
+        .animation(handing ? Yoin.slowSpatial : Yoin.spatial) { $0.offset(y: anchor - 4 - above) }
     }
 
     /// Material FastOutSlowIn (cubic 0.4, 0, 0.2, 1).

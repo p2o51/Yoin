@@ -14,6 +14,10 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
 
     var isNotFound: Bool { if case .http(404, _) = self { true } else { false } }
     var isForbidden: Bool { if case .http(403, _) = self { true } else { false } }
+    /// 404 NO_ACTIVE_DEVICE: a player command with no device to run on.
+    var isNoActiveDevice: Bool {
+        if case .http(404, let m) = self { (m ?? "").localizedCaseInsensitiveContains("active device") } else { false }
+    }
 
     var errorDescription: String? {
         switch self {
