@@ -16,7 +16,7 @@ struct MacHomeView: View {
     @AppStorage("homeLayout") private var layoutRaw = ""
     @State private var editing = false
 
-    @ViewBuilder private func section(_ k: HomeLayout.Section, home: MacLibrary.Home) -> some View {
+    @ViewBuilder private func section(_ k: MacHomeLayout.Section, home: MacLibrary.Home) -> some View {
         switch k {
         case .recentlyPlayed:
             if !home.recentlyPlayed.isEmpty {
@@ -59,7 +59,7 @@ struct MacHomeView: View {
 
     var body: some View {
         let home = model.library.home
-        let layout = HomeLayout(raw: layoutRaw)
+        let layout = MacHomeLayout(raw: layoutRaw)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 PageHeader(eyebrow: greeting, title: "Home")
@@ -144,7 +144,7 @@ struct Shelf: View {
 }
 
 /// Home's sections, their order and which are shown (iOS Home editing, kept in the defaults).
-struct HomeLayout {
+struct MacHomeLayout {
     enum Section: String, CaseIterable, Hashable {
         case recentlyPlayed, pickUp, memories, recentlyAdded, rediscover
 
@@ -186,7 +186,7 @@ private struct HomeEditor: View {
     @Binding var layout: String
 
     var body: some View {
-        let current = HomeLayout(raw: layout)
+        let current = MacHomeLayout(raw: layout)
         VStack(alignment: .leading, spacing: 8) {
             Text("Home").font(.gsf(15, .semibold))
             List {
@@ -208,7 +208,7 @@ private struct HomeEditor: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .frame(height: CGFloat(HomeLayout.Section.allCases.count) * 30 + 8)
+            .frame(height: CGFloat(MacHomeLayout.Section.allCases.count) * 30 + 8)
             Button("Reset") { layout = "" }.font(.gsf(13)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
         }
         .padding(14)

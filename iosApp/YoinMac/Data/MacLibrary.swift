@@ -592,28 +592,25 @@ final class MacLibrary {
         }
     }
 
+    /// Yoin's own rating (iOS / Android: local_ratings, any provider, synced across devices); the
+    /// server's stars alone don't count. nil = never rated here; 0 is a rating.
     func rating(_ track: Track) -> Double? {
-        if let r = ratingOverride[track.id.rawId] { return r }
-        return track.rating
+        LocalRatings.shared.rating(provider: track.id.provider, songId: track.id.rawId)
     }
 
-    func rating(songId: String, fallback: Double?) -> Double? {
-        if let r = ratingOverride[songId] { return r }
-        return fallback
+    func rating(provider: String, songId: String) -> Double? {
+        LocalRatings.shared.rating(provider: provider, songId: songId)
     }
 
     /// Yoin 0–10 (nil clears); the server keeps 0–5 stars.
-    func setRating(songId: String, _ rating: Double?) {
-        // Apple Music and Spotify keep no rating Yoin can write.
-        guard apple == nil, spotify == nil else { return }
-        let before = ratingOverride[songId]
-        ratingOverride[songId] = .some(rating)
-        guard let client else { return }
-        let gen = generation
+    /// Stored here whatever happens (iOS / Android rule), then a Subsonic song's server gets 0–5 stars;
+    /// a failed send leaves the local rating (the server catches up on the next one).
+    func setRating(provider: String, songId: String, _ rating: Double?) {
+        if let rating { LocalRatings.shared.set(rating, provider: provider, songId: songId) }
+        else { LocalRatings.shared.clear(provider: provider, songId: songId) }
+        guard let client, provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
         Task {
             do { try await client.setRating(id: songId, rating: Int32(SubsonicMapping.serverRating(rating))) } catch {
-                guard gen == self.generation else { return }
-                self.ratingOverride[songId] = before
                 Self.log.error("rating failed: \(MacSession.message(for: error), privacy: .public)")
             }
         }

@@ -139,8 +139,7 @@ struct MacNowPlaying: View {
             .onTapGesture { model.toggleFocus() }
             .help(model.focus ? "Leave Focus" : "Focus")
             VStack(spacing: 12) {
-                // Apple Music has no rating Yoin can write: no bar.
-                if !model.session.isAppleMusic { RatingBar(height: barHeight) }
+                RatingBar(height: barHeight)
                 HeartButton()
             }
             .frame(width: model.focus ? 0 : 56)
@@ -348,7 +347,7 @@ struct RatingBar: View {
 
     var body: some View {
         let t = model.player.currentTrack
-        let stored = t.map { model.library.rating(songId: $0.id, fallback: model.currentEntry?.track.rating ?? $0.userRating.map { Double($0 * 2) }) } ?? nil
+        let stored = t.flatMap { model.library.rating(provider: $0.provider, songId: $0.id) }
         let value = dragValue ?? stored ?? 0
         ZStack(alignment: .bottom) {
             Capsule().fill(dragValue != nil ? Color.clear : tint.primary.opacity(0.12))
@@ -372,7 +371,7 @@ struct RatingBar: View {
                     withAnimation(Yoin.spatialFast) { dragValue = stars * 2 }
                 }
                 .onEnded { _ in
-                    if let t, let v = dragValue { model.library.setRating(songId: t.id, v > 0 ? v : nil) }
+                    if let t, let v = dragValue { model.library.setRating(provider: t.provider, songId: t.id, v > 0 ? v : nil) }
                     withAnimation(Yoin.effects) { dragValue = nil }
                 }
         )

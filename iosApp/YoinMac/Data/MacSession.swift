@@ -170,6 +170,7 @@ final class MacSession {
     }
 
     private func deactivate() {
+        AccountScope.shared.subsonic = nil
         client?.close()
         client = nil
         account = nil
@@ -223,6 +224,7 @@ final class MacSession {
             deactivate()
             client = candidate
             self.account = account
+            AccountScope.shared.subsonic = "\(account.baseUrl)|\(account.username)"
             state = .ready(server: Self.serverName(info))
             OfflineDownloads.shared.accountChanged()
             // The same server and user again updates that entry (a new password), else it's a new account.
@@ -249,6 +251,7 @@ final class MacSession {
 
     private func restore(_ account: Account) {
         self.account = account
+        AccountScope.shared.subsonic = "\(account.baseUrl)|\(account.username)"
         let c = SubsonicClient(baseUrl: account.baseUrl, username: account.username, password: account.password)
         client = c
         OfflineDownloads.shared.accountChanged()

@@ -205,7 +205,7 @@ struct SongMenu: View {
         } else {
             Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: id, current: starred) }
         }
-        if !model.session.isAppleMusic { rateMenu(id: id, rating: rating) }
+        rateMenu(id: id, rating: rating)
         if model.session.client != nil || model.session.isSpotify {
             Menu("Add to Playlist") {
                 ForEach(model.library.writablePlaylists, id: \.id) { p in
@@ -235,10 +235,11 @@ struct SongMenu: View {
             ForEach((1...5).reversed(), id: \.self) { stars in
                 Toggle(String(format: "%.1f", Double(stars * 2)), isOn: Binding(
                     get: { Int((rating / 2).rounded()) == stars },
-                    set: { on in model.library.setRating(songId: id, on ? Double(stars * 2) : nil) }))
+                    set: { on in model.library.setRating(provider: entry.track.id.provider, songId: id,
+                                                         on ? Double(stars * 2) : nil) }))
             }
             Divider()
-            Button("Clear Rating") { model.library.setRating(songId: id, nil) }
+            Button("Clear Rating") { model.library.setRating(provider: entry.track.id.provider, songId: id, nil) }
                 .disabled(rating == 0)
         }
     }
