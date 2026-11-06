@@ -69,8 +69,8 @@ extension SpotifySource {
         let read = try await api.all("me/playlists", ["limit": "50"], of: SpotifyDTO.Playlist?.self, cap: .max)
             .compactMap { $0 }
         let me = await meId()
-        return (read.map(SpotifyMapping.playlistItem),
-                read.filter { Self.takesSongs($0, me: me) }.map(SpotifyMapping.playlistItem))
+        return (read.map { SpotifyMapping.playlistItem($0, me: me) },
+                read.filter { Self.takesSongs($0, me: me) }.map { SpotifyMapping.playlistItem($0, me: me) })
     }
 
     // MARK: Writes

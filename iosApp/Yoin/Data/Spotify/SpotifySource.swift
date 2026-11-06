@@ -114,7 +114,8 @@ final class SpotifySource {
     /// Spotify can list a null in place of a playlist it won't show.
     func libraryPlaylists() async throws -> [LibraryItem] {
         let r = try await api.all("me/playlists", ["limit": "50"], of: SpotifyDTO.Playlist?.self, cap: .max)
-        return r.compactMap { $0 }.map(SpotifyMapping.playlistItem)
+        let me = await meId()
+        return r.compactMap { $0 }.map { SpotifyMapping.playlistItem($0, me: me) }
     }
 
     func noteLiked(_ ids: [String]) { liked.formUnion(ids) }

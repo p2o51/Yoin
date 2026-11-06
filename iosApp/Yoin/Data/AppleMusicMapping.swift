@@ -115,6 +115,9 @@ struct AMPlaylist: Hashable, Sendable {
     var description: String?
     var artwork: URL?
     var trackCount: Int?
+    /// A library playlist the user can edit (Apple's `canEdit`): theirs. Apple names no owner, and its
+    /// Purchased and Favorites Mix aren't editable (Android ownedByMe). nil: a catalog playlist.
+    var canEdit: Bool? = nil
 
     /// Playlists keep their own id: a library playlist is the user's (`library:p.…`).
     var rawId: String { isLibrary ? AppleMusicMapping.libraryPrefix + resourceId : resourceId }
@@ -298,7 +301,8 @@ enum AppleMusicMapping {
             curator: AppleMusicJSON.string(a, "curatorName"),
             description: AppleMusicJSON.string(description, "standard") ?? AppleMusicJSON.string(description, "short"),
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")),
-            trackCount: AppleMusicJSON.int(a, "trackCount"))
+            trackCount: AppleMusicJSON.int(a, "trackCount"),
+            canEdit: type == "library-playlists" ? a["canEdit"] as? Bool : nil)
     }
 
     // MARK: Plain → UI
@@ -363,7 +367,7 @@ enum AppleMusicMapping {
     static func playlistItem(_ p: AMPlaylist) -> LibraryItem {
         LibraryItem(id: MediaId(provider: provider, rawId: p.rawId), kind: .playlist, title: p.name,
                     subtitle: p.trackCount.map { "Playlist · \($0) songs" } ?? "Playlist",
-                    palette: palette(p.artwork, key: p.rawId), count: p.trackCount)
+                    palette: palette(p.artwork, key: p.rawId), count: p.trackCount, ownedByMe: p.canEdit)
     }
 
     static func playlist(_ p: AMPlaylist, songs: [AMSong]) -> PlaylistInfo {

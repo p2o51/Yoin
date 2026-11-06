@@ -81,6 +81,9 @@ enum DetailCacheDTO {
         var cover: String?
         var album: Album?
         var count: Int?
+        /// Playlists' owner fields; absent in rows stored before By You read them.
+        var owner: String? = nil
+        var ownedByMe: Bool? = nil
     }
 
     struct Home: Codable, Sendable, Equatable {
@@ -149,7 +152,8 @@ struct DetailCacheCodec {
     func dto(_ i: LibraryItem) -> DetailCacheDTO.Item {
         let kind = switch i.kind { case .album: "album"; case .artist: "artist"; case .playlist: "playlist" }
         return .init(provider: i.id.provider, id: i.id.rawId, kind: kind, title: i.title, subtitle: i.subtitle,
-                     cover: coverKey(i.palette), album: i.album.map(dto), count: i.count)
+                     cover: coverKey(i.palette), album: i.album.map(dto), count: i.count, owner: i.owner,
+                     ownedByMe: i.ownedByMe)
     }
 
     func dto(_ h: LibraryStore.HomeLists) -> DetailCacheDTO.Home {
@@ -191,7 +195,7 @@ struct DetailCacheCodec {
         let kind: LibraryItem.Kind = switch i.kind { case "artist": .artist; case "playlist": .playlist; default: .album }
         return LibraryItem(id: MediaId(provider: i.provider, rawId: i.id), kind: kind, title: i.title,
                            subtitle: i.subtitle, palette: palette(i.cover, i.id), album: i.album.map(album),
-                           count: i.count)
+                           count: i.count, owner: i.owner, ownedByMe: i.ownedByMe)
     }
 
     func home(_ h: DetailCacheDTO.Home) -> LibraryStore.HomeLists {

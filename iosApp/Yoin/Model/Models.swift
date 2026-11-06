@@ -118,6 +118,9 @@ struct LibraryItem: Identifiable, Hashable, Sendable {
     var count: Int? = nil
     /// Playlists: who made it, where the source says (Android Playlist.owner).
     var owner: String? = nil
+    /// Playlists: the signed-in user made it (Android Playlist.ownedByMe, By You); nil where the source
+    /// doesn't say.
+    var ownedByMe: Bool? = nil
 }
 
 struct ActivityEntry: Identifiable, Hashable, Sendable {
