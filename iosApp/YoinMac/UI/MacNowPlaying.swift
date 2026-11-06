@@ -393,9 +393,10 @@ struct RatingBar: View {
             DragGesture(minimumDistance: 0)
                 .onChanged { g in
                     guard t != nil else { return }
+                    // Yoin's 0–10 in tenths, as Android's rating bar (the server keeps its 0–5 stars).
                     let raw = (1 - g.location.y / height) * 10
-                    let stars = (min(max(raw, 0), 10) / 2).rounded()
-                    withAnimation(Yoin.spatialFast) { dragValue = stars * 2 }
+                    let v = (min(max(raw, 0), 10) * 10).rounded() / 10
+                    withAnimation(Yoin.spatialFast) { dragValue = v }
                 }
                 .onEnded { _ in
                     if let t, let v = dragValue { model.library.setRating(provider: t.provider, songId: t.id, v > 0 ? v : nil) }
