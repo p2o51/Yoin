@@ -63,7 +63,7 @@ final class NotesStore {
         Self.timeline(notes.filter { $0.provider == provider && $0.trackId == trackId })
     }
 
-    /// Saves a note; blank words are ignored. Returns the stored note.
+    /// Saves a note; blank words are ignored. Returns the stored note; nil when it couldn't be written.
     @discardableResult
     func add(provider: String, trackId: String, content: String, positionMs: Int64?,
              title: String, artist: String) -> SongNote? {
@@ -74,7 +74,12 @@ final class NotesStore {
                             createdAt: ms, updatedAt: ms, title: title, artist: artist,
                             positionMs: positionMs.map { max(0, $0) }, scope: scopes.scope(for: provider))
         stored.append(note)
-        persist()
+        // Not on disk: nothing is kept, so the editor keeps the words (Codex, 2026-11-06).
+        guard write(stored) else {
+            stored.removeLast()
+            return nil
+        }
+        Self.onLocalChange?()
         return note
     }
 
