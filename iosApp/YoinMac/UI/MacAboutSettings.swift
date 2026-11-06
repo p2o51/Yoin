@@ -53,6 +53,7 @@ struct MacAboutSettings: View {
                     NSApp.windows.first { $0.identifier?.rawValue == "main" || $0.title == "Yoin" }?.makeKeyAndOrderFront(nil)
                 }
             }
+            MacTipsSection()
             Section("Open Source Licenses") {
                 ForEach(components) { c in
                     Button { open = c } label: {
