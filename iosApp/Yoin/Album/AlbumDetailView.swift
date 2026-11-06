@@ -1040,9 +1040,12 @@ struct AlbumDetailView: View {
                     CoverArt(palette: palette, cornerRadius: 0, seed: album.seed + 7 + i)
                         .frame(width: me.side, height: me.side)
                         .clipShape(.rect(cornerRadius: corner, style: .continuous))
-                        .rotationEffect(.degrees(me.degrees))
                         .position(me.center)
                         .frame(width: w, height: height, alignment: .topLeading)
+                        // Turned in the stage's frame about its own centre: turned
+                        // in its own frame, the corners past that frame were cut.
+                        .rotationEffect(.degrees(me.degrees),
+                                        anchor: UnitPoint(x: me.center.x / w, y: me.center.y / height))
                         // The knock-out: the cover's ring, and the front sleeve's
                         // for the one behind it.
                         .mask {
