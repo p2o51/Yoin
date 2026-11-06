@@ -359,6 +359,14 @@ final class MacSpotifyOutput: AudioOutput {
     /// Spotify plays a song that isn't the queue's (see `watch`).
     private var showingExternal = false
 
+    /// Devices: the listener moved Spotify to [deviceId] (the transfer is made); Yoin drives it from now on.
+    func adopt(deviceId: String, name: String, on s: SpotifySource) {
+        guard let o = owned, o.source === s else { return }
+        owned = (s, deviceId)
+        quietUntil = Date().addingTimeInterval(2.5)
+        onDevice(Self.isThisMac(name) ? nil : name)
+    }
+
     /// Next / previous on Spotify's own song: Spotify skips, on the device Yoin drives.
     func skipExternal(forward: Bool) {
         guard let o = owned else { return }

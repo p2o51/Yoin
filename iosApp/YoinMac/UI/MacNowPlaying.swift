@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 import YoinShared
 
@@ -229,7 +230,7 @@ struct MacNowPlaying: View {
     private var pills: some View {
         HStack(spacing: 8) {
             QueuePill()
-            NPPill(icon: "devices", title: "Devices", enabled: false) {}
+            DevicesPill()
             WritePill()
         }
     }
@@ -1096,4 +1097,109 @@ private struct NotesPopover: View {
         at = nil
         forTrack = nil
     }
+}
+
+/// Devices: for a Spotify song, the account's Spotify Connect devices (iOS SpotifyDevicesSheet; the one
+/// playing marked, a click moves playback there and Yoin drives it); for Yoin's own audio, the system's
+/// output picker (AirPlay and the Mac's outputs).
+struct DevicesPill: View {
+    @Environment(MacModel.self) private var model
+    @State private var open = false
+
+    var body: some View {
+        NPPill(icon: "devices", title: "Devices", enabled: model.player.currentTrack != nil) { open.toggle() }
+            .popover(isPresented: $open, arrowEdge: .top) {
+                if model.player.currentTrack?.provider == SpotifyMapping.provider, let s = model.session.spotify {
+                    SpotifyDevicesPopover(spotify: s, open: $open)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Play to").font(.gsf(15, .semibold))
+                        HStack(spacing: 10) {
+                            RoutePicker().frame(width: 28, height: 28)
+                            Text("AirPlay and this Mac's outputs").font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
+                        }
+                    }
+                    .padding(14)
+                    .frame(width: 280)
+                }
+            }
+    }
+}
+
+private struct SpotifyDevicesPopover: View {
+    var spotify: SpotifySource
+    @Binding var open: Bool
+    @Environment(MacModel.self) private var model
+    @Environment(\.macTint) private var tint
+    @State private var devices: [SpotifySource.Device]?
+    @State private var failure: String?
+    @State private var moving: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Devices").font(.gsf(15, .semibold))
+            if let devices, !devices.isEmpty {
+                ForEach(devices) { d in
+                    Button { Task { await move(to: d) } } label: {
+                        HStack(spacing: 12) {
+                            YoinIcon(d.isActive ? "equalizer" : "devices", size: 20)
+                                .foregroundStyle(d.isActive ? tint.primary : Yoin.inkVariant)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(d.name).font(.gsf(14, d.isActive ? .semibold : .regular))
+                                    .foregroundStyle(d.isActive ? tint.primary : Yoin.ink)
+                                Text(moving == d.id ? "Moving…" : d.isActive ? "Playing here" : d.type)
+                                    .font(.gsf(12)).foregroundStyle(Yoin.inkVariant)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 6).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(d.isActive || moving != nil)
+                }
+            } else {
+                Text(failure ?? (devices == nil ? "Looking for devices…"
+                                 : "No Spotify devices found. Open Spotify on the device you want to play on."))
+                    .font(.gsf(13)).foregroundStyle(Yoin.inkVariant).fixedSize(horizontal: false, vertical: true)
+            }
+            if let failure, devices?.isEmpty == false {
+                Text(failure).font(.gsf(12)).foregroundStyle(.red)
+            }
+        }
+        .padding(14)
+        .frame(width: 300)
+        .task { await load() }
+    }
+
+    private func load() async {
+        do { devices = try await spotify.devices() } catch {
+            devices = []
+            failure = SpotifySource.message(for: error)
+        }
+    }
+
+    /// The listener's pick: Spotify moves there and Yoin drives that device from now on.
+    private func move(to d: SpotifySource.Device) async {
+        moving = d.id
+        defer { moving = nil }
+        do {
+            try await spotify.transfer(to: d.id)
+            model.spotifyOutput.adopt(deviceId: d.id, name: d.name, on: spotify)
+            open = false
+        } catch {
+            failure = SpotifySource.message(for: error)
+            await load()
+        }
+    }
+}
+
+/// The system's output picker (AVKit's AVRoutePickerView on the Mac).
+private struct RoutePicker: NSViewRepresentable {
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let v = AVRoutePickerView()
+        v.isRoutePickerButtonBordered = false
+        return v
+    }
+
+    func updateNSView(_ v: AVRoutePickerView, context: Context) {}
 }
