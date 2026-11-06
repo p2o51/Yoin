@@ -157,7 +157,14 @@ struct MacLibraryView: View {
                             Task { await lib.loadPlaylists(force: true) }
                         }
                     case .memories:
+                        let cards = model.memoryCards()
                         MacMemoriesGrid()
+                            .animation(Yoin.effects, value: cards)
+                            .task(id: [model.session.accountKey, GeminiSettings.shared.targetLanguage,
+                                       GeminiSettings.shared.hasKey ? "configured" : "",
+                                       cards.map(\.id).joined(separator: "\u{1F}")]) {
+                                await model.generateMemoryText()
+                            }
                     case .downloads:
                         MacDownloadsList()
                     case .songs:

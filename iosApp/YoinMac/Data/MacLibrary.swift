@@ -673,6 +673,30 @@ final class MacLibrary {
 
     func artistPage(_ id: String) -> ArtistPage? { artistPages[id] }
 
+    /// Android getArtistListening: this account's plays, matched by release or exact artist name.
+    func artistMostPlayed(_ page: ArtistPage) -> [PlaylistEntry] {
+        guard !session.accountKey.isEmpty else { return [] }
+        let provider = page.id.provider
+        let releases = Set(page.releases.filter { $0.id.provider == provider }.map { $0.id.rawId })
+        let ranked = MacArtistListening.topSongs(plays: HistoryStore.shared.plays, account: session.accountKey,
+                                                 provider: provider, albumIds: releases, artistName: page.name)
+        return ranked.map { song in
+            let latest = song.latest
+            let url: URL? = provider == AccountScope.subsonicProvider
+                ? latest.coverKey.flatMap { key in client.flatMap { URL(string: $0.coverArtUrl(id: key, size: nil)) } }
+                : latest.coverKey.flatMap(URL.init(string:))
+            let p = MacArtistDetail.placeholder(latest.albumId ?? latest.songId)
+            let palette = CoverPalette(a: p.a, b: p.b, c: p.c, cover: url.map { CoverRef(url: $0) })
+            let track = Track(id: MediaId(provider: provider, rawId: latest.songId), number: 0,
+                              title: latest.title, durationSec: Int(song.durationSec),
+                              artist: page.name, playCount: song.playCount)
+            let album = Album(id: MediaId(provider: provider, rawId: latest.albumId ?? "song:\(latest.songId)"),
+                              title: latest.album, artist: page.name, year: 0, palette: palette,
+                              tracks: [track], artistId: page.id.rawId)
+            return PlaylistEntry(album: album, track: track)
+        }
+    }
+
     func loadArtist(_ id: String, force: Bool = false) async {
         let key = "artist:\(id)"
         let op = detailOps[key, default: 0]
@@ -695,17 +719,7 @@ final class MacLibrary {
             return
         }
         await run("artist:\(id)", force: force) { client, m, live in
-            guard let a = try await client.getArtist(id: id) else { return }
-            // Most Played needs the songs: the first releases' track lists, at once.
-            let ids = a.albums.prefix(8).map(\.id).filter { self.albumDetails[$0] == nil }
-            let loaded = try await withThrowingTaskGroup(of: AlbumInfo?.self) { group in
-                for id in ids { group.addTask { try await client.getAlbum(id: id) } }
-                var out: [AlbumInfo] = []
-                for try await al in group { if let al { out.append(al) } }
-                return out
-            }
-            guard live() else { return }
-            for info in loaded { self.albumDetails[info.id] = m.album(info) }
+            guard let a = try await client.getArtist(id: id), live() else { return }
             let known = a.albums.compactMap { self.albumDetails[$0.id] }
             if idle, self.detailOps[key, default: 0] == op, !self.detailWrites.contains(key) {
                 self.starredOverride[key] = nil
@@ -1133,7 +1147,8 @@ final class MacLibrary {
         guard let url = URL(string: client.streamUrl(id: e.track.id.rawId, maxBitRate: nil, format: nil)) else { return nil }
         return PlayableTrack(id: e.track.id.rawId, provider: e.track.id.provider, title: e.track.title,
                              artist: e.track.artist ?? e.album.artist, album: e.album.title,
-                             albumId: e.album.id.rawId, durationSec: Double(e.track.durationSec), streamURL: url,
+                             albumId: e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId,
+                             durationSec: Double(e.track.durationSec), streamURL: url,
                              coverURL: e.album.coverURL, starred: e.track.starred,
                              userRating: e.track.rating.map { Int($0 / 2) }, sourceKbps: e.track.bitRateKbps)
     }

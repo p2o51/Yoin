@@ -190,6 +190,7 @@ struct MacArtistDetail: View {
 
     var body: some View {
         let page = model.library.artistPage(id)
+        let mostPlayed = page.map { model.library.artistMostPlayed($0) } ?? []
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(palette: page?.palette ?? MacArtistDetail.placeholder(id), eyebrow: "Artist",
@@ -207,13 +208,16 @@ struct MacArtistDetail: View {
                 if let error = model.library.detailErrors["artist:\(id)"] {
                     Text(error).font(.gsf(13)).foregroundStyle(Yoin.inkVariant).padding(.bottom, 12)
                 }
-                if let page, !page.mostPlayed.isEmpty {
-                    MacSectionTitle(text: "Most Played")
-                    VStack(spacing: 2) {
-                        ForEach(Array(page.mostPlayed.enumerated()), id: \.offset) { i, e in
-                            TrackRow(entry: e, showCover: true) { model.play(page.mostPlayed, startAt: i) }
+                if !mostPlayed.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        MacSectionTitle(text: "Most Played")
+                        VStack(spacing: 2) {
+                            ForEach(Array(mostPlayed.enumerated()), id: \.element.track.id) { i, e in
+                                TrackRow(entry: e, showCover: true) { model.play(mostPlayed, startAt: i) }
+                            }
                         }
                     }
+                    .transition(.opacity.animation(Yoin.effects))
                 }
                 if let page, !page.releases.isEmpty {
                     MacSectionTitle(text: "Releases")
@@ -230,6 +234,7 @@ struct MacArtistDetail: View {
             .padding(.horizontal, 32)
             .padding(.top, 60)
             .padding(.bottom, 142)
+            .animation(Yoin.spatial, value: mostPlayed.map { $0.track.id })
         }
         .task(id: [model.session.accountKey, id]) {
             let generation = model.library.accountGeneration

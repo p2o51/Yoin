@@ -42,6 +42,7 @@ final class MacModel {
     @ObservationIgnored let spotifyOutput = MacSpotifyOutput()
     @ObservationIgnored private var membershipCheckedFor: String?
     let lyrics = MacLyrics()
+    @ObservationIgnored private let memoryGeneration = MacMemoryGeneration()
     @ObservationIgnored private var system: MacPlaybackSystem?
 
     var tab: Tab = .home
@@ -683,7 +684,7 @@ final class MacModel {
     }
 
     /// The Memories deck (iOS memoryDeckInputs): memories, each album's notes, reviews, titles, ratings.
-    func memoryCards() -> [MemoryCard] {
+    private func memoryDeckInputs() -> MemoryDeck.Inputs {
         let provider = currentProvider
         let inputs = historyInputs()
         var songAlbum: [String: String] = [:]
@@ -692,7 +693,7 @@ final class MacModel {
         var byAlbum: [String: [SongNote]] = [:]
         for n in inputs.notes { if let a = songAlbum[n.trackId] { byAlbum[a, default: []].append(n) } }
         let store = AlbumMemoryStore.shared
-        return MemoryDeck.cards(MemoryDeck.Inputs(
+        return MemoryDeck.Inputs(
             memories: HomeHistory.memories(inputs), notes: byAlbum,
             review: { id in
                 guard let r = store.album(provider: provider, albumId: id), let text = r.review else { return nil }
@@ -704,7 +705,48 @@ final class MacModel {
             },
             rating: { LocalRatings.shared.rating(provider: provider, songId: $0) },
             yoinTitle: { store.memory(provider: provider, entityId: $0)?.title },
-            copy: { store.memory(provider: provider, entityId: $0)?.copy }))
+            copy: { store.memory(provider: provider, entityId: $0)?.copy })
+    }
+
+    func memoryCards() -> [MemoryCard] {
+        let inputs = memoryDeckInputs()
+        let language = GeminiSettings.shared.targetLanguage
+        return MemoryDeck.cards(inputs).map { card in
+            let voice = MacMemoryVoice.Input(card: card, notes: inputs.notes[card.id] ?? [],
+                                             now: HistoryStore.shared.nowMs, targetLanguage: language)
+            let generated = MacMemoryGeneration.cached(voice, row: AlbumMemoryStore.shared.memory(
+                provider: card.album.id.provider, entityId: card.id))
+            var card = card
+            card.yoinTitle = generated.title
+            if card.titleKind != .user {
+                card.title = generated.title ?? card.album.title
+                card.titleKind = generated.title == nil ? .album : .ai
+            }
+            card.paragraph = card.review == nil
+                ? generated.copy.flatMap { MacMemoryGeneration.paragraph($0, targetLanguage: language) } ?? voice.fallback?.paragraph
+                : nil
+            return card
+        }
+    }
+
+    /// Called only by the Memories surface; neither Home nor scrapbook reads start requests.
+    func generateMemoryText(regenerate: Bool = false) async {
+        let gen = library.accountGeneration, account = session.accountKey, provider = currentProvider
+        let language = GeminiSettings.shared.targetLanguage
+        let live = { [self] in
+            gen == library.accountGeneration && account == session.accountKey && provider == currentProvider
+                && language == GeminiSettings.shared.targetLanguage && session.isSignedIn
+        }
+        guard live(), !account.isEmpty else { return }
+        await hydrateMemoryAlbums()
+        guard live(), !Task.isCancelled else { return }
+        let inputs = memoryDeckInputs()
+        for card in MemoryDeck.cards(inputs) where card.album.id.provider == provider {
+            guard live(), !Task.isCancelled else { return }
+            let input = MacMemoryVoice.Input(card: card, notes: inputs.notes[card.id] ?? [],
+                                             now: HistoryStore.shared.nowMs, targetLanguage: language)
+            await memoryGeneration.generate(input, account: account, regenerate: regenerate, isCurrent: live)
+        }
     }
 
     /// Albums this account has played here, the most recent first (Home's Memories shelf).
