@@ -1174,13 +1174,13 @@ struct AlbumDetailView: View {
             // feather down over the blur (51, 2026-11-06: "过渡下来"): an
             // ease-out tail, so the color lets go slowly instead of a line.
             // The strips in flight are taller; only past the strip it fades.
-            let fade = stripFeather
+            // 51, 13:22: the feather starts right at the screen's top edge.
+            let fade = top + stripExtend + stripFeather
             let k = smooth(p, 0.55, 0.95)
             VStack(spacing: 0) {
-                Rectangle().frame(height: max(0, top + stripExtend))
                 LinearGradient(stops: (0...12).map { i in
                     let t = CGFloat(i) / 12
-                    let ease = 1 - pow(1 - t, 2.2)
+                    let ease = t * t * (3 - 2 * t)
                     return .init(color: .black.opacity(1 - ease * k), location: t)
                 }, startPoint: .top, endPoint: .bottom)
                 .frame(height: fade)
