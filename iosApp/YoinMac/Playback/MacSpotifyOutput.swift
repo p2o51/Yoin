@@ -26,6 +26,8 @@ final class MacSpotifyOutput: AudioOutput {
     private var startedAt = Date.distantPast
     private var startedOn = ""
     private var lookTimer: Timer?
+    /// A Spotify account whose sign-in was refused: the look doesn't ask it again (a new sign-in is a new source).
+    private weak var revoked: SpotifySource?
     /// A load's start is on its way to Spotify.
     private var starting = false
 
@@ -242,7 +244,10 @@ final class MacSpotifyOutput: AudioOutput {
         guard let id = try await Self.localDevice(s, launch: true) else {
             throw SpotifyAPIError.http(status: 404, message: "Spotify isn't open on this Mac. Open it, then try again.")
         }
+        // Opening Spotify here can take seconds: another account since, and nothing goes out for this one.
+        guard source() === s else { return }
         try await s.transfer(to: id)
+        guard source() === s else { return }
         if let o = owned, o.source === s {
             owned = (s, id)
             quietUntil = Date().addingTimeInterval(2.5)
@@ -293,10 +298,12 @@ final class MacSpotifyOutput: AudioOutput {
                     wait = .seconds(max(1, after))
                     continue
                 } catch let e as SpotifyAuthError {
-                    // Signed out (revoked): stop asking; the account shows it.
+                    // Signed out (revoked): stop asking; the account shows it, and the 10 s look leaves it be.
+                    self.revoked = owner.source
                     self.letGo(gen: gen, message: e.localizedDescription)
                     return
                 } catch SpotifyAPIError.unauthorized {
+                    self.revoked = owner.source
                     self.letGo(gen: gen, message: "Spotify signed you out. Sign in again")
                     return
                 } catch {
@@ -429,7 +436,7 @@ final class MacSpotifyOutput: AudioOutput {
     }
 
     private func look() {
-        guard !silent, owned == nil, current == nil, let s = source() else { return }
+        guard !silent, owned == nil, current == nil, let s = source(), s !== revoked else { return }
         let gen = generation
         Task { [weak self] in
             guard let data = try? await s.api.send("GET", "me/player"), !data.isEmpty,

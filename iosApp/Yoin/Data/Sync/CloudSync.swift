@@ -92,7 +92,10 @@ final class CloudSync {
         )
         self.kit = kit
         kit.core.onStateChange = { [weak self] state in
-            MainActor.assumeIsolated { self?.state = state }
+            MainActor.assumeIsolated {
+                self?.trace(state)
+                self?.state = state
+            }
         }
         NotesStore.onLocalChange = { CloudSync.shared.localChanged() }
         LocalRatings.onLocalChange = { CloudSync.shared.localChanged() }
@@ -237,7 +240,22 @@ final class CloudSync {
         guard let kit else { return }
         working = true
         defer { working = false }
-        do { try await body(kit.core) } catch { message = error.localizedDescription }
+        do { try await body(kit.core) } catch {
+            let e = error as NSError
+            PlayTrace.log("SYNC error \(type(of: error)) \(e.domain) \(e.code)")
+            message = error.localizedDescription
+        }
+    }
+
+    /// The export / unified log's sync lines: a phase change or a finished sync, with counts only (no account
+    /// names, emails, ids or tokens).
+    private func trace(_ s: CloudSyncState) {
+        let phase = String(describing: type(of: s.phase))
+        let last = s.lastSyncAt?.int64Value
+        guard phase != String(describing: type(of: state.phase)) || last != state.lastSyncAt?.int64Value else { return }
+        let at = last.map { Date(timeIntervalSince1970: Double($0) / 1000).formatted(date: .omitted, time: .standard) } ?? "never"
+        PlayTrace.log("SYNC \(phase) last=\(at) pending=\(s.pendingChanges) accounts=\(s.accounts.count) " +
+                      "devices=\(s.devices.count) readOnly=\(s.readOnly)")
     }
 
     // MARK: Triggers

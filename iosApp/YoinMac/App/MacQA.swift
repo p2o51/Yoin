@@ -36,8 +36,12 @@ enum MacQA {
         #if DEBUG
         let d = UserDefaults.standard
         guard !model.session.isSignedIn, let server = d.string(forKey: "qaServer") else { return }
+        // A late answer never replaces an account signed in meanwhile.
+        let token = model.authToken
         try? await model.session.signIn(url: server, username: d.string(forKey: "qaUser") ?? "qa",
-                                        password: d.string(forKey: "qaPassword") ?? "qa")
+                                        password: d.string(forKey: "qaPassword") ?? "qa") {
+            token == model.authToken && !Task.isCancelled && !model.session.isSignedIn
+        }
         #endif
     }
 

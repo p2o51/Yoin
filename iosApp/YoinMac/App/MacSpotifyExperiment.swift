@@ -227,7 +227,9 @@ enum MacSpotifyExperiment {
         model.player.pause()
         try? await Task.sleep(for: .seconds(2))
         line("   paused through Yoin: \(describe(await player(s)))")
-        if let id = await devices(s).first(where: { ($0["type"] as? String) == "Computer" })?["id"] as? String {
+        let host = Host.current().localizedName ?? ""
+        if let id = await devices(s).first(where: { ($0["type"] as? String) == "Computer"
+                && ($0["name"] as? String)?.caseInsensitiveCompare(host) == .orderedSame })?["id"] as? String {
             await call(s, "PUT", "me/player/volume", ["volume_percent": String(restoreVolume), "device_id": id])
         }
         line("E2E part 2 done")

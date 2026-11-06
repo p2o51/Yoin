@@ -114,12 +114,14 @@ final class MacLibrary {
                          _ body: @escaping @MainActor (_ live: @escaping @MainActor @Sendable () -> Bool) async throws -> Void) async {
         // One load per key at a time; a forced one waits for the one running, then reads again (so the
         // newest answer lands last).
+        // The account this load is for, fixed before any wait: a switch while it waited ends it.
+        let gen = generation
         if let running = inflight[key] {
             await running.value
             if !force { return }
+            guard gen == generation else { return }
         }
         if !force, phase(key) == .loaded { return }
-        let gen = generation
         phases[key] = .loading
         let task = Task { @MainActor in
             let live: @MainActor @Sendable () -> Bool = { gen == self.generation }
@@ -415,6 +417,14 @@ final class MacLibrary {
             _ = try await spotify.removeTracks([.init(trackRawId: p.entries[index].track.id.rawId, position: position)],
                                                from: id, snapshotId: p.snapshotId)
         } else if let client {
+            // Subsonic removes by position: the list is read again first, and a change made elsewhere since
+            // (another client) stops the removal rather than taking out a different song.
+            let shown = p.entries.map(\.track.id.rawId)
+            await loadPlaylist(id, force: true)
+            guard gen == generation else { return }
+            guard playlistDetails[id]?.entries.map(\.track.id.rawId) == shown else {
+                throw WriteError(message: "The playlist changed. Check it and try again")
+            }
             try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil, songIdsToAdd: [],
                                             songIndexesToRemove: [KotlinInt(int: Int32(index))])
         } else {
@@ -612,17 +622,20 @@ final class MacLibrary {
     func toggleStar(songId: String, current: Bool) {
         let key = "song:\(songId)"
         let gen = generation
+        // One write per song at a time, in order; only the newest toggle's failure puts the heart back.
+        starOps[key, default: 0] += 1
+        let op = starOps[key]!
         if let spotify {
             // Spotify's heart is Liked Songs: saved or not, both ways.
             let on = !isStarred(songId: songId, fallback: current)
             starredOverride[key] = on
-            Task {
+            chain(key) {
                 do {
                     if on { try await spotify.save(songId) } else { try await spotify.unsave(songId) }
                     guard gen == self.generation else { return }
                     self.inLibrary[songId] = on
                 } catch {
-                    guard gen == self.generation else { return }
+                    guard gen == self.generation, self.starOps[key] == op else { return }
                     self.starredOverride[key] = !on
                     Self.log.error("like failed: \(SpotifySource.message(for: error), privacy: .public)")
                 }
@@ -634,7 +647,7 @@ final class MacLibrary {
             // accepted at first; the heart stays on while Apple confirms, and goes back if it doesn't.
             guard !isStarred(songId: songId, fallback: current) else { return }
             starredOverride[key] = true
-            Task {
+            chain(key) {
                 do {
                     try await apple.addToLibrary(songId)
                     try? await Task.sleep(for: .seconds(3))
@@ -644,7 +657,7 @@ final class MacLibrary {
                     if let found { self.inLibrary[songId] = found }
                     if found != true { self.starredOverride[key] = nil }
                 } catch {
-                    guard gen == self.generation else { return }
+                    guard gen == self.generation, self.starOps[key] == op else { return }
                     self.starredOverride[key] = nil
                     Self.log.error("library add failed: \(AppleMusicSource.message(for: error), privacy: .public)")
                 }
@@ -654,18 +667,30 @@ final class MacLibrary {
         let on = !(starredOverride[key] ?? current)
         starredOverride[key] = on
         guard let client else { return }
-        Task {
+        chain(key) {
             do {
                 if on { try await client.star(id: songId, albumId: nil, artistId: nil) }
                 else { try await client.unstar(id: songId, albumId: nil, artistId: nil) }
             } catch {
                 // The write failed: the heart goes back (unless the account changed meanwhile).
-                guard gen == self.generation else { return }
+                guard gen == self.generation, self.starOps[key] == op else { return }
                 self.starredOverride[key] = !on
                 Self.log.error("star failed: \(MacSession.message(for: error), privacy: .public)")
             }
         }
     }
+    @ObservationIgnored private var starOps: [String: Int] = [:]
+    @ObservationIgnored private var starChains: [String: Task<Void, Never>] = [:]
+
+    /// Runs [body] after the song's previous heart write (so an older save can't land after a newer unsave).
+    private func chain(_ key: String, _ body: @escaping @MainActor () async -> Void) {
+        let previous = starChains[key]
+        starChains[key] = Task { @MainActor in
+            await previous?.value
+            await body()
+        }
+    }
+
 
     /// Yoin's own rating (iOS / Android: local_ratings, any provider, synced across devices); the
     /// server's stars alone don't count. nil = never rated here; 0 is a rating.

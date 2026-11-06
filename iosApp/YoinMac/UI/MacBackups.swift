@@ -8,6 +8,7 @@ struct MacBackupsSettings: View {
     @Environment(MacModel.self) private var model
     @State private var restoring: PlaylistBackupRecord?
     @State private var message: String?
+    @State private var busy = false
 
     var body: some View {
         let backups = PlaylistBackupStore.shared.all.sorted { $0.lastBackedUpAt > $1.lastBackedUpAt }
@@ -19,7 +20,7 @@ struct MacBackupsSettings: View {
                     }
                     if model.library.playlists.isEmpty { Text("No playlists on this account") }
                 }
-                .disabled(PlaylistBackups.shared.backingUp.count > 0)
+                .disabled(busy || PlaylistBackups.shared.backingUp.count > 0)
                 if !PlaylistBackups.shared.backingUp.isEmpty { ProgressView().controlSize(.small) }
                 if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
             }
@@ -64,8 +65,10 @@ struct MacBackupsSettings: View {
             return
         }
         message = nil
+        // One back-up at a time from here: two reads of the same playlist could land out of order.
+        busy = true
         Task {
-            defer { source.close() }
+            defer { source.close(); busy = false }
             do {
                 let r = try await PlaylistBackups.shared.backUp(rawId: p.id.rawId, from: source)
                 CloudSync.shared.localChanged()
@@ -144,12 +147,15 @@ private struct MacRestoreSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Close") { model.sheetClosed(); dismiss() }
+                Button("Close") { model.cancel(); dismiss() }
             }
         }
         .padding(20)
         .frame(width: 460)
         .onAppear { model.open() }
+        // The sheet owns the restore: closed while matching or at review, it stops and lets go of its client
+        // (cancel leaves a write under way to finish).
+        .onDisappear { model.cancel() }
     }
 
     /// Every account here as a restore target (iOS PlaylistBackupsView.targets).

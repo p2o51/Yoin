@@ -182,6 +182,9 @@ final class MacSession {
         persist()
     }
 
+    /// Bumped by each activation (and deactivation): late callbacks check they're still current.
+    private var activation = 0
+
     private func activate(_ p: Profile) {
         deactivate()
         switch p.service {
@@ -194,8 +197,15 @@ final class MacSession {
                 persist()
             }
             AccountScope.shared.spotify = AccountScope.spotifyScope(userId: tokens.userId)
+            activation += 1
+            let act = activation
             spotify = Self.spotifySource(profileId: p.id, tokens: tokens) { [weak self] in
-                Task { @MainActor in self?.state = .failed("Spotify signed you out. Sign in again") }
+                // Only for the activation it came from: a refresh of an account switched away from (or signed in
+                // again since) says nothing about the one in use now.
+                Task { @MainActor in
+                    guard let self, self.activation == act else { return }
+                    self.state = .failed("Spotify signed you out. Sign in again")
+                }
             }
             state = .ready(server: "Spotify")
         case .appleMusic:
@@ -208,6 +218,7 @@ final class MacSession {
     }
 
     private func deactivate() {
+        activation += 1
         AccountScope.shared.subsonic = nil
         AccountScope.shared.spotify = nil
         client?.close()
