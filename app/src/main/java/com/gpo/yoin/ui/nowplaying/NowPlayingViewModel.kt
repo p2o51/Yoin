@@ -31,6 +31,7 @@ import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.player.dlna.DlnaDevice
 import com.gpo.yoin.player.dlna.DlnaError
 import com.gpo.yoin.player.dlna.DlnaManager
@@ -520,6 +521,7 @@ class NowPlayingViewModel(
                     coverArtUrl = repository.resolveCoverUrl(song.coverArt),
                     message = state.connectionErrorMessage?.let { UiText.Raw(it) }
                         ?: UiText.Res(R.string.np_msg_playback_interrupted),
+                    opensSpotify = state.connectionFailure == SpotifyConnectFailure.SpotifyAsleep,
                 )
 
             song != null -> NowPlayingUiState.Playing(
@@ -594,6 +596,7 @@ class NowPlayingViewModel(
                     coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
                     message = state.connectionErrorMessage?.let { UiText.Raw(it) }
                         ?: UiText.Res(R.string.np_msg_couldnt_start),
+                    opensSpotify = state.connectionFailure == SpotifyConnectFailure.SpotifyAsleep,
                 )
 
             else -> NowPlayingUiState.Idle
@@ -697,6 +700,11 @@ class NowPlayingViewModel(
             SharingStarted.Eagerly,
             playbackManager.playbackState.value.playWhenReady,
         )
+
+    /** Opens the Spotify app without a song; the held start plays when Yoin is back. */
+    fun openSpotify() {
+        playbackManager.openSpotify()
+    }
 
     fun togglePlayPause() {
         val state = playbackManager.playbackState.value

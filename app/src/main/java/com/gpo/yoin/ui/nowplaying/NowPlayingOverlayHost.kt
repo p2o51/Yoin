@@ -614,6 +614,7 @@ fun NowPlayingOverlayHost(
                         bufferedMs = { nowPlayingBufferedMs.value },
                         hasAudioSpectrum = hasAudioSpectrum,
                         onTogglePlayPause = viewModel::togglePlayPause,
+                        onOpenSpotify = viewModel::openSpotify,
                         onSkipNext = viewModel::skipNext,
                         onSkipPrevious = viewModel::skipPrevious,
                         onSeek = viewModel::seekTo,
