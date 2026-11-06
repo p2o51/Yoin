@@ -5,10 +5,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,7 +32,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -430,11 +425,11 @@ internal fun aboutCarouselPages(rows: List<ReceiptRow>, paragraphs: List<AboutPa
 
 private const val CarouselLinesPerPage = 3
 private const val CarouselDwellMs = 7_000L
-private const val CarouselMaxDots = 10
 
 /**
- * The collapsed About: [pages] one at a time, turning on their own; a tap turns to the next. [songKey]
- * starts it over on a new song.
+ * The collapsed About: [pages] one at a time, turning on their own. No page indicator, and it takes no
+ * tap of its own: a tap falls through to the pager page, which expands About (owner 2026-11-06).
+ * [songKey] starts it over on a new song.
  */
 @Composable
 internal fun AboutCarousel(
@@ -450,22 +445,14 @@ internal fun AboutCarousel(
         delay(CarouselDwellMs)
         index += 1
     }
-    Column(
-        modifier = modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            role = Role.Button,
-        ) { index += 1 },
-    ) {
+    Box(modifier = modifier) {
         AnimatedContent(
             targetState = current,
             transitionSpec = {
                 YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
                     YoinMotion.fadeOut(role = YoinMotionRole.Standard)
             },
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             label = "aboutCarousel",
         ) { shown ->
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
@@ -492,35 +479,6 @@ internal fun AboutCarousel(
                         )
                     }
                     null -> Unit
-                }
-            }
-        }
-        if (pages.size > CarouselMaxDots) {
-            Text(
-                text = "${current + 1} / ${pages.size}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        } else if (pages.size > 1) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                pages.indices.forEach { i ->
-                    Box(
-                        modifier = Modifier
-                            .size(if (i == current) 6.dp else 4.dp)
-                            .align(Alignment.CenterVertically)
-                            .clip(CircleShape)
-                            .background(
-                                if (i == current) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant
-                                },
-                            ),
-                    )
                 }
             }
         }
