@@ -198,6 +198,13 @@ data class SpotifyQueueResponse(
     val queue: List<SpotifyTrackObject> = emptyList(),
 )
 
+/** `GET /me/player`, the parts Yoin reads: where Spotify plays and whether it is playing. */
+@Serializable
+data class SpotifyPlaybackStateResponse(
+    val device: SpotifyDevice? = null,
+    @SerialName("is_playing") val isPlaying: Boolean = false,
+)
+
 @Serializable
 data class SpotifyDevicesResponse(
     val devices: List<SpotifyDevice> = emptyList(),

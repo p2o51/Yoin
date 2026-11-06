@@ -550,6 +550,14 @@ class SpotifyMusicSource(
 
     suspend fun listDevices(): List<SpotifyDevice> = apiClient.listDevices()
 
+    /**
+     * The name of the device Spotify is playing on, when it is another one than this phone
+     * ([localNames], as [localDeviceId] matches them); null when nothing plays or it plays
+     * here. A read only: it never starts, pauses or moves playback.
+     */
+    suspend fun playingElsewhere(localNames: List<String>): String? =
+        playingElsewhere(apiClient.getPlaybackState(), localNames)
+
     suspend fun transferPlayback(deviceId: String, play: Boolean = true) {
         apiClient.transferPlayback(deviceId = deviceId, play = play)
     }
@@ -809,6 +817,15 @@ class SpotifyMusicSource(
 }
 
 /** The device in [devices] named like this phone; with several, the active one wins. */
+/** [SpotifyMusicSource.playingElsewhere]: [state]'s device name when it plays and isn't one of [localNames]. */
+internal fun playingElsewhere(state: SpotifyPlaybackStateResponse?, localNames: List<String>): String? {
+    if (state == null || !state.isPlaying) return null
+    val device = state.device ?: return null
+    val names = localNames.map(String::trim).filter(String::isNotEmpty)
+    if (names.any { it.equals(device.name.trim(), ignoreCase = true) }) return null
+    return device.name.trim().ifEmpty { null }
+}
+
 internal fun pickLocalSpotifyDevice(devices: List<SpotifyDevice>, localNames: List<String>): SpotifyDevice? {
     val names = localNames.map(String::trim).filter(String::isNotEmpty)
     val named = devices.filter { device -> device.id != null && names.any { it.equals(device.name.trim(), ignoreCase = true) } }

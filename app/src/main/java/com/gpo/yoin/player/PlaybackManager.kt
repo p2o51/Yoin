@@ -156,7 +156,18 @@ class PlaybackManager(
             (spotifySource ?: repository.awaitActiveSource(SPOTIFY_SOURCE_WAIT_MS) as? SpotifyMusicSource)
                 ?.playerQueue()
         },
+        playingElsewhere = {
+            (spotifySource ?: repository.awaitActiveSource(SPOTIFY_SOURCE_WAIT_MS) as? SpotifyMusicSource)
+                ?.playingElsewhere(localDeviceNames())
+        },
     )
+
+    /**
+     * The shell's action on the "can't reach Spotify" hint: opens the Spotify app (no song,
+     * so nothing it plays changes); the start the hint held runs when Yoin is back. [playHere]:
+     * the user chose to move playback here from another device. False when it can't open.
+     */
+    fun openSpotify(playHere: Boolean): Boolean = spotifyRemotePlayer.openSpotify(playHere)
 
     /**
      * The Spotify heart check, made here — once per track change, however

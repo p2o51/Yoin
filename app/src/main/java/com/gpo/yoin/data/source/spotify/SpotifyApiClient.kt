@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import okhttp3.Call
@@ -300,6 +301,19 @@ class SpotifyApiClient(
             deserializer = SpotifyDevicesResponse.serializer(),
             lane = Lane.Control,
         ).devices
+    }
+
+    /**
+     * `GET /me/player`: the device Spotify plays on and whether it is playing. Null when no
+     * device is active (204, an empty body). Only reads; needs `user-read-playback-state`.
+     */
+    suspend fun getPlaybackState(): SpotifyPlaybackStateResponse? = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "me", "player"),
+            deserializer = SpotifyPlaybackStateResponse.serializer().nullable,
+            lane = Lane.Control,
+            blankBody = "null",
+        )
     }
 
     // Read after a start or an Add to queue, so it doesn't queue behind library reads.
@@ -667,7 +681,13 @@ class SpotifyApiClient(
         results.take(maxItems)
     }
 
-    private suspend fun <T> getDecoded(url: HttpUrl, deserializer: KSerializer<T>, lane: Lane = Lane.Read): T =
+    private suspend fun <T> getDecoded(
+        url: HttpUrl,
+        deserializer: KSerializer<T>,
+        lane: Lane = Lane.Read,
+        /** What an empty body decodes as (a 204), for a [deserializer] that takes it; null: an empty body is an error. */
+        blankBody: String? = null,
+    ): T =
         coroutineScope {
             // awaitResponse covers headers. Keep cancellation tied to the Call while body.string()
             // reads too, so a stalled devices body cannot delay the user's next playback request.
@@ -692,7 +712,7 @@ class SpotifyApiClient(
                     if (!it.isSuccessful) {
                         throw it.toSpotifyFailure(url)
                     }
-                    val body = it.body.string()
+                    val body = it.body.string().let { text -> if (blankBody != null && text.isBlank()) blankBody else text }
                     decodeResponse(deserializer, body, it)
                 }
             } catch (error: IOException) {
