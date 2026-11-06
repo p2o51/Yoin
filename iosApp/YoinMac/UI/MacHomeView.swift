@@ -13,17 +13,20 @@ struct MacHomeView: View {
         }
     }
 
-    @AppStorage("homeLayout") private var layoutRaw = ""
     @State private var editing = false
 
-    @ViewBuilder private func section(_ k: MacHomeLayout.Section, home: MacLibrary.Home) -> some View {
+    /// Whose Home this is (iOS `homeScope`, provider|account): the layout is kept, and synced, per account.
+    private var scope: String { "\(model.currentProvider)|\(model.session.accountKey)" }
+
+    /// One iOS Home section, drawn from what the Mac has.
+    @ViewBuilder private func section(_ k: HomeSection, home: MacLibrary.Home) -> some View {
         switch k {
         case .recentlyPlayed:
             if !home.recentlyPlayed.isEmpty {
                 MacSectionTitle(text: k.title)
                 Shelf(albums: home.recentlyPlayed)
             }
-        case .pickUp:
+        case .jumpBackIn:
             if !home.randomSongs.isEmpty {
                 MacSectionTitle(text: k.title)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 4) {
@@ -32,7 +35,7 @@ struct MacHomeView: View {
                     }
                 }
             }
-        case .memories:
+        case .activities:
             let memories = model.memories()
             if !memories.isEmpty {
                 MacSectionTitle(text: k.title)
@@ -50,16 +53,33 @@ struct MacHomeView: View {
                 AlbumGrid(albums: home.recentlyAdded)
             }
         case .rediscover:
-            if !home.random.isEmpty {
+            // iOS's rule: albums you rated or wrote about and haven't played in a while; else the server's
+            // random shelf.
+            let inputs = model.historyInputs()
+            let picks = HomeHistory.rediscover(HomeHistory.memories(inputs), now: inputs.now, exclude: [])
+            let albums = picks.isEmpty ? home.random : picks.map(\.album)
+            if !albums.isEmpty {
                 MacSectionTitle(text: k.title)
-                AlbumGrid(albums: home.random)
+                AlbumGrid(albums: albums) { a in
+                    picks.first(where: { $0.album.id == a.id }).map { $0.reason.isEmpty ? a.artist : $0.reason } ?? a.artist
+                }
             }
+        case .yourPlaylists:
+            let lists = model.library.playlists
+            if !lists.isEmpty {
+                MacSectionTitle(text: k.title)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 16, alignment: .top)], spacing: 20) {
+                    ForEach(lists.prefix(12), id: \.id) { PlaylistTile(item: $0) }
+                }
+            }
+        case .otherProfiles:
+            EmptyView()
         }
     }
 
     var body: some View {
         let home = model.library.home
-        let layout = MacHomeLayout(raw: layoutRaw)
+        let layout = HomeLayoutStore.shared.layout(scope)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 PageHeader(eyebrow: greeting, title: "Home")
@@ -69,14 +89,14 @@ struct MacHomeView: View {
                                 .padding(.horizontal, 12).frame(height: 30).contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        .popover(isPresented: $editing, arrowEdge: .bottom) { HomeEditor(layout: $layoutRaw) }
+                        .popover(isPresented: $editing, arrowEdge: .bottom) { HomeEditor(scope: scope) }
                     }
                 if home.recentlyPlayed.isEmpty && home.recentlyAdded.isEmpty {
                     PhaseNote(phase: model.library.phase("home"), empty: true, emptyText: "Nothing on this server yet") {
                         Task { await model.library.loadHome(force: true) }
                     }
                 }
-                ForEach(layout.visible, id: \.self) { section($0, home: home) }
+                ForEach(layout.shownSections, id: \.self) { section($0, home: home) }
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 142)
@@ -143,75 +163,42 @@ struct Shelf: View {
     }
 }
 
-/// Home's sections, their order and which are shown (iOS Home editing, kept in the defaults).
-struct MacHomeLayout {
-    enum Section: String, CaseIterable, Hashable {
-        case recentlyPlayed, pickUp, memories, recentlyAdded, rediscover
-
-        var title: String {
-            switch self {
-            case .recentlyPlayed: "Recently Played"
-            case .pickUp: "Pick Up a Song"
-            case .memories: "Memories"
-            case .recentlyAdded: "Recently Added"
-            case .rediscover: "Rediscover"
-            }
-        }
-    }
-
-    var order: [Section]
-    var hidden: Set<Section>
-
-    /// "pickUp,-memories,…": the order, a minus for a hidden one; sections added later go at the end.
-    init(raw: String) {
-        var order: [Section] = []
-        var hidden: Set<Section> = []
-        for part in raw.split(separator: ",") {
-            let off = part.hasPrefix("-")
-            guard let s = Section(rawValue: String(off ? part.dropFirst() : part[...])), !order.contains(s) else { continue }
-            order.append(s)
-            if off { hidden.insert(s) }
-        }
-        order += Section.allCases.filter { !order.contains($0) }
-        self.order = order
-        self.hidden = hidden
-    }
-
-    var visible: [Section] { order.filter { !hidden.contains($0) } }
-    var raw: String { order.map { (hidden.contains($0) ? "-" : "") + $0.rawValue }.joined(separator: ",") }
-}
-
-/// The Edit popover: drag to reorder, switch a section off.
+/// The Edit popover (iOS Home editing on HomeLayoutStore, synced): drag to reorder, switch a section off.
 private struct HomeEditor: View {
-    @Binding var layout: String
+    var scope: String
 
     var body: some View {
-        let current = MacHomeLayout(raw: layout)
+        let store = HomeLayoutStore.shared
+        let layout = store.layout(scope)
+        let rows = layout.sections.filter(\.section.supportedOnIOS)
         VStack(alignment: .leading, spacing: 8) {
             Text("Home").font(.gsf(15, .semibold))
             List {
-                ForEach(current.order, id: \.self) { s in
-                    Toggle(s.title, isOn: Binding(
-                        get: { !current.hidden.contains(s) },
-                        set: { on in
-                            var l = current
-                            if on { l.hidden.remove(s) } else { l.hidden.insert(s) }
-                            layout = l.raw
-                        }))
-                    .font(.gsf(14))
+                ForEach(rows, id: \.section) { (r: HomeSectionState) in
+                    Toggle(isOn: Binding<Bool>(
+                        get: { r.enabled },
+                        set: { on in store.save(store.layout(scope).withEnabled(r.section, on), scope: scope) })) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(r.section.title).font(.gsf(14))
+                            Text(r.section.supportingText).font(.gsf(11.5)).foregroundStyle(Yoin.inkVariant)
+                        }
+                    }
                 }
                 .onMove { from, to in
-                    var l = current
-                    l.order.move(fromOffsets: from, toOffset: to)
-                    layout = l.raw
+                    var order = rows.map(\.section)
+                    order.move(fromOffsets: from, toOffset: to)
+                    let current = store.layout(scope)
+                    let enabled = order.filter { s in current.enabledSections.contains(s) }
+                    store.save(current.withEnabledOrder(enabled), scope: scope)
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .frame(height: CGFloat(MacHomeLayout.Section.allCases.count) * 30 + 8)
-            Button("Reset") { layout = "" }.font(.gsf(13)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
+            .frame(height: CGFloat(rows.count) * 44 + 8)
+            Button("Reset") { store.save(store.layout(scope).reset(), scope: scope) }
+                .font(.gsf(13)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
         }
         .padding(14)
-        .frame(width: 260)
+        .frame(width: 300)
     }
 }
