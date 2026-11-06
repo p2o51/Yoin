@@ -357,7 +357,7 @@ struct PlaylistTile: View {
     @State private var hover = false
     @State private var targeted = false
 
-    private var writable: Bool { model.library.writablePlaylists.contains { $0.id == item.id } }
+    private var writable: Bool { MacDrag.accepts(item, model: model) }
 
     var body: some View {
         Button { model.open(.playlist(id: item.id.rawId, title: item.title)) } label: {

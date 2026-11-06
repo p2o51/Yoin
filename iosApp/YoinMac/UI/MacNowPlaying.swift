@@ -463,7 +463,7 @@ private struct QueuePopover: View {
                         QueueRow(item: item) { p.jump(to: start + i) } remove: { p.remove(id: item.id) }
                             // Dropped on a row: in before it.
                             .dropDestination(for: YoinDragItem.self) { items, _ in
-                                MacDrag.queue(items, before: start + i, model: model)
+                                MacDrag.queue(items, before: item.id, model: model)
                                 return true
                             }
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))

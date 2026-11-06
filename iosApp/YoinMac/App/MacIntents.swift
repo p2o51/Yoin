@@ -123,7 +123,7 @@ struct LikeCurrentSongIntent: AppIntent {
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
         let m = try model()
         guard let t = m.player.currentTrack else { throw YoinIntentError(localizedStringResource: "Nothing is playing") }
-        if !m.library.isStarred(songId: t.id, fallback: false) {
+        if !m.isLikedCurrent() {
             do { try await m.library.like(songId: t.id) } catch {
                 throw YoinIntentError(localizedStringResource: "Couldn't like \(t.title)")
             }

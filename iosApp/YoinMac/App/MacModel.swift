@@ -75,15 +75,14 @@ final class MacModel {
         system = MacPlaybackSystem(player: player)
         // Control Center's heart: likes (or unlikes) the song playing; Apple Music adds it to the library.
         system?.like = { [weak self] in
-            guard let self, let t = self.player.currentTrack else { return false }
-            let liked = self.library.isStarred(songId: t.id, fallback: false)
+            guard let self, self.player.currentTrack != nil else { return false }
+            let liked = self.isLikedCurrent()
             if self.session.isAppleMusic, liked { return true }
-            self.library.toggleStar(songId: t.id, current: liked)
+            self.toggleLikeCurrent()
             return !liked
         }
         system?.liked = { [weak self] in
-            guard let self, let t = self.player.currentTrack else { return false }
-            return self.library.isStarred(songId: t.id, fallback: false)
+            self?.isLikedCurrent() ?? false
         }
         player.onScrobble = { [weak self] track, submission in
             guard let self else { return }
@@ -556,6 +555,7 @@ final class MacModel {
     /// The account in use changed: its downloads run, another's wait.
     func accountDidChange() {
         OfflineDownloads.shared.accountChanged()
+        MacDrag.reset()
         if session.isAppleMusic { MacShare.loadStorefront() }
     }
 

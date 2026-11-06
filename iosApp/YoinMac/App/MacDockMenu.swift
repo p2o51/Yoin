@@ -23,10 +23,10 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(BlockItem("Next", enabled: playing) { p.next() })
         menu.addItem(BlockItem("Previous", enabled: playing) { p.previous() })
         if let t = p.currentTrack {
-            let liked = model.library.isStarred(songId: t.id, fallback: false)
+            let liked = model.isLikedCurrent()
             let label = model.session.isAppleMusic ? (liked ? "In Library" : "Add to Library") : (liked ? "Unlike" : "Like")
             menu.addItem(BlockItem(label, enabled: !(model.session.isAppleMusic && liked)) {
-                model.library.toggleStar(songId: t.id, current: liked)
+                model.toggleLikeCurrent()
             })
         }
         menu.addItem(.separator())
