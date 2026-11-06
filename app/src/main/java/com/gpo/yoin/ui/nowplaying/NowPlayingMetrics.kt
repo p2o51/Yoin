@@ -46,13 +46,12 @@ internal fun rememberStageColumnMetrics(
 /** The DualPane left stack, always measured at [DualPaneStackWidth]. */
 @Composable
 internal fun rememberDualPaneMetrics(
-    castVisible: Boolean,
     navBottom: Dp,
 ): DualPaneMetrics {
     val typography = MaterialTheme.typography
     val density = LocalDensity.current
     val fit = rememberPlaybackControlsFit(maxWidth = DualPaneStackWidth, controlSize = 56.dp, hasExpandToggle = false)
-    return remember(fit, castVisible, navBottom, typography, density) {
+    return remember(fit, navBottom, typography, density) {
         val artist = typography.titleMedium.lineDp(density) + WideTitleLineGap
         val titleLine = typography.headlineMedium.lineDp(density)
         DualPaneMetrics(
@@ -63,7 +62,6 @@ internal fun rememberDualPaneMetrics(
             ),
             titleOneLine = artist + titleLine,
             titleTwoLines = artist + titleLine * 2,
-            pills = pillRowHeight(castVisible),
             navBottom = navBottom,
         )
     }

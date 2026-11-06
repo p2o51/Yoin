@@ -492,20 +492,21 @@ data class DualPaneMetrics(
     /** Artist line + 2 + one / two title lines. */
     val titleOneLine: Dp,
     val titleTwoLines: Dp,
-    val pills: Dp,
-    /** Bottom system inset the pills clear. */
+    /** Bottom system inset the title clears. */
     val navBottom: Dp,
 )
 
 @Immutable
 data class DualPanePose(
+    /** The left stack's width: the cover with the rating column at its side. */
     val slot: Dp,
     val cover: Dp,
-    val coverToRating: Dp,
-    val ratingToTransport: Dp,
+    /** The rating column beside the cover with its gap: 0 when it retreats (focus). */
+    val ratingSide: Dp,
+    val coverToTransport: Dp,
+    /** The least room between the transport and the bottom-set title. */
     val transportToTitle: Dp,
-    /** Rating: 0 when it retreats (focus). Title: 0 when it folded into the top bar. */
-    val rating: Dp,
+    /** 0 when the title folded into the top bar. */
     val title: Dp,
 )
 
@@ -523,11 +524,13 @@ data class DualPaneBudget(
 }
 
 /**
- * The two-column player's left stack: it is ALWAYS measured at
- * [DualPaneStackWidth] — the cover never decides the controls' width (the
- * 170dp stack that dropped Next and Write). [contentHeight] is the window
- * minus the top system inset; [barHeight] the top bar; [rowWidth] the width
- * both columns share.
+ * The two-column player's left stack (owner 2026-11-06, prototype v10): the
+ * cover with the standard rating column at its right, the transport under
+ * them, the title set at the bottom; the queue / devices / write pills live
+ * in the top bar. The controls are measured at [DualPaneStackWidth] at the
+ * least — the cover never narrows them (the 170dp stack that dropped Next
+ * and Write). [contentHeight] is the window minus the top system inset;
+ * [barHeight] the top bar; [rowWidth] the width both columns share.
  */
 fun resolveDualPaneBudget(
     rowWidth: Dp,
@@ -538,111 +541,182 @@ fun resolveDualPaneBudget(
     val frameTop = NpGap(WideFrameNominal, WideFrameMin)
     val barGap = NpGap(WideBarGapNominal, WideBarGapMin)
     val frameBottom = NpGap(WideFrameNominal, WideFrameMin)
-    val coverToRating = NpGap(WideCoverToRatingNominal, WideCoverToRatingMin)
-    val ratingToTransport = NpGap(WideRatingToTransportNominal, WideRatingToTransportMin)
+    val coverToTransport = NpGap(WideCoverToTransportNominal, WideCoverToTransportMin)
     val transportToTitle = NpGap(WideTransportToTitleNominal, WideTransportToTitleMin)
     val lower = listOf(transportToTitle, frameBottom)
-    val upper = listOf(frameTop, barGap, coverToRating, ratingToTransport)
-    val fixedContent = barHeight + WideRatingRow + metrics.transport + metrics.pills + metrics.navBottom
+    val upper = listOf(frameTop, barGap, coverToTransport)
+    val fixedContent = barHeight + metrics.transport + metrics.navBottom
     val gapsNominal = (lower + upper).fold(0.dp) { acc, g -> acc + g.nominal }
     val gapsSlack = slackOf(lower) + slackOf(upper)
+    // The right column keeps its minimum beside the cover and its rating.
+    val widthCap = rowWidth - WideColumnGapToken - WideRightColumnMinToken - DualPaneRatingSide
 
     fun coverFor(title: Dp, squeezeAll: Boolean): Dp {
         val gaps = if (squeezeAll) gapsNominal - gapsSlack else gapsNominal
         return contentHeight - fixedContent - title - gaps
     }
 
-    // Ladder: gaps → two-line title → one-line → cover shrinks → title to the top bar.
-    val form: DualPaneTitleForm
-    val title: Dp
-    when {
-        coverFor(metrics.titleTwoLines, squeezeAll = true) >= DualPaneStackWidth -> {
-            form = DualPaneTitleForm.TwoLines
-            title = metrics.titleTwoLines
-        }
-        coverFor(metrics.titleOneLine, squeezeAll = true) >= DualPaneCoverMin -> {
-            form = DualPaneTitleForm.OneLine
-            title = metrics.titleOneLine
-        }
-        else -> {
-            form = DualPaneTitleForm.TopBar
-            title = 0.dp
-        }
-    }
-    val restCover = coverFor(title, squeezeAll = true)
-        .coerceAtMost(DualPaneStackWidth)
-        .coerceAtLeast(DualPaneCoverFloor)
-    val restSqueeze = squeezeGaps(
-        (fixedContent + title + gapsNominal + restCover - contentHeight).coerceAtLeast(0.dp),
-        lower,
-        upper,
-    )
-    val restPose = DualPanePose(
-        slot = DualPaneStackWidth,
-        cover = restCover,
-        coverToRating = coverToRating.at(restSqueeze.upper),
-        ratingToTransport = ratingToTransport.at(restSqueeze.upper),
-        transportToTitle = transportToTitle.at(restSqueeze.lower),
-        rating = WideRatingRow,
-        title = title,
-    )
-
-    // Focus: the rating retreats, the inner gaps close, the cover grows
-    // (≤ 1.5×, the lyrics keep 320) and the slot follows the cover. The title
-    // stays as it rests (owner 2026-11-03: the title never changes).
-    val focusHeight = contentHeight - barHeight - metrics.transport - metrics.pills - metrics.navBottom -
-        frameTop.at(restSqueeze.upper) - barGap.at(restSqueeze.upper) - frameBottom.at(restSqueeze.lower) -
-        WideCoverToRatingMin - WideRatingToTransportMin - restPose.transportToTitle - restPose.title
-    val focusCover = minOf(
-        restCover * CoverFocusMaxScale,
-        rowWidth - WideColumnGapToken - WideRightColumnMinToken,
-        focusHeight,
-    )
-    val focusPose = if (coverFocusOffered(restCover, focusCover)) {
-        DualPanePose(
-            slot = maxOf(DualPaneStackWidth, focusCover),
-            cover = focusCover,
-            coverToRating = WideCoverToRatingMin,
-            ratingToTransport = WideRatingToTransportMin,
-            transportToTitle = restPose.transportToTitle,
-            rating = 0.dp,
-            title = restPose.title,
+    fun budgetFor(form: DualPaneTitleForm, title: Dp): DualPaneBudget {
+        val restCover = coverFor(title, squeezeAll = true)
+            .coerceAtMost(DualPaneStackWidth)
+            .coerceAtMost(widthCap)
+            .coerceAtLeast(DualPaneCoverFloor)
+        val restSqueeze = squeezeGaps(
+            (fixedContent + title + gapsNominal + restCover - contentHeight).coerceAtLeast(0.dp),
+            lower,
+            upper,
         )
+        val restPose = DualPanePose(
+            slot = maxOf(DualPaneStackWidth, restCover + DualPaneRatingSide),
+            cover = restCover,
+            ratingSide = DualPaneRatingSide,
+            coverToTransport = coverToTransport.at(restSqueeze.upper),
+            transportToTitle = transportToTitle.at(restSqueeze.lower),
+            title = title,
+        )
+        // Focus: the rating column retreats, the gap under the cover closes
+        // and the cover grows (≤ 1.5×, the lyrics keep 320) into the stack's
+        // width. The title stays as it rests (owner 2026-11-03).
+        val focusHeight = contentHeight - barHeight - metrics.transport - metrics.navBottom -
+            frameTop.at(restSqueeze.upper) - barGap.at(restSqueeze.upper) - frameBottom.at(restSqueeze.lower) -
+            WideCoverToTransportMin - restPose.transportToTitle - restPose.title
+        val focusCover = minOf(
+            restCover * CoverFocusMaxScale,
+            rowWidth - WideColumnGapToken - WideRightColumnMinToken,
+            focusHeight,
+        )
+        val focusPose = if (coverFocusOffered(restCover, focusCover)) {
+            DualPanePose(
+                slot = maxOf(DualPaneStackWidth, focusCover),
+                cover = focusCover,
+                ratingSide = 0.dp,
+                coverToTransport = WideCoverToTransportMin,
+                transportToTitle = restPose.transportToTitle,
+                title = restPose.title,
+            )
+        } else {
+            null
+        }
+        return DualPaneBudget(
+            frameTop = frameTop.at(restSqueeze.upper),
+            barGap = barGap.at(restSqueeze.upper),
+            frameBottom = frameBottom.at(restSqueeze.lower),
+            titleForm = form,
+            rest = restPose,
+            focus = focusPose,
+        )
+    }
+
+    // Ladder: gaps → two-line title → one-line → cover shrinks → title to the
+    // top bar. Two lines give way to one where only one line leaves the cover
+    // room to focus.
+    val twoLines = if (coverFor(metrics.titleTwoLines, squeezeAll = true) >= DualPaneStackWidth) {
+        budgetFor(DualPaneTitleForm.TwoLines, metrics.titleTwoLines)
     } else {
         null
     }
-    return DualPaneBudget(
-        frameTop = frameTop.at(restSqueeze.upper),
-        barGap = barGap.at(restSqueeze.upper),
-        frameBottom = frameBottom.at(restSqueeze.lower),
-        titleForm = form,
-        rest = restPose,
-        focus = focusPose,
-    )
+    val oneLine = if (coverFor(metrics.titleOneLine, squeezeAll = true) >= DualPaneCoverMin) {
+        budgetFor(DualPaneTitleForm.OneLine, metrics.titleOneLine)
+    } else {
+        null
+    }
+    return when {
+        twoLines != null && (twoLines.focusOffered || oneLine?.focusOffered != true) -> twoLines
+        oneLine != null -> oneLine
+        else -> budgetFor(DualPaneTitleForm.TopBar, 0.dp)
+    }
 }
 
 // ── Landscape ───────────────────────────────────────────────────────────
 
-/** The landscape handset's cover side at rest and in focus (null = no focus). */
-@Immutable
-data class LandscapeCoverBudget(val rest: Dp, val focus: Dp?)
-
 /**
- * LandscapeNP: at rest the cover takes the height the rating row leaves,
- * capped so the right column keeps a phone's width; in focus the rating row
- * retreats and the cover takes the whole height while the right column
- * keeps [LandscapeFocusRightMin].
+ * The landscape handset's frame (LandscapeNP, owner 2026-11-06, prototype
+ * landscape-focus v10). Two arrangements, chosen by the content width alone
+ * (a breakpoint follows the window, never the device model):
+ *
+ * - Wide (an ordinary phone on its side): the cover takes the whole height
+ *   with the rating column standing at its right; the right column carries
+ *   the header, the tabs, a few lyric lines, the transport and the title.
+ * - Stacked (16:9, a Fold outer screen on its side): the transport and the
+ *   title sit under the cover, the rating column at its right; the right
+ *   column is header + tabs + a full column of lyrics. Expanded, the
+ *   transport steps away and the rating drops under the cover, so the left
+ *   column narrows to the cover and the page gains its width.
+ *
+ * Focus works on every landscape window: the header, tabs and rating step
+ * away and the right column is re-laid as focus lyrics over a one-row
+ * transport. On the ordinary phone the cover then takes the whole height;
+ * on the narrower windows it stays within [LandscapeFocusCoverShare] of the
+ * width (owner: "封面可以不铺那么满").
  */
-fun resolveLandscapeCover(width: Dp, height: Dp): LandscapeCoverBudget {
-    val rest = (height - LandscapeRatingRow - LandscapeRatingGap)
-        .coerceAtMost(width * LandscapeCoverWidthShare)
-        .coerceAtLeast(LandscapeCoverFloor)
-    val focus = minOf(
-        height,
-        width - LandscapeColumnGap - LandscapeFocusRightMin,
-        rest * CoverFocusMaxScale,
+@Immutable
+data class LandscapeLayout(
+    val stacked: Boolean,
+    val restCover: Dp,
+    val focusCover: Dp,
+    /** Stacked: the left column at rest (cover + rating column). */
+    val leftWidth: Dp,
+    /** Where the right column starts at rest / in focus / expanded. */
+    val restColumnX: Dp,
+    val focusColumnX: Dp,
+    val expandedColumnX: Dp,
+    /** The resting two-row transport's height at its own width. */
+    val restTransport: Dp,
+)
+
+fun resolveLandscapeLayout(
+    width: Dp,
+    height: Dp,
+    labelLine: Dp,
+    controlSize: Dp = LandscapeControlSizeToken,
+): LandscapeLayout {
+    val rating = LandscapeRatingColumn + LandscapeRatingGap
+    if (width >= LandscapeStackedMaxWidth) {
+        val restCover = minOf(height, width - LandscapeColumnGap - rating - LandscapeRestColumnMin)
+            .coerceAtLeast(LandscapeCoverFloor)
+        val focusCover = minOf(
+            height,
+            width - LandscapeColumnGap - LandscapeFocusColumnMin,
+            width * LandscapeFocusCoverShare,
+        ).coerceAtLeast(LandscapeCoverFloor)
+        val restColumnX = restCover + rating + LandscapeColumnGap
+        return LandscapeLayout(
+            stacked = false,
+            restCover = restCover,
+            focusCover = focusCover,
+            leftWidth = restCover + rating,
+            restColumnX = restColumnX,
+            focusColumnX = focusCover + LandscapeColumnGap,
+            expandedColumnX = restColumnX,
+            restTransport = playbackControlsHeight(controlSize, width - restColumnX, labelLine),
+        )
+    }
+    // Stacked: the cover takes what the two transport rows and the title
+    // leave; the transport spans the cover + rating column, so its time
+    // labels move under the wave below 360 wide — measure twice.
+    fun coverFor(transport: Dp): Dp =
+        (height - LandscapeCoverToTransport - transport - LandscapeTransportToTitle - LandscapeTitleRow)
+            .coerceAtLeast(LandscapeCoverFloor)
+    var transport = playbackControlsHeight(controlSize, 0.dp, labelLine)
+    var cover = coverFor(transport)
+    transport = playbackControlsHeight(controlSize, cover + rating, labelLine)
+    cover = coverFor(transport)
+    val leftWidth = cover + rating
+    val focusCover = minOf(
+        height - LandscapeCoverToTransport - shortFocusControlsHeight(controlSize) -
+            LandscapeTransportToTitle - LandscapeTitleRow,
+        leftWidth,
+    ).coerceAtLeast(LandscapeCoverFloor)
+    return LandscapeLayout(
+        stacked = true,
+        restCover = cover,
+        focusCover = focusCover,
+        leftWidth = leftWidth,
+        restColumnX = leftWidth + LandscapeColumnGap,
+        focusColumnX = leftWidth + LandscapeColumnGap,
+        expandedColumnX = cover + LandscapeColumnGap,
+        restTransport = transport,
     )
-    return LandscapeCoverBudget(rest = rest, focus = focus.takeIf { coverFocusOffered(rest, it) })
 }
 
 // ── Shared ──────────────────────────────────────────────────────────────
@@ -773,23 +847,30 @@ private const val CoverFocusMinGrowthFraction = 0.12f
 val DualPaneStackWidth = 312.dp
 private val DualPaneCoverMin = 168.dp
 private val DualPaneCoverFloor = 140.dp
-private val WideRatingRow = 48.dp
 private val WideFrameNominal = 16.dp
 private val WideFrameMin = 8.dp
 private val WideBarGapNominal = 8.dp
 private val WideBarGapMin = 4.dp
-private val WideCoverToRatingNominal = 12.dp
-private val WideCoverToRatingMin = 8.dp
-private val WideRatingToTransportNominal = 24.dp
-private val WideRatingToTransportMin = 12.dp
+private val WideCoverToTransportNominal = 12.dp
+private val WideCoverToTransportMin = 8.dp
+
+/** The standard rating column (56) and its 12dp gap at the cover's right. */
+val DualPaneRatingSide = 68.dp
 private val WideTransportToTitleNominal = 16.dp
 private val WideTransportToTitleMin = 8.dp
 private val WideColumnGapToken = 24.dp
 private val WideRightColumnMinToken = 320.dp
 
-private val LandscapeRatingRow = 48.dp
-private val LandscapeRatingGap = 12.dp
-private const val LandscapeCoverWidthShare = 0.42f
+/** Below this content width the landscape player stacks its transport under the cover. */
+internal val LandscapeStackedMaxWidth = 792.dp
+internal val LandscapeControlSizeToken = 48.dp
+internal val LandscapeRatingColumn = 56.dp
+internal val LandscapeRatingGap = 12.dp
+internal val LandscapeColumnGap = 28.dp
+internal val LandscapeTitleRow = 36.dp
+internal val LandscapeCoverToTransport = 10.dp
+internal val LandscapeTransportToTitle = 4.dp
 private val LandscapeCoverFloor = 120.dp
-private val LandscapeColumnGap = 28.dp
-private val LandscapeFocusRightMin = 360.dp
+private val LandscapeRestColumnMin = 300.dp
+private val LandscapeFocusColumnMin = 300.dp
+private const val LandscapeFocusCoverShare = 0.44f

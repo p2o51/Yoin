@@ -129,6 +129,9 @@ fun LyricsDisplay(
     // turn readable once it steps away at ease.
     coveredPx: () -> Int = { 0 },
     coveredShown: () -> Float = { 0f },
+    // Focus: how many sung lines show above the current one (landscape
+    // focus keeps two, owner 2026-11-06 「高亮歌词要往下一点」).
+    focusLinesAbove: Int = 1,
 ) {
     val liveTrackKey by rememberUpdatedState(trackKey)
     // Song change = the stream carries on (see LyricsTrackTransition);
@@ -171,6 +174,7 @@ fun LyricsDisplay(
                 anchorFocus = anchorFocus,
                 coveredPx = coveredPx,
                 coveredShown = coveredShown,
+                focusLinesAbove = focusLinesAbove,
                 durationMs = shown.durationMs,
                 upNext = shown.upNext,
                 endOverflow = endOverflow,
@@ -204,6 +208,7 @@ private fun LyricsDisplayContent(
     endOverflow: Dp,
     coveredPx: () -> Int,
     coveredShown: () -> Float,
+    focusLinesAbove: Int = 1,
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     // The caller's lambdas capture per-frame values: read the latest.
@@ -348,7 +353,7 @@ private fun LyricsDisplayContent(
         (MaterialTheme.typography.bodyLarge.lineHeight * fontScale).toPx() + LyricItemPadV.toPx() * 2
     }
     val listTopPadPx = with(density) { LyricListPadV.toPx() }
-    LaunchedEffect(lyrics, currentIndex, listState, handOverTarget) {
+    LaunchedEffect(lyrics, currentIndex, listState, handOverTarget, focusLinesAbove) {
         if (currentIndex < 0 && !handOverTarget) return@LaunchedEffect
         val target = if (handOverTarget) upNextLineIndex else currentIndex.coerceIn(0, lyrics.lastIndex)
         var firstAnchor = true
@@ -375,7 +380,8 @@ private fun LyricsDisplayContent(
                 val shownPx = (viewportPx - coveredPx).coerceAtLeast(0)
                 val current = if (currentPx > 0) currentPx.toFloat() else activeLinePxEstimate
                 val roomAbove = (shownPx - listTopPadPx - current).coerceAtLeast(0f)
-                val lineAbovePx = if (target <= 0) 0f else lineAbovePxEstimate.coerceAtMost(roomAbove)
+                val linesAbove = minOf(target, focusLinesAbove.coerceAtLeast(1))
+                val lineAbovePx = if (target <= 0) 0f else (lineAbovePxEstimate * linesAbove).coerceAtMost(roomAbove)
                 val offsetPx = if (handOverTarget) {
                     0
                 } else {

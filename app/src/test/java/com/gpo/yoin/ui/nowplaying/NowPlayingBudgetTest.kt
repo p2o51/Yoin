@@ -4,7 +4,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -326,7 +325,6 @@ class NowPlayingBudgetTest {
         transport = 136.dp,
         titleOneLine = 24.dp + 2.dp + 36.dp,
         titleTwoLines = 24.dp + 2.dp + 72.dp,
-        pills = 44.dp,
         navBottom = navBottom,
     )
 
@@ -339,15 +337,18 @@ class NowPlayingBudgetTest {
             barHeight = 48.dp,
             metrics = dual(),
         )
+        // Two lines would leave the cover no room to focus: one line it is.
         assertEquals(DualPaneTitleForm.OneLine, budget.titleForm)
-        assertEquals(DualPaneStackWidth, budget.rest.slot)
         assertTrue("cover ${budget.rest.cover}", budget.rest.cover >= 290.dp)
+        // The rating column stands at the cover's right; the stack spans both.
+        assertDp(DualPaneRatingSide, budget.rest.ratingSide)
+        assertDp(budget.rest.cover + DualPaneRatingSide, budget.rest.slot)
         val focus = nn(budget.focus)
         assertTrue(focus.cover >= budget.rest.cover + 40.dp)
         assertEquals(maxOf(DualPaneStackWidth, focus.cover), focus.slot)
         // The title stays in focus, exactly as it rests; only the rating retreats.
         assertDp(budget.rest.title, focus.title)
-        assertDp(0.dp, focus.rating)
+        assertDp(0.dp, focus.ratingSide)
     }
 
     @Test
@@ -367,28 +368,44 @@ class NowPlayingBudgetTest {
     fun should_foldTitleIntoTopBar_when_veryShort() {
         val budget = resolveDualPaneBudget(
             rowWidth = 852.dp,
-            contentHeight = 560.dp,
+            contentHeight = 420.dp,
             barHeight = 48.dp,
             metrics = dual(),
         )
         assertEquals(DualPaneTitleForm.TopBar, budget.titleForm)
+        // A small cover still keeps the controls at the measuring width.
         assertEquals(DualPaneStackWidth, budget.rest.slot)
     }
 
     // ── Landscape ───────────────────────────────────────────────────────
 
     @Test
-    fun should_offerLandscapeFocus_when_phoneLandscape() {
-        val cover = resolveLandscapeCover(width = 819.dp, height = 340.dp)
-        assertDp(280.dp, cover.rest)
-        assertDp(340.dp, nn(cover.focus))
+    fun should_fillHeightWithCover_when_ordinaryPhoneLandscape() {
+        // 915×412 window → about 867×348 of content.
+        val layout = resolveLandscapeLayout(width = 867.dp, height = 348.dp, labelLine = 20.dp)
+        assertEquals(false, layout.stacked)
+        assertDp(348.dp, layout.restCover)
+        assertDp(348.dp, layout.focusCover)
+        // The rating column stands at the cover's right; focus hands its room to the column.
+        assertDp(348.dp + 56.dp + 12.dp + 28.dp, layout.restColumnX)
+        assertDp(348.dp + 28.dp, layout.focusColumnX)
     }
 
     @Test
-    fun should_keepCoverPlain_when_narrowLandscape() {
-        // 640×360: the right column can't spare the width.
-        val cover = resolveLandscapeCover(width = 544.dp, height = 288.dp)
-        assertNull(cover.focus)
+    fun should_stackTransportUnderCover_when_narrowLandscape() {
+        // Fold outer screen on its side: 750×475 → about 702×411 of content.
+        val layout = resolveLandscapeLayout(width = 702.dp, height = 411.dp, labelLine = 20.dp)
+        assertEquals(true, layout.stacked)
+        // Cover + gap + transport + gap + title fill the height.
+        assertDp(
+            411.dp,
+            layout.restCover + 10.dp + layout.restTransport + 4.dp + 36.dp,
+        )
+        assertDp(layout.restCover + 56.dp + 12.dp, layout.leftWidth)
+        // Expanded: the rating drops under the cover, the column narrows to it.
+        assertDp(layout.restCover + 28.dp, layout.expandedColumnX)
+        // Focus never outgrows the left column.
+        assertTrue(layout.focusCover <= layout.leftWidth)
     }
 
     @Test

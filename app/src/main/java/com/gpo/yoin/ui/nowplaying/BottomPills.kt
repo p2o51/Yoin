@@ -184,13 +184,37 @@ internal fun BottomPills(
 /** Whether the pills can carry their labels in [maxWidth]; see [rememberBottomPillsLayout]. */
 internal class BottomPillsLayout(
     val labelled: Boolean,
-    private val iconOnlyWidth: Dp,
+    val iconOnlyWidth: Dp,
     private val labelWidths: Map<String, Dp>,
     private val maxWidth: Dp,
 ) {
     /** In icon-only mode a pressed pill may still open its label if that alone fits. */
     fun fitsPressedLabel(label: String): Boolean =
         iconOnlyWidth + PillLabelGap + (labelWidths[label] ?: 0.dp) <= maxWidth - PillsSafetyMargin
+}
+
+/**
+ * The width the pills take icon-only (plus the press bulge's headroom): the
+ * landscape and two-pane players set them as icons at the end of the top bar
+ * (owner 2026-11-06 「三个按钮应该在右上角」).
+ */
+@Composable
+internal fun rememberBottomPillsIconWidth(
+    pillHeight: Dp,
+    castState: CastState,
+    supportsYoinCast: Boolean,
+): Dp {
+    val labels = listOf(
+        stringResource(R.string.np_pill_queue),
+        stringResource(R.string.np_pill_devices),
+        stringResource(R.string.np_pill_write),
+    )
+    return rememberBottomPillsLayout(
+        maxWidth = 0.dp,
+        pillHeight = pillHeight,
+        castState = if (supportsYoinCast) castState else CastState.NotAvailable,
+        labels = labels,
+    ).iconOnlyWidth + PillsSafetyMargin
 }
 
 @Composable
