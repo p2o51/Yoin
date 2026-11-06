@@ -114,6 +114,15 @@ struct MacShell: View {
                         .transition(.move(edge: .trailing))
                         .zIndex(2)
                 }
+                // Full Now Playing (and focus in it) says a failure too, with Retry (Android: ConnectError in NP).
+                if model.npMode == .full, let f = model.player.failure {
+                    MacPlaybackFailureBanner(failure: f)
+                        .frame(width: min(520, W - 48))
+                        .padding(.bottom, 28)
+                        .frame(width: W, height: geo.size.height, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(2.5)
+                }
                 if model.searchOpen {
                     MacSearchOverlay()
                         .frame(width: W, height: geo.size.height)

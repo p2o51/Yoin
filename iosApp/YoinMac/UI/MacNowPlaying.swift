@@ -600,12 +600,15 @@ private struct LyricsList: View {
     var large: Bool
     var under: CGFloat
     @State private var total: CGFloat = 0
+    /// Following the playhead; scrolling by hand stops it until Back to Current (Android Recenter) or the next song.
+    @State private var following = true
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
 
     var body: some View {
         let current = synced ? MacLyrics.index(in: lines, at: model.player.progress.positionSec) : -1
         ScrollViewReader { proxy in
+          ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(alignment: .leading, spacing: large ? 4 : 3) {
                     Color.clear.frame(height: anchor)
@@ -645,12 +648,38 @@ private struct LyricsList: View {
             .scrollIndicators(.never)
             .mask { LyricsWindowMask(clear: clear, under: under, scale: (large ? 30 : 15) / 14) }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { total = $0 }
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting, synced { withAnimation(Yoin.effects) { following = false } }
+            }
             .onChange(of: current, initial: true) { _, i in
-                guard i >= 0 else { return }
+                guard i >= 0, following else { return }
                 withAnimation(Yoin.spatial) {
                     proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: total > 0 ? anchor / total : 0.2))
                 }
             }
+            .onChange(of: lines.first?.id) { _, _ in following = true }
+            // A floating control: back to the line playing, and following again.
+            if !following, current >= 0 {
+                Button {
+                    following = true
+                    withAnimation(Yoin.spatial) {
+                        proxy.scrollTo(current, anchor: UnitPoint(x: 0, y: total > 0 ? anchor / total : 0.2))
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        YoinIcon("chevron_down", size: 14)
+                        Text("Back to Current").font(.gsf(12.5, .semibold)).lineLimit(1)
+                    }
+                    .foregroundStyle(Yoin.ink)
+                    .padding(.horizontal, 14).frame(height: 32)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .padding(.bottom, under + 8)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+          }
         }
     }
 
