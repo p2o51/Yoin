@@ -97,6 +97,14 @@ A macOS widget is an extension with its own bundle id, so it needs, once, in the
 3. A Mac development profile for the widget App ID on this Mac ("Yoin Mac Widgets Development"), and the app's profile regenerated with the App Group.
 4. Then: a `YoinMacWidgets` target (widget extension, macOS 26) in project.yml embedded in YoinMac, both entitlements files with `com.apple.security.application-groups`, and the shared Glance-like Play / Memory families (Android / iOS designs).
 
+## Owner decisions (51, 2026-11-06)
+
+- Focus mode: the cover may grow 1.7× (more than design.md's 1.5×) on the Mac.
+- Spotify: when nothing plays and this Mac's Spotify app can't be reached, a start may go to the active but paused device (`MacSpotifyOutput.decide`).
+- ⌘K search keeps its Liquid Glass panel: it counts as a hero surface, an exception to "glass only on floating controls".
+- The scrapbook's score stamp keeps its glass lens (51, 11-05).
+- Now Playing's cover keeps Android's 16 corner (`NOW_PLAYING_COVER`); the bar's thumbnail uses the thumbnail token (4).
+
 ## Keys (Controls menu)
 
 Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P Now Playing panel · ⌘L full window in / out · ⌘F focus (from closed: full window in focus) · ⌘K search · ⌥⌘M mini player · Esc back chain. ⌘↑ / ⌘↓ are left alone (no in-app volume). System full screen (⌃⌘F) is the window's own.
