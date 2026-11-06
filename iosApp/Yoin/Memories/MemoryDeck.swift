@@ -121,7 +121,7 @@ enum MemoryDeck {
                           excerpt: excerpt, noteCount: max(m.noteCount, notes.count),
                           lastHeardAt: m.lastPlayedAt, memory: m, review: review,
                           yoinTitle: x.yoinTitle(id).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
-                          paragraph: x.copy(id).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                          paragraph: x.copy(id).flatMap(MemoryNarrationCopy.paragraph),
                           diaryTracks: diaryTracks(m.album, notes: notes, rating: x.rating),
                           playCount: m.playCount, firstPlayedAt: m.firstPlayedAt)
     }
@@ -262,5 +262,56 @@ extension MemoryDeck {
         static let shared = MockWrites()
         var reviews: [String: (text: String, at: Int64)] = [:]
         var titles: [String: String?] = [:]
+    }
+}
+
+
+/// Yoin's paragraph from a stored memory copy. Android caches its Gemini narration as
+/// `[NARRATION]…[/NARRATION]` + `[QUESTION]…[/QUESTION]` (GeminiService.encodeMemoryNarration), and
+/// cloud sync hands that form over as it is: read it the way parseMemoryNarration does, then say the
+/// two in one breath. Plain prose passes through; stray markers never reach the page.
+enum MemoryNarrationCopy {
+    static func paragraph(_ copy: String) -> String? {
+        let tagged = copy.range(of: #"\[\s*/?\s*(NARRATION|QUESTION)\s*\]"#,
+                                options: [.regularExpression, .caseInsensitive]) != nil
+        guard tagged else {
+            // Plain prose (written on iOS): as it is, brackets in titles included.
+            let plain = copy.trimmingCharacters(in: .whitespacesAndNewlines)
+            return plain.isEmpty ? nil : plain
+        }
+        if let n = parse(copy) { return "\(n.narration) \(n.question)" }
+        return clean(stripMarkers(copy))
+    }
+
+    /// Android parseMemoryNarration: both parts present and the question a question, else nil.
+    static func parse(_ raw: String) -> (narration: String, question: String)? {
+        guard let narration = clean(tag(raw, "NARRATION")), let question = clean(tag(raw, "QUESTION")),
+              question.hasSuffix("?") || question.hasSuffix("？") else { return nil }
+        return (narration, question)
+    }
+
+    /// Android extractTagContent: from `[TAG]` to `[/TAG]` (or the end), case- and space-tolerant.
+    private static func tag(_ text: String, _ name: String) -> String? {
+        guard let open = text.range(of: #"\[\s*\#(name)\s*\]"#, options: [.regularExpression, .caseInsensitive])
+        else { return nil }
+        let rest = text[open.upperBound...]
+        let close = rest.range(of: #"\[\s*/\s*\#(name)\s*\]"#, options: [.regularExpression, .caseInsensitive])
+        let inner = String(rest[..<(close?.lowerBound ?? rest.endIndex)])
+        let stripped = stripMarkers(inner)
+        return stripped.isEmpty ? nil : stripped
+    }
+
+    private static func stripMarkers(_ text: String) -> String {
+        text.replacingOccurrences(of: #"\[\s*/?\s*[A-Za-z][A-Za-z0-9_]*\s*\]"#, with: "",
+                                  options: .regularExpression)
+    }
+
+    /// Lines joined, spaces and wrapping quotes trimmed; nil when nothing is left.
+    private static func clean(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let joined = text.replacingOccurrences(of: #"\s*\n\s*"#, with: " ", options: .regularExpression)
+        let quotes = CharacterSet(charactersIn: "\"“”").union(.whitespacesAndNewlines)
+        let trimmed = joined.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: quotes)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
