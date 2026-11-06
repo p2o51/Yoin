@@ -269,6 +269,16 @@ private struct MacGeminiSettings: View {
                 }
             }
             .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            Picker("Answer and translate in", selection: Binding(
+                get: { settings.targetLanguage },
+                set: { settings.saveLanguage($0) }
+            )) {
+                ForEach(GeminiSettings.languages, id: \.self) { language in
+                    Text(language).tag(language)
+                }
+            }
+            .font(.gsf(13))
+            .foregroundStyle(Yoin.ink)
             if failed { Text("The key couldn't be saved").foregroundStyle(.red) }
             Text("From aistudio.google.com. Gemini writes the About for a song (when and where it was made, who wrote it, a review) and translates lyrics a source doesn't.")
                 .font(.caption).foregroundStyle(.secondary)

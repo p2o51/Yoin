@@ -791,24 +791,64 @@ private struct LyricLineFont: ViewModifier, @MainActor Animatable {
 /// the lyrics came from.
 struct MacAboutView: View {
     @Environment(MacModel.self) private var model
-    @Environment(\.macTint) private var tint
-    @State private var song: SongInfo?
-    @State private var loadedFor: String?
-    @State private var showOthers = false
 
     var body: some View {
         let t = model.player.currentTrack
+        MacSongAboutView(track: t)
+            // Keep drafts, errors and server facts with this account, song and language.
+            .id([model.session.activeId ?? "", t?.provider ?? "", t?.id ?? "",
+                 t?.title ?? "", t?.artist ?? "", t?.album ?? "", GeminiSettings.shared.targetLanguage])
+    }
+}
+
+private struct MacSongAboutView: View {
+    var track: PlayableTrack?
+    @Environment(MacModel.self) private var model
+    @Environment(\.macTint) private var tint
+    @Environment(\.openSettings) private var openSettings
+    @State private var song: SongInfo?
+    @State private var showOthers = false
+    @State private var question = ""
+    @State private var lastQuestion = ""
+    @State private var entryMessage: String?
+    @State private var retryEntry: SongAboutStore.Entry.Ref?
+    @State private var undoEntry: SongAboutStore.Entry?
+    @FocusState private var questionFocused: Bool
+
+    private var loader: SongAboutLoader { .shared }
+    private var settings: GeminiSettings { .shared }
+    private var askable: Bool {
+        guard let track else { return false }
+        return !track.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !track.artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var asking: Bool { if case .loading = loader.askState { true } else { false } }
+    private var canonicalPending: Bool {
+        guard let track, askable, settings.hasKey else { return false }
+        let key = SongAboutStore.key(title: track.title, artist: track.artist, album: track.album)
+        return loader.phase(key) == .idle && !SongAboutStore.shared.hasCanonical(key)
+    }
+
+    var body: some View {
+        let t = track
         let credits = model.lyrics.credits
         let songKey = t.map { SongAboutStore.key(title: $0.title, artist: $0.artist, album: $0.album) }
         let gemini = songKey.map { SongAboutStore.shared.entries($0) } ?? []
-        let rows = MacReceipt.rows(song: loadedFor == t?.id ? song : nil, track: t, credits: credits, gemini: gemini)
+        let rows = MacReceipt.rows(song: song, track: t, credits: credits, gemini: gemini)
             + lyricsRow
         let paragraphs = MacReceipt.paragraphs(gemini)
         ScrollView {
+            if askable, let songKey, !settings.hasKey || loader.phase(songKey) != .idle {
+                recovery(songKey)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
                     if i > 0 { DashedRule() }
                     ReceiptLine(label: r.label, value: r.value)
+                        .modifier(MacAboutEntryMenu(entry: r.entry, regenerate: regenerate, delete: delete))
+                    if let entry = r.entry, loader.regenerating.contains(entry.ref) {
+                        regeneratingLine
+                    }
                 }
                 // The lyrics' other credits behind "More"; the notices small at the foot.
                 if !credits.others.isEmpty {
@@ -837,10 +877,6 @@ struct MacAboutView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                if let k = songKey, SongAboutLoader.shared.phase(k) == .loading {
-                    DashedRule()
-                    Text("Asking Gemini…").font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).padding(.vertical, 10)
-                }
                 if !credits.notices.isEmpty {
                     DashedRule()
                     VStack(spacing: 2) {
@@ -865,21 +901,185 @@ struct MacAboutView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 12)
+                .contentShape(Rectangle())
+                .modifier(MacAboutEntryMenu(entry: para.entry, regenerate: regenerate, delete: delete))
+                if let entry = para.entry, loader.regenerating.contains(entry.ref) {
+                    regeneratingLine
+                }
+            }
+            if askable {
+                entryFeedback
+                composer
             }
             Color.clear.frame(height: 48)
         }
         .scrollIndicators(.never)
         .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85),
                                      .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
-        .task(id: t?.id) {
-            showOthers = false
-            if let t, GeminiSettings.shared.hasKey {
-                Task { await SongAboutLoader.shared.ensure(title: t.title, artist: t.artist, album: t.album) }
-            }
+        .animation(Yoin.spatial, value: gemini)
+        .animation(Yoin.effects, value: songKey.map { loader.phase($0) })
+        .animation(Yoin.effects, value: loader.askState)
+        .animation(Yoin.effects, value: loader.regenerating)
+        .animation(Yoin.effects, value: entryMessage)
+        .onAppear { loader.resetAsk() }
+        .onDisappear { loader.resetAsk() }
+        // A language change may have to wait for the previous language's call to finish.
+        .task(id: canonicalPending) {
+            guard let t, canonicalPending else { return }
+            await loader.ensure(title: t.title, artist: t.artist, album: t.album)
+        }
+        .task {
             let result = await load(t)
-            guard !Task.isCancelled, t?.id == model.player.currentTrack?.id else { return }
+            guard !Task.isCancelled else { return }
             song = result
-            loadedFor = t?.id
+        }
+    }
+
+    @ViewBuilder private func recovery(_ key: SongAboutStore.Entry.SongKey) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !settings.hasKey {
+                Text("No Gemini API key").font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant)
+                Button { openSettings() } label: {
+                    Label { Text("Settings") } icon: { YoinIcon("settings", size: 16) }
+                }
+                .buttonStyle(.link)
+            } else {
+                switch loader.phase(key) {
+                case .loading:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Asking Gemini…").foregroundStyle(Yoin.inkVariant)
+                    }
+                case .failed(let message):
+                    Text(message).foregroundStyle(Yoin.inkVariant)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Retry") { retryCanonical() }.buttonStyle(.link)
+                case .idle, .noKey: EmptyView()
+                }
+            }
+        }
+        .font(.gsf(12.5))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Ask Gemini").font(.gsf(13.5, .semibold)).foregroundStyle(tint.primary)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                TextField("Ask about this song", text: $question)
+                    .textFieldStyle(.plain)
+                    .font(.gsf(14)).foregroundStyle(Yoin.ink)
+                    .focused($questionFocused)
+                    .onSubmit { submit(question) }
+                    .disabled(asking || !settings.hasKey)
+                Button { submit(question) } label: {
+                    Label { Text("Ask") } icon: { YoinIcon("sparkle", size: 16) }
+                }
+                .buttonStyle(.plain)
+                .font(.gsf(13, .medium)).foregroundStyle(tint.primary)
+                .disabled(asking || !settings.hasKey || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(12)
+            .background(Yoin.surfaceContainer, in: RoundedRectangle(cornerRadius: 12))
+            switch loader.askState {
+            case .loading(let title, _):
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(title).fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant)
+            case .error(let message):
+                Text(message).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant)
+                    .fixedSize(horizontal: false, vertical: true)
+                if settings.hasKey, !lastQuestion.isEmpty {
+                    Button("Retry") { submit(lastQuestion) }.buttonStyle(.link).font(.gsf(12.5))
+                }
+            case .idle, .focused: EmptyView()
+            }
+        }
+        .padding(.vertical, 12)
+        .onChange(of: questionFocused) { _, focused in
+            if focused { loader.askFocused() } else { loader.askCollapse() }
+        }
+    }
+
+    private var regeneratingLine: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Regenerating…").font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant)
+        }
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder private var entryFeedback: some View {
+        if let entryMessage {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(entryMessage).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let retryEntry {
+                    Button("Retry") { regenerate(retryEntry) }.buttonStyle(.link)
+                }
+                if let undoEntry {
+                    Button("Undo") {
+                        SongAboutStore.shared.edit(undoEntry.ref, title: undoEntry.titleText, answer: undoEntry.answerText)
+                        clearEntryFeedback()
+                    }
+                    .buttonStyle(.link)
+                }
+                Button("Dismiss") { clearEntryFeedback() }.buttonStyle(.link)
+            }
+            .font(.gsf(12.5))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+        }
+    }
+
+    private func submit(_ text: String) {
+        let asked = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let track, askable, settings.hasKey, !asking, !asked.isEmpty else { return }
+        lastQuestion = asked
+        question = ""
+        questionFocused = false
+        loader.ask(title: track.title, artist: track.artist, album: track.album, question: asked)
+    }
+
+    private func retryCanonical() {
+        guard let track else { return }
+        Task { await loader.ensure(title: track.title, artist: track.artist, album: track.album, retry: true) }
+    }
+
+    private func clearEntryFeedback() {
+        entryMessage = nil
+        retryEntry = nil
+        undoEntry = nil
+    }
+
+    private func delete(_ entry: SongAboutStore.Entry) {
+        clearEntryFeedback()
+        SongAboutStore.shared.edit(entry.ref, title: entry.titleText, answer: "")
+        undoEntry = entry
+        entryMessage = "Deleted"
+    }
+
+    private func regenerate(_ ref: SongAboutStore.Entry.Ref) {
+        clearEntryFeedback()
+        Task {
+            guard let result = await loader.regenerate(ref) else { return }
+            switch result {
+            case .success(let title, let answer):
+                if var before = SongAboutStore.shared.entry(ref) {
+                    before.titleText = title
+                    before.answerText = answer
+                    undoEntry = before
+                }
+                entryMessage = "Regenerated"
+            case .nothingNew: entryMessage = "Gemini had nothing new"
+            case .apiKeyMissing: entryMessage = "No Gemini API key"
+            case .error(let message):
+                entryMessage = message
+                retryEntry = ref
+            }
         }
     }
 
@@ -896,35 +1096,72 @@ struct MacAboutView: View {
     }
 }
 
+private struct MacAboutEntryMenu: ViewModifier {
+    var entry: SongAboutStore.Entry?
+    var regenerate: (SongAboutStore.Entry.Ref) -> Void
+    var delete: (SongAboutStore.Entry) -> Void
+
+    func body(content: Content) -> some View {
+        if let entry {
+            content.contentShape(Rectangle()).contextMenu {
+                if entry.kind != SongAboutStore.Kind.own {
+                    Button { regenerate(entry.ref) } label: {
+                        Label { Text("Regenerate with Gemini") } icon: { YoinIcon("refresh", size: 16) }
+                    }
+                    .disabled(SongAboutLoader.shared.regenerating.contains(entry.ref))
+                }
+                Button(role: .destructive) { delete(entry) } label: {
+                    Label { Text("Delete") } icon: { YoinIcon("delete", size: 16) }
+                }
+                .disabled(SongAboutLoader.shared.regenerating.contains(entry.ref))
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// The receipt's lines, in Android's order (who wrote it, then everything the server says).
 enum MacReceipt {
     struct Row: Equatable {
         var label: String
         var value: String
+        var entry: SongAboutStore.Entry? = nil
     }
 
     struct Paragraph: Equatable {
         var label: String
         var text: String
+        var entry: SongAboutStore.Entry? = nil
     }
 
     static func rows(song s: SongInfo?, track t: PlayableTrack?, credits: MacLyrics.Credits = .init(),
                      gemini: [SongAboutStore.Entry] = []) -> [Row] {
         var rows: [Row] = []
-        func add(_ label: String, _ value: String?) {
+        func add(_ label: String, _ value: String?, entry: SongAboutStore.Entry? = nil) {
             guard let v = value?.split(whereSeparator: \.isWhitespace).joined(separator: " "), !v.isEmpty else { return }
-            rows.append(Row(label: label, value: v))
+            rows.append(Row(label: label, value: v, entry: entry))
         }
-        let canon = Dictionary(gemini.filter { $0.kind == SongAboutStore.Kind.canonical }.map { ($0.entryKey, $0.answerText) },
+        let canon = Dictionary(gemini.filter { $0.kind == SongAboutStore.Kind.canonical }.map { ($0.entryKey, $0) },
                                uniquingKeysWith: { a, _ in a })
+        func addCanonical(_ label: String, _ key: String) {
+            guard let entry = canon[key] else { return }
+            add(label, entry.answerText, entry: entry)
+        }
         func named(_ role: String) -> Bool { credits.headline.contains { $0.role == role } }
         // Who wrote it (Android's receipt): the lyrics' credits, then the server's composer, then Gemini.
         for c in credits.headline { add(c.role, c.names) }
-        if !named("Lyricist") { add("Lyricist", canon[SongAboutStore.Canon.lyricist]) }
-        if !named("Composer") { add("Composer", s?.composer ?? canon[SongAboutStore.Canon.composer]) }
-        if !named("Producer") { add("Producer", canon[SongAboutStore.Canon.producer]) }
-        add("Written", canon[SongAboutStore.Canon.creationTime])
-        add("Made in", canon[SongAboutStore.Canon.creationLocation])
+        if !named("Lyricist") { addCanonical("Lyricist", SongAboutStore.Canon.lyricist) }
+        if !named("Composer") {
+            if let composer = s?.composer, !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                add("Composer", composer)
+            } else {
+                addCanonical("Composer", SongAboutStore.Canon.composer)
+            }
+        }
+        if !named("Producer") { addCanonical("Producer", SongAboutStore.Canon.producer) }
+        addCanonical("Written", SongAboutStore.Canon.creationTime)
+        addCanonical("Made in", SongAboutStore.Canon.creationLocation)
         guard let s else {
             if let t, t.durationSec > 0 { add("Duration", SongFacts.duration(Int(t.durationSec.rounded()))) }
             if let k = t?.sourceKbps { add("Quality", "\(k) kbps") }
@@ -988,11 +1225,11 @@ extension MacReceipt {
         var out: [Paragraph] = []
         if let r = entries.first(where: { $0.kind == SongAboutStore.Kind.canonical
             && $0.entryKey == SongAboutStore.Canon.review && !$0.answerText.isEmpty }) {
-            out.append(Paragraph(label: "Review", text: r.answerText))
+            out.append(Paragraph(label: "Review", text: r.answerText, entry: r))
         }
         for e in entries where (e.kind == SongAboutStore.Kind.ask || e.kind == SongAboutStore.Kind.own)
             && !e.answerText.isEmpty {
-            out.append(Paragraph(label: e.titleText ?? e.promptText ?? "", text: e.answerText))
+            out.append(Paragraph(label: e.heading ?? "", text: e.answerText, entry: e))
         }
         return out
     }
