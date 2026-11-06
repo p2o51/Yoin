@@ -209,7 +209,7 @@ struct MacPlaybackFailureBanner: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Playback unavailable").font(.gsf(13.5, .semibold)).foregroundStyle(Yoin.ink)
-                Text(failure.message).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(2)
+                Text(model.spotifyNotice ?? failure.message).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(2)
             }
             Spacer(minLength: 8)
             if elsewhere {

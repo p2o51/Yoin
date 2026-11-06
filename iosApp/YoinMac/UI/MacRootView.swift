@@ -41,8 +41,9 @@ struct MacShell: View {
                     if let f = model.player.failure {
                         MacPlaybackFailureBanner(failure: f)
                             .frame(width: min(520, contentW - 48))
-                            .frame(width: contentW, height: geo.size.height, alignment: .bottom)
+                            // Lifted above the bar (the padding goes inside the full-height frame).
                             .padding(.bottom, 22 + 76 + 12)
+                            .frame(width: contentW, height: geo.size.height, alignment: .bottom)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     MacBottomBar(wide: wide, showsPill: pill)

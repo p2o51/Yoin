@@ -292,7 +292,11 @@ actor SpotifyTokenProvider {
             let fresh = try await task.value
             tokens = fresh
             let id = profileId
-            await MainActor.run { _ = SpotifyTokenStore.save(fresh, for: id) }
+            // Only over the sign-in this refresh came from: a removed account isn't brought back, and a
+            // newer sign-in of the same account isn't overwritten.
+            await MainActor.run {
+                if SpotifyTokenStore.load(id)?.refreshToken == old.refreshToken { _ = SpotifyTokenStore.save(fresh, for: id) }
+            }
             onRefreshed(fresh)
             return fresh.accessToken
         } catch SpotifyAuthError.revoked {

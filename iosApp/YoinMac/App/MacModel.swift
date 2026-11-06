@@ -364,15 +364,20 @@ final class MacModel {
 
     /// Spotify plays on another device: move it to this Mac (the listener's choice), then start the song again.
     func spotifyPlayHere() {
+        spotifyNotice = nil
         Task {
             do {
                 try await spotifyOutput.playHere()
                 player.retry()
             } catch {
+                spotifyNotice = SpotifySource.message(for: error)
                 Self.log.error("play here failed: \(SpotifySource.message(for: error), privacy: .public)")
             }
         }
     }
+
+    /// Why Play Here didn't work (shown in the failure banner).
+    var spotifyNotice: String?
 
     private static let log = Logger(subsystem: "com.gpo.yoin.mac", category: "model")
 
