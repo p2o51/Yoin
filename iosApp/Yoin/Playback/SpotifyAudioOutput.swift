@@ -672,14 +672,27 @@ final class SpotifyAudioOutput: AudioOutput {
             self.next = nil
             handedNext = nil
             events?.outputDidAdvanceToPreloaded()
-        } else {
-            // Spotify moved on to a song that isn't the engine's next (the queue changed since, or
-            // something was picked in Spotify): the current one is over; the engine starts its next,
-            // which takes Spotify back to Yoin's queue.
+        } else if duration > 0, before >= duration - Self.carriedOnWindowSec {
+            // The song ran out and Spotify carried on by itself to something else (the list was
+            // stale, or its autoplay): the engine starts its next, back in Yoin's queue.
             sawCurrent = false
             events?.outputDidReachEnd()
+        } else {
+            // Picked in Spotify mid-song, here or on the device Yoin drives: the listener's choice.
+            // Yoin lets go (shown paused) rather than taking Spotify back to its queue — Yoin never
+            // cuts into playback.
+            sawCurrent = false
+            playing = false
+            if wantsPlay {
+                wantsPlay = false
+                events?.outputPlayingDidChangeExternally(false)
+            }
         }
     }
+
+    /// How close to its end the song was last seen for a switch to read as Spotify carrying on
+    /// (the Web API is read every [pollSec]).
+    nonisolated static let carriedOnWindowSec: Double = 8
 
     nonisolated static let endSlackSec: Double = 1.5
 
