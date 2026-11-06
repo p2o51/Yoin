@@ -14,6 +14,7 @@ enum MacSpotifyExperiment {
 
     static func runIfAsked(_ model: MacModel) {
         let d = UserDefaults.standard
+        if d.bool(forKey: "spotifyTargetCheck") { targetCheck() }
         if d.bool(forKey: "spotifyE2E") || d.object(forKey: "spotifyE2EAfter") != nil {
             Task {
                 for _ in 0..<60 where model.session.spotify == nil { try? await Task.sleep(for: .milliseconds(500)) }
@@ -130,6 +131,30 @@ enum MacSpotifyExperiment {
             await call(s, "PUT", "me/player/volume", ["volume_percent": "0", "device_id": desktop])
         }
         return true
+    }
+
+    /// The start's device rule (51, 2026-11-06) over the states a second device would show.
+    private static func targetCheck() {
+        typealias Now = SpotifySource.PlayerNow
+        let mac = (id: "mac1", name: "This Mac")
+        let phonePlaying = Now(deviceId: "phone", deviceName: "Phone", deviceType: "Smartphone", isPlaying: true)
+        let phonePaused = Now(deviceId: "phone", deviceName: "Phone", deviceType: "Smartphone", isPlaying: false)
+        let cases: [(String, Now?, (id: String, name: String)?, MacSpotifyOutput.Target)] = [
+            ("phone playing, Mac app up", phonePlaying, mac, .device(id: "phone", name: "Phone")),
+            ("phone playing, Mac app down", phonePlaying, nil, .device(id: "phone", name: "Phone")),
+            ("phone paused, Mac app up", phonePaused, mac, .device(id: "mac1", name: "This Mac")),
+            ("phone paused, Mac app down", phonePaused, nil, .device(id: "phone", name: "Phone")),
+            ("nothing active, Mac app up", nil, mac, .device(id: "mac1", name: "This Mac")),
+            ("nothing active, Mac app down", nil, nil, .unreachable),
+        ]
+        t0 = Date()
+        var failed = 0
+        for (name, now, local, want) in cases {
+            let got = MacSpotifyOutput.decide(now: now, local: local)
+            if got != want { failed += 1 }
+            line("target check: \(name) → \(got) \(got == want ? "OK" : "FAIL, want \(want)")")
+        }
+        line("target check: \(cases.count - failed)/\(cases.count) OK")
     }
 
     private static func engine(_ model: MacModel) -> String {

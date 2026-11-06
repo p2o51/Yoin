@@ -189,18 +189,24 @@ final class MacSpotifyOutput: AudioOutput {
         }
     }
 
-    /// The device a start uses: the one Spotify is active on (wherever it is); else this Mac's Spotify app.
+    /// The device a start uses (51, 2026-11-06): the device Spotify is playing on, wherever it is; else this
+    /// Mac's Spotify app (opened in the background if needed), even when another device is active but paused
+    /// (a phone's Spotify asleep in the background dropped the start). Only when this Mac's app can't be
+    /// reached does a paused active device take it. Never a move while something plays elsewhere.
     static func target(_ s: SpotifySource, launch: Bool) async throws -> Target {
-        if let now = try await s.playerNow(), let id = now.deviceId {
-            return .device(id: id, name: now.deviceName)
-        }
-        if let id = try await localDevice(s, launch: launch) {
-            // Opening Spotify here took a while: if the listener started it somewhere meanwhile, that wins.
-            if let now = try await s.playerNow(), let active = now.deviceId, active != id {
-                return .device(id: active, name: now.deviceName)
-            }
-            return .device(id: id, name: Host.current().localizedName ?? "This Mac")
-        }
+        let now = try await s.playerNow()
+        if let now, now.isPlaying, let id = now.deviceId { return .device(id: id, name: now.deviceName) }
+        let local = try await localDevice(s, launch: launch)
+        // Opening Spotify here took a while: if the listener started playing somewhere meanwhile, that wins.
+        let again = local == nil ? now : try await s.playerNow()
+        return decide(now: again, local: local.map { ($0, Host.current().localizedName ?? "This Mac") })
+    }
+
+    /// The rule as a pure decision over what /me/player shows and this Mac's device (nil: not reachable).
+    nonisolated static func decide(now: SpotifySource.PlayerNow?, local: (id: String, name: String)?) -> Target {
+        if let now, now.isPlaying, let id = now.deviceId { return .device(id: id, name: now.deviceName) }
+        if let local { return .device(id: local.id, name: local.name) }
+        if let now, let id = now.deviceId { return .device(id: id, name: now.deviceName) }
         return .unreachable
     }
 
