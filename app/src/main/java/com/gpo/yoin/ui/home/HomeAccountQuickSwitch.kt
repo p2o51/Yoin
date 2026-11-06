@@ -66,7 +66,7 @@ import kotlin.math.roundToInt
 
 /** The other accounts the header avatar offers on a hold, and what letting go on one does. */
 @Immutable
-internal data class HomeAccountQuickSwitch(
+data class HomeAccountQuickSwitch(
     /** In the switcher's order, without the one the header shows. */
     val accounts: List<ProfileCard>,
     val onPick: (ProfileCard) -> Unit,
