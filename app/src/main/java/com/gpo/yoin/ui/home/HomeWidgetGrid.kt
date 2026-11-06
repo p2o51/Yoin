@@ -7,6 +7,7 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
+import com.gpo.yoin.ui.component.AlbumVersionTitle
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -841,18 +842,26 @@ private fun formatHomeMemoryDate(epochMillis: Long): String {
 private fun WidgetCoverCaption(card: HomeWidgetCard) {
     Column {
         // 歌曲/专辑名加大一档（用户裁决）；字体维持 GSF —— 宋体只属于 AI 拟题。
-        Text(
-            text = card.title,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                lineHeight = 22.sp,
-            ),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.seamFade(),
+        val titleStyle = MaterialTheme.typography.titleMedium.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+            lineHeight = 22.sp,
         )
+        AlbumVersionTitle(
+            name = card.title,
+            version = card.version,
+            titleStyle = titleStyle,
+            modifier = Modifier.seamFade(),
+        ) { text, titleModifier ->
+            Text(
+                text = text,
+                style = titleStyle,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = titleModifier,
+            )
+        }
         val subtitle = card.shownSubtitle()
         if (subtitle.isNotBlank()) {
             Text(

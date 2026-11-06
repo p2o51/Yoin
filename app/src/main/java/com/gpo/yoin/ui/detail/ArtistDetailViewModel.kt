@@ -97,6 +97,7 @@ class ArtistDetailViewModel(
                             year = album.year,
                             songCount = album.songCount,
                             releaseType = album.releaseType,
+                            version = album.version,
                         )
                     },
                 )
