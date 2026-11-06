@@ -266,6 +266,17 @@ final class OfflineDownloads {
         pump()
     }
 
+    /// Tries [collectionKey]'s failed songs again; the ones already kept stay (Android OfflineToggle.kt:63).
+    func retryFailed(_ collectionKey: String) {
+        guard let s = scope() else { return }
+        for i in songs.indices where songs[i].scope == s && songs[i].state == .failed
+            && songs[i].collections.contains(where: { $0.key == collectionKey }) {
+            songs[i].state = .queued
+        }
+        save()
+        pump()
+    }
+
     /// Settings › Downloads › Remove all: this account's downloads.
     func removeAll() {
         guard let s = scope() else { return }
@@ -548,7 +559,8 @@ extension OfflineDownloads {
         switch status {
         case .none: start()
         case .failed:
-            remove(key)
+            // The songs already kept stay; the failed ones go again, and any the collection gained since.
+            retryFailed(key)
             start()
         case .downloading, .downloaded: remove(key)
         }
