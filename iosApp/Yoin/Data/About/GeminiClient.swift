@@ -1,8 +1,7 @@
 import Foundation
 
-/// The song About call to Gemini: Android `data/remote/GeminiService`
-/// `generateCanonicalAbout` — same model, same prompt, same tagged answer
-/// format, one grounded (`googleSearch`) `generateContent` request.
+/// About, Ask and album-memory calls shared with iOS: Android `data/remote/GeminiService`.
+/// About and Ask use search grounding; memory titles and narration use only their supplied input.
 ///
 /// The key travels in the `x-goog-api-key` header rather than Android's
 /// `?key=` query (Gemini accepts both), so it never sits in a URL that a
@@ -77,6 +76,150 @@ struct GeminiClient: Sendable {
         let (status, data) = try await send(request)
         return Self.cleanAskTitle(try Self.text(status: status, body: data, requireNonEmpty: true),
                                   fallbackQuestion: question)
+    }
+
+    /// Android's private-journal title prompt keeps the writing's own language.
+    func memoryTitle(apiKey: String, albumName: String, artist: String?, year: Int?,
+                     writingKind: String, writingText: String) async throws -> String {
+        let prompt = Self.memoryTitlePrompt(albumName: albumName, artist: artist, year: year,
+                                            writingKind: writingKind, writingText: writingText)
+        let raw = try await memoryText(apiKey: apiKey, prompt: prompt, temperature: 0.2, timeout: 45)
+        var title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.hasPrefix("\""), title.hasSuffix("\""), title.count >= 2 {
+            title = String(title.dropFirst().dropLast())
+        }
+        title = title.replacingOccurrences(of: "\n", with: " ")
+        guard !title.isEmpty else { throw Failure(message: "No content in Gemini response") }
+        return title
+    }
+
+    struct MemoryNarration: Equatable, Sendable {
+        var narration: String
+        var question: String
+        var encoded: String { "[NARRATION]\(narration)[/NARRATION]\n[QUESTION]\(question)[/QUESTION]" }
+    }
+
+    /// No grounding or listener writing in this request; Android's eight-second narration timeout.
+    func memoryNarration(apiKey: String, targetLanguage: String, facts: [String],
+                         alreadySaid: String? = nil) async throws -> MemoryNarration {
+        let prompt = Self.memoryNarrationPrompt(targetLanguage: targetLanguage, facts: facts, alreadySaid: alreadySaid)
+        let raw = try await memoryText(apiKey: apiKey, prompt: prompt, temperature: 0.4, timeout: 8)
+        guard let result = Self.parseMemoryNarration(raw), Self.followsMemoryVoiceRules(result) else {
+            throw Failure(message: "No usable narration in Gemini response")
+        }
+        return result
+    }
+
+    private func memoryText(apiKey: String, prompt: String, temperature: Double, timeout: TimeInterval) async throws -> String {
+        var request = try Self.request(baseURL: baseURL, apiKey: apiKey,
+                                       body: RequestBody(contents: [.init(parts: [.init(text: prompt)])], tools: nil,
+                                                         generationConfig: .init(temperature: temperature)))
+        request.timeoutInterval = timeout
+        let (status, data) = try await send(request)
+        return try Self.text(status: status, body: data, requireNonEmpty: true)
+    }
+
+    static func parseMemoryNarration(_ raw: String) -> MemoryNarration? {
+        func clean(_ tag: String) -> String? {
+            guard let text = tagContent(raw, tag) else { return nil }
+            let value = text.replacingOccurrences(of: #"\s*\n\s*"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”").union(.whitespacesAndNewlines))
+            return value.isEmpty ? nil : value
+        }
+        guard let narration = clean("NARRATION"), let question = clean("QUESTION"),
+              question.hasSuffix("?") || question.hasSuffix("？") else { return nil }
+        return MemoryNarration(narration: narration, question: question)
+    }
+
+    /// Android MemorySentences.split and MemoryNarration.followsVoiceRules (decimals aren't stops).
+    static func followsMemoryVoiceRules(_ text: MemoryNarration) -> Bool {
+        func sentences(_ text: String) -> Int {
+            let chars = Array(text)
+            var count = 0, index = 0
+            var pending = false
+            while index < chars.count {
+                let c = chars[index]
+                if !c.isWhitespace { pending = true }
+                let next = index + 1 < chars.count ? chars[index + 1] : nil
+                if "。！？!?".contains(c) || (c == "." && !(next.map { "0123456789".contains($0) } ?? false)) {
+                    while index + 1 < chars.count, "。！？!?.”’」）)".contains(chars[index + 1]) { index += 1 }
+                    if pending { count += 1; pending = false }
+                }
+                index += 1
+            }
+            return count + (pending ? 1 : 0)
+        }
+        let narrationCount = sentences(text.narration), questionCount = sentences(text.question)
+        let combined = "\(text.narration) \(text.question)".lowercased()
+        return (1...2).contains(narrationCount) && (1...2).contains(questionCount)
+            && !["memor", "remember", "记忆", "回忆"].contains(where: combined.contains)
+    }
+
+    /// Android buildMemoryTitlePrompt, word for word.
+    static func memoryTitlePrompt(albumName: String, artist: String?, year: Int?,
+                                  writingKind: String, writingText: String) -> String {
+        let artistLine = artist.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? "Unknown artist"
+        let yearLine = year.map(String.init) ?? "Unknown year"
+        return """
+        You are titling a private music-journal entry. The user wrote the following
+        \(writingKind) about an album; give it a short title.
+
+        Album: \(albumName)
+        Artist: \(artistLine)
+        Year: \(yearLine)
+
+        Their \(writingKind):
+        \(writingText)
+
+        Write ONE title that captures the heart of what they wrote, drawing on what
+        you know about this album's sound and background where it sharpens the title.
+        Same language as their text. At most 14 CJK characters or 34 latin characters.
+        No quotes, no emoji, no trailing period, no line break.
+        Output only the title itself.
+        """
+    }
+
+    /// Android buildMemoryNarrationPrompt (v2), word for word.
+    static func memoryNarrationPrompt(targetLanguage: String, facts: [String], alreadySaid: String?) -> String {
+        let factLines = facts.map { "- \($0)" }.joined(separator: "\n")
+        let saidLine = alreadySaid.flatMap { said in
+            said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil
+                : "\nThe title already on the page reads: \"\(said)\". Do not repeat any fact it states.\n"
+        } ?? ""
+        return """
+        You are Yoin, a music app. You write a few words at the top of a listener's
+        private diary page for one album, speaking to the listener directly.
+
+        Listening facts recorded in the app (the only things you may mention):
+        \(factLines)
+        \(saidLine)
+        Rules:
+        - Write in \(targetLanguage).
+        - NARRATION: one or two short sentences, second person, past tense, built only
+          from the facts above. Pick the one or two facts that say most about how they
+          listened; do not list them all.
+        - QUESTION: one short question that follows directly from the last fact you
+          stated, so the listener wants to write their own words. It ends with "?" in
+          English or "？" in Chinese.
+        - Never judge, praise or describe the music, the artist, the album or its
+          sound. Never guess at feelings, moods or reasons.
+        - Never quote, paraphrase or allude to anything the listener wrote. You have
+          not read it.
+        - Never name the mechanism: no words such as "memory", "memories",
+          "remember", "记忆", "回忆".
+        - Keep track names, months and relative dates as given.
+        - No quotation marks around your text, no emoji, no hashtags, no line breaks.
+
+        The voice, from other albums (never reuse their facts):
+        [NARRATION]37 plays since March, the last one two days ago.[/NARRATION]
+        [QUESTION]You gave it a 9.5. What earned it?[/QUESTION]
+        [NARRATION]你跨了三个季节回来听，最高分是《Undertow》的 9.0。[/NARRATION]
+        [QUESTION]那整张专辑呢？[/QUESTION]
+
+        Output exactly this and nothing else:
+        [NARRATION]...[/NARRATION]
+        [QUESTION]...[/QUESTION]
+        """
     }
 
     private func send(_ request: URLRequest) async throws -> (Int, Data) {
