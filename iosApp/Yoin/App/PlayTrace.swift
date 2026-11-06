@@ -25,9 +25,39 @@ enum PlayTrace {
             let line = "\(stamp.string(from: now)) \(redact(s))"
             lines.append(line)
             if lines.count > capacity { lines.removeFirst(lines.count - capacity) }
+            persist(line)
             #if DEBUG
             print("[PT] \(line)")
             #endif
+        }
+    }
+
+    /// The same lines on disk (Library/Caches/playtrace.log), so a log survives a relaunch and can
+    /// be pulled from a connected phone; cut back to [capacity] lines when it doubles.
+    nonisolated(unsafe) private static var handle: FileHandle?
+    nonisolated(unsafe) private static var written = 0
+    private static var fileURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("playtrace.log")
+    }
+
+    private static func persist(_ line: String) {
+        if handle == nil {
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+            } else if lines.count == 1, let old = try? String(contentsOf: fileURL, encoding: .utf8) {
+                // A relaunch: the previous run's tail comes first.
+                lines = Array(old.split(separator: "\n").suffix(capacity - 1).map(String.init)) + lines
+            }
+            handle = try? FileHandle(forWritingTo: fileURL)
+            _ = try? handle?.seekToEnd()
+        }
+        try? handle?.write(contentsOf: Data((line + "\n").utf8))
+        written += 1
+        if written >= capacity {
+            written = 0
+            try? handle?.close()
+            handle = nil
+            try? (lines.joined(separator: "\n") + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
         }
     }
 
