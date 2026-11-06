@@ -466,6 +466,12 @@ struct PlaylistTile: View {
         .contextMenu {
             Button("Play") { model.play(playlist: item.id.rawId) }
             Button("Shuffle") { model.play(playlist: item.id.rawId, shuffle: true) }
+            if model.session.client != nil {
+                Divider()
+                Button(OfflineDownloads.rowLabel(OfflineDownloads.shared.status(OfflineDownloads.playlistKey(item.id.rawId)))) {
+                    model.toggleDownload(playlist: item.id.rawId, title: item.title)
+                }
+            }
             Divider()
             MacShareMenuItem(content: MacShare.playlist(item))
         }

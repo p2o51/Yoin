@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import YoinShared
@@ -8,7 +9,7 @@ import YoinShared
 @MainActor
 @Observable
 final class MacLyrics {
-    struct Line: Identifiable, Hashable, Sendable {
+    struct Line: Identifiable, Hashable, Sendable, Codable {
         var id: Int
         var timeSec: Double
         var text: String
@@ -17,7 +18,7 @@ final class MacLyrics {
     }
 
     /// Where the lyrics came from: a lyrics provider and its song id (nil: the server's own).
-    struct Origin: Equatable, Sendable {
+    struct Origin: Equatable, Sendable, Codable {
         var provider: String
         var songId: String
     }
@@ -28,8 +29,8 @@ final class MacLyrics {
     }
 
     /// The production credits taken out of the lyrics (they belong in About), as plain values.
-    struct Credits: Equatable, Sendable {
-        struct Credit: Equatable, Sendable {
+    struct Credits: Equatable, Sendable, Codable {
+        struct Credit: Equatable, Sendable, Codable {
             var role: String
             var names: String
         }
@@ -108,10 +109,16 @@ final class MacLyrics {
             origin = originCache[track.id]
             return
         }
+        let chosen = Self.savedChoice(scope: choiceScope, songId: track.id)
+        // Kept on disk (Android lyrics_cache): a pick of the listener's any age, an automatic match a month.
+        if let kept = MacLyricsDisk.read(scope: choiceScope, songId: track.id, chosen: chosen) {
+            apply(.loaded(synced: kept.synced, lines: kept.lines, source: kept.source), kept.credits, kept.origin,
+                  for: track.id, keep: false)
+            return
+        }
         state = .loading
         credits = Credits()
         origin = nil
-        let chosen = Self.savedChoice(scope: choiceScope, songId: track.id)
         task = Task {
             let (result, found, from) = await Self.fetch(track, chosen: chosen, client: client, registry: registry)
             guard !Task.isCancelled, gen == self.generation, self.songId == track.id else { return }
@@ -119,7 +126,16 @@ final class MacLyrics {
         }
     }
 
-    private func apply(_ result: State, _ found: Credits, _ from: Origin?, for id: String) {
+    private func apply(_ result: State, _ found: Credits, _ from: Origin?, for id: String, keep: Bool = true) {
+        if keep, case .loaded(let synced, let lines, let source) = result {
+            let chosen = from != nil && from == Self.savedChoice(scope: choiceScope, songId: id)
+            // The lyrics as sung; translations stay with their own stores (sources fetch them again, Gemini's
+            // are kept per language).
+            let originals = lines.map { var l = $0; l.translation = nil; return l }
+            MacLyricsDisk.write(.init(synced: synced, lines: originals, source: source, credits: found, origin: from,
+                                      chosen: chosen, at: Date()),
+                                scope: choiceScope, songId: id)
+        }
         cache[id] = result
         creditsCache[id] = found
         originCache[id] = from
@@ -185,8 +201,8 @@ final class MacLyrics {
               !r.lyrics.lines.isEmpty, gen == generation, songId == id, scope == choiceScope else { return false }
         let (s, credits) = Self.lines(r.lyrics, source: r.providerName)
         let from = Origin(provider: c.providerName, songId: c.songId)
-        apply(s, credits, from, for: id)
         Self.saveChoice(from, scope: choiceScope, songId: id)
+        apply(s, credits, from, for: id)
         return true
     }
 
@@ -222,7 +238,7 @@ final class MacLyrics {
             let (s, credits) = Self.lines(r.lyrics, source: r.providerName, translations: map)
             let from = Origin(provider: r.providerName, songId: r.providerSongId)
             if r.providerName == origin?.provider {
-                apply(s, credits, from, for: id)
+                apply(s, credits, from, for: id, keep: false)
             } else {
                 // Another source's lyrics and timing: offered, never swapped in unasked (Android / iOS ask too).
                 offer = Offer(songId: id, state: s, credits: credits, origin: from,
@@ -248,8 +264,8 @@ final class MacLyrics {
     func acceptOffer() {
         guard let o = offer, o.songId == songId else { offer = nil; return }
         offer = nil
-        apply(o.state, o.credits, o.origin, for: o.songId)
         Self.saveChoice(o.origin, scope: choiceScope, songId: o.songId)
+        apply(o.state, o.credits, o.origin, for: o.songId)
     }
 
     /// Keep: these lyrics stay; Gemini translates them when there's a key.
@@ -311,7 +327,7 @@ final class MacLyrics {
             return l
         }
         let s = State.loaded(synced: synced, lines: translated, source: source)
-        apply(s, credits, origin, for: id)
+        apply(s, credits, origin, for: id, keep: false)
     }
 
     private static func choiceKey(_ scope: String, _ songId: String) -> String { "lyricsChoice.\(scope).\(songId)" }
@@ -334,5 +350,45 @@ final class MacLyrics {
             if lines[mid].timeSec <= sec + 0.15 { found = mid; lo = mid + 1 } else { hi = mid - 1 }
         }
         return found
+    }
+}
+
+/// Lyrics kept on disk per account and song (Android lyrics_cache, LyricsCachePolicy): the listener's pick
+/// never expires and still shows offline after a restart; an automatic match is matched again after 30 days.
+/// Only lyrics found are kept (none found is asked again next time).
+enum MacLyricsDisk {
+    struct Entry: Codable {
+        var synced: Bool
+        var lines: [MacLyrics.Line]
+        var source: String
+        var credits: MacLyrics.Credits
+        var origin: MacLyrics.Origin?
+        /// The listener picked these (search, or Switch to another source's translation).
+        var chosen: Bool
+        var at: Date
+    }
+
+    static let automaticLife: TimeInterval = 30 * 24 * 3600
+
+    static func read(scope: String, songId: String, chosen: MacLyrics.Origin?) -> Entry? {
+        guard !scope.isEmpty, let url = file(scope, songId), let data = try? Data(contentsOf: url),
+              let e = try? JSONDecoder().decode(Entry.self, from: data) else { return nil }
+        // A pick made since (on another device, synced) wins over what was kept.
+        if let chosen, e.origin != chosen { return nil }
+        guard e.chosen || Date().timeIntervalSince(e.at) < automaticLife else { return nil }
+        return e
+    }
+
+    static func write(_ e: Entry, scope: String, songId: String) {
+        guard !scope.isEmpty, let url = file(scope, songId), let data = try? JSONEncoder().encode(e) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private static func file(_ scope: String, _ songId: String) -> URL? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let name = SHA256.hash(data: Data("\(scope)|\(songId)".utf8)).map { String(format: "%02x", $0) }.joined()
+        return base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Yoin")
+            .appendingPathComponent("lyrics", isDirectory: true).appendingPathComponent(name + ".json")
     }
 }

@@ -290,6 +290,13 @@ struct MacPlaylistDetail: View {
                         DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) {
                             model.play(playlist: id, shuffle: true)
                         }
+                        if model.session.client != nil {
+                            let status = OfflineDownloads.shared.status(OfflineDownloads.playlistKey(id))
+                            DetailAction(title: OfflineDownloads.rowLabel(status), icon: OfflineDownloads.rowIcon(status),
+                                         prominent: false, iconOnly: true) {
+                                model.toggleDownload(playlist: id, title: p.title)
+                            }
+                        }
                     }
                     .padding(.bottom, 18)
                     VStack(spacing: 2) {

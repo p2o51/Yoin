@@ -406,6 +406,25 @@ final class MacModel {
         }
     }
 
+    /// Downloads a playlist (Subsonic: its songs as the server lists them), or removes / retries it.
+    func toggleDownload(playlist id: String, title: String) {
+        let offline = OfflineDownloads.shared
+        let p = library.playlist(id)
+        let collection = OfflineDownloads.Collection(kind: .playlist, id: id, title: p?.title ?? title,
+                                                     subtitle: p?.owner,
+                                                     coverId: OfflineDownloads.coverId(p?.palette.cover))
+        let gen = library.accountGeneration
+        let scope = session.accountKey
+        offline.rowTapped(offline.status(collection.key), key: collection.key) {
+            Task {
+                await library.loadPlaylist(id)
+                guard gen == library.accountGeneration, scope == session.accountKey,
+                      let entries = library.playlist(id)?.entries, !entries.isEmpty else { return }
+                download(collection, entries)
+            }
+        }
+    }
+
     /// A download's own songs as queue entries, from what was saved (works offline, with nothing loaded).
     func downloadedEntries(_ collectionKey: String) -> [PlaylistEntry] {
         let songs = OfflineDownloads.shared.visible.filter { s in s.collections.contains { $0.key == collectionKey } }
@@ -432,10 +451,9 @@ final class MacModel {
         if !entries.isEmpty { play(entries) }
     }
 
+    /// Its failed songs again; the ones already kept stay.
     func retryDownload(_ e: OfflineDownloads.Entry) {
-        let entries = downloadedEntries(e.collection.key)
-        OfflineDownloads.shared.remove(e.collection.key)
-        download(e.collection, entries)
+        OfflineDownloads.shared.retryFailed(e.collection.key)
     }
 
     /// One song on its own.
