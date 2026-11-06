@@ -101,6 +101,11 @@ sealed interface NowPlayingUiState {
         val libraryActionInFlight: Boolean = false,
         /** What a Subsonic server says about the song (format, quality, its own rating…), for the spine. */
         val spineFacts: SpineSourceFacts? = null,
+        /**
+         * The other Spotify Connect device (a speaker, a computer) the song plays on, which the
+         * controls drive; the Devices pill shows its name. Null on this phone.
+         */
+        val playingOn: String? = null,
         /** The format tags of what is playing ("FLAC 24/96", "5.1"); empty where nothing is known. */
         val formatTags: List<String> = emptyList(),
         /** The file's codec tag while a transcode of it plays; null otherwise. */

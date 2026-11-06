@@ -70,6 +70,11 @@ data class PlaybackState(
      */
     val connectionFailure: SpotifyConnectFailure? = null,
     /**
+     * The other Spotify Connect device (a speaker, a computer) Spotify plays on, which Yoin's
+     * controls drive; Now Playing names it. Null on this phone and for other backends.
+     */
+    val spotifyDevice: String? = null,
+    /**
      * The player means to play — what a play/pause control shows and toggles.
      * Unlike [isPlaying] it holds through a seek's or skip's buffering dip
      * (Media3 reports not-playing until the new spot is buffered). Media3:

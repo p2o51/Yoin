@@ -60,6 +60,8 @@ internal fun BottomPills(
     supportsYoinCast: Boolean = true,
     pillHeight: Dp = 44.dp,
     forceCapsule: Boolean = false,
+    /** The other device Spotify plays on: the Devices pill carries its name instead of "Devices". */
+    playingOn: String? = null,
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -83,7 +85,7 @@ internal fun BottomPills(
         // Cast control) don't fit the real width; a pressed pill still shows
         // its label when there is room for it. All three are always there.
         val queueLabel = stringResource(R.string.np_pill_queue)
-        val devicesLabel = stringResource(R.string.np_pill_devices)
+        val devicesLabel = playingOn ?: stringResource(R.string.np_pill_devices)
         val writeLabel = stringResource(R.string.np_pill_write)
         BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
             val layout = rememberBottomPillsLayout(
