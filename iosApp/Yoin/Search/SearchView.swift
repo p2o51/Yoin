@@ -61,6 +61,8 @@ struct SearchView: View {
     @State private var filter: Filter = LaunchConfig.searchFilter
     /// The results column's width (inside the 16 margins), for the 3-column cells.
     @State private var width: CGFloat = 370
+    /// The + / ✓ of Apple Music's song results.
+    @State private var libraryAdder = SongLibraryAdder()
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
     @State private var scrollPosition = ScrollPosition()
@@ -622,16 +624,30 @@ struct SearchView: View {
         .buttonStyle(PressScale())
     }
 
+    /// The + / ✓ of a result song, where the service adds songs to a library (Android SearchSongRow's
+    /// canAddToLibrary): Apple Music's.
+    private func libraryAdd(_ track: Track) -> LibrarySongRow.LibraryAddControl? {
+        guard model.store.apple != nil, track.id.provider == AppleMusicMapping.provider else { return nil }
+        let id = track.id.rawId
+        return .init(membership: libraryAdder.state(id), working: libraryAdder.working.contains(id),
+                     feedback: libraryAdder.feedback[id]) { [libraryAdder] in Task { await libraryAdder.add(id) } }
+    }
+
     /// Android SearchSongRow = SongListItem (Library's song row).
     private func songList(_ tracks: [(Album, Track)]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let ids = tracks.filter { $0.1.id.provider == AppleMusicMapping.provider }.map(\.1.id.rawId)
+        return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(tracks.enumerated()), id: \.offset) { i, item in
                 LibrarySongRow(album: item.0, track: item.1, current: model.playback.track.id == item.1.id,
-                               scheme: scheme, horizontalPadding: 0)
+                               scheme: scheme, horizontalPadding: 0, libraryAdd: libraryAdd(item.1))
                     .trackRow(for: PlaylistEntry(album: item.0, track: item.1)) {
                         model.play(tracks.map { PlaylistEntry(album: $0.0, track: $0.1) }, startAt: i)
                     }
             }
+        }
+        .task(id: "\(model.store.generation)|\(ids.joined(separator: ","))") {
+            libraryAdder.use(model.store.apple)
+            await libraryAdder.refresh(ids)
         }
     }
 

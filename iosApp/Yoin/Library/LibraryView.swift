@@ -1387,6 +1387,16 @@ struct LibrarySongRow: View {
     var current: Bool
     var scheme: CoverScheme
     var horizontalPadding: CGFloat = Tokens.library.ROW_PADDING_H.cg
+    /// Search results of a service that adds to a library: the + / ✓ at the row's end (Android SearchSongRow).
+    var libraryAdd: LibraryAddControl? = nil
+
+    /// What the + / ✓ shows and does for this row.
+    struct LibraryAddControl {
+        var membership: LibraryMembership
+        var working: Bool
+        var feedback: LibraryAddFeedback?
+        var add: () -> Void
+    }
 
     private var hasNote: Bool {
         track.id.provider != "mock" && !NotesStore.shared.notes(provider: track.id.provider, trackId: track.id.rawId).isEmpty
@@ -1422,10 +1432,29 @@ struct LibrarySongRow: View {
                 .monospacedDigit()
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(scheme.onSurfaceVariant)
+            if let libraryAdd {
+                SongLibraryButton(membership: libraryAdd.membership, working: libraryAdd.working, scheme: scheme,
+                                  action: libraryAdd.add)
+                    .padding(.trailing, -8)
+            }
         }
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
         .contentShape(.rect)
+        .overlay(alignment: .bottomLeading) { addedFeedback }
+    }
+
+    /// The inline answer under the row once the song was added or failed (Android: bodySmall, primary /
+    /// error, indented to the title).
+    @ViewBuilder private var addedFeedback: some View {
+        if let f = libraryAdd?.feedback {
+            Text(f.message)
+                .yoinRole(Tokens.type.bodySmall)
+                .foregroundStyle(f.isError ? Color.red : libraryAdd?.membership == .added ? scheme.primary : scheme.onSurfaceVariant)
+                .padding(.leading, horizontalPadding + Tokens.library.ROW_THUMB.cg + Tokens.library.ROW_GAP.cg)
+                .padding(.bottom, 1)
+                .transition(.opacity)
+        }
     }
 }
 
