@@ -287,6 +287,8 @@ final class MacSpotifyOutput: AudioOutput {
             var furthest: Double = 0
             var wait: Duration = .seconds(1)
             var owner = start
+            var reads = 0
+            var lastSeen = ""
             while !Task.isCancelled {
                 try? await Task.sleep(for: wait)
                 wait = .seconds(1)
@@ -311,6 +313,13 @@ final class MacSpotifyOutput: AudioOutput {
                 }
                 guard gen == self.generation else { return }
                 let now = data.isEmpty ? nil : try? SpotifyWebAPI.decoder.decode(NowDTO.self, from: data)
+                // What Spotify answered, when it changes (and every ~15 reads): device's last 4, playing, song, clock.
+                let seen = Self.describe(now)
+                reads += 1
+                if seen != lastSeen || reads % 15 == 0 {
+                    PlayTrace.log("SP read \(seen)")
+                    lastSeen = seen
+                }
                 let quiet = Date() < self.quietUntil
                 let nearEnd = self.duration > 0 && furthest >= self.duration - 4
                 guard let now else {
@@ -407,6 +416,13 @@ final class MacSpotifyOutput: AudioOutput {
         }
     }
 
+    private static func describe(_ n: NowDTO?) -> String {
+        guard let n else { return "nothing active (204)" }
+        let dev = n.device?.id.map { "…" + String($0.suffix(4)) } ?? "none"
+        let item = n.item?.id.map { "spotify:track:\($0)" } ?? "none"
+        return "device=\(dev) playing=\(n.isPlaying ?? false) item=\(item) progress=\(n.progressMs ?? -1)"
+    }
+
     /// Spotify plays a song that isn't the queue's (see `watch`).
     private var showingExternal = false
     private var externalId: String?
@@ -439,9 +455,10 @@ final class MacSpotifyOutput: AudioOutput {
         guard !silent, owned == nil, current == nil, let s = source(), s !== revoked else { return }
         let gen = generation
         Task { [weak self] in
-            guard let data = try? await s.api.send("GET", "me/player"), !data.isEmpty,
-                  let now = try? SpotifyWebAPI.decoder.decode(NowDTO.self, from: data),
-                  now.isPlaying == true, let id = now.device?.id, let t = Self.external(now.item) else { return }
+            guard let data = try? await s.api.send("GET", "me/player") else { return }
+            let decoded = data.isEmpty ? nil : try? SpotifyWebAPI.decoder.decode(NowDTO.self, from: data)
+            PlayTrace.log("SP look \(Self.describe(decoded))")
+            guard let now = decoded, now.isPlaying == true, let id = now.device?.id, let t = Self.external(now.item) else { return }
             guard let self, gen == self.generation, self.owned == nil, self.current == nil,
                   self.source() === s, self.adopt?() == true else { return }
             PlayTrace.log("SP adopt \(t.id) on …\(id.suffix(4))")
