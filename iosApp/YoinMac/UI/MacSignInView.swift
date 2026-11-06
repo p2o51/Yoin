@@ -340,7 +340,53 @@ private struct MacSyncSettings: View {
                 Text("Ratings, notes, album memories, lyric choices and playlist backups follow you between this Mac, your phone and your other devices. The first sync only reads; nothing is changed in the cloud until the next one.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            if state.phase.enabled, !state.accounts.isEmpty {
+                // iOS CloudSyncView's account rows: Apple Music syncs only after an explicit choice.
+                Section("Accounts") {
+                    ForEach(state.accounts, id: \.localProfileId) { a in SyncAccountLine(account: a) }
+                }
+            }
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct SyncAccountLine: View {
+    var account: SyncAccountRow
+    @State private var confirmFresh = false
+
+    var body: some View {
+        let sync = CloudSync.shared
+        let a = account
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent(a.displayName, value: label)
+            HStack(spacing: 12) {
+                if let n = a.status as? SyncAccountStatusNotSynced {
+                    Button("Start syncing") { Task { await sync.startSyncing(a.localProfileId) } }
+                    ForEach(n.linkCandidates, id: \.syncProfileId) { c in
+                        Button("Link to \(c.displayName)") { Task { await sync.link(a.localProfileId, to: c.syncProfileId) } }
+                    }
+                } else if a.status is SyncAccountStatusAccountChanged {
+                    Button("Keep syncing as before") { Task { await sync.keepAsBefore(a.localProfileId) } }
+                    Button("Start fresh") { confirmFresh = true }
+                }
+            }
+            .disabled(sync.working)
+        }
+        .confirmationDialog("Start fresh for \(a.displayName)?", isPresented: $confirmFresh) {
+            Button("Start fresh", role: .destructive) { Task { await sync.startFresh(a.localProfileId) } }
+        }
+    }
+
+    private var label: String {
+        switch account.status {
+        case is SyncAccountStatusSyncing: "Syncing"
+        case is SyncAccountStatusNeedsIdentity: "Not synced"
+        case is SyncAccountStatusNeedsReconnect: "Reconnect to sync"
+        case let d as SyncAccountStatusDuplicateOf: "Same as \(d.otherDisplayName)"
+        case is SyncAccountStatusNotSynced: "Not synced"
+        case is SyncAccountStatusAccountChanged: "Paused"
+        default: ""
+        }
     }
 }

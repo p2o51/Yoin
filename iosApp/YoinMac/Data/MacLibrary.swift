@@ -625,6 +625,7 @@ final class MacLibrary {
     func setRating(provider: String, songId: String, _ rating: Double?) {
         if let rating { LocalRatings.shared.set(rating, provider: provider, songId: songId) }
         else { LocalRatings.shared.clear(provider: provider, songId: songId) }
+        CloudSync.shared.localChanged()
         guard let client, provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
         Task {
             do { try await client.setRating(id: songId, rating: Int32(SubsonicMapping.serverRating(rating))) } catch {

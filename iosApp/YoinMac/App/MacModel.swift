@@ -396,6 +396,20 @@ final class MacModel {
             albumReviewed: { reviewed.contains($0) })
     }
 
+    /// iOS hydrateMemoryAlbums: the albums a written memory needs and the Mac has no track list for (a synced
+    /// review of an album never opened here), loaded a few at a time for the account that asked.
+    func hydrateMemoryAlbums() async {
+        let gen = library.accountGeneration
+        let missing = HomeHistory.writtenAlbumIds(historyInputs())
+            .filter { library.albumDetails[$0]?.tracks.isEmpty ?? true }
+            .sorted()
+            .prefix(24)
+        for id in missing {
+            guard gen == library.accountGeneration else { return }
+            await library.loadAlbum(id)
+        }
+    }
+
     /// The Memories deck (iOS memoryDeckInputs): memories, each album's notes, reviews, titles, ratings.
     func memoryCards() -> [MemoryCard] {
         let provider = currentProvider

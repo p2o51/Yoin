@@ -167,6 +167,7 @@ final class MacSession {
             if let a = p.account { restore(a) }
         case .spotify:
             guard let tokens = SpotifyTokenStore.load(p.id) else { state = .failed("Sign in to Spotify again"); return }
+            AccountScope.shared.spotify = AccountScope.spotifyScope(userId: tokens.userId)
             spotify = Self.spotifySource(profileId: p.id, tokens: tokens) { [weak self] in
                 Task { @MainActor in self?.state = .failed("Spotify signed you out. Sign in again") }
             }
@@ -182,6 +183,7 @@ final class MacSession {
 
     private func deactivate() {
         AccountScope.shared.subsonic = nil
+        AccountScope.shared.spotify = nil
         client?.close()
         client = nil
         account = nil

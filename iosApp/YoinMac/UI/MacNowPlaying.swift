@@ -1025,8 +1025,9 @@ private struct NotesPopover: View {
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
     @State private var draft = ""
-    /// The moment the note is for: the playhead when writing began.
+    /// The song and moment the note is for: taken when writing began (a song change meanwhile doesn't move it).
     @State private var at: Double?
+    @State private var forTrack: PlayableTrack?
 
     var body: some View {
         let t = model.player.currentTrack
@@ -1050,7 +1051,9 @@ private struct NotesPopover: View {
                             Spacer(minLength: 0)
                         }
                         .contextMenu {
-                            Button("Delete Note", role: .destructive) { _ = NotesStore.shared.delete(id: n.id) }
+                            Button("Delete Note", role: .destructive) {
+                                if NotesStore.shared.delete(id: n.id) != nil { CloudSync.shared.localChanged() }
+                            }
                         }
                     }
                 }
@@ -1061,14 +1064,21 @@ private struct NotesPopover: View {
                     .textFieldStyle(.plain).font(.gsf(14)).lineLimit(1...4)
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Yoin.surfaceContainerHigh))
-                    .onChange(of: draft) { _, d in if at == nil, !d.isEmpty { at = model.player.progress.positionSec } }
+                    .onChange(of: draft) { _, d in
+                        if at == nil, !d.isEmpty {
+                            at = model.player.progress.positionSec
+                            forTrack = model.player.currentTrack
+                        }
+                    }
                     .onSubmit(save)
                 Button("Save", action: save).buttonStyle(.plain).font(.gsf(13.5, .semibold))
                     .foregroundStyle(tint.primary)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if let at {
-                Text("At \(formatTime(Int(at)))").font(.gsf(12)).foregroundStyle(Yoin.ink3)
+                let other = forTrack.map { $0.id != t?.id } ?? false
+                Text(other ? "For \(forTrack?.title ?? "") at \(formatTime(Int(at)))" : "At \(formatTime(Int(at)))")
+                    .font(.gsf(12)).foregroundStyle(Yoin.ink3)
             }
         }
         .padding(14)
@@ -1076,11 +1086,14 @@ private struct NotesPopover: View {
     }
 
     private func save() {
-        guard let t = model.player.currentTrack else { return }
+        guard let t = forTrack ?? model.player.currentTrack else { return }
         let ms = Int64((at ?? model.player.progress.positionSec) * 1000)
-        NotesStore.shared.add(provider: t.provider, trackId: t.id, content: draft, positionMs: ms,
-                              title: t.title, artist: t.artist)
+        if NotesStore.shared.add(provider: t.provider, trackId: t.id, content: draft, positionMs: ms,
+                                 title: t.title, artist: t.artist) != nil {
+            CloudSync.shared.localChanged()
+        }
         draft = ""
         at = nil
+        forTrack = nil
     }
 }

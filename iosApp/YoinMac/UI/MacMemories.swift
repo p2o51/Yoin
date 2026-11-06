@@ -29,6 +29,7 @@ struct MacMemoriesGrid: View {
             }
         }
         .sheet(item: $open) { c in MacMemoryDiary(card: c) }
+        .task(id: model.session.accountKey) { await model.hydrateMemoryAlbums() }
     }
 }
 
@@ -67,6 +68,10 @@ struct MacMemoryDiary: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var review = ""
+    /// What the fields held when the diary opened (an untouched field is never written back).
+    @State private var openedTitle = ""
+    @State private var openedReview = ""
+    @State private var failed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -114,7 +119,8 @@ struct MacMemoryDiary: View {
                 Button("Go to Album") { dismiss(); model.open(.album(card.album)) }
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
-                Button("Save") { save(); dismiss() }.keyboardShortcut(.defaultAction)
+                if failed { Text("Couldn't save").foregroundStyle(.red) }
+                Button("Save") { if save() { dismiss() } else { failed = true } }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(22)
@@ -122,6 +128,8 @@ struct MacMemoryDiary: View {
         .onAppear {
             title = card.titleKind == .user ? card.title : ""
             review = card.review?.text ?? ""
+            openedTitle = title
+            openedReview = review
         }
     }
 
@@ -131,22 +139,34 @@ struct MacMemoryDiary: View {
         return parts.joined(separator: "  ")
     }
 
-    /// iOS MemoryWrites: the review (blank keeps the old one) and your title (blank: back to Yoin's).
-    private func save() {
+    /// iOS MemoryWrites: only the fields edited here are written (a review synced in meanwhile isn't overwritten
+    /// by the untouched draft); blank review keeps the old one, blank title goes back to Yoin's. Cloud sync
+    /// hears of it. False: nothing saved.
+    private func save() -> Bool {
         let album = card.album
         let store = AlbumMemoryStore.shared
         let now = Int64(Date().timeIntervalSince1970 * 1000)
+        var ok = true
+        var changed = false
         let words = review.trimmingCharacters(in: .whitespacesAndNewlines)
-        let was = store.album(provider: album.id.provider, albumId: album.id.rawId)
-        if !words.isEmpty, words != was?.review {
-            store.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId, rating: was?.rating ?? 0,
-                                 review: words, reviewUpdatedAt: now, updatedAt: now))
+        if review != openedReview, !words.isEmpty {
+            let was = store.album(provider: album.id.provider, albumId: album.id.rawId)
+            if words != was?.review {
+                ok = store.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId, rating: was?.rating ?? 0,
+                                          review: words, reviewUpdatedAt: now, updatedAt: now)) && ok
+                changed = true
+            }
         }
-        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty {
-            if card.titleKind == .user { store.removeTitle(provider: album.id.provider, albumId: album.id.rawId) }
-        } else if t != card.title || card.titleKind != .user {
-            store.putTitle(.init(provider: album.id.provider, albumId: album.id.rawId, title: t, updatedAt: now))
+        if title != openedTitle {
+            let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.isEmpty {
+                ok = store.removeTitle(provider: album.id.provider, albumId: album.id.rawId) && ok
+            } else {
+                ok = store.putTitle(.init(provider: album.id.provider, albumId: album.id.rawId, title: t, updatedAt: now)) && ok
+            }
+            changed = true
         }
+        if changed { CloudSync.shared.localChanged() }
+        return ok
     }
 }

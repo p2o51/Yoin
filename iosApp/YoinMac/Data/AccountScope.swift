@@ -13,18 +13,29 @@ final class AccountScope {
     /// The signed-in Subsonic account's scope; nil when Subsonic isn't in use.
     var subsonic: String?
 
+    /// The Spotify account in use's scope ("spotify|<user id>", as on the iOS branch); nil without one.
+    var spotify: String?
+
+    nonisolated static let spotifyProvider = "spotify"
+    nonisolated static func spotifyScope(userId: String) -> String { "spotify|\(userId)" }
+
     /// The scope a row of [provider] is written under and read back in.
-    func scope(for provider: String) -> String? { provider == Self.subsonicProvider ? (pinned ?? subsonic) : nil }
+    func scope(for provider: String) -> String? {
+        if provider == Self.subsonicProvider { return pinned ?? subsonic }
+        if provider == Self.spotifyProvider { return pinnedSpotify ?? spotify }
+        return nil
+    }
 
-    /// Set only inside `reading`: the Subsonic account the stores read and write for the moment.
+    /// Set only inside `reading`: the account the stores read and write for the moment.
     @ObservationIgnored private var pinned: String?
+    @ObservationIgnored private var pinnedSpotify: String?
 
-    /// Runs [body] as if [subsonicScope] were the account in use, without switching.
-    func reading<T>(asSubsonic subsonicScope: String?, _ body: () -> T) -> T {
-        guard let subsonicScope else { return body() }
-        let before = pinned
-        pinned = subsonicScope
-        defer { pinned = before }
+    /// Runs [body] as if [subsonicScope] / [spotifyScope] were the account in use, without switching.
+    func reading<T>(asSubsonic subsonicScope: String?, asSpotify spotifyScope: String? = nil, _ body: () -> T) -> T {
+        let before = (pinned, pinnedSpotify)
+        if let subsonicScope { pinned = subsonicScope }
+        if let spotifyScope { pinnedSpotify = spotifyScope }
+        defer { (pinned, pinnedSpotify) = before }
         return body()
     }
 
