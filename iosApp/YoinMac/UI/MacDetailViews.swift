@@ -31,7 +31,7 @@ struct MacAlbumDetail: View {
 
     private var album: Album { model.library.album(seed.id.rawId) ?? seed }
     @State private var rating_ = false
-    @State private var page = MacLaunch.screen == "scrapbook" ? 1 : 0
+    @State private var page = MacLaunch.screen == "scrapbook" || MacLaunch.screen == "tour" ? 1 : 0
 
     var body: some View {
         let a = album

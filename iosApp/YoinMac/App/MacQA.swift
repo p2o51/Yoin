@@ -41,6 +41,15 @@ enum MacQA {
         #endif
     }
 
+    /// `-macScreen tour`: the landing first (the shell's steps follow once it goes).
+    static func endTourLanding(_ model: MacModel) async {
+        #if DEBUG
+        guard MacLaunch.screen == "tour", model.landing != nil else { return }
+        try? await Task.sleep(for: .seconds(7))
+        withAnimation(Yoin.spatial) { model.landing = nil }
+        #endif
+    }
+
     static func applyScreen(_ model: MacModel) {
         #if DEBUG
         guard let screen = MacLaunch.screen else { return }
@@ -69,6 +78,16 @@ enum MacQA {
                 if screen == "np-focus" { model.toggleFocus() }
             case "search":
                 withAnimation { model.searchOpen = true }
+            case "tour":
+                // Screenshots of one launch: the landing, then an album's scrapbook, then Library (its sort from
+                // `-librarySort.Albums …`).
+                if let a = model.library.home.recentlyPlayed.first ?? albums.first {
+                    model.open(.album(await model.library.fullAlbum(a)))
+                }
+                try? await Task.sleep(for: .seconds(8))
+                model.closeDetail()
+                model.libraryKind = .albums
+                model.select(.library)
             default: break
             }
         }

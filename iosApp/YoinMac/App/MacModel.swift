@@ -125,7 +125,7 @@ final class MacModel {
         // The first-run landing (iOS LandingGate): once per install, before any account; `-macScreen landing`
         // shows it every time and records nothing; other QA screens skip it.
         #if DEBUG
-        let launch: LandingLaunch = MacLaunch.screen == "landing" ? .forced : MacLaunch.screen != nil ? .demo : .normal
+        let launch: LandingLaunch = MacLaunch.screen == "landing" || MacLaunch.screen == "tour" ? .forced : MacLaunch.screen != nil ? .demo : .normal
         #else
         let launch = LandingLaunch.normal
         #endif
