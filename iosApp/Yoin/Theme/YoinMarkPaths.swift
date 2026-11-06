@@ -87,9 +87,16 @@ struct YoinArmsCanvas: View {
     var scale: CGFloat = 1
     var translationY: CGFloat = 0
     var squashX: CGFloat = 1
+    /// The box the mark is posed in, in the canvas (nil = the whole canvas):
+    /// a canvas larger than the box lets the pose overflow it without being
+    /// cut (the album butterfly reaching into the scrapbook).
+    var box: CGRect? = nil
 
     var body: some View {
-        Canvas { gc, size in
+        Canvas { gc, canvasSize in
+            let b = box ?? CGRect(origin: .zero, size: canvasSize)
+            let size = b.size
+            gc.translateBy(x: b.minX, y: b.minY)
             let s = min(size.width, size.height) / YoinMarkPaths.viewBox
             gc.translateBy(x: 0, y: translationY)
             gc.translateBy(x: size.width / 2, y: size.height / 2)

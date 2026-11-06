@@ -15,7 +15,7 @@ Pass of 2026-11-04. Checked on the iPhone 17 Pro Max simulator, light and dark, 
 | Element | Android value (file:line) | iOS before | iOS after |
 |---|---|---|---|
 | Header | Row: padding start 8, **end 4**, top 4, bottom 6; **no page-dots row** (PlaylistDetailScreen.kt:675-686, 825-826) | Album header with the dots row kept at opacity 0: **87** tall | 4 + 52 + 6 = **62**; the dots row is not laid out |
-| Everything under it | Hero slot, stacked V, cover, spectrum bar height all hang off `headerHeight` (PlaylistDetailScreen.kt:261, 343-345, 377, 479) | 25 lower than Android | Follows the 62 header |
+| Everything under it | Hero slot, sleeves, cover, spectrum bar height all hang off `headerHeight` (PlaylistDetailScreen.kt:261, 343-345, 377, 479) | 25 lower than Android | Follows the 62 header |
 | Title | headlineSmall 24/32 (PlaylistDetailScreen.kt:698) | GSF 24, no line box | `yoinRole(headlineSmall)` |
 | Meta | DetailMetaLine bodyMedium: owner, "Playlist" (Kind, Medium, `primary`) (PlaylistDetailScreen.kt:704-711) | GSF 14 | `yoinRole(bodyMedium)`, kind Medium |
 | ⋮ | 48 at the 4 end padding (PlaylistDetailScreen.kt:729-741) | 40 glass in 48, 4 from the edge | Same |
@@ -51,3 +51,15 @@ Pass of 2026-11-04. Checked on the iPhone 17 Pro Max simulator, light and dark, 
 
 - Note marker after a row title (`PlaylistNoteMarker`, 12 `Note` glyph @ 0.8 accent) is not built: the mock has no song notes.
 - Empty / unavailable playlist states are not built (mock data always has tracks).
+
+## Sleeves (51, 2026-11-06; replace the stacked V)
+
+Two of the playlist's own albums' covers fanned behind its cover (Android
+PlaylistSleeves.kt): first two distinct covers that aren't the playlist's;
+0.86 × side, ±0.20 × side across (less on a narrow page, 8 pt from the edge),
+0.07 × side down, tilted ∓6.3°, the cover's corners; a knock-out ring of
+max(3 pt, 2.5 % of the side) around the sheets in front. They open from behind
+the cover on appear (spatial spring) and, on the pull-up, break up into fine
+dots where they rest (DotDissolve, done by p = 0.7). Reduced motion: open from
+the start, a fade.
+

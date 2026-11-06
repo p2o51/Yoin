@@ -1,16 +1,19 @@
 import SwiftUI
 
 /// Artist page, ported from Android ui/detail/ArtistDetailScreen.kt
-/// (Compact): fixed header (back, name, year span, follow star), the pinwheel
-/// hero (the whole Yoin mark rotated 30° around the round portrait, turning
-/// with scroll), Most Played, and the discography with kind chips and a year
+/// (Compact): fixed header (back, name, year span, follow star), the open
+/// ring hero (51, 2026-11-06: a thick round-capped ring around the round
+/// portrait, its gap at the upper right with a dot in it, turning with scroll
+/// and breaking up into fine dots as the hero scrolls away), Most Played, and the discography with kind chips and a year
 /// column. One plain scroll: no pull-up, no ratings on this page.
 /// Colors: the newest release's cover scheme for the name, star, arms and
-/// "Show all"; the app scheme for everything else.
+/// "Show all"; the ring in the cover's primary, its dot in its tertiary; the
+/// app scheme for everything else.
 struct ArtistDetailView: View {
     var ref: ArtistRef
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var kindFilter: ReleaseKind?
     @State private var showAll = false
     @State private var scrollY: CGFloat = 0
@@ -58,7 +61,7 @@ struct ArtistDetailView: View {
                 } else {
                 ScrollView {
                     VStack(spacing: 0) {
-                        pinwheel(w: w, portrait: portrait)
+                        ring(w: w, portrait: portrait)
                             .padding(.top, headerHeight)
                         Spacer().frame(height: 32)
                         VStack(alignment: .leading, spacing: 0) {
@@ -193,33 +196,42 @@ struct ArtistDetailView: View {
         .padding(.leading, 8).padding(.trailing, 4).padding(.top, 4).padding(.bottom, 6)
     }
 
-    // MARK: Pinwheel hero
+    // MARK: Open ring hero
 
-    /// Band = width × (portrait + 150). Canvas: translate to the band centre,
-    /// rotate 30° + scroll × 0.06 (px), scale portrait × 2.1 / 1024, translate
-    /// (−512, −500); arms 0, 1, 2 in tertiary / primary / secondary; centre
-    /// lines in surface @ 0.65. The round portrait sits on the hub.
-    private func pinwheel(w: CGFloat, portrait: CGFloat) -> some View {
-        let degrees = Tokens.detail.ARTIST_MARK_REST_DEGREES.cg + scrollY * 3 * Tokens.detail.ARTIST_MARK_DEGREES_PER_PX.cg
+    /// Android ArtistOpenRing (DetailBackdrops.kt), Compact: band = width ×
+    /// (portrait + 150). The ring's outer edge reaches 0.84 × the portrait
+    /// from its centre; of the room outside the portrait the gap takes 41 %
+    /// and the ring 59 %. Its opening is centred at −45° (upper right) and
+    /// 0.9 rad wide, round caps; the dot sits in the opening, 0.45 × the ring
+    /// width across. No outline. It turns 0.06° per px of scroll (Android px:
+    /// 3 per pt) and dissolves into dots over the first 220 pt of scroll.
+    /// Reduced motion: still, and it scrolls away with the page.
+    private func ring(w: CGFloat, portrait: CGFloat) -> some View {
+        let reach: CGFloat = 0.84
+        let room = portrait * (reach - 0.5)
+        let stroke = room * 0.59
+        let radius = portrait / 2 + room * 0.41 + stroke / 2
+        let opening: CGFloat = 0.9 * 180 / .pi
+        let degrees = reduceMotion ? 0 : scrollY * 3 * Tokens.detail.ARTIST_MARK_DEGREES_PER_PX.cg
+        let leaving = reduceMotion ? 0 : min(1, max(0, scrollY / 220))
+        let leave = leaving * leaving * (3 - 2 * leaving)
         return ZStack {
             Canvas { gc, size in
                 gc.translateBy(x: size.width / 2, y: size.height / 2)
                 gc.rotate(by: .degrees(degrees))
-                let k = portrait * Tokens.detail.ARTIST_MARK_SCALE.cg / YoinMarkPaths.viewBox
-                gc.scaleBy(x: k, y: k)
-                gc.translateBy(x: -512, y: -500)
-                let colors = [s.tertiary, s.primary, s.secondary]
-                for i in 0..<3 {
-                    let a = YoinMarkPaths.arms[i]
-                    gc.fill(a.fill, with: .color(colors[i]))
-                    let line = app.surface.opacity(0.65)
-                    if a.lineWidth > 0 {
-                        gc.stroke(a.line, with: .color(line), style: StrokeStyle(lineWidth: a.lineWidth, lineCap: .round))
-                    } else {
-                        gc.fill(a.line, with: .color(line))
-                    }
-                }
+                // Clockwise on screen from the opening's end round to its start.
+                var arc = Path()
+                arc.addRelativeArc(center: .zero, radius: radius,
+                                   startAngle: .degrees(-45 + opening / 2), delta: .degrees(360 - opening))
+                gc.stroke(arc, with: .color(s.primary), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                let a = -45 * CGFloat.pi / 180
+                let dot = stroke * 0.45
+                gc.fill(Path(ellipseIn: CGRect(x: cos(a) * radius - dot, y: sin(a) * radius - dot,
+                                               width: dot * 2, height: dot * 2)),
+                        with: .color(s.tertiary))
             }
+            .dotDissolve(leave)
+            .allowsHitTesting(false)
             // Mock: the newest cover; server: the artist's image (else that cover).
             CoverArt(palette: isMock ? hero.palette : page.palette, cornerRadius: portrait / 2, seed: hero.seed + 3)
                 .frame(width: portrait, height: portrait)

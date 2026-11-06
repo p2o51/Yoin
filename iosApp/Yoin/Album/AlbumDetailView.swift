@@ -12,10 +12,15 @@ import YoinShared
 ///   with white text, and the list fades in.
 ///
 /// Page 1 ↔ page 2 (Android AlbumPageFlight, AlbumScrapbookPage scrapLayer):
-/// the pager follows the finger 1:1. With the hero at rest the cover flies to
-/// the scrapbook's cover (taking its tilt) instead of sliding off, the hero
-/// text is gone a third of the way in, and each scrapbook piece trails the
-/// drag by its own depth and leans a little further.
+/// the pager follows the finger 1:1. There is only ever one cover (51,
+/// 2026-11-06): it flies from where it is, the hero's middle or the pulled-up
+/// stamp, to the scrapbook's cover (taking its tilt) and back, while the
+/// scrapbook's own cover waits hidden. The hero text is gone a third of the
+/// way in, and each scrapbook piece trails the drag by its own depth and
+/// leans a little further. The butterfly is drawn whole across the page
+/// edge, so its right wing runs on into the scrapbook, and breaks up into
+/// fine dots as the scrapbook settles; the pull-up dissolves it the same way
+/// (DotDissolve), as it does the playlist's sleeves.
 ///
 /// iOS adaptations: the back button is a glass circle (Android: a tonal
 /// circle), and edge-swipe back still works with the navigation bar hidden
@@ -31,8 +36,8 @@ struct AlbumDetailView: View {
     private var routeAlbum: Album
     var padColumn = false
     /// Playlist mode (Android PlaylistDetailScreen): same hero / pull-up /
-    /// spectrum, but owner + "Playlist" meta, a ⋮ menu, the stacked-V
-    /// backdrop, a Length / Owner / Description block instead of the emblem,
+    /// spectrum, but owner + "Playlist" meta, a ⋮ menu, two of its albums'
+    /// covers fanned behind its own (the sleeves), a Length / Owner / Description block instead of the emblem,
     /// thumb-led track rows, and no scrapbook page.
     private var routePlaylist: PlaylistInfo?
 
@@ -97,6 +102,9 @@ struct AlbumDetailView: View {
     /// The album's rate + review sheet (Android AlbumRateSheet): the pen, the
     /// comment, the emblem and the scrapbook's review all open it.
     @State private var rating = LaunchConfig.screen == "album-rate"
+    /// The playlist's sleeves have opened from behind its cover (once).
+    /// Screenshots of a playlist open with them settled.
+    @State private var sleevesOpen = LaunchConfig.screen.hasPrefix("playlist")
 
     /// Pulled-up top bar (Glass Lab): 4 the safe-area strip (default), 0
     /// spectrum with a soft blurred edge, 1 Liquid Glass, 2 progressive blur,
@@ -136,8 +144,9 @@ struct AlbumDetailView: View {
     static let pageSpace = "albumPage"
     /// The soft edge's strength: 0 until the list is nearly pulled up.
     private var bandSoft: CGFloat { topBar == 0 ? smooth(p, 0.7, 1) : 0 }
-    /// The hero's cover flies to page 2 (hero at rest, an album, motion allowed).
-    private var coverFlies: Bool { playlist == nil && !reduceMotion && scrapCover != nil && p < 0.01 }
+    /// The cover flies to page 2 (an album, motion allowed), from the hero at
+    /// rest or from the pulled-up stamp alike.
+    private var coverFlies: Bool { playlist == nil && !reduceMotion && scrapCover != nil }
 
     /// The cover's own scheme (title, blocks, dots, Play) and the app's
     /// (everything else), as on Android.
@@ -167,12 +176,10 @@ struct AlbumDetailView: View {
                 background
                 // Page 0: the bar, the stamp and the hero slide away with it.
                 ZStack(alignment: .topLeading) {
-                    if playlist != nil {
-                        stackedV(w: w, side: side, band: band)
-                            .opacity(1 - smooth(p, 0, 0.6))
+                    if let playlist {
+                        sleeves(playlist, w: w, side: side)
                     } else {
                         butterfly(w: w, side: side, band: band)
-                            .opacity(1 - smooth(p, 0.62, 0.98))
                     }
                     hero(w: w, side: side, band: band)
                         .opacity((1 - e) * heroFade)
@@ -516,27 +523,40 @@ struct AlbumDetailView: View {
 
     /// The real Yoin mark's arms 0 and 2 behind the cover (AlbumSpectrumBar
     /// drawButterfly, Compact pose): box = (0, header bottom, W, band),
-    /// scale 1.8 about its centre, translationY −0.1 × band, squash 1.8 about
-    /// the hub; arm 0 in the cover's primary, arm 2 in its secondary, centre
-    /// lines in surface @ 0.65; clipped above at the header.
+    /// scale 1.8 about its centre, translationY −0.1 × band, squash 1.35 about
+    /// the hub (51, 2026-11-06: 1.8 reached too far); arm 0 in the cover's
+    /// primary, arm 2 in its secondary, centre lines in surface @ 0.65;
+    /// clipped above at the header only.
+    ///
+    /// It stays where it is and breaks up into fine dots (DotDissolve) as the
+    /// pull-up runs to 0.7, or as the scrapbook settles (page 0.45 → 1), the
+    /// same curve as Android's albumButterflyLeaving. Its canvas is three
+    /// pages wide, so the wing past the page edge is drawn whole and runs on
+    /// into the scrapbook instead of being cut. Reduced motion: a fade.
     private func butterfly(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
-        YoinArmsCanvas(arms: [(0, s.primary), (2, s.secondary)],
-                       lineColor: app.surface.opacity(0.65),
-                       scale: 1.8, translationY: -0.1 * band, squashX: 1.8)
-            .frame(width: w, height: band)
-            .offset(y: headerContent)
-            .frame(width: w, height: headerContent + band * 1.8, alignment: .topLeading)
+        let leaving = max(smooth(p, 0, 0.7), smooth(pageFrac, 0.45, 1))
+        let height = headerContent + band * 1.9
+        return YoinArmsCanvas(arms: [(0, s.primary), (2, s.secondary)],
+                              lineColor: app.surface.opacity(0.65),
+                              scale: 1.8, translationY: -0.1 * band, squashX: 1.35,
+                              box: CGRect(x: w, y: headerContent, width: w, height: band))
+            .frame(width: w * 3, height: height)
             .mask(alignment: .top) {
                 Rectangle().padding(.top, headerContent)
             }
+            .dotDissolve(reduceMotion ? 0 : leaving)
+            .opacity(reduceMotion ? 1 - leaving : 1)
+            .offset(x: -w)
+            .frame(width: w, height: height, alignment: .topLeading)
             .allowsHitTesting(false)
     }
 
-    /// Hero cover ↔ 48 pt stamp at the end of the title row, and, with the
-    /// hero at rest, hero cover → the scrapbook's cover on the swipe to page 2
-    /// (Android AlbumFlyingCover + AlbumPageFlight): toward the page's cover
-    /// as much as the hero is at rest (toPage = f × (1 − p)), taking its tilt;
-    /// pulled up into the bar, the stamp slides away with page 0.
+    /// Hero cover ↔ 48 pt stamp at the end of the title row, and the cover →
+    /// the scrapbook's cover on the swipe to page 2 (Android AlbumFlyingCover
+    /// + AlbumPageFlight): from wherever it is now (the hero's middle, the
+    /// stamp, or anywhere between) toward the page's cover by the pager's
+    /// progress, taking its tilt, and back the same way. One cover only: the
+    /// scrapbook's own stays hidden until this one lands (51, 2026-11-06).
     private func cover(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
         let e = smooth(p)
         let f = pageFrac
@@ -548,9 +568,9 @@ struct AlbumDetailView: View {
         let r = CGRect(x: lerp(heroRect.minX, stampRect.minX, e), y: lerp(heroRect.minY, stampRect.minY, e),
                        width: lerp(side, stamp, e), height: lerp(side, stamp, e))
         let target = playlist == nil && !reduceMotion ? scrapCover : nil
-        let toPage = target == nil ? 0 : f * (1 - p)
+        let toPage = target == nil ? 0 : f
         let flown = if let target, toPage > 0 {
-            lerpRect(r.offsetBy(dx: -f * w * p, dy: 0), target, toPage)
+            lerpRect(r, target, toPage)
         } else {
             r.offsetBy(dx: -f * w, dy: 0)
         }
@@ -983,30 +1003,99 @@ struct AlbumDetailView: View {
 
     // MARK: Playlist pieces
 
-    /// Android DetailBackdrops stacked V: arm 1 (the upper V) three times,
-    /// back to front tertiary / secondary / primary, scale = W × 1.3 / 674
-    /// about the arm centre (505, 350), dy = side × (−0.06 + 0.14 i).
-    private func stackedV(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
-        Canvas { gc, size in
-            let k = size.width * 1.3 / 674
-            let colors = [s.tertiary, s.secondary, s.primary]
-            for i in 0..<3 {
-                var g = gc
-                g.translateBy(x: size.width / 2, y: band / 2 + side * (-0.06 + 0.14 * CGFloat(i)))
-                g.scaleBy(x: k, y: k)
-                g.translateBy(x: -505, y: -350)
-                let arm = YoinMarkPaths.arms[1]
-                g.fill(arm.fill, with: .color(colors[i]))
-                g.fill(arm.line, with: .color(app.surface.opacity(0.65)))
+    /// The playlist's sleeves (Android PlaylistSleeves, 51 2026-11-06): two of
+    /// its own albums' covers fanned behind its cover like record sleeves,
+    /// the first two distinct ones that aren't the cover itself. Each is
+    /// 0.86 × the cover side, ±0.20 × side across (less where the page is
+    /// narrow, so a tilted sleeve keeps 8 pt from the edge) and 0.07 × side
+    /// down, tilted ∓6.3°, with the cover's corners. A ring as wide as
+    /// max(3 pt, 2.5 % of the side) is cut out of each sheet around the ones
+    /// in front of it, so the three read as separate sheets. They open from
+    /// behind the cover on appear; on the pull-up they stay where they are
+    /// and break up into fine dots (DotDissolve, by p = 0.7) while the cover
+    /// flies to the stamp. Reduced motion: open from the start, a fade.
+    @ViewBuilder
+    private func sleeves(_ pl: PlaylistInfo, w: CGFloat, side: CGFloat) -> some View {
+        let covers = Self.sleeveCovers(pl)
+        if !covers.isEmpty {
+            let cover = CGRect(x: (w - side) / 2, y: headerContent + 28, width: side, height: side)
+            let open: CGFloat = reduceMotion || sleevesOpen ? 1 : 0
+            let grow = 0.6 + 0.4 * open
+            let halfExtent: CGFloat = 0.43 * (cos(6.3 * CGFloat.pi / 180) + sin(6.3 * CGFloat.pi / 180))
+            let spread = min(0.2, max(0, ((w - side) / 2 - 8) / side + 0.5 - halfExtent))
+            let gap = max(3, side * 0.025)
+            let corner = Tokens.shape.HERO.cg
+            let leaving = smooth(p, 0, 0.7)
+            // The cover's ring leaves with the cover, as it starts to fly.
+            let coverRing = 1 - smooth(p, 0, 0.2)
+            let pose = { (i: Int) -> (center: CGPoint, side: CGFloat, degrees: Double) in
+                let dir: CGFloat = i == 0 ? -1 : 1
+                return (CGPoint(x: cover.midX + dir * spread * side * open, y: cover.midY + 0.07 * side * open),
+                        side * 0.86 * grow, Double(dir * 6.3 * open))
+            }
+            let height = cover.maxY + side * 0.3
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(covers.enumerated()), id: \.offset) { i, palette in
+                    let me = pose(i)
+                    CoverArt(palette: palette, cornerRadius: 0, seed: album.seed + 7 + i)
+                        .frame(width: me.side, height: me.side)
+                        .clipShape(.rect(cornerRadius: corner, style: .continuous))
+                        .rotationEffect(.degrees(me.degrees))
+                        .position(me.center)
+                        .frame(width: w, height: height, alignment: .topLeading)
+                        // The knock-out: the cover's ring, and the front sleeve's
+                        // for the one behind it.
+                        .mask {
+                            ZStack(alignment: .topLeading) {
+                                Rectangle()
+                                RoundedRectangle(cornerRadius: corner + gap, style: .continuous)
+                                    .frame(width: cover.width + gap * 2, height: cover.height + gap * 2)
+                                    .position(x: cover.midX, y: cover.midY)
+                                    .opacity(coverRing)
+                                    .blendMode(.destinationOut)
+                                if i == 0 && covers.count > 1 {
+                                    let front = pose(1)
+                                    RoundedRectangle(cornerRadius: corner + gap, style: .continuous)
+                                        .frame(width: front.side + gap * 2, height: front.side + gap * 2)
+                                        .rotationEffect(.degrees(front.degrees))
+                                        .position(front.center)
+                                        .blendMode(.destinationOut)
+                                }
+                            }
+                            .compositingGroup()
+                        }
+                        .opacity(min(1, open * 1.4))
+                }
+            }
+            .frame(width: w, height: height, alignment: .topLeading)
+            .dotDissolve(reduceMotion ? 0 : leaving)
+            .opacity(reduceMotion ? 1 - smooth(p, 0, 0.6) : 1)
+            .allowsHitTesting(false)
+            .onAppear {
+                guard !sleevesOpen else { return }
+                // A beat after the page, on Yoin's spatial spring.
+                withAnimation(Yoin.spatial.delay(0.05)) { sleevesOpen = true }
             }
         }
-        // Laid out on the band, drawn past it: the front V's lip dips below
-        // the band, as on Android (only the Box under the header clips).
-        .frame(width: w, height: band * 1.6)
-        .offset(y: headerContent)
-        .frame(width: w, height: headerContent + band * 1.6, alignment: .topLeading)
-        .mask(alignment: .top) { Rectangle().padding(.top, headerContent) }
-        .allowsHitTesting(false)
+    }
+
+    /// The covers fanned behind a playlist's own: its songs' album covers in
+    /// playlist order, distinct, none the playlist's cover (which a server
+    /// often takes from the first song), at most two.
+    static func sleeveCovers(_ pl: PlaylistInfo) -> [CoverPalette] {
+        // The same cover at another size is the same cover: compare by key.
+        func same(_ a: CoverPalette, _ b: CoverPalette) -> Bool {
+            if let ka = a.cover?.key, let kb = b.cover?.key { return ka == kb }
+            return a == b
+        }
+        var picked: [CoverPalette] = []
+        for e in pl.entries {
+            let c = e.album.palette
+            if same(c, pl.palette) || picked.contains(where: { same($0, c) }) { continue }
+            picked.append(c)
+            if picked.count == 2 { break }
+        }
+        return picked
     }
 
     /// PlaylistHeroMeta: Length (tracks bodyLarge, duration bodyMedium
