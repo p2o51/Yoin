@@ -109,7 +109,7 @@ struct MacAlbumScrapbook: View {
     /// The stamp's size on the Mac: the phone's 64 reads too small at 1x (its "Unrated" was 9.5 pt).
     static let badge: CGFloat = 96
     /// Nothing is drawn over a Spotify cover (51's rule): its stamp sits beside it, never on it.
-    private var stampBeside: Bool { album.id.provider == SpotifyMapping.provider }
+    private var stampBeside: Bool { !CoverMarks.onCover(provider: album.id.provider) || album.palette.cover?.isSpotify == true }
 
     private var opening: some View {
         let cover = Tokens.detail.SCRAPBOOK_COVER.cg
@@ -124,7 +124,7 @@ struct MacAlbumScrapbook: View {
             HStack(alignment: .top, spacing: 0) {
                 if stampBeside {
                     // A clear gap past the cover's tilted corners, the stamp level with its foot.
-                    HStack(alignment: .bottom, spacing: 18) {
+                    HStack(alignment: .bottom, spacing: CoverMarks.gap) {
                         coverArt.padding(6)
                         emblem.rotationEffect(.degrees(tilt("stamp", Tilt.sticker)))
                     }
