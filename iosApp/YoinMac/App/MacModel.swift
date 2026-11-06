@@ -121,7 +121,7 @@ final class MacModel {
             self.system?.refresh()
             self.lyrics.choiceScope = self.session.accountKey
             self.lyrics.load(self.player.currentTrack, client: self.session.client)
-            self.recordMirroredHistory()
+            if self.player.externalTrack == nil { self.mirrored = nil }
             if let t = self.player.currentTrack, t.id != self.membershipCheckedFor,
                t.provider == AppleMusicMapping.provider || t.provider == SpotifyMapping.provider {
                 self.membershipCheckedFor = t.id
@@ -159,6 +159,7 @@ final class MacModel {
         // Mirroring a Spotify song Yoin didn't start: Spotify's own modes and Up Next.
         spotifyOutput.onModes = { [weak self] shuffle, rep in self?.spotifyModes = (shuffle, rep) }
         spotifyOutput.onQueue = { [weak self] q in self?.spotifyQueue = q }
+        spotifyOutput.onMirrorTick = { [weak self] t, sec, playing in self?.mirrorTick(t, sec, playing) }
         // Spotify gets the queue's next songs with a start, and asks the engine on when they part ways.
         // (Repeat one: Spotify gets the song alone, and its end plays it again.)
         spotifyOutput.upcoming = { [weak self] in
@@ -365,24 +366,25 @@ final class MacModel {
         var token = playRequest
         let gen = library.accountGeneration
         Task {
-            var entries: [PlaylistEntry] = []
+            var all: [PlaylistEntry] = []
+            var started = false
             for album in releases {
                 let full = await library.fullAlbum(album)
                 guard token == playRequest, gen == library.accountGeneration else { return }
-                entries += full.tracks.map { PlaylistEntry(album: full, track: $0) }
-                // The first release starts at once; the rest join the queue as they load.
-                if album.id == releases.first?.id, !shuffle, !entries.isEmpty {
-                    play(entries)
+                let batch = full.tracks.map { PlaylistEntry(album: full, track: $0) }
+                guard !batch.isEmpty else { continue }
+                if shuffle { all += batch; continue }
+                // The first release with songs starts at once; the rest follow it in order as they load.
+                if started {
+                    for e in batch { known[e.track.id.rawId] = e }
+                    player.append(batch.compactMap(library.playable))
+                } else {
+                    play(batch)
                     token = playRequest
+                    started = true
                 }
             }
-            guard token == playRequest, gen == library.accountGeneration, !entries.isEmpty else { return }
-            if shuffle {
-                play(entries.shuffled())
-            } else {
-                let started = releases.first.map { a in entries.prefix { $0.album.id == a.id }.count } ?? 0
-                for e in entries.dropFirst(started) { addToQueue(e) }
-            }
+            if shuffle, !all.isEmpty { play(all.shuffled()) }
         }
     }
 
@@ -490,34 +492,46 @@ final class MacModel {
             history.markListened(playId: open.id, listenedSec: listenedSec, completed: true)
             return
         }
+        openPlay = openRow(t).map { (t.id, $0) }
+    }
+
+    private func openRow(_ t: PlayableTrack) -> String? {
+        let scope = session.accountKey
+        guard !scope.isEmpty else { return nil }
         let e = entry(for: t)
         // Subsonic keeps its cover id (the URL carries credentials); the others keep the artwork URL.
         let coverKey = t.provider == MediaRef.companion.PROVIDER_SUBSONIC
             ? OfflineDownloads.coverId(e?.album.palette.cover)
             : (e?.album.palette.cover?.url ?? t.coverURL)?.absoluteString
         let albumId = t.albumId.flatMap { $0.hasPrefix("song:") ? nil : $0 }
-        let id = history.recordPlay(scope: scope, provider: t.provider, songId: t.id, albumId: albumId,
-                                    artistId: e?.album.artistId, title: t.title, album: t.album, artist: t.artist,
-                                    coverKey: coverKey, durationSec: t.durationSec)
-        openPlay = (t.id, id)
+        return HistoryStore.shared.recordPlay(scope: scope, provider: t.provider, songId: t.id, albumId: albumId,
+                                              artistId: e?.album.artistId, title: t.title, album: t.album,
+                                              artist: t.artist, coverKey: coverKey, durationSec: t.durationSec)
     }
 
-    @ObservationIgnored private var mirrored: (song: String, listened: Bool)?
 
-    /// Spotify playing a song Yoin didn't start (picked in Spotify, or after Yoin's list ran out): a
-    /// history row when it shows up playing, listened once it's past half (at most four minutes) —
-    /// read off the mirror's clock, every look.
-    private func recordMirroredHistory() {
-        guard let t = player.externalTrack else { mirrored = nil; return }
+    @ObservationIgnored private var mirrored: (song: String, playId: String?, lastSec: Double, listened: Double, done: Bool)?
+
+    /// Spotify playing a song Yoin didn't start (picked in Spotify, or after Yoin's list ran out): its own
+    /// history row once it plays, listened once heard past half (at most four minutes). Only time heard
+    /// counts: the position it was found at and seeks don't. The queue's own row stays apart.
+    private func mirrorTick(_ t: PlayableTrack, _ sec: Double, _ playing: Bool) {
         if mirrored?.song != t.id {
-            guard player.isPlaying else { return }
-            mirrored = (t.id, false)
-            recordHistory(t, submission: false, listenedSec: 0)
+            guard playing else { return }
+            mirrored = (t.id, openRow(t), sec, 0, false)
+            return
         }
-        guard let m = mirrored, !m.listened, t.durationSec > PlayerEngine.scrobbleMinTrackSec,
-              player.progress.positionSec >= min(t.durationSec / 2, PlayerEngine.scrobbleMaxListenSec) else { return }
-        mirrored = (m.song, true)
-        recordHistory(t, submission: true, listenedSec: player.progress.positionSec)
+        guard var m = mirrored else { return }
+        let delta = sec - m.lastSec
+        m.lastSec = sec
+        // Reads come every 10 s; a wider jump is a seek.
+        if playing, delta > 0, delta < 15 { m.listened += delta }
+        if !m.done, let id = m.playId, t.durationSec > PlayerEngine.scrobbleMinTrackSec,
+           m.listened >= min(t.durationSec / 2, PlayerEngine.scrobbleMaxListenSec) {
+            m.done = true
+            HistoryStore.shared.markListened(playId: id, listenedSec: m.listened, completed: true)
+        }
+        mirrored = m
     }
 
     // MARK: Memories (iOS MemoryDeck over the local stores)
@@ -777,6 +791,9 @@ final class MacModel {
         searchOpen = false
         searchQuery = ""
         searchKind = nil
+        spotifyQueue = []
+        spotifyModes = (false, "off")
+        mirrored = nil
         authToken += 1
         playRequest += 1
         player.stop()

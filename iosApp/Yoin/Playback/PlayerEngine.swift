@@ -333,6 +333,15 @@ final class PlayerEngine {
         insertUserQueued(track, afterQueued: true)
     }
 
+    /// More of the same list at its end (an artist's later releases), not queued by the listener.
+    func append(_ tracks: [PlayableTrack]) {
+        guard currentIndex != nil, !tracks.isEmpty else { return }
+        let items = tracks.map { QueueItem($0) }
+        queue += items
+        originalOrder? += items
+        syncPreload()
+    }
+
     /// Moves the entry at [from] to [to] (play-order indices). Shuffle restore
     /// keeps the original order, as Media3 does.
     func move(from: Int, to: Int) {

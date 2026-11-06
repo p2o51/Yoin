@@ -467,9 +467,10 @@ final class MacSpotifyOutput: AudioOutput {
                     self.reportModes(shuffle: now.shuffleState ?? false, repeatState: now.repeatState ?? "off")
                     if let t = Self.external(now.item), t.id != self.externalId || (now.isPlaying ?? false) != self.playing
                         || abs((progress ?? 0) - self.currentTimeSec) > 3 {
-                        if t.id != self.externalId { self.refreshQueue() }
+                        let changed = t.id != self.externalId
                         self.externalId = t.id
                         self.showingExternal = true
+                        if changed { self.refreshQueue() }
                         self.playing = now.isPlaying ?? false
                         self.lastTime = progress ?? 0
                         self.lastTick = Date()
@@ -480,6 +481,9 @@ final class MacSpotifyOutput: AudioOutput {
                         self.lastTime = progress
                         self.lastTick = Date()
                         self.events?.outputTimeDidChange(progress)
+                    }
+                    if self.showingExternal, let t = Self.external(now.item) {
+                        self.onMirrorTick(t, progress ?? 0, now.isPlaying ?? false)
                     }
                 }
             }
@@ -515,9 +519,30 @@ final class MacSpotifyOutput: AudioOutput {
     func setSpotifyModes(shuffle: Bool, repeatState: String) {
         guard let o = owned, showingExternal else { return }
         lastModes = (shuffle, repeatState)
-        command(o, "PUT", "me/player/shuffle", ["state": shuffle ? "true" : "false"])
-        command(o, "PUT", "me/player/repeat", ["state": repeatState])
+        wantedModes = (shuffle, repeatState)
+        quietUntil = Date().addingTimeInterval(2.5)
+        // One write at a time, the newest choice last (Spotify doesn't keep its Player calls in order).
+        guard modeWriter == nil else { return }
+        let gen = generation
+        modeWriter = Task { [weak self] in
+            while let self, gen == self.generation, let (shuffle, repeatState) = self.wantedModes {
+                self.wantedModes = nil
+                var q = ["device_id": o.device]
+                q["state"] = shuffle ? "true" : "false"
+                _ = try? await o.source.api.send("PUT", "me/player/shuffle", q)
+                q["state"] = repeatState
+                _ = try? await o.source.api.send("PUT", "me/player/repeat", q)
+                self.quietUntil = Date().addingTimeInterval(2.5)
+            }
+            self?.modeWriter = nil
+            self?.wantedModes = nil
+        }
     }
+    private var wantedModes: (Bool, String)?
+    private var modeWriter: Task<Void, Never>?
+
+    /// Every read of a song Spotify plays that Yoin didn't start: its clock, for history.
+    var onMirrorTick: (_ track: PlayableTrack, _ positionSec: Double, _ playing: Bool) -> Void = { _, _, _ in }
 
     private struct QueueDTO: Decodable {
         let queue: [NowDTO.ItemDTO]?
@@ -527,13 +552,19 @@ final class MacSpotifyOutput: AudioOutput {
     func refreshQueue() {
         guard let s = source() else { return }
         let gen = generation
+        queueReads += 1
+        let read = queueReads
+        let song = externalId
         Task { [weak self] in
             guard let data = try? await s.api.send("GET", "me/player/queue"), !data.isEmpty,
                   let q = try? SpotifyWebAPI.decoder.decode(QueueDTO.self, from: data) else { return }
-            guard let self, gen == self.generation, self.showingExternal else { return }
+            // Only the newest read, for the song still playing.
+            guard let self, gen == self.generation, self.showingExternal, read == self.queueReads,
+                  song == self.externalId else { return }
             self.onQueue((q.queue ?? []).compactMap { Self.external($0) })
         }
     }
+    private var queueReads = 0
     private var externalId: String?
 
     // MARK: Looking at Spotify while Yoin drives nothing

@@ -620,12 +620,13 @@ final class MacLibrary {
             return SearchHits(albums: r.albums, artists: r.artists, songs: r.songs, playlists: r.playlists)
         }
         guard let client, let m = mapping else { return SearchHits() }
-        // One kind asked for: a full page of it (songs page on); all kinds: a few of each.
+        // One kind asked for: a full page of it (songs page on; the shared client pages songs only, so
+        // artists and albums come as one long list); all kinds: a few of each.
         let only = kinds.count == 1 ? kinds.first : nil
         let page = 50
         let r = try await client.search3(query: q,
-                                         artistCount: Int32(only == nil ? 6 : (only == .artists ? 100 : 0)),
-                                         albumCount: Int32(only == nil ? 12 : (only == .albums ? 100 : 0)),
+                                         artistCount: Int32(only == nil ? 6 : (only == .artists ? 500 : 0)),
+                                         albumCount: Int32(only == nil ? 12 : (only == .albums ? 500 : 0)),
                                          songCount: Int32(only == nil ? 20 : (only == .songs ? page : 0)),
                                          songOffset: Int32(only == .songs ? offset : 0))
         let songs = r.songs.enumerated().map { m.entry($1, index: offset + $0) }
@@ -657,13 +658,15 @@ final class MacLibrary {
             let gen = generation
             let key = "song:\(songId)"
             let op = starOps[key]
+            let idle = starWrites[key, default: 0] == 0
             Task {
                 let saved = await spotify.isSaved(songId)
                 guard gen == self.generation, let saved else { return }
                 self.inLibrary[songId] = saved
                 // Liked or unliked in Spotify itself: Spotify's answer wins over an old tap here, unless
                 // a heart write started meanwhile or is still on its way.
-                if self.starOps[key] == op, self.starWrites[key, default: 0] == 0 { self.starredOverride[key] = nil }
+                // (A read that overlapped a write may predate it.)
+                if idle, self.starOps[key] == op, self.starWrites[key, default: 0] == 0 { self.starredOverride[key] = nil }
             }
             return
         }

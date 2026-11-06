@@ -7,6 +7,8 @@ import SwiftUI
 struct MacSearchOverlay: View {
     @Environment(MacModel.self) private var model
     @State private var hits = MacLibrary.SearchHits()
+    /// The search [hits] answer: a page only goes on hits of the same query, filter and scope.
+    @State private var hitsKey: String?
     @State private var failed: String?
     @State private var loading = false
     @State private var loadingMore = false
@@ -49,7 +51,8 @@ struct MacSearchOverlay: View {
         .onAppear { focused = true }
         .task(id: searchKey) {
             let q = model.searchQuery
-            guard !q.trimmingCharacters(in: .whitespaces).isEmpty else { hits = .init(); failed = nil; return }
+            let key = searchKey
+            guard !q.trimmingCharacters(in: .whitespaces).isEmpty else { hits = .init(); hitsKey = key; failed = nil; return }
             try? await Task.sleep(for: .milliseconds(220))
             guard !Task.isCancelled else { return }
             loading = true
@@ -59,6 +62,7 @@ struct MacSearchOverlay: View {
                 let r = try await model.library.search(q, scope: model.searchScope, kinds: kinds)
                 guard !Task.isCancelled else { return }
                 hits = r
+                hitsKey = key
                 failed = nil
             } catch is CancellationError {
             } catch {
@@ -171,7 +175,7 @@ struct MacSearchOverlay: View {
                 }
             }
             // The filtered type's next page.
-            if let only, hits.more.contains(only) {
+            if let only, hits.more.contains(only), hitsKey == searchKey, !loading {
                 HStack {
                     Spacer()
                     if loadingMore { ProgressView().controlSize(.small) }
@@ -201,10 +205,10 @@ struct MacSearchOverlay: View {
     }
 
     private func loadMore(_ kind: SearchKind) async {
-        guard !loadingMore else { return }
+        let key = searchKey
+        guard !loadingMore, !loading, hitsKey == key else { return }
         loadingMore = true
         defer { loadingMore = false }
-        let key = searchKey
         do {
             let page = try await model.library.search(model.searchQuery, scope: model.searchScope, kinds: [kind],
                                                       offset: hits.next[kind] ?? 0)
