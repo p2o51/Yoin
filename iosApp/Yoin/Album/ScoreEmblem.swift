@@ -190,6 +190,7 @@ struct ScoreEmblem: View {
     /// The glass under the grooves (51 2026-11-05, "这个徽章也重做一个 有玻璃质感的"; Lens picked over
     /// Tinted and Frosted): a clear Liquid Glass lens, the cover's colour seen through it, refracted.
     /// Still a solid object on the content plane: the label and score keep their solid ink.
+    /// (51, 11-06: the stamp keeps its glass — an exception to "glass only on floating controls".)
     private var glassGround: some View {
         Circle().fill(.clear).glassEffect(.clear, in: .circle)
     }

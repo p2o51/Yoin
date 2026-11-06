@@ -159,6 +159,9 @@ final class MacSpotifyOutput: AudioOutput {
 
     // MARK: Starting
 
+    /// The start's notice when this Mac's Spotify app can't be reached (the banner offers Open Spotify).
+    nonisolated static let unreachableMessage = "Spotify on this Mac isn't open. Open Spotify, then try again."
+
     enum Target: Equatable {
         case device(id: String, name: String)
         /// No device is active and this Mac's Spotify app didn't come up.
@@ -174,7 +177,7 @@ final class MacSpotifyOutput: AudioOutput {
             case .unreachable:
                 owned = nil
                 onDevice(nil)
-                fail("Can't reach Spotify. Open the Spotify app on this Mac, then try again.", gen: gen)
+                fail(Self.unreachableMessage, gen: gen)
             case .device(let id, let name):
                 // Yoin's queue and modes rule: Spotify's own shuffle / repeat go off, before the start and
                 // only when one is on (iOS 7702336e; the desktop app takes either order, 2026-11-06 runs).
@@ -217,8 +220,9 @@ final class MacSpotifyOutput: AudioOutput {
 
     /// The device a start uses (51, 2026-11-06): the device Spotify is playing on, wherever it is; else this
     /// Mac's Spotify app (opened in the background if needed), even when another device is active but paused
-    /// (a phone's Spotify asleep in the background dropped the start). Only when this Mac's app can't be
-    /// reached does a paused active device take it. Never a move while something plays elsewhere.
+    /// (a phone's Spotify asleep in the background dropped the start). When this Mac's app can't be reached
+    /// the start says so (Open Spotify) rather than going to a paused device. Never a move while something
+    /// plays elsewhere.
     static func target(_ s: SpotifySource, launch: Bool) async throws -> Target {
         let now = try await s.playerNow()
         if let now, now.isPlaying, let id = now.deviceId { return .device(id: id, name: now.deviceName) }
@@ -232,7 +236,7 @@ final class MacSpotifyOutput: AudioOutput {
     nonisolated static func decide(now: SpotifySource.PlayerNow?, local: (id: String, name: String)?) -> Target {
         if let now, now.isPlaying, let id = now.deviceId { return .device(id: id, name: now.deviceName) }
         if let local { return .device(id: local.id, name: local.name) }
-        if let now, let id = now.deviceId { return .device(id: id, name: now.deviceName) }
+        // A paused or idle device elsewhere never takes the start (51, 2026-11-06): this Mac's Spotify or nothing.
         return .unreachable
     }
 

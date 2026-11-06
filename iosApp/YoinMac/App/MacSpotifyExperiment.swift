@@ -143,7 +143,7 @@ enum MacSpotifyExperiment {
             ("phone playing, Mac app up", phonePlaying, mac, .device(id: "phone", name: "Phone")),
             ("phone playing, Mac app down", phonePlaying, nil, .device(id: "phone", name: "Phone")),
             ("phone paused, Mac app up", phonePaused, mac, .device(id: "mac1", name: "This Mac")),
-            ("phone paused, Mac app down", phonePaused, nil, .device(id: "phone", name: "Phone")),
+            ("phone paused, Mac app down", phonePaused, nil, .unreachable),
             ("nothing active, Mac app up", nil, mac, .device(id: "mac1", name: "This Mac")),
             ("nothing active, Mac app down", nil, nil, .unreachable),
         ]

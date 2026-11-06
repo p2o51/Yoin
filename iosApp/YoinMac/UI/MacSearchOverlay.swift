@@ -30,7 +30,7 @@ struct MacSearchOverlay: View {
             }
             .padding(10)
             .frame(width: 620)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous)) // 51, 11-06: ⌘K panel is a hero, glass allowed
             .padding(.top, 56)
         }
         .onAppear { focused = true }

@@ -458,6 +458,14 @@ These entries apply the standing rules supplied in the request.
 
 No violations found in the inspected paths for artist-only circular artwork, cover borders, Spotify artwork overlays, or music-provider settings placement. Relevant guards are in [MacComponents.swift:24](../../YoinMac/UI/MacComponents.swift#L24), [MacComponents.swift:124](../../YoinMac/UI/MacComponents.swift#L124), [MacAlbumScrapbook.swift:112](../../YoinMac/UI/MacAlbumScrapbook.swift#L112), and [MacAccountSettings.swift:130](../../YoinMac/UI/MacAccountSettings.swift#L130). SF Symbol names occur in system App Shortcut metadata ([MacIntents.swift:169](../../YoinMac/App/MacIntents.swift#L169)).
 
+## Decisions (51, 11-06)
+
+- Focus cover enlargement 1.7× on the Mac: stays (the 1.5× cap doesn't apply here).
+- Spotify paused-device fallback: removed — with nothing playing and this Mac's Spotify unreachable, the start reports it (Open Spotify / Retry) instead of using a paused remote device.
+- ⌘K search panel glass: stays; 51 counts the panel as a hero surface.
+- Scrapbook score stamp glass: stays (51 asked for the glass badge on 11-05).
+- "Now Playing cover corners 16 vs 8" was a wrong finding: Android's `YoinArtworkShapes.NowPlayingCover` is 16 on purpose (rounder than Hero, matching the rating capsule). The bar thumbnail (8 → 4) was right and is fixed.
+
 ## Counts
 
 | Type | high | med | low | Total |

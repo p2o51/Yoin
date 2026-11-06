@@ -212,6 +212,17 @@ struct MacPlaybackFailureBanner: View {
                 Text(model.spotifyNotice ?? failure.message).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(2)
             }
             Spacer(minLength: 8)
+            if failure.message == MacSpotifyOutput.unreachableMessage {
+                // Opens the Spotify app (in the background, nothing plays); Retry starts the song once it's up.
+                Button("Open Spotify") {
+                    guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") else { return }
+                    let config = NSWorkspace.OpenConfiguration()
+                    config.activates = false
+                    NSWorkspace.shared.openApplication(at: app, configuration: config)
+                }
+                .buttonStyle(.plain).font(.gsf(13.5, .semibold)).foregroundStyle(tint.primary)
+                .padding(.horizontal, 8).frame(height: 32)
+            }
             Button("Retry") { model.player.retry() }
                 .buttonStyle(.plain).font(.gsf(13.5, .semibold)).foregroundStyle(tint.primary)
                 .padding(.horizontal, 12).frame(height: 32)

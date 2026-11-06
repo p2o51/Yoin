@@ -100,7 +100,7 @@ A macOS widget is an extension with its own bundle id, so it needs, once, in the
 ## Owner decisions (51, 2026-11-06)
 
 - Focus mode: the cover may grow 1.7× (more than design.md's 1.5×) on the Mac.
-- Spotify: when nothing plays and this Mac's Spotify app can't be reached, a start may go to the active but paused device (`MacSpotifyOutput.decide`).
+- Spotify: when nothing plays and this Mac's Spotify app can't be reached, a start does not go to a paused device elsewhere; the banner says Spotify on this Mac isn't open, with Open Spotify (nothing plays) and Retry (`MacSpotifyOutput.decide`).
 - ⌘K search keeps its Liquid Glass panel: it counts as a hero surface, an exception to "glass only on floating controls".
 - The scrapbook's score stamp keeps its glass lens (51, 11-05).
 - Now Playing's cover keeps Android's 16 corner (`NOW_PLAYING_COVER`); the bar's thumbnail uses the thumbnail token (4).
