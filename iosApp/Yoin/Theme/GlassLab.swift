@@ -239,7 +239,7 @@ final class GlassLab {
         ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
         ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
         ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
-        ("albumPullTravel", 320), ("albumPullSnap", 0.3), ("albumStripExtend", 6),
+        ("albumPullTravel", 320), ("albumPullSnap", 0.3), ("albumStripExtend", 6), ("albumStripFeather", 56),
     ]
 
     private func resetValues() {
@@ -719,6 +719,7 @@ struct GlassLabPanel: View {
                 .pickerStyle(.segmented)
                 if Int(lab.extra("detailTopBar").rounded()) == 4 {
                     labSlider("Strip below the safe area (pt)", "albumStripExtend", 2...40)
+                    labSlider("Strip feather (pt)", "albumStripFeather", 8...120)
                 }
                 labSlider("Pull-up travel (pt)", "albumPullTravel", 160...520)
                 labSlider("Pull-up snap point", "albumPullSnap", 0.15...0.5)

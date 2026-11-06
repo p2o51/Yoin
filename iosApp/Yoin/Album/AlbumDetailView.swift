@@ -115,6 +115,11 @@ struct AlbumDetailView: View {
     private var bandFade: CGFloat { topBar == 0 ? 28 : 0 }
     /// The strip: the spectrum only, the header on the progressive blur.
     private var stripBar: Bool { topBar == 4 }
+    /// The strip's feathered tail below that (Glass Lab slider).
+    private var stripFeather: CGFloat {
+        let v = GlassLab.shared.extras["albumStripFeather"] ?? 0
+        return v > 0 ? v : 56
+    }
     /// How far the strip reaches below the safe area (Glass Lab slider).
     private var stripExtend: CGFloat {
         let v = GlassLab.shared.extras["albumStripExtend"] ?? 0
@@ -1119,7 +1124,7 @@ struct AlbumDetailView: View {
         let n = AlbumSpectrum.strips
         let slice = side / CGFloat(n)
         let heroX = (w - side) / 2, heroY = headerContent + 28
-        let barH = stripBar ? top + stripExtend : top + headerContent + bandFade
+        let barH = stripBar ? top + stripExtend + stripFeather : top + headerContent + bandFade
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
@@ -1161,15 +1166,17 @@ struct AlbumDetailView: View {
     @ViewBuilder
     private func bandMask(w: CGFloat, top: CGFloat) -> some View {
         if stripBar {
-            // Solid through the status bar, then a short fade (the strips in
-            // flight are taller; only the part past the strip's end fades).
-            let fade = min(stripExtend + 6, 24)
+            // Solid through the status bar + `stripExtend`, then a long
+            // feather down over the blur (51, 2026-11-06: "过渡下来"): an
+            // ease-out tail, so the color lets go slowly instead of a line.
+            // The strips in flight are taller; only past the strip it fades.
+            let fade = stripFeather
             let k = smooth(p, 0.55, 0.95)
             VStack(spacing: 0) {
-                Rectangle().frame(height: max(0, top + stripExtend - fade + 6))
-                LinearGradient(stops: (0...8).map { i in
-                    let t = CGFloat(i) / 8
-                    let ease = t * t * (3 - 2 * t)
+                Rectangle().frame(height: max(0, top + stripExtend))
+                LinearGradient(stops: (0...12).map { i in
+                    let t = CGFloat(i) / 12
+                    let ease = 1 - pow(1 - t, 2.2)
                     return .init(color: .black.opacity(1 - ease * k), location: t)
                 }, startPoint: .top, endPoint: .bottom)
                 .frame(height: fade)
