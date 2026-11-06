@@ -393,6 +393,25 @@ final class MacModel {
 
     @ObservationIgnored private var playRequest = 0
 
+    /// A diary entry's song (Android MemoriesScreen.kt:203): the album from that song, and from a note's moment
+    /// once it plays.
+    func play(album: Album, song songId: String, at positionMs: Int64? = nil) {
+        Task {
+            let full = await library.fullAlbum(album)
+            let start = full.tracks.firstIndex { $0.id.rawId == songId } ?? 0
+            guard await playAlbum(full, startAt: start), let ms = positionMs, ms > 0 else { return }
+            let token = playRequest
+            // The seek waits for the song to be the one playing (a start can take a moment).
+            for _ in 0..<50 {
+                guard token == playRequest else { return }
+                if player.currentTrack?.id == songId, player.progress.durationSec > 0 { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard token == playRequest, player.currentTrack?.id == songId else { return }
+            player.seek(to: Double(ms) / 1000)
+        }
+    }
+
     /// An artist's Play / Shuffle (Android: every release, not only the first): the releases' songs in order
     /// (newest release first, as the page lists them), or all of them shuffled; the newest request only, for
     /// the account it was made in.

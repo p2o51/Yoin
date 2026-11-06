@@ -95,19 +95,7 @@ struct MacMemoryDiary: View {
             if !card.diaryTracks.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
-                        ForEach(card.diaryTracks) { d in
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text(d.track.title).font(.gsf(14, .medium))
-                                    Spacer()
-                                    if let r = d.rating { Text(String(format: "%.1f", r)).font(.gsf(13).monospacedDigit()) }
-                                }
-                                ForEach(d.notes) { n in
-                                    Text(n.content).font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                        }
+                        ForEach(card.diaryTracks) { d in diaryTrack(d) }
                     }
                 }
                 .frame(maxHeight: 200)
@@ -148,6 +136,48 @@ struct MacMemoryDiary: View {
                 }
             }
         }
+    }
+
+    /// A rated or noted song (Android MemoriesScreen.kt:203): a click plays the album from it; a note plays from
+    /// its moment. The song playing is marked, and so is the note its playhead has passed last.
+    private func diaryTrack(_ d: MemoryCard.DiaryTrack) -> some View {
+        let p = model.player
+        let playing = p.currentTrack?.id == d.track.id.rawId && p.currentTrack?.provider == d.track.id.provider
+        let posMs = Int64(p.progress.positionSec * 1000)
+        let current = playing ? d.notes.last { ($0.positionMs ?? .max) <= posMs }?.id : nil
+        return VStack(alignment: .leading, spacing: 3) {
+            Button { model.play(album: card.album, song: d.track.id.rawId) } label: {
+                HStack(spacing: 8) {
+                    if playing { EqualizerBars(playing: p.isPlaying, color: Yoin.violet).frame(width: 14, height: 12) }
+                    Text(d.track.title).font(.gsf(14, .medium)).foregroundStyle(playing ? Yoin.violet : Yoin.ink)
+                    Spacer()
+                    if let r = d.rating { Text(String(format: "%.1f", r)).font(.gsf(13).monospacedDigit()) }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(playing ? "Playing" : "Play \(d.track.title)")
+            ForEach(d.notes) { n in
+                Button { model.play(album: card.album, song: d.track.id.rawId, at: n.positionMs) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(n.positionMs.map(NotesStore.formatPosition) ?? "")
+                            .font(.gsf(12, .medium)).monospacedDigit()
+                            .foregroundStyle(n.id == current ? Yoin.violet : Yoin.ink3)
+                            .frame(width: 40, alignment: .leading)
+                        Text(n.content).font(.gsf(13))
+                            .foregroundStyle(n.id == current ? Yoin.ink : Yoin.inkVariant)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 2).padding(.horizontal, 4)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Yoin.violet.opacity(n.id == current ? 0.1 : 0)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(n.positionMs.map { "Play from \(NotesStore.formatPosition($0))" } ?? "Play \(d.track.title)")
+            }
+        }
+        .animation(Yoin.effects, value: current)
+        .animation(Yoin.effects, value: playing)
     }
 
     private var stats: String {
