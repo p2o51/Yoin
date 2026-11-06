@@ -216,4 +216,45 @@ class LyricCreditsExtractorTest {
         assertEquals(listOf("One", "Two", "(Never gonna give you up)"), texts(raw))
         assertEquals("A", synced(raw).credits!!.namesFor(LyricCreditRole.Lyricist))
     }
+
+    @Test
+    fun should_readBilingualRoles_when_vsingerWritesThemInChineseAndEnglish() {
+        val raw = """
+            [00:00.000] 作词 Lyricist : 石井 伸昂 Nobutaka Ishii
+            [00:00.251] 中文翻译 Translator : haTami
+            [00:01.004] 调声 Tuning : 周小蚕
+            [00:01.500] 古筝 Guzheng : 猛虎蔷薇
+            [00:12.000]霞む瞳に
+            [00:15.000]降り注ぐ
+            [03:43.719] 出品人 Publisher : 徐博(波吉)
+            [03:44.034] 录音版权Sub Publishing : 上海哔哩哔哩科技有限公司/Vsinger
+            [03:44.400] 艺人经纪 Manager: 刘伯澍@太合音乐
+        """.trimIndent()
+
+        assertEquals(listOf("霞む瞳に", "降り注ぐ"), texts(raw))
+        val credits = synced(raw).credits!!
+        assertEquals("石井 伸昂 Nobutaka Ishii", credits.namesFor(LyricCreditRole.Lyricist))
+        assertEquals(listOf("中文翻译", "调声", "古筝", "艺人经纪"), credits.others.map { it.role })
+    }
+
+    @Test
+    fun should_takeACreditRunAfterTheIntro_when_theHeadCounted() {
+        val raw = """
+            [00:00.00] 作词 : 唯Tu
+            [00:01.00] 作曲 : 芹菜猪肉大馄饨
+            [00:03.32] 回忆像是阴霾中的烟火
+            [00:07.80] 凝住眼泪才能看清轮廓
+            [00:29.79] 编曲 Arrange: HYPER SLASH超级斩
+            [00:31.12] 调声 Tuning: 流绪
+            [00:32.47] 吉他 Guitar: 文件夹
+            [00:45.78] 我像个贝壳一样怕触碰
+            [00:50.46] 小心翼翼地将心珍藏着
+        """.trimIndent()
+
+        assertEquals(
+            listOf("回忆像是阴霾中的烟火", "凝住眼泪才能看清轮廓", "我像个贝壳一样怕触碰", "小心翼翼地将心珍藏着"),
+            texts(raw),
+        )
+        assertEquals("HYPER SLASH超级斩", synced(raw).credits!!.namesFor(LyricCreditRole.Arranger))
+    }
 }
