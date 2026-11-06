@@ -916,6 +916,17 @@ private struct MacLyricsTools: View {
             .help("Search Lyrics")
             .popover(isPresented: $searching, arrowEdge: .bottom) { MacLyricsSearch(open: $searching) }
         }
+        .overlay(alignment: .topTrailing) {
+            // Translate's word (iOS toast): already that language, no key, Gemini's error.
+            if let n = lyrics.notice {
+                Text(n).font(.gsf(12)).foregroundStyle(Yoin.inkVariant)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 240, alignment: .trailing)
+                    .offset(y: 34)
+                    .transition(.opacity)
+            }
+        }
+        .animation(Yoin.effects, value: lyrics.notice)
     }
 }
 

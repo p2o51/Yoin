@@ -65,6 +65,8 @@ final class MacLyrics {
         return false
     }
     private(set) var translating = false
+    /// A word on the last Translate (iOS's toasts): already in that language, Gemini's error, no key.
+    private(set) var notice: String?
     /// The account the per-song lyrics choices belong to (set by MacModel).
     @ObservationIgnored var choiceScope = ""
     @ObservationIgnored private var track: PlayableTrack?
@@ -96,6 +98,7 @@ final class MacLyrics {
         task?.cancel()
         songId = track?.id
         self.track = track
+        notice = nil
         translating = false
         guard let track else { state = .idle; credits = Credits(); origin = nil; return }
         if let hit = cache[track.id] {
@@ -194,8 +197,10 @@ final class MacLyrics {
         let gen = generation
         task?.cancel()
         translating = true
+        notice = nil
         defer { if songId == id { translating = false } }
-        let language = Locale.preferredLanguages.first ?? "en"
+        // iOS NowPlayingLyricsActions: one target language for the sources and Gemini (Settings › Gemini).
+        let language = GeminiSettings.shared.targetLanguage
         var order: [String] = []
         if let o = origin, registry.servesNativeTranslation(providerName: o.provider, targetLanguage: language) {
             order.append(o.provider)
@@ -220,12 +225,43 @@ final class MacLyrics {
         // only for the song this began for.
         guard gen == generation, songId == id, !Task.isCancelled else { return }
         let gemini = GeminiSettings.shared
-        guard gemini.hasKey, case .loaded(let synced, let lines, let source) = state, !lines.isEmpty else { return }
-        let texts = lines.map(\.text)
-        guard let map = try? await GeminiClient().translateLyricLines(
-            apiKey: gemini.requestKey, title: t.title, artist: t.artist, lines: texts,
-            targetLanguage: gemini.targetLanguage),
-            gen == generation, songId == id else { return }
+        guard case .loaded(let synced, let lines, let source) = state, !lines.isEmpty else { return }
+        // Gemini sees the sung lines only; answers map back to their rows (iOS).
+        let rows = lines.indices.filter { !lines[$0].text.trimmingCharacters(in: .whitespaces).isEmpty }
+        let texts = rows.map { lines[$0].text.trimmingCharacters(in: .whitespaces) }
+        guard !texts.isEmpty else { notice = "No lyrics to translate"; return }
+        if LyricsRules.alreadyTargetLanguage(texts, target: language) {
+            notice = "Lyrics already appear to be \(language)"
+            return
+        }
+        // The cache first (iOS LyricsUserStore, per song, language, model and the lines themselves).
+        var byText: [Int: String]
+        if let cached = LyricsUserStore.shared.geminiTranslations(provider: t.provider, rawId: t.id, title: t.title,
+                                                                  artist: t.artist, language: language,
+                                                                  model: GeminiClient.model, lines: texts) {
+            byText = cached.enumerated().reduce(into: [:]) { $0[$1.offset] = $1.element }
+        } else {
+            guard gemini.hasKey else { notice = "No translation from the lyrics sources. Add a Gemini key in Settings to translate."; return }
+            do {
+                byText = try await GeminiClient().translateLyricLines(
+                    apiKey: gemini.requestKey, title: t.title.isEmpty ? "Unknown song" : t.title,
+                    artist: t.artist.isEmpty ? "Unknown artist" : t.artist, lines: texts, targetLanguage: language)
+            } catch is CancellationError {
+                return
+            } catch {
+                if gen == generation, songId == id {
+                    notice = (error as? GeminiClient.Failure)?.message ?? "Failed to translate lyrics"
+                }
+                return
+            }
+            LyricsUserStore.shared.saveGeminiTranslations(texts.indices.map { byText[$0] ?? "" },
+                                                          provider: t.provider, rawId: t.id, title: t.title,
+                                                          artist: t.artist, language: language,
+                                                          model: GeminiClient.model, lines: texts)
+        }
+        guard gen == generation, songId == id, gemini.targetLanguage == language else { return }
+        var map: [Int: String] = [:]
+        for (i, text) in byText where i < rows.count && !text.isEmpty { map[rows[i]] = text }
         let translated = lines.enumerated().map { i, l in
             var l = l
             l.translation = map[i]
