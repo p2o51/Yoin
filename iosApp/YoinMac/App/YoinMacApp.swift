@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct YoinMacApp: App {
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var model: MacModel
 
     init() {

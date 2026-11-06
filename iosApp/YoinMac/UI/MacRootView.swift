@@ -40,6 +40,11 @@ struct MacGate: View {
         .onChange(of: model.session.accountKey) { model.accountDidChange() }
         .onOpenURL { _ = CloudSync.handle(url: $0) }
         .task { await MacQA.endTourLanding(model) }
+        .onAppear {
+            model.toggleMiniPlayer = { [openWindow, dismissWindow, model] in
+                if model.miniOpen { dismissWindow(id: MacMiniPlayer.windowID) } else { openWindow(id: MacMiniPlayer.windowID) }
+            }
+        }
         #if DEBUG
         .task { await MacQATour.run(model, openWindow: openWindow, dismissWindow: dismissWindow, openSettings: openSettings) }
         // `-openSettings YES` (QA screenshots): the Settings window, a moment after launch.

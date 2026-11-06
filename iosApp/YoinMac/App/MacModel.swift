@@ -517,6 +517,8 @@ final class MacModel {
 
     /// The Spotify device Yoin plays on when it isn't this Mac (Now Playing names it).
     var spotifyDevice: String?
+    /// Shows or hides the mini player window (set by the window, for the Dock menu).
+    @ObservationIgnored var toggleMiniPlayer: (() -> Void)?
     /// The first-run landing on screen (nil: none).
     var landing: LandingSession?
 
