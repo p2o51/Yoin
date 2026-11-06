@@ -66,5 +66,11 @@ final class SpotifyWakeRaceTests: XCTestCase {
                                             isPlaying: true, trackURI: wanted)
         XCTAssertFalse(SpotifyAudioOutput.landedHere(pixel, wanted: wanted))
         XCTAssertFalse(SpotifyAudioOutput.landedHere(nil, wanted: wanted))
+        var paused = here
+        paused.isPlaying = false
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(paused, wanted: wanted))
+        // Read a few times a second apart: right after a wake the Web API may not list this iPhone yet.
+        XCTAssertEqual(SpotifyAudioOutput.webChecks, 3)
+        XCTAssertEqual(SpotifyAudioOutput.webCheckGapSec, 1)
     }
 }

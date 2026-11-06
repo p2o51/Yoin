@@ -129,10 +129,38 @@ extension SpotifyRemote: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegate {
             guard appRemote === remote else { return }
             PlayTrace.log("SR established")
             appRemote.playerAPI?.delegate = self
-            appRemote.playerAPI?.subscribe(toPlayerState: nil)
+            subscribe(appRemote, retried: false)
             finishConnect(true)
             onConnected?()
         }
+    }
+
+    /// Player state pushes (51's log, 23:02:07: none came for 90 s after a wake's connection; the
+    /// subscription's answer was never read). Its failure is logged and tried once more a second later;
+    /// once it's on, the state is read once so a start doesn't wait for the next change.
+    private func subscribe(_ appRemote: SPTAppRemote, retried: Bool) {
+        appRemote.playerAPI?.subscribe(toPlayerState: { [weak self] _, error in
+            MainActor.assumeIsolated {
+                guard let self, appRemote === self.remote else { return }
+                if let error {
+                    PlayTrace.log("SR subscribe failed \(error.localizedDescription)")
+                    guard !retried else { return }
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(1))
+                        guard let self, appRemote === self.remote, appRemote.isConnected else { return }
+                        self.subscribe(appRemote, retried: true)
+                    }
+                    return
+                }
+                PlayTrace.log("SR subscribed")
+                appRemote.playerAPI?.getPlayerState { [weak self] state, _ in
+                    MainActor.assumeIsolated {
+                        guard let self, appRemote === self.remote, let s = state as? SPTAppRemotePlayerState else { return }
+                        self.onPlayerState?(s)
+                    }
+                }
+            }
+        })
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
@@ -458,21 +486,33 @@ final class SpotifyAudioOutput: AudioOutput {
     private func confirmOnWeb(_ item: Item, gen: Int, otherwise: @escaping () -> Void) {
         guard let control else { return otherwise() }
         Task { [weak self] in
-            let now = (try? await control.playerNow()) ?? nil
-            guard let self, gen == self.generation else { return }
-            PlayTrace.log("SP web check \(Self.describe(now))")
-            if Self.landedHere(now, wanted: item.trackURI) {
-                PlayTrace.log("SP start landed (me/player)")
-                self.startedHere(item)
-            } else {
-                otherwise()
+            // Right after a wake the Web API may not list this iPhone yet (204 at 23:02:02): a few reads.
+            for attempt in 0..<Self.webChecks {
+                if attempt > 0 { try? await Task.sleep(for: .seconds(Self.webCheckGapSec)) }
+                let now = (try? await control.playerNow()) ?? nil
+                guard let self, gen == self.generation else { return }
+                PlayTrace.log("SP web check \(attempt + 1) \(Self.describe(now))")
+                if let now, Self.landedHere(now, wanted: item.trackURI) {
+                    PlayTrace.log("SP start landed (me/player)")
+                    self.startedHere(item)
+                    // Its clock from me/player, then the local one until App Remote reports.
+                    self.lastTime = Double(now.progressMs) / 1000
+                    self.lastTick = Date()
+                    self.playing = now.isPlaying
+                    self.events?.outputTimeDidChange(self.lastTime)
+                    return
+                }
             }
+            otherwise()
         }
     }
 
+    nonisolated static let webChecks = 3
+    nonisolated static let webCheckGapSec: Double = 1
+
     /// me/player shows the song on this iPhone (a start here that App Remote didn't report).
     nonisolated static func landedHere(_ now: SpotifySource.PlayerNow?, wanted: String) -> Bool {
-        guard let now, now.trackURI == wanted else { return false }
+        guard let now, now.trackURI == wanted, now.isPlaying else { return false }
         return isThisPhone(now)
     }
 
