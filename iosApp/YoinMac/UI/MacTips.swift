@@ -1,56 +1,48 @@
 import SwiftUI
 
-/// Android's tips (HomeBubbleTip, strings_home.xml), word for word: the same thirteen, in the same order,
-/// each with the day it last changed. Not translated or reworded here.
+/// The Mac's tips: Android's (HomeBubbleTip), reworded for the Mac by Argon (Gemini, 2026-11-07; material in
+/// ~/Developer/Yoin/.argon/mac-tips/), word for word. Three Android tips have nothing on the Mac and aren't here
+/// (the cover's long-press menu, Keep screen on, Scroll edge).
 enum MacTip: String, CaseIterable, Identifiable {
-    case MiniPlayerMenu, FocusCover, Downloads, EditHome, PullForMemories, CoverMenu, SongMenu, PlayModes,
-         NoteMoments, LibrarySearch, KeepScreenOn, ScrollEdge, Name
+    case MiniPlayerMenu, FocusCover, Downloads, EditHome, PullForMemories, SongMenu, PlayModes, NoteMoments, LibrarySearch, Name
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .MiniPlayerMenu: "Mini player options"
-        case .FocusCover: "Tap cover to Focus"
+        case .MiniPlayerMenu: "Mini Player window"
+        case .FocusCover: "Click cover to Focus"
         case .Downloads: "Offline downloads"
         case .EditHome: "Rearrange Home"
         case .PullForMemories: "Memories"
-        case .CoverMenu: "Song options"
         case .SongMenu: "Song quick actions"
         case .PlayModes: "Shuffle and repeat"
         case .NoteMoments: "Notes pin the second"
         case .LibrarySearch: "Quick search"
-        case .KeepScreenOn: "Keep screen on"
-        case .ScrollEdge: "Scroll edge"
         case .Name: "Behind the name"
         }
     }
 
     var text: String {
         switch self {
-        case .MiniPlayerMenu: "Long-press the mini player in the bar to open Song options"
-        case .FocusCover: "Tap the cover in Now Playing to enter Focus, and tap again to return"
-        case .Downloads: "Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Storage › Downloads"
-        case .EditHome: "Long-press Home to rearrange sections"
-        case .PullForMemories: "Pull down on Home to open Memories"
-        case .CoverMenu: "Long-press the cover in Now Playing for Song options and quick actions"
-        case .SongMenu: "Long-press a song in an album or playlist to play next, queue, favorite, or share"
-        case .PlayModes: "Tap to switch shuffle and repeat; long-press to split them and toggle repeat off"
-        case .NoteMoments: "Notes written in Now Playing stay pinned to that exact second"
-        case .LibrarySearch: "Long-press Library in the bar to search right away"
-        case .KeepScreenOn: "Keep screen on is in the cover's long-press menu"
-        case .ScrollEdge: "Change the top wave line in Settings › Motion › Scroll edge"
+        case .MiniPlayerMenu: "Open a standalone window in Controls › Mini Player (⌥⌘M), and keep it on top with Float Mini Player on Top"
+        case .FocusCover: "Click the cover in Now Playing or press ⌘F (Controls › Focus) to enter Focus, and click again to return"
+        case .Downloads: "Subsonic accounts can download from song, album, or playlist right-click menus and pages; view in Library › Downloads and manage in Settings › Accounts › Subsonic account › Downloads"
+        case .EditHome: "Click Edit next to the Home title to show, hide, or drag sections to reorder"
+        case .PullForMemories: "Open Memories from Library › Memories in the sidebar"
+        case .SongMenu: "Right-click (or Control-click) a song for Play Next, Add to Queue, Like, Rate, or Share"
+        case .PlayModes: "Click in Now Playing to cycle shuffle, repeat, and repeat one, or set Shuffle and Repeat separately in Controls"
+        case .NoteMoments: "Click Write in Now Playing to pin a note to that exact second, and click its timestamp to jump back"
+        case .LibrarySearch: "Press ⌘K (Controls › Search) to search anytime across your library or the full catalog"
         case .Name: "Yoin comes from the Japanese word \"余韻\" — a lingering resonance"
         }
     }
 
-    /// Android `updated` (yyyy-MM-dd): a tip changed since it was read counts as unread again.
+    /// The day the tip last changed (Android `updated`): one changed since it was read counts as unread again.
     var updated: String {
         switch self {
-        case .MiniPlayerMenu, .Downloads, .CoverMenu, .SongMenu: "2026-11-04"
-        case .FocusCover: "2026-11-03"
-        case .PlayModes: "2026-10-21"
-        default: "2026-10-17"
+        case .Name: "2026-10-17"
+        default: "2026-11-07"
         }
     }
 
@@ -62,13 +54,10 @@ enum MacTip: String, CaseIterable, Identifiable {
         case .Downloads: "download"
         case .EditHome: "drag_handle"
         case .PullForMemories: "note"
-        case .CoverMenu: "album"
         case .SongMenu: "queue"
         case .PlayModes: "shuffle"
         case .NoteMoments: "edit_note"
         case .LibrarySearch: "search"
-        case .KeepScreenOn: "light_mode"
-        case .ScrollEdge: "settings"
         case .Name: "sparkle"
         }
     }
