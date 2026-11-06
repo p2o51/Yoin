@@ -60,6 +60,9 @@ struct MacNowPlaying: View {
             toolsHide?.cancel()
         }
         .onChange(of: model.player.isPlaying) { _, _ in wakeTools(force: true) }
+        // Lyrics that load (or a song without synced ones) restart the count: shown, then hidden 3 s on.
+        .onChange(of: lyricsSynced) { _, _ in wakeTools(force: true) }
+        .onChange(of: model.player.currentTrack?.id) { _, _ in wakeTools(force: true) }
         .onChange(of: tab) { _, _ in wakeTools(force: true) }
         .onChange(of: model.focus) { _, on in
             if on { pointerMoved() } else { exitHide?.cancel(); exitShown = false }
@@ -69,6 +72,11 @@ struct MacNowPlaying: View {
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: full ? 0 : 22, bottomLeadingRadius: full ? 0 : 22,
                                           bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous))
         .shadow(color: .black.opacity(full ? 0 : 0.18), radius: 20, x: -10)
+    }
+
+    private var lyricsSynced: Bool {
+        if case .loaded(true, _, _) = model.lyrics.state { return true }
+        return false
     }
 
     /// The lyric tools back, and their 3 s count from now (pointer moves are taken at most a few times a second).

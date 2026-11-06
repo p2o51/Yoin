@@ -16,6 +16,8 @@ struct MacSignInView: View {
 
     /// Signed in: an added account starts the app over on it; then the next picked service, or the app.
     private func connected(adding: Bool) {
+        // Before signedOut, which supersedes this attempt (its deferred unlock then stands aside).
+        busy = false
         if adding { model.signedOut() }
         error = nil
         askClientId = false
@@ -174,15 +176,18 @@ struct MacSignInView: View {
         guard !busy else { return }
         busy = true
         error = nil
+        // This attempt only: Skip or Cancel bumps the token, and a superseded attempt's end changes nothing here.
+        let token = model.authToken
         Task {
-            defer { busy = false }
+            defer { if token == model.authToken { busy = false } }
             do {
                 let adding = model.addingAccount
-                let token = model.authToken
                 try await model.session.useAppleMusic { token == model.authToken }
+                guard token == model.authToken else { return }
                 connected(adding: adding)
             } catch is MacSession.Superseded {
             } catch {
+                guard token == model.authToken else { return }
                 self.error = AppleMusicSource.message(for: error)
             }
         }
@@ -200,15 +205,18 @@ struct MacSignInView: View {
         }
         busy = true
         error = nil
+        // This attempt only: Skip or Cancel bumps the token, and a superseded attempt's end changes nothing here.
+        let token = model.authToken
         Task {
-            defer { busy = false }
+            defer { if token == model.authToken { busy = false } }
             do {
                 let adding = model.addingAccount
-                let token = model.authToken
                 try await model.session.useSpotify { token == model.authToken }
+                guard token == model.authToken else { return }
                 connected(adding: adding)
             } catch is MacSession.Superseded {
             } catch {
+                guard token == model.authToken else { return }
                 // A wrong Client ID fails here: it can be corrected and tried again.
                 if clientId.isEmpty { clientId = SpotifyConfig.clientId ?? "" }
                 withAnimation(Yoin.spatial) { askClientId = true }
@@ -221,17 +229,20 @@ struct MacSignInView: View {
         guard !busy, !url.isEmpty, !username.isEmpty else { return }
         busy = true
         error = nil
+        // This attempt only: Skip or Cancel bumps the token, and a superseded attempt's end changes nothing here.
+        let token = model.authToken
         Task {
-            defer { busy = false }
+            defer { if token == model.authToken { busy = false } }
             do {
                 let adding = model.addingAccount
-                let token = model.authToken
                 try await model.session.signIn(url: url, username: username, password: password) {
                     token == model.authToken
                 }
+                guard token == model.authToken else { return }
                 connected(adding: adding)
             } catch is MacSession.Superseded {
             } catch {
+                guard token == model.authToken else { return }
                 self.error = MacSession.message(for: error)
             }
         }
