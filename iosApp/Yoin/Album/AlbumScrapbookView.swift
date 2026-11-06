@@ -969,15 +969,21 @@ struct DotPaper: View {
 /// the lower 45 %. Draws only; touches pass through.
 struct ProgressiveEdgeBlur: View {
     var tint: Color
+    /// The album's Strip top bar: a thicker blur that holds longer and falls
+    /// off over a shorter edge (51, 2026-11-06: stronger, steeper).
+    var strong = false
 
     var body: some View {
         ZStack {
-            Rectangle().fill(.thinMaterial)
-            Rectangle().fill(tint.opacity(0.72))
+            if strong { Rectangle().fill(.regularMaterial) } else { Rectangle().fill(.thinMaterial) }
+            Rectangle().fill(tint.opacity(strong ? 0.8 : 0.72))
         }
         .mask {
-            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
-                                   .init(color: .black.opacity(0.6), location: 0.75), .init(color: .clear, location: 1)],
+            LinearGradient(stops: strong
+                           ? [.init(color: .black, location: 0), .init(color: .black, location: 0.74),
+                              .init(color: .black.opacity(0.55), location: 0.87), .init(color: .clear, location: 1)]
+                           : [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
+                              .init(color: .black.opacity(0.6), location: 0.75), .init(color: .clear, location: 1)],
                            startPoint: .top, endPoint: .bottom)
         }
         .allowsHitTesting(false)

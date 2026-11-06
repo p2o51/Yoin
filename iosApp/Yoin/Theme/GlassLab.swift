@@ -174,6 +174,9 @@ final class GlassLab {
             preset = saved.preset ?? .world
             styles.merge(saved.styles) { _, new in new }
             extras.merge(saved.extras) { _, new in new }
+            // 51, 2026-11-06: the album's top bar became the safe-area strip;
+            // a top bar saved before that doesn't carry over (once).
+            if saved.extras["albumStripExtend"] == nil { extras["detailTopBar"] = 4 }
         }
         panelOpen = UserDefaults.standard.bool(forKey: "glassLab")
         if let name = UserDefaults.standard.string(forKey: "preset") {
@@ -209,8 +212,9 @@ final class GlassLab {
     }
 
     /// Extras that aren't a glass surface's: the album page's pulled-up top
-    /// bar, 0 = the cover's spectrum with a soft, progressively blurred lower
-    /// edge (default), 1 = Liquid Glass, 2 = the system's progressive
+    /// bar, 4 = the spectrum as a strip just past the safe area over the
+    /// progressive blur (default since 2026-11-06), 0 = the cover's spectrum with a soft, progressively blurred lower
+    /// edge, 1 = Liquid Glass, 2 = the system's progressive
     /// scroll-edge blur, 3 = the spectrum with Android's hard edge.
     /// Gemini preset extras (neutral in every other preset):
     /// darkTintMultiplier scales every glass tint in dark mode,
@@ -230,11 +234,12 @@ final class GlassLab {
     /// contact-shadow opacity; darkAmbientStrength / darkNeighbourStrength
     /// (0 = as in light) and auraOnTop: Now Playing's ambient in dark mode.
     static let pageExtras: [(String, Double)] = [
-        ("detailTopBar", 0), ("darkTintMultiplier", 1), ("sheetPresenterDim", 0), ("searchChromeTint", 0),
+        ("detailTopBar", 4), ("darkTintMultiplier", 1), ("sheetPresenterDim", 0), ("searchChromeTint", 0),
         ("heartLikedAccent", 1), ("liftInFlow", 0), ("liftRestOpacity", 0.6), ("neutralShadow", 0),
         ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
         ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
         ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
+        ("albumPullTravel", 320), ("albumPullSnap", 0.3), ("albumStripExtend", 6), ("albumStripFeather", 56), ("albumStripBlur", 22),
     ]
 
     private func resetValues() {
@@ -266,7 +271,8 @@ final class GlassLab {
         case .balanced:
             // The shipped look: data in the shared YoinTokens.Glass (Kotlin).
             for t in Tokens.glass.balanced { s[t.id] = SurfaceStyle(t) }
-            for x in Tokens.glass.balancedExtras { e[x.id] = x.value }
+            // detailTopBar stays iOS's (pageExtras): the shared 0 is Android's spectrum.
+            for x in Tokens.glass.balancedExtras where x.id != "detailTopBar" { e[x.id] = x.value }
         case .appleHIG:
             // Home cards: blurred cover + a standard material, not glass.
             s["homeCards"] = SurfaceStyle(variant: .material, role: .auto, tintOpacity: 0.45,
@@ -284,7 +290,8 @@ final class GlassLab {
             // Starts from Balanced (51's decisions stay: tinted bar
             // selection, glass rating track and NP pills, plain glass).
             for t in Tokens.glass.balanced { s[t.id] = SurfaceStyle(t) }
-            for x in Tokens.glass.balancedExtras { e[x.id] = x.value }
+            // detailTopBar stays iOS's (pageExtras): the shared 0 is Android's spectrum.
+            for x in Tokens.glass.balancedExtras where x.id != "detailTopBar" { e[x.id] = x.value }
             // One chromatic accent per plane: the selected bar button and
             // PAUSE (and a liked heart, which borrows PAUSE's surface).
             // Every other floating control gets a neutral floor so covers
@@ -706,9 +713,17 @@ struct GlassLabPanel: View {
                 Picker("Detail top bar", selection: Binding(
                     get: { Int(lab.extra("detailTopBar").rounded()) },
                     set: { lab.extras["detailTopBar"] = Double($0) })) {
-                    Text("Spectrum").tag(0); Text("Hard edge").tag(3); Text("Glass").tag(1); Text("Blur").tag(2)
+                    Text("Strip").tag(4); Text("Spectrum").tag(0); Text("Hard edge").tag(3)
+                    Text("Glass").tag(1); Text("Blur").tag(2)
                 }
                 .pickerStyle(.segmented)
+                if Int(lab.extra("detailTopBar").rounded()) == 4 {
+                    labSlider("Strip below the safe area (pt)", "albumStripExtend", 2...40)
+                    labSlider("Strip feather (pt)", "albumStripFeather", 8...120)
+                    labSlider("Strip blur at the end (pt)", "albumStripBlur", 2...48)
+                }
+                labSlider("Pull-up travel (pt)", "albumPullTravel", 160...520)
+                labSlider("Pull-up snap point", "albumPullSnap", 0.15...0.5)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Filter chips (Library, Search)").font(.gsf(13)).foregroundStyle(.secondary)

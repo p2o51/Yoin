@@ -8,7 +8,7 @@ Pass of 2026-11-04. Checked on the iPhone Air simulator, light and dark, with `-
 
 - Back and the follow star are glass circles (floating controls over scrolling content). Android: `FilledTonalIconButton` in surfaceContainer for back, a bare `IconButton` for the star.
 - The discography chips are solid (they scroll with the page), not glass.
-- The pinwheel is the real Yoin mark (`YoinMarkPaths`), drawn in a Canvas.
+- The open ring is a Canvas arc and dot; it dissolves with `DotDissolve` (Theme/DotDissolve.swift + .metal).
 - No halftone dots. The soft material band under the header stays as iOS's version of the tide line.
 - Release covers follow the iOS bare-cover rule (`EntityBackdrop`: continuous corner 3 + 0.045 × size, 0.5 stroke, tinted shadow). Android uses `YoinArtworkShapes.Cover` (4).
 
@@ -25,15 +25,18 @@ Pass of 2026-11-04. Checked on the iPhone Air simulator, light and dark, with `-
 | Follow star | `IconButton` 40 (48 touch), **24** icon; on = cover primary, off = **onSurfaceVariant**; effects spring tint; tap pop: tween 90 ms to 1.25 (on) / 1.15 (off), spatial spring back (ArtistDetailScreen.kt:417-451) | 22 icon, off = adaptive `.primary`, no pop | 24 icon, off = onSurfaceVariant, effects-spring tint, keyframed pop (90 ms linear up, spring back) |
 | Content under the header | The scroll column starts **below** the header, dissolving at its edge (seamDissolveViewport, ArtistDetailScreen.kt:100-109) | Scrolled up behind the header, text visible through the name and year | Masked at the header's bottom edge with a 16 fade; the material band stays above |
 
-## Pinwheel hero
+## Open ring hero (51, 2026-11-06; replaces the pinwheel)
 
 | Element | Android value (file:line) | iOS before | iOS after |
 |---|---|---|---|
-| Portrait | min(0.52 × width, 216), circle (ArtistDetailScreen.kt:134, 316-327) | Same | Same |
-| Band | full width × (portrait + 150), centred (ArtistDetailScreen.kt:293-312, 396) | Same | Same |
-| Mark | scale portrait × 2.1 / 1024, hub (512, 500), rest 30°, + 0.06° per px scrolled (detail/DetailBackdrops.kt:33-66; ArtistDetailScreen.kt:399) | Same (scroll pt × 3 × 0.06) | Same |
-| Arm colours | tertiary / primary / secondary of the cover scheme; centre lines surface @ 0.65 (ArtistDetailScreen.kt:160-167, 306) | Same | Same |
-| Hero → first section | 32 (ArtistDetailScreen.kt:145) | 32 | 32 |
+| Portrait | min(0.52 × width, 216), circle | Same | Same |
+| Band | full width × (portrait + 150), centred | Same | Same |
+| Ring | outer edge 0.84 × portrait from the centre; of the room outside the portrait, gap 41 %, ring 59 %; round caps; opening centred at −45°, 0.9 rad wide; cover primary (detail/DetailBackdrops.kt `ArtistOpenRing`) | Pinwheel (whole mark) | Same as Android |
+| Dot | in the opening, radius 0.45 × ring width, cover tertiary | — | Same |
+| Turn | 0.06° per px scrolled | — | scroll pt × 3 × 0.06 |
+| Leaving | dot dissolve over 220 dp of scroll (`dotDissolve`) | — | DotDissolve over 220 pt |
+| Reduced motion | no turn, no dissolve | — | Same |
+| Hero → first section | 32 | 32 | 32 |
 
 ## Section headers
 

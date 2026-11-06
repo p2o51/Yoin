@@ -18,7 +18,12 @@ final class SharedKotlinTests: XCTestCase {
             expected[surface.id] = surface.defaults
             for x in surface.extras { expectedExtras[x.0] = x.3 }
         }
-        expectedExtras["detailTopBar"] = 0
+        expectedExtras["detailTopBar"] = 4
+        expectedExtras["albumPullTravel"] = 320
+        expectedExtras["albumPullSnap"] = 0.3
+        expectedExtras["albumStripExtend"] = 6
+        expectedExtras["albumStripFeather"] = 56
+        expectedExtras["albumStripBlur"] = 22
         expected["homeCards"] = SurfaceStyle(variant: .material, role: .auto, tintOpacity: 0.45,
                                              interactive: false, cornerRadius: 16)
         // 51, 2026-11-03: rating track and NP pills are glass; the selected bar

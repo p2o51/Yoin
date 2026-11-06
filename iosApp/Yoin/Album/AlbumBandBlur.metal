@@ -29,3 +29,31 @@ using namespace metal;
     }
     return sum / half(total);
 }
+
+// The album Strip's progressive blur (AlbumDetailView `spectrum`, 51
+// 2026-11-06): none at the screen's top edge, growing along a smoothstep to
+// `maxRadius` at `zoneHeight` (the end of the feather) and beyond. The
+// strips are vertical bands of one color each, so the blur runs along x
+// only: 33 evenly spaced Gaussian taps, x clamped inside the layer, which
+// smears neighbouring colors into one another with no sparse-disc grain and
+// never reads the clear space past the strips (they are drawn past the
+// feather's end; the mask does the fading).
+[[ stitchable ]] half4 albumStripBlur(float2 position, SwiftUI::Layer layer,
+                                      float zoneHeight, float maxRadius, float width) {
+    float t = clamp(position.y / zoneHeight, 0.0, 1.0);
+    float r = maxRadius * smoothstep(0.0, 1.0, t);
+    if (r < 0.35) {
+        return layer.sample(position);
+    }
+    const int half_taps = 16;
+    half4 sum = half4(0.0);
+    float total = 0.0;
+    for (int i = -half_taps; i <= half_taps; i++) {
+        float k = float(i) / float(half_taps);
+        float w = exp(-4.5 * k * k);
+        float x = clamp(position.x + k * r * 1.5, 0.5, width - 0.5);
+        sum += layer.sample(float2(x, position.y)) * half(w);
+        total += w;
+    }
+    return sum / half(total);
+}

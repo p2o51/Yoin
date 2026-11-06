@@ -12,10 +12,15 @@ import YoinShared
 ///   with white text, and the list fades in.
 ///
 /// Page 1 ↔ page 2 (Android AlbumPageFlight, AlbumScrapbookPage scrapLayer):
-/// the pager follows the finger 1:1. With the hero at rest the cover flies to
-/// the scrapbook's cover (taking its tilt) instead of sliding off, the hero
-/// text is gone a third of the way in, and each scrapbook piece trails the
-/// drag by its own depth and leans a little further.
+/// the pager follows the finger 1:1. There is only ever one cover (51,
+/// 2026-11-06): it flies from where it is, the hero's middle or the pulled-up
+/// stamp, to the scrapbook's cover (taking its tilt) and back, while the
+/// scrapbook's own cover waits hidden. The hero text is gone a third of the
+/// way in, and each scrapbook piece trails the drag by its own depth and
+/// leans a little further. The butterfly is drawn whole across the page
+/// edge, so its right wing runs on into the scrapbook, and breaks up into
+/// fine dots as the scrapbook settles; the pull-up dissolves it the same way
+/// (DotDissolve), as it does the playlist's sleeves.
 ///
 /// iOS adaptations: the back button is a glass circle (Android: a tonal
 /// circle), and edge-swipe back still works with the navigation bar hidden
@@ -31,8 +36,8 @@ struct AlbumDetailView: View {
     private var routeAlbum: Album
     var padColumn = false
     /// Playlist mode (Android PlaylistDetailScreen): same hero / pull-up /
-    /// spectrum, but owner + "Playlist" meta, a ⋮ menu, the stacked-V
-    /// backdrop, a Length / Owner / Description block instead of the emblem,
+    /// spectrum, but owner + "Playlist" meta, a ⋮ menu, two of its albums'
+    /// covers fanned behind its own (the sleeves), a Length / Owner / Description block instead of the emblem,
     /// thumb-led track rows, and no scrapbook page.
     private var routePlaylist: PlaylistInfo?
 
@@ -67,6 +72,11 @@ struct AlbumDetailView: View {
     /// bounce around page 1 never flips the back swipe mid-gesture.
     @State private var pageTarget: CGFloat = LaunchConfig.screen.hasPrefix("album-scrapbook") ? 1 : 0
     private var offFirstPage: Bool { pageBase != nil || pageTarget > 0 }
+    /// Pull-up haptics: whether the drag is past its snap point (release would
+    /// form the band / fold it back); nil until the drag has moved.
+    @State private var pullArmed: Bool?
+    /// The settle under way is forming the band; its landing gets one beat.
+    @State private var pullLanding = false
     /// The pulled-up list sits at its top (a pull-down there collapses it).
     @State private var listAtTop = true
     /// This page's claim on the edge swipe (AlbumPopGate).
@@ -92,9 +102,18 @@ struct AlbumDetailView: View {
     /// The album's rate + review sheet (Android AlbumRateSheet): the pen, the
     /// comment, the emblem and the scrapbook's review all open it.
     @State private var rating = LaunchConfig.screen == "album-rate"
+    /// The playlist's sleeves have opened from behind its cover (once).
+    /// Screenshots of a playlist open with them settled.
+    @State private var sleevesOpen = LaunchConfig.screen.hasPrefix("playlist")
 
-    /// Pulled-up top bar (Glass Lab): 0 spectrum with a soft blurred edge,
-    /// 1 Liquid Glass, 2 progressive blur, 3 Android's hard-edged spectrum.
+    /// Pulled-up top bar (Glass Lab): 4 the safe-area strip (default), 0
+    /// spectrum with a soft blurred edge, 1 Liquid Glass, 2 progressive blur,
+    /// 3 Android's hard-edged spectrum.
+    ///
+    /// The strip (51, 2026-11-06): on iOS the progressive blur under the
+    /// header carries the layering, so the spectrum is decoration only. It
+    /// runs from the top of the screen to just below the safe area
+    /// (`stripExtend`) and fades out; the header keeps its own ink.
     private var topBar: Int { Int(GlassLab.shared.extra("detailTopBar").rounded()) }
     /// The spectrum is drawn (with or without its soft edge).
     private var spectrumBar: Bool { topBar == 0 || topBar == 3 }
@@ -102,14 +121,32 @@ struct AlbumDetailView: View {
     /// out, and the list's blur radius at the header's edge. The list's
     /// content starts below the fade, so at rest nothing sits under it.
     private var bandFade: CGFloat { topBar == 0 ? 28 : 0 }
+    /// The strip: the spectrum only, the header on the progressive blur.
+    private var stripBar: Bool { topBar == 4 }
+    /// The strip's feathered tail below that (Glass Lab slider).
+    private var stripFeather: CGFloat {
+        let v = GlassLab.shared.extras["albumStripFeather"] ?? 0
+        return v > 0 ? v : 56
+    }
+    /// The Strip's progressive blur radius at the feather's end (Glass Lab slider).
+    private var stripBlur: CGFloat {
+        let v = GlassLab.shared.extras["albumStripBlur"] ?? 0
+        return v > 0 ? v : 22
+    }
+    /// How far the strip reaches below the safe area (Glass Lab slider).
+    private var stripExtend: CGFloat {
+        let v = GlassLab.shared.extras["albumStripExtend"] ?? 0
+        return v > 0 ? v : 6
+    }
     private static let bandBlurRadius: CGFloat = 10
     /// The page's own space (the header's top edge is y = 0), where the list
     /// rows find the band.
     static let pageSpace = "albumPage"
     /// The soft edge's strength: 0 until the list is nearly pulled up.
     private var bandSoft: CGFloat { topBar == 0 ? smooth(p, 0.7, 1) : 0 }
-    /// The hero's cover flies to page 2 (hero at rest, an album, motion allowed).
-    private var coverFlies: Bool { playlist == nil && !reduceMotion && scrapCover != nil && p < 0.01 }
+    /// The cover flies to page 2 (an album, motion allowed), from the hero at
+    /// rest or from the pulled-up stamp alike.
+    private var coverFlies: Bool { playlist == nil && !reduceMotion && scrapCover != nil }
 
     /// The cover's own scheme (title, blocks, dots, Play) and the app's
     /// (everything else), as on Android.
@@ -139,12 +176,10 @@ struct AlbumDetailView: View {
                 background
                 // Page 0: the bar, the stamp and the hero slide away with it.
                 ZStack(alignment: .topLeading) {
-                    if playlist != nil {
-                        stackedV(w: w, side: side, band: band)
-                            .opacity(1 - smooth(p, 0, 0.6))
+                    if let playlist {
+                        sleeves(playlist, w: w, side: side)
                     } else {
                         butterfly(w: w, side: side, band: band)
-                            .opacity(1 - smooth(p, 0.62, 0.98))
                     }
                     hero(w: w, side: side, band: band)
                         .opacity((1 - e) * heroFade)
@@ -161,6 +196,15 @@ struct AlbumDetailView: View {
                             .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(smooth(p, 0.3, 0.85))
+                    case 4:
+                        // The layering: the progressive blur, as the blur bar.
+                        // Stronger and steeper than the scrapbook's (51, 2026-11-06).
+                        ProgressiveEdgeBlur(tint: topTint, strong: true)
+                            .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                            .offset(y: -geo.safeAreaInsets.top)
+                            .opacity(smooth(p, 0.3, 0.85))
+                        // The decoration: the cover's spectrum, safe area + a little.
+                        spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
                     default: spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
                     }
                 }
@@ -209,7 +253,7 @@ struct AlbumDetailView: View {
             }
             .coordinateSpace(.named(Self.pageSpace))
             .contentShape(.rect)
-            .gesture(axisPan(width: w, travel: geo.size.height * 0.55))
+            .gesture(axisPan(width: w, travel: pullTravel))
             .onAppear {
                 pageWidth = w
                 // Screenshots: `-pageHold "1,0.75"` = a drag from page 2 held at 0.75
@@ -234,6 +278,7 @@ struct AlbumDetailView: View {
             }
             .onChange(of: offFirstPage) { _, off in AlbumPopGate.set(off, by: gateID) }
             .onChange(of: w) { _, now in pageWidth = now }
+            .onChange(of: p) { was, now in bandTicks(from: was, to: now) }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
@@ -380,7 +425,11 @@ struct AlbumDetailView: View {
                     Text(album.title)
                         .lineLimit(1)
                         .yoinRole(Tokens.type.headlineSmall)
-                        .foregroundStyle(white ? .white : s.primary)
+                        // Light Strip: over the feathered spectrum the cover's
+                        // primary is the strip's own hue, so it turns to body ink.
+                        .foregroundStyle(white ? .white : stripBar && !dark
+                                         ? s.primary.mix(with: app.onSurface, by: smooth(p, 0.4, 0.8), in: .perceptual)
+                                         : s.primary)
                     // DetailMetaLine in bodyMedium, groups 12 apart, no separators:
                     // album [artist] [Album] [year]; playlist [owner] [Playlist].
                     // The kind is Medium in primary. The white twin over the bar:
@@ -479,27 +528,40 @@ struct AlbumDetailView: View {
 
     /// The real Yoin mark's arms 0 and 2 behind the cover (AlbumSpectrumBar
     /// drawButterfly, Compact pose): box = (0, header bottom, W, band),
-    /// scale 1.8 about its centre, translationY −0.1 × band, squash 1.8 about
-    /// the hub; arm 0 in the cover's primary, arm 2 in its secondary, centre
-    /// lines in surface @ 0.65; clipped above at the header.
+    /// scale 1.8 about its centre, translationY −0.1 × band, squash 1.35 about
+    /// the hub (51, 2026-11-06: 1.8 reached too far); arm 0 in the cover's
+    /// primary, arm 2 in its secondary, centre lines in surface @ 0.65;
+    /// clipped above at the header only.
+    ///
+    /// It stays where it is and breaks up into fine dots (DotDissolve) as the
+    /// pull-up runs to 0.7, or as the scrapbook settles (page 0.45 → 1), the
+    /// same curve as Android's albumButterflyLeaving. Its canvas is three
+    /// pages wide, so the wing past the page edge is drawn whole and runs on
+    /// into the scrapbook instead of being cut. Reduced motion: a fade.
     private func butterfly(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
-        YoinArmsCanvas(arms: [(0, s.primary), (2, s.secondary)],
-                       lineColor: app.surface.opacity(0.65),
-                       scale: 1.8, translationY: -0.1 * band, squashX: 1.8)
-            .frame(width: w, height: band)
-            .offset(y: headerContent)
-            .frame(width: w, height: headerContent + band * 1.8, alignment: .topLeading)
+        let leaving = max(smooth(p, 0, 0.7), smooth(pageFrac, 0.45, 1))
+        let height = headerContent + band * 1.9
+        return YoinArmsCanvas(arms: [(0, s.primary), (2, s.secondary)],
+                              lineColor: app.surface.opacity(0.65),
+                              scale: 1.8, translationY: -0.1 * band, squashX: 1.35,
+                              box: CGRect(x: w, y: headerContent, width: w, height: band))
+            .frame(width: w * 3, height: height)
             .mask(alignment: .top) {
                 Rectangle().padding(.top, headerContent)
             }
+            .dotDissolve(reduceMotion ? 0 : leaving)
+            .opacity(reduceMotion ? 1 - leaving : 1)
+            .offset(x: -w)
+            .frame(width: w, height: height, alignment: .topLeading)
             .allowsHitTesting(false)
     }
 
-    /// Hero cover ↔ 48 pt stamp at the end of the title row, and, with the
-    /// hero at rest, hero cover → the scrapbook's cover on the swipe to page 2
-    /// (Android AlbumFlyingCover + AlbumPageFlight): toward the page's cover
-    /// as much as the hero is at rest (toPage = f × (1 − p)), taking its tilt;
-    /// pulled up into the bar, the stamp slides away with page 0.
+    /// Hero cover ↔ 48 pt stamp at the end of the title row, and the cover →
+    /// the scrapbook's cover on the swipe to page 2 (Android AlbumFlyingCover
+    /// + AlbumPageFlight): from wherever it is now (the hero's middle, the
+    /// stamp, or anywhere between) toward the page's cover by the pager's
+    /// progress, taking its tilt, and back the same way. One cover only: the
+    /// scrapbook's own stays hidden until this one lands (51, 2026-11-06).
     private func cover(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
         let e = smooth(p)
         let f = pageFrac
@@ -511,14 +573,17 @@ struct AlbumDetailView: View {
         let r = CGRect(x: lerp(heroRect.minX, stampRect.minX, e), y: lerp(heroRect.minY, stampRect.minY, e),
                        width: lerp(side, stamp, e), height: lerp(side, stamp, e))
         let target = playlist == nil && !reduceMotion ? scrapCover : nil
-        let toPage = target == nil ? 0 : f * (1 - p)
+        let toPage = target == nil ? 0 : f
         let flown = if let target, toPage > 0 {
-            lerpRect(r.offsetBy(dx: -f * w * p, dy: 0), target, toPage)
+            lerpRect(r, target, toPage)
         } else {
             r.offsetBy(dx: -f * w, dy: 0)
         }
         return Button {
-            if e > 0.5 { settlePull(to: 0, velocity: 0) }
+            if e > 0.5 {
+                AlbumPullHaptics.armed(expanding: false)
+                settlePull(to: 0, velocity: 0)
+            }
         } label: {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                 .frame(width: flown.width, height: flown.height)
@@ -836,7 +901,7 @@ struct AlbumDetailView: View {
         // The header's room as a bar, so the blur variant's soft scroll edge
         // runs under it (spectrum and glass cover it themselves).
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectHidden(topBar != 2, for: .top)
+        .scrollEdgeEffectHidden(topBar != 2 && topBar != 4, for: .top)
         .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent + bandFade) }
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
             listAtTop = top
@@ -945,30 +1010,105 @@ struct AlbumDetailView: View {
 
     // MARK: Playlist pieces
 
-    /// Android DetailBackdrops stacked V: arm 1 (the upper V) three times,
-    /// back to front tertiary / secondary / primary, scale = W × 1.3 / 674
-    /// about the arm centre (505, 350), dy = side × (−0.06 + 0.14 i).
-    private func stackedV(w: CGFloat, side: CGFloat, band: CGFloat) -> some View {
-        Canvas { gc, size in
-            let k = size.width * 1.3 / 674
-            let colors = [s.tertiary, s.secondary, s.primary]
-            for i in 0..<3 {
-                var g = gc
-                g.translateBy(x: size.width / 2, y: band / 2 + side * (-0.06 + 0.14 * CGFloat(i)))
-                g.scaleBy(x: k, y: k)
-                g.translateBy(x: -505, y: -350)
-                let arm = YoinMarkPaths.arms[1]
-                g.fill(arm.fill, with: .color(colors[i]))
-                g.fill(arm.line, with: .color(app.surface.opacity(0.65)))
+    /// The playlist's sleeves (Android PlaylistSleeves, 51 2026-11-06): two of
+    /// its own albums' covers fanned behind its cover like record sleeves,
+    /// the first two distinct ones that aren't the cover itself. Each is
+    /// 0.86 × the cover side, ±0.20 × side across (less where the page is
+    /// narrow, so a tilted sleeve keeps 8 pt from the edge) and 0.07 × side
+    /// down, tilted ∓6.3°, with the cover's corners. A ring as wide as
+    /// max(3 pt, 2.5 % of the side) is cut out of each sheet around the ones
+    /// in front of it, so the three read as separate sheets. They open from
+    /// behind the cover on appear; on the pull-up they stay where they are
+    /// and break up into fine dots (DotDissolve, by p = 0.7) while the cover
+    /// flies to the stamp. Reduced motion: open from the start, a fade.
+    @ViewBuilder
+    private func sleeves(_ pl: PlaylistInfo, w: CGFloat, side: CGFloat) -> some View {
+        let covers = Self.sleeveCovers(pl)
+        if !covers.isEmpty {
+            let cover = CGRect(x: (w - side) / 2, y: headerContent + 28, width: side, height: side)
+            let open: CGFloat = reduceMotion || sleevesOpen ? 1 : 0
+            let grow = 0.6 + 0.4 * open
+            let halfExtent: CGFloat = 0.43 * (cos(6.3 * CGFloat.pi / 180) + sin(6.3 * CGFloat.pi / 180))
+            let spread = min(0.2, max(0, ((w - side) / 2 - 8) / side + 0.5 - halfExtent))
+            let gap = max(3, side * 0.025)
+            let corner = Tokens.shape.HERO.cg
+            let leaving = smooth(p, 0, 0.7)
+            // The cover's ring leaves with the cover, as it starts to fly.
+            let coverRing = 1 - smooth(p, 0, 0.2)
+            let pose = { (i: Int) -> (center: CGPoint, side: CGFloat, degrees: Double) in
+                let dir: CGFloat = i == 0 ? -1 : 1
+                return (CGPoint(x: cover.midX + dir * spread * side * open, y: cover.midY + 0.07 * side * open),
+                        side * 0.86 * grow, Double(dir * 6.3 * open))
+            }
+            let height = cover.maxY + side * 0.3
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(covers.enumerated()), id: \.offset) { i, palette in
+                    let me = pose(i)
+                    CoverArt(palette: palette, cornerRadius: 0, seed: album.seed + 7 + i)
+                        .frame(width: me.side, height: me.side)
+                        .clipShape(.rect(cornerRadius: corner, style: .continuous))
+                        .position(me.center)
+                        .frame(width: w, height: height, alignment: .topLeading)
+                        // Turned in the stage's frame about its own centre: turned
+                        // in its own frame, the corners past that frame were cut.
+                        .rotationEffect(.degrees(me.degrees),
+                                        anchor: UnitPoint(x: me.center.x / w, y: me.center.y / height))
+                        // The knock-out: the cover's ring, and the front sleeve's
+                        // for the one behind it.
+                        .mask {
+                            ZStack(alignment: .topLeading) {
+                                Rectangle()
+                                RoundedRectangle(cornerRadius: corner + gap, style: .continuous)
+                                    .frame(width: cover.width + gap * 2, height: cover.height + gap * 2)
+                                    .position(x: cover.midX, y: cover.midY)
+                                    .opacity(coverRing)
+                                    .blendMode(.destinationOut)
+                                if i == 0 && covers.count > 1 {
+                                    let front = pose(1)
+                                    RoundedRectangle(cornerRadius: corner + gap, style: .continuous)
+                                        .frame(width: front.side + gap * 2, height: front.side + gap * 2)
+                                        .rotationEffect(.degrees(front.degrees))
+                                        .position(front.center)
+                                        .blendMode(.destinationOut)
+                                }
+                            }
+                            .compositingGroup()
+                        }
+                        .opacity(min(1, open * 1.4))
+                }
+            }
+            .frame(width: w, height: height, alignment: .topLeading)
+            // Flattened to the stage first: the dots' layer otherwise spans only
+            // the sleeves' unturned squares and cuts their turned corners.
+            .drawingGroup()
+            .dotDissolve(reduceMotion ? 0 : leaving)
+            .opacity(reduceMotion ? 1 - smooth(p, 0, 0.6) : 1)
+            .allowsHitTesting(false)
+            .onAppear {
+                guard !sleevesOpen else { return }
+                // A beat after the page, on Yoin's spatial spring.
+                withAnimation(Yoin.spatial.delay(0.05)) { sleevesOpen = true }
             }
         }
-        // Laid out on the band, drawn past it: the front V's lip dips below
-        // the band, as on Android (only the Box under the header clips).
-        .frame(width: w, height: band * 1.6)
-        .offset(y: headerContent)
-        .frame(width: w, height: headerContent + band * 1.6, alignment: .topLeading)
-        .mask(alignment: .top) { Rectangle().padding(.top, headerContent) }
-        .allowsHitTesting(false)
+    }
+
+    /// The covers fanned behind a playlist's own: its songs' album covers in
+    /// playlist order, distinct, none the playlist's cover (which a server
+    /// often takes from the first song), at most two.
+    static func sleeveCovers(_ pl: PlaylistInfo) -> [CoverPalette] {
+        // The same cover at another size is the same cover: compare by key.
+        func same(_ a: CoverPalette, _ b: CoverPalette) -> Bool {
+            if let ka = a.cover?.key, let kb = b.cover?.key { return ka == kb }
+            return a == b
+        }
+        var picked: [CoverPalette] = []
+        for e in pl.entries {
+            let c = e.album.palette
+            if same(c, pl.palette) || picked.contains(where: { same($0, c) }) { continue }
+            picked.append(c)
+            if picked.count == 2 { break }
+        }
+        return picked
     }
 
     /// PlaylistHeroMeta: Length (tracks bodyLarge, duration bodyMedium
@@ -1095,16 +1235,24 @@ struct AlbumDetailView: View {
         let n = AlbumSpectrum.strips
         let slice = side / CGFloat(n)
         let heroX = (w - side) / 2, heroY = headerContent + 28
-        let barH = top + headerContent + bandFade
+        let barH = stripBar ? top + stripExtend + stripFeather : top + headerContent + bandFade
+        // The Strip draws in a frame that starts at the screen's top (`shift`
+        // down by the safe area), so its progressive blur sees every strip.
+        let shift: CGFloat = stripBar ? top : 0
+        let blurR = stripBar ? stripBlur * smooth(p, 0.55, 0.95) : 0
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
                 let q = smooth(p, 0.06 + lag, 0.6 + lag)
                 let flat = smooth(q, 0, 0.55)
                 let x = lerp(heroX + CGFloat(i) * slice, CGFloat(strips[i].slot) * w / CGFloat(n), q)
-                let y = lerp(heroY, -top, q)
-                let sw = lerp(slice, w / CGFloat(n), q) + 1.5
-                let sh = lerp(side, barH, q)
+                let y = lerp(heroY, -top, q) + shift
+                // The Strip overlaps its strips more: its blur would smear any
+                // anti-aliased seam into a light spike.
+                let sw = lerp(slice, w / CGFloat(n), q) + (stripBar ? 6 : 1.5)
+                // The Strip's strips run past the feather's end, so its blur
+                // only ever mixes colors (the mask fades them).
+                let sh = lerp(side, stripBar ? barH + 24 : barH, q)
                 ZStack(alignment: .topLeading) {
                     CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                         .frame(width: side, height: side)
@@ -1124,8 +1272,15 @@ struct AlbumDetailView: View {
                 .offset(x: x, y: y)
             }
         }
-        .frame(width: w, alignment: .topLeading)
-        .mask(alignment: .topLeading) { bandMask(w: w, top: top) }
+        .frame(width: w, height: stripBar ? top + heroY + side + 8 : nil, alignment: .topLeading)
+        // One opaque layer for the blur to read (no per-strip edges).
+        .compositingGroup()
+        // The Strip's progressive blur (51, 2026-11-06): sharp at the top of
+        // the screen, softer down to the end of the feather.
+        .layerEffect(ShaderLibrary.albumStripBlur(.float(max(1, barH)), .float(blurR), .float(w)),
+                     maxSampleOffset: CGSize(width: blurR * 1.5, height: 0), isEnabled: blurR > 0.3)
+        .mask(alignment: .topLeading) { bandMask(w: w, top: top, shift: shift) }
+        .offset(y: -shift)
         .opacity(p > 0.001 ? 1 : 0)
         .allowsHitTesting(false)
     }
@@ -1135,8 +1290,27 @@ struct AlbumDetailView: View {
     /// curve, `albumBandBlur`); it comes in as the list settles, so the strips
     /// in flight are never cut.
     @ViewBuilder
-    private func bandMask(w: CGFloat, top: CGFloat) -> some View {
-        if bandFade > 0 {
+    private func bandMask(w: CGFloat, top: CGFloat, shift: CGFloat = 0) -> some View {
+        if stripBar {
+            // A feather from the screen's top edge (51, 2026-11-06 13:22)
+            // through the safe area, `stripExtend` and `stripFeather`, down
+            // over the header's blur; the strips also blur progressively
+            // (`albumStripBlur`). The strips in flight are taller; only past
+            // the strip it fades.
+            let fade = top + stripExtend + stripFeather
+            let k = smooth(p, 0.55, 0.95)
+            VStack(spacing: 0) {
+                LinearGradient(stops: (0...12).map { i in
+                    let t = CGFloat(i) / 12
+                    let ease = t * t * (3 - 2 * t)
+                    return .init(color: .black.opacity(1 - ease * k), location: t)
+                }, startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+                Rectangle().opacity(1 - k).frame(height: 4000)
+            }
+            .frame(width: w + 40)
+            .offset(x: -20, y: shift - top)
+        } else if bandFade > 0 {
             let k = bandSoft
             VStack(spacing: 0) {
                 Rectangle().frame(height: top + headerContent)
@@ -1149,7 +1323,7 @@ struct AlbumDetailView: View {
                 Rectangle().opacity(1 - k).frame(height: 4000)
             }
             .frame(width: w + 40)
-            .offset(x: -20, y: -top)
+            .offset(x: -20, y: shift - top)
         } else {
             Rectangle().frame(width: w + 40, height: 8000).offset(x: -20, y: -4000)
         }
@@ -1171,6 +1345,20 @@ struct AlbumDetailView: View {
     ///   there; off page 0 the edge swipe is the pager's, see AlbumPopGate).
     /// - Vertical, on page 0: the pull-up (DetailPullUpReshape); pulled up, only
     ///   a pull-down from the list's top. Anything else is the scroll views'.
+    /// Pull-up distance (51, 2026-11-06: the old 0.55 × screen height, ≈ 500 pt
+    /// on an iPhone Air, with the band forming only past half of it, was too
+    /// far). The finger moves the progress over `pullTravel` points and a
+    /// release past `pullSnap` of it (counted from where the drag started)
+    /// settles the other way. Both are Glass Lab sliders.
+    private var pullTravel: CGFloat {
+        let v = GlassLab.shared.extras["albumPullTravel"] ?? 0
+        return v > 0 ? v : 320
+    }
+    private var pullSnap: CGFloat {
+        let v = GlassLab.shared.extras["albumPullSnap"] ?? 0
+        return v > 0 ? v : 0.3
+    }
+
     private func axisPan(width: CGFloat, travel: CGFloat) -> AlbumAxisPan {
         AlbumAxisPan(
             claims: { axis, d in
@@ -1190,9 +1378,16 @@ struct AlbumDetailView: View {
                 case .vertical:
                     if dragBase == nil {
                         pullSpring.stop()
+                        pullLanding = false
                         dragBase = p
+                        pullArmed = nil
+                        AlbumPullHaptics.prepare()
                     }
                     p = min(1, max(0, (dragBase ?? 0) - t.y / travel))
+                    // One beat each time the drag passes the snap point.
+                    let armed = pullWouldExpand
+                    if let was = pullArmed, was != armed { AlbumPullHaptics.armed(expanding: armed) }
+                    pullArmed = armed
                 }
             },
             ended: { axis, v, cancelled in
@@ -1200,10 +1395,15 @@ struct AlbumDetailView: View {
                 case .horizontal:
                     pagerReleased(v.x, cancelled: cancelled, width: width)
                 case .vertical:
-                    guard dragBase != nil else { return }
+                    guard let base = dragBase else { return }
+                    let positional = pullWouldExpand
                     dragBase = nil
                     let velocity = cancelled ? 0 : -v.y / travel
-                    let expand = velocity >= 1.6 ? true : velocity <= -1.6 ? false : p > 0.5
+                    let expand = velocity >= 1.6 ? true : velocity <= -1.6 ? false : positional
+                    // A fling that changes state without crossing the snap
+                    // point gets its beat on release.
+                    if expand != (base > 0.5) && pullArmed != expand { AlbumPullHaptics.armed(expanding: expand) }
+                    pullArmed = nil
                     settlePull(to: expand ? 1 : 0, velocity: velocity)
                 }
             })
@@ -1239,9 +1439,47 @@ struct AlbumDetailView: View {
         }, completion: { pageMoving = false })
     }
 
+    /// The spectrum's bands land one after another (each strip at
+    /// p = 0.6 + its slot's lag, see `spectrum`): a faint tick as each band of
+    /// one color lands, only while the band is forming (p rising), so the
+    /// beats run with the band coming in (51, 2026-11-06).
+    private func bandTicks(from was: CGFloat, to now: CGFloat) {
+        guard topBar != 1 && topBar != 2, now > was, page <= 0.001 else { return }
+        for t in bandLandings where was < t && now >= t {
+            AlbumPullHaptics.band()
+        }
+    }
+
+    /// Where each color band of the spectrum lands, in p.
+    private var bandLandings: [CGFloat] {
+        let strips = AlbumSpectrum.strips(for: album)
+        let n = CGFloat(AlbumSpectrum.strips)
+        let bySlot = strips.sorted { $0.slot < $1.slot }
+        var out: [CGFloat] = []
+        var last: Color?
+        for st in bySlot where st.color != last {
+            last = st.color
+            out.append(0.6 + 0.22 * CGFloat(st.slot) / n)
+        }
+        return out
+    }
+
+    /// Where a release here would settle, by position alone: past `pullSnap`
+    /// of the travel from where the drag started.
+    private var pullWouldExpand: Bool {
+        (dragBase ?? 0) > 0.5 ? p > 1 - pullSnap : p > pullSnap
+    }
+
     private func settlePull(to target: CGFloat, velocity: CGFloat) {
+        // The band lands once (the spring's first touch of the top, not every
+        // frame of its settle), and only when it is forming, not already formed.
+        pullLanding = target >= 1 && p < 0.98
         pullSpring.run(from: p, to: target, velocity: velocity) { v in
             p = min(1, max(0, v))
+            if pullLanding && v >= 0.995 {
+                pullLanding = false
+                AlbumPullHaptics.landed()
+            }
         }
     }
 
@@ -1327,4 +1565,32 @@ struct AlbumBandBlur: ViewModifier {
                                  maxSampleOffset: CGSize(width: radius, height: radius), isEnabled: on)
         }
     }
+}
+
+/// The album page's pull-up beats (51, 2026-11-06): a firm one when the drag
+/// passes the point where a release forms the spectrum band, a lighter one
+/// when it passes back (a release folds the band), and a soft one when the
+/// band lands at the top. Folding back down lands silently.
+@MainActor
+enum AlbumPullHaptics {
+    private static let form = UIImpactFeedbackGenerator(style: .medium)
+    private static let fold = UIImpactFeedbackGenerator(style: .light)
+    private static let land = UIImpactFeedbackGenerator(style: .soft)
+
+    static func prepare() {
+        form.prepare()
+        fold.prepare()
+        tick.prepare()
+        land.prepare()
+    }
+
+    static func armed(expanding: Bool) {
+        if expanding { form.impactOccurred(intensity: 0.8) } else { fold.impactOccurred(intensity: 0.6) }
+    }
+
+    static func landed() { land.impactOccurred(intensity: 0.6) }
+
+    /// One band of the spectrum landing: faint, several in a row.
+    static func band() { tick.impactOccurred(intensity: 0.35) }
+    private static let tick = UIImpactFeedbackGenerator(style: .rigid)
 }
