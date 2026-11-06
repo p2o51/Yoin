@@ -25,6 +25,8 @@ final class MemoryBubbleController {
     /// What it is saying, picked as it starts: kept while it tucks away.
     private(set) var say: HomeMemoryPill.Latest?
     private(set) var saidNotesOnly = false
+    /// Or a tip (Android `BubbleSay.Tip`): then there is no memory line.
+    private(set) var sayTip: Tip?
 
     /// Home can be read right now (the overlay keeps it current; its timers read it here).
     @ObservationIgnored var canSpeak = false
@@ -45,7 +47,14 @@ final class MemoryBubbleController {
     @ObservationIgnored private var lastTouch = Date()
     @ObservationIgnored let seen: MemoryBubbleSeenStore
 
-    init(seen: MemoryBubbleSeenStore = .shared) { self.seen = seen }
+    @ObservationIgnored let tips: TipReadStore
+    /// Memories and tips take turns while there are memories to recall (Android `idleTurns`).
+    @ObservationIgnored private var idleTurns = 0
+
+    init(seen: MemoryBubbleSeenStore = .shared, tips: TipReadStore = .shared) {
+        self.seen = seen
+        self.tips = tips
+    }
 
     var speaking: Bool { turn.reason != nil }
 
@@ -67,10 +76,19 @@ final class MemoryBubbleController {
     func cue(_ what: BubbleCue, pill: HomeMemoryPill?) {
         let next = turn.after(what)
         if let starts = next.reason, starts != turn.reason {
-            guard let pill, pill.hasSomethingToSay else { return }
-            let t = starts == .idle && !pill.recall.isEmpty ? seen.nextRecallTurn(pill.scope) : 0
-            say = HomeMemories.subject(pill, reason: starts, turn: t)
-            saidNotesOnly = say == nil
+            // Nothing left to say (every tip read, no memory): it stays quiet.
+            guard let line = nextSay(starts, pill: pill) else { return }
+            switch line {
+            case .memory:
+                let t = starts == .idle && pill?.recall.isEmpty == false ? seen.nextRecallTurn(pill?.scope ?? "") : 0
+                say = HomeMemories.subject(pill, reason: starts, turn: t)
+                saidNotesOnly = say == nil
+                sayTip = nil
+            case .tip(let tip):
+                say = nil
+                saidNotesOnly = false
+                sayTip = tip
+            }
         }
         let was = speaking
         turn = next
@@ -79,6 +97,17 @@ final class MemoryBubbleController {
             if !speaking { lastTouch = Date() }
             settle(speaking: speaking)
         }
+    }
+
+    /// What it starts to say: news is a memory; idle, memories and unread tips in turn (Android `nextIdleSay`).
+    private func nextSay(_ reason: BubbleReason, pill: HomeMemoryPill?) -> BubbleSay? {
+        if reason == .news { return pill?.hasSomethingToSay == true ? .memory : nil }
+        let unread = tips.unread
+        let hasMemory = pill?.hasSomethingToSay == true
+        let memory = (BubbleSayPlan.isMemoryTurn(idleTurns) || unread.isEmpty) && hasMemory
+        idleTurns += 1
+        let tipTurn = memory || unread.isEmpty ? 0 : seen.nextTipTurn()
+        return BubbleSayPlan.idle(hasMemory: hasMemory, sayMemory: memory, tipTurn: tipTurn, unread: unread)
     }
 
     func touched(pill: HomeMemoryPill?) {
@@ -201,7 +230,7 @@ struct MemoryBubbleOverlay: View {
         // "不动就出现": quiet, readable and untouched for a fresh 4–5 s pick, it speaks.
         .task(id: pill?.scope ?? "") { await idleLoop() }
         // Said in full, it holds, then flies home on its own.
-        .task(id: "\(bubble.turn.reason.map { "\($0)" } ?? "-")#\(bubble.say?.albumId ?? "")") { await dwell() }
+        .task(id: "\(bubble.turn.reason.map { "\($0)" } ?? "-")#\(bubble.say?.albumId ?? bubble.sayTip?.id ?? "")") { await dwell() }
         .onChange(of: pill, initial: true) { _, p in bubble.pill = p }
         .onChange(of: canSpeak, initial: true) { _, can in
             bubble.canSpeak = can
@@ -253,7 +282,7 @@ struct MemoryBubbleOverlay: View {
         let dark = CoverScheme.brand(dark: true)
         let grown = cutout.grown(pageWidth: size.width)
         return IslandBubbleLayer(cutout: cutout, t: bubble.islandT, size: size, reduceMotion: reduceMotion) { room in
-            BubbleLine(latest: bubble.say, notesOnly: bubble.saidNotesOnly, scheme: dark, room: room)
+            BubbleLine(latest: bubble.say, tip: bubble.sayTip, notesOnly: bubble.saidNotesOnly, scheme: dark, room: room)
                 .frame(width: room, alignment: .leading)
         } mark: {
             BubbleMark(markIn: bubble.markIn, scheme: dark)
@@ -268,7 +297,7 @@ struct MemoryBubbleOverlay: View {
                     .onTapGesture { tapBubble() }
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.bubbleFrame = $0 }
                     .onDisappear { bubble.bubbleFrame = .zero }
-                    .accessibilityLabel(bubble.say.map { "Latest memory: \($0.albumName)" } ?? "Memories")
+                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? "Memories")
                     .accessibilityAddTraits(.isButton)
             }
         }
@@ -397,7 +426,7 @@ struct MemoryBubbleOverlay: View {
                 gc.fill(BubbleOutline(body: body, radius: body.height / 2, tailX: nil).path(in: .zero), with: .color(fill))
             }
             .frame(width: size.width, height: size.height)
-            BubbleLine(latest: bubble.say, notesOnly: bubble.saidNotesOnly, scheme: scheme,
+            BubbleLine(latest: bubble.say, tip: bubble.sayTip, notesOnly: bubble.saidNotesOnly, scheme: scheme,
                        room: max(0, g.body.width - BubbleMetrics.coverInset - BubbleMetrics.trail))
                 .frame(width: max(0, g.body.width - BubbleMetrics.coverInset - BubbleMetrics.trail), alignment: .leading)
                 .frame(height: g.body.height)
@@ -429,7 +458,7 @@ struct MemoryBubbleOverlay: View {
                     .onTapGesture { tapBubble() }
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.bubbleFrame = $0 }
                     .onDisappear { bubble.bubbleFrame = .zero }
-                    .accessibilityLabel(bubble.say.map { "Latest memory: \($0.albumName)" } ?? "Memories")
+                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? "Memories")
                     .accessibilityAddTraits(.isButton)
             }
         }
@@ -437,6 +466,13 @@ struct MemoryBubbleOverlay: View {
 
     private func tapBubble() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        // A tip opens Settings › About › Tips on it, and is read from then on (Android TipActivity).
+        if let tip = bubble.sayTip {
+            bubble.cue(.touch, pill: pill)
+            bubble.tips.setRead(tip, true)
+            model.open(.tips(focus: tip.id))
+            return
+        }
         let focus = bubble.say?.albumId ?? pill?.latest?.albumId
         bubble.cue(.touch, pill: pill)
         memories.open(focus: focus)
@@ -447,13 +483,22 @@ struct MemoryBubbleOverlay: View {
 /// written, and its own title over the album (Android BubbleMemoryLine).
 private struct BubbleLine: View {
     var latest: HomeMemoryPill.Latest?
+    /// A tip instead of a memory: its symbol in a round tile where the cover sits, and its title.
+    var tip: Tip?
     var notesOnly: Bool
     var scheme: CoverScheme
     var room: CGFloat
 
     var body: some View {
         HStack(spacing: BubbleMetrics.coverTitleGap) {
-            if let latest {
+            if let tip {
+                YoinIcon(tip.icon, size: 22)
+                    .foregroundStyle(scheme.onSecondaryContainer)
+                    .frame(width: BubbleMetrics.coverSize, height: BubbleMetrics.coverSize)
+                    .background(scheme.secondaryContainer, in: .circle)
+                Text(tip.title).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(scheme.onSurface)
+                    .lineLimit(1)
+            } else if let latest {
                 CoverArt(palette: latest.album.palette, cornerRadius: Tokens.shape.THUMB.cg, seed: latest.album.seed)
                     .frame(width: BubbleMetrics.coverSize, height: BubbleMetrics.coverSize)
                 let wide = room - BubbleMetrics.coverSize - BubbleMetrics.coverTitleGap >= BubbleMetrics.saysMoreFrom

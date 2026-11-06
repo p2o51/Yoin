@@ -352,8 +352,12 @@ final class MemoryBubbleSeenStore {
     func markSeen(_ scope: String, _ key: String) { defaults.set(key, forKey: "memoryBubbleSeen:\(scope)") }
 
     /// 0, 1, 2… one more each time it is asked.
-    func nextRecallTurn(_ scope: String) -> Int {
-        let k = "memoryBubbleRecall:\(scope)"
+    func nextRecallTurn(_ scope: String) -> Int { nextTurn("memoryBubbleRecall:\(scope)") }
+
+    /// Which tip comes next: 0, 1, 2… one more each time it is asked (Android `nextTipTurn`).
+    func nextTipTurn() -> Int { nextTurn("memoryBubbleTipTurn") }
+
+    private func nextTurn(_ k: String) -> Int {
         let turn = defaults.integer(forKey: k)
         defaults.set(turn == Int.max ? 0 : turn + 1, forKey: k)
         return turn
