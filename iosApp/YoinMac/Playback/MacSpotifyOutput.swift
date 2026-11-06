@@ -228,6 +228,9 @@ final class MacSpotifyOutput: AudioOutput {
         let isPlaying: Bool?
         let progressMs: Int?
         let item: ItemDTO?
+        let shuffleState: Bool?
+        /// "off", "track" or "context".
+        let repeatState: String?
     }
 
     /// Reads where Spotify is every second, for the device Yoin owns: the clock, a pause or play made in
@@ -296,6 +299,24 @@ final class MacSpotifyOutput: AudioOutput {
                         return
                     }
                     if let progress, isPlaying { furthest = max(furthest, progress) }
+                    // Shuffle / repeat turned on in Spotify itself: the engine takes them (Yoin owns the play
+                    // modes, as on iOS) and Spotify's own go off again.
+                    if !quiet {
+                        let repeatMode: RepeatMode? = switch now.repeatState {
+                        case "track": .one
+                        case "context": .all
+                        default: nil
+                        }
+                        let shuffle = now.shuffleState == true
+                        if shuffle || repeatMode != nil {
+                            self.quietUntil = Date().addingTimeInterval(2.5)
+                            Task {
+                                try? await owner.source.api.send("PUT", "me/player/shuffle", ["state": "false", "device_id": owner.device])
+                                try? await owner.source.api.send("PUT", "me/player/repeat", ["state": "off", "device_id": owner.device])
+                            }
+                            self.events?.outputPlayModesDidChangeExternally(shuffle: shuffle ? true : nil, repeatMode: repeatMode)
+                        }
+                    }
                     // Paused or played in Spotify itself.
                     if !quiet, isPlaying != self.playing {
                         self.playing = isPlaying

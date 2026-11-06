@@ -119,8 +119,13 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     /// [body] as [profileId]'s account: the stores read and write its rows, whichever account is in use.
     @MainActor
     private func reading<T>(_ profileId: String, _ body: () -> T) -> T {
-        AccountScope.shared.reading(asSubsonic: subsonicAccount(profileId)?.scope,
-                                    asSpotify: spotifyAccount(profileId)?.scope, body)
+        // A profile that can't be resolved here (gone, or its sign-in unreadable) never borrows the account in
+        // use: its rows go to (and are read from) a scope no account has, instead of landing in another's.
+        let known = profileId == Self.appleMusicProfileId || subsonicAccount(profileId) != nil
+            || spotifyAccount(profileId) != nil
+        let nowhere = known ? nil : "unresolved|\(profileId)"
+        return AccountScope.shared.reading(asSubsonic: subsonicAccount(profileId)?.scope ?? nowhere,
+                                           asSpotify: spotifyAccount(profileId)?.scope ?? nowhere, body)
     }
 
     /// Kotlin calls in on the main thread (Dispatchers.Main); Kotlin values aren't Sendable, so the

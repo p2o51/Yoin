@@ -35,6 +35,8 @@ final class MacSession {
         var account: Account?
         /// Spotify: the account's name as Spotify shows it (its tokens are their own Keychain item).
         var name: String? = nil
+        /// Spotify: the user id (its sync identity), kept here so an unreadable sign-in still counts.
+        var spotifyUserId: String? = nil
 
         var title: String {
             switch service {
@@ -114,7 +116,8 @@ final class MacSession {
         let spotify = profiles.compactMap { p -> SyncDomainBridge.Accounts.Spotify? in
             guard p.service == .spotify else { return nil }
             let tokens = SpotifyTokenStore.load(p.id)
-            guard let user = tokens?.userId, !user.isEmpty else { return nil }
+            // The profile's own record first: an unreadable sign-in stays listed (sync asks to reconnect).
+            guard let user = p.spotifyUserId ?? tokens?.userId, !user.isEmpty else { return nil }
             return .init(profileId: p.id, userId: user, displayName: p.title, createdAt: Self.createdAt(p.id),
                          credentialsReadable: tokens != nil)
         }
@@ -147,9 +150,10 @@ final class MacSession {
         let existing = profiles.first { p in
             p.service == .spotify && SpotifyTokenStore.load(p.id)?.userId == tokens.userId
         }
-        let p = existing ?? Profile(id: UUID().uuidString, service: .spotify, account: nil, name: tokens.displayName)
+        var p = existing ?? Profile(id: UUID().uuidString, service: .spotify, account: nil, name: tokens.displayName)
+        p.spotifyUserId = tokens.userId
         _ = SpotifyTokenStore.save(tokens, for: p.id)
-        if !profiles.contains(where: { $0.id == p.id }) { profiles.append(p) }
+        if let i = profiles.firstIndex(where: { $0.id == p.id }) { profiles[i] = p } else { profiles.append(p) }
         activeId = p.id
         persist()
         activate(p)
@@ -185,6 +189,10 @@ final class MacSession {
             if let a = p.account { restore(a) }
         case .spotify:
             guard let tokens = SpotifyTokenStore.load(p.id) else { state = .failed("Sign in to Spotify again"); return }
+            if p.spotifyUserId == nil, let i = profiles.firstIndex(where: { $0.id == p.id }) {
+                profiles[i].spotifyUserId = tokens.userId
+                persist()
+            }
             AccountScope.shared.spotify = AccountScope.spotifyScope(userId: tokens.userId)
             spotify = Self.spotifySource(profileId: p.id, tokens: tokens) { [weak self] in
                 Task { @MainActor in self?.state = .failed("Spotify signed you out. Sign in again") }
