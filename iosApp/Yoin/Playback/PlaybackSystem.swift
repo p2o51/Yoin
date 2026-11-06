@@ -72,10 +72,7 @@ final class PlaybackSystem {
             // screen itself: an active non-mixable session of ours would
             // interrupt it, and our commands would double its own.
             removeRemoteCommands()
-            if sessionActive {
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-                sessionActive = false
-            }
+            if sessionActive { deactivateSession() }
             return
         }
         installRemoteCommands()
@@ -87,6 +84,23 @@ final class PlaybackSystem {
             sessionActive = true
         } catch {
             Self.log.error("audio session: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Lets the session go for a source that plays outside it. The local player stopped a moment ago
+    /// and may still be running its I/O, which makes the first try fail: it is tried again shortly.
+    private func deactivateSession(retry: Bool = true) {
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            sessionActive = false
+        } catch {
+            Self.log.info("audio session release: \(error.localizedDescription, privacy: .public)")
+            guard retry else { return }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self, self.isAppleMusic, self.sessionActive else { return }
+                self.deactivateSession(retry: false)
+            }
         }
     }
 
@@ -128,6 +142,10 @@ final class PlaybackSystem {
         switch type {
         case .began:
             sessionActive = false
+            // Apple Music and the Spotify app play outside our session: its interruption is their
+            // own sound starting (Spotify woken on a song), not something to pause for. Pausing here
+            // stopped a Spotify start a moment after it began.
+            if isAppleMusic { return }
             if engine.isPlaying {
                 pausedByInterruption = true
                 engine.pause()
