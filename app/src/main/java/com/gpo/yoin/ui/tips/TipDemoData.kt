@@ -9,9 +9,11 @@ import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.home.HomeWidgetCard
 import com.gpo.yoin.ui.home.HomeWidgetTarget
+import com.gpo.yoin.ui.settings.ProfileCard
 
 /*
  * The demo phone's library: made-up albums with made-up covers (the
@@ -111,3 +113,31 @@ internal fun demoLibraryAlbums(): List<Album> {
 internal val DemoLibraryArtists: List<Artist> = DemoAlbums.map { it.artist }.distinct().map { name ->
     Artist(id = MediaId.subsonic("tip-artist-$name"), name = name, albumCount = 2, coverArt = null)
 }
+
+/** Made-up accounts for the account switcher's demo: one per service, each its own avatar shape. */
+internal val DemoAccounts = listOf(
+    ProfileCard(
+        id = "demo-a",
+        displayName = "Mira",
+        subtitle = "music.home",
+        provider = ProviderKind.SUBSONIC,
+        isActive = true,
+        avatarShape = 0,
+    ),
+    ProfileCard(
+        id = "demo-b",
+        displayName = "Okto",
+        subtitle = null,
+        provider = ProviderKind.SPOTIFY,
+        isActive = false,
+        avatarShape = 1,
+    ),
+    ProfileCard(
+        id = "demo-c",
+        displayName = "Halden",
+        subtitle = null,
+        provider = ProviderKind.APPLE_MUSIC,
+        isActive = false,
+        avatarShape = 2,
+    ),
+)

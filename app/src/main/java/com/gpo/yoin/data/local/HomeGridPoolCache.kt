@@ -34,6 +34,8 @@ data class HomeGridPoolCache(
     val durationSec: Int?,
     val sortOrder: Int,
     val cachedAt: Long = System.currentTimeMillis(),
+    // Album rows only: the release's version ("全景声"), shown as a tag on the card.
+    val version: String? = null,
 ) {
     companion object {
         const val TYPE_ALBUM = "album"
@@ -52,6 +54,7 @@ internal fun HomeGridPoolCache.toAlbum(): Album = Album(
     durationSec = null,
     year = null,
     genre = null,
+    version = version,
 )
 
 internal fun HomeGridPoolCache.toTrack(): Track = Track(
@@ -94,6 +97,7 @@ internal fun Album.toGridPoolRow(
     durationSec = null,
     sortOrder = sortOrder,
     cachedAt = cachedAt,
+    version = version,
 )
 
 internal fun Track.toGridPoolRow(

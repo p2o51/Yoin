@@ -36,6 +36,8 @@ fun AlbumCard(
     title: String,
     subtitle: String? = null,
     metaLabel: String? = null,
+    // The album's version, shown as a tag after the title (AlbumVersionTitle).
+    version: String? = null,
     onClick: () -> Unit,
     extractBackdropColors: Boolean = true,
     modifier: Modifier = Modifier,
@@ -103,12 +105,19 @@ fun AlbumCard(
             }
             // One line only — overflow scrolls (marquee) instead of wrapping,
             // so long titles never make one card taller than its row.
-            MarqueeText(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
+            AlbumVersionTitle(
+                name = title,
+                version = version,
+                titleStyle = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.fillMaxWidth().seamFade(),
-            )
+            ) { text, titleModifier ->
+                MarqueeText(
+                    text = text,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = titleModifier,
+                )
+            }
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,

@@ -62,6 +62,7 @@ import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.component.AlbumVersionTitle
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -1154,13 +1155,20 @@ private fun ArtistReleaseRow(
                 .seamFade(),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                text = album.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            AlbumVersionTitle(
+                name = album.name,
+                version = album.version,
+                titleStyle = MaterialTheme.typography.titleMedium,
+            ) { text, titleModifier ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = titleModifier,
+                )
+            }
             ReleaseMetaLine(album = album, isLatest = isLatest)
         }
     }

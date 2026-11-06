@@ -151,6 +151,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_31_32,
                 MIGRATION_32_33,
                 MIGRATION_33_34,
+                MIGRATION_34_35,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -912,6 +913,13 @@ class AppContainer(private val context: Context) {
         val MIGRATION_33_34 = object : Migration(33, 34) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `playlist_backups` ADD COLUMN `sourceAccount` TEXT")
+            }
+        }
+
+        // The Jump Back In album cards keep the release's version ("全景声") for its tag.
+        val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `home_grid_pool_cache` ADD COLUMN `version` TEXT")
             }
         }
 
