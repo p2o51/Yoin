@@ -136,6 +136,8 @@ struct ServerSettingsView: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)),
+             // Android Settings › About › Tips.
+             AnyView(TipsEntryRow(app: app)),
              AnyView(NavigationLink { OpenSourceLicensesView() } label: {
                 HStack {
                     Text("Open source licenses")

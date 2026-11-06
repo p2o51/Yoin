@@ -59,6 +59,8 @@ struct PhoneShell: View {
                                 .task(id: "\(model.store.generation)|\(id)") { await model.store.loadPlaylist(id) }
                         case .settings:
                             ServerSettingsView()
+                        case .tips(let focus):
+                            TipsView(focus: focus)
                         }
                     }
             }

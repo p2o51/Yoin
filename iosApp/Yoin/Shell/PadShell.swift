@@ -227,6 +227,8 @@ private struct PadColumns: View {
                 .task(id: "\(model.store.generation)|\(id)") { await model.store.loadPlaylist(id) }
         case .settings:
             ServerSettingsView()
+        case .tips(let focus):
+            TipsView(focus: focus)
         }
     }
 }
@@ -245,7 +247,7 @@ private struct PadDetailPlay: View {
         case .album(let a): return a
         case .artist(let ref): return model.artistPage(ref).releases.first
         case .playlist(let id): return model.playlistInfo(id).asAlbum
-        case .settings: return nil
+        case .settings, .tips: return nil
         case nil: return root
         }
     }

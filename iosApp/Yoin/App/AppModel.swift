@@ -8,6 +8,8 @@ enum Route: Hashable {
     case playlist(String)
     /// Server sign-in (from the account avatar).
     case settings
+    /// Settings › About › Tips, optionally on one tip (Home's bubble opens it).
+    case tips(focus: String?)
 }
 
 enum ShellSection: Hashable {
@@ -407,7 +409,7 @@ final class AppModel {
         case .album(let a): return a
         case .artist(let ref): return artistPage(ref).releases.first
         case .playlist(let id): return playlistInfo(id).asAlbum
-        case .settings, nil: return nil
+        case .settings, .tips, nil: return nil
         }
     }
 
@@ -627,7 +629,7 @@ final class AppModel {
             }
             if out.isEmpty { return page.mostPlayed }
             return Array(out.prefix(limit))
-        case .settings, nil:
+        case .settings, .tips, nil:
             return []
         }
     }
