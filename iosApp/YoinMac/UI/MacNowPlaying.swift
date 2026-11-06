@@ -257,7 +257,11 @@ struct MacNowPlaying: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(model.player.currentTrack?.artist ?? "").font(.gsf(15)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
             // Spotify playing on another device: where, quietly (never on the cover).
-            if model.player.currentTrack?.provider == SpotifyMapping.provider, let device = model.spotifyDevice {
+            if model.player.currentTrack?.provider == SpotifyMapping.provider, model.player.isBuffering {
+                // Not playing until Spotify says so (Android np_msg_connecting_spotify).
+                Text("Connecting to Spotify…").font(.gsf(12.5)).foregroundStyle(Yoin.ink3).lineLimit(1)
+                    .transition(.opacity)
+            } else if model.player.currentTrack?.provider == SpotifyMapping.provider, let device = model.spotifyDevice {
                 Text("Playing on \(device)").font(.gsf(12.5)).foregroundStyle(Yoin.ink3).lineLimit(1)
             }
             Text(model.player.currentTrack?.title ?? "Not playing")
@@ -271,7 +275,13 @@ struct MacNowPlaying: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Button { p.togglePlayPause() } label: {
-                    Text(p.isPlaying ? "PAUSE" : "PLAY").font(.gsf(22, .bold)).tracking(0.7)
+                    Group {
+                        if p.isBuffering && p.currentTrack?.provider == SpotifyMapping.provider {
+                            ProgressView().controlSize(.regular).tint(tint.onPrimary)
+                        } else {
+                            Text(p.isPlaying ? "PAUSE" : "PLAY").font(.gsf(22, .bold)).tracking(0.7)
+                        }
+                    }
                         .foregroundStyle(tint.onPrimary)
                         .frame(minWidth: 136, minHeight: 64).padding(.horizontal, 10)
                         // macOS glass takes a tint much paler than iOS: the 0.70 primary is laid under
@@ -487,6 +497,7 @@ struct HeartButton: View {
 
     var body: some View {
         let on = model.isLikedCurrent()
+        let pending = model.session.isAppleMusic && (model.player.currentTrack.map { model.library.pendingLibrary.contains($0.id) } ?? false)
         Button { model.toggleLikeCurrent() } label: {
             YoinIcon(on ? "favorite_filled" : "favorite", size: 22)
                 .foregroundStyle(tint.primary)
@@ -495,9 +506,14 @@ struct HeartButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(PressDown())
-        // Apple Music's heart is the library: a song joins it here, it isn't taken out (Android TrackLibraryButton).
-        .disabled(model.session.isAppleMusic && on)
-        .help(model.session.isAppleMusic ? (on ? "In Library" : "Add to Library") : (on ? "Unlike" : "Like"))
+        // Apple Music's heart is the library: a song joins it here, it isn't taken out (Android TrackLibraryButton);
+        // an add Apple hasn't confirmed yet reads pending, and a click checks again.
+        .opacity(pending ? 0.55 : 1)
+        .animation(Yoin.effects, value: pending)
+        .disabled(model.session.isAppleMusic && on && !pending)
+        .help(pending ? "Check library addition"
+              : model.session.isAppleMusic ? (on ? "In Apple Music library" : "Add to Apple Music library")
+              : (on ? "Unlike" : "Like"))
     }
 }
 

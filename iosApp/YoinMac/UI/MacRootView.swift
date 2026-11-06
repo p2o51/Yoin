@@ -97,6 +97,11 @@ struct MacShell: View {
                             .padding(.bottom, 22 + 76 + 12)
                             .frame(width: contentW, height: geo.size.height, alignment: .bottom)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if let n = model.notice {
+                        MacNotice(text: n)
+                            .padding(.bottom, 22 + 76 + 12)
+                            .frame(width: contentW, height: geo.size.height, alignment: .bottom)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     MacBottomBar(wide: wide, showsPill: pill)
                         .frame(width: pill ? min(wide ? 820 : 640, contentW - 48) : nil)
@@ -116,6 +121,13 @@ struct MacShell: View {
                         .frame(width: W, alignment: .trailing)
                         .transition(.move(edge: .trailing))
                         .zIndex(2)
+                }
+                if model.npMode == .full, model.player.failure == nil, let n = model.notice {
+                    MacNotice(text: n)
+                        .padding(.bottom, 28)
+                        .frame(width: W, height: geo.size.height, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(2.5)
                 }
                 // Full Now Playing (and focus in it) says a failure too, with Retry (Android: ConnectError in NP).
                 if model.npMode == .full, let f = model.player.failure {
@@ -240,5 +252,19 @@ private struct SplitHandle: View {
                     }
                     .onEnded { _ in start = nil }
             )
+    }
+}
+
+/// A short word over the bar (a snackbar's place on Android), solid like the failure banner.
+struct MacNotice: View {
+    var text: String
+
+    var body: some View {
+        Text(text).font(.gsf(13.5)).foregroundStyle(Yoin.ink).lineLimit(2)
+            .padding(.horizontal, 18).padding(.vertical, 11)
+            .background(Capsule().fill(Yoin.surfaceContainerHigh))
+            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+            .frame(maxWidth: 520)
+            .allowsHitTesting(false)
     }
 }

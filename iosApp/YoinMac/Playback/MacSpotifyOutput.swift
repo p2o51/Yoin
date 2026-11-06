@@ -154,8 +154,22 @@ final class MacSpotifyOutput: AudioOutput {
         quietUntil = Date().addingTimeInterval(2.5)
         var q = query
         q["device_id"] = o.device
-        Task { try? await o.source.api.send(method, path, q) }
+        Task { [weak self] in
+            do {
+                try await o.source.api.send(method, path, q)
+            } catch {
+                // Refused (device gone, no Premium, rate limit): say so, and read where Spotify really is.
+                guard let self, self.source() === o.source else { return }
+                Self.log.error("command \(path, privacy: .public): \(SpotifySource.message(for: error), privacy: .public)")
+                self.onCommandFailed(SpotifySource.message(for: error))
+                self.quietUntil = .distantPast
+                self.look()
+            }
+        }
     }
+
+    /// A pause, play, seek or skip Spotify refused (its reason).
+    var onCommandFailed: (String) -> Void = { _ in }
 
     // MARK: Starting
 
@@ -201,6 +215,24 @@ final class MacSpotifyOutput: AudioOutput {
                     return
                 }
                 owned = (s, id)
+                // Confirmed only once Spotify reports this song on that device (Android / design.md 起播确认):
+                // until then the start stays buffering — no PAUSE, nothing counted. Spotify may relink the song
+                // to another market's id: after the wait, anything playing there counts; nothing playing fails.
+                var confirmed = false
+                var playingThere = false
+                for _ in 0..<12 {
+                    try? await Task.sleep(for: .milliseconds(700))
+                    guard gen == generation else { return }
+                    guard let now = try? await s.playerNow(), now.deviceId == id else { continue }
+                    playingThere = now.isPlaying
+                    if now.trackURI == item.uri { confirmed = true; break }
+                }
+                guard gen == generation else { return }
+                guard confirmed || playingThere else {
+                    Self.log.error("start not confirmed on …\(id.suffix(4), privacy: .public)")
+                    fail("Couldn't start playback.", gen: gen)
+                    return
+                }
                 startedAt = Date()
                 startedOn = name
                 quietUntil = Date().addingTimeInterval(2.5)

@@ -115,6 +115,7 @@ final class MacLibrary {
         artistPages = [:]
         phases = [:]
         starredOverride = [:]
+        pendingLibrary = []
         savedAlbums = [:]
         detailWrites = []
         detailErrors = [:]
@@ -941,17 +942,20 @@ final class MacLibrary {
         if let apple {
             // Apple Music's heart is "in your library": it can be added, not taken out. The add is only
             // accepted at first; the heart stays on while Apple confirms, and goes back if it doesn't.
+            // Pending (Android LibraryMembership.Pending): a tap on a heart still waiting checks again, without a
+            // second add.
+            if pendingLibrary.contains(songId) {
+                chain(key) { await self.confirmLibraryAdd(songId, apple: apple, gen: gen) }
+                return
+            }
             guard !isStarred(songId: songId, fallback: current) else { return }
             starredOverride[key] = true
             chain(key) {
                 do {
                     try await apple.addToLibrary(songId)
-                    try? await Task.sleep(for: .seconds(3))
                     guard gen == self.generation else { return }
-                    let found = await apple.isInLibrary(songId)
-                    guard gen == self.generation else { return }
-                    if let found { self.inLibrary[songId] = found }
-                    if found != true { self.starredOverride[key] = nil }
+                    self.pendingLibrary.insert(songId)
+                    await self.confirmLibraryAdd(songId, apple: apple, gen: gen)
                 } catch {
                     guard gen == self.generation, self.starOps[key] == op else { return }
                     self.starredOverride[key] = nil
@@ -975,6 +979,25 @@ final class MacLibrary {
             }
         }
     }
+    /// Apple Music songs whose add was accepted but isn't in the library yet: the heart stays on, marked
+    /// pending, until Apple confirms (Android AppleMusicSource.addToLibrary's polling).
+    private(set) var pendingLibrary: Set<String> = []
+
+    private func confirmLibraryAdd(_ songId: String, apple: AppleMusicSource, gen: Int) async {
+        for wait in [0.5, 1, 2, 4] {
+            try? await Task.sleep(for: .seconds(wait))
+            guard gen == generation else { return }
+            // A failed check can't turn an accepted add into a failure: it stays pending.
+            guard let found = await apple.isInLibrary(songId) else { continue }
+            guard gen == generation else { return }
+            if found {
+                inLibrary[songId] = true
+                pendingLibrary.remove(songId)
+                return
+            }
+        }
+    }
+
     @ObservationIgnored private var starOps: [String: Int] = [:]
     @ObservationIgnored private var starChains: [String: Task<Void, Never>] = [:]
 

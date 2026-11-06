@@ -65,6 +65,19 @@ final class MacModel {
     /// The services picked in the welcome guide, still to connect, in order (Android LandingScreen.kt:545):
     /// the sign-in page takes them one at a time; Skip or a connection moves on to the next.
     var connectQueue: [LandingService] = []
+    /// A short word over the bar (a Spotify command that didn't go through); it goes after a few seconds.
+    private(set) var notice: String?
+    @ObservationIgnored private var noticeHide: Task<Void, Never>?
+
+    func showNotice(_ text: String) {
+        withAnimation(Yoin.effects) { notice = text }
+        noticeHide?.cancel()
+        noticeHide = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(Yoin.effects) { self.notice = nil }
+        }
+    }
     private(set) var connectTotal = 0
 
     func startConnecting(_ picked: Set<LandingService>) {
@@ -176,6 +189,7 @@ final class MacModel {
         spotifyOutput.onDevice = { [weak self] name in self?.spotifyDevice = name }
         // Mirroring a Spotify song Yoin didn't start: Spotify's own modes and Up Next.
         spotifyOutput.onModes = { [weak self] shuffle, rep in self?.spotifyModes = (shuffle, rep) }
+        spotifyOutput.onCommandFailed = { [weak self] message in self?.showNotice(message) }
         spotifyOutput.onQueue = { [weak self] q in self?.spotifyQueue = q }
         spotifyOutput.onMirrorTick = { [weak self] t, sec, playing in self?.mirrorTick(t, sec, playing) }
         // Spotify gets the queue's next songs with a start, and asks the engine on when they part ways.
