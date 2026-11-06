@@ -545,8 +545,10 @@ final class PlayerEngine {
         announceIfNeeded()
         scrobble.listenedSec += delta
         let duration = progress.durationSec > 0 ? progress.durationSec : track.durationSec
-        guard !scrobble.submitted, duration > Self.scrobbleMinTrackSec else { return }
-        if scrobble.listenedSec >= min(duration / 2, Self.scrobbleMaxListenSec) {
+        // A length still unknown counts after four minutes heard (Android ScrobbleTracker.kt:24).
+        guard !scrobble.submitted, duration <= 0 || duration > Self.scrobbleMinTrackSec else { return }
+        let needed = duration > 0 ? min(duration / 2, Self.scrobbleMaxListenSec) : Self.scrobbleMaxListenSec
+        if scrobble.listenedSec >= needed {
             scrobble.submitted = true
             onScrobble?(track, true, scrobble.listenedSec)
         }

@@ -471,7 +471,9 @@ struct HeartButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(PressDown())
-        .help(on ? "Unlike" : "Like")
+        // Apple Music's heart is the library: a song joins it here, it isn't taken out (Android TrackLibraryButton).
+        .disabled(model.session.isAppleMusic && on)
+        .help(model.session.isAppleMusic ? (on ? "In Library" : "Add to Library") : (on ? "Unlike" : "Like"))
     }
 }
 
@@ -1361,6 +1363,7 @@ private struct MacLyricsSearch: View {
     @State private var sections: [ProviderSection] = []
     @State private var busy = false
     @State private var applying: String?
+    @State private var applyFailed = false
     /// The song the search is for: a pick lands on it only.
     @State private var forSong: String?
 
@@ -1372,6 +1375,10 @@ private struct MacLyricsSearch: View {
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Yoin.surfaceContainerHigh))
                 .onSubmit(run)
             if busy { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
+            // A pick that didn't load (Android np_msg_couldnt_apply): the search stays open.
+            if applyFailed {
+                Text("Couldn't apply lyrics").font(.gsf(12.5)).foregroundStyle(.red).transition(.opacity)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(sections, id: \.providerName) { s in
@@ -1434,11 +1441,12 @@ private struct MacLyricsSearch: View {
 
     private func pick(_ c: LyricsCandidate) {
         applying = c.providerName + c.songId
+        withAnimation(Yoin.effects) { applyFailed = false }
         Task {
             guard let song = forSong else { applying = nil; return }
             let ok = await model.lyrics.choose(c, for: song)
             applying = nil
-            if ok { open = false }
+            if ok { open = false } else { withAnimation(Yoin.effects) { applyFailed = true } }
         }
     }
 }

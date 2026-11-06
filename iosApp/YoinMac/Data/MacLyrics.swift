@@ -237,7 +237,7 @@ final class MacLyrics {
             for (k, v) in r.translations { map[k.intValue] = v }
             let (s, credits) = Self.lines(r.lyrics, source: r.providerName, translations: map)
             let from = Origin(provider: r.providerName, songId: r.providerSongId)
-            if r.providerName == origin?.provider {
+            if from == origin {
                 apply(s, credits, from, for: id, keep: false)
             } else {
                 // Another source's lyrics and timing: offered, never swapped in unasked (Android / iOS ask too).

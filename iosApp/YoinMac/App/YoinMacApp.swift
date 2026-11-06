@@ -75,9 +75,10 @@ struct MacCommands: Commands {
                 Button("Off") { p.setRepeat(.off) }
             }
             Divider()
-            Button(model.isLikedCurrent() ? "Unlike" : "Like") { model.toggleLikeCurrent() }
+            Button(model.session.isAppleMusic ? (model.isLikedCurrent() ? "In Library" : "Add to Library")
+                   : (model.isLikedCurrent() ? "Unlike" : "Like")) { model.toggleLikeCurrent() }
                 .keyboardShortcut("d", modifiers: .command)
-                .disabled(p.currentTrack == nil)
+                .disabled(p.currentTrack == nil || (model.session.isAppleMusic && model.isLikedCurrent()))
             Divider()
             Button("Now Playing") { model.toggleNowPlaying() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])

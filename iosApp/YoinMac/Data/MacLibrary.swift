@@ -919,18 +919,23 @@ final class MacLibrary {
     /// out with the next one, when the network comes back, and when Yoin comes to the front.
     func scrobble(_ track: PlayableTrack, submission: Bool) {
         guard client != nil, track.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
         guard submission else {
+            listeningSince = (track.id, now)
             if let client { Task { try? await client.scrobble(id: track.id, submission: false, timeMs: nil) } }
             return
         }
         let scope = session.accountKey
         guard !scope.isEmpty else { return }
-        ScrobbleOutbox.shared.add(PendingScrobble(scope: scope, songId: track.id,
-                                                  timeMs: Int64(Date().timeIntervalSince1970 * 1000)))
+        // Dated when listening began, as Android (ScrobbleTracker.kt:141), not when it qualified.
+        let began = listeningSince.flatMap { $0.song == track.id ? $0.at : nil } ?? now
+        ScrobbleOutbox.shared.add(PendingScrobble(scope: scope, songId: track.id, timeMs: began))
         flushScrobbles()
     }
 
     @ObservationIgnored private var flushingScrobbles = false
+    /// The song announced last and when its listening began.
+    @ObservationIgnored private var listeningSince: (song: String, at: Int64)?
 
     /// Sends the account in use's waiting plays, oldest first; the account is fixed for the whole flush.
     func flushScrobbles() {
