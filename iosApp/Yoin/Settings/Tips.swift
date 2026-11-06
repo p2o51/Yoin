@@ -30,6 +30,12 @@ enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
     /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line).
     static let all: [Tip] = [
+        // Android #162 (owner's wording, 2026-11-06). No person symbol in YoinSymbols yet: the artist one.
+        Tip(id: "AccountQuickSwitch", icon: "artist", updated: "2026-11-06",
+            title: "Switch accounts",
+            text: "Long-press the avatar and slide to switch accounts",
+            titleZhHans: "切换账号",
+            textZhHans: "长按头像并滑动以切换账号"),
         Tip(id: "MiniPlayerMenu", icon: "play_filled", updated: "2026-11-04",
             title: "Mini player options",
             text: "Long-press the mini player in the bar to open Song options",

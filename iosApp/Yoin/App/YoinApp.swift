@@ -68,6 +68,8 @@ struct RootView: View {
             }
         }
         .animation(Yoin.spatial, value: GlassLab.shared.panelOpen)
+        // The header avatar's hold: the other accounts, over everything but the landing (Home/AccountQuickSwitch.swift).
+        .overlay { AccountFanLayer().environment(model).environment(\.glassFlavor, model.glassFlavor) }
         .background(GlassLabGestureInstaller())
         .background(SlowMotionInstaller())
         // The first-run landing / Welcome guide: above the shell (bar included), like Android's

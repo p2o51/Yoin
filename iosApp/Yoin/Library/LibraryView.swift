@@ -291,6 +291,8 @@ struct LibraryView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Account")
             .accessibilityValue(model.profiles.active?.title ?? "")
+            // Hold and slide onto another account (Android #162).
+            .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
         }
         .padding(.horizontal, 16)
         .padding(.top, SearchView.headerTop)

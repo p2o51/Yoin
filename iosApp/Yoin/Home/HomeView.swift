@@ -299,6 +299,8 @@ struct HomeView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Account")
                 .accessibilityValue(model.profiles.active?.title ?? "")
+                // Hold and slide onto another account (Android #162).
+                .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
             }
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { bubble.freeEnd = $0 }
         }

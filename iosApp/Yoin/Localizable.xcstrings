@@ -7309,6 +7309,16 @@
           }
         }
       }
+    },
+    "Switch to %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到 %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
