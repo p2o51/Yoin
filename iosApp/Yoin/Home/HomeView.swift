@@ -823,13 +823,21 @@ struct AlbumItem<Mark: View>: View {
     var body: some View {
         let s = scheme!
         VStack(alignment: .leading, spacing: gap) {
+            let onCover = CoverMarks.onCover(provider: album.id.provider)
             EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: size, stroke: s.primary)
-                .overlay(alignment: .topTrailing) { mark() }
+                .overlay(alignment: .topTrailing) { if onCover { mark() } }
             VStack(alignment: .leading, spacing: 0) {
-                Text(album.title)
-                    .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
-                    .homeLine(titleSize, titleLineHeight)
-                    .foregroundStyle(s.onSurface)
+                HStack(spacing: 2) {
+                    Text(album.title)
+                        .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
+                        .homeLine(titleSize, titleLineHeight)
+                        .foregroundStyle(s.onSurface)
+                    // A Spotify cover: the mark at the title's end instead (CoverMarks).
+                    if !onCover {
+                        Spacer(minLength: 0)
+                        mark().padding(-8)
+                    }
+                }
                 Text(album.artist)
                     .homeType(artistStyle)
                     .foregroundStyle(s.onSurfaceVariant)
@@ -1031,7 +1039,7 @@ private struct RediscoverCard: View {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed,
                                size: Tokens.home.REDISCOVER_BACKDROP.cg, stroke: s.primary)
                     .overlay(alignment: .bottomTrailing) {
-                        if let score {
+                        if let score, CoverMarks.onCover(provider: album.id.provider) {
                             Text(String(format: "%.1f", score))
                                 .homeType(Tokens.type.labelLarge, .bold, digits: true)
                                 .foregroundStyle(container)
@@ -1042,6 +1050,16 @@ private struct RediscoverCard: View {
                         }
                     }
                 VStack(alignment: .leading, spacing: 0) {
+                    // A Spotify cover: the score heads the text instead (CoverMarks).
+                    if let score, !CoverMarks.onCover(provider: album.id.provider) {
+                        Text(String(format: "%.1f", score))
+                            .homeType(Tokens.type.labelLarge, .bold, digits: true)
+                            .foregroundStyle(container)
+                            .padding(.horizontal, Tokens.home.REDISCOVER_BADGE_PADDING.cg)
+                            .frame(height: Tokens.home.REDISCOVER_BADGE_HEIGHT.cg)
+                            .background(ink, in: .capsule)
+                            .padding(.bottom, 4)
+                    }
                     // A scored card has no reason line; a note card no away line.
                     if !reason.isEmpty { Text(reason).homeType(Tokens.type.labelMedium).foregroundStyle(ink) }
                     if !away.isEmpty { Text(away).homeType(Tokens.type.labelMedium).foregroundStyle(ink) }

@@ -183,3 +183,19 @@ struct RemoteCover: View {
         .task(id: ref.key) { await CoverArtwork.shared.load(ref) }
     }
 }
+
+/// Nothing is drawn over Spotify artwork (51's rule, after Spotify's design guidelines): a stamp sits
+/// beside or under a Spotify cover, a gap clear of it; other providers' covers keep it on the corner.
+enum CoverMarks {
+    static func onCover(provider: String) -> Bool { provider != SpotifyMapping.provider }
+    /// The clear gap between a Spotify cover and the stamp beside it (past the cover's tilt, too).
+    static let gap: CGFloat = 14
+}
+
+extension CoverRef {
+    /// Served by Spotify's image hosts (i.scdn.co, mosaic.scdn.co, *.spotifycdn.com).
+    var isSpotify: Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host.hasSuffix("scdn.co") || host.hasSuffix("spotifycdn.com")
+    }
+}

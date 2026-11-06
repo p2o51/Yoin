@@ -216,6 +216,7 @@ struct MemoryCardFace: View {
 
     private func exhibit(_ tones: MemoryTones) -> some View {
         let cover = metrics.cover, seal = metrics.seal
+        let onCover = CoverMarks.onCover(provider: card.album.id.provider)
         return VStack(spacing: 0) {
             CoverArt(palette: card.album.palette, cornerRadius: 0, seed: card.album.seed)
                 .frame(width: cover, height: cover)
@@ -225,13 +226,14 @@ struct MemoryCardFace: View {
                     // The emblem hangs off the lower-right corner by 0.3 / 0.24 of its size.
                     ScoreEmblem(score: card.score ?? 0, kind: card.emblemKind, rated: card.rated,
                                 palette: card.album.palette, size: seal, award: deck.cardAward(card),
-                                neutrals: scheme, onCover: true)
+                                neutrals: scheme, onCover: onCover)
                         .morphLayer(diary) { p in sealPose(p) }
                         .pageFrame { r in if abs(diary.fraction) < 0.001 { morph.seal = r } }
-                        .padding(.leading, cover - seal * 0.7)
-                        .padding(.top, cover - seal * 0.76)
+                        // A Spotify cover: the stamp under its right edge, clear of it (CoverMarks).
+                        .padding(.leading, onCover ? cover - seal * 0.7 : cover - seal)
+                        .padding(.top, onCover ? cover - seal * 0.76 : cover + CoverMarks.gap)
                 }
-                .padding(.bottom, seal * 0.24)
+                .padding(.bottom, onCover ? seal * 0.24 : seal + CoverMarks.gap)
             title(tones)
                 .padding(.top, metrics.short ? 22 : 30)
             albumRow(tones)
