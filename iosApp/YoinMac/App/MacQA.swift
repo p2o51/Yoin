@@ -51,7 +51,7 @@ enum MacQA {
             switch screen {
             case "library":
                 model.select(.library)
-            case "album", "artist":
+            case "album", "artist", "scrapbook":
                 if let a = albums.first {
                     let full = await model.library.fullAlbum(a)
                     if screen == "artist", let id = full.artistId { model.open(.artist(id: id, name: full.artist)) }

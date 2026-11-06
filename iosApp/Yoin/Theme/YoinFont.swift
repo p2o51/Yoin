@@ -1,7 +1,13 @@
 import CoreText
 import SwiftUI
-import UIKit
 import YoinShared
+#if canImport(UIKit)
+import UIKit
+typealias YoinPlatformFont = UIFont
+#else
+import AppKit
+typealias YoinPlatformFont = NSFont
+#endif
 
 /// Google Sans Flex through its variable axes, like Android's
 /// `GoogleSansFlexRounded` (Type.kt) and `GrooveType` (Memories emblem).
@@ -48,10 +54,10 @@ enum YoinFont {
         return out
     }()
 
-    static func uiFont(size: CGFloat, _ axes: Axes) -> UIFont {
+    static func uiFont(size: CGFloat, _ axes: Axes) -> YoinPlatformFont {
         guard let base else {
             assertionFailure("Google Sans Flex variable font missing from the bundle")
-            return UIFont(name: "GoogleSansFlex-Regular", size: size) ?? .systemFont(ofSize: size)
+            return YoinPlatformFont(name: "GoogleSansFlex-Regular", size: size) ?? .systemFont(ofSize: size)
         }
         let values: [String: CGFloat] = [
             "wght": axes.weight,
@@ -64,9 +70,10 @@ enum YoinFont {
             if let name = axisNames[tag] { variations[name] = NSNumber(value: Double(value)) }
         }
         let instance = base.copy(withVariations: variations as CFDictionary) ?? base
-        return CTFontCreateWithGraphicsFont(instance, size, nil, nil) as UIFont
+        return CTFontCreateWithGraphicsFont(instance, size, nil, nil) as YoinPlatformFont
     }
 
+    #if os(iOS)
     /// Launch self-check: logs which Google Sans Flex faces resolve, and
     /// warns when any falls back (static faces via UIAppFonts, variable via file).
     static func selfCheck() {
@@ -80,13 +87,18 @@ enum YoinFont {
         NSLog("%@", line)
         assert(missing.isEmpty && family.contains("Google Sans"), line)
     }
+    #endif
 
     /// A SwiftUI font that also scales with Dynamic Type. The size is scaled first and the
     /// instance built at it: `UIFontMetrics.scaledFont(for:)` rebuilds the font from its
     /// descriptor, a lookup by name that this unregistered instance doesn't answer, so on an
     /// iPhone whose text size isn't the default the text fell back to the system font.
-    static func font(size: CGFloat, _ axes: Axes, relativeTo style: UIFont.TextStyle = .body) -> Font {
+    static func font(size: CGFloat, _ axes: Axes, relativeTo style: YoinPlatformFont.TextStyle = .body) -> Font {
+        #if os(iOS)
         let scaled = UIFontMetrics(forTextStyle: style).scaledValue(for: size)
+        #else
+        let scaled = size // the Mac has no Dynamic Type
+        #endif
         var a = axes
         // Optical size follows the designed size, as before scaling.
         if a.opticalSize == nil { a.opticalSize = size }
@@ -94,7 +106,7 @@ enum YoinFont {
     }
 
     /// Android `GoogleSansFlexRounded`: ROND 100 at Medium (500) or SemiBold (600) (YoinTokens.Typography).
-    static func rounded(_ size: CGFloat, semibold: Bool = false, relativeTo style: UIFont.TextStyle = .body) -> Font {
+    static func rounded(_ size: CGFloat, semibold: Bool = false, relativeTo style: YoinPlatformFont.TextStyle = .body) -> Font {
         let t = semibold ? Tokens.type.roundedSemiBold : Tokens.type.roundedMedium
         return font(size: size, Axes(weight: CGFloat(t.weight), width: t.width.cg, round: t.round.cg), relativeTo: style)
     }

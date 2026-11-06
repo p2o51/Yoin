@@ -1,17 +1,5 @@
 import SwiftUI
 
-/// The Mac's stand-in for iOS ScoreEmblem's kind (the emblem view is iOS's; the Mac shows the score as text).
-enum ScoreEmblem {
-    enum Kind {
-        case album, average, unrated
-
-        /// The Bun rule: manual album rating > average of the rated tracks > N/A.
-        init(rating: Double?, average: Double?) {
-            self = rating != nil ? .album : average != nil ? .average : .unrated
-        }
-    }
-}
-
 /// Library › Memories: the deck as a grid, a click opens the diary.
 struct MacMemoriesGrid: View {
     @Environment(MacModel.self) private var model

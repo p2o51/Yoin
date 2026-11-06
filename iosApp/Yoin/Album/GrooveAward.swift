@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /*
  * 唱片刻纹 · the score emblem's award ("cutting") ceremony. Port of Android
@@ -105,6 +107,14 @@ struct GrooveBeat: Equatable {
 /// mapping was chosen against an iPhone's Taptic Engine):
 /// TICK → rigid, LOW_TICK → soft, CLICK → medium, THUD → heavy,
 /// SPIN → soft (a flick, not a click), QUICK_RISE → light.
+#if os(macOS)
+/// The Mac has no Taptic beats for the award: it plays silent.
+@MainActor
+enum GrooveHaptics {
+    static func prepare(_ beats: [GrooveBeat]) {}
+    static func fire(_ beat: GrooveBeat) {}
+}
+#else
 @MainActor
 enum GrooveHaptics {
     private static var generators: [UIImpactFeedbackGenerator.FeedbackStyle: UIImpactFeedbackGenerator] = [:]
@@ -135,6 +145,7 @@ enum GrooveHaptics {
         return g
     }
 }
+#endif
 
 // MARK: - Script
 

@@ -1,6 +1,8 @@
+#if os(iOS)
 import CoreMotion
-import SwiftUI
 import UIKit
+#endif
+import SwiftUI
 
 /*
  * 唱片刻纹 · tilt. Port of Android ui/memories/emblem/GrooveTilt.kt
@@ -30,6 +32,17 @@ struct GrooveTiltVars {
     }
 }
 
+#if os(macOS)
+/// The Mac has no device tilt: the emblem stays at rest (ScoreEmblem reads x / y = 0).
+@MainActor
+final class GrooveTilt {
+    static let shared = GrooveTilt()
+    let x = 0.0
+    let y = 0.0
+    func acquire() {}
+    func release() {}
+}
+#else
 /// The shared device-tilt follower. Read `x` / `y` (−1…1, +x right, +y down).
 @MainActor
 @Observable
@@ -117,3 +130,4 @@ final class GrooveTilt {
         if abs(px - x) + abs(py - y) > 0.0005 { x = px; y = py }
     }
 }
+#endif

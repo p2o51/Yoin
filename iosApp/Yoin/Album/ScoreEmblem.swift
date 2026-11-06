@@ -1,5 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// Port of Android component/ScoreEmblem.kt (Memories "groove" emblem) for
 /// the Page surface, light and dark Album/Average kinds.
@@ -58,7 +62,11 @@ struct ScoreEmblem: View {
     private var colors: Colors {
         func hsl(_ c: Color) -> (CGFloat, CGFloat, CGFloat) {
             var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            #if canImport(UIKit)
             UIColor(c).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+            #else
+            (NSColor(c).usingColorSpace(.deviceRGB) ?? .black).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+            #endif
             let l = b * (1 - s / 2)
             let sl = (l == 0 || l == 1) ? 0 : (b - l) / min(l, 1 - l)
             return (h, sl, l)
@@ -367,6 +375,7 @@ struct ScoreEmblem: View {
     }
 }
 
+#if os(iOS)
 extension CoverSeed {
     /// Seed color for a palette (renders the mock cover through Palette).
     @MainActor static func seed(for palette: CoverPalette) -> Color {
@@ -374,6 +383,12 @@ extension CoverSeed {
         return album.map { CoverSeed.seed(for: $0) } ?? palette.a
     }
 }
+#else
+extension CoverSeed {
+    /// The Mac has no mock library: a palette's own first color.
+    @MainActor static func seed(for palette: CoverPalette) -> Color { palette.a }
+}
+#endif
 
 /// An album's Bun as Android's album page builds it (AlbumDetailViewModel:
 /// `album_ratings` → `userRating`, AlbumScrapbookSource's `local_ratings` →

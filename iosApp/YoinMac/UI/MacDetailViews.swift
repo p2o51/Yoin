@@ -31,6 +31,7 @@ struct MacAlbumDetail: View {
 
     private var album: Album { model.library.album(seed.id.rawId) ?? seed }
     @State private var rating_ = false
+    @State private var page = MacLaunch.screen == "scrapbook" ? 1 : 0
 
     var body: some View {
         let a = album
@@ -54,6 +55,19 @@ struct MacAlbumDetail: View {
                 }
                 .sheet(isPresented: $rating_) { MacAlbumRateSheet(album: a).environment(\.macTint, tint) }
                 .padding(.bottom, 18)
+                // The album's two pages (iOS: the pager): its songs, and its scrapbook.
+                Picker("", selection: $page.animation(Yoin.spatial)) {
+                    Text("Songs").tag(0)
+                    Text("Scrapbook").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .padding(.bottom, 16)
+                if page == 1 {
+                    MacAlbumScrapbook(album: a) { rating_ = true }
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                } else {
                 let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
                 let discs = Set(a.tracks.compactMap(\.disc))
                 VStack(spacing: 2) {
@@ -69,6 +83,7 @@ struct MacAlbumDetail: View {
                     PhaseNote(phase: model.library.phase("album:\(a.id.rawId)"), empty: true, emptyText: "No tracks") {
                         Task { await model.library.loadAlbum(a.id.rawId, force: true) }
                     }
+                }
                 }
             }
             .padding(.horizontal, 32)

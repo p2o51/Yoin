@@ -200,6 +200,13 @@ targets:
       - path: Yoin/Data/Memories/AlbumMemoryStore.swift
       - path: Yoin/Data/NeoDB
       - path: Yoin/Album/AlbumNeoDBLine.swift
+      - path: Yoin/Album/ScoreEmblem.swift
+      - path: Yoin/Album/ScrapbookPaper.swift
+      - path: Yoin/Theme/YoinFont.swift
+      - path: Yoin/Resources/Fonts/google_sans_flex_variable.ttf
+        buildPhase: resources
+      - path: Yoin/Album/GrooveAward.swift
+      - path: Yoin/Album/GrooveTilt.swift
       - path: Yoin/Data/Lyrics/LyricsTools.swift
       - path: Yoin/Home/HomeLayout.swift
       - path: Yoin/Data/Backup/PlaylistBackupStore.swift

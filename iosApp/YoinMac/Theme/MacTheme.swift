@@ -121,3 +121,8 @@ enum MacSettings {
         }
     }
 }
+
+extension CoverScheme {
+    /// Yoin's violet scheme (iOS GlassLab's `brand`, which isn't on the Mac): the unrated emblem's neutrals.
+    static func brand(dark: Bool) -> CoverScheme { CoverScheme(seedArgb: 0xFF7B_3FE4, dark: dark) }
+}
