@@ -137,6 +137,10 @@ private struct LyricLinesBody: View {
                     .animation(Yoin.slowSpatial) { $0.offset(y: nextRise) }
             }
         }
+        // Every row at its full height: the window offers the list less height
+        // than it needs, and the stack squeezed each row's min-height frame
+        // below its wrapped text, which then drew over the next row.
+        .fixedSize(horizontal: false, vertical: true)
         // Scroll so the active line's box (with its 4 pt pad) sits at
         // `anchor`. Only the scroll animates (Android: the list reflows at
         // once, the scroll springs): a value-keyed animation here also sprang
