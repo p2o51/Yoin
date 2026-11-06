@@ -69,19 +69,15 @@ final class SpotifyPlaybackTests: XCTestCase {
         XCTAssertFalse(SpotifyAPIError.http(status: 403, message: "No active device found").isNoActiveDevice)
     }
 
-    func test_should_neverCutIn_when_anotherDeviceIsPlaying() {
-        let elsewhere = SpotifySource.PlayerNow(deviceId: "mac", deviceName: "51's Mac", isPlaying: true)
-        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: elsewhere, appRemoteConnected: true), .playingElsewhere("51's Mac"))
-    }
-
-    func test_should_playHere_when_nothingPlaysAndTheAppIsConnected() {
-        let idle = SpotifySource.PlayerNow(deviceId: "mac", deviceName: "Mac", isPlaying: false)
-        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: idle, appRemoteConnected: true), .playHere)
-        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: nil, appRemoteConnected: true), .playHere)
-    }
-
-    func test_should_askToOpenSpotify_when_theAppIsNotConnected() {
-        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: nil, appRemoteConnected: false), .openSpotify)
+    func test_should_remoteForADevice_only_when_itIsPlaying() {
+        // Run 1 of 51's log: the Pixel was Spotify's last device but asleep; the start went nowhere.
+        let asleep = SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone", isPlaying: false)
+        let playing = SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone", isPlaying: true)
+        let phone = SpotifySource.PlayerNow(deviceId: "ecfc", deviceName: "iPhone", deviceType: "Smartphone", isPlaying: true)
+        XCTAssertNil(SpotifyAudioOutput.remoteTarget(asleep))
+        XCTAssertEqual(SpotifyAudioOutput.remoteTarget(playing), "7a3d")
+        XCTAssertNil(SpotifyAudioOutput.remoteTarget(phone))
+        XCTAssertNil(SpotifyAudioOutput.remoteTarget(nil))
     }
 
     func test_should_driveTheOtherDevice_when_spotifyIsActiveOnAMacOrPixel() {
