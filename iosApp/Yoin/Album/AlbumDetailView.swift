@@ -98,8 +98,14 @@ struct AlbumDetailView: View {
     /// comment, the emblem and the scrapbook's review all open it.
     @State private var rating = LaunchConfig.screen == "album-rate"
 
-    /// Pulled-up top bar (Glass Lab): 0 spectrum with a soft blurred edge,
-    /// 1 Liquid Glass, 2 progressive blur, 3 Android's hard-edged spectrum.
+    /// Pulled-up top bar (Glass Lab): 4 the safe-area strip (default), 0
+    /// spectrum with a soft blurred edge, 1 Liquid Glass, 2 progressive blur,
+    /// 3 Android's hard-edged spectrum.
+    ///
+    /// The strip (51, 2026-11-06): on iOS the progressive blur under the
+    /// header carries the layering, so the spectrum is decoration only. It
+    /// runs from the top of the screen to just below the safe area
+    /// (`stripExtend`) and fades out; the header keeps its own ink.
     private var topBar: Int { Int(GlassLab.shared.extra("detailTopBar").rounded()) }
     /// The spectrum is drawn (with or without its soft edge).
     private var spectrumBar: Bool { topBar == 0 || topBar == 3 }
@@ -107,6 +113,13 @@ struct AlbumDetailView: View {
     /// out, and the list's blur radius at the header's edge. The list's
     /// content starts below the fade, so at rest nothing sits under it.
     private var bandFade: CGFloat { topBar == 0 ? 28 : 0 }
+    /// The strip: the spectrum only, the header on the progressive blur.
+    private var stripBar: Bool { topBar == 4 }
+    /// How far the strip reaches below the safe area (Glass Lab slider).
+    private var stripExtend: CGFloat {
+        let v = GlassLab.shared.extras["albumStripExtend"] ?? 0
+        return v > 0 ? v : 14
+    }
     private static let bandBlurRadius: CGFloat = 10
     /// The page's own space (the header's top edge is y = 0), where the list
     /// rows find the band.
@@ -166,6 +179,14 @@ struct AlbumDetailView: View {
                             .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(smooth(p, 0.3, 0.85))
+                    case 4:
+                        // The layering: the progressive blur, as the blur bar.
+                        ProgressiveEdgeBlur(tint: topTint)
+                            .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                            .offset(y: -geo.safeAreaInsets.top)
+                            .opacity(smooth(p, 0.3, 0.85))
+                        // The decoration: the cover's spectrum, safe area + a little.
+                        spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
                     default: spectrum(w: w, side: side, top: geo.safeAreaInsets.top)
                     }
                 }
@@ -837,7 +858,7 @@ struct AlbumDetailView: View {
         // The header's room as a bar, so the blur variant's soft scroll edge
         // runs under it (spectrum and glass cover it themselves).
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectHidden(topBar != 2, for: .top)
+        .scrollEdgeEffectHidden(topBar != 2 && topBar != 4, for: .top)
         .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent + bandFade) }
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
             listAtTop = top
@@ -1096,7 +1117,7 @@ struct AlbumDetailView: View {
         let n = AlbumSpectrum.strips
         let slice = side / CGFloat(n)
         let heroX = (w - side) / 2, heroY = headerContent + 28
-        let barH = top + headerContent + bandFade
+        let barH = stripBar ? top + stripExtend : top + headerContent + bandFade
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
@@ -1137,7 +1158,24 @@ struct AlbumDetailView: View {
     /// in flight are never cut.
     @ViewBuilder
     private func bandMask(w: CGFloat, top: CGFloat) -> some View {
-        if bandFade > 0 {
+        if stripBar {
+            // Solid through the status bar, then a short fade (the strips in
+            // flight are taller; only the part past the strip's end fades).
+            let fade = min(stripExtend + 6, 24)
+            let k = smooth(p, 0.55, 0.95)
+            VStack(spacing: 0) {
+                Rectangle().frame(height: max(0, top + stripExtend - fade + 6))
+                LinearGradient(stops: (0...8).map { i in
+                    let t = CGFloat(i) / 8
+                    let ease = t * t * (3 - 2 * t)
+                    return .init(color: .black.opacity(1 - ease * k), location: t)
+                }, startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+                Rectangle().opacity(1 - k).frame(height: 4000)
+            }
+            .frame(width: w + 40)
+            .offset(x: -20, y: -top)
+        } else if bandFade > 0 {
             let k = bandSoft
             VStack(spacing: 0) {
                 Rectangle().frame(height: top + headerContent)

@@ -174,6 +174,9 @@ final class GlassLab {
             preset = saved.preset ?? .world
             styles.merge(saved.styles) { _, new in new }
             extras.merge(saved.extras) { _, new in new }
+            // 51, 2026-11-06: the album's top bar became the safe-area strip;
+            // a top bar saved before that doesn't carry over (once).
+            if saved.extras["albumStripExtend"] == nil { extras["detailTopBar"] = 4 }
         }
         panelOpen = UserDefaults.standard.bool(forKey: "glassLab")
         if let name = UserDefaults.standard.string(forKey: "preset") {
@@ -209,8 +212,9 @@ final class GlassLab {
     }
 
     /// Extras that aren't a glass surface's: the album page's pulled-up top
-    /// bar, 0 = the cover's spectrum with a soft, progressively blurred lower
-    /// edge (default), 1 = Liquid Glass, 2 = the system's progressive
+    /// bar, 4 = the spectrum as a strip just past the safe area over the
+    /// progressive blur (default since 2026-11-06), 0 = the cover's spectrum with a soft, progressively blurred lower
+    /// edge, 1 = Liquid Glass, 2 = the system's progressive
     /// scroll-edge blur, 3 = the spectrum with Android's hard edge.
     /// Gemini preset extras (neutral in every other preset):
     /// darkTintMultiplier scales every glass tint in dark mode,
@@ -230,12 +234,12 @@ final class GlassLab {
     /// contact-shadow opacity; darkAmbientStrength / darkNeighbourStrength
     /// (0 = as in light) and auraOnTop: Now Playing's ambient in dark mode.
     static let pageExtras: [(String, Double)] = [
-        ("detailTopBar", 0), ("darkTintMultiplier", 1), ("sheetPresenterDim", 0), ("searchChromeTint", 0),
+        ("detailTopBar", 4), ("darkTintMultiplier", 1), ("sheetPresenterDim", 0), ("searchChromeTint", 0),
         ("heartLikedAccent", 1), ("liftInFlow", 0), ("liftRestOpacity", 0.6), ("neutralShadow", 0),
         ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
         ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
         ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
-        ("albumPullTravel", 320), ("albumPullSnap", 0.3),
+        ("albumPullTravel", 320), ("albumPullSnap", 0.3), ("albumStripExtend", 14),
     ]
 
     private func resetValues() {
@@ -707,9 +711,13 @@ struct GlassLabPanel: View {
                 Picker("Detail top bar", selection: Binding(
                     get: { Int(lab.extra("detailTopBar").rounded()) },
                     set: { lab.extras["detailTopBar"] = Double($0) })) {
-                    Text("Spectrum").tag(0); Text("Hard edge").tag(3); Text("Glass").tag(1); Text("Blur").tag(2)
+                    Text("Strip").tag(4); Text("Spectrum").tag(0); Text("Hard edge").tag(3)
+                    Text("Glass").tag(1); Text("Blur").tag(2)
                 }
                 .pickerStyle(.segmented)
+                if Int(lab.extra("detailTopBar").rounded()) == 4 {
+                    labSlider("Strip below the safe area (pt)", "albumStripExtend", 2...40)
+                }
                 labSlider("Pull-up travel (pt)", "albumPullTravel", 160...520)
                 labSlider("Pull-up snap point", "albumPullSnap", 0.15...0.5)
             }
