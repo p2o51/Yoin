@@ -235,6 +235,8 @@ final class SpotifyAudioOutput: AudioOutput {
     private var startedAt = Date.distantPast
     private var startedAtSec: Double = 0
     private var awaitingPlay = false
+    /// The last thing the engine did was stop (not load another song).
+    private var stopped = false
     private var observers: [NSObjectProtocol] = []
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
 
@@ -297,6 +299,7 @@ final class SpotifyAudioOutput: AudioOutput {
     func load(_ current: URL, next: URL?, startSec: Double) {
         PlayTrace.log("SP load \(current.lastPathComponent) start=\(startSec)")
         generation += 1
+        stopped = false
         rehandTask?.cancel()
         let item = Item(current)
         self.current = item
@@ -481,9 +484,15 @@ final class SpotifyAudioOutput: AudioOutput {
                 await control.playModesOff(deviceId: target)
                 guard gen == generation else { return }
             }
-            try await control.startPlayback(uris: uris, positionMs: at, deviceId: target)
+            let device = target
+            try await control.startPlayback(uris: uris, positionMs: at, deviceId: device)
             PlayTrace.log("SP send done gen=\(gen == generation)")
-            guard gen == generation else { return }
+            guard gen == generation else {
+                // Stopped while the start was on its way: it mustn't keep playing there (stop() sends
+                // nothing for a start not yet answered).
+                if stopped { Task { try? await control.pausePlayback(deviceId: device) } }
+                return
+            }
             handedNext = next
             starting = false
             playing = wantsPlay
@@ -880,8 +889,11 @@ final class SpotifyAudioOutput: AudioOutput {
     func stop() {
         PlayTrace.log("SP stop wantsPlay=\(wantsPlay)")
         generation += 1
+        stopped = true
         rehandTask?.cancel()
-        if !silent, wantsPlay, let control {
+        // Only a song Yoin has playing is paused: a stop after a start that never went out (Spotify
+        // not installed, the wake failed) sent a pause to whatever device Spotify had active.
+        if !silent, wantsPlay, playing, !starting, !awaitingWake, let control {
             let device = target
             Task { try? await control.pausePlayback(deviceId: device) }
         }

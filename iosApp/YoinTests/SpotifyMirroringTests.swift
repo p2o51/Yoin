@@ -123,6 +123,41 @@ final class SpotifyMirroringTests: XCTestCase {
         XCTAssertTrue(engine.isPlaying)
     }
 
+    // MARK: Where a start goes (51, 2026-11-06 06:51)
+
+    /// A start with Spotify's active device in [reply]: whether a Web API command went anywhere.
+    private func start(with reply: MirrorStub.Reply) async throws {
+        MirrorStub.route = { s in s.method == "GET" ? reply : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1")])
+        try await waitUntil { MirrorStub.requests.contains { $0.url.path == "/v1/me/player" } }
+        try await Task.sleep(for: .seconds(2))
+    }
+
+    func test_should_playOnThisIPhone_when_theActiveDeviceIsPaused() async throws {
+        // A paused Pixel is still Spotify's active device: the start isn't sent there.
+        try await start(with: .init(status: 200, body: Self.pixel(playing: false, shuffle: false)))
+        XCTAssertEqual(puts, [])
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method != "GET" })
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+    }
+
+    func test_should_playOnThisIPhone_when_nothingIsActive() async throws {
+        try await start(with: .init(status: 204, body: ""))
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method != "GET" })
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+    }
+
+    func test_should_beTheRemote_when_theActiveDeviceIsPlaying() async throws {
+        try await start(with: .init(status: 200, body: Self.pixel(shuffle: false)))
+        // Remote control only: a start with its device_id, no transfer.
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        XCTAssertEqual(MirrorStub.requests.first { $0.url.path == "/v1/me/player/play" }?.url.query, "device_id=7a3d")
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method == "PUT" && $0.url.path == "/v1/me/player" })
+        XCTAssertEqual(SpotifyPlayingDevice.shared.name, "Pixel 11 Pro")
+    }
+
     // MARK: The Mac end-to-end rule (2026-11-06)
 
     func test_should_holdAPauseUntilTheStartIsSeen_when_pausedRightAfterAStart() async throws {
