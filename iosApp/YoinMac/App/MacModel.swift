@@ -66,7 +66,8 @@ final class MacModel {
     @ObservationIgnored private var known: [String: PlaylistEntry] = [:]
 
     init() {
-        player = PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: appleOutput, spotify: spotifyOutput))
+        let router = RoutingAudioOutput(av: AVAudioOutput(), apple: appleOutput, spotify: spotifyOutput)
+        player = PlayerEngine(output: router)
         library = MacLibrary(session: session)
         system = MacPlaybackSystem(player: player)
         player.onScrobble = { [weak self] track, submission in
@@ -113,6 +114,14 @@ final class MacModel {
             }
         }
         spotifyOutput.onDevice = { [weak self] name in self?.spotifyDevice = name }
+        // Spotify playing somewhere is what Yoin shows (iOS 7702336e), unless Yoin itself plays another source.
+        spotifyOutput.adopt = { [weak router, weak self] in
+            guard let router, let self else { return false }
+            if self.player.isPlaying, self.player.currentTrack?.provider != SpotifyMapping.provider { return false }
+            router.adopt(self.spotifyOutput)
+            return true
+        }
+        spotifyOutput.startWatching()
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }
     }

@@ -83,7 +83,12 @@ struct MacShell: View {
         .ignoresSafeArea()
         .environment(\.macTint, tint)
         .animation(Yoin.effects, value: tint)
-        .task { MacQA.applyScreen(model) }
+        .task {
+            MacQA.applyScreen(model)
+            #if DEBUG
+            MacSpotifyExperiment.runIfAsked(model)
+            #endif
+        }
     }
 
     @ViewBuilder private func content(width: CGFloat) -> some View {
