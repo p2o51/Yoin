@@ -262,6 +262,9 @@ struct MacSettingsView: View {
 
             MacBackupsSettings()
                 .tabItem { Label("Backups", image: "yoin.playlist") }
+
+            MacNeoDBSettings()
+                .tabItem { Label("NeoDB", image: "yoin.star") }
         }
         .frame(width: 520, height: 440)
     }

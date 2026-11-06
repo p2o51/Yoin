@@ -30,6 +30,7 @@ struct MacAlbumDetail: View {
     @Environment(\.macTint) private var tint
 
     private var album: Album { model.library.album(seed.id.rawId) ?? seed }
+    @State private var rating_ = false
 
     var body: some View {
         let a = album
@@ -47,7 +48,11 @@ struct MacAlbumDetail: View {
                         DetailAction(title: OfflineDownloads.rowLabel(status), icon: OfflineDownloads.rowIcon(status),
                                      prominent: false) { model.toggleDownload(album: a) }
                     }
+                    let rating = AlbumMemoryStore.shared.album(provider: a.id.provider, albumId: a.id.rawId)?.rating ?? 0
+                    DetailAction(title: rating > 0 ? String(format: "%.1f", rating) : "Rate", icon: "star",
+                                 prominent: false) { rating_ = true }
                 }
+                .sheet(isPresented: $rating_) { MacAlbumRateSheet(album: a).environment(\.macTint, tint) }
                 .padding(.bottom, 18)
                 let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
                 let discs = Set(a.tracks.compactMap(\.disc))

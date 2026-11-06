@@ -1,6 +1,10 @@
 import AuthenticationServices
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// Shows NeoDB's authorize page and hands back the redirect. The app uses ASWebAuthenticationSession;
 /// tests use a fake.
@@ -153,11 +157,16 @@ final class SystemWebAuthenticator: NSObject, NeoDBWebAuthenticating {
 
 extension SystemWebAuthenticator: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        #if os(macOS)
+        // Sign-in starts from a click in Settings, so a key window is there.
+        return NSApp.keyWindow ?? NSApp.windows.first ?? NSWindow()
+        #else
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let windows = scenes.flatMap(\.windows)
         if let key = windows.first(where: \.isKeyWindow) ?? windows.first { return key }
         // Sign-in starts from a tap in Settings, so a scene is always there.
         guard let scene = scenes.first else { preconditionFailure("NeoDB sign-in without a window scene") }
         return UIWindow(windowScene: scene)
+        #endif
     }
 }

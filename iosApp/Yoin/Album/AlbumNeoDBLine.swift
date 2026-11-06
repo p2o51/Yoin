@@ -59,12 +59,19 @@ final class AlbumNeoDBSync {
 
     init(service: @escaping @MainActor () -> NeoDBSyncService = { .shared }, account: NeoDBAccount = .shared,
          albums: AlbumMemoryStore = .shared, pending: NeoDBPendingStore = .shared,
-         onFailure: @escaping @MainActor (String) -> Void = { PlaylistActions.shared.show($0) }) {
+         onFailure: @escaping @MainActor (String) -> Void = AlbumNeoDBSync.showFailure) {
         self.service = service
         self.account = account
         self.albums = albums
         self.pending = pending
         self.onFailure = onFailure
+    }
+
+    /// The toast a failed push shows (the Mac has no toast host: the line itself says Couldn't sync).
+    static func showFailure(_ message: String) {
+        #if os(iOS)
+        PlaylistActions.shared.show(message)
+        #endif
     }
 
     private static func key(_ album: Album) -> String { "\(album.id.provider)\u{1F}\(album.id.rawId)" }
@@ -114,6 +121,7 @@ final class AlbumNeoDBSync {
     }
 }
 
+#if os(iOS)
 /// The rate sheet's last line: "NeoDB" and its state. Signed out, the line is the sign-in action;
 /// a failure gets Retry.
 struct AlbumNeoDBLine: View {
@@ -174,3 +182,4 @@ struct AlbumReviewRoute: View {
         .contentTransition(.opacity)
     }
 }
+#endif

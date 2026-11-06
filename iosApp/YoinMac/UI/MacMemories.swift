@@ -148,12 +148,18 @@ struct MacMemoryDiary: View {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         var ok = true
         var changed = false
+        var neoDB = false
         let words = review.trimmingCharacters(in: .whitespacesAndNewlines)
         if review != openedReview, !words.isEmpty {
             let was = store.album(provider: album.id.provider, albumId: album.id.rawId)
             if words != was?.review {
-                ok = store.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId, rating: was?.rating ?? 0,
-                                          review: words, reviewUpdatedAt: now, updatedAt: now)) && ok
+                if store.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId, rating: was?.rating ?? 0,
+                                        review: words, reviewUpdatedAt: now, updatedAt: now)) {
+                    NeoDBPendingStore.shared.markReviewChanged(provider: album.id.provider, albumId: album.id.rawId)
+                    neoDB = true
+                } else {
+                    ok = false
+                }
                 changed = true
             }
         }
@@ -167,6 +173,8 @@ struct MacMemoryDiary: View {
             changed = true
         }
         if changed { CloudSync.shared.localChanged() }
+        // iOS MemoryDiaryWriter: changed words go to NeoDB when signed in.
+        if neoDB { Task { await AlbumNeoDBSync.shared.sheetClosed(album) } }
         return ok
     }
 }

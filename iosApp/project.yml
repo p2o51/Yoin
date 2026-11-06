@@ -198,6 +198,8 @@ targets:
       - path: Yoin/Notes/LocalRatings.swift
       - path: Yoin/Notes/NotesStore.swift
       - path: Yoin/Data/Memories/AlbumMemoryStore.swift
+      - path: Yoin/Data/NeoDB
+      - path: Yoin/Album/AlbumNeoDBLine.swift
       - path: Yoin/Data/Lyrics/LyricsTools.swift
       - path: Yoin/Home/HomeLayout.swift
       - path: Yoin/Data/Backup/PlaylistBackupStore.swift
