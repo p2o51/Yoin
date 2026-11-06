@@ -19,6 +19,11 @@ sealed interface PlaylistDetailUiState {
         val canWrite: Boolean = false,
         /** The service refused the entries: [songs] is empty, the playlist isn't. */
         val tracksUnavailable: Boolean = false,
+        /**
+         * Up to two album covers fanned behind the hero cover, start sleeve
+         * first: rows' [PlaylistSong.coverArtUrl]s, chosen by [playlistSleeveCovers].
+         */
+        val sleeveCoverUrls: List<String> = emptyList(),
     ) : PlaylistDetailUiState
 
     data class Error(val message: UiText, val diagnostics: String? = null) : PlaylistDetailUiState
