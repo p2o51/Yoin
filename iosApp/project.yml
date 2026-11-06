@@ -281,6 +281,9 @@ targets:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
+        # Handoff: what's playing, for the iOS app to pick up later (same team; no entitlement or domain).
+        NSUserActivityTypes:
+          - com.gpo.yoin.playing
     configFiles:
       Debug: Config/YoinMac.xcconfig
       Release: Config/YoinMac.xcconfig

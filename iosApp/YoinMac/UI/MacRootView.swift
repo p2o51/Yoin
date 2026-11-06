@@ -23,6 +23,11 @@ struct MacGate: View {
         .onChange(of: model.session.accountKey) { model.accountDidChange() }
         .onOpenURL { _ = CloudSync.handle(url: $0) }
         .task { await MacQA.endTourLanding(model) }
+        // Handoff: the song playing (and its album), advertised while there is one. The iOS app doesn't take
+        // it yet; the type and keys are documented in docs/mac.md for when it does.
+        .userActivity(MacHandoff.playingType, isActive: model.player.currentTrack != nil) { activity in
+            MacHandoff.fill(activity, model: model)
+        }
         .task {
             // Cloud sync (Drive appDataFolder, the shared Kotlin core): idle unless turned on in Settings.
             let session = model.session
