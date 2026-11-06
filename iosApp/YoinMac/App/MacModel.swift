@@ -107,13 +107,21 @@ final class MacModel {
         ScrobbleOutbox.shared.watchNetwork()
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.library.flushScrobbles() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.library.flushScrobbles()
+                // Back from Spotify (or another device): the current song's heart may have changed there.
+                if let t = self.player.currentTrack, t.provider == SpotifyMapping.provider {
+                    self.library.refreshLibraryMembership(t.id)
+                }
+            }
         }
         player.onStateChange = { [weak self] in
             guard let self else { return }
             self.system?.refresh()
             self.lyrics.choiceScope = self.session.accountKey
             self.lyrics.load(self.player.currentTrack, client: self.session.client)
+            self.recordMirroredHistory()
             if let t = self.player.currentTrack, t.id != self.membershipCheckedFor,
                t.provider == AppleMusicMapping.provider || t.provider == SpotifyMapping.provider {
                 self.membershipCheckedFor = t.id
@@ -483,14 +491,33 @@ final class MacModel {
             return
         }
         let e = entry(for: t)
-        let coverKey = t.provider == AppleMusicMapping.provider
-            ? t.coverURL?.absoluteString
-            : OfflineDownloads.coverId(e?.album.palette.cover)
+        // Subsonic keeps its cover id (the URL carries credentials); the others keep the artwork URL.
+        let coverKey = t.provider == MediaRef.companion.PROVIDER_SUBSONIC
+            ? OfflineDownloads.coverId(e?.album.palette.cover)
+            : (e?.album.palette.cover?.url ?? t.coverURL)?.absoluteString
         let albumId = t.albumId.flatMap { $0.hasPrefix("song:") ? nil : $0 }
         let id = history.recordPlay(scope: scope, provider: t.provider, songId: t.id, albumId: albumId,
                                     artistId: e?.album.artistId, title: t.title, album: t.album, artist: t.artist,
                                     coverKey: coverKey, durationSec: t.durationSec)
         openPlay = (t.id, id)
+    }
+
+    @ObservationIgnored private var mirrored: (song: String, listened: Bool)?
+
+    /// Spotify playing a song Yoin didn't start (picked in Spotify, or after Yoin's list ran out): a
+    /// history row when it shows up playing, listened once it's past half (at most four minutes) —
+    /// read off the mirror's clock, every look.
+    private func recordMirroredHistory() {
+        guard let t = player.externalTrack else { mirrored = nil; return }
+        if mirrored?.song != t.id {
+            guard player.isPlaying else { return }
+            mirrored = (t.id, false)
+            recordHistory(t, submission: false, listenedSec: 0)
+        }
+        guard let m = mirrored, !m.listened, t.durationSec > PlayerEngine.scrobbleMinTrackSec,
+              player.progress.positionSec >= min(t.durationSec / 2, PlayerEngine.scrobbleMaxListenSec) else { return }
+        mirrored = (m.song, true)
+        recordHistory(t, submission: true, listenedSec: player.progress.positionSec)
     }
 
     // MARK: Memories (iOS MemoryDeck over the local stores)

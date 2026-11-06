@@ -655,10 +655,15 @@ final class MacLibrary {
     func refreshLibraryMembership(_ songId: String) {
         if let spotify {
             let gen = generation
+            let key = "song:\(songId)"
+            let op = starOps[key]
             Task {
                 let saved = await spotify.isSaved(songId)
                 guard gen == self.generation, let saved else { return }
                 self.inLibrary[songId] = saved
+                // Liked or unliked in Spotify itself: Spotify's answer wins over an old tap here, unless
+                // a heart write started meanwhile or is still on its way.
+                if self.starOps[key] == op, self.starWrites[key, default: 0] == 0 { self.starredOverride[key] = nil }
             }
             return
         }
@@ -757,11 +762,15 @@ final class MacLibrary {
     /// Runs [body] after the song's previous heart write (so an older save can't land after a newer unsave).
     private func chain(_ key: String, _ body: @escaping @MainActor () async -> Void) {
         let previous = starChains[key]
+        starWrites[key, default: 0] += 1
         starChains[key] = Task { @MainActor in
             await previous?.value
             await body()
+            self.starWrites[key, default: 1] -= 1
         }
     }
+    /// Heart writes queued or running, per song.
+    @ObservationIgnored private var starWrites: [String: Int] = [:]
 
 
     /// Yoin's own rating (iOS / Android: local_ratings, any provider, synced across devices); the
