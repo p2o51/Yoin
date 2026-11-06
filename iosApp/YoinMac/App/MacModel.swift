@@ -763,9 +763,12 @@ final class MacModel {
     }
 
     /// Empties what's after the current song.
-    func clearUpcoming() {
+    /// Clear (Android QueueSheet.kt:230): the songs the listener queued go; the album or playlist goes on.
+    func clearQueued() {
         guard let i = player.currentIndex else { return }
-        for j in stride(from: player.queue.count - 1, to: i, by: -1) { player.remove(at: j) }
+        var j = i + 1
+        while j < player.queue.count, player.queue[j].userQueued { j += 1 }
+        for k in stride(from: j - 1, to: i, by: -1) { player.remove(at: k) }
     }
 
     /// An album's songs after the current one (in order) or at the end of the queue.

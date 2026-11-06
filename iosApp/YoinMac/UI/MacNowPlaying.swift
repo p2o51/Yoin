@@ -570,44 +570,45 @@ private struct QueuePopover: View {
         .onAppear { model.spotifyOutput.refreshQueue() }
     }
 
+    /// Android QueueSheet: what the listener queued (Next in queue, which Clear empties) above the rest of the
+    /// list (Next up); each section reorders within itself.
     private var yoinUpNext: some View {
         let p = model.player
         let start = (p.currentIndex ?? 0) + 1
         // Every song after the current one (the List draws only the rows on screen).
         let upcoming = Array(p.upcoming)
+        let queued = Array(upcoming.prefix { $0.userQueued })
+        let rest = Array(upcoming.dropFirst(queued.count))
         return VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Up Next").font(.gsf(15, .semibold))
-                Spacer()
-                Button("Clear") { model.clearUpcoming() }
-                    .font(.gsf(13))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Yoin.inkVariant)
-                    .disabled(upcoming.isEmpty)
-            }
-            .padding(.horizontal, 10)
             if upcoming.isEmpty {
+                Text("Up Next").font(.gsf(15, .semibold)).padding(.horizontal, 10)
                 Text("Nothing after this song").font(.gsf(13)).foregroundStyle(Yoin.inkVariant).padding(10)
             } else {
                 List {
-                    ForEach(Array(upcoming.enumerated()), id: \.element.id) { i, item in
-                        QueueRow(item: item) { p.jump(to: start + i) } remove: { p.remove(id: item.id) }
-                            // Dropped on a row: in before it.
-                            .dropDestination(for: YoinDragItem.self) { items, _ in
-                                MacDrag.queue(items, before: item.id, model: model)
-                                return true
+                    if !queued.isEmpty {
+                        Section {
+                            rows(queued, offset: start)
+                        } header: {
+                            HStack {
+                                Text("Next in queue").font(.gsf(13, .semibold)).foregroundStyle(Yoin.ink)
+                                Spacer()
+                                Button("Clear") { model.clearQueued() }
+                                    .font(.gsf(13)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
                             }
-                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                        }
                     }
-                    .onMove { from, to in
-                        p.move(fromOffsets: IndexSet(from.map { $0 + start }), toOffset: to + start)
+                    if !rest.isEmpty {
+                        Section {
+                            rows(rest, offset: start + queued.count)
+                        } header: {
+                            Text("Next up").font(.gsf(13, .semibold)).foregroundStyle(Yoin.ink)
+                        }
                     }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .frame(height: min(400, CGFloat(upcoming.count) * 46 + 8))
+                .frame(height: min(420, CGFloat(upcoming.count) * 46 + CGFloat((queued.isEmpty ? 0 : 1) + (rest.isEmpty ? 0 : 1)) * 30 + 8))
+                .animation(Yoin.spatial, value: upcoming.map(\.id))
             }
         }
         .padding(12)
@@ -615,6 +616,25 @@ private struct QueuePopover: View {
         .dropDestination(for: YoinDragItem.self) { items, _ in
             MacDrag.queue(items, before: nil, model: model)
             return true
+        }
+    }
+
+    /// One section's rows; [offset] is its first row's place in the queue.
+    private func rows(_ items: [QueueItem], offset: Int) -> some View {
+        let p = model.player
+        return ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+            QueueRow(item: item) { p.jump(to: offset + i) } remove: { p.remove(id: item.id) }
+                // Dropped on a row: in before it.
+                .dropDestination(for: YoinDragItem.self) { dropped, _ in
+                    MacDrag.queue(dropped, before: item.id, model: model)
+                    return true
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+        }
+        .onMove { from, to in
+            p.move(fromOffsets: IndexSet(from.map { $0 + offset }), toOffset: to + offset)
         }
     }
 }
