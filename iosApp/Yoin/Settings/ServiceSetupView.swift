@@ -5,6 +5,8 @@ struct ServiceSetupRequest: Hashable, Identifiable {
     var id = UUID()
     /// nil: Add account (pick a service, connect it).
     var profileId: String?
+    /// Adding: the service to open on (a cloud-only account's Add); nil starts on Subsonic.
+    var service: Profile.Service?
 }
 
 /// Settings › Add account / an account's page, a pushed page (PushPage;
@@ -108,6 +110,7 @@ struct ServiceSetupView: View {
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
+            if adding, let s = request.service { service = s }
             fill()
             apple.refreshAuthorization()
         }

@@ -87,6 +87,8 @@ struct CloudSyncView: View {
     @State private var confirmDelete = false
     @State private var confirmFresh: SyncAccountRow?
     @State private var export: URL?
+    /// The service setup an Add on a cloud-only account opened.
+    @State private var setup: ServiceSetupRequest?
 
     private var app: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -133,6 +135,11 @@ struct CloudSyncView: View {
         .safeAreaBar(edge: .top) { topBar }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }
+        // A saved account joins the sync: refresh so it picks up what the Drive holds (Android onAdd).
+        .onChange(of: model.profiles.profiles.map(\.id)) { old, new in
+            if new.count > old.count, enabled { Task { await sync.syncNow() } }
+        }
         .alert("Delete cloud data?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { Task { await sync.deleteCloudData() } }
@@ -195,10 +202,7 @@ struct CloudSyncView: View {
         }
         if !state.cloudOnlyAccounts.isEmpty {
             group("In your Drive, not on this device") {
-                state.cloudOnlyAccounts.map { a in
-                    AnyView(info(a.displayName.isEmpty ? a.provider : a.displayName,
-                                 [a.hint, a.fromDeviceName.map { "from \($0)" }].compactMap { $0 }.joined(separator: "\n")))
-                }
+                state.cloudOnlyAccounts.map { a in AnyView(cloudOnlyRow(a)) }
             }
         }
         if !state.devices.isEmpty {
@@ -234,6 +238,22 @@ struct CloudSyncView: View {
         default:
             if state.pendingChanges { return "Changes waiting to upload" }
             return state.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? "Not synced yet"
+        }
+    }
+
+    private func cloudOnlyRow(_ a: CloudAccountRow) -> some View {
+        HStack(spacing: 8) {
+            info(a.displayName.isEmpty ? a.provider : a.displayName,
+                 [a.hint, a.fromDeviceName.map { "from \($0)" }].compactMap { $0 }.joined(separator: "\n"))
+            Spacer(minLength: 0)
+            if let service = ServiceSetupRouting.service(forProvider: a.provider) {
+                Button { setup = ServiceSetupRequest(service: service) } label: {
+                    Text("Add").yoinRole(Tokens.type.labelLarge).foregroundStyle(app.primary)
+                        .frame(minWidth: 48, minHeight: 40)
+                }
+                .buttonStyle(PressScale())
+                .padding(.trailing, 8)
+            }
         }
     }
 
