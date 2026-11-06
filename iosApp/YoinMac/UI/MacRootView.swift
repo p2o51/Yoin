@@ -6,7 +6,13 @@ struct MacGate: View {
 
     var body: some View {
         Group {
-            if model.session.isSignedIn && !model.addingAccount {
+            if let landing = model.landing {
+                MacLandingView {
+                    if landing.persists { DefaultsLandingStore().markDone() }
+                    withAnimation(Yoin.spatial) { model.landing = nil }
+                }
+                .transition(.opacity)
+            } else if model.session.isSignedIn && !model.addingAccount {
                 MacShell()
             } else {
                 MacSignInView()

@@ -122,6 +122,10 @@ final class MacModel {
             return true
         }
         spotifyOutput.startWatching()
+        // The first-run landing (iOS LandingGate): once per install, before any account; `-macScreen landing`
+        // shows it every time and records nothing; other QA screens skip it.
+        let launch: LandingLaunch = MacLaunch.screen == "landing" ? .forced : MacLaunch.screen != nil ? .demo : .normal
+        landing = LandingGate.atLaunch(store: DefaultsLandingStore(), hasAccount: !session.profiles.isEmpty, launch: launch)
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }
     }
@@ -499,6 +503,8 @@ final class MacModel {
 
     /// The Spotify device Yoin plays on when it isn't this Mac (Now Playing names it).
     var spotifyDevice: String?
+    /// The first-run landing on screen (nil: none).
+    var landing: LandingSession?
 
     /// "Play on This Mac": Spotify moves here (only ever the listener's choice).
     func spotifyPlayHere() {
