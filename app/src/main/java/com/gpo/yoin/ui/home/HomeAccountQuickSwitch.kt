@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -259,7 +260,7 @@ private fun HomeAccountFanColumn(state: HomeAccountFanState, shown: Float) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
             ) {
-                HomeAccountFanLabel(card, lift = lift, shown = local, rtl = rtl)
+                HomeAccountFanLabel(card, lift = lift, hovered = state.hover == i, shown = local, rtl = rtl)
                 HomeAccountFanItem(card, lift = lift, shown = local)
             }
         }
@@ -281,7 +282,7 @@ private fun HomeAccountFanItem(card: ProfileCard, lift: Float, shown: Float) {
                 scaleY = scale
                 alpha = shown
             }
-            .shadow(if (lift > 0.5f) 8.dp else 3.dp, CircleShape)
+            .shadow(3.dp + 5.dp * lift.coerceIn(0f, 1f), CircleShape)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
@@ -301,7 +302,13 @@ private fun HomeAccountFanItem(card: ProfileCard, lift: Float, shown: Float) {
 /** The account's name beside its item: always there, so the column reads; the one under the finger steps out. */
 @Suppress("ktlint:standard:function-naming") // a Composable
 @Composable
-private fun HomeAccountFanLabel(card: ProfileCard, lift: Float, shown: Float, rtl: Boolean) {
+private fun HomeAccountFanLabel(card: ProfileCard, lift: Float, hovered: Boolean, shown: Float, rtl: Boolean) {
+    // The pill's colour on the effects spring (the lift is the spatial one).
+    val fill by animateColorAsState(
+        if (hovered) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        YoinMotion.defaultEffectsSpec(),
+        label = "accountFanLabelFill",
+    )
     Text(
         text = card.title,
         style = MaterialTheme.typography.labelLarge,
@@ -317,15 +324,9 @@ private fun HomeAccountFanLabel(card: ProfileCard, lift: Float, shown: Float, rt
                 val out = 4.dp.toPx() + lift * 6.dp.toPx() + (1f - shown) * 8.dp.toPx()
                 translationX = if (rtl) out else -out
             }
-            .shadow(if (lift > 0.5f) 4.dp else 1.dp, CircleShape)
+            .shadow(1.dp + 3.dp * lift.coerceIn(0f, 1f), CircleShape)
             .clip(CircleShape)
-            .background(
-                if (lift > 0.5f) {
-                    MaterialTheme.colorScheme.secondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-            )
+            .background(fill)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
