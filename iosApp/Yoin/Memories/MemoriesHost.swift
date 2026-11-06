@@ -10,12 +10,13 @@ import UIKit
 /// alpha only. Identity once Memories is closed.
 struct MemoriesHomeBehind: ViewModifier {
     var presentation: MemoriesPresentation
-    @Environment(\.accessibilityReduceMotion) private var reduced
 
     func body(content: Content) -> some View {
         let q = min(max(presentation.fraction, 0), 1)
+        // A fade only: any scale on the feed's scroll view (scaleEffect or a visualEffect) stopped it drawing
+        // under the bottom bar — cut off in a hard line above the bar, plain page below, from the pull's first
+        // frame (51, build 7). The fade alone keeps the feed running to the screen's edge.
         content
-            .scaleEffect(reduced || q >= 1 ? 1 : 0.94 + 0.06 * q, anchor: .top)
             .opacity(q >= 1 ? 1 : Double(0.5 + 0.5 * q))
     }
 }
