@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// The Mac's tips: Android's (HomeBubbleTip), reworded for the Mac by Argon (Gemini, 2026-11-07; material in
-/// ~/Developer/Yoin/.argon/mac-tips/), word for word. Three Android tips have nothing on the Mac and aren't here
-/// (the cover's long-press menu, Keep screen on, Scroll edge).
+/// ~/Developer/Yoin/.argon/mac-tips/), word for word. Two Android tips have nothing on the Mac and aren't here
+/// (Keep screen on, Scroll edge); the cover's menu came back 2026-11-07 with the Now Playing cover's right-click.
 enum MacTip: String, CaseIterable, Identifiable {
-    case MiniPlayerMenu, FocusCover, Downloads, EditHome, PullForMemories, SongMenu, PlayModes, NoteMoments, LibrarySearch, Name
+    case MiniPlayerMenu, FocusCover, Downloads, EditHome, PullForMemories, CoverMenu, SongMenu, PlayModes, NoteMoments, LibrarySearch, Name
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum MacTip: String, CaseIterable, Identifiable {
         case .Downloads: "Offline downloads"
         case .EditHome: "Rearrange Home"
         case .PullForMemories: "Memories"
+        case .CoverMenu: "Song options"
         case .SongMenu: "Song quick actions"
         case .PlayModes: "Shuffle and repeat"
         case .NoteMoments: "Notes pin the second"
@@ -30,6 +31,7 @@ enum MacTip: String, CaseIterable, Identifiable {
         case .Downloads: "Subsonic accounts can download from song, album, or playlist right-click menus and pages; view in Library › Downloads and manage in Settings › Accounts › Subsonic account › Downloads"
         case .EditHome: "Click Edit next to the Home title to show, hide, or drag sections to reorder"
         case .PullForMemories: "Open Memories from Library › Memories in the sidebar"
+        case .CoverMenu: "Right-click (or Control-click) the cover in Now Playing to open the song menu"
         case .SongMenu: "Right-click (or Control-click) a song for Play Next, Add to Queue, Like, Rate, or Share"
         case .PlayModes: "Click in Now Playing to cycle shuffle, repeat, and repeat one, or set Shuffle and Repeat separately in Controls"
         case .NoteMoments: "Click Write in Now Playing to pin a note to that exact second, and click its timestamp to jump back"
@@ -54,6 +56,7 @@ enum MacTip: String, CaseIterable, Identifiable {
         case .Downloads: "download"
         case .EditHome: "drag_handle"
         case .PullForMemories: "note"
+        case .CoverMenu: "album"
         case .SongMenu: "queue"
         case .PlayModes: "shuffle"
         case .NoteMoments: "edit_note"
