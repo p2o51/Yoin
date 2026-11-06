@@ -310,7 +310,7 @@ struct DiaryBlocks: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let liner = !card.diaryTracks.isEmpty
+        let liner = card.albumNote != nil || !card.diaryTracks.isEmpty
         let footer = MemoryDeck.footer(plays: card.playCount, firstPlayedAt: card.firstPlayedAt,
                                        now: Int64(Date().timeIntervalSince1970 * 1000))
         let k0 = firstBlock
@@ -345,6 +345,8 @@ struct DiaryBlocks: View {
 
     private var linerView: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The album's own note leads, not a button: a hollow bead in the number column.
+            if let note = card.albumNote { albumNoteRow(note) }
             ForEach(Array(card.diaryTracks.enumerated()), id: \.element.id) { i, group in
                 if i > 0, !card.diaryTracks[i - 1].notes.isEmpty {
                     Color.clear.frame(height: MemoryDiaryTokens.notedGroupGap)
@@ -353,6 +355,29 @@ struct DiaryBlocks: View {
             }
         }
         .frame(maxWidth: 520, alignment: .leading)
+    }
+
+    private func albumNoteRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            Circle()
+                .strokeBorder(scheme.onSurfaceVariant, lineWidth: 1.5)
+                .frame(width: 6, height: 6)
+                .opacity(0.6)
+                .padding(.top, (DiaryType.note * DiaryType.noteLine - 6) / 2)
+                .frame(width: MemoryDiaryTokens.linerColumn, alignment: .leading)
+            Text(text)
+                .font(.gsf(DiaryType.note))
+                .lineSpacing(DiaryType.lineSpacing(DiaryType.note, DiaryType.noteLine))
+                .foregroundStyle(scheme.onSurface)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minHeight: MemoryDiaryTokens.rowMin, alignment: .top)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "Album note: \(text)"))
     }
 
     private func playing(_ t: MemoryCard.DiaryTrack) -> Bool {

@@ -99,8 +99,11 @@ struct AlbumScrapbookView: View {
         guard let at = memories.album(provider: provider, albumId: album.id.rawId)?.reviewUpdatedAt else { return nil }
         return HomeHistory.relativeDay(at, now: Int64(Date().timeIntervalSince1970 * 1000))
     }
-    /// The album note (Android album_notes): not synced and not written on iOS yet.
-    private var albumNote: String? { isMock ? String(localized: "Bought on a rainy Tuesday in Shimokitazawa.") : nil }
+    /// The album's one note (Android album_notes, the latest row): read-only, never synced.
+    private var albumNote: String? {
+        isMock ? String(localized: "Bought on a rainy Tuesday in Shimokitazawa.")
+            : AlbumNoteStore.shared.text(provider: provider, albumId: album.id.rawId)
+    }
 
     private func notes(_ t: Track) -> [Note]? {
         if isMock {

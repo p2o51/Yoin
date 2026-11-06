@@ -86,6 +86,9 @@ enum HomeHistory {
         var albumWrittenAt: (String) -> Int64? = { _ in nil }
         /// The album has a non-blank review here (AlbumMemoryStore).
         var albumReviewed: (String) -> Bool = { _ in false }
+        /// Raw album id → its non-blank album notes (Android `getNoteCountsForProfile`): they add to
+        /// the album's note count and seed a memory of their own.
+        var albumNoteCounts: [String: Int] = [:]
     }
 
     // MARK: Memories
@@ -122,7 +125,7 @@ enum HomeHistory {
     static func writtenAlbumIds(_ x: Inputs) -> Set<String> { writtenAlbumIds(x, ownership(x)) }
 
     private static func writtenAlbumIds(_ x: Inputs, _ o: Ownership) -> Set<String> {
-        var ids = Set(o.notesOf.keys).union(x.ratedAlbumIds)
+        var ids = Set(o.notesOf.keys).union(x.ratedAlbumIds).union(x.albumNoteCounts.keys)
         for (id, songs) in o.songsOf where songs.contains(where: { x.localRating($0) != nil }) { ids.insert(id) }
         return ids
     }
@@ -152,7 +155,9 @@ enum HomeHistory {
             let coverage = total > 0 ? Double(rated.count) / Double(total) : 0
             let notes = notesOf[id]
             let albumRating = x.localAlbumRating(id).flatMap { $0 > 0 ? $0 : nil }
-            let noteCount = notes?.count ?? 0
+            // Song notes plus the album's own (Android `albumNoteCount + noteStats.count`); the album note
+            // never moves `lastWrittenAt` (nothing writes it).
+            let noteCount = (notes?.count ?? 0) + (x.albumNoteCounts[id] ?? 0)
             let written = ([notes?.last, x.albumWrittenAt(id)] + songs.filter { rating($0) != nil }.map(x.ratingWrittenAt))
                 .compactMap { $0 }.filter { $0 > 0 }.max()
             let reviewed = x.albumReviewed(id)

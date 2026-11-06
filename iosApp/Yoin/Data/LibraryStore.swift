@@ -349,11 +349,13 @@ final class LibraryStore {
         return all
     }
 
-    /// The account's written notes (Android `countNotes`: blank notes don't count).
+    /// The account's written notes (Android `countNonBlankNotes`: song and album notes, blank ones don't count).
     var noteCount: Int {
         guard isReal else { return 0 }
         let provider = provider
-        return notes.notes.filter { $0.provider == provider && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        let songNotes = notes.notes.filter { $0.provider == provider && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        // Android countNonBlankNotes: song notes + album notes.
+        return songNotes + AlbumNoteStore.shared.counts(provider: provider).values.reduce(0, +)
     }
 
     /// What the Memories deck reads: the memories, each album's notes (by the
@@ -382,7 +384,8 @@ final class LibraryStore {
             },
             rating: { ratings.rating(provider: provider, songId: $0) },
             yoinTitle: { memoryStore.memory(provider: provider, entityId: $0)?.title },
-            copy: { memoryStore.memory(provider: provider, entityId: $0)?.copy })
+            copy: { memoryStore.memory(provider: provider, entityId: $0)?.copy },
+            albumNote: { AlbumNoteStore.shared.text(provider: provider, albumId: $0) })
     }
 
     /// Loads the album details the account's memories need and the app has
@@ -1522,6 +1525,7 @@ final class LibraryStore {
         let reviewed = Set(albumRecords.filter { !($0.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map(\.albumId))
         let ratingTimes = ratings.updatedAt
+        let albumNotes = AlbumNoteStore.shared.counts(provider: provider)
         return HomeHistory.Inputs(
             now: history.nowMs,
             plays: history.plays(scope: historyScope, provider: provider),
@@ -1537,7 +1541,8 @@ final class LibraryStore {
                 .map(\.albumId),
             ratingWrittenAt: { ratingTimes[LocalRatings.key(provider: provider, songId: $0)] },
             albumWrittenAt: { albumWrites[$0] },
-            albumReviewed: { reviewed.contains($0) })
+            albumReviewed: { reviewed.contains($0) },
+            albumNoteCounts: albumNotes)
     }
 
     /// An album made from a play's snapshot, for one the app has no copy of.
