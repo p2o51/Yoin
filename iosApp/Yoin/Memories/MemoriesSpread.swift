@@ -53,6 +53,7 @@ struct MemoriesSpreadPage: View {
         let size = album ? 26.0 : 30.0
         let font: Font = album ? .gsf(size, .semibold) : .system(size: size, weight: .semibold, design: .serif)
         let spacing = size * 0.3 - 6
+        let onCover = CoverMarks.onCover(provider: card.album.id.provider)
         return VStack(spacing: 0) {
             Spacer(minLength: 24)
             CoverArt(palette: card.album.palette, cornerRadius: Tokens.shape.HERO.cg, seed: card.album.seed)
@@ -60,11 +61,12 @@ struct MemoriesSpreadPage: View {
                 .overlay(alignment: .topLeading) {
                     ScoreEmblem(score: card.score ?? 0, kind: card.emblemKind, rated: card.rated,
                                 palette: card.album.palette, size: seal, award: deck.cardAward(card),
-                                neutrals: scheme, onCover: true)
-                        .padding(.leading, cover - seal * 0.7)
-                        .padding(.top, cover - seal * 0.76)
+                                neutrals: scheme, onCover: onCover)
+                        // A Spotify cover: the stamp under its right edge, clear of it (CoverMarks).
+                        .padding(.leading, onCover ? cover - seal * 0.7 : cover - seal)
+                        .padding(.top, onCover ? cover - seal * 0.76 : cover + CoverMarks.gap)
                 }
-                .padding(.bottom, seal * 0.24)
+                .padding(.bottom, onCover ? seal * 0.24 : seal + CoverMarks.gap)
             MemoryTitleSlot(card: card, surface: .spread, editor: deck.editor, scheme: scheme, tones: tones, font: font,
                             lineSpacing: spacing, centred: true, enabled: current, onCommit: onTitle) {
                 Text(card.title)

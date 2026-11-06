@@ -207,6 +207,9 @@ struct AlbumScrapbookView: View {
         let cover = Tokens.detail.SCRAPBOOK_COVER.cg
         let badge = Tokens.detail.SCRAPBOOK_BADGE.cg
         let overhangX = Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_X.cg
+        // A Spotify cover: the stamp beside it, level with its foot (CoverMarks).
+        let onCover = CoverMarks.onCover(provider: provider)
+        let stampX = onCover ? overhangX * badge : badge + CoverMarks.gap
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
@@ -230,11 +233,11 @@ struct AlbumScrapbookView: View {
                     ScoreEmblem(score: emblemScore, kind: kind, rated: emblemRated,
                                 palette: album.palette, size: badge,
                                 // nothing rated: the empty mould, no ceremony (GrooveScript tier 0)
-                                award: kind == .unrated ? nil : award, onCover: true)
-                        .offset(x: overhangX * badge)
+                                award: kind == .unrated ? nil : award, onCover: onCover)
+                        .offset(x: stampX)
                         .modifier(layer(0, depth: 0.6))
                 }
-                Spacer().frame(width: overhangX * badge + 8)
+                Spacer().frame(width: stampX + 8)
                 VStack(alignment: .leading, spacing: 0) {
                     // OpeningTitle: the serif (a title someone or the AI wrote),
                     // 22 SemiBold, line 1.25 em (27.5).

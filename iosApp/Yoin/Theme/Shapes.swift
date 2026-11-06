@@ -124,8 +124,11 @@ struct EntityBackdrop: View {
             .frame(width: size, height: size)
             .clipShape(.rect(cornerRadius: r, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .strokeBorder(stroke.opacity(0.08), lineWidth: 0.5)
+                // Not over Spotify artwork (CoverMarks).
+                if palette.cover?.isSpotify != true {
+                    RoundedRectangle(cornerRadius: r, style: .continuous)
+                        .strokeBorder(stroke.opacity(0.08), lineWidth: 0.5)
+                }
             }
             .shadow(color: palette.a.opacity(0.22), radius: 8, y: 6)
     }
