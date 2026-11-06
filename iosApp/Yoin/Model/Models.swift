@@ -135,6 +135,9 @@ struct LibraryItem: Identifiable, Hashable, Sendable {
     /// Playlists: the signed-in user made it (Android Playlist.ownedByMe, By You); nil where the source
     /// doesn't say.
     var ownedByMe: Bool? = nil
+    /// Playlists: when it joined the library (ISO-8601; Android Playlist.libraryAddedAt: Subsonic's created,
+    /// an Apple library playlist's dateAdded; Spotify dates none), for Recently added.
+    var addedAt: String? = nil
 }
 
 struct ActivityEntry: Identifiable, Hashable, Sendable {

@@ -120,6 +120,8 @@ struct AMPlaylist: Hashable, Sendable {
     /// A library playlist the user can edit (Apple's `canEdit`): theirs. Apple names no owner, and its
     /// Purchased and Favorites Mix aren't editable (Android ownedByMe). nil: a catalog playlist.
     var canEdit: Bool? = nil
+    /// A library playlist's `dateAdded` (ISO-8601): when it joined the library.
+    var dateAdded: String? = nil
 
     /// Playlists keep their own id: a library playlist is the user's (`library:p.…`).
     var rawId: String { isLibrary ? AppleMusicMapping.libraryPrefix + resourceId : resourceId }
@@ -314,7 +316,8 @@ enum AppleMusicMapping {
             description: AppleMusicJSON.string(description, "standard") ?? AppleMusicJSON.string(description, "short"),
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")),
             trackCount: AppleMusicJSON.int(a, "trackCount"),
-            canEdit: type == "library-playlists" ? a["canEdit"] as? Bool : nil)
+            canEdit: type == "library-playlists" ? a["canEdit"] as? Bool : nil,
+            dateAdded: type == "library-playlists" ? AppleMusicJSON.string(a, "dateAdded") : nil)
     }
 
     // MARK: Plain → UI
@@ -380,7 +383,8 @@ enum AppleMusicMapping {
     static func playlistItem(_ p: AMPlaylist) -> LibraryItem {
         LibraryItem(id: MediaId(provider: provider, rawId: p.rawId), kind: .playlist, title: p.name,
                     subtitle: p.trackCount.map { "Playlist · \($0) songs" } ?? "Playlist",
-                    palette: palette(p.artwork, key: p.rawId), count: p.trackCount, ownedByMe: p.canEdit)
+                    palette: palette(p.artwork, key: p.rawId), count: p.trackCount, ownedByMe: p.canEdit,
+                    addedAt: p.dateAdded)
     }
 
     static func playlist(_ p: AMPlaylist, songs: [AMSong]) -> PlaylistInfo {

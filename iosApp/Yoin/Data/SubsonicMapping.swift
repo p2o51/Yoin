@@ -127,7 +127,8 @@ struct SubsonicMapping {
         let n = Self.int(p.songCount) ?? 0
         return LibraryItem(id: MediaId(provider: p.ref.provider, rawId: p.id), kind: .playlist, title: p.name,
                            subtitle: String(localized: "Playlist · \(n) songs"), palette: palette(coverId: p.coverArtId), count: n,
-                           owner: p.owner, ownedByMe: p.ownedByMe?.boolValue)
+                           owner: p.owner, ownedByMe: p.ownedByMe?.boolValue,
+                           addedAt: p.created.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     func playlist(_ d: PlaylistDetail) -> PlaylistInfo {

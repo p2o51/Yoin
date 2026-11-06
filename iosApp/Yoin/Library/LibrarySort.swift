@@ -22,6 +22,27 @@ enum LibrarySortOrder: String, Hashable, Sendable {
     }
 }
 
+/// Android librarySortOptions: only the orders the data can back. No source dates its artists; a source's
+/// playlists are dated where it says when they joined the library (Subsonic, Apple Music; not Spotify:
+/// ServiceFeatures.playlistsHaveLibraryDates). Songs and Favorites keep their one order and have no sort row.
+enum LibrarySortOptions {
+    static func options(for filter: LibraryKind?, playlistsDated: Bool) -> [LibrarySortOrder] {
+        switch filter {
+        case nil: [.recents, .recentlyAdded, .alphabetical, .creator]
+        case .albums?: [.recents, .recentlyAdded, .alphabetical, .creator]
+        case .artists?: [.recents, .alphabetical]
+        case .playlists?: playlistsDated ? [.recents, .recentlyAdded, .alphabetical, .creator]
+                                         : [.recents, .alphabetical, .creator]
+        case .songs?, .favorites?: []
+        }
+    }
+
+    /// Whether the loaded playlists carry the date they joined the library.
+    static func playlistsDated(_ playlists: [LibraryItem]) -> Bool {
+        playlists.contains { LibraryStore.epochMs($0.addedAt) != nil }
+    }
+}
+
 /// Android LibrarySorter: orders the lists Library has loaded, nothing fetched.
 struct LibrarySorter {
     /// "album:<id>" / "artist:<id>" / "playlist:<id>" → last seen (ms).
@@ -68,7 +89,7 @@ struct LibrarySorter {
             case .playlist:
                 return Entry(item: item, position: position, name: sortName(item.title),
                              creator: item.owner.flatMap { $0.isEmpty ? nil : sortName($0) },
-                             addedAt: nil, lastSeen: recents["playlist:\(item.id.rawId)"])
+                             addedAt: LibraryStore.epochMs(item.addedAt), lastSeen: recents["playlist:\(item.id.rawId)"])
             }
         }
     }

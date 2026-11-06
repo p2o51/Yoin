@@ -90,16 +90,9 @@ struct LibraryView: View {
     }
     private var cell: CGFloat { LibraryGrid.cell(width: width, columns: columns) }
 
-    /// Android librarySortOptions: only orders the data can back. No source
-    /// dates its artists or (here) its playlists; Songs and Favorites keep
-    /// their one order and have no sort row.
+    /// Android librarySortOptions: only orders the data can back (see `LibrarySortOptions`).
     private var sortOptions: [LibrarySortOrder] {
-        switch filter {
-        case nil, .albums?: [.recents, .recentlyAdded, .alphabetical, .creator]
-        case .artists?: [.recents, .alphabetical]
-        case .playlists?: [.recents, .alphabetical, .creator]
-        case .songs?, .favorites?: []
-        }
+        LibrarySortOptions.options(for: filter, playlistsDated: LibrarySortOptions.playlistsDated(model.store.playlists))
     }
 
     private var sorter: LibrarySorter {
