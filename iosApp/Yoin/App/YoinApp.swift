@@ -4,6 +4,7 @@ import SwiftUI
 struct YoinApp: App {
     init() {
         YoinFont.selfCheck()
+        PlayTrace.observeApp()
     }
 
     var body: some Scene {

@@ -57,6 +57,7 @@ final class AVAudioOutput: AudioOutput {
     }
 
     func load(_ url: URL, next nextURL: URL?, startSec: Double) {
+        PlayTrace.log("AV load \(Self.describe(url))")
         player.removeAllItems()
         let item = makeItem(url)
         current = item
@@ -84,8 +85,8 @@ final class AVAudioOutput: AudioOutput {
         }
     }
 
-    func play() { player.play() }
-    func pause() { player.pause() }
+    func play() { PlayTrace.log("AV play"); player.play() }
+    func pause() { PlayTrace.log("AV pause"); player.pause() }
 
     func seek(to sec: Double) {
         player.seek(to: CMTime(seconds: sec, preferredTimescale: 600),
@@ -98,6 +99,7 @@ final class AVAudioOutput: AudioOutput {
     }
 
     func stop() {
+        PlayTrace.log("AV stop")
         player.pause()
         player.removeAllItems()
         current = nil

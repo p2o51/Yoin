@@ -28,6 +28,8 @@ enum SpotifyConfig {
     static let requiredScopes: Set<String> = [
         "user-read-private", "app-remote-control", "streaming",
         "playlist-modify-private", "playlist-modify-public", "user-modify-playback-state",
+        // Where Spotify plays (GET me/player): starts on another device and Yoin's progress read it.
+        "user-read-playback-state",
     ]
 
     static let clientIdKey = "spotifyClientId"

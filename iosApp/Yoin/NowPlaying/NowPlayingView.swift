@@ -1886,7 +1886,9 @@ struct NowPlayingView: View, Equatable {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
                 pill("queue", "Queue", shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
-                pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
+                // Yoin as the remote of another Spotify device: the pill names it.
+                pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? "Devices" : "Devices",
+                     shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
                     if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
                 }
                     // The system route picker, invisible, over the pill: a
@@ -1904,7 +1906,7 @@ struct NowPlayingView: View, Equatable {
         Button(action: action) {
             HStack(spacing: 4) {
                 YoinIcon(icon, size: 15.8)
-                Text(title).font(.gsf(12, .medium)).tracking(0.1)
+                Text(title).font(.gsf(12, .medium)).tracking(0.1).lineLimit(1)
             }
             // The primary glass reads mid-tone in both modes: onPrimary in
             // light; white in dark, where dark onPrimary (and, on glass,

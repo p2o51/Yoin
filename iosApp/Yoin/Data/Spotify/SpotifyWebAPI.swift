@@ -105,8 +105,12 @@ final class SpotifyWebAPI: Sendable {
                 req.httpBody = json
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
+            let t0 = Date()
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { throw SpotifyAPIError.badRequest }
+            if path.hasPrefix("me/player") {
+                PlayTrace.log("API \(method) \(url.path)?\(url.query ?? "") → \(http.statusCode) in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s retry-after=\(http.value(forHTTPHeaderField: "Retry-After") ?? "-")\(http.statusCode >= 300 ? " " + (Self.errorMessage(data) ?? "") : "")")
+            }
             switch http.statusCode {
             case 200..<300:
                 return data

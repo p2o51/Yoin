@@ -609,6 +609,7 @@ extension PlayerEngine: AudioOutputEvents {
     }
 
     func outputDidFail(_ message: String, network: Bool) {
+        PlayTrace.log("engine failure network=\(network): \(message)")
         if network { holdAfterFailure(message) } else { skipAfterFailure(message) }
     }
 

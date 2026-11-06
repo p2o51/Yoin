@@ -83,4 +83,13 @@ final class SpotifyPlaybackTests: XCTestCase {
     func test_should_askToOpenSpotify_when_theAppIsNotConnected() {
         XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: nil, appRemoteConnected: false), .openSpotify)
     }
+
+    func test_should_driveTheOtherDevice_when_spotifyIsActiveOnAMacOrPixel() {
+        let mac = SpotifySource.PlayerNow(deviceId: "m", deviceName: "51's MacBook", deviceType: "Computer", isPlaying: true)
+        let pixel = SpotifySource.PlayerNow(deviceId: "p", deviceName: "Pixel Tablet", deviceType: "Tablet", isPlaying: false)
+        let phone = SpotifySource.PlayerNow(deviceId: "i", deviceName: "51's iPhone Air", deviceType: "Smartphone", isPlaying: true)
+        XCTAssertFalse(SpotifyAudioOutput.isThisPhone(mac))
+        XCTAssertFalse(SpotifyAudioOutput.isThisPhone(pixel))
+        XCTAssertTrue(SpotifyAudioOutput.isThisPhone(phone))
+    }
 }

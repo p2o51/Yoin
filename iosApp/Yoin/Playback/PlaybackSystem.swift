@@ -67,6 +67,7 @@ final class PlaybackSystem {
     // MARK: Audio session
 
     private func prepareForSound() {
+        PlayTrace.log("prepareForSound external=\(isAppleMusic) provider=\(engine.currentTrack?.provider ?? "-") sessionActive=\(sessionActive)")
         if isAppleMusic {
             // MusicKit plays outside our audio session and drives the lock
             // screen itself: an active non-mixable session of ours would
@@ -80,6 +81,7 @@ final class PlaybackSystem {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
+            PlayTrace.log("session setActive(true)")
             try session.setActive(true)
             sessionActive = true
         } catch {
@@ -93,7 +95,9 @@ final class PlaybackSystem {
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             sessionActive = false
+            PlayTrace.log("session released")
         } catch {
+            PlayTrace.log("session release failed \(error)")
             Self.log.info("audio session release: \(error.localizedDescription, privacy: .public)")
             guard retry else { return }
             Task { @MainActor [weak self] in
@@ -139,6 +143,7 @@ final class PlaybackSystem {
     }
 
     private func interruption(_ type: AVAudioSession.InterruptionType?, options: AVAudioSession.InterruptionOptions) {
+        PlayTrace.log("interruption \(String(describing: type?.rawValue)) external=\(isAppleMusic) playing=\(engine.isPlaying)")
         switch type {
         case .began:
             sessionActive = false
