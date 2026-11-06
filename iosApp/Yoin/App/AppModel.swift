@@ -448,6 +448,15 @@ final class AppModel {
         path.append(.artist(ArtistRef(name, id: id)))
     }
 
+    /// An Activities card's real target (Android `HomeEntryTarget`): its album, artist or playlist page.
+    func openActivity(_ entry: ActivityEntry, tile: String? = nil) {
+        switch entry.entity {
+        case .artist: openArtist(entry.album.title, id: entry.entityId ?? entry.album.artistId)
+        case .playlist: openPlaylist(entry.targetId)
+        case .album, .song: open(entry.album, tile: tile)
+        }
+    }
+
     /// Opens [route] (Now Playing's Playing-from line).
     func open(_ route: Route) {
         switch route {

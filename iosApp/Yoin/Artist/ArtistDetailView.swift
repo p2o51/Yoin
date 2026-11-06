@@ -117,6 +117,8 @@ struct ArtistDetailView: View {
         .task(id: "\(model.store.generation)|\(ref.id ?? ref.name)") {
             guard let id = ref.id, model.store.isReal else { return }
             await model.store.loadArtist(id)
+            // The activity log's visit (Android recordArtistVisit).
+            if let page = model.store.artistPage(id) { model.store.recordArtistVisit(page) }
         }
     }
 

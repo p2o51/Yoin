@@ -312,17 +312,15 @@ struct HomeView: View {
         let small = contentWidth > 0 ? (contentWidth - gap) / 3 : 120
         return VStack(alignment: .leading, spacing: gap) {
             HomeSectionTitle(String(localized: "Activities")).padding(.bottom, 6)
-            HeroCard(album: a[0].album, timeAgo: a[0].eyebrow)
+            HeroCard(entry: a[0])
             if a.count > 1 {
                 HStack(spacing: gap) {
-                    SmallCard(album: a[1].album, entity: .artist, typeLabel: String(localized: "Artist"), timeAgo: a[1].eyebrow,
-                              title: a[1].album.artist)
-                        .frame(width: small)
-                    if a.count > 2 { WideCard(album: a[2].album, timeAgo: a[2].eyebrow) }
+                    SmallCard(entry: a[1]).frame(width: small)
+                    if a.count > 2 { WideCard(entry: a[2]) }
                 }
                 .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
             }
-            if a.count > 3 { StripCard(album: a[3].album, timeAgo: a[3].eyebrow) }
+            if a.count > 3 { StripCard(entry: a[3]) }
         }
     }
 
@@ -627,8 +625,9 @@ private struct HeroCard: View {
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
     @State private var zoomTile = ZoomTile()
-    var album: Album
-    var timeAgo: String
+    var entry: ActivityEntry
+    private var album: Album { entry.album }
+    private var timeAgo: String { entry.eyebrow }
 
     /// [year] [N songs] [M min]; the mock keeps its hand-set 48 min.
     private var heroMeta: [(String, String?)] {
@@ -643,10 +642,10 @@ private struct HeroCard: View {
     var body: some View {
         let s = scheme!
         let muted = s.onSurfaceVariant
-        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
+        Button { homeTap(edit) { model.openActivity(entry, tile: zoomTile.key) } } label: {
             HStack(spacing: 14) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
-                    .zoomSource(album.id, zoomNS, tile: zoomTile.key)
+                EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
+                    .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(muted)
                     Text(album.title).homeType(Tokens.type.titleLarge, .semibold).foregroundStyle(s.onSurface)
@@ -667,39 +666,28 @@ private struct SmallCard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
-    var album: Album
-    var entity: EntityBackdrop.Entity
-    var typeLabel: String
-    var timeAgo: String
-    var title: String
+    var entry: ActivityEntry
+    private var album: Album { entry.album }
     @Environment(\.zoomNamespace) private var zoomNS
     @State private var zoomTile = ZoomTile()
 
     var body: some View {
         let s = scheme!
-        Button {
-            homeTap(edit) {
-                if entity == .artist {
-                    model.openArtist(album.artist, id: album.artistId)
-                } else {
-                    model.open(album, tile: zoomTile.key)
-                }
-            }
-        } label: {
+        Button { homeTap(edit) { model.openActivity(entry, tile: zoomTile.key) } } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 10) {
-                    EntityBackdrop(entity: entity, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
-                        .zoomSource(album.id, entity == .album ? zoomNS : nil, tile: zoomTile.key)
+                    EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
+                        .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(typeLabel).homeType(Tokens.type.labelSmall)
-                        Text(timeAgo).homeType(Tokens.type.labelSmall)
+                        Text(entry.typeLabel).homeType(Tokens.type.labelSmall)
+                        Text(entry.eyebrow).homeType(Tokens.type.labelSmall)
                     }
                     .foregroundStyle(s.onSurfaceVariant)
                     .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 // titleSmall SemiBold, leading tightened to 17 so two lines read as one block.
-                Text(title)
+                Text(album.title)
                     .homeType(Tokens.type.titleSmall, .semibold, lineHeight: 17)
                     .foregroundStyle(s.onSurface)
                     .lineLimit(2)
@@ -718,15 +706,16 @@ private struct WideCard: View {
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
     @State private var zoomTile = ZoomTile()
-    var album: Album
-    var timeAgo: String
+    var entry: ActivityEntry
+    private var album: Album { entry.album }
+    private var timeAgo: String { entry.eyebrow }
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
+        Button { homeTap(edit) { model.openActivity(entry, tile: zoomTile.key) } } label: {
             HStack(spacing: 12) {
-                EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
-                    .zoomSource(album.id, zoomNS, tile: zoomTile.key)
+                EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
+                    .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
                     Text(album.title).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(s.onSurface)
@@ -747,12 +736,13 @@ private struct StripCard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
-    var album: Album
-    var timeAgo: String
+    var entry: ActivityEntry
+    private var album: Album { entry.album }
+    private var timeAgo: String { entry.eyebrow }
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.open(album) } } label: {
+        Button { homeTap(edit) { model.openActivity(entry) } } label: {
             HStack(spacing: 10) {
                 HStack(spacing: 12) {
                     Text(album.title).homeType(Tokens.type.bodyMedium, .semibold).foregroundStyle(s.onSurface)

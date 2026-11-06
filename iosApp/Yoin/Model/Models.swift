@@ -143,7 +143,35 @@ struct LibraryItem: Identifiable, Hashable, Sendable {
 struct ActivityEntry: Identifiable, Hashable, Sendable {
     var id: String
     var eyebrow: String
+    /// The cover, palette and words the card shows. An album is the album; an artist or a
+    /// playlist is made from its log row (title = its name, artist = its subtitle).
     var album: Album
+    /// What the card is about, so it renders and opens its real target (Android `HomeEntryTarget`).
+    var entity: ActivityEntity = .album
+    /// The entity's own id (the album's, artist's or playlist's); nil = the album's.
+    var entityId: String? = nil
+
+    var targetId: String { entityId ?? album.id.rawId }
+
+    /// The backdrop shape: an artist is a circle, a playlist its own, an album the Bun.
+    var backdrop: EntityBackdrop.Entity {
+        switch entity {
+        case .artist: .artist
+        case .playlist: .playlist
+        case .album: .album
+        case .song: .song
+        }
+    }
+
+    /// The small card's type line (Android `activityTypeLabel`).
+    var typeLabel: String {
+        switch entity {
+        case .album: String(localized: "Album")
+        case .artist: String(localized: "Artist")
+        case .playlist: String(localized: "Playlist")
+        case .song: String(localized: "Track")
+        }
+    }
 }
 
 struct PlaybackSnapshot: Sendable {

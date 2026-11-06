@@ -421,7 +421,7 @@ final class LibraryStore {
     /// ratings: the server's shelves alone, as before).
     struct HomeOverlay {
         /// Newest activity first, with when.
-        var activities: [(album: Album, at: Int64)] = []
+        var activities: [HomeHistory.ActivityPick] = []
         var signals: [JBISignal] = []
         var rediscover: [RediscoverEntry] = []
         var marks: [String: AlbumMemoryMark] = [:]
@@ -439,7 +439,7 @@ final class LibraryStore {
             && inputs.ratedAlbumIds.isEmpty { return nil }
         let memories = HomeHistory.memories(inputs)
         var o = HomeOverlay(hasHistory: !inputs.plays.isEmpty, now: inputs.now)
-        o.activities = HomeHistory.activityAlbums(records, resolve: inputs.resolve)
+        o.activities = HomeHistory.activityPicks(records, resolve: inputs.resolve)
         if let rated = HomeHistory.ratedAlbumSignal(memories) { o.signals.append(rated) }
         if let noted = HomeHistory.notedTrackSignal(inputs, placeholder: { [weak self] note in
             self?.placeholderAlbum(note) ?? Album(id: MediaId(provider: note.provider, rawId: note.trackId),
@@ -467,19 +467,27 @@ final class LibraryStore {
             guard let n = a.playCount, n > 0 else { return "Recently active" }
             return n == 1 ? "1 play" : "\(n) plays"
         }
-        let activityIds = ["hero", "artist", "wide", "strip"]
         // The activity log first ("2h ago"), then the server's recent albums.
-        var picked: [(Album, String?)] = (history?.activities ?? []).map {
-            ($0.album, HomeHistory.timeAgo($0.at, now: history?.now ?? 0))
+        struct Slot { var album: Album; var entity: ActivityEntity; var entityId: String; var eyebrow: String? }
+        var picked: [Slot] = (history?.activities ?? []).map {
+            Slot(album: $0.album, entity: $0.entity, entityId: $0.entityId,
+                 eyebrow: HomeHistory.timeAgo($0.at, now: history?.now ?? 0))
         }
-        for a in recent where picked.count < 4 && !picked.contains(where: { $0.0.id == a.id }) { picked.append((a, nil)) }
-        // The artist card already says "Artist" over a narrow column: only a time there, never plays.
-        let activities = zip(activityIds, picked.prefix(4)).map { slot, p in
-            ActivityEntry(id: slot, eyebrow: p.1 ?? (slot == "artist" ? "" : plays(p.0)), album: p.0)
+        for a in recent where picked.count < 4 && !picked.contains(where: { $0.entity == .album && $0.entityId == a.id.rawId }) {
+            picked.append(Slot(album: a, entity: .album, entityId: a.id.rawId, eyebrow: nil))
+        }
+        // The hero only ever shows an album or a playlist: artists keep to the smaller cards.
+        if let h = picked.firstIndex(where: { $0.entity != .artist }), h > 0 { picked.insert(picked.remove(at: h), at: 0) }
+        // Every slot the widest preset seats: the hero, two rows of cards, a strip.
+        // The small cards say only a time, never plays.
+        let activities = picked.prefix(Self.activityLimit).enumerated().map { i, p in
+            ActivityEntry(id: "activity-\(i)", eyebrow: p.eyebrow ?? ([1, 4].contains(i) ? "" : plays(p.album)),
+                          album: p.album, entity: p.entity, entityId: p.entityId)
         }
 
         let signals = history?.signals ?? []
-        var seen = Set(activities.map(\.album.id))
+        // Only an album's own card keeps its cover off the shelf (an artist's or playlist's card shows that artist or playlist).
+        var seen = Set(activities.filter { $0.entity == .album }.map(\.album.id))
         for s in signals where s.kind == .ratedAlbum { seen.insert(s.album.id) }
         var jbi: [Album] = []
         let rest = Array(recent.dropFirst(4))
@@ -508,13 +516,16 @@ final class LibraryStore {
                                                   footnotePlays: "\(a.playCount ?? 0)"))
             }
         }
-        let shownInActivities = Set(activities.map(\.album.id))
+        let shownInActivities = Set(activities.filter { $0.entity == .album }.map(\.album.id))
         return HomeFeed(layout: .server, activities: activities, jumpBackIn: jbi, recentTracks: recentTracks,
                         recentAlbums: recentAlbums, rediscover: rediscover, signals: signals,
                         memoryMarks: history?.marks ?? [:],
                         recentlyPlayed: recent.filter { !shownInActivities.contains($0.id) },
                         playlists: Array(playlists.prefix(homePlaylistLimit)))
     }
+
+    /// Activities entries kept: the hero, two rows of cards and a strip (the XL preset).
+    nonisolated static let activityLimit = 6
 
     /// Your Playlists' length (Android HOME_PLAYLIST_LIMIT).
     nonisolated static let homePlaylistLimit = 20
@@ -1443,6 +1454,20 @@ final class LibraryStore {
         history.recordAlbumVisit(scope: historyScope, provider: provider, albumId: album.id.rawId, title: album.title,
                                  artist: album.artist, artistId: album.artistId,
                                  coverKey: Self.coverKey(album.coverURL, provider: provider))
+    }
+
+    /// An artist page opened (Android `recordArtistVisit`).
+    func recordArtistVisit(_ page: ArtistPage) {
+        guard isReal, page.id.provider == provider else { return }
+        history.recordArtistVisit(scope: historyScope, provider: provider, artistId: page.id.rawId, name: page.name,
+                                  coverKey: Self.coverKey(page.palette.cover?.url, provider: provider))
+    }
+
+    /// A playlist page opened (Android `recordPlaylistVisit`).
+    func recordPlaylistVisit(_ info: PlaylistInfo) {
+        guard isReal, info.id.provider == provider else { return }
+        history.recordPlaylistVisit(scope: historyScope, provider: provider, playlistId: info.id.rawId, name: info.title,
+                                    owner: info.owner, coverKey: Self.coverKey(info.palette.cover?.url, provider: provider))
     }
 
     /// What the album page shows of its plays in Yoin.

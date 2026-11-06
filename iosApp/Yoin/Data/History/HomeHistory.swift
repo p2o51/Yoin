@@ -191,21 +191,50 @@ enum HomeHistory {
 
     // MARK: Activities
 
-    /// The activity log as album cards, newest first, one per album: album
-    /// rows by their id, song rows by their song's album. Artist and playlist
-    /// rows have no card on the phone preset yet.
-    static func activityAlbums(_ records: [ActivityRecord], resolve: (String, PlayEvent?) -> Album?,
-                               limit: Int = 4) -> [(album: Album, at: Int64)] {
+    /// One Activities card's source: the entity the log row is about and when
+    /// (Android `HomeMomentEntry`).
+    struct ActivityPick: Hashable {
+        var entity: ActivityEntity
+        /// The entity's own id: the album's, the artist's, the playlist's.
+        var entityId: String
+        /// The cover, palette and words. An album is the album itself; an artist or a
+        /// playlist is made from the log row (title = its name, artist = its subtitle).
+        var album: Album
+        var at: Int64
+
+        init(album: Album, at: Int64, entity: ActivityEntity = .album, entityId: String? = nil) {
+            self.entity = entity
+            self.entityId = entityId ?? album.id.rawId
+            self.album = album
+            self.at = at
+        }
+    }
+
+    /// The entries the bento can seat (Android `selectHomeActivities`): newest first,
+    /// one per entity (album / artist / playlist by id), and no songs: the bento opens
+    /// album, playlist and artist pages only, a single play never earns a card.
+    static func activityPicks(_ records: [ActivityRecord], resolve: (String, PlayEvent?) -> Album?,
+                              limit: Int = 7) -> [ActivityPick] {
         var seen = Set<String>()
-        var out: [(Album, Int64)] = []
+        var out: [ActivityPick] = []
         for r in records.sorted(by: { $0.timestamp > $1.timestamp }) where out.count < limit {
-            let id: String? = r.entity == .album ? r.entityId : r.entity == .song ? r.albumId : nil
-            guard let id, seen.insert(id).inserted else { continue }
-            let snap = PlayEvent(id: r.id, scope: r.scope, provider: r.provider, songId: r.songId ?? "", albumId: id,
-                                 artistId: r.artistId, title: r.title,
-                                 album: r.entity == .album ? r.title : "", artist: r.subtitle,
+            guard r.entity != .song, !r.entityId.isEmpty, seen.insert("\(r.entity.rawValue):\(r.entityId)").inserted
+            else { continue }
+            let isAlbum = r.entity == .album
+            // The row's subtitle says who; blank falls back (Android home_activity_fallback_*).
+            let subtitle = r.subtitle.isEmpty
+                ? (r.entity == .artist ? String(localized: "Artist") : String(localized: "Recently active")) : r.subtitle
+            let snap = PlayEvent(id: r.id, scope: r.scope, provider: r.provider, songId: r.songId ?? "",
+                                 albumId: isAlbum ? r.entityId : nil, artistId: r.artistId, title: r.title,
+                                 album: r.title, artist: isAlbum ? r.subtitle : subtitle,
                                  coverKey: r.coverKey, startedAt: r.timestamp, durationSec: 0)
-            if let album = resolve(id, snap) { out.append((album, r.timestamp)) }
+            guard var album = resolve(r.entityId, snap) else { continue }
+            if !isAlbum {
+                // The artist's / playlist's own name and line, whatever the id resolved to.
+                album.title = r.title
+                album.artist = subtitle
+            }
+            out.append(ActivityPick(album: album, at: r.timestamp, entity: r.entity, entityId: r.entityId))
         }
         return out
     }

@@ -156,6 +156,29 @@ final class HistoryStore {
         trimAndPersist()
     }
 
+    /// An artist page opened (Android `recordArtistVisit`): the artist's own row, so Activities
+    /// can show the artist.
+    func recordArtistVisit(scope: String, provider: String, artistId: String, name: String, coverKey: String?,
+                           at ms: Int64? = nil) {
+        guard !artistId.isEmpty, !name.isEmpty else { return }
+        activities.append(ActivityRecord(id: UUID().uuidString, scope: scope, provider: provider, entity: .artist,
+                                         action: .visited, entityId: artistId, title: name, subtitle: "",
+                                         coverKey: coverKey, songId: nil, albumId: nil, artistId: artistId,
+                                         timestamp: ms ?? nowMs))
+        trimAndPersist()
+    }
+
+    /// A playlist page opened (Android `recordPlaylistVisit`).
+    func recordPlaylistVisit(scope: String, provider: String, playlistId: String, name: String, owner: String,
+                             coverKey: String?, at ms: Int64? = nil) {
+        guard !playlistId.isEmpty, !name.isEmpty else { return }
+        activities.append(ActivityRecord(id: UUID().uuidString, scope: scope, provider: provider, entity: .playlist,
+                                         action: .visited, entityId: playlistId, title: name, subtitle: owner,
+                                         coverKey: coverKey, songId: nil, albumId: nil, artistId: nil,
+                                         timestamp: ms ?? nowMs))
+        trimAndPersist()
+    }
+
     /// Forgets one account's history (debug seeding starts clean with it).
     func removeAll(scope: String, provider: String) {
         plays.removeAll { $0.scope == scope && $0.provider == provider }

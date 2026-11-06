@@ -94,6 +94,13 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
 
     func albums() -> [Album] { Self.allAlbums }
 
+    /// An artist's Activities card: the album's cover under the artist's name.
+    static func artistCard(_ a: Album) -> Album {
+        var card = a
+        card.title = a.artist
+        return card
+    }
+
     func activities() -> [ActivityEntry] {
         let a = Self.allAlbums
         return [
@@ -118,7 +125,8 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
             layout: .mock,
             activities: [
                 ActivityEntry(id: "hero", eyebrow: "12m ago", album: a[0]),
-                ActivityEntry(id: "artist", eyebrow: "2h ago", album: a[3]),
+                ActivityEntry(id: "artist", eyebrow: "2h ago", album: Self.artistCard(a[3]), entity: .artist,
+                              entityId: a[3].artistId),
                 ActivityEntry(id: "wide", eyebrow: "1d ago", album: a[1]),
                 ActivityEntry(id: "strip", eyebrow: "3d ago", album: a[11]),
             ],

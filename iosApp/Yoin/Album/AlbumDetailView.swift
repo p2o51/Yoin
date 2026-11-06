@@ -248,8 +248,13 @@ struct AlbumDetailView: View {
         // scrapbook takes the request there. The tracks may land after the push.
         .onChange(of: ScrapbookFocusRequest.shared.pending, initial: true) { _, _ in followScrapFocus() }
         .onChange(of: album.tracks.map(\.id)) { _, _ in followScrapFocus() }
-        .task(id: "\(model.store.generation)|\(routeAlbum.id.rawId)") {
-            guard !isMock, playlist == nil else { return }
+        .task(id: "\(model.store.generation)|\(routeAlbum.id.rawId)|\(playlist?.title ?? "")") {
+            guard !isMock else { return }
+            if let playlist {
+                // The activity log's visit (Android recordPlaylistVisit), once its name is known.
+                model.store.recordPlaylistVisit(playlist)
+                return
+            }
             await model.store.loadAlbum(routeAlbum.id.rawId)
             // The activity log's visit (Android recordAlbumVisit).
             model.store.recordAlbumVisit(model.store.album(routeAlbum.id.rawId) ?? routeAlbum)

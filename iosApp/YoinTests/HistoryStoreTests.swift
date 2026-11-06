@@ -216,7 +216,7 @@ final class HistoryStoreTests: XCTestCase {
         var overlay = LibraryStore.HomeOverlay()
         overlay.now = now
         overlay.hasHistory = true
-        overlay.activities = [(album("mine"), now - 2 * 3_600_000)]
+        overlay.activities = [HomeHistory.ActivityPick(album: album("mine"), at: now - 2 * 3_600_000)]
         let feed = LibraryStore.buildHome(recent: recent, frequent: [], newest: [], highest: [album("hi", rating: 8)],
                                           random: [], recentTracks: [], history: overlay)
         XCTAssertEqual(feed.activities.map(\.album.id.rawId), ["mine", "srv1", "srv2", "srv3"])
