@@ -102,6 +102,38 @@ final class HomeEditController {
 
     // MARK: Changes (each one saved, each one an Undo step)
 
+    // MARK: Row presets (D1 resize)
+
+    /// A handle drag's preset while the finger is down; written (one Undo step) on release.
+    private(set) var rowsPreview: [HomeSection: HomeRowPreset] = [:]
+    /// Each section's resize handle, in the feed's space: a hold on it never lifts the block.
+    @ObservationIgnored private var rowsHandleFrames: [HomeSection: CGRect] = [:]
+
+    /// [s]'s row preset as drawn now: the drag's, else the layout's.
+    func rowsOf(_ s: HomeSection) -> HomeRowPreset { rowsPreview[s] ?? layout.rowsOf(s) }
+
+    func reportRowsHandle(_ s: HomeSection, frame: CGRect) { rowsHandleFrames[s] = frame }
+
+    func isOverRowsHandle(_ point: CGPoint) -> Bool { rowsHandleFrames.values.contains { $0.contains(point) } }
+
+    /// The handle crossed a stop: the section recomposes at [rows] under the finger.
+    func previewRows(_ s: HomeSection, _ rows: HomeRowPreset) {
+        guard rowsPreview[s] != rows else { return }
+        withAnimation(Yoin.spatial) { rowsPreview[s] = rows }
+        UISelectionFeedbackGenerator().selectionChanged()
+        touched()
+    }
+
+    /// The finger lifted: the preset is written, with Undo.
+    func endRows(_ s: HomeSection) {
+        guard let rows = rowsPreview[s] else { return }
+        commit(layout.withRows(s, rows))
+        rowsPreview[s] = nil
+    }
+
+    /// A step by keyboard / VoiceOver: the preset written at once.
+    func setRows(_ s: HomeSection, _ rows: HomeRowPreset) { commit(layout.withRows(s, rows)) }
+
     func hide(_ s: HomeSection) { commit(layout.withEnabled(s, false)) }
     func show(_ s: HomeSection) { commit(layout.withEnabled(s, true)) }
     func move(_ s: HomeSection, to index: Int) { commit(layout.movedShown(s, to: index)) }
@@ -268,6 +300,8 @@ struct HomeEditBlock<Content: View>: View {
     var index: Int
     /// Up to three covers for the strip.
     var covers: [CoverPalette]
+    /// The section's resize handle (Activities, Jump Back In); nil = none.
+    var rows: HomeRowsHandle? = nil
     @ViewBuilder var content: () -> Content
     @State private var naturalHeight: CGFloat = 0
 
@@ -308,6 +342,12 @@ struct HomeEditBlock<Content: View>: View {
         .overlay(alignment: .topTrailing) {
             if p > 0.02 && f < 0.5 { badges(s, r).opacity(Double(1 - smoothstep(0, 0.3, f))) }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if let rows, rows.stops.count > 1, p > 0.02, f < 0.5 {
+                HomeRowsHandleView(edit: edit, section: section, handle: rows, scheme: s, ripple: r)
+                    .opacity(Double(1 - smoothstep(0, 0.3, f)))
+            }
+        }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeEditController.feedSpace)) } action: {
             edit.report(section, frame: $0)
         }
@@ -342,6 +382,92 @@ struct HomeEditBlock<Content: View>: View {
         .opacity(Double(shown))
         // The 48 targets centre on the 28 title row and overhang the plate's edge.
         .offset(x: 12, y: -10)
+    }
+}
+
+/// What a section's resize handle needs (Android `HomeRowsTrack`): the stops on this screen, each
+/// with its row count and the preset to store for it, and the one the section stands at.
+struct HomeRowsHandle: Equatable {
+    var stops: [(rowCount: Int, preset: HomeRowPreset)]
+    var index: Int
+
+    static func == (a: HomeRowsHandle, b: HomeRowsHandle) -> Bool {
+        a.index == b.index && a.stops.map(\.rowCount) == b.stops.map(\.rowCount) && a.stops.map(\.preset) == b.stops.map(\.preset)
+    }
+
+    /// "1 row", "4 rows" (Android home_edit_rows): VoiceOver's count for a resized section.
+    static func label(_ rows: Int) -> String {
+        rows == 1 ? String(localized: "1 row") : String(localized: "\(rows) rows")
+    }
+}
+
+/// A section's resize handle (D1 ②): a rounded ⌟ hugging the plate's bottom-right corner, in
+/// onSurfaceVariant. Held it turns primary and grows a little; dragging down adds rows, up drops
+/// them, a stop at a time, the section recomposing under the finger (one Undo step on release).
+/// VoiceOver steps it with adjust.
+struct HomeRowsHandleView: View {
+    var edit: HomeEditController
+    var section: HomeSection
+    var handle: HomeRowsHandle
+    var scheme: CoverScheme
+    var ripple: CGFloat
+    @State private var startIndex: Int?
+
+    /// How far the finger travels for one stop.
+    private static let pitch: CGFloat = 56
+
+    var body: some View {
+        let held = startIndex != nil
+        let shown = smoothstep(0.25, 1, ripple)
+        CornerGlyph()
+            .stroke(held ? scheme.primary : scheme.onSurfaceVariant,
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            .frame(width: 14, height: 14)
+            .scaleEffect(held ? 1.25 : 1)
+            .animation(Yoin.spatial, value: held)
+            .frame(width: 44, height: 44, alignment: .bottomTrailing)
+            .padding(8)
+            .contentShape(.rect)
+            .scaleEffect(0.6 + 0.4 * shown)
+            .opacity(Double(shown))
+            // The plate's corner (outset 8 / 6), the glyph's corner inside it.
+            .offset(x: 8, y: 6)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeEditController.feedSpace)) } action: {
+                edit.reportRowsHandle(section, frame: $0)
+            }
+            .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                .onChanged { drag in
+                    guard edit.isEditing else { return }
+                    let base = startIndex ?? handle.index
+                    if startIndex == nil { startIndex = base }
+                    let steps = Int((drag.translation.height / Self.pitch).rounded())
+                    let target = min(max(base + steps, 0), handle.stops.count - 1)
+                    edit.previewRows(section, handle.stops[target].preset)
+                }
+                .onEnded { _ in
+                    startIndex = nil
+                    edit.endRows(section)
+                })
+            .accessibilityElement()
+            .accessibilityLabel(String(localized: "Resize \(section.title)"))
+            .accessibilityValue(HomeRowsHandle.label(handle.stops[min(handle.index, handle.stops.count - 1)].rowCount))
+            .accessibilityAdjustableAction { direction in
+                let next = handle.index + (direction == .increment ? 1 : -1)
+                guard handle.stops.indices.contains(next) else { return }
+                edit.setRows(section, handle.stops[next].preset)
+            }
+    }
+}
+
+/// The ⌟: down the right edge, round the corner, along the bottom.
+private struct CornerGlyph: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.maxX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - 5))
+        p.addQuadCurve(to: CGPoint(x: r.maxX - 5, y: r.maxY), control: CGPoint(x: r.maxX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        return p
     }
 }
 
@@ -666,7 +792,8 @@ struct HomeHoldObserver: UIViewRepresentable {
             let y = g.location(in: self).y
             switch g.state {
             case .began:
-                guard let section = edit.section(atY: y) else { return }
+                // A hold on a resize handle is the handle's: the section stays put.
+                guard !edit.isOverRowsHandle(g.location(in: self)), let section = edit.section(atY: y) else { return }
                 if !edit.isEditing { edit.enter() }
                 edit.beginCarry(section)
                 startY = y; lastY = y; lastTime = CACurrentMediaTime(); velocity = 0

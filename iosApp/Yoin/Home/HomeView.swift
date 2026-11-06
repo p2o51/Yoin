@@ -140,7 +140,8 @@ struct HomeView: View {
                 if let feed {
                     let shown = edit.order.filter { edit.isEditing || hasContent($0, feed) }
                     ForEach(Array(shown.enumerated()), id: \.element) { i, section in
-                        HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed)) {
+                        HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
+                                      rows: rowsHandle(section, feed)) {
                             sectionView(section, feed)
                         }
                     }
@@ -214,8 +215,8 @@ struct HomeView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
         } else {
             switch s {
-            case .activities: activities(feed.activities)
-            case .jumpBackIn: jumpBackIn(feed)
+            case .activities: activities(feed.activities, preset: edit.rowsOf(.activities))
+            case .jumpBackIn: jumpBackIn(feed, preset: edit.rowsOf(.jumpBackIn))
             case .recentlyAdded: recentlyAdded(feed)
             case .rediscover: rediscover(feed.rediscover)
             case .recentlyPlayed: recentlyPlayed(feed)
@@ -307,28 +308,71 @@ struct HomeView: View {
 
     // MARK: Activities (bento, phone preset L)
 
-    private func activities(_ a: [ActivityEntry]) -> some View {
+    /// The bento at [preset] (Android activityCodeRows): the hero, then rows of cards and a strip,
+    /// as many as the preset seats and the history fills.
+    private func activities(_ a: [ActivityEntry], preset: HomeRowPreset) -> some View {
         let gap = Tokens.home.ACTIVITY_ROW_GAP.cg
-        let small = contentWidth > 0 ? (contentWidth - gap) / 3 : 120
+        let rows = activityStops(a).stops.stopPayload(for: preset)
+        let hasHero = a[0].entity != .artist
+        let supporting = hasHero ? Array(a.dropFirst()) : a
         return VStack(alignment: .leading, spacing: gap) {
             HomeSectionTitle(String(localized: "Activities")).padding(.bottom, 6)
-            HeroCard(entry: a[0])
-            if a.count > 1 {
-                HStack(spacing: gap) {
-                    SmallCard(entry: a[1]).frame(width: small)
-                    if a.count > 2 { WideCard(entry: a[2]) }
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                switch row.shape {
+                case .hero:
+                    HeroCard(entry: a[0])
+                case .strip:
+                    if let e = supporting.entry(at: row.slots[0].entryIndex) { StripCard(entry: e) }
+                case .cards:
+                    let usable = max(0, contentWidth - gap * CGFloat(row.slots.count - 1))
+                    let total = CGFloat(row.slots.reduce(0) { $0 + $1.weight })
+                    HStack(spacing: gap) {
+                        ForEach(Array(row.slots.enumerated()), id: \.offset) { _, slot in
+                            let width = contentWidth > 0 ? usable * CGFloat(slot.weight) / total : nil
+                            Group {
+                                if let e = supporting.entry(at: slot.entryIndex) {
+                                    if slot.kind == .small { SmallCard(entry: e) } else { WideCard(entry: e) }
+                                } else {
+                                    // An entry past the supply: a spacer of the same weight.
+                                    Color.clear
+                                }
+                            }
+                            .frame(width: width)
+                        }
+                    }
+                    .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
                 }
-                .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
             }
-            if a.count > 3 { StripCard(entry: a[3]) }
+        }
+    }
+
+    /// The Activities ladder for [a] (hero found as Android's: the first album or playlist).
+    private func activityStops(_ a: [ActivityEntry]) -> (hasHero: Bool, stops: [HomeRowStop<[ActivityCodeRow]>]) {
+        let hasHero = !a.isEmpty && a[0].entity != .artist
+        return (hasHero, HomeRowPresets.activityLadder(hasHero: hasHero, supportingCount: hasHero ? a.count - 1 : a.count))
+    }
+
+    /// [section]'s resize handle: its stops on this screen and the one it stands at; nil when the
+    /// section takes no presets or the supply leaves a single stop.
+    private func rowsHandle(_ s: HomeSection, _ feed: HomeFeed) -> HomeRowsHandle? {
+        guard s.supportsRows, hasContent(s, feed) else { return nil }
+        let current = edit.rowsOf(s)
+        switch s {
+        case .activities:
+            let stops = activityStops(feed.activities).stops
+            return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
+        case .jumpBackIn where feed.layout == .server:
+            let stops = jbiStops(feed)
+            return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
+        default: return nil
         }
     }
 
     // MARK: Jump Back In (3 columns, two 1×2 signal cards)
 
     @ViewBuilder
-    private func jumpBackIn(_ feed: HomeFeed) -> some View {
-        if feed.layout == .mock { mockJumpBackIn(feed.jumpBackIn) } else { serverJumpBackIn(feed) }
+    private func jumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
+        if feed.layout == .mock { mockJumpBackIn(feed.jumpBackIn) } else { serverJumpBackIn(feed, preset: preset) }
     }
 
     /// One Jump Back In row of a server's shelf.
@@ -338,15 +382,17 @@ struct HomeView: View {
         case covers([Album])
     }
 
-    /// The 3 × 4 cells (a 1×2 takes two): the rated album's row, then the
-    /// noted track's, then plain covers three to a row.
-    private func serverRows(_ feed: HomeFeed) -> [JBIRow] {
+    /// The shelf's cells (a 1×2 takes two) at [preset]: 2 / 3 / 4 / 6 rows of three. The signal
+    /// cards take the first rows (the rated album's, then the noted track's), as many as the
+    /// preset's size lets (Android jbiSignalLimit), then plain covers three to a row.
+    private func serverRows(_ feed: HomeFeed, preset: HomeRowPreset) -> [JBIRow] {
         var covers = feed.jumpBackIn[...]
         var rows: [JBIRow] = []
-        for (i, s) in feed.signals.prefix(2).enumerated() {
-            rows.append(.signal(s, covers.popFirst(), leading: i == 0))
+        let signals = HomeRowPresets.jbiSignals(preset, available: feed.signals.count)
+        for (i, s) in feed.signals.prefix(signals).enumerated() {
+            rows.append(.signal(s, covers.popFirst(), leading: i % 2 == 0))
         }
-        while !covers.isEmpty && rows.count < 4 {
+        while !covers.isEmpty && rows.count < HomeRowPresets.jbiRows(preset) {
             let n = min(3, covers.count)
             rows.append(.covers(Array(covers.prefix(n))))
             covers.removeFirst(n)
@@ -354,13 +400,20 @@ struct HomeView: View {
         return rows
     }
 
+    private func jbiStops(_ feed: HomeFeed) -> [HomeRowStop<[JBIRow]>] {
+        homeRowLadder { preset in
+            let rows = serverRows(feed, preset: preset)
+            return (rows, rows.count)
+        }
+    }
+
     /// A server's shelf: the history's 1×2s, then plain cells, three to a row;
     /// covers wear their memory marks.
-    private func serverJumpBackIn(_ feed: HomeFeed) -> some View {
+    private func serverJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
         let colGap = Tokens.home.JBI_COLUMN_GAP.cg
         let col = (contentWidth - 2 * colGap) / 3
         let pairUnit = (contentWidth - colGap) / 3
-        let rows = serverRows(feed)
+        let rows = jbiStops(feed).stopPayload(for: preset)
         return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
             HomeSectionTitle(String(localized: "Jump Back In"))
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
