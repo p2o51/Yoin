@@ -50,8 +50,9 @@ struct ScrapTrackSheet: View {
     private var loader: SongAboutLoader { .shared }
     private var toast: PlaylistActions { .shared }
 
+    /// Where Now Playing may have filed this song's rows already (SongAboutStore.filed).
     private var keys: (title: String, artist: String, album: String) {
-        (track.title, track.artist ?? album.artist, album.title)
+        about.filed(title: track.title, artist: track.artist ?? album.artist, album: album.title)
     }
     private var songKey: SongAboutStore.Entry.SongKey {
         SongAboutStore.key(title: keys.title, artist: keys.artist, album: keys.album)

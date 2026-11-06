@@ -126,8 +126,9 @@ struct AlbumScrapbookView: View {
         let demo = false
         #endif
         guard !isMock || demo else { return .none }
-        return ScrapAboutPieces.of(SongAboutStore.shared.entries(
-            SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist, album: album.title)))
+        let store = SongAboutStore.shared
+        let k = store.filed(title: t.title, artist: t.artist ?? album.artist, album: album.title)
+        return ScrapAboutPieces.of(store.entries(SongAboutStore.key(title: k.title, artist: k.artist, album: k.album)))
     }
 
     /// A ticket's tap (Android onSongClick): the album from this song; a note's from its moment. The

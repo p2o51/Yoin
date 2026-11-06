@@ -147,6 +147,32 @@ final class SongAboutStore {
         Entry.SongKey(title: normalize(title), artist: normalize(artist), album: normalize(album))
     }
 
+    /// Now Playing files a song under the track's own metadata, the album page under the album's: an Apple
+    /// Music single's album reads "Glow - Single" there and "Glow" here, a Spotify song's artists come joined
+    /// ("A, B"). The same song if the titles match, the albums match once a "- Single" / "- EP" is dropped,
+    /// and the first artists match (on normalized keys).
+    nonisolated static func sameSong(_ a: Entry.SongKey, _ b: Entry.SongKey) -> Bool {
+        func album(_ s: String) -> String {
+            s.replacingOccurrences(of: #"\s+-\s+(single|ep)$"#, with: "", options: .regularExpression)
+        }
+        func artist(_ s: String) -> String {
+            let first = s.split(omittingEmptySubsequences: false) { ",&、;/".contains($0) }.first.map(String.init) ?? s
+            return first.replacingOccurrences(of: #"\s+(feat\.|ft\.|featuring)\s.*$"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+        }
+        return a.title == b.title && album(a.album) == album(b.album) && artist(a.artist) == artist(b.artist)
+    }
+
+    /// The names a song's rows are filed under: [title]/[artist]/[album] as they are when rows exist under
+    /// them, else those of the same song saved under its other metadata (`sameSong`; rows already stored
+    /// included), else as they are. The scrapbook reads and writes through this, so both pages share rows.
+    func filed(title: String, artist: String, album: String) -> (title: String, artist: String, album: String) {
+        let key = Self.key(title: title, artist: artist, album: album)
+        guard !all.contains(where: { $0.songKey == key }),
+              let other = all.first(where: { Self.sameSong($0.songKey, key) }) else { return (title, artist, album) }
+        return (other.titleDisplay, other.artistDisplay, other.albumDisplay)
+    }
+
     /// Shown in this language: its own rows, and the listener's whatever the language.
     private static func shown(_ e: Entry, _ language: String) -> Bool {
         e.kind == Kind.own || e.language == language
