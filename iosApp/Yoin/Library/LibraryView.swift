@@ -418,7 +418,7 @@ struct LibraryView: View {
         case .artist:
             // A service that doesn't count an artist's albums (Spotify) says "Artist", not the mock's count.
             guard let n = item.count ?? (item.id.provider == "mock"
-                ? model.library.albums().filter { $0.artist == item.title }.count : nil) else { return "Artist" }
+                ? model.library.albums().filter { $0.artist == item.title }.count : nil) else { return String(localized: "Artist") }
             return n == 1 ? String(localized: "1 album") : String(localized: "\(n) albums")
         case .album: return item.album?.artist ?? ""
         case .playlist: return String(localized: "Playlist")
@@ -563,7 +563,7 @@ struct LibraryView: View {
     /// Android FavoritesTabContent: Artists (ArtistListItem), Albums
     /// (AlbumListItem), Songs, each under a SectionHeader (labelLarge
     /// onSurfaceVariant, 16 sides, 18 top, 6 bottom); nothing starred in any
-    /// of them = the "No favorites yet" panel.
+    /// of them = the String(localized: "No favorites yet") panel.
     @ViewBuilder
     private var favoritesList: some View {
         let loaded = !model.store.isReal || model.store.phase("favorites") == .loaded
@@ -702,12 +702,12 @@ struct LibraryView: View {
     /// Android EmptyState, per view (strings_library.xml).
     private var emptyPanel: some View {
         let text = switch filter {
-        case nil: "Your library is empty"
-        case .albums?: "No albums found"
-        case .artists?: "No artists found"
-        case .playlists?: "No playlists"
-        case .songs?: "No songs found"
-        case .favorites?: "No favorites yet"
+        case nil: String(localized: "Your library is empty")
+        case .albums?: String(localized: "No albums found")
+        case .artists?: String(localized: "No artists found")
+        case .playlists?: String(localized: "No playlists")
+        case .songs?: String(localized: "No songs found")
+        case .favorites?: String(localized: "No favorites yet")
         }
         return EmptyPanel(text: text, scheme: scheme)
     }

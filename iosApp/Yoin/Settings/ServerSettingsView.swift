@@ -208,7 +208,7 @@ struct ServerSettingsView: View {
     // MARK: Apple Music
 
     static func subscriptionText(_ s: AppleMusicSource.Subscription) -> String {
-        if s.canPlayCatalogContent { return "Active" }
+        if s.canPlayCatalogContent { return String(localized: "Active") }
         return s.canBecomeSubscriber ? String(localized: "Not subscribed") : String(localized: "Unavailable")
     }
 }

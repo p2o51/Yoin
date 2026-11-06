@@ -154,15 +154,15 @@ struct LandingFlow: Equatable, Sendable {
 /// What the mascot says on a step (the one place the copy talks).
 func landingBubble(_ step: LandingStep, noAccounts: Bool) -> (title: String, body: String?) {
     switch step {
-    case .hello: ("Hi, I'm Yoin.", "I play your music library, from your server, Spotify or Apple Music.")
-    case .pick: ("What do you listen with?", nil)
-    case .about: ("Here's my part, and what stays with your service.", nil)
-    case .subsonic: ("Where's your server?", nil)
+    case .hello: (String(localized: "Hi, I'm Yoin."), String(localized: "I play your music library, from your server, Spotify or Apple Music."))
+    case .pick: (String(localized: "What do you listen with?"), nil)
+    case .about: (String(localized: "Here's my part, and what stays with your service."), nil)
+    case .subsonic: (String(localized: "Where's your server?"), nil)
     case .spotoolfy: (String(localized: "Using Spotoolfy?"), nil)
-    case .spotify: ("Spotify wants an app ID from you.", "I'll walk you through it.")
-    case .appleMusic: ("Apple Music needs your OK.", nil)
+    case .spotify: (String(localized: "Spotify wants an app ID from you."), String(localized: "I'll walk you through it."))
+    case .appleMusic: (String(localized: "Apple Music needs your OK."), nil)
     case .home: (String(localized: "What goes on Home?"), nil)
-    case .ready: noAccounts ? ("No account yet.", "You can add one anytime in Settings.") : ("All set.", nil)
+    case .ready: noAccounts ? (String(localized: "No account yet."), String(localized: "You can add one anytime in Settings.")) : (String(localized: "All set."), nil)
     }
 }
 

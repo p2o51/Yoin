@@ -515,9 +515,9 @@ final class AppModel {
         /// Android PlayingFromLabel's kind line.
         var kindLabel: String {
             switch self {
-            case .album: "PLAYING FROM ALBUM"
-            case .playlist: "PLAYING FROM PLAYLIST"
-            case .artist: "PLAYING FROM ARTIST"
+            case .album: String(localized: "PLAYING FROM ALBUM")
+            case .playlist: String(localized: "PLAYING FROM PLAYLIST")
+            case .artist: String(localized: "PLAYING FROM ARTIST")
             }
         }
 

@@ -33,13 +33,13 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
     /// One line for the tray rows and VoiceOver (not on the feed).
     var supportingText: String {
         switch self {
-        case .activities: "Your recent plays and visits"
-        case .jumpBackIn: "Albums, songs and playlists"
-        case .recentlyAdded: "Added to your library this month"
-        case .rediscover: "Albums and songs you rated or wrote about, not played in a while"
-        case .recentlyPlayed: "Albums you played lately, on any device"
-        case .yourPlaylists: "Playlists in your library"
-        case .otherProfiles: "Albums and playlists your other accounts play most"
+        case .activities: String(localized: "Your recent plays and visits")
+        case .jumpBackIn: String(localized: "Albums, songs and playlists")
+        case .recentlyAdded: String(localized: "Added to your library this month")
+        case .rediscover: String(localized: "Albums and songs you rated or wrote about, not played in a while")
+        case .recentlyPlayed: String(localized: "Albums you played lately, on any device")
+        case .yourPlaylists: String(localized: "Playlists in your library")
+        case .otherProfiles: String(localized: "Albums and playlists your other accounts play most")
         }
     }
 

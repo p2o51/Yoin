@@ -37,7 +37,7 @@ final class ScrapbookContentTests: XCTestCase {
             entry("canonical", SongAboutStore.Canon.lyricist, answer: "L"),
             entry("canonical", SongAboutStore.Canon.creationLocation, answer: ""),
         ])
-        XCTAssertEqual(pieces.tags.map(\.label), ["Created", "Lyricist", "Composer"])
+        XCTAssertEqual(pieces.tags.map(\.label), [loc("Created"), loc("Lyricist"), loc("Composer")])
         XCTAssertEqual(pieces.hiddenTags, 1)
         XCTAssertTrue(pieces.touches)
     }

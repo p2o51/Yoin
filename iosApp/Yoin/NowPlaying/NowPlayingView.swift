@@ -603,7 +603,7 @@ struct NowPlayingView: View, Equatable {
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    // 1. Top bar: ⌄ + "PLAYING FROM ALBUM" / album name. Expanded (Android
+    // 1. Top bar: ⌄ + String(localized: "PLAYING FROM ALBUM") / album name. Expanded (Android
     // StageTopBar docked): the chevron turns to point back, the cover lands
     // in the 48 pt slot after it and the label steps 10 aside.
     private func topBar(_ p: PlaybackSnapshot, docked: Bool) -> some View {
@@ -630,7 +630,7 @@ struct NowPlayingView: View, Equatable {
             routeLink(from.route, label: from.hint) {
                 VStack(alignment: .leading, spacing: 0) {
                     // PlayingFromLabel: labelSmall kind over labelMedium name; started from a list,
-                    // the name alone ("NOW PLAYING", no link).
+                    // the name alone (String(localized: "NOW PLAYING"), no link).
                     if let kind = from.kind {
                         Text(kind)
                             .yoinRole(Tokens.type.labelSmall)
@@ -1862,18 +1862,18 @@ struct NowPlayingView: View, Equatable {
 
     /// The song's album, when it has a page (not a lone song's stand-in).
     /// Android PlayingFromLabel: the page the queue was started on (album, playlist, artist), or
-    /// "NOW PLAYING" alone when it came from a list or Spotify plays its own song. The mock: its album.
+    /// String(localized: "NOW PLAYING") alone when it came from a list or Spotify plays its own song. The mock: its album.
     private var playingFrom: (kind: String?, name: String, hint: String, route: (() -> Void)?) {
         if !model.store.isReal {
-            return ("PLAYING FROM ALBUM", model.playback.album.title, "Go to album", albumRoute(model.playback))
+            return (String(localized: "PLAYING FROM ALBUM"), model.playback.album.title, String(localized: "Go to album"), albumRoute(model.playback))
         }
         guard model.player.externalTrack == nil, let from = model.playingFrom, !from.title.isEmpty else {
-            return (nil, "NOW PLAYING", "", nil)
+            return (nil, String(localized: "NOW PLAYING"), "", nil)
         }
         let hint = switch from {
-        case .album: "Go to album"
-        case .playlist: "Go to playlist"
-        case .artist: "Go to artist"
+        case .album: String(localized: "Go to album")
+        case .playlist: String(localized: "Go to playlist")
+        case .artist: String(localized: "Go to artist")
         }
         return (from.kindLabel, from.title, hint, { [model] in
             Self.leaveForRoute(model)

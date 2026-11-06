@@ -44,25 +44,25 @@ extension LandingService {
 
     var pickLine: String {
         switch self {
-        case .subsonic: "Navidrome, Gonic and other servers"
-        case .spotify: "Premium account"
-        case .appleMusic: "Subscription"
+        case .subsonic: String(localized: "Navidrome, Gonic and other servers")
+        case .spotify: String(localized: "Premium account")
+        case .appleMusic: String(localized: "Subscription")
         }
     }
 
     var needLine: String {
         switch self {
-        case .subsonic: "A Subsonic-compatible server"
-        case .spotify: "Spotify Premium and the Spotify app"
-        case .appleMusic: "An Apple Music subscription"
+        case .subsonic: String(localized: "A Subsonic-compatible server")
+        case .spotify: String(localized: "Spotify Premium and the Spotify app")
+        case .appleMusic: String(localized: "An Apple Music subscription")
         }
     }
 
     var tagline: String {
         switch self {
-        case .subsonic: "Navidrome, Gonic and other servers"
-        case .spotify: "Your Spotify library, played in the Spotify app"
-        case .appleMusic: "Your Apple Music library and catalog"
+        case .subsonic: String(localized: "Navidrome, Gonic and other servers")
+        case .spotify: String(localized: "Your Spotify library, played in the Spotify app")
+        case .appleMusic: String(localized: "Your Apple Music library and catalog")
         }
     }
 }
@@ -628,7 +628,7 @@ struct LandingSpotifyScene: View {
         let id = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !builtIn {
             guard !id.isEmpty else {
-                error = "Paste the Client ID first"
+                error = String(localized: "Paste the Client ID first")
                 shakes += 1
                 reactions.refused()
                 return

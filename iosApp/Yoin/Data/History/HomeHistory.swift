@@ -518,7 +518,7 @@ enum HomeHistory {
     static func rediscoverReason(_ p: RediscoverPick) -> String? {
         if p.score != nil && !p.fromNotes { return nil }
         let m = p.memory
-        if m.noteCount > 0 { return m.noteCount == 1 ? "1 note" : "\(m.noteCount) notes" }
+        if m.noteCount > 0 { return m.noteCount == 1 ? String(localized: "1 note") : String(localized: "\(m.noteCount) notes") }
         if m.ratedTrackCount > 0 {
             return m.ratedTrackCount == 1 ? String(localized: "1 track rated") : String(localized: "\(m.ratedTrackCount) tracks rated")
         }

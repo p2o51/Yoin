@@ -173,7 +173,7 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(shelf[0].reason, "")
         XCTAssertEqual(shelf[0].away, loc("\(6) months away"))
         XCTAssertEqual(shelf[0].score.map { String(format: "%.2f", $0) }, "8.67")
-        XCTAssertEqual(shelf[1].reason, "1 note")
+        XCTAssertEqual(shelf[1].reason, loc("1 note"))
         XCTAssertEqual(shelf[1].away, loc("1 year away"))
         XCTAssertEqual(shelf[1].footnotePlays, "1")
         XCTAssertEqual(shelf[1].footnoteDate, HomeHistory.yearMonth(now - 400 * day))
@@ -226,6 +226,6 @@ final class HistoryStoreTests: XCTestCase {
 
         let plain = LibraryStore.buildHome(recent: recent, frequent: [], newest: [], highest: [album("hi", rating: 8)],
                                            random: [], recentTracks: [])
-        XCTAssertEqual(plain.rediscover.map(\.reason), ["Rated"])
+        XCTAssertEqual(plain.rediscover.map(\.reason), [loc("Rated")])
     }
 }

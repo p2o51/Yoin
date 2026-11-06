@@ -533,7 +533,7 @@ struct SearchView: View {
     }
 
     private func albumCount(_ n: Int?) -> String {
-        guard let n else { return "Artist" }
+        guard let n else { return String(localized: "Artist") }
         return n == 1 ? String(localized: "1 album") : String(localized: "\(n) albums")
     }
 

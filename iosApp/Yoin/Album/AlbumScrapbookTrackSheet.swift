@@ -422,12 +422,12 @@ struct ScrapTrackSheet: View {
     /// Android scrapFactLabel (detail_scrap_fact_*).
     static func factLabel(_ key: String) -> String {
         switch key {
-        case SongAboutStore.Canon.creationTime: "Created"
-        case SongAboutStore.Canon.creationLocation: "Recorded in"
-        case SongAboutStore.Canon.lyricist: "Lyricist"
-        case SongAboutStore.Canon.composer: "Composer"
-        case SongAboutStore.Canon.producer: "Producer"
-        case SongAboutStore.Canon.review: "About"
+        case SongAboutStore.Canon.creationTime: String(localized: "Created")
+        case SongAboutStore.Canon.creationLocation: String(localized: "Recorded in")
+        case SongAboutStore.Canon.lyricist: String(localized: "Lyricist")
+        case SongAboutStore.Canon.composer: String(localized: "Composer")
+        case SongAboutStore.Canon.producer: String(localized: "Producer")
+        case SongAboutStore.Canon.review: String(localized: "About")
         default: key
         }
     }

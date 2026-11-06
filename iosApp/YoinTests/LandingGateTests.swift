@@ -136,7 +136,7 @@ final class LandingGateTests: XCTestCase {
     }
 
     func test_should_sayNoAccountYet_when_readyWithoutAccounts() {
-        XCTAssertEqual(landingBubble(.ready, noAccounts: true).title, "No account yet.")
-        XCTAssertEqual(landingBubble(.ready, noAccounts: false).title, "All set.")
+        XCTAssertEqual(landingBubble(.ready, noAccounts: true).title, loc("No account yet."))
+        XCTAssertEqual(landingBubble(.ready, noAccounts: false).title, loc("All set."))
     }
 }

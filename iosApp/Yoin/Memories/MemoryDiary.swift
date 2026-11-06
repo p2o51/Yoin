@@ -480,8 +480,9 @@ struct DiaryBlocks: View {
         VStack(spacing: 0) {
             if let footer, let first = card.firstPlayedAt {
                 HStack(spacing: MemoryDiaryTokens.statGap) {
-                    stat("\(footer.plays)", footer.plays == 1 ? "play" : "plays")
-                    stat("\(footer.days)", "\(footer.days == 1 ? "day" : "days") since \(MemoryDiaryFormat.day(first))")
+                    stat("\(footer.plays)", footer.plays == 1 ? String(localized: "play") : String(localized: "plays"))
+                    stat("\(footer.days)", footer.days == 1 ? String(localized: "day since \(MemoryDiaryFormat.day(first))")
+                                                            : String(localized: "days since \(MemoryDiaryFormat.day(first))"))
                 }
             }
             if showGo {

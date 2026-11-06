@@ -133,7 +133,7 @@ final class SubsonicMappingTests: XCTestCase {
                                           recentTracks: [])
         XCTAssertEqual(feed.layout, .server)
         XCTAssertEqual(feed.activities.map(\.album.id.rawId), ["a0", "a1", "a2", "a3"])
-        XCTAssertEqual(feed.activities[0].eyebrow, "10 plays")
+        XCTAssertEqual(feed.activities[0].eyebrow, loc("\(10) plays"))
         XCTAssertEqual(feed.activities[1].eyebrow, "")
         XCTAssertEqual(feed.jumpBackIn.count, 12)
         XCTAssertEqual(Set(feed.jumpBackIn.map(\.id)).count, 12)

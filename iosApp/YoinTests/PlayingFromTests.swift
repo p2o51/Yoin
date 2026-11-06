@@ -8,9 +8,9 @@ final class PlayingFromTests: XCTestCase {
         let album = Album(id: MediaId(provider: "subsonic", rawId: "al1"), title: "Blue", artist: "A", year: 2020,
                           palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: [])
         let cases: [(AppModel.PlayingFrom, String, String, Route)] = [
-            (.album(album), "PLAYING FROM ALBUM", "Blue", .album(album)),
-            (.playlist(id: "p1", title: "Night"), "PLAYING FROM PLAYLIST", "Night", .playlist("p1")),
-            (.artist(ArtistRef("Kiri Ono", id: "ar1")), "PLAYING FROM ARTIST", "Kiri Ono", .artist(ArtistRef("Kiri Ono", id: "ar1"))),
+            (.album(album), loc("PLAYING FROM ALBUM"), "Blue", .album(album)),
+            (.playlist(id: "p1", title: "Night"), loc("PLAYING FROM PLAYLIST"), "Night", .playlist("p1")),
+            (.artist(ArtistRef("Kiri Ono", id: "ar1")), loc("PLAYING FROM ARTIST"), "Kiri Ono", .artist(ArtistRef("Kiri Ono", id: "ar1"))),
         ]
         for (from, kind, title, route) in cases {
             XCTAssertEqual(from.kindLabel, kind)

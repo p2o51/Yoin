@@ -356,8 +356,8 @@ struct NowPlayingAboutView: View {
     /// Android `np_about_*` (expanded) and `cmp_song_info_*` (small) labels.
     static func label(_ key: String, expanded: Bool) -> String {
         switch key {
-        case SongAboutStore.Canon.creationTime: expanded ? "Creation Time" : "Created"
-        case SongAboutStore.Canon.creationLocation: expanded ? "Creation Location" : "Location"
+        case SongAboutStore.Canon.creationTime: expanded ? String(localized: "Creation Time") : String(localized: "Created")
+        case SongAboutStore.Canon.creationLocation: expanded ? String(localized: "Creation Location") : String(localized: "Location")
         case SongAboutStore.Canon.lyricist: String(localized: "Lyricist")
         case SongAboutStore.Canon.composer: String(localized: "Composer")
         case SongAboutStore.Canon.producer: String(localized: "Producer")

@@ -481,8 +481,8 @@ final class LibraryStore {
                                       random: [Album], recentTracks: [PlaylistEntry],
                                       history: HomeOverlay? = nil, playlists: [LibraryItem] = []) -> HomeFeed {
         func plays(_ a: Album) -> String {
-            guard let n = a.playCount, n > 0 else { return "Recently active" }
-            return n == 1 ? "1 play" : "\(n) plays"
+            guard let n = a.playCount, n > 0 else { return String(localized: "Recently active") }
+            return n == 1 ? String(localized: "1 play") : String(localized: "\(n) plays")
         }
         // The activity log first ("2h ago"), then the server's recent albums.
         struct Slot { var album: Album; var entity: ActivityEntity; var entityId: String; var eyebrow: String? }
@@ -527,7 +527,7 @@ final class LibraryStore {
             // No plays recorded yet: the server's rated albums stand in.
             let rated = highest.filter { $0.rating != nil }
             for a in (rated + random.reversed()) where rediscover.count < 2 && !rediscover.contains(where: { $0.album.id == a.id }) {
-                rediscover.append(RediscoverEntry(album: a, reason: a.rating != nil ? "Rated" : "From your library",
+                rediscover.append(RediscoverEntry(album: a, reason: a.rating != nil ? String(localized: "Rated") : String(localized: "From your library"),
                                                   away: a.genre ?? (a.year > 0 ? String(a.year) : ""),
                                                   score: a.rating, footnoteDate: Self.yearMonth(a.created),
                                                   footnotePlays: "\(a.playCount ?? 0)"))
