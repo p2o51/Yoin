@@ -104,6 +104,24 @@ import com.gpo.yoin.ui.nowplaying.resolveStageColumnBudget
 import com.gpo.yoin.ui.nowplaying.stageColumnBottomInset
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import android.graphics.Bitmap
+import androidx.annotation.DrawableRes
+import androidx.compose.material3.ColorScheme
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
+import com.gpo.yoin.ui.nowplaying.CoverField
+import com.gpo.yoin.ui.nowplaying.NowPlayingTransportSignal
+import com.gpo.yoin.ui.nowplaying.buildCoverField
+import com.gpo.yoin.ui.nowplaying.darkRoomOf
+import com.gpo.yoin.ui.nowplaying.lightRoomOf
+import com.gpo.yoin.ui.nowplaying.nowPlayingAuroraBackground
+import com.gpo.yoin.ui.theme.CoverSeedExtractor
+import com.gpo.yoin.ui.theme.ExpressiveColorSchemeFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -212,6 +230,7 @@ internal fun FocusCoverDemo(playing: Boolean) {
             coverSource = coverSource,
             focused = focused,
             onCoverClick = { focused = !focused },
+            coverRoom = true,
         )
     }
 }
@@ -293,6 +312,9 @@ internal fun NoteMomentsDemo(playing: Boolean) {
 }
 
 /** The edge band's dot layers, as Now Playing's background keeps them. */
+/** The format tags a lossless Subsonic song shows beside the artist. */
+private val DemoFormatTags = listOf("FLAC", "24/96")
+
 private const val DemoEdgeBandLayers = 12
 
 private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
@@ -365,6 +387,84 @@ private fun DemoNowPlaying(
     actedScrub: (() -> Float?)? = null,
     focused: Boolean = false,
     onCoverClick: (() -> Unit)? = null,
+,
+    coverRoom: Boolean = false,
+) {
+    // [coverRoom]: the screen in the cover's colours and the real Now Playing
+    // background (its rest room, focus field and edge band), as the app has it.
+    val room = if (coverRoom) rememberDemoCoverRoom(DemoAlbums[0].cover) else null
+    val base = MaterialTheme.colorScheme
+    val dark = base.surface.luminance() < 0.5f
+    MaterialTheme(colorScheme = room?.let { if (dark) it.dark else it.light } ?: base) {
+        DemoNowPlayingStage(
+            playing = playing,
+            positionMs = positionMs,
+            playMode = playMode,
+            onSetPlayMode = onSetPlayMode,
+            playModeSplit = playModeSplit,
+            noteAnchorsMs = noteAnchorsMs,
+            coverSource = coverSource,
+            onCoverLongPress = onCoverLongPress,
+            onWrite = onWrite,
+            actedScrub = actedScrub,
+            focused = focused,
+            onCoverClick = onCoverClick,
+            room = room,
+        )
+    }
+}
+
+/** The demo cover as the playback theme reads it: its two schemes and its focus field. */
+private class DemoCoverRoom(val light: ColorScheme, val dark: ColorScheme, val field: CoverField)
+
+/** [cover] read the way PlaybackThemeState reads a playing cover (one Palette pass, seed + swatches + field). */
+@Composable
+private fun rememberDemoCoverRoom(@DrawableRes cover: Int): DemoCoverRoom? {
+    val context = LocalContext.current
+    return produceState<DemoCoverRoom?>(null, cover) {
+        value = withContext(Dispatchers.Default) {
+            val size = CoverSeedExtractor.BitmapSizePx
+            val bitmap = ContextCompat.getDrawable(context, cover)
+                ?.toBitmap(size, size, Bitmap.Config.ARGB_8888) ?: return@withContext null
+            val palette = CoverSeedExtractor.palette(bitmap)
+            val seed = CoverSeedExtractor.seedSwatch(palette)?.rgb ?: return@withContext null
+            val swatches = listOfNotNull(
+                palette.vibrantSwatch,
+                palette.mutedSwatch,
+                palette.darkVibrantSwatch,
+                palette.lightVibrantSwatch,
+                palette.darkMutedSwatch,
+                palette.lightMutedSwatch,
+                palette.dominantSwatch,
+            ).map { it.rgb }.distinct().toIntArray()
+            val pixels = IntArray(size * size)
+            bitmap.getPixels(pixels, 0, size, 0, 0, size, size)
+            val field = buildCoverField(pixels, size, size, swatches) ?: return@withContext null
+            DemoCoverRoom(
+                light = ExpressiveColorSchemeFactory.fromSeed(seed, isDark = false),
+                dark = ExpressiveColorSchemeFactory.fromSeed(seed, isDark = true),
+                field = field,
+            )
+        }
+    }.value
+}
+
+@Composable
+private fun DemoNowPlayingStage(
+    playing: Boolean,
+    positionMs: () -> Long,
+    playMode: PlayMode = PlayMode.RepeatAll,
+    onSetPlayMode: (PlayMode) -> Unit = {},
+    playModeSplit: MutableState<Boolean>? = null,
+    noteAnchorsMs: List<Long> = emptyList(),
+    coverSource: MutableInteractionSource = remember { MutableInteractionSource() },
+    onCoverLongPress: (() -> Unit)? = null,
+    onWrite: () -> Unit = {},
+    actedScrub: (() -> Float?)? = null,
+    focused: Boolean = false,
+    onCoverClick: (() -> Unit)? = null,
+,
+    room: DemoCoverRoom?,
 ) {
     val colors = MaterialTheme.colorScheme
     // Focus as Now Playing does it (PR #120): the column moves from the
@@ -422,6 +522,7 @@ private fun DemoNowPlaying(
             albumId = null,
             artistId = null,
             activityContext = ActivityContext.Album(albumId = "tip-album", albumName = album.name),
+            formatTags = DemoFormatTags,
         )
     }
     val bars = WindowInsets.systemBars.asPaddingValues()
@@ -433,40 +534,78 @@ private fun DemoNowPlaying(
     )
     val playSource = remember { MutableInteractionSource() }
     val nextSource = remember { MutableInteractionSource() }
-    val palette = remember(colors) {
-        intArrayOf(colors.primary.toArgb(), colors.tertiary.toArgb(), colors.secondary.toArgb(), colors.primaryContainer.toArgb())
-    }
-    val dark = colors.surface.luminance() < 0.5f
-    // The whole screen, status bar and all, as the real background draws:
-    // focus washes it in the cover's colours and the band runs round its edge.
-    Canvas(
-        modifier = Modifier
-            .fillMaxSize()
-            .onGloballyPositioned { stageOrigin = it.positionInRoot() },
-    ) {
-        drawRect(Brush.verticalGradient(listOf(colors.surfaceContainer, colors.surface)))
-        if (focus > 0.01f) {
-            drawRect(
-                Brush.verticalGradient(
-                    listOf(colors.primaryContainer, colors.tertiaryContainer, colors.secondaryContainer),
-                ),
-                alpha = 0.75f * focus.coerceIn(0f, 1f),
-            )
+    val signal = remember { NowPlayingTransportSignal() }
+    var backdrop by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    if (room != null) {
+        // The real background, in the cover's own colours.
+        val roomScheme = room.dark
+        val darkRoom = remember(room) {
+            darkRoomOf(roomScheme.primary.toArgb(), roomScheme.secondary.toArgb(), roomScheme.tertiary.toArgb(), room.field.swatches)
         }
-        val t = clock.floatValue
-        if (focus > 0.01f && band.alive(t)) {
-            drawEdgeBand(
-                state = band,
-                dots = bandDots,
-                nowMs = t,
-                focus = focus,
-                playing = if (playing) 1f else 0f,
-                cover = coverBounds.translate(-stageOrigin),
-                lyrics = null,
-                palette = palette,
-                primary = colors.primary,
-                dark = dark,
-            )
+        val lightRoom = remember(room) {
+            lightRoomOf(roomScheme.primary.toArgb(), roomScheme.secondary.toArgb(), roomScheme.tertiary.toArgb(), room.field.swatches)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { backdrop = it }
+                .nowPlayingAuroraBackground(
+                    background = colors.background,
+                    darkTop = colors.surfaceContainer,
+                    accentColors = listOf(colors.primary, colors.secondary, colors.tertiary),
+                    neighbourTop = colors.secondaryContainer,
+                    neighbourBottom = colors.tertiaryContainer,
+                    auroraActive = false,
+                    pulseTrigger = null,
+                    isPlaying = playing,
+                    pressActive = false,
+                    gatherFocalRoot = null,
+                    burstFocalRoot = null,
+                    transportSignal = signal,
+                    coverField = room.field,
+                    focusProgress = { focus },
+                    darkRoom = darkRoom,
+                    lightRoom = lightRoom,
+                    songProgress = { (positionMs().toFloat() / DemoDurationMs).coerceIn(0f, 1f) },
+                    lyricColor = colors.primary,
+                ),
+        )
+    } else {
+        val palette = remember(colors) {
+            intArrayOf(colors.primary.toArgb(), colors.tertiary.toArgb(), colors.secondary.toArgb(), colors.primaryContainer.toArgb())
+        }
+        val dark = colors.surface.luminance() < 0.5f
+        // The whole screen, status bar and all, as the real background draws:
+        // focus washes it in the cover's colours and the band runs round its edge.
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { stageOrigin = it.positionInRoot() },
+        ) {
+            drawRect(Brush.verticalGradient(listOf(colors.surfaceContainer, colors.surface)))
+            if (focus > 0.01f) {
+                drawRect(
+                    Brush.verticalGradient(
+                        listOf(colors.primaryContainer, colors.tertiaryContainer, colors.secondaryContainer),
+                    ),
+                    alpha = 0.75f * focus.coerceIn(0f, 1f),
+                )
+            }
+            val t = clock.floatValue
+            if (focus > 0.01f && band.alive(t)) {
+                drawEdgeBand(
+                    state = band,
+                    dots = bandDots,
+                    nowMs = t,
+                    focus = focus,
+                    playing = if (playing) 1f else 0f,
+                    cover = coverBounds.translate(-stageOrigin),
+                    lyrics = null,
+                    palette = palette,
+                    primary = colors.primary,
+                    dark = dark,
+                )
+            }
         }
     }
     BoxWithConstraints(
@@ -519,7 +658,15 @@ private fun DemoNowPlaying(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .onGloballyPositioned { coverBounds = it.boundsInRoot() },
+                        .onGloballyPositioned { coords ->
+                            coverBounds = coords.boundsInRoot()
+                            // The background reads root px less its own root
+                            // position; the demo screen is scaled, so hand it
+                            // the cover in the backdrop's unscaled space.
+                            backdrop?.takeIf { it.isAttached }?.let { bg ->
+                                signal.focusCoverRoot = bg.localBoundingBoxOf(coords).translate(bg.positionInRoot())
+                            }
+                        },
                 ) {
                     AlbumCover(
                         songId = state.songId,
