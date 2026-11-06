@@ -235,9 +235,9 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
-        # Cloud sync's Google Sign-In also needs, once a Mac development profile for com.gpo.yoin.mac exists
-        # (Xcode › Settings › Accounts signed in, or a profile from the portal):
-        #   keychain-access-groups: [$(AppIdentifierPrefix)com.gpo.yoin.mac]
+        # Google Sign-In keeps its tokens in the Keychain (Cloud sync); signed through the Mac profile.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.gpo.yoin.mac
     info:
       path: YoinMac/Info.plist
       properties:
@@ -272,6 +272,14 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
         # YoinShared has a macos-arm64 slice only.
         EXCLUDED_ARCHS: x86_64
+      configs:
+        # The Mac development profile "Yoin Mac Development" (com.gpo.yoin.mac, team M75T74PTC4, this Mac):
+        # the keychain-access-groups entitlement Google Sign-In needs is only signable with a profile.
+        Debug:
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: M75T74PTC4
+          CODE_SIGN_IDENTITY: Apple Development
+          PROVISIONING_PROFILE_SPECIFIER: Yoin Mac Development
     scheme:
       preActions:
         - name: Build YoinShared (Kotlin)
