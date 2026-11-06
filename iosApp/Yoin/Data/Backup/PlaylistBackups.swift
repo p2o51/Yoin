@@ -394,7 +394,7 @@ final class PlaylistBackups {
                                             title: s.title.isEmpty ? nil : s.title,
                                             artists: s.artist.isEmpty ? [] : [s.artist],
                                             album: s.album.isEmpty ? nil : s.album,
-                                            durationSec: seconds > 0 ? KotlinInt(int: Int32(seconds)) : nil, isrc: nil))
+                                            durationSec: seconds > 0 ? KotlinInt(int: Int32(seconds)) : nil, isrc: s.isrc))
             case .other(let title, let artist, let video):
                 unreadable.append(SnapshotUnreadable(position: Int32(i), title: title, artist: artist,
                                                      reason: video ? .video : .unavailable))

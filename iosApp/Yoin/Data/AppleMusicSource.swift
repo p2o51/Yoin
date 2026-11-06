@@ -412,6 +412,22 @@ final class AppleMusicSource {
         return self.songs(songs)
     }
 
+    /// Catalog songs by ISRC (`GET /v1/catalog/{storefront}/songs?filter[isrc]=…`, Android
+    /// `catalogSongsByIsrc`): a request per batch of codes; a code the storefront doesn't know is left out, and
+    /// so is a batch Apple refuses (its songs fall back to the title search).
+    func catalogSongsByIsrc(_ isrcs: [String]) async -> [String: [AMSong]] {
+        var found: [String: [AMSong]] = [:]
+        for batch in AppleMusicMapping.isrcBatches(isrcs) {
+            guard !Task.isCancelled,
+                  let path = try? await catalog("songs"),
+                  let root = try? await get(path, ["filter[isrc]": batch.joined(separator: ",")]) else { continue }
+            for (code, songs) in AppleMusicMapping.groupByIsrc(self.songs(AppleMusicJSON.resources(root)), batch: batch) {
+                found[code, default: []] += songs
+            }
+        }
+        return found
+    }
+
     // MARK: Playlist writes (a restore)
 
     /// A new playlist in the user's library holding [trackIds] (`applemusic:` ids, at most a batch) in

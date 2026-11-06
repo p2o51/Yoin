@@ -188,11 +188,17 @@ final class AppleMusicRestoreDestination: RestoreDestination {
         try await apple.addToLibraryPlaylist(trackIds, playlistRawId: playlistId)
     }
 
+    /// Android `tracksByIsrc`: the catalog's songs for each code, so a backup's songs match by ISRC before any
+    /// title search.
+    func tracksByIsrc(_ isrcs: [String]) async -> [String: [MatchTrack]] {
+        await apple.catalogSongsByIsrc(isrcs).mapValues { $0.map(Self.track) }
+    }
+
     nonisolated static func track(_ s: AMSong) -> MatchTrack {
         let seconds = (s.durationMs ?? 0) / 1000
         return MatchTrack(id: "\(AppleMusicMapping.provider):\(s.rawId)", title: s.title,
                           artist: s.artist.isEmpty ? nil : s.artist, album: s.album.isEmpty ? nil : s.album,
-                          durationSec: seconds > 0 ? KotlinInt(int: Int32(seconds)) : nil, isrc: nil)
+                          durationSec: seconds > 0 ? KotlinInt(int: Int32(seconds)) : nil, isrc: s.isrc)
     }
 }
 

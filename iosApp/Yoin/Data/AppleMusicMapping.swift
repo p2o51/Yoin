@@ -73,6 +73,9 @@ struct AMSong: Hashable, Sendable {
     var artwork: URL?
     var genre: String?
     var releaseDate: String?
+    /// The song's ISRC, upper case: a catalog song's own, or its library entry's catalog version's
+    /// (Android AppleMusicSong.isrc). nil where Apple names none (an import).
+    var isrc: String? = nil
 
     /// Catalog id, else `library:<id>` (Android `Track.id`).
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
@@ -243,7 +246,36 @@ enum AppleMusicMapping {
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")
                 ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")),
             genre: genre(a["genreNames"] as? [String]),
-            releaseDate: AppleMusicJSON.string(a, "releaseDate"))
+            releaseDate: AppleMusicJSON.string(a, "releaseDate"),
+            isrc: isrc(AppleMusicJSON.string(a, "isrc") ?? AppleMusicJSON.string(catalogAttributes, "isrc")))
+    }
+
+    /// An ISRC as the backups and lookups spell it: trimmed, upper case; nil when blank.
+    static func isrc(_ raw: String?) -> String? {
+        let code = raw?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
+        return code.isEmpty ? nil : code
+    }
+
+    /// Codes per `filter[isrc]` request (Android ISRC_BATCH).
+    static let isrcBatch = 25
+
+    /// [isrcs] as lookups go out: trimmed, upper case, well-formed ones only (two letters, three
+    /// letters or digits, seven digits), each once, [isrcBatch] to a request (Android catalogSongsByIsrc).
+    static func isrcBatches(_ isrcs: [String]) -> [[String]] {
+        var seen = Set<String>()
+        let codes = isrcs.compactMap(isrc).filter { $0.wholeMatch(of: /[A-Z]{2}[A-Z0-9]{3}[0-9]{7}/) != nil && seen.insert($0).inserted }
+        return stride(from: 0, to: codes.count, by: isrcBatch).map { Array(codes[$0..<min($0 + isrcBatch, codes.count)]) }
+    }
+
+    /// One batch's answer by ISRC: every song kept (one code can name an album's and a compilation's), keyed
+    /// by the song's own code; a song naming a code not asked for is left out.
+    static func groupByIsrc(_ songs: [AMSong], batch: [String]) -> [String: [AMSong]] {
+        var found: [String: [AMSong]] = [:]
+        for s in songs {
+            guard let code = s.isrc, batch.contains(code) else { continue }
+            found[code, default: []].append(s)
+        }
+        return found
     }
 
     /// The song's artists one by one: only when there are several and each resource names itself.
