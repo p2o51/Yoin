@@ -189,6 +189,8 @@ final class CloudSync {
         if message == nil, debug == nil { GIDSignIn.sharedInstance.signOut() }
     }
 
+    /// Deletes another device's copy from the Drive (never this device's: the engine only drops files it doesn't own).
+    func removeDevice(_ deviceId: String) async { await run { try await $0.removeDevice(deviceId: deviceId) } }
     func resolveReview(restore: Bool) async { await run { try await $0.resolveReview(restore: restore) } }
     func uploadAgain() async { await run { try await $0.uploadAgain() } }
     func startSyncing(_ profileId: String) async { await run { try await $0.startSyncingAccount(localProfileId: profileId) } }

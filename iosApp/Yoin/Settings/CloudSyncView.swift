@@ -43,6 +43,14 @@ struct CloudSyncEntryRow: View {
     }
 }
 
+/// Which Devices rows offer removing their Drive copy.
+enum CloudSyncDevices {
+    /// Another device only; this one's copy is turned off or deleted from "This device".
+    static func canRemove(_ device: SyncDeviceRow) -> Bool { !device.isThisDevice }
+
+    static func removable(_ devices: [SyncDeviceRow]) -> [SyncDeviceRow] { devices.filter(canRemove) }
+}
+
 /// Android's CloudSyncTexts: labels only.
 enum CloudSyncTexts {
     @MainActor
@@ -86,6 +94,7 @@ struct CloudSyncView: View {
     @State private var sync = CloudSync.shared
     @State private var confirmDelete = false
     @State private var confirmFresh: SyncAccountRow?
+    @State private var confirmRemoveDevice: SyncDeviceRow?
     @State private var export: URL?
     /// The service setup an Add on a cloud-only account opened.
     @State private var setup: ServiceSetupRequest?
@@ -155,6 +164,15 @@ struct CloudSyncView: View {
         } message: {
             Text("“\(confirmFresh?.displayName ?? "")” is now signed in as a different account. Notes and ratings it synced before are removed from this device, and it syncs as the new account from now on. Your Drive and your other devices keep the old ones.")
         }
+        .alert("Remove \(confirmRemoveDevice?.name ?? "") from sync?",
+               isPresented: Binding(get: { confirmRemoveDevice != nil }, set: { if !$0 { confirmRemoveDevice = nil } })) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                if let d = confirmRemoveDevice, CloudSyncDevices.canRemove(d) { Task { await sync.removeDevice(d.deviceId) } }
+            }
+        } message: {
+            Text("Deletes this device's copy from your Google Drive. If it's still syncing, it uploads again the next time it syncs.")
+        }
         .sheet(item: Binding(get: { export.map(ShareItem.init) }, set: { if $0 == nil { export = nil } })) { item in
             ShareSheet(url: item.url)
         }
@@ -207,10 +225,7 @@ struct CloudSyncView: View {
         }
         if !state.devices.isEmpty {
             group(String(localized: "Devices")) {
-                state.devices.map { d in
-                    AnyView(info(d.isThisDevice ? String(localized: "This device") : d.name,
-                                 d.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Hasn't synced yet")))
-                }
+                state.devices.map { d in AnyView(deviceRow(d)) }
             }
         }
         group(String(localized: "Backups")) {
@@ -238,6 +253,29 @@ struct CloudSyncView: View {
         default:
             if state.pendingChanges { return String(localized: "Changes waiting to upload") }
             return state.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Not synced yet")
+        }
+    }
+
+    /// Android DeviceItem: this device is info only; another one has a menu that removes its Drive copy.
+    private func deviceRow(_ d: SyncDeviceRow) -> some View {
+        HStack(spacing: 8) {
+            info(d.isThisDevice ? String(localized: "This device") : d.name,
+                 d.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Hasn't synced yet"))
+            Spacer(minLength: 0)
+            if CloudSyncDevices.canRemove(d) {
+                Menu {
+                    Button(role: .destructive) { confirmRemoveDevice = d } label: {
+                        Label("Remove from sync", systemImage: "trash")
+                    }
+                } label: {
+                    YoinIcon("more_vertical", size: 22)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .frame(width: 48, height: 48)
+                        .contentShape(.rect)
+                }
+                .accessibilityLabel("More options for \(d.name)")
+                .padding(.trailing, 4)
+            }
         }
     }
 
