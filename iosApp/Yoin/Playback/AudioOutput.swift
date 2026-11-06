@@ -66,6 +66,9 @@ protocol AudioOutputEvents: AnyObject {
     /// The queue as the output may compare it: stream URLs in play order, whether the listener
     /// queued any of them, and the play modes.
     func outputQueueSnapshot() -> OutputQueueSnapshot
+    /// The output found the current song playing after it reported a failure for it (Spotify played
+    /// the start after all): the failure is cleared and the engine follows the output's state.
+    func outputDidRecover(playing: Bool)
 }
 
 struct OutputQueueSnapshot: Equatable {
@@ -81,6 +84,7 @@ extension AudioOutputEvents {
     func outputUpcoming(limit: Int) -> [URL] { [] }
     func outputDidJump(to url: URL) -> Bool { false }
     func outputQueueSnapshot() -> OutputQueueSnapshot { OutputQueueSnapshot() }
+    func outputDidRecover(playing: Bool) {}
 
     /// A failure of the song itself.
     func outputDidFail(_ message: String) { outputDidFail(message, network: false) }

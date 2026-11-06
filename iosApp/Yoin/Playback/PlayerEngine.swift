@@ -713,6 +713,15 @@ extension PlayerEngine: AudioOutputEvents {
         onStateChange?()
     }
 
+    func outputDidRecover(playing: Bool) {
+        guard failure != nil || isPlaying != playing else { return }
+        failure = nil
+        consecutiveFailures = 0
+        isBuffering = false
+        isPlaying = playing
+        onStateChange?()
+    }
+
     func outputPlayingDidChangeExternally(_ playing: Bool) {
         guard (currentIndex != nil && !ended) || externalTrack != nil, playing != isPlaying else { return }
         isPlaying = playing
