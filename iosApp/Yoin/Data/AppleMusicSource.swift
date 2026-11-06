@@ -234,6 +234,43 @@ final class AppleMusicSource {
                          recentTracks: AppleMusicMapping.entries(songs(tracks)))
     }
 
+    #if os(macOS)
+    enum MacHomeAlbums { case recent, added, frequent }
+
+    func macHomeAlbums(_ kind: MacHomeAlbums) async throws -> [Album] {
+        let path: String
+        switch kind {
+        case .recent: path = "/v1/me/recent/played"
+        case .added: path = "/v1/me/library/recently-added"
+        case .frequent: path = "/v1/me/history/heavy-rotation"
+        }
+        var query = ["limit": "10"]
+        if kind == .added { query["include"] = "catalog" }
+        let resources = try await all(path, query, cap: 20)
+        return AppleMusicMapping.albums(in: resources)
+    }
+
+    func macHomeRecentTracks() async throws -> [PlaylistEntry] {
+        let root = try await get("/v1/me/recent/played/tracks", ["limit": "8", "types": "songs,library-songs"])
+        return AppleMusicMapping.entries(songs(AppleMusicJSON.resources(root)))
+    }
+
+    func macHomeAddedSongs() async throws -> [PlaylistEntry] {
+        let resources = try await all("/v1/me/library/songs",
+                                      ["limit": "100", "include": "albums,catalog"], cap: 300)
+        let cutoff = Date().addingTimeInterval(-30 * 86_400)
+        let recent = resources.filter { r in
+            guard let attributes = r["attributes"] as? AppleMusicJSON.Object,
+                  let added = attributes["dateAdded"] as? String else { return false }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let date = formatter.date(from: added) ?? ISO8601DateFormatter().date(from: added)
+            return date.map { $0 >= cutoff && $0 <= Date() } ?? false
+        }
+        return Array(AppleMusicMapping.entries(songs(recent)).prefix(12))
+    }
+    #endif
+
     // MARK: Library
 
     func libraryAlbums(cap: Int = 2000, onPage: (([Album]) -> Void)? = nil) async throws -> [Album] {

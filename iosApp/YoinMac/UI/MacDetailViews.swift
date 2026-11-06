@@ -91,7 +91,12 @@ struct MacAlbumDetail: View {
             .padding(.top, 60)
             .padding(.bottom, 142)
         }
-        .task(id: seed.id) { await model.library.loadAlbum(seed.id.rawId) }
+        .task(id: seed.id) {
+            let generation = model.library.accountGeneration
+            await model.library.loadAlbum(seed.id.rawId)
+            guard generation == model.library.accountGeneration else { return }
+            model.recordHomeActivity(.album(album), action: .visited)
+        }
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: MacQATour.albumPage)) { n in
             if let p = n.object as? Int { withAnimation(Yoin.spatial) { page = p } }
@@ -190,7 +195,13 @@ struct MacArtistDetail: View {
             .padding(.top, 60)
             .padding(.bottom, 142)
         }
-        .task(id: id) { await model.library.loadArtist(id) }
+        .task(id: id) {
+            let generation = model.library.accountGeneration
+            await model.library.loadArtist(id)
+            guard generation == model.library.accountGeneration, let page = model.library.artistPages[id] else { return }
+            let item = LibraryItem(id: page.id, kind: .artist, title: page.name, subtitle: "Artist", palette: page.palette)
+            model.recordHomeActivity(.artist(item), action: .visited)
+        }
     }
 
     static func placeholder(_ key: String) -> CoverPalette {
@@ -285,8 +296,11 @@ struct MacPlaylistDetail: View {
                              title: p?.title ?? title, subtitle: p?.owner.isEmpty == false ? p?.owner : nil,
                              meta: p.map(meta) ?? "") {}
                 if let p, !p.entries.isEmpty {
+                    let context = LibraryItem(id: p.id, kind: .playlist, title: p.title, subtitle: p.owner, palette: p.palette)
                     HStack(spacing: 10) {
-                        DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(p.entries) }
+                        DetailAction(title: "Play", icon: "play_filled", prominent: true) {
+                            model.play(p.entries, playlistContext: context)
+                        }
                         DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) {
                             model.play(playlist: id, shuffle: true)
                         }
@@ -304,7 +318,7 @@ struct MacPlaylistDetail: View {
                             TrackRow(entry: e, showCover: true,
                                      removeFromPlaylist: model.library.canEdit(p) && !model.library.busyPlaylists.contains(id) ? {
                                          Task { await write { try await model.library.remove(entryAt: i, fromPlaylist: id) } }
-                                     } : nil) { model.play(p.entries, startAt: i) }
+                                     } : nil) { model.play(p.entries, startAt: i, playlistContext: context) }
                         }
                     }
                 }
@@ -324,7 +338,14 @@ struct MacPlaylistDetail: View {
             .padding(.top, 60)
             .padding(.bottom, 142)
         }
-        .task(id: id) { await model.library.loadPlaylist(id) }
+        .task(id: id) {
+            let generation = model.library.accountGeneration
+            await model.library.loadPlaylist(id)
+            guard generation == model.library.accountGeneration, let playlist = model.library.playlist(id) else { return }
+            let item = LibraryItem(id: playlist.id, kind: .playlist, title: playlist.title, subtitle: playlist.owner,
+                                   palette: playlist.palette)
+            model.recordHomeActivity(.playlist(item), action: .visited)
+        }
         .overlay(alignment: .topTrailing) {
             if let p, model.library.canManage(p) {
                 Menu {

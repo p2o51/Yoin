@@ -156,6 +156,19 @@ final class HistoryStore {
         trimAndPersist()
     }
 
+    #if os(macOS)
+    /// Collection plays and visits keep their original kind, even when their songs belong to albums.
+    func recordCollectionActivity(scope: String, provider: String, entity: ActivityEntity, action: ActivityAction,
+                                  entityId: String, title: String, subtitle: String, coverKey: String?, artistId: String? = nil) {
+        guard !scope.isEmpty, !entityId.isEmpty else { return }
+        activities.append(ActivityRecord(id: UUID().uuidString, scope: scope, provider: provider, entity: entity,
+                                         action: action, entityId: entityId, title: title, subtitle: subtitle,
+                                         coverKey: coverKey, songId: nil, albumId: entity == .album ? entityId : nil,
+                                         artistId: artistId, timestamp: nowMs))
+        trimAndPersist()
+    }
+    #endif
+
     /// Forgets one account's history (debug seeding starts clean with it).
     func removeAll(scope: String, provider: String) {
         plays.removeAll { $0.scope == scope && $0.provider == provider }

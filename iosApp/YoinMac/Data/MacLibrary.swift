@@ -12,11 +12,13 @@ import os
 final class MacLibrary {
     enum Phase: Equatable { case idle, loading, loaded, failed(String) }
 
-    struct Home: Sendable {
+    struct Home: Sendable, Equatable {
         var recentlyPlayed: [Album] = []
         var recentlyAdded: [Album] = []
         var random: [Album] = []
         var randomSongs: [PlaylistEntry] = []
+        var recentlyAddedSongs: [PlaylistEntry] = []
+        var activities: [MacHomeActivity] = []
     }
 
     struct SearchHits: Sendable {
@@ -174,33 +176,143 @@ final class MacLibrary {
     var accountGeneration: Int { generation }
 
     func loadHome(force: Bool = false) async {
+        async let recent: () = loadHomeRecent(force: force)
+        async let added: () = loadHomeAdded(force: force)
+        async let songs: () = loadHomeAddedSongs(force: force)
+        async let random: () = loadHomeRandom(force: force)
+        async let tracks: () = loadHomeTracks(force: force)
+        async let lists: () = loadPlaylists(force: force)
+        _ = await (recent, added, songs, random, tracks, lists)
+    }
+
+    private func loadHomeRecent(force: Bool) async {
         if spotify != nil {
-            await runSpotify("home", force: force) { s, live in
-                let h = try await s.homeLists()
+            await runSpotify("home.recent", force: force) { s, live in
+                let feed = try await s.api.get("me/player/recently-played", ["limit": "50"],
+                                               as: SpotifyDTO.RecentlyPlayed.self).items
+                let entries = SpotifyMapping.entries(feed.compactMap(\.track), saved: s.liked)
+                var seen = Set<MediaId>()
+                let albums = entries.map(\.album).filter { seen.insert($0.id).inserted }
+                let activities = feed.flatMap { play -> [MacHomeActivity] in
+                    guard let track = play.track, let album = track.album.flatMap({ SpotifyMapping.album($0) }) else { return [] }
+                    let at = MacHomeSelection.timestamp(play.playedAt) ?? 0
+                    var cards = [MacHomeActivity(content: .album(album), at: at)]
+                    for artist in track.artists ?? [] {
+                        guard var item = SpotifyMapping.artistItem(artist) else { continue }
+                        if item.palette.cover == nil { item.palette = album.palette }
+                        cards.append(MacHomeActivity(content: .artist(item), at: at))
+                    }
+                    return cards
+                }
                 guard live() else { return }
-                self.home = Home(recentlyPlayed: h.recent, recentlyAdded: h.newest, random: h.frequent + h.older,
-                                 randomSongs: h.recentTracks)
+                self.home.recentlyPlayed = Array(albums.prefix(16))
+                self.home.randomSongs = Array(entries.prefix(8))
+                self.home.activities = activities
             }
-            return
+        } else if apple != nil {
+            await runApple("home.recent", force: force) { a, live in
+                let albums = try await a.macHomeAlbums(.recent)
+                guard live() else { return }
+                self.home.recentlyPlayed = albums
+            }
+        } else {
+            await run("home.recent", force: force) { client, m, live in
+                let albums = try await client.getAlbumList2(type: .recent, size: 16, offset: 0).map(m.album)
+                guard live() else { return }
+                self.home.recentlyPlayed = albums
+            }
         }
+    }
+
+    private func loadHomeAdded(force: Bool) async {
+        if spotify != nil {
+            await runSpotify("home.added", force: force) { s, live in
+                let albums = try await s.libraryAlbums(cap: 50)
+                guard live() else { return }
+                self.home.recentlyAdded = Array(albums.prefix(18))
+            }
+        } else if apple != nil {
+            await runApple("home.added", force: force) { a, live in
+                let albums = try await a.macHomeAlbums(.added)
+                guard live() else { return }
+                self.home.recentlyAdded = albums
+            }
+        } else {
+            await run("home.added", force: force) { client, m, live in
+                let albums = try await client.getAlbumList2(type: .newest, size: 18, offset: 0).map(m.album)
+                guard live() else { return }
+                self.home.recentlyAdded = albums
+            }
+        }
+    }
+
+    private func loadHomeAddedSongs(force: Bool) async {
+        if spotify != nil {
+            await runSpotify("home.addedSongs", force: force) { s, live in
+                let saved = try await s.api.get("me/tracks", ["limit": "50"],
+                                                as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self).items
+                let tracks = saved.filter { MacHomeSelection.isRecent($0.addedAt) }.compactMap(\.track)
+                s.noteLiked(tracks.compactMap(\.id))
+                let entries = SpotifyMapping.entries(tracks, saved: s.liked)
+                guard live() else { return }
+                self.home.recentlyAddedSongs = Array(entries.prefix(12))
+            }
+        } else if apple != nil {
+            await runApple("home.addedSongs", force: force) { a, live in
+                let entries = try await a.macHomeAddedSongs()
+                guard live() else { return }
+                self.home.recentlyAddedSongs = entries
+            }
+        } else {
+            await run("home.addedSongs", force: force) { client, m, live in
+                let starred = try await client.getStarred2()
+                let songs = starred.songs.filter { MacHomeSelection.isRecent($0.starredAt) }
+                    .sorted { ($0.starredAt ?? "") > ($1.starredAt ?? "") }
+                let entries = songs.prefix(12).enumerated().map { m.entry($1, index: $0) }
+                guard live() else { return }
+                self.home.recentlyAddedSongs = entries
+            }
+        }
+    }
+
+    private func loadHomeRandom(force: Bool) async {
+        if spotify != nil {
+            await runSpotify("home.random", force: force) { s, live in
+                let albums = try await s.libraryAlbums(cap: 100)
+                guard live() else { return }
+                self.home.random = Array(albums.shuffled().prefix(18))
+            }
+        } else if apple != nil {
+            await runApple("home.random", force: force) { a, live in
+                let albums = try await a.macHomeAlbums(.frequent)
+                guard live() else { return }
+                self.home.random = albums
+            }
+        } else {
+            await run("home.random", force: force) { client, m, live in
+                let albums = try await client.getAlbumList2(type: .random, size: 18, offset: 0).map(m.album)
+                guard live() else { return }
+                self.home.random = albums
+            }
+        }
+    }
+
+    private func loadHomeTracks(force: Bool) async {
+        // Spotify's recent request supplies its tracks as well as Activities.
+        if spotify != nil { return }
         if apple != nil {
-            await runApple("home", force: force) { a, live in
-                let h = try await a.homeLists()
+            await runApple("home.tracks", force: force) { a, live in
+                let entries = try await a.macHomeRecentTracks()
                 guard live() else { return }
-                self.home = Home(recentlyPlayed: h.recent, recentlyAdded: h.newest, random: h.frequent + h.older,
-                                 randomSongs: h.recentTracks)
+                self.home.randomSongs = entries
             }
-            return
-        }
-        await run("home", force: force) { client, m, live in
-            async let recent = client.getAlbumList2(type: .recent, size: 16, offset: 0)
-            async let newest = client.getAlbumList2(type: .newest, size: 18, offset: 0)
-            async let random = client.getAlbumList2(type: .random, size: 18, offset: 0)
-            async let randomSongs = client.getRandomSongs(size: 8)
-            let (r, n, x, s) = try await (recent, newest, random, randomSongs)
-            guard live() else { return }
-            self.home = Home(recentlyPlayed: r.map(m.album), recentlyAdded: n.map(m.album), random: x.map(m.album),
-                             randomSongs: s.enumerated().map { m.entry($1, index: $0) })
+        } else {
+            await run("home.tracks", force: force) { client, m, live in
+                let songs = try await client.getRandomSongs(size: 8)
+                let entries = songs.enumerated().map { m.entry($1, index: $0) }
+                guard live() else { return }
+                self.home.randomSongs = entries
+            }
         }
     }
 

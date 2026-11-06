@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// Home: greeting and title, then the server's lists (Recently Played, Recently Added, a random shelf
-/// and a few random songs). Simpler than the phone's Home for P0.
+/// Account-scoped Home sections, using the same persisted order and visibility as iOS.
 struct MacHomeView: View {
     @Environment(MacModel.self) private var model
 
@@ -14,6 +13,8 @@ struct MacHomeView: View {
     }
 
     @State private var editing = false
+    @State private var otherAccounts: [MacOtherAccountItem] = []
+    @State private var otherAccountsScope = ""
 
     /// Whose Home this is (iOS `homeScope`, provider|account): the layout is kept, and synced, per account.
     private var scope: String { "\(model.currentProvider)|\(model.session.accountKey)" }
@@ -27,30 +28,29 @@ struct MacHomeView: View {
                 Shelf(albums: home.recentlyPlayed)
             }
         case .jumpBackIn:
-            if !home.randomSongs.isEmpty {
-                MacSectionTitle(text: k.title)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 4) {
-                    ForEach(Array(home.randomSongs.enumerated()), id: \.offset) { i, e in
-                        TrackRow(entry: e, showCover: true) { model.play(home.randomSongs, startAt: i) }
-                    }
-                }
+            let entries = model.homeJumpBackIn()
+            MacSectionTitle(text: k.title)
+            MacHomeLoadNote(key: model.session.isSpotify ? "home.recent" : "home.tracks", label: "Songs")
+            MacHomeLoadNote(key: "home.random", label: "Albums")
+            MacHomeLoadNote(key: "playlists", label: "Playlists")
+            if !entries.isEmpty { MacJumpBackInGrid(entries: entries) }
+            else if loaded([model.session.isSpotify ? "home.recent" : "home.tracks", "home.random", "playlists"]) {
+                emptyNote("Nothing to jump back into")
             }
         case .activities:
-            let memories = model.memories()
-            if !memories.isEmpty {
-                MacSectionTitle(text: k.title)
-                // What you've played on this Mac: how often, and when last.
-                AlbumGrid(albums: memories.map(\.album)) { a in
-                    guard let s = memories.first(where: { $0.album.id == a.id })?.stats else { return a.artist }
-                    let when = Date(timeIntervalSince1970: Double(s.lastPlayedAt) / 1000)
-                        .formatted(.relative(presentation: .named))
-                    return "\(s.playCount) \(s.playCount == 1 ? "play" : "plays")  \(when)"
-                }
-            }
+            let entries = model.homeActivities()
+            MacSectionTitle(text: k.title)
+            MacHomeLoadNote(key: "home.recent", label: k.title)
+            if !entries.isEmpty { MacActivityBento(entries: entries) }
+            else if loaded(["home.recent"]) { emptyNote("No recent activity") }
         case .recentlyAdded:
-            if !home.recentlyAdded.isEmpty {
-                MacSectionTitle(text: k.title)
-                AlbumGrid(albums: home.recentlyAdded)
+            MacSectionTitle(text: k.title)
+            MacHomeLoadNote(key: "home.added", label: "Albums")
+            MacHomeLoadNote(key: "home.addedSongs", label: "Songs")
+            if !home.recentlyAdded.isEmpty || !home.recentlyAddedSongs.isEmpty {
+                MacRecentlyAddedShelf(albums: home.recentlyAdded, songs: home.recentlyAddedSongs)
+            } else if loaded(["home.added", "home.addedSongs"]) {
+                emptyNote("Nothing added this month")
             }
         case .rediscover:
             // iOS's rule: albums you rated or wrote about and haven't played in a while; else the server's
@@ -73,8 +73,21 @@ struct MacHomeView: View {
                 }
             }
         case .otherProfiles:
-            EmptyView()
+            let entries = otherAccountsScope == scope ? otherAccounts : []
+            if model.session.profiles.count > 1 {
+                MacSectionTitle(text: k.title)
+                if !entries.isEmpty { MacOtherAccountsShelf(entries: entries) }
+                else if otherAccountsScope == scope { emptyNote("Nothing played on your other accounts lately") }
+            }
         }
+    }
+
+    private func loaded(_ keys: [String]) -> Bool {
+        keys.allSatisfy { model.library.phase($0) == .loaded }
+    }
+
+    private func emptyNote(_ text: String) -> some View {
+        Text(text).font(.gsf(14)).foregroundStyle(Yoin.inkVariant).padding(.vertical, 12)
     }
 
     var body: some View {
@@ -91,22 +104,32 @@ struct MacHomeView: View {
                         .buttonStyle(.plain)
                         .popover(isPresented: $editing, arrowEdge: .bottom) { HomeEditor(scope: scope) }
                     }
-                if home.recentlyPlayed.isEmpty && home.recentlyAdded.isEmpty {
-                    PhaseNote(phase: model.library.phase("home"), empty: true, emptyText: "Nothing on this server yet") {
-                        Task { await model.library.loadHome(force: true) }
-                    }
-                }
-                ForEach(layout.shownSections, id: \.self) { section($0, home: home) }
+                ForEach(layout.enabledSections, id: \.self) { section($0, home: home) }.id(scope)
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 142)
         }
         .scrollIndicators(.automatic)
+        .animation(Yoin.spatial, value: model.library.home)
+        .animation(Yoin.spatial, value: layout.enabledSections)
+        .animation(Yoin.effects, value: model.library.phases)
+        .animation(Yoin.spatial, value: HistoryStore.shared.activities.count)
+        .onChange(of: model.session.profiles) { refreshOtherAccounts() }
+        .onChange(of: HistoryStore.shared.activities) { refreshOtherAccounts() }
         .task(id: model.session.accountKey) {
-            await model.library.loadHome()
-            // The song menu's Add to Playlist lists them.
-            await model.library.loadPlaylists()
-            await model.library.loadWritablePlaylists()
+            refreshOtherAccounts()
+            async let home: () = model.library.loadHome()
+            async let memories: () = model.hydrateMemoryAlbums()
+            async let writable: () = model.library.loadWritablePlaylists()
+            _ = await (home, memories, writable)
+        }
+    }
+
+    private func refreshOtherAccounts() {
+        let entries = model.homeOtherAccounts()
+        withAnimation(Yoin.spatial) {
+            otherAccounts = entries
+            otherAccountsScope = scope
         }
     }
 }
@@ -170,7 +193,7 @@ private struct HomeEditor: View {
     var body: some View {
         let store = HomeLayoutStore.shared
         let layout = store.layout(scope)
-        let rows = layout.sections.filter(\.section.supportedOnIOS)
+        let rows = layout.sections
         VStack(alignment: .leading, spacing: 8) {
             Text("Home").font(.gsf(15, .semibold))
             List {

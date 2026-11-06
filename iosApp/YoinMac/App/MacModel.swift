@@ -316,12 +316,15 @@ final class MacModel {
 
     // MARK: Playback
 
-    func play(_ entries: [PlaylistEntry], startAt: Int = 0) {
+    @ObservationIgnored private var playlistActivity: LibraryItem?
+
+    func play(_ entries: [PlaylistEntry], startAt: Int = 0, playlistContext: LibraryItem? = nil) {
         // A new queue: anything still loading for an earlier request stops landing.
         playRequest += 1
         for e in entries { known[e.track.id.rawId] = e }
         let tracks = entries.compactMap(library.playable)
         guard !tracks.isEmpty else { return }
+        playlistActivity = playlistContext
         player.play(queue: tracks, startAt: min(startAt, tracks.count - 1))
     }
 
@@ -518,6 +521,7 @@ final class MacModel {
             return
         }
         openPlay = openRow(t).map { (t.id, $0) }
+        if let playlistActivity { recordHomeActivity(.playlist(playlistActivity), action: .played) }
     }
 
     private func openRow(_ t: PlayableTrack) -> String? {
@@ -651,11 +655,11 @@ final class MacModel {
     /// Albums this account has played here, the most recent first (Home's Memories shelf).
     func memories(limit: Int = 18) -> [(album: Album, stats: AlbumPlayStats)] {
         let scope = session.accountKey
-        let provider = session.isAppleMusic ? AppleMusicMapping.provider : MediaRef.companion.PROVIDER_SUBSONIC
+        let provider = currentProvider
         guard !scope.isEmpty else { return [] }
         return HistoryStore.shared.lastPlayedAlbums(scope: scope, provider: provider, limit: limit).map { s in
             let key = s.latest.coverKey
-            let url: URL? = if provider == AppleMusicMapping.provider { key.flatMap(URL.init(string:)) }
+            let url: URL? = if provider != MediaRef.companion.PROVIDER_SUBSONIC { key.flatMap(URL.init(string:)) }
                 else { key.flatMap { id in session.client.flatMap { URL(string: $0.coverArtUrl(id: id, size: nil)) } } }
             let p = MacArtistDetail.placeholder(s.albumId)
             let album = Album(id: MediaId(provider: provider, rawId: s.albumId), title: s.latest.album,
@@ -733,7 +737,10 @@ final class MacModel {
         guard token == playRequest, gen == library.accountGeneration,
               var entries = library.playlist(id)?.entries, !entries.isEmpty else { return false }
         if shuffle { entries.shuffle() }
-        play(entries)
+        let context = library.playlist(id).map {
+            LibraryItem(id: $0.id, kind: .playlist, title: $0.title, subtitle: $0.owner, palette: $0.palette)
+        }
+        play(entries, playlistContext: context)
         return true
     }
 
@@ -831,6 +838,11 @@ final class MacModel {
         authToken += 1
         playRequest += 1
         player.stop()
+        known = [:]
+        openPlay = nil
+        playlistActivity = nil
+        membershipCheckedFor = nil
+        selectedTrack = nil
         library.reset()
         lyrics.reset()
         details = []
