@@ -128,6 +128,15 @@ When adding a new table that references remote ids, always include a `provider: 
 - Phase C — capability-gated UI: hide five-star rating / lyrics tab / random-songs / favorite toggle etc. based on `source.capabilities`. Pass the active `Set<Capability>` through `PlaybackState` (or a parallel `ActiveProviderState` flow) — feature composables must not reach up to `AppContainer`.
 - Phase D — encrypted `ProfileCredentialsCodec`, Spotify `invalid_grant`re-auth UX (`ProfileState.NeedsReconnect` + `Reconnect(profileId)` mode on `SpotifyOAuthActivity`), QA pass on real device, and removal of legacy migration shims (`LegacyViewCompat.kt`, `server_config` write path).
 
+## Tips Follow Every Feature
+
+The owner's rule (2026-11-06): a feature PR updates the in-app Tips (`HomeBubbleTip` in `ui/home/HomeBubbleSay.kt`, demos in `ui/tips/`) without being asked.
+
+- A new gesture or a hidden way in gets its own tip, with a demo phone built from the app's real components.
+- A change to what an existing tip shows moves that tip's `updated` day (it comes back unread) and refreshes its line. A wording change alone keeps the day.
+- Tip copy (title and one short line, Chinese and English) is written by Gemini/Argon on the Mac through `.argon/agy-yoin`, never by Claude. Use its words as given.
+- Ship the tip in the same PR as the feature.
+
 ## Testing
 
 - ViewModels: unit test Flow behavior, preferably with `turbine`.
